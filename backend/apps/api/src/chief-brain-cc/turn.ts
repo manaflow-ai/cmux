@@ -73,7 +73,13 @@ change it for this machine at once and for your next turns.
 Your own tools: \`chief-tools put PATH FILE\` keeps a file for all your next turns and writes it here now;
 \`chief-tools ls\`, \`chief-tools rm PATH\`. PATH is .local/bin/NAME (a command on your PATH),
 .claude/skills/NAME/SKILL.md (a skill), .claude/agents/NAME.md or .chief/tools/...; at most 64 KB a file,
-256 KB in all. Add or fix a tool this way instead of waiting for a new machine image.`
+256 KB in all. Add or fix a tool this way instead of waiting for a new machine image.
+Skills: the skills every Chief ships with are Native/OptChat/optchat-chief/skills/NAME/SKILL.md in ~/work/cmux; read
+the latest with \`git -C ~/work/cmux fetch -q origin feat-cmux-next && git -C ~/work/cmux show
+FETCH_HEAD:Native/OptChat/optchat-chief/skills/NAME/SKILL.md\`. When the person mentions their phone or being away from the desk,
+another computer (a Mac, a Linux server), Tailscale, or asks what else cmux can do, read cmux-adoption and follow it:
+check their setup first (its commands run on their Mac as \`cmux ...\`), then offer the one step that fits (the
+iPhone app and pairing, cmux on the other computer joined over Tailscale), once, in plain words.`
 
 /** Writes the Worker's `chief-vm` client over the snapshot's (root; the wrapper /usr/local/bin/chief-vm runs it). */
 const toolsScript = (): string => {
@@ -228,6 +234,9 @@ export async function ccTurn(b: ChiefBrainDO, id: string, blocks: ReadonlyArray<
     }
     // Counted from the turn's first start (a resumed turn does not get a new deadline).
     const deadline = (markAt(b, id, "submit") ?? Date.now()) + RUN_MS + 30_000
+    // Nothing keeps this object in memory while the machine works: a job at the deadline brings an evicted
+    // object back (onStart resumes this turn), so the turn always ends, with the reply when it is ready.
+    await b.schedule(`cc-wake:${id}`, "drain", deadline + 5_000)
     let r: CcResult | null = null
     while (r === null && Date.now() < deadline) {
       let timer: ReturnType<typeof setTimeout> | undefined
@@ -240,6 +249,9 @@ export async function ccTurn(b: ChiefBrainDO, id: string, blocks: ReadonlyArray<
       // The notes post may be lost (or this object restarted): the result file is the truth.
       r = await Promise.race([result, readOut(b, vm, id)])
     }
+    // A turn resumed after its deadline (the object was evicted and came back late) never polled: the machine
+    // may have finished long ago, so its result file is read once before the turn counts as timed out.
+    r ??= await readOut(b, vm, id)
     if (r === null) return { ok: false, reason: "timeout" }
     return finishTurn(b, id, r)
   } catch (e) {

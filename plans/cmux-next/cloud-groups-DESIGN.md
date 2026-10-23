@@ -21,7 +21,7 @@ Builds on (read before changing this):
 ## 0. Summary
 
 1. **A cloud group is a group whose record lives in the cloud, not on a Mac.** Its id
-   (`grp_` + 26 Crockford base32) is minted by the server, never by a client. Its name, color,
+   (`grp_` + 20 lowercase hex, TeamDO's `ctx.newId`) is minted by the server, never by a client. Its name, color,
    icon, member list, roles and the list of its workspaces (with each workspace's placement) are
    rows of the team's `TeamDO`. Any Mac, the iPhone, the web and any Chief (this Mac's, Cloud
    Chief, a teammate's) read the same record, also when the Mac that made it is asleep.
@@ -29,7 +29,7 @@ Builds on (read before changing this):
    Mac, a Mac mini, or a Cloud VM. The group shows each workspace's placement with a badge, and
    "Move to..." changes it. The group is the address book and the sharing unit; it is not a
    second copy of anyone's terminals.
-3. **Links resolve everywhere.** `cmux://group/grp_…` and `https://cmux.com/g/grp_…` open the group
+3. **Links resolve everywhere.** `cmux://group/grp_…` and `https://cloud-api.cmux.dev/g/grp_…` open the group
    on any device. When a workspace's host is offline, the link opens a read-only mirror of its
    last published state (HostDO replica) with "Host asleep since 14:02".
 4. **Chief links only what it reads back.** A Chief never writes a group id from memory or from
@@ -39,6 +39,20 @@ Builds on (read before changing this):
    lock with takeover); agents have an owner; every op is in the group's audit log.
 6. **Recommended**: cloud-only groups (option B, section 7), drawn under one "Cloud" sidebar
    section. Not a mirror of local groups (A), and not a single "Cloud" meta-group (C).
+
+### Transport: the a473 host-daemon model (user, 2026-10-22)
+
+The user asked that cloud groups and multiplayer sit on a473's remote-groups model: one
+headless cmux-tui daemon per machine (Cloud VM, Mac mini, Linux server, another MacBook), one
+protocol for terminals, files, diffs, ACP chats and browsers
+([remote-groups-DESIGN.md](remote-groups-DESIGN.md) sections 10-18, a473's part II, commit
+5407956b2c0; a Cloud VM is one more route there, section 13). That document is the base of this
+one. So a cloud group adds no
+transport. It is only the cloud **record**: id, name, members and roles, and the list of `ws_`
+ids with each one's placement. Placement names a machine of that model (`placement.host` = the
+daemon session / `host_` id, `placement.machine` = a Cloud VM's `machine_` id). Opening,
+mirroring and moving a workspace all go through that host protocol; a Cloud VM is one more
+machine kind there.
 
 ### Default picked: the authority is `TeamDO`, not the agent hub
 
@@ -80,7 +94,7 @@ choice; the bold cell is the pick.
 
 | # | Requirement | Testable form |
 |---|---|---|
-| G1 | server-issued stable id | `group.create` returns `grp_[0-9a-hjkmnp-tv-z]{26}`; a client-supplied id is refused `invalid_argument`; the same idempotency key returns the same id |
+| G1 | server-issued stable id | `group.create` returns `grp_[a-z0-9]{20}`; a client-supplied id is refused `invalid_argument`; the same idempotency key returns the same id |
 | G2 | resolves on every device | `group.get {group}` answers the same record to the Mac app, the iPhone app, the CLI and Cloud Chief, signed in as a member |
 | G3 | Mac asleep | with the creating Mac's daemon stopped, `group.get` and `https://cmux.com/g/<id>` still answer; rows of workspaces homed on that Mac show `offline since` |
 | G4 | universal link | `DeepLink.parse("cmux://group/grp_…")` → `.group(id)`; `https://cmux.com/g/grp_…` → same; Universal Link on iOS |
@@ -116,14 +130,15 @@ not carry a socket per viewer. If it restarts, clients resend presence in 2 s.
 
 ### 3.2 Ids and links
 
-- `grp_` ids: minted by TeamDO on `group.create`, 26 base32 chars (128 bits random). Never reused.
+- `grp_` ids: minted by TeamDO on `group.create`, 20 lowercase hex (`ctx.newId("grp")`, a hash of the
+  commit's transaction id, so an idempotent replay returns the same id). Never reused.
   Archived groups keep their id and answer `archived: true` (a link still opens, read-only).
 - Workspaces put into a cloud group get a TeamDO directory row keyed by their existing `ws_` id
   (object-sync 5.1 "workspace record"), so `cmux://workspace/ws_…` also resolves off-Mac.
 - Link forms (one parser, `DeepLink`):
   - `cmux://group/grp_…`
   - `cmux://group/grp_…/workspace/ws_…` (open the group with that row selected)
-  - `https://cmux.com/g/grp_…[/w/ws_…]`: the web route. Signed in and member: opens the app
+  - `https://cloud-api.cmux.dev/g/grp_…[/w/ws_…]` (slice 1; `cmux.com/g/` later as an alias): the web route. Signed in and member: opens the app
     (Universal Link on iOS, `cmux://` hand-off on Mac), else a web read-only view of the group
     list and each row's last replica screen. Not a member: "Ask the owner for access" with a
     request button (owner gets a Home message). Never leaks titles to non-members.
@@ -326,6 +341,37 @@ Chief (`optchat-chief`, cargo test, red first):
 9. `link_readback.rs`: a Chief message with a `cmux://group/` id not seen in that turn's tool
    answers is rewritten to plain text and a note goes back to the Chief; a read-back id passes.
 
+### 8.2 What slice 1 landed, and what it left
+
+Landed (see the commit range in the a461 report):
+
+- TeamDO ops `group.create`, `group.rename`, `group.add_workspace`, `group.archive`, reads
+  `group.get`, `group.list` (backend `domains/team-groups.ts`, `domains/team-group-reads.ts`,
+  protocol `team-group-ops.ts`), rows only, private to reads. Catalog, TS client, Rust wire and
+  app-host scopes regenerated.
+- `GET /g/<id>` on the API Worker: an anonymous hand-off page with only the `cmux://` link.
+- `DeepLink.Target.group(id, workspace:)`, `DeepLink.parseGroupWeb`, `CloudGroupLink` (reads
+  `group.get` with the signed-in account, shows the first workspace open on this Mac, refuses
+  "none of this cloud group's workspaces is open on this Mac" in 21 locales).
+- Chief link rule (optchat-chief `prompt.rs`): link a group only with a read-back id.
+
+Left for slice 1b (named so nobody thinks they shipped):
+
+1. The `cloud` sidebar section with placement badges (needs a473's machine model for the
+   badge's host).
+2. A CLI and MCP surface for `group.*`: the `cmux` CLI does not generate commands from the cloud
+   catalog, so Chiefs cannot call these ops yet. Proposed: `cmux group cloud …` as app actions
+   that call the ops with the app's sign-in.
+3. The host-side read-back check (G7) in optchat-chief: the brain does not see tool outputs
+   today (they are folded for the transcript only); slice 1 ships the prompt rule instead.
+4. Placement names a473's ids, not host names or Cloud VM ids (a473, 2026-10-22,
+   remote-groups-DESIGN.md section 19): `placement.machine_id` (`machine_<32 hex>`, one per
+   daemon state root) and `placement.session_resource_id`. Slice 1's free-text `host`/`machine`
+   fields get replaced by these two in slice 1b; `sec_m_<registry_id>` is local sidebar
+   placement only and is never stored.
+5. MySQL projection `cloud_groups` (directory/admin): not needed for slice 1 reads; it needs a
+   Vitess migration through the staging gate.
+
 ## 9. Coordination
 
 | Agent | Work it owns | What this design asks of it |
@@ -335,6 +381,7 @@ Chief (`optchat-chief`, cargo test, red first):
 | a235 (Cloud Chief tools, done) | Cloud Chief relay of app tools | The `group.*` tools reach Cloud Chief through the same catalog; no new relay |
 | a448 (Chief talks to Cloud Chief), a459 (Cloud Chief reaches all Macs), a450 (iPhone talks to Chief) | live | Told by a461 on 2026-10-22: links to shared work should be `cmux://group/` read-backs; iPhone must handle `https://cmux.com/g/` Universal Links |
 | a283/a284 (remote groups, Chief move) | machine sections, nested groups | `cloud` is a new section kind; `cross_machine` stays for machine sections |
+| a473 (remote groups: one host daemon per machine) | the transport for every surface | `placement.host` holds a473's machine/session id; a473 owns opening, mirroring and moving. a461 could not tell a473 directly (tell refused); Chief relays |
 | a455 (Chief sees the chat) | Chief-side message checks | The link read-back check (G7) sits next to its leak flag |
 
 ## 10. Open items (defaults picked)

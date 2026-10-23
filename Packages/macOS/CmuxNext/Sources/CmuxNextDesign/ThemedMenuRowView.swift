@@ -39,10 +39,15 @@ public final class ThemedMenuRowView: NSView {
     /// the item only while the row is in that item's menu).
     var menuItem: NSMenuItem? { enclosingMenuItem ?? ownItem }
 
-    init(item: NSMenuItem, scope: ThemeScope, session: ThemedMenuSession) {
+    /// The columns of this row's menu, measured once per theming of the menu (``ThemedMenuColumns``),
+    /// so a draw scans no other row.
+    private(set) var columns: ThemedMenuColumns
+
+    init(item: NSMenuItem, scope: ThemeScope, session: ThemedMenuSession, columns: ThemedMenuColumns) {
         ownItem = item
         self.scope = scope
         self.session = session
+        self.columns = columns
         if let action = item.action {
             let dispatch = ThemedMenuDispatch(target: item.target, action: action, session: session)
             item.target = dispatch
@@ -51,7 +56,7 @@ public final class ThemedMenuRowView: NSView {
         } else {
             dispatch = nil
         }
-        super.init(frame: NSRect(x: 0, y: 0, width: Self.width(of: item), height: Self.height(of: item)))
+        super.init(frame: NSRect(x: 0, y: 0, width: Self.width(of: item, in: columns), height: Self.height(of: item)))
         // The menu widens every row to its widest.
         autoresizingMask = .width
         // The NSMenuItem's own element (title, enabled, mark, shortcut, press) is what VoiceOver uses.
@@ -62,6 +67,14 @@ public final class ThemedMenuRowView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     var isHighlighted: Bool { highlightOverride ?? (menuItem?.isHighlighted == true) }
+
+    /// The menu was themed again (rows added, rows hidden) or opened: its columns, measured once
+    /// for all its rows. The row's width stays the one measured when it was made.
+    func adoptColumns(_ columns: ThemedMenuColumns) {
+        guard columns != self.columns else { return }
+        self.columns = columns
+        needsDisplay = true
+    }
 
     // MARK: Drawing
 
@@ -94,13 +107,16 @@ public final class ThemedMenuRowView: NSView {
             NSAttributedString(string: item.state == .on ? "✓" : "–", attributes: [.font: font, .foregroundColor: ink])
                 .draw(at: NSPoint(x: Self.markX, y: titleY))
         }
-        var x = Self.titleX
+        // The menu's columns were measured when it was themed (`columns`): a draw reads no other row.
+        var x = Self.leading(of: item, in: columns)
         if let image = item.image {
-            let rect = NSRect(x: x, y: titleY + (titleHeight - Self.imageSide) / 2, width: Self.imageSide, height: Self.imageSide)
-            Self.draw(image, in: rect, tint: image.isTemplate ? quiet : nil)
+            let box = NSRect(x: x, y: titleY + (titleHeight - Self.imageSide) / 2, width: Self.imageSide, height: Self.imageSide)
+            // A template icon takes the title's ink, as a native menu draws it: white in dark mode,
+            // black in light, in every state (user 2026-10-21: the icons "should be whiter").
+            Self.draw(image, in: Self.fitted(image.size, in: box), tint: image.isTemplate ? ink : nil)
         }
         // Titles line up whether or not their row has an icon, once any row of the menu has one.
-        if Self.hasIconColumn(item) { x += Self.imageSide + Self.gap }
+        if Self.hasIconColumn(item, in: columns) { x += Self.imageSide + Self.gap }
         title.draw(at: NSPoint(x: x, y: titleY))
         if let subtitle { subtitle.draw(at: NSPoint(x: x, y: bounds.midY - subtitle.size().height)) }
 
@@ -120,6 +136,16 @@ public final class ThemedMenuRowView: NSView {
             let shortcut = NSAttributedString(string: Self.shortcutText(of: item), attributes: [.font: font, .foregroundColor: quiet])
             shortcut.draw(at: NSPoint(x: right - shortcut.size().width, y: titleY))
         }
+    }
+
+    /// `size` centered in `box`, scaled down (never up) to fit and keeping its proportions: a
+    /// menu-size symbol draws at its own size, as in a native menu, and a wide one such as
+    /// `rectangle.split.3x1` is not squashed into the square.
+    static func fitted(_ size: NSSize, in box: NSRect) -> NSRect {
+        guard size.width > 0, size.height > 0 else { return box }
+        let scale = min(box.width / size.width, box.height / size.height, 1)
+        let fit = NSSize(width: size.width * scale, height: size.height * scale)
+        return NSRect(x: box.midX - fit.width / 2, y: box.midY - fit.height / 2, width: fit.width, height: fit.height)
     }
 
     /// A template image in the row's ink; any other as drawn.
@@ -281,9 +307,19 @@ public final class ThemedMenuRowView: NSView {
 }
 
 extension ThemedMenuRowView {
+    // Native macOS menu metrics (Leo 2026-10-21, on the chat's right-click menu: "so much ...
+    // padding ... all over the place"): 22pt rows in the native menu font, 14pt icons, content at
+    // AppKit's leading, the highlight 5pt in from the menu's edge. ThemedMenuMetricsTests pins them.
     static let rowHeight: CGFloat = 22, subtitleRowHeight: CGFloat = 36
     static let inset: CGFloat = 5, radius: CGFloat = 4
-    static let markX: CGFloat = 10, titleX: CGFloat = 22, imageSide: CGFloat = 16, gap: CGFloat = 6
+    /// Where a row's icon (or title) starts: AppKit's own leading, where the menu's native
+    /// separators start. Only a menu with a checkmark or dash keeps a state column (``markX``,
+    /// then content at ``stateTitleX``), as current macOS context menus do. A row's width is
+    /// measured when it is themed: a checkmark set later moves its content into the trailing margin.
+    static let titleX: CGFloat = 15
+    static let markX: CGFloat = 10, stateTitleX: CGFloat = 22
+    /// The box an icon fits in, keeping its shape (an SF Symbol is rarely square), and the space after it.
+    static let imageSide: CGFloat = 14, gap: CGFloat = 6
     static let trailing: CGFloat = 12, shortcutGap: CGFloat = 28
     /// The run-loop order of a chosen row's run; `NSMenu.afterThemedRowRuns` comes after it.
     static let pendingRunOrder = 0
@@ -298,17 +334,24 @@ extension ThemedMenuRowView {
         return nil
     }
 
-    /// Whether `item`'s menu draws an icon column: some row in it has an image.
-    static func hasIconColumn(_ item: NSMenuItem) -> Bool {
-        item.image != nil || item.menu?.items.contains { $0.image != nil } == true
+    /// Whether `item` draws in an icon column: it has an image, or some row of its menu does.
+    static func hasIconColumn(_ item: NSMenuItem, in columns: ThemedMenuColumns) -> Bool { item.image != nil || columns.icon }
+
+    /// Whether `item` draws in a state column: it has a checkmark or a dash, or a row its menu
+    /// shows does.
+    static func hasStateColumn(_ item: NSMenuItem, in columns: ThemedMenuColumns) -> Bool { item.state != .off || columns.state }
+
+    /// Where `item`'s icon, or its title without one, starts.
+    static func leading(of item: NSMenuItem, in columns: ThemedMenuColumns) -> CGFloat {
+        hasStateColumn(item, in: columns) ? stateTitleX : titleX
     }
 
     static func height(of item: NSMenuItem) -> CGFloat { subtitle(of: item) == nil ? rowHeight : subtitleRowHeight }
 
-    static func width(of item: NSMenuItem) -> CGFloat {
+    static func width(of item: NSMenuItem, in columns: ThemedMenuColumns) -> CGFloat {
         let font = font(of: item)
         func width(_ text: String, _ font: NSFont) -> CGFloat { NSAttributedString(string: text, attributes: [.font: font]).size().width }
-        var total = titleX + (hasIconColumn(item) ? imageSide + gap : 0)
+        var total = leading(of: item, in: columns) + (hasIconColumn(item, in: columns) ? imageSide + gap : 0)
         total += max(width(item.title, font), subtitle(of: item).map { width($0, subtitleFont) } ?? 0)
         let shortcut = shortcutText(of: item)
         if item.submenu != nil {
@@ -353,5 +396,42 @@ extension ThemedMenuRowView {
         case 0xF704...0xF70F: "F\(value - 0xF704 + 1)"
         default: key.uppercased()
         }
+    }
+}
+
+/// The columns a themed menu's rows share: a state column when a row the menu shows has a
+/// checkmark or a dash (a hidden row does not count: the device menu's search hides its browse
+/// rows, the checked device among them, and its results must not keep an empty column for it),
+/// and an icon column when any of its rows has an image. Measured in one pass over the menu each
+/// time it is themed (`NSMenu.themeRows`, `themeAddedRows`, a submenu's `menuNeedsUpdate`) or
+/// opens, and handed to its rows: a row's draw and layout read no other row, so a long menu
+/// (every device) costs O(rows) per theming, not O(rows²) per redraw.
+struct ThemedMenuColumns: Equatable {
+    var state = false
+    var icon = false
+
+    init(state: Bool = false, icon: Bool = false) {
+        self.state = state
+        self.icon = icon
+    }
+
+    @MainActor init(of menu: NSMenu) {
+        Self.measurements += 1
+        for item in menu.items {
+            icon = icon || item.image != nil
+            state = state || (!item.isHidden && item.state != .off)
+            if icon && state { break }
+        }
+    }
+
+    /// How many times a menu was measured (tests: a row's draw measures none).
+    @MainActor private(set) static var measurements = 0
+}
+
+extension NSMenu {
+    /// Measures this menu's columns once and hands them to its themed rows.
+    @MainActor func refreshThemedColumns() {
+        let columns = ThemedMenuColumns(of: self)
+        for item in items { (item.view as? ThemedMenuRowView)?.adoptColumns(columns) }
     }
 }

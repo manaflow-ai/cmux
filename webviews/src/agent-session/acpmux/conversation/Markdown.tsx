@@ -22,11 +22,17 @@ import { MathDisplay, MathInline } from "./Math";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
+import { BareReferenceChip } from "../chips/BareReferenceChip";
 import { codePath, linkPath, pathName, textLinks } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
-import { commitReferences, githubReferences } from "../../../githubReferences";
+import {
+  commitReferences,
+  githubReferences,
+  type CommitReference,
+  type GithubReference,
+} from "../../../githubReferences";
 import { imageOnlyItems, proseImages, type ThumbItem } from "./inlineMedia";
 import { acpmuxPerf } from "../perf";
 import { StartedSessionChip, useStartedMentions, type StartedMentions } from "../started/StartedSessionCard";
@@ -272,6 +278,13 @@ export type InlineOptions = {
   linkGithubReferences?: boolean;
   /** The chats the open chat started, whose names draw as chips (started/startedSessions.ts). */
   started?: StartedMentions;
+  /** How a commit SHA draws: a GitHub chip (replies), or quiet monospace text that links to its
+   *  commit when its repository is known (another agent's message, IncomingMessageCard.tsx). */
+  commits?: "chip" | "quiet";
+  /** An image path draws as a thumbnail too (default): under its sentence, or in its place in a
+   *  paragraph of images. Off, only its chip: another machine's files in another agent's message
+   *  (IncomingMessageCard.tsx). Markdown image syntax (`![shot](/a.png)`) still draws in place. */
+  thumbnails?: boolean;
 };
 
 export type FootnoteNumbers = { numbers: Map<string, number>; anchor: (id: string) => string };
@@ -374,18 +387,28 @@ function lineLabel(path: string, written: string): string | undefined {
   return line ? `${pathName(path)}:${line}` : undefined;
 }
 
-function linkedGithubText(text: string, key: string, repository?: string, enabled = true): ReactNode[] {
+const NO_REPOSITORY = "-/-";
+
+function linkedGithubText(
+  text: string,
+  key: string,
+  repository?: string,
+  enabled = true,
+  quietCommits = false,
+): ReactNode[] {
   if (!enabled) return linkedText(text, key);
   // A pull request address, so the chip opens the pull request card (an issue redirects there);
   // a commit (`abc1234`, `owner/repo@abc1234`) opens its GitHub page. In reading order; a commit
   // inside a reference, a URL or a path (`https://x.test/app.js?v=3a7bd3e2`) is part of it.
-  const issues = githubReferences(text, repository, "pull", true);
-  const commits = commitReferences(text, repository);
-  const spans = commits.length ? textLinks(text) : [];
-  const refs = [
-    ...issues,
-    ...commits.filter((commit) => !spans.some((span) => commit.start < span.end && span.start < commit.end)),
-  ]
+  // With no repository, a bare `#N` still goes to BareReferenceChip, which links it only when the
+  // transcript names its repository.
+  const issues = githubReferences(text, repository ?? NO_REPOSITORY, "pull", true);
+  const commits = quietCommits ? quietCommitReferences(text, issues, repository) : commitReferences(text, repository);
+  // A commit or a bare `#N` inside a URL or a path (`https://x.test/?q=#12`) is part of it.
+  const spans = commits.length || issues.some((issue) => issue.bare) ? textLinks(text) : [];
+  const outside = (ref: { start: number; end: number }) =>
+    !spans.some((span) => ref.start < span.end && span.start < ref.end);
+  const refs = [...issues.filter((issue) => !issue.bare || outside(issue)), ...commits.filter(outside)]
     .sort((a, b) => a.start - b.start)
     .filter((ref, index, all) => index === 0 || ref.start >= all[index - 1]!.end);
   if (!refs.length) return linkedText(text, key);
@@ -393,19 +416,54 @@ function linkedGithubText(text: string, key: string, repository?: string, enable
   let at = 0;
   refs.forEach((reference, index) => {
     if (reference.start > at) out.push(...linkedText(text.slice(at, reference.start), `${key}-${index}-before`));
+    const sha = quietCommits && "sha" in reference;
     out.push(
-      <UrlChip
-        key={`${key}-${index}`}
-        href={reference.href}
-        icon={<GitHubMark size={13} className="cv-link__icon cv-link__icon--gh" />}
-      >
-        {reference.text}
-      </UrlChip>,
+      sha ? (
+        reference.href ? (
+          <a key={`${key}-${index}`} className="cv-sha" href={reference.href} rel="noreferrer">
+            {reference.text}
+          </a>
+        ) : (
+          <span key={`${key}-${index}`} className="cv-sha">
+            {reference.text}
+          </span>
+        )
+      ) : (
+        <UrlChip
+          key={`${key}-${index}`}
+          href={reference.href}
+          icon={<GitHubMark size={13} className="cv-link__icon cv-link__icon--gh" />}
+        >
+          {reference.text}
+        </UrlChip>
+      ),
     );
+    // A bare `#N` names the repository the transcript's evidence says, not only `repository`.
+    if ("bare" in reference && reference.bare)
+      out[out.length - 1] = (
+        <BareReferenceChip
+          key={`${key}-${index}`}
+          number={reference.bare}
+          href={repository ? reference.href : undefined}
+          text={reference.text}
+        />
+      );
     at = reference.end;
   });
   if (at < text.length) out.push(...linkedText(text.slice(at), `${key}-after`));
   return out;
+}
+
+/// Every commit SHA in `text` (an agent's message): each links to its commit in the repository it
+/// names (`owner/repo@sha`), else that of the nearest reference before it in the same text
+/// (`hq#2563 (db0677c6)` is a cmuxterm-hq commit), else `repository`; with none it is text.
+function quietCommitReferences(text: string, issues: GithubReference[], repository?: string): CommitReference[] {
+  return commitReferences(text, undefined, true).map((commit) => {
+    if (commit.href) return commit;
+    const before = issues.filter((issue) => issue.end <= commit.start).at(-1);
+    const repo = before ? /^https:\/\/github\.com\/([^/]+\/[^/]+)\//.exec(before.href)?.[1] : repository;
+    return repo ? { ...commit, href: `https://github.com/${repo}/commit/${commit.sha}` } : commit;
+  });
 }
 
 /// Plain prose: a started chat's name is its chip; the rest links GitHub references and URLs.
@@ -413,7 +471,13 @@ function proseText(text: string, key: string, opts: InlineOptions): ReactNode[] 
   const pieces = opts.started?.mentions.length ? splitMentions(text, opts.started.mentions) : [text];
   return pieces.flatMap((piece, index): ReactNode[] =>
     typeof piece === "string"
-      ? linkedGithubText(piece, `${key}-${index}`, opts.githubRepository, opts.linkGithubReferences !== false)
+      ? linkedGithubText(
+          piece,
+          `${key}-${index}`,
+          opts.githubRepository,
+          opts.linkGithubReferences !== false,
+          opts.commits === "quiet",
+        )
       : [
           <StartedSessionChip
             key={`${key}-${index}`}
@@ -673,7 +737,7 @@ function Block({
         );
       // Only images (a before/after pair, a screenshot alone on its line): a row of thumbnails, once
       // the paragraph has finished arriving (a half-written line may still turn into prose).
-      const images = tail ? undefined : imageOnlyItems(block.text);
+      const images = tail || opts.thumbnails === false ? undefined : imageOnlyItems(block.text);
       if (images)
         return (
           <p className={`cv-p cv-p--images${motion}`}>
@@ -682,7 +746,7 @@ function Block({
         );
       // An image path in a sentence stays its chip there; its thumbnail draws under the paragraph,
       // once the paragraph has finished arriving.
-      const named = tail ? [] : proseImages(block.text);
+      const named = tail || opts.thumbnails === false ? [] : proseImages(block.text);
       return (
         <>
           <p className={`cv-p${motion}`}>{inline(block.text)}</p>
@@ -699,7 +763,7 @@ function Block({
     case "blockquote":
       return (
         <blockquote className={`cv-quote${motion}`}>
-          <Blocks blocks={block.children} opts={opts} depth={depth} />
+          <Blocks blocks={block.children} opts={opts} depth={depth} plain={code === "plain"} />
         </blockquote>
       );
     case "list": {
@@ -720,7 +784,9 @@ function Block({
                 {i === block.items.length - 1 && !it.children.length ? inline(it.text) : renderInline(it.text, opts)}
               </span>
               <ItemThumbs text={it.text} opts={opts} streaming={Boolean(tail) && i === block.items.length - 1} />
-              {it.children.length > 0 && <Blocks blocks={it.children} opts={opts} depth={depth + 1} />}
+              {it.children.length > 0 && (
+                <Blocks blocks={it.children} opts={opts} depth={depth + 1} plain={code === "plain"} />
+              )}
             </li>
           ))}
         </L>
@@ -755,7 +821,7 @@ function Block({
 
 /// A list item's image paths, as thumbnails under its text (a last item still arriving has none yet).
 function ItemThumbs({ text, opts, streaming }: { text: string; opts: InlineOptions; streaming: boolean }) {
-  const named = streaming ? [] : proseImages(text);
+  const named = streaming || opts.thumbnails === false ? [] : proseImages(text);
   return named.length ? (
     <span className="cv-li__images">
       <Thumbs items={named} opts={opts} />
@@ -763,12 +829,24 @@ function ItemThumbs({ text, opts, streaming }: { text: string; opts: InlineOptio
   ) : null;
 }
 
-function Blocks({ blocks, opts, depth }: { blocks: MdBlock[]; opts: InlineOptions; depth: number }) {
+/// Nested blocks (a quote's, a list item's). `plain` keeps the outer Markdown's plain fences
+/// (`plainCode`) inside them too: no diagram or render card at any depth.
+function Blocks({
+  blocks,
+  opts,
+  depth,
+  plain = false,
+}: {
+  blocks: MdBlock[];
+  opts: InlineOptions;
+  depth: number;
+  plain?: boolean;
+}) {
   return (
     <>
       {blocks.map((b, i) => (
         <Fragment key={i}>
-          <Block block={b} opts={opts} depth={depth} />
+          <Block block={b} opts={opts} depth={depth} code={plain ? "plain" : undefined} />
         </Fragment>
       ))}
     </>
@@ -832,6 +910,8 @@ export function Markdown({
   now = 0,
   githubRepository,
   plainCode = false,
+  commits,
+  thumbnails,
 }: MarkdownProps) {
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
@@ -861,8 +941,10 @@ export function Markdown({
       notes: { numbers, anchor: (id) => `${notePrefix}fn-${id}` },
       overBudget,
       ...(started ? { started } : {}),
+      ...(commits ? { commits } : {}),
+      ...(thumbnails === false ? { thumbnails } : {}),
     };
-  }, [githubRepository, linkIcon, noteIds, notePrefix, overBudget, started]);
+  }, [commits, githubRepository, linkIcon, noteIds, notePrefix, overBudget, started, thumbnails]);
   // Fences this reply drew open: they hand over to the highlighted card once, when they close.
   const streamedFences = useRef(new Set<string>());
   const freshChars = fresh?.reduce((sum, step) => sum + step.count, 0) ?? 0;

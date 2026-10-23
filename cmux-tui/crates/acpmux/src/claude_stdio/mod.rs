@@ -13,6 +13,7 @@
 //! Nothing outside this file knows the Claude wire format.
 
 use crate::config::HarnessProfile;
+use crate::no_panic::JsonExt;
 use crate::rpc::{Id, Message, RpcError, method};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -580,7 +581,7 @@ impl Translator {
                 if !name.is_empty()
                     && skills.iter().any(|s| s.strip_prefix('/').unwrap_or(s.as_str()) == name)
                 {
-                    entry["_meta"] = json!({"kind": "skill"});
+                    entry.set("_meta", json!({"kind": "skill"}));
                 }
                 entry
             })
@@ -646,9 +647,9 @@ pub(crate) fn tool_call_fields(name: &str, input: &Value) -> Value {
 /// Adds a file edit's diff and location to its ACP tool call.
 fn with_edit(call: &mut Value, name: &str, input: &Value) {
     if let Some(diffs) = edit_diffs(name, input) {
-        call["content"] = diffs;
+        call.set("content", diffs);
         if let Some(locations) = tool_locations(input) {
-            call["locations"] = locations;
+            call.set("locations", locations);
         }
     }
 }
@@ -684,7 +685,7 @@ fn edit_diffs(name: &str, input: &Value) -> Option<Value> {
             .collect(),
         "Write" => {
             let mut write = diff(None, input.get("content"));
-            write["_meta"] = json!({"acpmux": {"fragment": true}});
+            write.set("_meta", json!({"acpmux": {"fragment": true}}));
             vec![write]
         }
         _ => return None,
@@ -724,7 +725,7 @@ pub(crate) fn settle_write(mut diffs: Value, text: &str, result: Option<&Value>)
             continue;
         }
         if let Some(original) = original.filter(|_| !created) {
-            diff["oldText"] = json!(original);
+            diff.set("oldText", json!(original));
         }
         if let Some(fields) = diff.as_object_mut() {
             fields.remove("_meta");
@@ -780,7 +781,7 @@ pub(super) fn session_rules(suggestions: &Value) -> Option<Value> {
         })
         .map(|s| {
             let mut s = s.clone();
-            s["destination"] = json!("session");
+            s.set("destination", json!("session"));
             s
         })
         .collect();
