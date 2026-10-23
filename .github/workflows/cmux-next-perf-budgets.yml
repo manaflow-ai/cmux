@@ -82,6 +82,7 @@ jobs:
       run_seconds: ${{ steps.plan.outputs.run_seconds }}
       step_minutes: ${{ steps.plan.outputs.step_minutes }}
       job_minutes: ${{ steps.plan.outputs.job_minutes }}
+      frame_pacing: ${{ steps.plan.outputs.frame_pacing }}
     steps:
       # The branch tip with the trees of its recent commits (the cmux-tui tree key of each candidate)
       # and no blobs beyond the scripts.
@@ -192,6 +193,26 @@ jobs:
           overwrite: true
           retention-days: 14
           if-no-files-found: ignore
+
+  # The frame-pacing bench (fling and golden interactions, 120 Hz virtual display, owned mini) left its fixed
+  # daily schedule: the plan starts it at most once in 24 h, and only when no nightly or dev build waits for a
+  # Mac. Its own gate still runs it only while an owned Mac is free.
+  frame-pacing:
+    name: perf cron starts frame pacing
+    needs: plan
+    if: ${{ needs.plan.outputs.frame_pacing == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: write
+    timeout-minutes: 5
+    steps:
+      - name: Start the frame-pacing bench on feat-cmux-next
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run cmux-next-frame-pacing.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f ref=feat-cmux-next
+          echo "Started the frame-pacing bench on feat-cmux-next." >> "$GITHUB_STEP_SUMMARY"
 
   linux:
     name: perf cron part (Linux)

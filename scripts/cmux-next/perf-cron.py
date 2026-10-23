@@ -726,6 +726,32 @@ def mac_job_waiting(job):
     return job.get("status") == "queued" and not linux_job(job) and not github_hosted_job(job)
 
 
+FRAME_PACING_WORKFLOW = "cmux-next-frame-pacing.yml"
+FRAME_PACING_EVERY_HOURS = 24
+
+
+def frame_pacing_due(runs, now, busy):
+    """Whether the perf cron starts the frame-pacing bench (fling and golden interactions on a 120 Hz virtual
+    display, cmux-next-frame-pacing.yml) now (pure): no run of it on feat-cmux-next in the last 24 h, none
+    queued or running, and no nightly or dev build waiting for a Mac (busy is None). It left its fixed 09:37
+    schedule (2026-10-23), which ran whatever the fleet was doing. Returns (due, reason)."""
+    if busy:
+        return False, f"frame pacing waits: {busy}"
+    for run in runs:
+        if run.get("status") in ("queued", "in_progress", "waiting", "requested", "pending"):
+            return False, f"frame pacing run {run.get('id')} is {run.get('status')}"
+        created = parse_iso((run.get("created_at") or "")[:19] + "Z") if run.get("created_at") else None
+        if created and hours_between(created, now) < FRAME_PACING_EVERY_HOURS:
+            return False, f"frame pacing ran {round(hours_between(created, now), 1)} h ago (run {run.get('id')})"
+    return True, f"no frame pacing run on feat-cmux-next for {FRAME_PACING_EVERY_HOURS} h"
+
+
+def frame_pacing_runs(repo):
+    """The newest runs of the frame-pacing bench on feat-cmux-next."""
+    return gh_request(f"/repos/{repo}/actions/workflows/{FRAME_PACING_WORKFLOW}/runs?branch=feat-cmux-next&per_page=20"
+                      ).get("workflow_runs", [])
+
+
 def github_busy(repo, yield_mode, now=None):
     """A reason when a nightly or dev build waits for a Mac runner (or, with yield_mode running, runs at all).
     Runs older than ABANDON_HOURS are left out (a run parked on an approval for days is not load)."""
@@ -1408,6 +1434,14 @@ def cmd_plan(o):
         out["step_minutes"], out["job_minutes"] = part_minutes(out["run_seconds"])
         out["args"] = json.dumps(part_args(p, out["run_seconds"]))
         out["artifact"] = p["artifact"]
+    try:
+        fp_runs = frame_pacing_runs(o.repo)
+        fp_due, fp_reason = frame_pacing_due(fp_runs, t, busy if busy is not None or no_mac
+                                             else github_busy(o.repo, o.yield_mode))
+    except (urllib.error.URLError, TimeoutError, ValueError) as error:
+        fp_due, fp_reason = False, f"frame pacing: GitHub did not answer ({error!r})"
+    out["frame_pacing"] = "true" if fp_due else "false"
+    out["frame_pacing_reason"] = fp_reason
     print(f"perf-cron plan: {json.dumps(out)}")
     write_outputs(o.output, out)
 
