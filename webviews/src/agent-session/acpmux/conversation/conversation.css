@@ -1155,6 +1155,16 @@ pre.cv-math-source {
   /* VirtualTranscript owns bottom-following. Letting WebKit also anchor the growing row makes
      each streamed token compete with that correction and produces the one-pixel shake at rest. */
   overflow-anchor: none;
+  /* Its scrollbar stays shown (scrollers.ts SHOWN_SCROLLER_ATTRIBUTE); under the opt-in fade it
+     paces with the pane's other fades, the host's durations after ui.animationSpeed and Reduce
+     Motion (0 with animations off). */
+  --cmux-scroller-fade-in: var(--agent-motion-in, 120ms);
+  --cmux-scroller-fade-out: var(--agent-motion-move, 180ms);
+}
+/* The spacer runs across the scrollbar's lane (VirtualTranscript `lane`), so the column matches the
+   composer's; the transcript never scrolls sideways. */
+.acpmux-scroll[data-cmux-shown-scroller] {
+  overflow-x: hidden;
 }
 .acpmux-main:has(.acpmux-asks-stack) .acpmux-scroll {
   margin-bottom: 0;
@@ -1583,6 +1593,46 @@ pre.cv-math-source {
   max-height: 234px;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+/* Scrolled, its top fades out under the summary line above it (Leo 2026-10-21: "in that top section
+   fade would be good"), so a row half scrolled away dissolves instead of sitting cut in half against
+   the line. The transcript's top edge (.acpmux-scroll[data-fade-top], below): an alpha mask on the
+   list itself, never a painted overlay, so it covers nothing, catches no clicks and lets the pane's
+   glass show through in light and dark; at the list's start the edge is plain (data-fade-top,
+   scrollEdges.ts). The scrollbar's lane at the right keeps full ink. Reduce Transparency keeps a
+   plain edge. */
+.cv-tool-run[data-fade-top] {
+  --cv-tool-run-fade-top: 18px;
+  -webkit-mask-image:
+    linear-gradient(to bottom, transparent, #000 var(--cv-tool-run-fade-top)),
+    linear-gradient(#000, #000);
+  mask-image:
+    linear-gradient(to bottom, transparent, #000 var(--cv-tool-run-fade-top)),
+    linear-gradient(#000, #000);
+  -webkit-mask-size:
+    100% 100%,
+    var(--cmux-scroller-size, 8px) 100%;
+  mask-size:
+    100% 100%,
+    var(--cmux-scroller-size, 8px) 100%;
+  -webkit-mask-position:
+    0 0,
+    100% 0;
+  mask-position:
+    0 0,
+    100% 0;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .cv-tool-run[data-fade-top] {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+:root[data-reduce-transparency] .cv-tool-run[data-fade-top] {
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 .cv-tool {
   all: unset;
@@ -2024,6 +2074,14 @@ pre.cv-math-source {
 .cv-message__text.has-more {
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
   mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}
+/* A send that did not arrive says why at the line's end ("Not delivered: agent stopped"), in a
+   muted warning tone rather than the danger red: the message is fine, the other agent was gone. */
+.cv-message[data-delivery="failed"] .cv-message__status {
+  color: color-mix(in srgb, var(--agent-warning, var(--agent-danger)) 75%, var(--cv-text-dim));
+}
+.cv-message[data-delivery="failed"] .cv-agentmsg__icon {
+  color: inherit;
 }
 /* Copy, at the sent line's end: shown while the message is pointed at or focused, as a received
    message's row is. Opacity, not display, so the line never reflows under the pointer. */
