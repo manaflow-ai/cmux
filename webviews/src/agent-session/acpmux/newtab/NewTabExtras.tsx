@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useNt } from "./strings";
 
 const QUOTES = [
-  ["newTab.quote.1", "Mark Twain"],
-  ["newTab.quote.2", "Aristotle"],
-  ["newTab.quote.3", "Ralph Waldo Emerson"],
-  ["newTab.quote.4", "Vincent van Gogh"],
+  ["quote.1", "Mark Twain"],
+  ["quote.2", "Aristotle"],
+  ["quote.3", "Ralph Waldo Emerson"],
+  ["quote.4", "Vincent van Gogh"],
 ] as const;
 
 function dayIndex(now: number): number {
