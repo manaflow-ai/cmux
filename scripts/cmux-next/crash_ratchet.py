@@ -5,9 +5,14 @@ Counts the code patterns that can end the app or the daemon, per class and
 per Swift module or Rust crate (so code can move between files), and compares
 them with crash-safety-baseline.json next to this script. A module or crate
 may never gain a hit of a class; fixing hits is free (run
---update-baseline to lower the baseline in the same commit). A line with a
-reviewed `// crash-allow: <reason>` (Swift) or `// crash-allow: <reason>`
-(Rust), on the line or the comment line above, does not count.
+--update-baseline to lower the baseline in the same commit). A hit on a line with
+a reviewed `// crash-allow: <reason>` (Swift) or `// crash-allow: <reason>`
+(Rust), on the line or the comment line above, is a waived hit: it is counted
+apart, per class and module, in the baseline's "waived" section, and a module may
+never gain a waived hit either (`swift <module>: <class>.waived N -> M`). So a
+waiver is a counted, reviewed baseline change in the diff: a waiver added while
+code moves to another module (B1, ba5e6df99f9) shows as the old module's count
+going down and the new module's waived count going up, not as a reduction.
 
   Swift (Packages/macOS/CmuxNext/Sources and the Sources of every package in its
   `.package(path:)` closure, so code the app links is in scope, except third-party
@@ -76,7 +81,7 @@ reviewer} passes that many hits in that file. Flip a class to banned in the comm
 that brings it to zero (moving its reviewed crash-allow lines into the allowlist).
 
 Usage: crash_ratchet.py [--repo ROOT] [--update-baseline]
-Exit 1 when a module or crate gained a hit.
+Exit 1 when a module or crate gained a hit or a waived hit.
 """
 import argparse
 import subprocess
@@ -87,6 +92,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BASELINE = os.path.join(HERE, "crash-safety-baseline.json")
+# The baseline's section of waived hits ({lang: {class: {module: hits}}}), beside the counted ones.
+WAIVED = "waived"
 ALLOW = re.compile(r"//\s*crash-allow:\s*\S")
 
 SWIFT = {
@@ -535,9 +542,15 @@ def file_dictionaries(lines, module_dicts):
             frozenset(module_dicts))
 
 
-def scan_swift(repo, counts, banned_files=None):
-    """Ratchet counts per module into COUNTS; hits of banned classes per file (crash-allow
-    ignored) into BANNED_FILES {(kind, repo-relative path): hits}."""
+def add(counts, kind, module, hits):
+    counts.setdefault(kind, {}).setdefault(module, 0)
+    counts[kind][module] += hits
+
+
+def scan_swift(repo, counts, banned_files=None, waived=None):
+    """Ratchet counts per module into COUNTS, and hits a crash-allow waives into WAIVED (same
+    shape); hits of banned classes per file (crash-allow ignored) into BANNED_FILES
+    {(kind, repo-relative path): hits}."""
     banned = banned_kinds("swift")
     banned_modules = banned_in("swift")
     dictionaries = module_dictionaries(repo)
@@ -561,9 +574,10 @@ def scan_swift(repo, counts, banned_files=None):
                             banned_files[key] = banned_files.get(key, 0) + hits
                         continue
                     if is_allowed:
+                        if waived is not None:
+                            add(waived, kind, rel, hits)
                         continue
-                    counts.setdefault(kind, {}).setdefault(rel, 0)
-                    counts[kind][rel] += hits
+                    add(counts, kind, rel, hits)
 
 
 def load_allowlist():
@@ -645,7 +659,7 @@ def scan_env_writes(repo):
     return over
 
 
-def scan_rust(repo, counts):
+def scan_rust(repo, counts, waived=None):
     crates = os.path.join(repo, "cmux-tui/crates")
     skipped_dirs = {"target", "tests", "benches", "examples", "node_modules", "fixtures"}
     for path in tracked_files(repo, crates):
@@ -663,14 +677,14 @@ def scan_rust(repo, counts):
         lines = (text if not inline else text[:inline.start()]).split("\n")
         for index, line in enumerate(lines):
             stripped = line.lstrip()
-            if stripped.startswith("//") or allowed(lines, index):
+            if stripped.startswith("//"):
                 continue
+            target = waived if allowed(lines, index) else counts
             code = line.split("//", 1)[0] if '"' not in line else line
             for kind, pattern in RUST.items():
                 hits = len(pattern.findall(code))
-                if hits:
-                    counts.setdefault(kind, {}).setdefault(rel, 0)
-                    counts[kind][rel] += hits
+                if hits and target is not None:
+                    add(target, kind, rel, hits)
 
 
 def main():
@@ -683,31 +697,35 @@ def main():
     global EXPORTED_TREE
     EXPORTED_TREE = opts.exported_tree
     counts = {"swift": {}, "rust": {}}
+    waived = {"swift": {}, "rust": {}}
     banned_files = {}
-    scan_swift(opts.repo, counts["swift"], banned_files)
-    scan_rust(opts.repo, counts["rust"])
+    scan_swift(opts.repo, counts["swift"], banned_files, waived["swift"])
+    scan_rust(opts.repo, counts["rust"], waived["rust"])
     if opts.update_baseline:
         with open(BASELINE, "w") as out:
-            json.dump(counts, out, indent=1, sort_keys=True)
+            json.dump({**counts, WAIVED: waived}, out, indent=1, sort_keys=True)
             out.write("\n")
-        totals = {f"{lang}.{kind}": sum(files.values()) for lang, kinds in counts.items() for kind, files in kinds.items()}
+        totals = {f"{lang}.{kind}{suffix}": sum(files.values())
+                  for section, suffix in ((counts, ""), (waived, ".waived"))
+                  for lang, kinds in section.items() for kind, files in kinds.items()}
         print("crash-ratchet: baseline written: " + ", ".join(f"{k} {v}" for k, v in sorted(totals.items())))
         return 0
     baseline = json.load(open(BASELINE)) if os.path.exists(BASELINE) else {}
     grown, shrunk = [], 0
-    for lang, kinds in counts.items():
-        for kind, files in kinds.items():
-            known = baseline.get(lang, {}).get(kind, {})
-            for rel, hits in sorted(files.items()):
-                if hits > known.get(rel, 0):
-                    grown.append(f"{lang} {rel}: {kind} {known.get(rel, 0)} -> {hits}")
-        for kind, files in baseline.get(lang, {}).items():
-            if kind in banned_kinds(lang):
-                continue
-            files = {m: n for m, n in files.items() if (kind, m) not in banned_in(lang)}
-            for rel, hits in files.items():
-                if counts[lang].get(kind, {}).get(rel, 0) < hits:
-                    shrunk += 1
+    for found, known_section, suffix in ((counts, baseline, ""), (waived, baseline.get(WAIVED, {}), ".waived")):
+        for lang, kinds in found.items():
+            for kind, files in kinds.items():
+                known = known_section.get(lang, {}).get(kind, {})
+                for rel, hits in sorted(files.items()):
+                    if hits > known.get(rel, 0):
+                        grown.append(f"{lang} {rel}: {kind}{suffix} {known.get(rel, 0)} -> {hits}")
+            for kind, files in known_section.get(lang, {}).items():
+                if kind in banned_kinds(lang):
+                    continue
+                files = {m: n for m, n in files.items() if (kind, m) not in banned_in(lang)}
+                for rel, hits in files.items():
+                    if found[lang].get(kind, {}).get(rel, 0) < hits:
+                        shrunk += 1
     banned_over, banned_notes = check_banned(banned_files)
     grown.extend(banned_over)
     for line in banned_notes:
@@ -722,9 +740,10 @@ def main():
         print("crash-ratchet: " + line)
     if grown:
         print(f"crash-ratchet: {len(grown)} module(s) or crate(s) gained a crash-class hit (plans/cmux-next/crash-elimination.md). "
-              "Remove it, or add a reviewed `// crash-allow: <reason>` (banned classes: only a reviewed "
-              "scripts/cmux-next/crash-allowlist.json entry; env_write: never, pass the value in the child's "
-              "spawn environment instead).")
+              "Remove it. A reviewed `// crash-allow: <reason>` still counts, as a waived hit: the module's "
+              "<class>.waived count in the baseline goes up in the same change (--update-baseline), for the "
+              "reviewer to see (banned classes: only a reviewed scripts/cmux-next/crash-allowlist.json entry; "
+              "env_write: never, pass the value in the child's spawn environment instead).")
         return 1
     note = f"; {shrunk} count(s) went down: run scripts/cmux-next/crash_ratchet.py --update-baseline" if shrunk else ""
     print(f"crash-ratchet: ok{note}")
