@@ -27,6 +27,8 @@ struct FeedCell: View {
     @State private var replyChat: AgentChatStore?
     @FocusState private var replyFocused: Bool
     @State private var copied = false
+    /// The body's web view was shown once: it stays, even if a fling starts again.
+    @State private var webShown = false
     #if DEBUG
     private let director = DemoDirector.shared
     #endif
@@ -39,8 +41,7 @@ struct FeedCell: View {
         self.item = item
         self.context = context
         self.expanded = expanded
-        let plain = FeedPlainText(item.markdown)
-        inlineText = plain.isInline ? plain.attributed : nil
+        inlineText = FeedInlineTextCache.shared.inlineText(item.markdown)
         // Native rows never overflow; only web rows need the measured height.
         _contentHeight = State(initialValue: inlineText == nil
             ? WebMarkdownRenderer.shared.cachedHeight(markdown: item.markdown, style: .body) : 0)
@@ -53,7 +54,7 @@ struct FeedCell: View {
     private func open() { context.open(item) }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        FeedCellLayout(leading: 40, spacing: 12) {
             AgentAvatar(harness: item.harness, size: 40)
                 .overlay(alignment: .topTrailing) {
                     if !item.isRead {
@@ -63,7 +64,7 @@ struct FeedCell: View {
                             .accessibilityLabel("Unread")
                     }
                 }
-            VStack(alignment: .leading, spacing: 8) {
+            FeedColumnLayout(spacing: 8) {
                 // Only the header, the quote and the body open the tab; the answer card,
                 // its padding and the gaps never navigate (a mis-tap must not leave the Feed
                 // mid-answer).
@@ -143,16 +144,10 @@ struct FeedCell: View {
                 }
             }
             Spacer(minLength: 4)
-            Menu { menuItems } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 15))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 44, height: 44)
-                    .contentShape(.rect)
-            }
-            .padding(.vertical, -12)
-            .padding(.trailing, -10)
-            .accessibilityLabel("Event actions")
+            FeedMenuButton(title: { menuTitle }, actions: { menuActions })
+                .frame(width: 44, height: 44)
+                .padding(.vertical, -12)
+                .padding(.trailing, -10)
         }
     }
 
@@ -166,22 +161,33 @@ struct FeedCell: View {
         }
     }
 
+    /// The menus' title: the event's day and time.
+    private var menuTitle: String { item.createdAt.formatted(.dateTime.weekday(.wide).hour().minute()) }
+
+    /// The "…" menu and the long-press menu, built only when one opens.
+    private var menuActions: [FeedMenuAction] {
+        let item = item, store = store, open = open
+        return [
+            FeedMenuAction(title: "Open Tab", systemImage: "arrow.up.right.square", perform: open),
+            FeedMenuAction(title: "Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = item.markdown },
+            // Everything the trailing swipe leaves out lives here (SPEC swipe rules).
+            item.isRead
+                ? FeedMenuAction(title: "Mark as Unread", systemImage: "envelope.badge") { store.markUnread(item.id) }
+                : FeedMenuAction(title: "Mark as Read", systemImage: "envelope.open") { store.markRead(item.id) },
+            FeedMenuAction(title: "Done", systemImage: "checkmark") {
+                withAnimation(.cmuxMobileSmooth) { store.markDone(item.id) }
+            },
+            FeedMenuAction(title: "Mute This Workspace", systemImage: "bell.slash") {
+                withAnimation(.cmuxMobileSmooth) { _ = store.mutedWorkspaces.insert(item.workspaceID) }
+            },
+        ]
+    }
+
     @ViewBuilder
     private var menuItems: some View {
-        Section(item.createdAt.formatted(.dateTime.weekday(.wide).hour().minute())) {
-            Button("Open Tab", systemImage: "arrow.up.right.square", action: open)
-            Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = item.markdown }
-            // Everything the trailing swipe leaves out lives here (SPEC swipe rules).
-            if item.isRead {
-                Button("Mark as Unread", systemImage: "envelope.badge") { store.markUnread(item.id) }
-            } else {
-                Button("Mark as Read", systemImage: "envelope.open") { store.markRead(item.id) }
-            }
-            Button("Done", systemImage: "checkmark") {
-                withAnimation(.cmuxMobileSmooth) { store.markDone(item.id) }
-            }
-            Button("Mute This Workspace", systemImage: "bell.slash") {
-                withAnimation(.cmuxMobileSmooth) { _ = store.mutedWorkspaces.insert(item.workspaceID) }
+        Section(menuTitle) {
+            ForEach(menuActions) { action in
+                Button(action.title, systemImage: action.systemImage, role: action.isDestructive ? .destructive : nil, action: action.perform)
             }
         }
     }
@@ -216,6 +222,12 @@ struct FeedCell: View {
 
     private var isOverflowing: Bool { (contentHeight ?? 0) > collapsedHeight + 28 }
 
+    /// What the web body will show: its measured or cached height, capped as collapsed.
+    private var placeholderHeight: CGFloat {
+        let full = contentHeight ?? WebMarkdownRenderer.shared.estimatedHeight(markdown: item.markdown, style: .body)
+        return expanded || !isOverflowing ? full : min(full, collapsedHeight)
+    }
+
     private var bodyView: some View {
         VStack(alignment: .leading, spacing: 6) {
             Group {
@@ -227,6 +239,10 @@ struct FeedCell: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .contentShape(.rect)
                         .onTapGesture(perform: open)
+                } else if context.motion.isFast, !webShown {
+                    // During a fling: the body's text at the height its web view will take, no web view
+                    // (verify/feed-perf-20261021.md). It renders when the Feed slows down.
+                    FeedBodyPlaceholder(markdown: item.markdown, height: placeholderHeight)
                 } else {
                     WebMarkdownView(
                         markdown: item.markdown, style: .body,
@@ -235,6 +251,7 @@ struct FeedCell: View {
                     ) { height in
                         contentHeight = height
                     }
+                    .onAppear { webShown = true }
                 }
             }
             .overlay(alignment: .bottom) {
@@ -411,10 +428,7 @@ struct FeedCell: View {
                 }
             }
             Spacer()
-            ShareLink(item: item.markdown) {
-                Label("Share", systemImage: "square.and.arrow.up")
-                    .labelStyle(FooterLabelStyle())
-            }
+            footerButton("square.and.arrow.up", "Share") { FeedShareSheet.present(item.markdown) }
         }
         // 44 pt targets; the row keeps its 32 pt rhythm.
         .frame(height: 44)
@@ -496,6 +510,8 @@ struct AgentAvatar: View {
 @MainActor
 final class FeedRowContext {
     let store: FeedStore
+    /// The Feed's scroll speed: a fling shows web bodies as placeholders (`FeedScrollMotion`).
+    let motion = FeedScrollMotion()
     /// Opens an event (set by the Feed screen; it owns the navigation path).
     var open: (FeedItem) -> Void = { _ in }
     /// Shows more or less of an event's body.
@@ -546,3 +562,4 @@ public final class FeedRouting {
     public var clearAllNotifications: (() async throws -> Void)?
 }
 #endif
+

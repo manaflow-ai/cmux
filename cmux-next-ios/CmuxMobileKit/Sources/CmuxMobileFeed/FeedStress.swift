@@ -250,10 +250,11 @@ final class FeedStressRig {
         let count = max(store.items.count, 1)
         switch tick % 4 {
         case 0:
-            // A new event on top (a Codex notification), while scrolled away.
+            // A new event on top (a Codex notification), as live mode adds one (`atTop: true`;
+            // the store holds it while the Feed is scrolled away from the top).
             var item = FeedStore.stressItem(index: 10_000 + tick, now: Date())
             item.id = "stress-live-\(tick)"
-            store.upsert(item, atTop: false)
+            store.upsert(item, atTop: true)
         case 1:
             // The ledger re-read: an existing event's text changes in place.
             let index = (tick * 7) % count

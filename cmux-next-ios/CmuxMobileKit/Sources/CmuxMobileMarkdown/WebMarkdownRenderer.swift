@@ -37,6 +37,19 @@ public final class WebMarkdownRenderer {
     /// from it so their first layout already uses the cached height.
     public var lastWidth: CGFloat = 0
 
+    /// The height a body is laid out at before it is measured.
+    static func estimate(markdown: String, width: CGFloat) -> CGFloat {
+        let chars = CGFloat(markdown.count)
+        let perLine = max(width / 9, 30)
+        return min(max(27, (chars / perLine).rounded(.up) * 27 + CGFloat(markdown.filter { $0 == "\n" }.count) * 6), 2000)
+    }
+
+    /// The height a `WebMarkdownView` of `markdown` takes at the last known width: its
+    /// cached measure, else the estimate it would start from.
+    public func estimatedHeight(markdown: String, style: Style) -> CGFloat {
+        cachedHeight(markdown: markdown, style: style) ?? Self.estimate(markdown: markdown, width: lastWidth)
+    }
+
     /// Cached height at the last known width (cells read it before their first layout).
     public func cachedHeight(markdown: String, style: Style) -> CGFloat? {
         cachedHeight(markdown: markdown, style: style, width: lastWidth)
@@ -284,11 +297,7 @@ public struct WebMarkdownView: View {
         measured ?? WebMarkdownRenderer.shared.cachedHeight(markdown: markdown, style: style, width: width) ?? estimate
     }
 
-    private var estimate: CGFloat {
-        let chars = CGFloat(markdown.count)
-        let perLine = max(width / 9, 30)
-        return min(max(27, (chars / perLine).rounded(.up) * 27 + CGFloat(markdown.filter { $0 == "\n" }.count) * 6), 2000)
-    }
+    private var estimate: CGFloat { WebMarkdownRenderer.estimate(markdown: markdown, width: width) }
 
     public var body: some View {
         let full = contentHeight

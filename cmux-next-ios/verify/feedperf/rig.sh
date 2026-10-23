@@ -12,7 +12,11 @@
 #                            copy framelog.jsonl to verify/evidence/feedperf/LABEL.jsonl
 #   rig.sh trace LABEL TEMPLATE [K=V..]
 #                            as run, with `xctrace record --template TEMPLATE --attach` on the app for
-#                            the whole run; the trace lands in verify/evidence/feedperf/LABEL.trace
+#                            the whole run; the trace lands in verify/evidence/feedperf/LABEL.trace.
+#                            TEMPLATE=sample runs `sample` for SECS (default 60) at 1 ms instead (set SECS past
+#                            the app's exit, -mayDie ends it with the app's frame log written): xctrace
+#                            does not record over SSH on the minis (Developer Mode is off, it waits for an
+#                            authorization prompt) and `sample` needs none.
 #
 # Environment: HOST (build mini, default mini-cmux11s-mac-mini), RUN_HOST (simulator mini,
 # default HOST), DIR (default feedperf), SIM_NAME (default cmux-mobile-feedperf-1),
@@ -26,6 +30,16 @@ RUN_HOST=${RUN_HOST:-$HOST}
 here=$(cd "$(dirname "$0")" && pwd)
 mobile=$(cd "$here/../.." && pwd)
 repo=$(cd "$mobile/.." && pwd)
+# RUN_HOST=ts:NAME reaches NAME with Tailscale SSH (the AWS Macs: ec2-user@aws-m4pro-N, which have
+# Developer Mode on, so xctrace can attach; the cmux minis have it off and xctrace waits for an
+# authorization nobody can give over SSH).
+run_ssh() {
+  if [[ $RUN_HOST == ts:* ]]; then
+    "${TAILSCALE:-/Applications/Tailscale.app/Contents/MacOS/Tailscale}" ssh "${RUN_HOST#ts:}" "$@"
+  else
+    ssh "$RUN_HOST" "$@"
+  fi
+}
 remote_env='export PATH=/opt/homebrew/bin:$PATH DEVELOPER_DIR=/Applications/Xcode_26.6.app/Contents/Developer;'
 
 case "${1:-}" in
@@ -57,12 +71,12 @@ case "${1:-}" in
     ;;
   ship)
     [[ "$RUN_HOST" == "$HOST" ]] && exit 0
-    ssh "$RUN_HOST" "mkdir -p $DIR/cmux-next-ios/build/demo/Build/Products"
+    run_ssh "mkdir -p $DIR/cmux-next-ios/build/demo/Build/Products"
     ssh "$HOST" "cd $DIR/cmux-next-ios/build/demo/Build/Products && tar cf - Demo-iphonesimulator/*.app" \
-      | ssh "$RUN_HOST" "cd $DIR/cmux-next-ios/build/demo/Build/Products && rm -rf Demo-iphonesimulator && tar xf -"
+      | run_ssh "cd $DIR/cmux-next-ios/build/demo/Build/Products && rm -rf Demo-iphonesimulator && tar xf -"
     ;;
   sim)
-    ssh "$RUN_HOST" "$remote_env udid=\$(xcrun simctl list devices | grep '$SIM_NAME (' | head -1 | grep -oE '[0-9A-F-]{36}'); \
+    run_ssh "$remote_env udid=\$(xcrun simctl list devices | grep '$SIM_NAME (' | head -1 | grep -oE '[0-9A-F-]{36}'); \
       if [[ -z \$udid ]]; then udid=\$(xcrun simctl create '$SIM_NAME' '$SIM_DEVICE' com.apple.CoreSimulator.SimRuntime.iOS-26-5); fi; \
       xcrun simctl boot \$udid 2>/dev/null; xcrun simctl bootstatus \$udid -b >/dev/null; echo \$udid"
     ;;
@@ -80,9 +94,10 @@ case "${1:-}" in
       # pid and records until the app exits after its autoscroll.
       launch="rm -rf $DIR/$label.trace; pid=\$(SIMCTL_CHILD_CMUX_MOBILE_FEED_EXIT_WHEN_DONE=1 $envs xcrun simctl launch --terminate-running-process \$udid \$bid \
           -cmux-mobile-tab feed -cmuxMobile.setupComplete YES -cmux-mobile-no-restore | awk '{print \$NF}'); \
-          xcrun xctrace record --template '$template' --attach \$pid --time-limit ${WAIT:-300}s --output $DIR/$label.trace >$DIR/$label.xctrace.log 2>&1"
+          if [[ '$template' == sample ]]; then sample \$pid ${SECS:-60} 1 -mayDie -file $DIR/$label.sample.txt >$DIR/$label.xctrace.log 2>&1; else \
+          xcrun xctrace record --no-prompt --device \$udid --template '$template' --attach \$pid --time-limit ${WAIT:-300}s --output $DIR/$label.trace >$DIR/$label.xctrace.log 2>&1; fi"
     fi
-    ssh "$RUN_HOST" "$remote_env udid=\$(xcrun simctl list devices | grep '$SIM_NAME (' | head -1 | grep -oE '[0-9A-F-]{36}'); \
+    run_ssh "$remote_env udid=\$(xcrun simctl list devices | grep '$SIM_NAME (' | head -1 | grep -oE '[0-9A-F-]{36}'); \
       app=\$(ls -d $DIR/cmux-next-ios/build/demo/Build/Products/Demo-iphonesimulator/*.app | head -1); \
       bid=\$(plutil -extract CFBundleIdentifier raw \$app/Info.plist); \
       xcrun simctl terminate \$udid \$bid 2>/dev/null; xcrun simctl install \$udid \$app; \
@@ -91,7 +106,11 @@ case "${1:-}" in
       cat \$caches/framelog.jsonl" > "$out/$label.jsonl"
     if [[ $mode == trace ]]; then
       rm -rf "$out/$label.trace"
-      rsync -a "$RUN_HOST:$DIR/$label.trace" "$out/" && echo "trace: $out/$label.trace"
+      if [[ $template == sample ]]; then
+        run_ssh "cat $DIR/$label.sample.txt" > "$out/$label.sample.txt" && echo "sample: $out/$label.sample.txt"
+      else
+        run_ssh "cd $DIR && tar cf - $label.trace" | (cd "$out" && tar xf -) && echo "trace: $out/$label.trace"
+      fi
     fi
     python3 "$here/summarize.py" "$out/$label.jsonl"
     ;;

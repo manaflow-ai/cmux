@@ -130,6 +130,16 @@ import Testing
         #expect(abs(stats.hitchMsPerSecond - 100 / (106.0 / 60)) < 0.5)
     }
 
+    /// The rig's per-frame main-thread CPU survives the JSON round trip (summarize.py reads it).
+    @Test func mainThreadCPUIsEncoded() throws {
+        var stats = FrameIntervalStats(label: "t", intervals: [1.0 / 60, 1.0 / 60], expected: 1.0 / 60)
+        stats.mainThreadCPUMs = 12.5
+        stats.mainThreadCPUPerFrameMs = [2.5, 10]
+        let decoded = try JSONDecoder().decode(FrameIntervalStats.self, from: JSONEncoder().encode(stats))
+        #expect(decoded.mainThreadCPUMs == 12.5)
+        #expect(decoded.mainThreadCPUPerFrameMs == [2.5, 10])
+    }
+
     @Test func emptyWindow() {
         let stats = FrameIntervalStats(label: "t", intervals: [], expected: 1.0 / 120)
         #expect(stats.frames == 0 && stats.hitches == 0 && stats.maxMs == 0 && stats.hitchMsPerSecond == 0)

@@ -21,4 +21,15 @@ import Testing
         #expect(!FeedPlainText("Title\n===").isInline)
         #expect(!FeedPlainText("above\n---\nbelow").isInline)
     }
+
+    /// A row built again (scrolled back in, a live change) reuses its body's answer.
+    @MainActor @Test func inlineTextIsParsedOncePerBody() {
+        let cache = FeedInlineTextCache(limit: 8)
+        let short = "**Needs approval:** run `ls`"
+        #expect(cache.inlineText(short) != nil)
+        #expect(cache.inlineText(short) != nil)
+        #expect(cache.inlineText("# Title") == nil)
+        #expect(cache.inlineText("# Title") == nil)
+        #expect(cache.misses == 2)
+    }
 }

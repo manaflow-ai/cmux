@@ -189,7 +189,10 @@ public final class FeedStore {
     /// The filtered list and the count, kept with the items instead of
     /// recomputed by every body that reads them.
     private func refreshDerived() {
-        let visible = items.filter { !$0.isDone && filter.matches($0) && !mutedWorkspaces.contains($0.workspaceID) }
+        let held = isReadingBelowTop ? Set(unseenNewIDs) : []
+        let visible = items.filter {
+            !$0.isDone && filter.matches($0) && !mutedWorkspaces.contains($0.workspaceID) && !held.contains($0.id)
+        }
         if visible != visibleItems { visibleItems = visible }
         let count = items.count(where: { $0.needsYou && !$0.isDone })
         if count != needsYouCount { needsYouCount = count }
@@ -222,7 +225,27 @@ public final class FeedStore {
         didSet { if mutedWorkspaces != oldValue { refreshDerived() } }
     }
     /// Events that arrived while the person was scrolled away from the top.
-    public private(set) var unseenNewIDs: [String] = []
+    /// While they read below the top (`isReadingBelowTop`) these wait behind
+    /// the "N new" pill, out of `visibleItems` (still in `items`: counted,
+    /// saved, answerable from a notification), until the person goes back to
+    /// the top or taps the pill (`clearUnseen`).
+    public private(set) var unseenNewIDs: [String] = [] {
+        didSet { if unseenNewIDs != oldValue { refreshDerived() } }
+    }
+
+    /// The person reads below the top of the Feed (set by the Feed screen). A
+    /// new event inserted above them would shift every row under their finger
+    /// and re-lay out the list, so it waits behind the pill instead; going
+    /// back to the top shows what waited.
+    public var isReadingBelowTop = false {
+        didSet {
+            guard isReadingBelowTop != oldValue else { return }
+            // Either way the pill starts empty: what arrived at the top was seen there (hiding it now
+            // would take rows away above the reader), and going back up shows what waited.
+            clearUnseen()
+            refreshDerived()
+        }
+    }
     private var liveIndex = 0
 
     public init(items: [FeedItem], answersLocally: Bool = false, readMarks: FeedReadMarks? = nil) {
@@ -270,8 +293,9 @@ public final class FeedStore {
     public func count(_ filter: FeedFilter) -> Int { items.count(where: filter.matches) }
 
     public func insert(_ item: FeedItem, atTop: Bool) {
+        // Held first, so the list never shows it for one update.
+        if !atTop || isReadingBelowTop { unseenNewIDs.append(item.id) }
         items.insert(item, at: 0)
-        if !atTop { unseenNewIDs.append(item.id) }
     }
 
     public func clearUnseen() {

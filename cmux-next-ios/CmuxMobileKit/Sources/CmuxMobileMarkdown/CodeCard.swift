@@ -103,7 +103,6 @@ public struct CodeCard: View {
         .padding(.leading, 16)
         .padding(.trailing, 8)
         .frame(height: 40)
-        .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in new }
     }
 
     private var isShell: Bool {
@@ -120,6 +119,9 @@ public struct CodeCard: View {
 
     private func copy() {
         UIPasteboard.general.string = code
+        // UIKit's generator, fired on the copy: a `.sensoryFeedback` was set up for every
+        // code card that scrolled into the Feed.
+        if !copied { UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7) }
         withAnimation(.cmuxMobileSnap) { copied = true }
         Task {
             try? await Task.sleep(for: .seconds(1.5))

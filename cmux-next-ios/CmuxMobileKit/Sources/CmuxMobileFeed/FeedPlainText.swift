@@ -42,3 +42,52 @@ public struct FeedPlainText: Sendable {
         try? AttributedString(markdown: markdown, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))
     }
 }
+
+/// `FeedPlainText`'s answer per body, kept so a row built again (scrolled back
+/// in, or re-rendered by a live change) does not re-scan and re-parse its
+/// markdown on the main thread. Bounded; emptied when it fills.
+@MainActor
+final class FeedInlineTextCache {
+    static let shared = FeedInlineTextCache()
+    /// nil value: the body needs the web renderer.
+    private var entries: [String: AttributedString?] = [:]
+    private let limit: Int
+    private(set) var misses = 0
+
+    init(limit: Int = 1024) {
+        self.limit = limit
+    }
+
+    /// A web body's text for its fling placeholder: lines without fences,
+    /// table rules, heading, quote and list marks, or emphasis characters.
+    private var placeholders: [String: String] = [:]
+
+    func placeholderText(_ markdown: String) -> String {
+        if let hit = placeholders[markdown] { return hit }
+        var lines: [String] = []
+        for raw in markdown.split(separator: "\n", omittingEmptySubsequences: false) {
+            var line = raw.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("```") { continue }
+            if line.hasPrefix("|"), line.allSatisfy({ "|-: ".contains($0) }) { continue }
+            while let first = line.first, "#>".contains(first) { line.removeFirst(); line = line.trimmingCharacters(in: .whitespaces) }
+            if line.hasPrefix("- ") || line.hasPrefix("* ") || line.hasPrefix("+ ") { line = "• " + line.dropFirst(2) }
+            line = line.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
+            lines.append(line)
+        }
+        let text = lines.joined(separator: "\n")
+        if placeholders.count >= limit { placeholders = [:] }
+        placeholders[markdown] = text
+        return text
+    }
+
+    /// The body as native text, or nil when it needs the web renderer.
+    func inlineText(_ markdown: String) -> AttributedString? {
+        if let hit = entries[markdown] { return hit }
+        misses += 1
+        let plain = FeedPlainText(markdown)
+        let value = plain.isInline ? plain.attributed : nil
+        if entries.count >= limit { entries = [:] }
+        entries[markdown] = .some(value)
+        return value
+    }
+}

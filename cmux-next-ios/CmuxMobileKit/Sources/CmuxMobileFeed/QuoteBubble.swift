@@ -60,14 +60,14 @@ struct QuoteBubble: View {
 }
 
 /// Rounded rect (radius 16) plus an iMessage tail at the bottom-leading corner, filled as one color.
-struct BubbleWithTail: View {
-    var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-            BubbleTail()
-                .frame(width: 22, height: 18)
-                .offset(x: -6, y: 1)
-        }
+/// One shape (one path, one layer) rather than a stack of two: every Feed row with a quote draws it.
+struct BubbleWithTail: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = RoundedRectangle(cornerRadius: 16, style: .continuous).path(in: rect)
+        // The tail's 22 x 18 box, 6 pt left of the bubble and 1 pt below its bottom edge.
+        let tail = CGRect(x: rect.minX - 6, y: rect.maxY - 18 + 1, width: 22, height: 18)
+        path.addPath(BubbleTail().path(in: tail))
+        return path
     }
 }
 

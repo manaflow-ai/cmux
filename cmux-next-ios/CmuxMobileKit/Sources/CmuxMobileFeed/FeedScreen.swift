@@ -3,6 +3,7 @@ import CmuxMobileAgentChat
 import CmuxMobileDesign
 import CmuxMobileMarkdown
 import CmuxMobileModel
+import QuartzCore
 import SwiftUI
 
 /// SPEC 8.1 Feed tab: an X-style live timeline of agent events across every
@@ -69,6 +70,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             .scrollDismissesKeyboard(.interactively)
             .onScrollPhaseChange { _, phase in
                 if phase == .interacting, swipe.openID != nil { swipe.openID = nil }
+                if phase == .idle { rowContext.motion.settled() }
                 #if DEBUG
                 // G-04: a finger-driven scroll is one frame-interval window (CMUX_MOBILE_FRAMELOG=1).
                 if FeedStressRig.shared.config.autoscrollPasses == nil {
@@ -78,9 +80,15 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                 #endif
             }
             .overlay(alignment: .bottom) { DoneUndoBar(store: store) }
+            // The scroll speed: a fling shows web bodies as placeholders (FeedScrollMotion).
+            .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { _, y in
+                rowContext.motion.offsetChanged(y, at: CACurrentMediaTime())
+            }
             .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top < 60 } action: { _, top in
                 atTop = top
-                if top { store.clearUnseen() }
+                // Below the top, new events wait behind the pill (no insert above the reader);
+                // back at the top they show.
+                store.isReadingBelowTop = !top
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
                 columnWidth = width - 16 * 2 - 40 - 12

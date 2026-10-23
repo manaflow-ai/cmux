@@ -85,4 +85,14 @@ import Testing
         store.isReadingBelowTop = false
         #expect(store.visibleItems.map(\.id) == ["a"])
     }
+
+    /// An event added while the Feed shows its top was seen there: scrolling down never hides it.
+    @Test func anEventSeenAtTheTopIsNotHiddenLater() {
+        let store = FeedStore(items: [Self.item("a", ago: 10)])
+        store.upsert(Self.item("n1"), atTop: false)
+        #expect(store.visibleItems.map(\.id) == ["n1", "a"])
+        store.isReadingBelowTop = true
+        #expect(store.visibleItems.map(\.id) == ["n1", "a"])
+        #expect(store.unseenNewIDs.isEmpty)
+    }
 }

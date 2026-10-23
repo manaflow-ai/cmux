@@ -3,6 +3,7 @@ import CmuxAgentQuestion
 import CmuxMobileDesign
 import CmuxMobileMarkdown
 import SwiftUI
+import UIKit
 
 /// SPEC 6.7 plan card with live step glyphs.
 struct PlanCard: View {
@@ -204,7 +205,6 @@ public struct QuestionCard: View {
     @State private var state: AgentQuestionCardState
     @State private var forward = true
     @FocusState private var otherFocused: Bool
-    @State private var submitted = 0
     #if DEBUG
     private let director = DemoDirector.shared
     #endif
@@ -237,7 +237,6 @@ public struct QuestionCard: View {
         .onChange(of: state) { _, new in
             if question.isPending { QuestionDraftStore.shared.save(QuestionDraft(new), for: question.id) }
         }
-        .sensoryFeedback(.impact(weight: .light), trigger: submitted)
         #if DEBUG
         .onChange(of: director.serial) { runDemoCommand() }
         #endif
@@ -320,6 +319,9 @@ public struct QuestionCard: View {
         let chosen = state.isChosen(option, in: item)
         return Button {
             send(.click(row: row))
+            // The selection haptic as the row's choice changes (UIKit's generator, fired here:
+            // a `.sensoryFeedback` per option row was set up for every card that scrolled into the Feed).
+            if state.isChosen(option, in: item) != chosen { UISelectionFeedbackGenerator().selectionChanged() }
         } label: {
             HStack(alignment: .center, spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -344,7 +346,6 @@ public struct QuestionCard: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .sensoryFeedback(.selection, trigger: chosen)
         .accessibilityAddTraits(chosen ? .isSelected : [])
     }
 
@@ -397,7 +398,7 @@ public struct QuestionCard: View {
         if state.activeItem != before { forward = state.activeItem > before }
         switch effect {
         case .submit(let answer):
-            submitted += 1
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             QuestionDraftStore.shared.clear(question.id)
             otherFocused = false
             submit(answer)
