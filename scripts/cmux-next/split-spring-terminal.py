@@ -88,6 +88,11 @@ if "--suite=every-action" in sys.argv:
 if "--suite=typing-frame" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "typing-frame-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=typing-frame"])
+# `--suite=terminal-resize`: Ghostty live resize, idle cursor and STRESS drag (PL-ghostty),
+# scripts/cmux-next/bench-terminal-resize.py; --json is its terminal-resize.json too.
+if "--suite=terminal-resize" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-terminal-resize.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=terminal-resize"])
 if "--suite=anim-perf" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "anim-perf-terminal.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=anim-perf"])
