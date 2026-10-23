@@ -692,7 +692,9 @@ function hiddenReleaseIds(
   const source = join.sourceCatalog.harnesses.find((harness) => harness.id === sourceHarnessId);
   const hidden = new Set<string>();
   for (const model of source?.models ?? []) {
-    const hiddenById = [...(model.aliases ?? []), model.id].some((id) => isHiddenByUser(harnessId, id, join));
+    const hiddenById = [...(model.aliases ?? []), model.id].some((id) =>
+      isHiddenByUser(harnessId, id, join),
+    );
     const hiddenByReportedAlias = [...reported].some(
       ([id, name]) => isHiddenByUser(harnessId, id, join) && namesRelease(name, model, join),
     );
