@@ -245,12 +245,18 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     // Enough below the prompt that Show less, held at its button, never meets the end of the transcript.
     row("k-answer", "assistant", paragraphs(12)),
   ];
-  /// Each kind: the text on its toggle, and for Show more what holds still while it opens.
-  const cases: { name: string; text: string; held?: string }[] = [
-    { name: "a thought", text: "Thought" },
-    { name: "a tool call", text: "k-read" },
-    { name: "a command group", text: "2 commands" },
-    { name: "Show more", text: "Show", held: `[data-row-id="k-user"] .cv-user__bubble` },
+  /// Each kind: its toggle (by structure, not by label: the harness page loads no string table, so labels
+  /// are keys), and for Show more what holds still while it opens.
+  const run = '[data-row-id="k-run"] button.cv-tool.is-toggle';
+  const cases: { name: string; toggle: string; text?: string; not?: string; held?: string }[] = [
+    { name: "a thought", toggle: `${run}.cv-thought` },
+    { name: "a tool call", toggle: `${run}:not(.cv-thought):not(.cv-command)`, text: "k-read" },
+    { name: "a command group", toggle: `${run}:not(.cv-thought):not(.cv-command)`, not: "k-read" },
+    {
+      name: "Show more",
+      toggle: '[data-row-id="k-user"] .cv-user__more',
+      held: `[data-row-id="k-user"] .cv-user__bubble`,
+    },
   ];
   for (const one of cases)
     test(`${one.name} opens and closes with its line on its pixel and one animation per element`, async () => {
@@ -259,14 +265,20 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
       await settle(page);
       // Marks the toggle (`data-toggle`) and puts it 200 px down the view, away from either end.
       const mark = () =>
-        page.evaluate((text) => {
+        page.evaluate(({ toggle, text, not }) => {
           for (const node of document.querySelectorAll("[data-toggle]")) node.removeAttribute("data-toggle");
-          const toggle = [...document.querySelectorAll<HTMLElement>('[data-row-id^="k-"] button[aria-expanded]')].find(
-            (node) => node.textContent?.includes(text),
+          const found = [...document.querySelectorAll<HTMLElement>(toggle)].find(
+            (node) =>
+              node.hasAttribute("aria-expanded") &&
+              (!text || node.textContent?.includes(text)) &&
+              !(not && node.textContent?.includes(not)),
           )!;
-          toggle.dataset.toggle = "true";
-        }, one.text);
-      for (const opening of [true, false]) {
+          found.dataset.toggle = "true";
+          return found.getAttribute("aria-expanded") === "true";
+        }, one);
+      // A kind can start open (the latest command group does), so the first click closes it.
+      const startsOpen = await mark();
+      for (const opening of [!startsOpen, startsOpen]) {
         await mark();
         await page.evaluate(() => {
           const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -301,9 +313,14 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     ]);
     await settle(page);
     const button = '[data-row-id="tall-user"] .cv-user__more';
+    // The prompt sits mid-transcript, so the view first walks up until its row is mounted.
     const place = () =>
-      page.evaluate((query) => {
+      page.evaluate(async (query) => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        for (let step = 0; step < 40 && !document.querySelector(query); step += 1) {
+          scroller.scrollTop -= scroller.clientHeight / 2;
+          await window.cmuxPaintFrame();
+        }
         const more = document.querySelector<HTMLElement>(query)!;
         scroller.scrollTop += more.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 200;
       }, button);
