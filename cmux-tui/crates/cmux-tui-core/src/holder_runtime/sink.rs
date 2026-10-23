@@ -419,6 +419,10 @@ pub(super) struct SnapshottingReader {
     pub(super) sink: Arc<HolderSink>,
     /// Builds and sends the snapshot at an offset (the terminal's replay).
     pub(super) snapshot: Box<dyn Fn(u64) + Send>,
+    /// The terminal id (hex) its create's debug spans follow: the first
+    /// output, first text and first prompt the daemon reads for it are
+    /// marked as on the hosted path (new-terminal-100x's first-text).
+    pub(super) terminal_id: String,
 }
 
 impl Read for SnapshottingReader {
@@ -427,7 +431,9 @@ impl Read for SnapshottingReader {
             (self.snapshot)(base);
             self.sink.snapshot_taken(base);
         }
-        Ok(self.sink.read(buf))
+        let n = self.sink.read(buf);
+        crate::debug_spans::output_marks(&self.terminal_id, &buf[..n]);
+        Ok(n)
     }
 }
 

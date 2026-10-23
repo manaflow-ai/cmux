@@ -201,6 +201,7 @@ pub(crate) fn holder_local_launch(
                 terminal.service.snapshot(terminal.chan, base, &replay);
             }
         }),
+        terminal_id: crate::terminal_host::TerminalId::from_bytes(terminal.id).to_hex(),
     };
     Ok(LocalLaunch {
         master,
