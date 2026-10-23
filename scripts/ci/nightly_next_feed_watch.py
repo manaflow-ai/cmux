@@ -322,8 +322,8 @@ def main(argv: list[str]) -> int:
             gh, now, feed=newest, published_sha=published_sha,
             branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main",
             inputs={"sha": gh.ref_sha("feat-cmux-next")},
-            active_workflows=[("nightly-next-tick.yml", "main"), ("nightly.yml", "nightly-next"),
-                              ("nightly.yml", "main")]))
+            active_workflows=[("nightly-next-tick.yml", "main"), ("nightly-next-train.yml", "feat-cmux-next"),
+                              ("nightly.yml", "nightly-next"), ("nightly.yml", "main")]))
         classic_sha = published_commit_for_release(gh, "nightly")
         print("classic starvation: " + starvation_dispatch(
             gh, now, feed=classic_newest, published_sha=classic_sha,
