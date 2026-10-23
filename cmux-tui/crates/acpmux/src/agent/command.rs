@@ -445,7 +445,9 @@ mod tests {
         assert_eq!(preview_format(&html), PreviewFormat::Html);
         assert_eq!(pinned(&html).as_deref(), Some("html"));
         let command = |p: &HarnessProfile| {
-            pinned_preview_format(&harness_command("local", p, &std::env::temp_dir(), None, None).unwrap())
+            pinned_preview_format(
+                &harness_command("local", p, &std::env::temp_dir(), None, None).unwrap(),
+            )
         };
         assert_eq!(command(&html), PreviewFormat::Html);
         let text = profile(HarnessKind::ClaudeStdio, "markdown");
