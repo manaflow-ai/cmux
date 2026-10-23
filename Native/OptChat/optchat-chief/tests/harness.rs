@@ -775,7 +775,10 @@ fn turns_and_the_compactor_load_no_user_settings_but_subagents_do() {
         "SUB",
         &Default::default(),
     );
-    assert!(sub.args.is_empty(), "{:?}", sub.args);
+    // Only the deny list (tests/subagent_preset_tools.rs): no setting-source limit.
+    for word in isolated {
+        assert!(!sub.args.iter().any(|a| a == word), "{:?}", sub.args);
+    }
     assert!(!sub.env.contains_key("CLAUDE_CODE_DISABLE_CLAUDE_MDS"));
 }
 
