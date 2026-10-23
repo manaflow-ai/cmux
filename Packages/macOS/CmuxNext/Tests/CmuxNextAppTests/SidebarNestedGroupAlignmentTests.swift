@@ -22,7 +22,8 @@ import Testing
         var out: [Int: Set<CGFloat>] = [:]
         for row in list.displayed.rows {
             switch row.key {
-            case .group, .workspace: out[row.indentLevel, default: []].insert(list.frame(for: row).minX)
+            // A header's frame reaches left over its rail (`railReach`, Lawrence 2026-10-23); its level's x is its members'.
+            case .group, .workspace: out[row.indentLevel, default: []].insert(list.frame(for: row).minX + list.railReach(for: row))
             default: continue
             }
         }
@@ -74,7 +75,9 @@ import Testing
         let perfMember = try #require(list.displayed.row(for: .workspace(WorkspaceID("w-tab-switch"))))
         #expect(list.frame(for: perfHeader).minX == list.frame(for: panesHeader).minX + list.indent.step,
                 "a subgroup's header steps in one level: it can never read as a sibling")
-        #expect(list.frame(for: perfHeader).minX == list.frame(for: perfMember).minX, "a header sits at its members' x")
+        #expect(list.frame(for: perfHeader).minX + list.railReach(for: perfHeader) == list.frame(for: perfMember).minX,
+                "a header sits at its members' x, its bar reaching left over their rail")
+        #expect(perf.frame.minX == list.frame(for: perfHeader).minX, "the subgroup's rail starts at its header bar's left edge")
         #expect(perf.level == 1 && panes.level == 0)
         #expect(SidebarGroupLine.opacity(level: 1) < SidebarGroupLine.opacity(level: 0), "a nested rail is fainter")
     }
@@ -159,7 +162,7 @@ import Testing
         #expect(!deepest.isEmpty)
         for row in deepest {
             let frame = list.frame(for: row)
-            #expect(frame.minX == list.inset + CGFloat(cap) * list.indent.step, "\(row.key) draws at the cap")
+            #expect(frame.minX + list.railReach(for: row) == list.inset + CGFloat(cap) * list.indent.step, "\(row.key) draws at the cap")
             #expect(frame.width >= list.indent.minimumLabelWidth - 1, "\(row.key) keeps \(frame.width) pt for its label")
         }
         Self.expectAligned(list, "narrow")
