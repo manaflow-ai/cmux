@@ -77,7 +77,7 @@ extension AgentTabStore {
         let provisional = ProvisionalTab()
         let key = provisional.id, snapshot = provisional.conversation(ConversationTabRef(agentSession: record))
         let splitPane = split.map { ($0, ProvisionalPane(holding: snapshot)) }
-        let sendsSplitID = daemon.supports(DaemonCapabilities.splitClientSplitID)
+        let sendsSplitID = daemon.supports(DaemonCapability.splitClientSplitID.rawValue)
         let store = daemon.store
         store.onTabCreated = { [weak self] provisional, tab in
             self?.tabCreated(provisional, as: AgentTabCreated(key: tab.id, surface: tab.surface))
