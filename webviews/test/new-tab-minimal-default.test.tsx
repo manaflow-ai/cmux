@@ -234,9 +234,10 @@ test("Minimal's widgets turned on take Default's stage around the composer", asy
 });
 
 test("Minimal with the quick actions alone (the second dot) draws the pills under the composer, no stage", async () => {
-  const root = await render("minimal", ["greeting", "actions"]);
+  // The second dot on Settings' defaults: the actions on, no headline.
+  const root = await render("minimal", ["actions"]);
   try {
-    expect(parts()).toMatchObject({ minimal: true, greeting: "Good morning", stage: 0, projects: 0, chats: 0 });
+    expect(parts()).toMatchObject({ minimal: true, headline: null, stage: 0, projects: 0, chats: 0 });
     expect(host.querySelector(".nt-suggest")).toBeNull();
     const pills = [...host.querySelectorAll<HTMLElement>(".nt-create.ui-ghost-row [data-create]")];
     expect(pills.map((pill) => pill.dataset.create)).toEqual(["terminal", "browser", "chat"]);
