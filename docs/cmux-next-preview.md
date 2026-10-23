@@ -105,8 +105,9 @@ and `WorkspaceRowDogEarTests.swift`. The offscreen gallery gives a visual matrix
 the dog-ear tests cover geometry and hit testing. A native scene should reuse
 the same fixtures and expose a stable scene id before it is used in a PR capture.
 Until that scene is registered, use the hosted `WorkspaceRowCloseNotchGalleryTests`
-artifact; do not pass `sidebar.closeNotch` to the web gallery wrapper, because it
-is a native tunable rather than a web gallery entry.
+artifact when a fleet runner is configured for the suite; do not pass
+`sidebar.closeNotch` to the web gallery wrapper, because it is a native tunable
+rather than a web gallery entry.
 
 ## Agent-friendly wrapper
 
