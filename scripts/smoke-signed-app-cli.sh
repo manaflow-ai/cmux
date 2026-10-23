@@ -85,7 +85,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK_DIR="$(mktemp -d /tmp/cmux-cli-smoke.XXXXXX)"
 SOCKET_PATH="$WORK_DIR/s.sock"
 APP_LOG="$WORK_DIR/app.log"
-# --canary and --visual: the app's acpmux home, with acpmux's test agent as its one harness.
+# --canary: the app's acpmux home, with acpmux's test agent as its one harness.
 ACPMUX_HOME_DIR="$WORK_DIR/acpmux"
 CANARY_HARNESS="nightly-canary-agent"
 CRASH_MARKER="$WORK_DIR/launched"

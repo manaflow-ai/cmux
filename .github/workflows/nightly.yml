@@ -4658,7 +4658,6 @@ jobs:
     permissions:
       contents: read
     runs-on: macos-26
-    # +10 for the visual smoke's two attempts, as verify-signed-nightly.
     timeout-minutes: 40
     env:
       # Set only when the 6 h stapled-app fallback shipped the first DMG.
