@@ -103,13 +103,13 @@ async fn a_proven_peer_with_no_folder_gets_a_scratch_folder_named_after_the_sess
     .await;
     let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}"));
     let cwd = hub.resolve(id).unwrap().meta().cwd.clone();
-    let scratch = std::fs::canonicalize(
-        std::env::temp_dir()
-            .join("acpmux-peer-scratch")
-            .join(unsafe { libc::getuid() }.to_string()),
-    )
-    .unwrap();
-    assert_eq!(cwd, scratch.join(format!("lane-x-{}", std::process::id())), "{r}");
+    let scratch_root = cwd.parent().unwrap();
+    assert!(scratch_root.starts_with(std::env::temp_dir()), "{r}");
+    assert!(
+        scratch_root.file_name().unwrap().to_string_lossy().starts_with("acpmux-peer-scratch-"),
+        "{r}"
+    );
+    assert_eq!(cwd, scratch_root.join(format!("lane-x-{}", std::process::id())), "{r}");
     assert!(cwd.is_dir());
     let mode =
         std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&cwd).unwrap().permissions());

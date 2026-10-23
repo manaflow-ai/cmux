@@ -63,6 +63,7 @@ use crate::no_panic::JsonExt;
 use crate::rpc::{RpcError, method};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 /// Whether a session method acpmux does not handle itself goes on to the
 /// harness from `origin`: anything from the unix socket, and from the app only
@@ -777,7 +778,7 @@ async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
         .map(scratch_name)
         .filter(|n| !n.is_empty())
         .unwrap_or_else(|| format!("session-{}", uuid::Uuid::now_v7().simple()));
-    let dir = peer_scratch_root().join(name);
+    let dir = peer_scratch_root()?.join(name);
     let made = {
         let dir = dir.clone();
         tokio::task::spawn_blocking(move || {
@@ -796,17 +797,30 @@ async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
     canonical_dir(&dir.to_string_lossy()).await.ok_or_else(|| folder_refused("cwd"))
 }
 
-fn peer_scratch_root() -> PathBuf {
-    let root = std::env::temp_dir().join("acpmux-peer-scratch");
-    #[cfg(unix)]
-    {
-        // Keep different users' temporary roots separate when /tmp is shared.
-        root.join(unsafe { libc::getuid() }.to_string())
-    }
-    #[cfg(not(unix))]
-    {
-        root
-    }
+fn peer_scratch_root() -> Result<PathBuf, RpcError> {
+    static ROOT: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+    ROOT.get_or_init(|| {
+        let uid = {
+            #[cfg(unix)]
+            {
+                unsafe { libc::getuid() }.to_string()
+            }
+            #[cfg(not(unix))]
+            {
+                "user".to_owned()
+            }
+        };
+        let root = std::env::temp_dir()
+            .join(format!("acpmux-peer-scratch-{uid}-{}", uuid::Uuid::now_v7().simple()));
+        let mut builder = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        builder.create(&root).map(|_| root).map_err(|e| format!("{}: {e}", root.display()))
+    })
+    .clone()
+    .map_err(|e| {
+        RpcError::invalid_params(format!("the peer's scratch root could not be made: {e}"))
+    })
 }
 
 /// A session name as one folder name: letters, digits, `.`, `-` and `_`; anything
