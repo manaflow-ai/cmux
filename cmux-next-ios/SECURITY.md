@@ -299,6 +299,37 @@ A phone browser tab streams from a CEF remote browser host the Mac app runs,
 | Mutates or destroys objects the session does not own? | No: a fresh cache per host, removed on exit; the person's browser profiles are not used. |
 | Reads local state the remote should not see? | Only what a web page sees in a fresh profile (no cookies, history or saved logins of the person), files in the shared folders (the same files the `file` previews read), and pages the Mac already shows. Top-level pages are never home itself, `~/.ssh`, `~/Library` or the other credential trees unless the Mac's own browser has that page open; a `file:` page that is allowed can still embed other local files (known gap above). |
 
+## `surface`: streamed simulator tabs (2026-10-22)
+
+A phone streams a Mac phone tab's iOS simulator (PROTOCOL.md `surface`,
+verify/simulator-surface.md). This reuses the `browser` trust model; it adds
+no new path for a peer and no new trust decision.
+
+- **Who.** Only a paired phone of this Mac's owner opens the channel (the
+  same gate as every service). It reaches only a tab the app's own daemon
+  lists now as a phone page tab of an open workspace: hostd checks the
+  `list-workspaces` answer, and the app checks its own store again before it
+  starts a source (`PhoneSurfaceHosts`). No answer from the daemon streams
+  nothing.
+- **What it sees.** Only the simulator's own framebuffer: SimulatorKit's
+  IOSurface of that device, the one the Mac's phone tab draws. No screen,
+  window or other app is captured.
+- **What it can do.** Touch the simulator, type text, press a short list of
+  keys and Home or Lock: what a person at the Mac's phone tab can do. No
+  install, launch, open-URL, pasteboard, location, appearance, recording or
+  `simctl` reaches a phone; hostd drops any other input, and the source takes
+  only those lines.
+- **Loopback.** The app's source listens on `127.0.0.1` (accept local only),
+  with a per-launch secret it gives hostd over stdin, compared in constant
+  time. hostd's own host for each tab is on loopback with its own secret, as
+  for a browser host.
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No command or content: touches, text, keys and Home / Lock on the simulator the person already shows in a phone tab. |
+| Mutates or destroys objects the session does not own? | Only the simulator's UI state, as the owner at the Mac's phone tab could change it. Nothing else on the Mac. |
+| Reads local state the remote should not see? | The pictures of that simulator's screen, which the Mac shows in its phone tab. Nothing else. |
+
 ## Link transport: TURN over TLS, and no backend relay (`feat-cnx-ios-turntls`)
 
 The WireGuard link's paths are plain UDP, TURN over UDP and, where UDP is

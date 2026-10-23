@@ -176,7 +176,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             case .browser:
                 guard let url = tab.url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
                 return .browser(url: url.absoluteString)
-            case .agent:
+            case .agent, .simulator:
                 return nil
             }
         }
@@ -667,7 +667,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             if let title = clean(tab.title), !shells.contains(title.hasPrefix("-") ? String(title.dropFirst()) : title) { return title }
             let folder = tab.subtitle.map { ($0 as NSString).lastPathComponent }
             return clean(folder == "/" || folder == "~" ? nil : folder)
-        case .agent:
+        case .agent, .simulator:
             return clean(tab.title)
         }
     }

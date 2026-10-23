@@ -19,6 +19,11 @@ ssh $host "mkdir -p ~/${dir}/src ~/${dir}/logs"
 rsync -a --delete --exclude '.build' --exclude 'build/' --exclude 'target/' --exclude 'Frameworks/' \
   --exclude 'cmux-next-ios/verify/' --exclude 'cmux-next-ios/design/' \
   $repo/Packages $repo/vendor $repo/cmux-next-ios ${host}:${dir}/src/
+# The FFI's Rust workspace takes the cmux-tui crates it shares (rd, wg, transport) by path.
+ssh $host "mkdir -p ~/${dir}/src/cmux-tui"
+# (and their workspace root, which they inherit the edition and lints from).
+rsync -a --delete --exclude 'target/' $repo/cmux-tui/crates $repo/cmux-tui/Cargo.toml $repo/cmux-tui/Cargo.lock \
+  $repo/cmux-tui/rust-toolchain.toml ${host}:${dir}/src/cmux-tui/
 only=$(for t in "$@"; do print -n " -only-testing:$t"; done)
 ssh $host "zsh -l" <<EOF
 set -euo pipefail
