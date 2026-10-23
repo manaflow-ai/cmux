@@ -31,7 +31,11 @@ extension AgentPaneView {
             guard let self else { return done() }
             if let pageEvents = self.pageEvents {
                 // The page host's events carry no completion: the next push may follow next turn.
-                pageEvents.publish(.transport(event))
+                // A full bridge-gap queue is explicit backpressure. Stop this socket so the page
+                // can reconnect and resync instead of silently evicting a provider frame.
+                if !pageEvents.publish(.transport(event)) {
+                    self.model.transport.close(connection: event.connection)
+                }
                 // task-owner: one completion for the pacer, on the main actor
                 Task { @MainActor in done() }
             } else {

@@ -64,6 +64,10 @@ public nonisolated struct AgentPageOps {
 @MainActor
 public final class AgentPageProvider: PageProvider {
     public typealias Prepare = @MainActor (AgentPaneRequest) -> AgentPaneModel?
+    /// The page host's transport queue bound. A caller that receives `false` from ``publish``
+    /// must recover the page/transport; the provider never silently evicts an event.
+    public static let maximumBufferedEvents = 8_192
+    private static let replayBatchSize = 128
 
     /// The stream of host pushes (``AgentPageEvent``) the page subscribes to once its
     /// `cmuxAcpmuxBridge` is installed.
@@ -81,12 +85,19 @@ public final class AgentPageProvider: PageProvider {
     private final class PendingEvents {
         var events: [AgentPageEvent]
         var next = 0
+        var requeued = false
 
         init(_ events: [AgentPageEvent]) {
             self.events = events
         }
 
-        var remaining: [AgentPageEvent] { Array(events[next...]) }
+        func requeueRemaining() -> [AgentPageEvent] {
+            guard !requeued else { return [] }
+            requeued = true
+            let remaining = Array(events[next...])
+            next = events.count
+            return remaining
+        }
     }
     private var pendingEvents: [UInt64: PendingEvents] = [:]
     private var nextListener: UInt64 = 1
@@ -107,18 +118,26 @@ public final class AgentPageProvider: PageProvider {
     }
 
     /// Sends `event` to every subscribed page.
-    public func publish(_ event: AgentPageEvent) {
+    @discardableResult
+    public func publish(_ event: AgentPageEvent) -> Bool {
         guard !listeners.isEmpty else {
+            guard bufferedEvents.count < Self.maximumBufferedEvents else { return false }
             bufferedEvents.append(event)
-            return
+            return true
         }
+        var accepted = true
         for id in listeners.keys.sorted() {
             if let pending = pendingEvents[id] {
+                guard pending.events.count < Self.maximumBufferedEvents else {
+                    accepted = false
+                    continue
+                }
                 pending.events.append(event)
             } else {
                 listeners[id]?(event.data)
             }
         }
+        return accepted
     }
 
     public var hasSubscribers: Bool { !listeners.isEmpty }
@@ -150,7 +169,12 @@ public final class AgentPageProvider: PageProvider {
     /// callback runs append to `pendingEvents`, so they cannot overtake older buffered events.
     private func flushPendingEvents(for id: UInt64) {
         guard let pending = pendingEvents[id] else { return }
-        while pending.next < pending.events.count {
+        guard listeners[id] != nil else {
+            requeuePendingEvents(for: id, pending: pending)
+            return
+        }
+        let end = min(pending.events.count, pending.next + Self.replayBatchSize)
+        while pending.next < end {
             guard let listener = listeners[id] else {
                 requeuePendingEvents(for: id, pending: pending)
                 return
@@ -158,6 +182,11 @@ public final class AgentPageProvider: PageProvider {
             let event = pending.events[pending.next]
             pending.next += 1
             listener(event.data)
+        }
+        if pending.next < pending.events.count {
+            // Yield between batches so a reconnect cannot monopolize the main actor.
+            Task { @MainActor [weak self] in self?.flushPendingEvents(for: id) }
+            return
         }
         pendingEvents.removeValue(forKey: id)
     }
@@ -167,14 +196,14 @@ public final class AgentPageProvider: PageProvider {
     private func cancel(id: UInt64) {
         listeners.removeValue(forKey: id)
         guard let pending = pendingEvents.removeValue(forKey: id), listeners.isEmpty else { return }
-        bufferedEvents.insert(contentsOf: pending.remaining, at: 0)
+        bufferedEvents.insert(contentsOf: pending.requeueRemaining(), at: 0)
     }
 
     private func requeuePendingEvents(for id: UInt64, pending: PendingEvents) {
         pendingEvents.removeValue(forKey: id)
         listeners.removeValue(forKey: id)
         guard listeners.isEmpty else { return }
-        bufferedEvents.insert(contentsOf: pending.remaining, at: 0)
+        bufferedEvents.insert(contentsOf: pending.requeueRemaining(), at: 0)
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
