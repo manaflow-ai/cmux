@@ -12,8 +12,6 @@ pub(super) fn connect_and_attach(
     record_session: String,
     params: Value,
     read_only: bool,
-    mode_events: bool,
-    hidden_kinds: Vec<&'static str>,
     writer: MessageWriter,
 ) {
     let sessions = &mux.control_clients.agent_sessions;
@@ -44,8 +42,8 @@ pub(super) fn connect_and_attach(
             return;
         }
     };
-    let mut page = match link.call("_acpmux/attach", params, CALL_TIMEOUT) {
-        Ok(page) => strip_kinds(bound_page(page, newest_first), &hidden_kinds),
+    let page = match link.call("_acpmux/attach", params, CALL_TIMEOUT) {
+        Ok(page) => bound_page(page, newest_first),
         Err(error) => {
             release(sessions);
             link.close();
@@ -72,11 +70,6 @@ pub(super) fn connect_and_attach(
         return;
     }
     slot.lock().unwrap_or_else(|e| e.into_inner()).session = Some(resolved.clone());
-    // The chat's mode, for the app's bypass badge; an acpmux that cannot
-    // tell leaves it out.
-    if let Ok(facts) = agent_session_start::read_mode(&link, &resolved, &record_session) {
-        page["agentMode"] = facts;
-    }
     // Session status changes (`_acpmux/session_changed`) come only to
     // watchers; the reader keeps only this session's and its descendants'.
     // The answer (every session's summary) never reaches the client: only
@@ -96,10 +89,6 @@ pub(super) fn connect_and_attach(
         ended: AtomicBool::new(false),
         permissions: Mutex::default(),
         prompts: Mutex::default(),
-        mode_events,
-        hidden_kinds: Mutex::new(hidden_kinds),
-        mode_reading: AtomicBool::new(false),
-        mode_again: AtomicBool::new(false),
         children: Mutex::default(),
     });
     if let Ok(watched) = &watched {
@@ -172,42 +161,8 @@ pub(crate) fn bound_page(mut page: Value, newest_first: bool) -> Value {
     page
 }
 
-/// The records of the agent changing the chat's mode ([`mode_update`]).
-const MODE_KINDS: [&str; 2] = ["current_mode_update", "config_option_update"];
-
-/// The mode record kinds an attach with `mode_events` subscribes to although
-/// the client's `kinds` leave them out (none for a client that takes every
-/// record): the daemon needs them to push `agent-session-mode` when the agent
-/// changes the mode by itself, and they never reach that client
-/// ([`strip_kinds`], [`deliver`]). `transcript` and `wire` leave both out.
-pub(super) fn hidden_mode_kinds(kinds: Option<&[String]>, mode_events: bool) -> Vec<&'static str> {
-    let Some(kinds) = kinds.filter(|_| mode_events) else { return Vec::new() };
-    if kinds.iter().any(|kind| kind == "all") {
-        return Vec::new();
-    }
-    MODE_KINDS.into_iter().filter(|mode| !kinds.iter().any(|kind| kind == mode)).collect()
-}
-
-/// `page` without its records of the `hidden` kinds. A page with more before
-/// it that holds nothing else keeps them: an empty page would leave the
-/// client no record to page on from.
-pub(crate) fn strip_kinds(mut page: Value, hidden: &[&str]) -> Value {
-    if hidden.is_empty() {
-        return page;
-    }
-    let has_more = page.get("hasMore").and_then(Value::as_bool).unwrap_or(false);
-    let Some(events) = page.get_mut("events").and_then(Value::as_array_mut) else { return page };
-    let shown = |event: &Value| {
-        !event.get("kind").and_then(Value::as_str).is_some_and(|kind| hidden.contains(&kind))
-    };
-    if !has_more || events.iter().any(shown) {
-        events.retain(shown);
-    }
-    page
-}
-
 /// One notification or the close from the attachment's acpmux link.
-pub(super) fn deliver(attachment: &Arc<Attachment>, inbound: Inbound) {
+pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
     if attachment.ended.load(Ordering::Acquire) {
         return;
     }
@@ -222,14 +177,6 @@ pub(super) fn deliver(attachment: &Arc<Attachment>, inbound: Inbound) {
     }
     match method.as_str() {
         "_acpmux/event" if same_session => {
-            if mode_update(&params) {
-                reread_mode(attachment);
-            }
-            // A mode record only the daemon subscribed to (`hidden_mode_kinds`).
-            let kind = params.get("kind").and_then(Value::as_str).unwrap_or_default();
-            if attachment.hidden_kinds.lock().unwrap_or_else(|e| e.into_inner()).contains(&kind) {
-                return;
-            }
             let event = json!({"event": "agent-session-record", "surface": attachment.surface, "record": params});
             // Never blocks: a client that does not keep up overflows its
             // stream, which ends with the `overflow` close (the stream's own
@@ -253,12 +200,6 @@ pub(super) fn deliver(attachment: &Arc<Attachment>, inbound: Inbound) {
             if !same_session && !attachment.tab_current() {
                 return attachment.end(Some("detached"));
             }
-            // Only the session's own mode change re-reads its mode (a descendant's never does).
-            if same_session
-                && matches!(params.get("kind").and_then(Value::as_str), Some("mode" | "config"))
-            {
-                reread_mode(attachment);
-            }
             let event = json!({"event": "agent-session-changed", "surface": attachment.surface, "change": params});
             if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
                 attachment.end(None);
@@ -273,67 +214,5 @@ pub(super) fn deliver(attachment: &Arc<Attachment>, inbound: Inbound) {
         }
         "_acpmux/lagged" => attachment.end(Some("lagged")),
         _ => {}
-    }
-}
-
-/// A record of the agent changing the chat's mode by itself (a harness
-/// `current_mode_update` or `config_option_update`). A mode a client set
-/// comes as `_acpmux/session_changed` kind `mode` or `config` instead.
-fn mode_update(record: &Value) -> bool {
-    record.get("dir").and_then(Value::as_str) == Some("in")
-        && matches!(
-            record.pointer("/msg/params/update/sessionUpdate").and_then(Value::as_str),
-            Some("current_mode_update" | "config_option_update")
-        )
-}
-
-/// Reads the chat's mode again off the reader thread and pushes it as
-/// `agent-session-mode` (only for an attach that asked, `mode_events`). One
-/// read runs at a time; a change during it makes it read once more, so the
-/// last push is the newest mode.
-fn reread_mode(attachment: &Arc<Attachment>) {
-    if !attachment.mode_events {
-        return;
-    }
-    attachment.mode_again.store(true, Ordering::Release);
-    if attachment.mode_reading.swap(true, Ordering::AcqRel) {
-        return;
-    }
-    let worker = attachment.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-mode".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
-            loop {
-                worker.mode_again.store(false, Ordering::Release);
-                if worker.ended.load(Ordering::Acquire) {
-                    return;
-                }
-                if let Ok(facts) = agent_session_start::read_mode(
-                    &worker.link,
-                    &worker.session,
-                    &worker.record_session,
-                ) {
-                    let event = json!({"event": "agent-session-mode", "surface": worker.surface, "mode": facts});
-                    if worker.writer.send_stream(&event, &worker.outbound).is_err() {
-                        return worker.end(None);
-                    }
-                }
-                // A swap, not a store: an event's `swap(true)` that came first in
-                // `mode_reading`'s order is read here (acquire), so its
-                // `mode_again = true` is seen below; one that comes later reads
-                // false and starts a worker itself. A plain store left both
-                // sides free to miss each other (store buffering) and drop the
-                // change.
-                worker.mode_reading.swap(false, Ordering::AcqRel);
-                if !worker.mode_again.load(Ordering::Acquire)
-                    || worker.mode_reading.swap(true, Ordering::AcqRel)
-                {
-                    return;
-                }
-            }
-        });
-    if spawned.is_err() {
-        attachment.mode_reading.store(false, Ordering::Release);
     }
 }

@@ -58,12 +58,12 @@ impl FakeAcpmux {
         Self { directory, socket, frames, connections, current: None }
     }
 
-    /// The next frame the daemon sent to acpmux (its session watch and the
-    /// attach's mode read skipped: the daemon's own reads, never the client's).
+    /// The next frame the daemon sent to acpmux.
+    /// The next frame the daemon sent to acpmux (its session watch skipped).
     pub(super) fn frame(&self) -> Value {
         loop {
             let frame = self.frames.recv_timeout(WAIT).expect("a frame to acpmux");
-            if !daemon_read(&frame) {
+            if frame["method"] != json!("_acpmux/watch") {
                 return frame;
             }
         }
@@ -73,7 +73,7 @@ impl FakeAcpmux {
         let deadline = Instant::now() + Duration::from_millis(200);
         while let Some(left) = deadline.checked_duration_since(Instant::now()) {
             match self.frames.recv_timeout(left) {
-                Ok(frame) if daemon_read(&frame) => continue,
+                Ok(frame) if frame["method"] == json!("_acpmux/watch") => continue,
                 Ok(frame) => panic!("the daemon must not reach acpmux: {frame}"),
                 Err(_) => return,
             }
@@ -112,12 +112,6 @@ impl Drop for FakeAcpmux {
     }
 }
 
-/// A read the daemon makes for itself on an attach: the session watch, and
-/// the chat's mode for the attach reply's `agentMode` (`agent-session-adopt-v1`).
-fn daemon_read(frame: &Value) -> bool {
-    matches!(frame["method"].as_str(), Some("_acpmux/watch" | "_acpmux/web_modes"))
-}
-
 fn serve(stream: UnixStream, frames: Sender<Value>) {
     let mut writer = stream.try_clone().unwrap();
     for line in BufReader::new(stream).lines() {
@@ -146,11 +140,6 @@ fn serve(stream: UnixStream, frames: Sender<Value>) {
             // (agent_session_children_tests.rs).
             "_acpmux/sessions" => Some(machine_sessions()),
             "_acpmux/events" => Some(json!({"events": [], "hasMore": false, "lastSeq": 1})),
-            // The attached chat asks before acting (its mode is its family's asking default).
-            "_acpmux/web_modes" => Some(json!({
-                "families": {"claude": ["default"]},
-                "session": {"sessionId": params["sessionId"], "family": "claude", "mode": "default"},
-            })),
             "_acpmux/permission_respond" => Some(json!({})),
             // `acpmux.transfer.v1` with the guarded receive (agent_transfer_tests.rs).
             method if method.starts_with("_acpmux/transfer_") => transfer_reply(method, params),

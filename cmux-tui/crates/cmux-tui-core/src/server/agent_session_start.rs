@@ -521,9 +521,8 @@ pub(super) fn asks(table: &Value) -> (bool, Option<String>) {
 }
 
 /// `session`'s mode in a `_acpmux/web_modes {sessionId}` answer, as the adopt
-/// reply, the attach reply's `agentMode` and `agent-session-mode` carry it:
-/// its family, its mode and whether it asks before acting ([`asks`]); the app
-/// shows `asking: false` as the bypass badge.
+/// reply carries it: its family, its mode and whether it asks before acting
+/// ([`asks`]); the app shows `asking: false` as the bypass badge.
 fn mode_facts(session: &str, table: &Value) -> Value {
     let (asking, _) = asks(table);
     json!({
@@ -542,45 +541,6 @@ pub(super) fn checked_mode(session: &str, table: &Value) -> Result<Value, Refusa
         return Err(Refusal::UnknownSession);
     }
     Ok(mode_facts(session, table))
-}
-
-/// [`checked_mode`] of the session acpmux knows by the id `session`, read on
-/// `link`, keyed by `record` (the value the tab's record holds, that id or the
-/// session's full name), as the app files it.
-pub(super) fn read_mode(link: &AcpmuxLink, session: &str, record: &str) -> Result<Value, Refusal> {
-    let table = link
-        .call("_acpmux/web_modes", json!({"sessionId": session}), CALL_TIMEOUT)
-        .map_err(Refusal::of)?;
-    let mut facts = checked_mode(session, &table)?;
-    facts["session"] = json!(record);
-    Ok(facts)
-}
-
-/// The mode of the chat a tab's record names, read on `link`. The record holds
-/// the session's id or its full name (attach accepts either, never a prefix);
-/// the facts carry the record's value as `session`, the key the app files the
-/// bypass badge under. A record acpmux resolves to another session (a prefix,
-/// or a name that now belongs to no chat) is `agent_session.unknown_session`.
-pub(super) fn read_record_mode(link: &AcpmuxLink, record: &str) -> Result<Value, Refusal> {
-    let table = link
-        .call("_acpmux/web_modes", json!({"sessionId": record}), CALL_TIMEOUT)
-        .map_err(Refusal::of)?;
-    let resolved = table
-        .pointer("/session/sessionId")
-        .and_then(Value::as_str)
-        .ok_or(Refusal::UnknownSession)?;
-    if resolved != record {
-        let listed = link.call("_acpmux/sessions", json!({}), CALL_TIMEOUT).map_err(Refusal::of)?;
-        let list = listed.get("sessions").unwrap_or(&listed).as_array();
-        let named = list.into_iter().flatten().any(|summary| {
-            summary.get("sessionId").and_then(Value::as_str) == Some(resolved)
-                && summary.get("name").and_then(Value::as_str) == Some(record)
-        });
-        if !named {
-            return Err(Refusal::UnknownSession);
-        }
-    }
-    Ok(mode_facts(record, &table))
 }
 
 /// A Home Chief session (acpmux `hub/route_switch.rs` is_chief, the app's

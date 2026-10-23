@@ -9333,32 +9333,6 @@ Starts and adopts share the per-daemon and per-tab limit
 (`agent_session.limit`). Trust is the attach verbs': trusted local (Unix)
 connections only.
 
-The same capability makes the mode readable afterwards, so the badge follows
-the chat and never rests on what one app remembers:
-
-- `{id, cmd:"agent-session-mode", surface}` answers `{surface, session,
-  family, mode, asking}` for the session the tab's record names, read from
-  this machine's `_acpmux/web_modes` (`agent_session.unknown_tab` for a tab
-  with no session, `agent_session.unknown_session` when acpmux no longer knows
-  that exact session id or full name, as attach accepts it, never a prefix;
-  `agent_session.limit` past 8 reads at once). `session` is the record's
-  value (the id or the name), the key the app files the badge under; the
-  attach reply and the pushes use the same key.
-  Read-only; the app reads each bound tab it lists once per connect. Adopt
-  checks the same way that acpmux still knows the session.
-- An `agent-session-attach` reply carries `agentMode: {session, family, mode,
-  asking}` when acpmux answers `_acpmux/web_modes`, a repeat attach on the
-  same connection too.
-- An attach with `mode_events: true` also pushes `{event:
-  "agent-session-mode", surface, mode: {session, family, mode, asking}}`
-  after the mode changes: a mode a client set (`_acpmux/session_changed`
-  kind `mode` or `config`) or one the agent changed itself (a harness
-  `current_mode_update` or `config_option_update` record). When the attach's
-  `kinds` leave those records out (`transcript` does), the daemon subscribes
-  to them anyway and keeps them out of the client's page and stream (a page
-  with more before it that holds nothing else keeps them, so the client can
-  page on). Reads run one at a time, so the last push is the newest mode.
-
 ### agent-session-trust
 
 `agent-session-trust-v1`: `{id, cmd:"agent-session-trust", surface, cwd, level?}`

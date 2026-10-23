@@ -167,15 +167,6 @@ struct Attachment {
     permissions: Mutex<VecDeque<String>>,
     /// Prompt ids waiting for `_acpmux/prompt_accepted`, with their reply slot.
     prompts: Mutex<HashMap<String, std::sync::mpsc::SyncSender<Value>>>,
-    /// The attach asked for `agent-session-mode` pushes (`mode_events`).
-    mode_events: bool,
-    /// The mode record kinds acpmux streams only for the daemon's mode pushes
-    /// ([`stream::hidden_mode_kinds`]); set again by a re-attach.
-    hidden_kinds: Mutex<Vec<&'static str>>,
-    /// A mode read runs on a worker thread, and whether another change came
-    /// since it began (it reads again): one reader at a time, in order.
-    mode_reading: AtomicBool,
-    mode_again: AtomicBool,
     /// The session's descendants this attachment follows
     /// (`agent-session-children-v1`): their changes are streamed too.
     children: Mutex<HashSet<String>>,
@@ -249,11 +240,6 @@ struct PageParams {
     limit: Option<u64>,
     #[serde(default)]
     kinds: Option<Vec<String>>,
-    /// Attach only: the attachment also pushes `agent-session-mode` when the
-    /// chat's mode changes (an app that reads it asks; any other client would
-    /// not know the event).
-    #[serde(default)]
-    mode_events: bool,
 }
 
 enum AgentSessionCommand {
@@ -480,9 +466,6 @@ pub(super) fn try_handle(
     if cmd == "agent-session-adopt" {
         return Some(adopt(mux, client, id, object, writer));
     }
-    if cmd == "agent-session-mode" {
-        return Some(mode(mux, client, id, object, writer));
-    }
     let Some(command) = AgentSessionCommand::parse(&cmd, Value::Object(object)) else {
         return Some(refuse(writer, id, Refusal::BadRequest));
     };
@@ -555,26 +538,6 @@ fn adopt(
     agent_session_adopt::adopt(mux, client, id, socket, params, writer)
 }
 
-/// `agent-session-mode` (agent_session_adopt.rs), with the attach verbs' checks.
-fn mode(
-    mux: &Arc<Mux>,
-    client: u64,
-    id: Option<Value>,
-    params: serde_json::Map<String, Value>,
-    writer: &MessageWriter,
-) -> bool {
-    let Ok(params) = serde_json::from_value(Value::Object(params)) else {
-        return refuse(writer, id, Refusal::BadRequest);
-    };
-    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
-        return refuse(writer, id, Refusal::NotTrusted);
-    }
-    let Some(socket) = mux.control_clients.agent_sessions.socket() else {
-        return refuse(writer, id, Refusal::Unavailable);
-    };
-    agent_session_adopt::mode(mux, id, socket, params, writer)
-}
-
 /// `agent-session-trust` (agent_session_trust.rs), with the same checks.
 fn trust(
     mux: &Arc<Mux>,
@@ -627,13 +590,8 @@ fn tab_session(mux: &Mux, surface: SurfaceId) -> Option<String> {
 }
 
 /// acpmux page params from the client's, with the session pinned and the
-/// limit and kinds bounded; an attach also subscribes to `hidden` kinds.
-fn page_params(
-    session: &str,
-    params: &PageParams,
-    attach: bool,
-    hidden: &[&'static str],
-) -> Result<Value, Refusal> {
+/// limit and kinds bounded.
+fn page_params(session: &str, params: &PageParams, attach: bool) -> Result<Value, Refusal> {
     let mut out =
         json!({"sessionId": session, "limit": params.limit.unwrap_or(200).clamp(1, MAX_PAGE)});
     if let Some(after) = params.after_seq {
@@ -650,10 +608,6 @@ fn page_params(
             });
         if !valid {
             return Err(Refusal::BadRequest);
-        }
-        let mut kinds = kinds.clone();
-        if attach {
-            kinds.extend(hidden.iter().map(|kind| kind.to_string()));
         }
         out.insert("kinds", json!(kinds));
     }
@@ -684,8 +638,7 @@ fn attach(
         return refuse(writer, id, Refusal::UnknownTab);
     };
     let record_session = session.clone();
-    let hidden_kinds = stream::hidden_mode_kinds(params.kinds.as_deref(), params.mode_events);
-    let acpmux_params = match page_params(&session, &params, true, &hidden_kinds) {
+    let acpmux_params = match page_params(&session, &params, true) {
         Ok(value) => value,
         Err(refusal) => return refuse(writer, id, refusal),
     };
@@ -704,7 +657,6 @@ fn attach(
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let surface = params.surface;
-    let mode_events = params.mode_events;
     let spawned = std::thread::Builder::new()
         .name("mux-agent-attach".into())
         .stack_size(THREAD_STACK_BYTES)
@@ -718,8 +670,6 @@ fn attach(
                 record_session,
                 acpmux_params,
                 read_only,
-                mode_events,
-                hidden_kinds,
                 worker_writer,
             );
         });
@@ -778,7 +728,7 @@ impl ReaderSlot {
 #[path = "agent_session_stream.rs"]
 mod stream;
 pub(crate) use stream::bound_page;
-use stream::{connect_and_attach, strip_kinds};
+use stream::connect_and_attach;
 
 /// Runs a call that waits on acpmux off the connection thread. Calls of one
 /// attachment may run side by side; the link bounds how many wait.
@@ -845,26 +795,13 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
     match command {
         AgentSessionCommand::Attach(params) => {
             let newest_first = params.after_seq.is_none() || params.before_seq.is_some();
-            // The re-attach replaces the link's subscription (and its kinds).
-            let hidden = stream::hidden_mode_kinds(params.kinds.as_deref(), attachment.mode_events);
-            let params = page_params(session, &params, true, &hidden)?;
-            *attachment.hidden_kinds.lock().unwrap_or_else(|e| e.into_inner()) = hidden.clone();
+            let params = page_params(session, &params, true)?;
             let page = attachment.link.call("_acpmux/attach", params, CALL_TIMEOUT);
-            let mut page =
-                strip_kinds(bound_page(page.map_err(Refusal::of)?, newest_first), &hidden);
-            // As the first attach's reply: the chat's mode, for the bypass badge.
-            if let Ok(facts) = agent_session_start::read_mode(
-                &attachment.link,
-                session,
-                &attachment.record_session,
-            ) {
-                page["agentMode"] = facts;
-            }
-            Ok(page)
+            page.map(|page| bound_page(page, newest_first)).map_err(Refusal::of)
         }
         AgentSessionCommand::Events(params) => {
             let newest_first = params.before_seq.is_some();
-            let params = page_params(session, &params, false, &[])?;
+            let params = page_params(session, &params, false)?;
             let page = attachment.link.call("_acpmux/events", params, CALL_TIMEOUT);
             page.map(|page| bound_page(page, newest_first)).map_err(Refusal::of)
         }
