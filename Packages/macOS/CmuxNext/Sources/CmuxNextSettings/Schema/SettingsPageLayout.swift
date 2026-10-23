@@ -232,8 +232,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
             actions: [.home], aliases: [.home]),
         CategorySpec(
             id: "accounts", title: section(.accounts), symbol: "person.crop.circle",
-            // Phone access sits beside the account it signs in with and the machines list.
-            groups: [group("settings.group.phone"), group("settings.group.messagesServer")],
+            // Phone access sits beside the account it signs in with and the machines list. The
+            // Machines card draws Machine Colors on its rows (a color well per machine).
+            groups: [group("settings.group.phone"), group("settings.group.messagesServer"), group("settings.group.machineColors")],
             lead: [.accounts, .machines], actions: [.accounts, .machines], aliases: [.accounts, .machines]),
         // Phones reaching this Mac: the iPhone host's switch, then its live status and phones.
         CategorySpec(

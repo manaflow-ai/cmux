@@ -78,6 +78,10 @@ while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
 shift
 host=$1
 script=$2
+# acpmux runs every remote script as `exec /bin/sh -c '<script>'` (hosts.rs ssh_argv).
+case "$script" in "exec /bin/sh -c '"*)
+  script=$(printf '%s\n' "$script" | sed -e "1s|^exec /bin/sh -c '||" -e "\$s|'\$||" -e "s|'\\\\''|'|g");;
+esac
 case "$host" in *unreachable*)
   echo "ssh: connect to host $host port 22: Connection refused" >&2
   exit 255;;

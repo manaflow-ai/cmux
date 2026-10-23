@@ -45,7 +45,7 @@ const made = sessionSummary(local.rows);
 const TRANSCRIPT = [
   "Make the Inspector glass, and its cards bordered with no fill.",
   "The panel paints the chat's page color, so nothing behind it shows. I'll give it the shared glass and drop the cards' fill.",
-  '<aside className="ui-glass acpmux-chat-inspector">\n  {sections}\n</aside>',
+  '<aside className="ui-glass ui-glass-floats acpmux-chat-inspector">\n  {sections}\n</aside>',
   "Check it over a long transcript in light and dark.",
   "Over the transcript the text frosts under the panel and the cards keep only their hairline.",
   "export const tries = 3;\nexport const backoff = 200;\nexport async function retry() {}",

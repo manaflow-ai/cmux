@@ -1,38 +1,5 @@
 import Foundation
 
-/// One `turn.end` of the trace.
-nonisolated struct HomeEngineTurn: Equatable, Sendable {
-    var harness: String
-    var model: String?
-    var seconds: Double
-    var tools: Int
-    var toolErrors: Int
-    var hitRate: Double?
-    var cost: Double?
-    /// The reply's first characters (the trace keeps no more).
-    var reply: String?
-
-    init?(line: String) {
-        guard let data = line.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              object["ev"] as? String == "turn.end" else { return nil }
-        harness = object["harness"] as? String ?? "?"
-        model = object["model"] as? String
-        seconds = (object["ms"] as? Double ?? 0) / 1000
-        tools = object["tools"] as? Int ?? 0
-        toolErrors = object["tool_errors"] as? Int ?? 0
-        cost = object["cost_usd"] as? Double
-        reply = (object["reply"] as? [String: Any])?["prefix"] as? String
-        if let usage = object["usage"] as? [String: Any] {
-            let read = usage["cache_read"] as? Double ?? 0
-            let total = read + (usage["cache_write"] as? Double ?? 0) + (usage["input"] as? Double ?? 0)
-            hitRate = total > 0 ? read / total : nil
-        } else {
-            hitRate = nil
-        }
-    }
-}
-
 public nonisolated enum HomeEngineStrings {
     static var title: String { String(localized: "home.engine.title", defaultValue: "Chief Settings", table: "Home", bundle: .module) }
     public static var pillHelp: String { String(localized: "home.engine.pillHelp", defaultValue: "Shows or hides this Chief's settings", table: "Home", bundle: .module) }

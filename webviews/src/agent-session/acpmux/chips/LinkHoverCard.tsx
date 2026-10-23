@@ -82,7 +82,11 @@ export function LinkHoverCard({
     <AnchoredCard
       id={id}
       anchor={hover.open ? anchor : null}
-      className={pullRequest ? "ui-glass cv-link-preview acpmux-pr-card" : "ui-glass cv-link-preview"}
+      className={
+        pullRequest
+          ? "ui-glass ui-glass-floats cv-link-preview acpmux-pr-card"
+          : "ui-glass ui-glass-floats cv-link-preview"
+      }
       side={side}
       interactive
       // A pull request's page title only repeats its own title: the card is named by its reference.

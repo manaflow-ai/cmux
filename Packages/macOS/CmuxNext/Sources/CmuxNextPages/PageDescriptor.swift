@@ -165,6 +165,8 @@ public extension PageDescriptor {
                   "reloadConfiguration",
                   // Machines > Add Server… opens the Add Server card (no code: the page never approves).
                   "server.addServer",
+                  // Machines > Add Device… opens the one Add Device card (add-device-DESIGN.md).
+                  "device.add",
                   // Agents > Computer Use card (ComputerUseSetup).
                   "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
                   // Settings › Import's cards (CmuxNextImportCards): a card's button, and Import from Browser.
