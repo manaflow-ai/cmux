@@ -19,7 +19,7 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
   // never answers its launch (Chromium starts there in 300 ms). The default made the runner kill the
   // file before its skip could run (TIMEOUT on aws-m4pro-3 and -6, 2026-10-22). Where the lane is
   // required (GitHub Actions), a WebKit that does not launch fails the file instead (probeEngineOrSkip).
-  if (!(await probeEngineOrSkip("thread minimap motion", "webkit", () => webkit.launch({ headless: true, timeout: 30_000 }))))
+  if (!(await probeEngineOrSkip("thread minimap motion", "webkit", webkit)))
     return;
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");

@@ -34,8 +34,11 @@ export function browserLaneRequired(env: Record<string, string | undefined> = pr
   return env.GITHUB_ACTIONS === "true";
 }
 
+/** The bounded launch options used by every browser file's engine probe. */
+export type BrowserLaunchOptions = { headless: true; timeout: 30_000 };
+
 /** What a browser file's engine probe launches: an engine's `launch`, the Browser it gives closed after. */
-type Launch = () => Promise<{ close(): Promise<void> }>;
+type BrowserEngine = { launch(options: BrowserLaunchOptions): Promise<{ close(): Promise<void> }> };
 
 /**
  * A browser file's own engine probe (its first launch, inside requireBrowserLane's callback). It
@@ -43,17 +46,17 @@ type Launch = () => Promise<{ close(): Promise<void> }>;
  * a browser that still does not close rejects, never skips). When it fails, where the lane is
  * required (browserLaneRequired) it rejects, naming the launch error, so the file fails rather
  * than reporting tests that never ran (#24458 review); elsewhere it reports why, registers the
- * file's skip and resolves false, and the file registers nothing more. A file probes through
- * this, never with its own describe.skip (test/browser-lane-required.test.ts checks the files).
+ * file's skip and resolves false, and the file registers nothing more. A file probes through this,
+ * never with its own describe.skip.
  */
 export async function probeEngineOrSkip(
   name: string,
-  engine: string,
-  launch: Launch,
+  engineName: string,
+  engine: BrowserEngine,
   {
     env = process.env,
     report = console.warn,
-    skip = (suite) => describe.skip(suite, () => test(engine, () => {})),
+    skip = (suite) => describe.skip(suite, () => test(engineName, () => {})),
   }: {
     env?: Record<string, string | undefined>;
     report?: (message: string) => void;
@@ -61,13 +64,13 @@ export async function probeEngineOrSkip(
   } = {},
 ): Promise<boolean> {
   const why = (error: unknown) => String(error).split("\n")[0];
-  let browser: Awaited<ReturnType<Launch>>;
+  let browser: Awaited<ReturnType<BrowserEngine["launch"]>>;
   try {
-    browser = await launch();
+    browser = await engine.launch({ headless: true, timeout: 30_000 });
   } catch (error) {
     if (browserLaneRequired(env))
-      throw new Error(`${name}: ${engine} did not launch (${why(error)}), and the browser lane is required here`);
-    report(`${name}: skipping, ${engine} did not launch here (${why(error)}); run \`bunx playwright install ${engine}\` if it is missing`);
+      throw new Error(`${name}: ${engineName} did not launch (${why(error)}), and the browser lane is required here`);
+    report(`${name}: skipping, ${engineName} did not launch here (${why(error)}); run \`bunx playwright install ${engineName}\` if it is missing`);
     skip(name);
     return false;
   }
@@ -80,7 +83,7 @@ export async function probeEngineOrSkip(
     try {
       await browser.close();
     } catch (error) {
-      throw new Error(`${name}: ${engine} launched but did not close (${why(error)})`);
+      throw new Error(`${name}: ${engineName} launched but did not close (${why(error)})`);
     }
   }
   return true;
