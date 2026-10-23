@@ -288,14 +288,19 @@ struct AgentPageProviderEventsTests {
 
         #expect(provider.publish(Self.command("same")))
         #expect(dropped.count == 2)
+        let firstPublicationDrops = dropped
+        dropped.removeAll()
+        #expect(provider.publish(Self.command("same")))
+        #expect(dropped.count == 2)
+        let secondPublicationDrops = dropped
         router.close()
-        dropped.forEach { $0() }
+        (firstPublicationDrops + secondPublicationDrops).forEach { $0() }
 
         let nextPage = Received()
         let next = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null,
                                                 context: Self.context) { event in nextPage.append(event) }
         defer { next.cancel() }
-        await nextPage.waitFor(2)
-        #expect(Self.names(nextPage.events) == ["initial", "same"])
+        await nextPage.waitFor(3)
+        #expect(Self.names(nextPage.events) == ["initial", "same", "same"])
     }
 }
