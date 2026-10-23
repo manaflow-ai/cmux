@@ -33,9 +33,7 @@ enum SidebarSectionHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let layout = context.services.sidebarLayout
         let services = context.services
-        ChiefSidebar.shared.bind(into: registry, host: .init(conversation: { TopHomePageView.chief(services.home) }, chiefHost: { services.agentTabs.chiefHost },
-            tab: { services.agentTabs.tab(showing: $0, host: $1) }, reveal: { services.revealTab($0) },
-            openWorkspace: { try AgentSessionWorkspace.open(session: $0, name: nil, cwd: nil, host: $1, services: services) }))
+        ChiefSidebar.shared.bind(into: registry, host: .app(services))
         SettingsAppFeatures.sidebarItems = storeItems(chief: SettingsAppFeatures.sidebarItems, document: { layout.document }, registry: registry)
         // Item adds and removes are undo steps (P4) through the one pin path,
         // named as the menu showed them.
@@ -93,6 +91,8 @@ enum SidebarSectionHandlers {
             guard let builtIn = SidebarBuiltIn(rawValue: name) else { throw ActionFailure(message: SidebarSectionStrings.noSuchItem) }
             // Home and the App Store are apps now (R63/R64).
             let ref = SidebarLayoutDocument.firstPartyApps[builtIn].map(LayoutItemRef.app) ?? LayoutItemRef.builtIn(builtIn)
+            // One Chief: one placed already, drawn before its echo too (a second quick drag in, Get in another window), is kept.
+            if ref == .builtIn(.chief), SidebarDocStore.current?.placesItem(with: ref) == true { return nil }
             if let sectionName = invocation["section"]?.stringValue, !sectionName.isEmpty {
                 let section = try SidebarSectionResolve.section(sectionName, in: doc)
                 return .itemAdd(LayoutItem(id: .mint(), ref: ref), section: section.id, index: Int.max)
@@ -261,14 +261,17 @@ enum SidebarSectionResolve {
         }
     }
 
-    /// By item id, else by built-in name (`home`).
+    /// By item id, else by built-in name (`home`). The bands' layout first, then the sidebar document at any
+    /// depth (`placed`): a Chief moved into a group or a machine list is no band item.
     static func item(_ target: ActionTargetRef?, in doc: SidebarLayoutDocument) throws -> LayoutItem {
         guard let target, target.kind == .sidebarItem else { throw ActionFailure(message: SidebarSectionStrings.noSuchItem) }
-        if let item = doc.item(LayoutItemID(target.id)) { return item }
+        let placed = SidebarDocStore.current.flatMap { $0.isActive ? $0 : nil }
+        let id = LayoutItemID(target.id)
+        if let item = doc.item(id) ?? placed?.placedItem(id) { return item }
         if let builtIn = SidebarBuiltIn(rawValue: target.id) {
             // Home and the App Store are app items now (R63/R64); their names still name them.
             let ref = SidebarLayoutDocument.firstPartyApps[builtIn].map(LayoutItemRef.app) ?? .builtIn(builtIn)
-            if let item = doc.firstItem(with: ref) { return item }
+            if let item = doc.firstItem(with: ref) ?? placed?.placedItem(with: ref) { return item }
         }
         throw ActionFailure(message: SidebarSectionStrings.noSuchItem)
     }

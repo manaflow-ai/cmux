@@ -180,9 +180,41 @@ extension SidebarModel {
         }
         return nil
     }
+
+    /// The built-ins the list draws as rows (in a group or a machine list), as layout items the App
+    /// describes with their band look (`itemInfo`).
+    public var listedBuiltIns: [LayoutItem] {
+        sections.flatMap { $0.nodes.flatMap(\.listedItems) }.filter { $0.ref.builtIn != nil }
+            .map { LayoutItem(id: LayoutItemID($0.id), ref: $0.ref, label: $0.title) }
+    }
 }
 
 extension SidebarDocStore {
+    /// The document's item `id` at any depth (in a group or a machine section too), as a layout item.
+    public func placedItem(_ id: LayoutItemID) -> LayoutItem? {
+        drawnRecords.items[id.rawValue].map { LayoutItem(id: id, ref: SidebarDocProjection.ref($0.body, id: $0.id)) }
+    }
+
+    /// Whether the document as the sidebar draws it (the confirmed document and the changes not yet echoed, the
+    /// mirror's rows with no group folded) holds an item showing `ref` at any depth (a band, a group, a machine list).
+    /// Every window draws from this one document, whatever its own membership leaves out. Observable: an intent
+    /// moves `version`, a batch `records` too. One mirror call per change.
+    public func placesItem(with ref: LayoutItemRef) -> Bool {
+        _ = version
+        guard let rows = rows(SidebarViewRequest(live: Array(lastLive))) else { return false }
+        return rows.contains { row in
+            guard let id = row.item else { return false }
+            return (records.items[id] ?? mirror?.added[id]).map { SidebarDocProjection.ref($0.body, id: id) } == ref
+        }
+    }
+
+    /// The first document item (by id) showing `ref` at any depth, as a layout item.
+    public func placedItem(with ref: LayoutItemRef) -> LayoutItem? {
+        drawnRecords.items.values.sorted { $0.id < $1.id }.lazy
+            .first { SidebarDocProjection.ref($0.body, id: $0.id) == ref }
+            .map { LayoutItem(id: LayoutItemID($0.id), ref: ref) }
+    }
+
     /// Stores the page icon address `known` gives for each url item (an open
     /// tab's favicon, learned by the App's favicon store) on the item, once
     /// per address: `item.update {patch: {icon_url}}`, no undo step.

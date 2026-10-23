@@ -108,6 +108,7 @@ final class TopHomePageView: NSView {
         }
         let home = services.home
         let registry = services.registry
+        wireChiefDrag(services: services)
         // Mark as Read: the user's unread mark goes, and the read cursor moves to the newest message.
         list.onMarkRead = { id in
             sidebar.setMarkedUnread(false, id)
@@ -267,11 +268,6 @@ final class TopHomePageView: NSView {
     private func defaultConversation(rows: [InboxRow], home: HomeService) -> ConversationID? {
         if let chief = Self.chief(home) { return ConversationID(chief) }
         return rows.homeLines.lazy.compactMap(\.conversation).first
-    }
-
-    static func chief(_ home: HomeService) -> String? {
-        let local = HomeChiefName.select(from: home.conversations)
-        return home.tabChiefs.chiefTab(local: local?.id, localHasHistory: (local?.lastSeq ?? 0) > 0, choice: home.hostedChief.choice)
     }
 
     /// The shown conversation is one the owner's own inbox does not have:

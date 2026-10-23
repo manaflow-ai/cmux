@@ -9,16 +9,20 @@ import Observation
 /// item (`ChiefSidebar`). No Lanes item (Lawrence 2026-10-20). What's New never shows here: after an
 /// update it is only the bottom-left "cmux Updated!" card (Lawrence 2026-10-18).
 extension SidebarModel {
-    /// Keeps `transientTopItems` current until cancelled.
-    public func followTopItems(chief: ChiefSidebar = .shared) -> Task<Void, Never> {
+    /// Keeps `transientTopItems` current until cancelled. `document`: the sidebar document every window draws from.
+    public func followTopItems(chief: ChiefSidebar = .shared,
+                               document: @escaping @MainActor @Sendable () -> SidebarDocStore? = { SidebarDocStore.current }) -> Task<Void, Never> {
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         Task { [weak self] in
             for await (items, placed) in ObservationStream({ [weak self] in
-                (Self.topItems(chief: chief), self?.layout.firstItem(with: .builtIn(.chief)) != nil)
+                // Placed in a band, or anywhere in the sidebar document (a group or a machine list): never this window's
+                // rows, which its workspace membership filters, so every window's feed tells the same.
+                (Self.topItems(chief: chief), self.map { $0.layout.firstItem(with: .builtIn(.chief)) != nil } == true
+                    || document()?.placesItem(with: .builtIn(.chief)) == true)
             }) {
                 guard let self else { return }
                 if transientTopItems != items { transientTopItems = items }
-                if chief.isPlaced != placed { chief.isPlaced = placed } // the layout is every window's, so any window's feed tells
+                if chief.isPlaced != placed { chief.isPlaced = placed }
             }
         }
     }
