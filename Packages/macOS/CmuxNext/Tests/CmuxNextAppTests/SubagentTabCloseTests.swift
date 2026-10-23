@@ -32,9 +32,16 @@ struct SubagentTabCloseTests {
 
     @Test(arguments: Layout.allCases)
     func aSubagentTabClosesWithItsX(_ layout: Layout) async throws {
-        TunableStore.shared.set(MainPaneLayout.debugOverride.key, (layout == .split ? MainPaneOverride.off : .on).tunableValue)
-        defer { TunableStore.shared.set(MainPaneLayout.debugOverride.key, nil) }
+        // The Debug override applies only once the store is on and knows the key (a fresh suite
+        // process has neither); the set is required, so a refused one fails here, not silently.
+        let tunables = TunableStore.shared, overrideKey = MainPaneLayout.debugOverride.key
+        tunables.activate(file: nil)
+        tunables.register([MainPaneLayout.debugOverride.descriptor])
+        let prior = tunables.override(overrideKey)
+        defer { tunables.set(overrideKey, prior) }
+        try #require(tunables.set(overrideKey, (layout == .split ? MainPaneOverride.off : .on).tunableValue) != nil, "the main pane override was refused")
         try await PinnedPageTests.withApp { services, connection in
+            #expect(MainPaneLayout.isOn(services: services) == (layout != .split), "main pane layout is not as the case needs")
             let store = services.daemon.store
             let tabs = services.agentTabs
             tabs.localHost = AgentSessionRef.host(installID: "cn-subagent-tab-close")
@@ -67,6 +74,9 @@ struct SubagentTabCloseTests {
             try #require(opened, "the subagent pane did not open")
             try await PinnedPageTests.until({ moved != nil }, within: .seconds(30), report: { Self.describe(services) })
             let key = try #require(created.map(tabs.resolve))
+            // The case ran its own placement: the chat docked left, or (main pane layout off) a plain split.
+            let docks = services.windows.active?.workspaceContent?.workspace.screens.contains { $0.columns.contains { $0.dock != nil } }
+            #expect(docks == (layout != .split), "the subagent pane opened in the wrong layout: \(Self.describe(services))")
             let (_, pane) = try #require(services.locateTab(key), "the subagent tab is gone: \(Self.describe(services))")
             let controller = try #require(services.paneController(for: pane), "no pane shows the subagent tab: \(Self.describe(services))")
             let id = StripTabID(key)
