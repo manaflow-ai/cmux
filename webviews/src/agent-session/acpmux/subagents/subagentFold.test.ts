@@ -211,3 +211,43 @@ test("the agentId is the last one a result names, after a report that mentions a
   );
   expect(agentIdIn("no id here")).toBeUndefined();
 });
+
+test("replay keeps an echoed native root out of direct collaboration siblings", () => {
+  const fold = new SubagentFold();
+  // The session summary seeds this in production; the optional call keeps this fixture red on
+  // the pre-fix fold, where replay has no native-root identity at all.
+  (fold as any).setRoot?.("root-native");
+  const replay = (update: any, acpmux: Record<string, unknown>, senderThreadId: string) => {
+    seq += 1;
+    const msg = {
+      method: "session/update",
+      params: {
+        update,
+        _meta: {
+          acpmux,
+          codex: { collaboration: { tool: "spawnAgent", senderThreadId } },
+        },
+      },
+    };
+    return fold.reduce({ seq, at: seq * 1000, msg }, update);
+  };
+
+  // Persisted acpmux output had already attached both direct children to the native root. The
+  // root itself was also echoed as if review had spawned it, which is the phantom middle row.
+  replay(
+    { sessionUpdate: "subagent_spawned" },
+    { subagents: [{ id: "review", parent: "root-native" }] },
+    "root-native",
+  );
+  replay(
+    { sessionUpdate: "subagent_spawned" },
+    { subagent: "review", subagents: [{ id: "root-native", parent: "review" }] },
+    "root-native",
+  );
+  replay({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "prior", parent: "root-native" }] }, "root-native");
+
+  expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([
+    ["review", null],
+    ["prior", null],
+  ]);
+});
