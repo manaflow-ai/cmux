@@ -13,11 +13,17 @@
 //
 // Stop conditions: the window and scroll listeners are added on a gutter press and removed on
 // mouseup, on a move with the button up (released outside the page), on window blur, and when the
-// transcript unmounts; the frame request is cancelled with them. One caret hit test per animation
+// transcript unmounts; the frame request is cancelled with them. A selection the drag left keeps its
+// two end rows mounted (at most two) through one `selectionchange` listener, removed when the
+// selection is cleared or no longer starts in its row, on the next margin press, or on unmount. One caret hit test per animation
 // frame while the drag lasts, nothing per row. Edge scrolling repeats only while the pointer stays
 // above or below the view during the drag, and stops at the view's end.
 
 import { swallowsPress } from "../menuPressGuard";
+
+/// A row kept mounted while a drag's selection starts in it: its id, and its index in the rows when
+/// the drag started (read from the row's `aria-posinset`, so holding it walks no rows).
+export type HeldRow = { id: string; index: number };
 
 /// The column's left and right edges, and the view's box, in client coordinates.
 export type GutterGeometry = {
@@ -107,11 +113,16 @@ function measure(scroller: HTMLElement, thread: HTMLElement): GutterGeometry | u
 /// Installs gutter drag-to-select on the transcript's scroller. `thread` holds the rows; the
 /// selection's ends always lie inside it. `onReaderScroll` is told of each step the drag scrolls the
 /// view by, so the transcript takes it as the reader's own scroll (it stops following the latest
-/// message) and does not pull the view back. Returns the uninstaller.
+/// message) and does not pull the view back. `hold` keeps rows mounted that the transcript would
+/// otherwise unmount as the view moves (it virtualizes rows, and a selection whose end unmounts
+/// loses it): the row the selection starts in from the drag's first move, then both end rows once the
+/// button lifts, until the selection is cleared or no longer starts there. It is called when the drag
+/// starts, when it ends and when the selection lets go, never per move. Returns the uninstaller.
 export function installGutterSelect(
   scroller: HTMLElement,
   thread: HTMLElement,
   onReaderScroll: () => void = () => {},
+  hold: (rows: HeldRow[] | undefined) => void = () => {},
 ): () => void {
   const doc = scroller.ownerDocument;
   const win = doc.defaultView ?? window;
@@ -126,6 +137,8 @@ export function installGutterSelect(
   };
   let drag: Drag | undefined;
   let frame = 0;
+  /// Rows are held (`hold`) for the drag, or for the selection it left: the row its start lies in.
+  let held: { row: HTMLElement } | undefined;
   const inThread = (caret: Caret | undefined): caret is Caret => caret != null && thread.contains(caret.node);
   const extend = (current: Drag) => {
     const point = clampIntoColumn(current.x, current.y, current.geometry);
@@ -152,8 +165,30 @@ export function installGutterSelect(
   const onScroll = () => {
     if (drag?.selecting && !frame) frame = win.requestAnimationFrame(tick);
   };
+  /// Lets the held rows go: the selection was cleared, moved, or another press began.
+  const release = () => {
+    doc.removeEventListener("selectionchange", onSelectionChange);
+    if (!held) return;
+    held = undefined;
+    hold(undefined);
+  };
+  function onSelectionChange() {
+    const selection = doc.getSelection();
+    const anchor = selection?.anchorNode;
+    if (!held || !selection || selection.isCollapsed || !anchor || !held.row.contains(anchor)) release();
+  }
+  /// Ends the drag. A selection it made keeps its end rows mounted until it lets go (`release`).
   const stop = () => {
+    const current = drag;
     drag = undefined;
+    const selection = doc.getSelection();
+    const anchorRow = held?.row;
+    if (current?.selecting && anchorRow?.isConnected && selection && !selection.isCollapsed) {
+      const focusRow = rowOf(selection.focusNode);
+      const rows = [anchorRow, ...(focusRow && focusRow !== anchorRow ? [focusRow] : [])];
+      hold(rows.map(heldRow).filter((row): row is HeldRow => row !== undefined));
+      doc.addEventListener("selectionchange", onSelectionChange);
+    } else release();
     if (frame) win.cancelAnimationFrame(frame);
     frame = 0;
     win.removeEventListener("mousemove", onMove, true);
@@ -174,6 +209,12 @@ export function installGutterSelect(
     if (!current.selecting) {
       if (!pastThreshold(current.x - current.startX, current.y - current.startY)) return;
       current.selecting = true;
+      const row = rowOf(current.anchor.node);
+      const start = row && heldRow(row);
+      if (row && start) {
+        held = { row };
+        hold([start]);
+      }
     }
     event.preventDefault();
     if (!frame) frame = win.requestAnimationFrame(tick);
@@ -211,6 +252,7 @@ export function installGutterSelect(
     const active = doc.activeElement;
     if (active instanceof HTMLElement && active !== doc.body) active.blur();
     stop();
+    release();
     drag = {
       startX: event.clientX,
       startY: event.clientY,
@@ -228,6 +270,21 @@ export function installGutterSelect(
   scroller.addEventListener("mousedown", onDown);
   return () => {
     scroller.removeEventListener("mousedown", onDown);
+    drag = undefined;
     stop();
+    release();
   };
+}
+
+/// The transcript row holding `node`.
+function rowOf(node: Node | null | undefined): HTMLElement | undefined {
+  const element = node instanceof Element ? node : node?.parentElement;
+  return element?.closest<HTMLElement>(".acpmux-row") ?? undefined;
+}
+
+/// A row to hold: its id and index, read from its own attributes (no walk of the rows).
+function heldRow(row: HTMLElement): HeldRow | undefined {
+  const index = Number(row.getAttribute("aria-posinset")) - 1;
+  const id = row.dataset.rowId;
+  return id && index >= 0 ? { id, index } : undefined;
 }

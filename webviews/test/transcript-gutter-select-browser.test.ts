@@ -209,6 +209,64 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       await page.close();
     });
 
+    test(`${name}: the selection keeps its start when the view scrolls its row far out, until it is cleared (virtualized)`, async () => {
+      const page = await browsers.get(name)!.newPage({ viewport: { width: 1280, height: 360 } });
+      await installPaintedFrames(page);
+      const { port } = vite!.httpServer!.address() as { port: number };
+      await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
+      await page.waitForFunction(() => "__showRows" in window);
+      const long = Array.from({ length: 120 }, (_, index) =>
+        row(`v${index}`, "assistant", `Entry ${index}. The keeper wrote the hour and the height of the tide.`),
+      );
+      await page.evaluate(
+        (shown) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown),
+        long,
+      );
+      await page.evaluate(async () => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        for (let left = 10; left > 0; left--) await window.cmuxPaintFrame();
+        scroller.scrollTop = 0;
+        for (let left = 6; left > 0; left--) await window.cmuxPaintFrame();
+      });
+      const top = await box(page, "v0");
+      const x = top.left / 2;
+      await page.mouse.move(x, top.top + 4);
+      await page.mouse.down();
+      await page.mouse.move(x, 200);
+      await page.evaluate(() => window.cmuxPaintFrame());
+      // The view moves many viewports down under the held drag, past the rows it keeps mounted.
+      const unmountedOnBase = await page.evaluate(async () => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        for (let step = 0; step < 12; step += 1) {
+          scroller.scrollTop += 400;
+          for (let left = 3; left > 0; left--) await window.cmuxPaintFrame();
+        }
+        return scroller.scrollTop;
+      });
+      expect(unmountedOnBase).toBeGreaterThan(3000);
+      await page.mouse.move(x, 210);
+      await page.evaluate(() => window.cmuxPaintFrame());
+      await page.mouse.up();
+      const paint = () =>
+        page.evaluate(async () => {
+          for (let left = 4; left > 0; left--) await window.cmuxPaintFrame();
+        });
+      await paint();
+      const mounted = () => page.evaluate(() => !!document.querySelector('.acpmux-row[data-row-id="v0"]'));
+      // The selection still starts at the press after the button lifts, and ends in view. (The rows
+      // between stay unmounted, as for any selection in this virtualized transcript.)
+      const text = await selected(page);
+      expect(text.startsWith("Entry 0.")).toBe(true);
+      expect(text).toMatch(/Entry 11\d\./);
+      expect(await mounted()).toBe(true);
+      // A click in the margin clears it, and the held row goes back to being virtualized.
+      await page.mouse.click(x, 210);
+      await paint();
+      expect(await selected(page)).toBe("");
+      expect(await mounted()).toBe(false);
+      await page.close();
+    });
+
     test(`${name}: a drag inside the column still selects as before`, async () => {
       const page = await open(name);
       const first = await box(page, "m1");

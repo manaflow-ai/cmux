@@ -208,7 +208,7 @@ import { IncomingMessageLine, IncomingNotice } from "./conversation/IncomingMess
 import type { IncomingMessage } from "./conversation/incomingMessage";
 import { CompactionNote, FailoverNote, PolicyUnenforcedNote } from "./conversation/CompactionNote";
 import { AgentPairNote } from "./conversation/AgentPairNote";
-import { installGutterSelect } from "./conversation/gutterSelect";
+import { installGutterSelect, type HeldRow } from "./conversation/gutterSelect";
 import { SessionStartNote } from "./conversation/SessionStartNote";
 import {
   SessionCwdContext,
@@ -1929,6 +1929,9 @@ export function VirtualTranscript({
   // because the transcript virtualizes rows and can unmount either end while the reader moves.
   const [activeRowId, setActiveRowId] = useState(rows[0]?.id);
   const [transcriptRange, setTranscriptRange] = useState<TranscriptRange | undefined>();
+  /// The end rows of a selection a drag from the margin makes (gutterSelect.ts): they stay mounted
+  /// while it lasts, so the selection keeps its ends when the view scrolls them out (at most two).
+  const [heldRows, setHeldRows] = useState<HeldRow[] | undefined>();
   const pendingFocus = useRef<string | undefined>(undefined);
   const sessionKey = sessionId ?? "";
   // Keep the key in state so a StrictMode render cannot consume the session transition before the
@@ -2392,7 +2395,12 @@ export function VirtualTranscript({
   // of building them in its own frame. A jump past them mounts only what it shows.
   const warmTop = useDeferredValue(renderScroll.top);
   const warm = visibleLayoutRange(layout, warmTop - height * WARM_VIEWPORTS, height * (1 + 2 * WARM_VIEWPORTS));
-  const mountedRanges = mergeRowRanges(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]);
+  const mountedRanges = mergeRowRanges([
+    ...(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),
+    ...(heldRows ?? [])
+      .filter(({ id, index }) => rows[index]?.id === id)
+      .map(({ index }) => ({ first: index, last: index + 1 })),
+  ]);
   // Find highlights only need repainting when the query/target, row content, or mounted DOM
   // window changes. Keep this signature primitive so scroll and layout state updates that leave
   // the mounted rows alone do not walk every text node in the transcript again.
@@ -3134,7 +3142,8 @@ export function VirtualTranscript({
     const removeWheel = node && main ? installWheelPassThrough(node, main) : undefined;
     // A drag from the empty margins either side of the column selects text (gutterSelect.ts); the
     // view it scrolls past an edge is the reader's scroll.
-    const removeGutter = node && thread.current ? installGutterSelect(node, thread.current, reader) : undefined;
+    const removeGutter =
+      node && thread.current ? installGutterSelect(node, thread.current, reader, setHeldRows) : undefined;
     return () => {
       clearTimeout(settle.current);
       for (const name of inputs) node?.removeEventListener(name, reader);
