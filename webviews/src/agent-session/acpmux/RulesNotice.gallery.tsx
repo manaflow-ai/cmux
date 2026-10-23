@@ -20,7 +20,7 @@ const rules: ForumRule[] = [
   {
     id: "r2",
     key: "ci",
-    body: "Wait for CI with glaeda-gh wait; never poll the GitHub API in a loop.",
+    body: "Wait for CI with one background wait; never poll the GitHub API in a loop.",
     author: { kind: "agent", sessionId: "s3", name: "fleet-ops" },
     created: 2,
     acks: [],
