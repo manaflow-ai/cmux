@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["crates/cmux-screen-proto", "crates/cmux-screen-host"]
+
+[workspace.package]
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2"
+getrandom = "0.2"
+base64 = "0.22"
