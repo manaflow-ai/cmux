@@ -413,6 +413,7 @@ import {
 import { experimentArm } from "../../experiments/experiment";
 import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 import { MOTION_MS } from "../../motion/scale.generated";
+import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -1277,7 +1278,7 @@ const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
 const isPromptBubbleRow = (row: AcpmuxRow) => row.kind === "user" && !row.received && !row.incoming;
 
 /// The longest a chat opened cold takes to fade in (Leo 2026-10-21: "a fast fade in").
-const CHAT_OPEN_FADE_MS = 150;
+const CHAT_OPEN_FADE_MS = 150; // motion-allow: a ceiling on the host's fade-in token (micro, 120 ms), not a duration of its own
 
 /// Fades the transcript of a chat this page opened cold in over the host's fade-in token (the
 /// motion scale's micro step without the host), at most CHAT_OPEN_FADE_MS: opacity only, so no row
@@ -1856,6 +1857,10 @@ export function VirtualTranscript({
   const jumpTarget = useRef<number | undefined>(undefined);
   // The last transcript box on this page until this one is measured (before its first paint, below).
   const [height, setHeight] = useState(() => lastTranscriptBox.height);
+  /// The scrollbar's lane (scrollers.ts SHOWN_SCROLLER_ATTRIBUTE: always there, its thumb drawn while
+  /// the chat overflows). The rows lay out across it, against the scroller's full width as the
+  /// composer does, so the column matches the composer's and nothing reflows as a chat starts to scroll.
+  const [lane, setLane] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
   /// The bottom stack's height over the view's foot: room under the last row, out of the view.
   const [dockSpace, setDockSpace] = useState(0);
@@ -2151,6 +2156,9 @@ export function VirtualTranscript({
     seekFirstRow.current = undefined;
   };
   useEffect(() => () => clearTimeout(seekTimer.current), []);
+  // Under the opt-in fade (Debug Settings agentPane.debug.scrollerFade), the scrollbar fades in and
+  // out with the scrolling marks (scrollers.ts).
+  useEffect(() => (ref.current ? followShownScrollerFade(ref.current) : undefined), []);
   // Read aloud speaks one of this chat's answers: moving to another session (or closing the
   // transcript) stops it, so it neither talks over the next chat nor says Stop reading on return.
   useEffect(() => () => stopReadingAloud(), [sessionId]);
@@ -2183,9 +2191,14 @@ export function VirtualTranscript({
     const measure = (resized: boolean) => {
       // A box not laid out yet (hidden, 0 high) keeps the last height rather than showing no rows.
       if (resized || node.clientHeight > 0) setHeight(node.clientHeight);
-      setWidth(node.clientWidth);
+      // The column's width is the scroller's with its scrollbar's lane (`lane`). Measured as the
+      // box past the content width, never below 0, so a box with no layout box (jsdom) keeps its
+      // content width.
+      const nextLane = Math.max(0, node.offsetWidth - node.clientWidth);
+      setWidth(node.clientWidth + nextLane);
+      setLane(nextLane);
       if (node.clientHeight > 0) lastTranscriptBox.height = node.clientHeight;
-      if (node.clientWidth > 0) lastTranscriptBox.width = node.clientWidth;
+      if (node.clientWidth > 0) lastTranscriptBox.width = node.clientWidth + nextLane;
     };
     // Before the frame paints: a resized pane (its tab strip showing or hiding) otherwise drew the
     // transcript at its old offset and caught up a frame later.
@@ -3283,6 +3296,9 @@ export function VirtualTranscript({
         aria-label={t("transcript.label")}
         onScroll={onScroll}
         onWheel={onWheel}
+        // Its thin scrollbar stays shown while the chat overflows, as in every agent app, and never
+        // flashes as rows arrive or the view follows them (scrollers.ts, Leo 2026-10-21).
+        {...{ [SHOWN_SCROLLER_ATTRIBUTE]: "" }}
         // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more
         // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
         data-seeking={seeking || undefined}
@@ -3312,7 +3328,10 @@ export function VirtualTranscript({
         />
         {find?.open && <ChatFindBar find={find} />}
         <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>
-          <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
+          <div
+            className="acpmux-spacer"
+            style={{ height: layout.totalHeight, width: lane > 0 ? `calc(100% + ${lane}px)` : undefined }}
+          >
             <div
               ref={thread}
               className="acpmux-thread"
