@@ -19,8 +19,9 @@ public final class GivenBackInput {
         self.now = now
     }
 
-    /// Adds `more`, then hands everything held to `target`, when there is one.
-    public func deliver(adding more: Data = Data(), to target: (@MainActor (Data) -> Void)?) {
+    /// Adds `more`, typed in `window`, then hands everything held to `target`, a terminal in
+    /// `window`, when there is one.
+    public func deliver(adding more: Data = Data(), window: String?, to target: (@MainActor (Data) -> Void)?) {
         if let since, now() - since > limit {
             bytes = Data()
             self.since = nil

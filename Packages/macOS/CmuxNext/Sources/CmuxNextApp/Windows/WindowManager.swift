@@ -30,6 +30,8 @@ final class WindowManager {
     /// Per-window state by window id, for every registered window.
     var states: [String: WindowState] = [:]
     private weak var lastActive: WindowController?
+    /// The cmux window the event in dispatch came from (`dispatching(eventFrom:_:)`).
+    var eventOrigin: EventOrigin?
     /// Called after a window is ordered in (the restart notice attaches).
     var onPresent: ((WindowController) -> Void)?
     /// Writes the window records (WindowRecordSaver).
@@ -107,7 +109,7 @@ final class WindowManager {
     }
 
     /// The registry's recency (the window order, saved as `WindowRecord.order`) follows each order and key change.
-    private func windowDidOrder(_ window: NSWindow, inFront: Bool) {
+    func windowDidOrder(_ window: NSWindow, inFront: Bool) {
         guard !keepsOrder, let id = controllers.first(where: { $0.window === window })?.state.id else { return }
         registry.apply { if inFront { $0.activate(id) } else { $0.moveToBack(id) }; return WindowRegistry.Changes() }
     }

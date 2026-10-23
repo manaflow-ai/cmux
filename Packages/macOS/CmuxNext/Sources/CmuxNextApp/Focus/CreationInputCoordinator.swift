@@ -106,7 +106,7 @@ final class CreationInputCoordinator {
         return true
     }
 
-    func giveBack(_ bytes: Data = Data()) { GivenBackInput.shared.deliver(adding: bytes, to: router?.services?.cache.terminals.values.first { $0.session.model.isFocused && $0.gate == nil }.map { $0.session.sendBytes }) }
+    func giveBack(_ bytes: Data = Data()) { GivenBackInput.shared.deliver(adding: bytes, window: nil, to: router?.services?.cache.terminals.values.first { $0.session.model.isFocused && $0.gate == nil }.map { $0.session.sendBytes }) }
     /// A focus settle in `window`: the keys may go on (in a new turn, after the focus queue).
     func focusDidSettle(in window: NSWindow?) {
         giveBack()

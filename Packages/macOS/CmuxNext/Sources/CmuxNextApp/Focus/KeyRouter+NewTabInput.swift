@@ -88,6 +88,12 @@ final class NewTabInputCoordinator {
 
     init(router: KeyRouter) { self.router = router }
 
+    /// Whether a hold's `window` may take the key window to give its field the keys: only from a
+    /// window it owns (its Chromium page window), or when no window is key.
+    static func mayTakeKey(_ window: NSWindow, keyWindow: NSWindow?) -> Bool {
+        true
+    }
+
     /// The last hold events (begin, capture, drain, release and why), for `debug.focus`.
     private(set) var log: [String] = []
     private func note(_ event: String, _ entry: Entry?) {

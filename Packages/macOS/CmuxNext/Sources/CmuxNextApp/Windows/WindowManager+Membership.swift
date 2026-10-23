@@ -121,7 +121,7 @@ extension WindowManager {
     /// else in `state`'s window, which takes it.
     /// An action run without view-change permission shows nothing. The window
     /// swaps its content in this turn, not on its observation hop (I6).
-    func show(workspaceID: String, in state: WindowState) {
+    func show(workspaceID: String, in state: WindowState, from origin: ShowOrigin = .anywhere) {
         guard ActionRunScope.viewChangeAllowed() else { return }
         let value = registry.value
         if DebugWorkspaceSwitch.timer.isRecording, let timed = controller(for: value.owner(of: workspaceID) ?? state.id) ?? controller(for: state.id) {
