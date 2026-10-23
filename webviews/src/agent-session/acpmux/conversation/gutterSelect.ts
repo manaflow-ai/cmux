@@ -138,6 +138,9 @@ export function installGutterSelect(
     /// button is held (a streaming reply redraws its markdown), the DOM moves the point with it
     /// (into the parent of a node taken out, or to the end of text that shrank), never out of range.
     anchor: Range;
+    /// The row the press reads in. The start must stay inside it: a row taken out moves a live
+    /// Range's point to the thread, which would start the selection somewhere else.
+    row: HTMLElement;
     selecting: boolean;
   };
   let drag: Drag | undefined;
@@ -149,7 +152,8 @@ export function installGutterSelect(
   /// was taken out), when the drag ends instead of scrolling on with nothing to select.
   const extend = (current: Drag): boolean => {
     const { startContainer, startOffset } = current.anchor;
-    if (!startContainer.isConnected || !thread.contains(startContainer)) return false;
+    if (!current.row.isConnected || !thread.contains(current.row) || !current.row.contains(startContainer))
+      return false;
     const point = clampIntoColumn(current.x, current.y, current.geometry);
     const focus = caretAt(doc, point.x, point.y);
     if (inThread(focus)) doc.getSelection()?.setBaseAndExtent(startContainer, startOffset, focus.node, focus.offset);
@@ -222,10 +226,9 @@ export function installGutterSelect(
     if (!current.selecting) {
       if (!pastThreshold(current.x - current.startX, current.y - current.startY)) return;
       current.selecting = true;
-      const row = rowOf(current.anchor.startContainer);
-      const start = row && heldRow(row);
-      if (row && start) {
-        held = { row };
+      const start = heldRow(current.row);
+      if (start) {
+        held = { row: current.row };
         hold([start]);
       }
     }
@@ -260,7 +263,8 @@ export function installGutterSelect(
     const caret = caretAt(doc, point.x, point.y);
     // No text to start at (a hit beside a blank gap): the native press goes ahead untouched, and
     // moves focus off the composer to the page as it always has.
-    if (!inThread(caret)) return;
+    const row = inThread(caret) ? rowOf(caret.node) : undefined;
+    if (!caret || !row) return;
     // No native press: it would start no selection here. Focus leaves the composer (or a row) as
     // the native press on the background moved it, to the page.
     event.preventDefault();
@@ -275,6 +279,7 @@ export function installGutterSelect(
       y: event.clientY,
       geometry,
       anchor: anchorAt(doc, caret),
+      row,
       selecting: false,
     };
     win.addEventListener("mousemove", onMove, true);

@@ -158,6 +158,36 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       await page.close();
     });
 
+    test(`${name}: a drag whose message is taken out mid-drag ends, and selects nothing elsewhere`, async () => {
+      const page = await open(name);
+      const first = await box(page, "m1");
+      const third = await box(page, "m3");
+      const x = first.left / 2;
+      await page.mouse.move(x, first.top + 4);
+      await page.mouse.down();
+      await page.mouse.move(x, first.top + 14);
+      await page.evaluate(() => window.cmuxPaintFrame());
+      // The first message leaves the transcript while the button is held.
+      await page.evaluate(
+        (shown) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown),
+        rows.slice(1),
+      );
+      await page.evaluate(async () => {
+        for (let left = 3; left > 0; left--) await window.cmuxPaintFrame();
+      });
+      expect(await page.evaluate(() => !!document.querySelector('.acpmux-row[data-row-id="m1"]'))).toBe(false);
+      for (let step = 1; step <= 4; step += 1) {
+        await page.mouse.move(
+          x + ((third.left + 300 - x) * step) / 4,
+          first.top + 14 + ((third.bottom - 18 - first.top) * step) / 4,
+        );
+        await page.evaluate(() => window.cmuxPaintFrame());
+      }
+      await page.mouse.up();
+      expect(await selected(page)).not.toContain("Bravo");
+      await page.close();
+    });
+
     test(`${name}: a drag that stays in the left margin selects whole lines up to the line beside the pointer`, async () => {
       const page = await open(name);
       const first = await box(page, "m1");
