@@ -42,16 +42,19 @@ extension AgentTabStore {
         store.onTabCreated = { [weak self] provisional, tab in
             self?.tabCreated(provisional, as: AgentTabCreated(key: tab.id, surface: tab.surface))
         }
+        // The tab's view state (its folder, its page, the adopted spare) first: the intent shows the
+        // workspace, and its window draws it, page included, in this same turn (the membership
+        // reconcile the intent runs shows a claimed workspace at once).
+        seeds[tabKey] = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd))
+        newTabPages[tabKey] = BenchSpans.measure("cmdN.page") { firstPage(cwd: cwd, token: token) }
+        BenchSpans.measure("cmdN.adopt") {
+            if let spare = takeSpare?(), let page = newTabPages[tabKey]?.page { adoptSpare(spare, key: tabKey, page: page) }
+        }
         BenchSpans.measure("cmdN.intend") {
             store.intend(.createWorkspace(provisional: ProvisionalWorkspace(key: key, name: name, tab: snapshot), index: index),
                          transaction: transaction)
         }
-        seeds[tabKey] = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd))
-        newTabPages[tabKey] = BenchSpans.measure("cmdN.page") { firstPage(cwd: cwd, token: token) }
         track(tabKey, in: store)
-        BenchSpans.measure("cmdN.adopt") {
-            if let spare = takeSpare?(), let page = newTabPages[tabKey]?.page { adoptSpare(spare, key: tabKey, page: page) }
-        }
         let fail: @MainActor () -> Void = { [weak self] in
             store.rejectIntent(transaction)
             self?.release(tabKey)

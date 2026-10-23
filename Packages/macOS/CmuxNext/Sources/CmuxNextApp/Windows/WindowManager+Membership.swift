@@ -14,12 +14,15 @@ extension WindowManager {
 
     /// Applies one registry transition. `select` names, per window, the
     /// workspaces the user just moved in; the first becomes selected there.
+    /// `ordered`: every machine's workspace ids in sidebar order when the
+    /// caller has them already (the membership reconcile), so they are not
+    /// computed twice in one turn.
     @discardableResult
-    func transition(select preferred: [String: [String]] = [:],
+    func transition(select preferred: [String: [String]] = [:], ordered: [String]? = nil,
                     _ body: (inout WindowRegistry) -> WindowRegistry.Changes) -> WindowRegistry.Changes {
         let before = registry.value
         let previous = Dictionary(before.windows.map { ($0.id, $0.workspaceIDs) }, uniquingKeysWith: { first, _ in first })
-        let live = services.machines.daemons.flatMap { Self.orderedIDs(of: $0, machines: self.services.machines) }
+        let live = ordered ?? services.machines.daemons.flatMap { Self.orderedIDs(of: $0, machines: self.services.machines) }
         let changes = registry.apply { registry in
             let changes = body(&registry)
             registry.order(like: live)
@@ -48,6 +51,13 @@ extension WindowManager {
         let closing = controllers.filter { $0.state.id != launchWindowID && value.window($0.state.id)?.isOpen != true }
         let closedKey = closing.contains { $0.window?.isKeyWindow == true }
         for controller in closing { closeProgrammatically(controller) }
+        // A window that just received workspaces to show (a create it claimed: Cmd-N's stand-in, a
+        // new terminal workspace, a duplicate, a pane moved out) draws its selection in this turn,
+        // as a switch does (`show(workspaceID:in:from:)`), not on its observation's main-actor hop
+        // after the frame this turn commits (perf-lead issue 11: visible in the first frame).
+        for id in preferred.keys where value.window(id)?.isOpen == true {
+            if let receiver = controller(for: id) { receiver.showWorkspace(requested: receiver.state.workspaceID) }
+        }
         for id in Array(states.keys) where value.window(id) == nil && id != launchWindowID { states[id] = nil }
         if closedKey { handOffKey(to: receivers) }
         checkInvariants()
@@ -369,7 +379,7 @@ extension WindowManager {
         let members = before.windows.flatMap(\.workspaceIDs)
         let dead = Set(members.filter(isDead))
         let fallback = launchWindowID ?? UUID().uuidString.lowercased()
-        transition(select: preferred) { registry in
+        transition(select: preferred, ordered: live) { registry in
             registry.reconcile(live: live, dead: dead, placements: placements, held: held, behind: behindWindows,
                                fallbackWindow: fallback)
         }
