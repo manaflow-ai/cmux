@@ -665,7 +665,7 @@ def handle_prompt(rid, params):
         os._exit(3)
     # "die-later: X" streams a moment, then dies as "die: X" does mid-turn. The wait leaves a
     # test time to queue a prompt behind it on a loaded machine.
-    if text.startswith("die-later:"):
+    if text.startswith("die-later:") or os.environ.get("FAKE_DIE_EVERY_PROMPT") == "1":
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "dying "}})
         time.sleep(3.0)
         sys.stderr.write(text[10:].strip() + "\n")

@@ -92,6 +92,9 @@ fn output_by(
     by: Option<Instant>,
 ) -> Result<Output, String> {
     use std::io::{Read, Write};
+    if by.is_some_and(|by| Instant::now() >= by) {
+        return Err("git did not finish in time".into());
+    }
     #[cfg(unix)]
     if by.is_some() {
         std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
@@ -112,37 +115,51 @@ fn output_by(
         }
         return out;
     };
-    fn drain(pipe: Option<impl Read + Send + 'static>) -> std::thread::JoinHandle<Vec<u8>> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    for (is_stdout, pipe) in [
+        (true, child.stdout.take().map(|p| Box::new(p) as Box<dyn Read + Send>)),
+        (false, child.stderr.take().map(|p| Box::new(p) as Box<dyn Read + Send>)),
+    ] {
+        let tx = tx.clone();
         std::thread::spawn(move || {
             let mut got = Vec::new();
             if let Some(mut pipe) = pipe {
                 let _ = pipe.read_to_end(&mut got);
             }
-            got
-        })
+            let _ = tx.send((is_stdout, got));
+        });
     }
-    let (stdout, stderr) = (drain(child.stdout.take()), drain(child.stderr.take()));
-    let waited = wait_timeout::ChildExt::wait_timeout(
+    drop(tx);
+    let stop = |child: &mut std::process::Child| {
+        #[cfg(unix)]
+        unsafe {
+            libc::killpg(child.id() as i32, libc::SIGKILL);
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+    };
+    let status = match wait_timeout::ChildExt::wait_timeout(
         &mut child,
         by.saturating_duration_since(Instant::now()),
-    );
-    // What it started goes too, finished or not; a reaped leader's group id is not reused
-    // while the group has members.
-    #[cfg(unix)]
-    unsafe {
-        libc::killpg(child.id() as i32, libc::SIGKILL);
-    }
-    let status = match waited {
+    ) {
         Ok(Some(status)) => status,
-        Ok(None) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err("git did not finish in time".into());
+        result => {
+            stop(&mut child);
+            return Err(format!("git did not finish in time: {result:?}"));
         }
-        Err(e) => return Err(format!("git did not run: {e}")),
     };
-    let stdout = stdout.join().unwrap_or_default();
-    let stderr = stderr.join().unwrap_or_default();
+    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+    for _ in 0..2 {
+        match rx.recv_timeout(by.saturating_duration_since(Instant::now())) {
+            Ok((true, bytes)) => stdout = bytes,
+            Ok((false, bytes)) => stderr = bytes,
+            Err(_) => {
+                stop(&mut child);
+                return Err("git output did not close in time".into());
+            }
+        }
+    }
+
     Ok(Output { status, stdout, stderr })
 }
 
@@ -161,15 +178,20 @@ pub(crate) fn add_without_config(
     let path = ["rev-parse", "--path-format=absolute", "--git-path", "objects"];
     let objects = PathBuf::from(git(&path)?);
     let format = git(&["rev-parse", "--show-object-format"])?;
-    let args: Vec<&str> =
-        ["worktree", "add", "--no-checkout"].into_iter().chain(add.iter().copied()).collect();
+    // Fill a sibling first: timeout or failed checkout must never expose a partial cwd.
+    let staged = root.with_file_name(format!(".acpmux-revive-{}", uuid::Uuid::now_v7()));
+    let (destination, stage) = (root.to_string_lossy(), staged.to_string_lossy());
+    let args: Vec<&str> = ["worktree", "add", "--no-checkout"]
+        .into_iter()
+        .chain(add.iter().map(|arg| if *arg == destination { stage.as_ref() } else { *arg }))
+        .collect();
     git(&args)?;
-    let filled = check_out_without_config(&objects, &format, root, commit, Some(by))
-        .and_then(|()| git_by(root, &["read-tree", commit], by).map(drop));
+    let filled = check_out_without_config(&objects, &format, &staged, commit, Some(by))
+        .and_then(|()| git_by(&staged, &["read-tree", commit], by).map(drop))
+        .and_then(|()| git(&["worktree", "move", &stage, &destination]).map(drop));
     if filled.is_err() {
         let cleanup_by = Instant::now() + std::time::Duration::from_secs(5);
-        let _ =
-            git_by(common, &["worktree", "remove", "--force", &root.to_string_lossy()], cleanup_by);
+        let _ = git_by(common, &["worktree", "remove", "--force", &stage], cleanup_by);
     }
     filled
 }
