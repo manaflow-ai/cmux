@@ -434,3 +434,7 @@ the gap, no row left out of place after drop or cancel).
 ## Codex follow-up
 
 - 2026-10-23: Codex #24513 follow-up keeps the `inside` Chrome corner inset for a parent group whose rows are only nested groups; the regression test covers the previously unmeasured parent rail.
+
+- 2026-10-23: Leo's 441 follow-up keeps the group rail on the header's left edge and adds only the tapered top cut where the rail leaves the bar.
+
+- 2026-10-23: Follow-up repair keeps the tapered rail mask taller than both old and destination bounds during collapse springs.
