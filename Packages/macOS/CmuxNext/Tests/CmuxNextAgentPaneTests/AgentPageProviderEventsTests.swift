@@ -195,4 +195,21 @@ struct AgentPageProviderEventsTests {
         await nextPage.waitFor(1)
         #expect(Self.names(nextPage.events) == ["router-reset"])
     }
+
+    @Test func resetDroppedPrefixStaysBeforeRequeuedPendingSuffix() async throws {
+        let provider = AgentPageProvider { _ in nil }
+        provider.publish(Self.command("pending-prefix"))
+        let old = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { _ in }
+        provider.publish(Self.command("pending-suffix"))
+        provider.eventDeliveryDropped(stream: AgentPageProvider.hostEvents, data: Self.command("reset-prefix").data)
+        old.cancel()
+
+        let nextPage = Received()
+        let next = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { event in
+            nextPage.append(event)
+        }
+        defer { next.cancel() }
+        await nextPage.waitFor(3)
+        #expect(Self.names(nextPage.events) == ["reset-prefix", "pending-prefix", "pending-suffix"])
+    }
 }

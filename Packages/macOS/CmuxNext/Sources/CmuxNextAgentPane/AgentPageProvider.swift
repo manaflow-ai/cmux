@@ -231,14 +231,25 @@ public final class AgentPageProvider: PageProvider {
     private func cancel(id: UInt64) {
         listeners.removeValue(forKey: id)
         guard let pending = pendingEvents.removeValue(forKey: id), listeners.isEmpty else { return }
-        bufferedEvents.insert(contentsOf: pending.requeueRemaining(), at: 0)
+        appendRequeued(pending.requeueRemaining())
     }
 
     private func requeuePendingEvents(for id: UInt64, pending: PendingEvents) {
         pendingEvents.removeValue(forKey: id)
         listeners.removeValue(forKey: id)
         guard listeners.isEmpty else { return }
-        bufferedEvents.insert(contentsOf: pending.requeueRemaining(), at: 0)
+        appendRequeued(pending.requeueRemaining())
+    }
+
+    private func appendRequeued(_ events: [AgentPageEvent]) {
+        guard !events.isEmpty else { return }
+        let available = Self.maximumBufferedEvents - bufferedEvents.count
+        guard events.count <= available else {
+            deliveryOverflowed = true
+            return
+        }
+        // Events already buffered by a reset's onDrop callback precede this pending suffix.
+        bufferedEvents.append(contentsOf: events)
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
