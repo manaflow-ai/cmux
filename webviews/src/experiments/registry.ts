@@ -8,6 +8,8 @@ import { hoverActions } from "../ui/hoverActions.experiment";
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
 import { startedSessionCards } from "../agent-session/acpmux/started/startedSessions.experiment";
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
+import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
+import { questionPreviewLayout } from "../agent-session/acpmux/question/previewLayout.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -19,6 +21,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   startedSessionCards,
   threadMinimapLayout,
   turnErrorCard,
+  chromiumGlassUnderlay,
+  questionPreviewLayout,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

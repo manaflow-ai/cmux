@@ -63,6 +63,14 @@ export const Expand = (p: CvIconProps) => (
   </Svg>
 );
 
+/** Open in tab: a window with its right side split off, where the new tab opens. */
+export const OpenTab = (p: CvIconProps) => (
+  <Svg {...p}>
+    <rect x="2.5" y="3.5" width="11" height="9" rx="1.5" />
+    <path d="M9 3.5v9" />
+  </Svg>
+);
+
 export const ChevronDown = (p: CvIconProps) => (
   <Svg {...p}>
     <path d="M4.25 6.25 8 10l3.75-3.75" />

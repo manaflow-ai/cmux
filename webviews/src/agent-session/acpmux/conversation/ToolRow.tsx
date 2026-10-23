@@ -10,14 +10,13 @@ import { mediaKind, ReplyMedia } from "../chips/ReplyMedia";
 import { pathName } from "../chips/paths";
 import { toolImages } from "../toolImages";
 import { toolLabel } from "../toolPaths";
-import { shortCommand } from "./shortCommand";
+import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
 import { CopyButton } from "./CopyButton";
 import { experimentArm } from "../../../experiments/experiment";
 import { hoverActions } from "../../../ui/hoverActions.experiment";
 import { menuPartRef } from "./menuParts";
-import { BackgroundHint } from "./BackgroundHint";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { toolDuration } from "./toolGroups";
@@ -77,7 +76,8 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   const label = toolLabel(
     tool,
     item.text,
-    (command) => t("tools.ranCommand", { command }),
+    // "Running …" until it is done, "Ran …" after; its ⌃B hint is the live line's (Thinking.tsx).
+    (command) => t(foreground ? "tools.runningCommand" : "tools.ranCommand", { command }),
     cwd,
     t(foreground ? "tools.runningUnnamed" : "tools.ranUnnamed"),
   );
@@ -92,7 +92,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   // Only a call with a command line is a shell; an MCP call can also say "execute".
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // Find counts a shell's whole line: a label that is its description or a shortened line is skipped.
-  const drawsCommand = !tool.description && shortCommand(tool.command ?? "") === tool.command?.trim();
+  const drawsCommand = !tool.description && shortCommand(tool.command ?? "", ROW_WIDTH) === tool.command?.trim();
   // A shell prints what it printed; any other output loses the context a host injects into it.
   const body = useMemo(
     () => (shell || !tool.output ? tool.output : cleanText(tool.output))?.replace(/\n$/, ""),
@@ -104,7 +104,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
       <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
       <span className="cv-tool__text" data-find-skip={(shell && (open || !drawsCommand)) || undefined}>
         {write ? <WriteLabel tool={tool} write={write} t={t} /> : label}
-        {failed && <span className="cv-tool__detail"> {t("tools.failed")}</span>}
+        {failed && <span className="cv-tool__failed"> {t("tools.failed")}</span>}
       </span>
       {background ? (
         <span className="cv-command__meta cv-tool__meta">
@@ -137,7 +137,6 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
             strokeWidth={1.2}
             className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
           />
-          {foreground && shell && <BackgroundHint />}
         </button>
       ) : (
         <div className={`cv-tool${running ? " is-live" : " is-strong"}`}>{content}</div>
