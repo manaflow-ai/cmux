@@ -5,6 +5,7 @@ import CmuxNextRemote
 import CmuxNextSidebar
 @testable import CmuxNextDaemon
 import Foundation
+import Observation
 import Testing
 
 /// tab-attention-v1: an agent marks the tab where the person must act. The tab, its workspace
@@ -12,6 +13,8 @@ import Testing
 /// row says why; going into the pane hides the ring but keeps the dot; a new request rings again.
 @MainActor
 @Suite struct TabAttentionTests {
+    private final class Woke: @unchecked Sendable { var value = false }
+
     private static func attention(_ reason: String, at: UInt64) -> TabAttention {
         TabAttention(reason: reason, atMs: at)
     }
@@ -65,7 +68,11 @@ import Testing
         #expect(service.attentionMarks(for: workspace).count == 1, "the marked tab's pane has no ring")
         service.interacted(.focus, tab: tab)
         #expect(service.attentionMarks(for: workspace).count == 1, "focus alone hid the ring")
+        // The pane's ring redraws from an observation of attentionMarks: hiding the ring must wake it.
+        let woke = Woke()
+        withObservationTracking { _ = service.attentionMarks(for: workspace) } onChange: { woke.value = true }
         service.interacted(.click, tab: tab)
+        #expect(woke.value, "hiding the ring did not wake the ring's observers")
         #expect(service.attentionMarks(for: workspace).isEmpty, "going into the pane left the ring")
         #expect(tab.showsUnread, "going in keeps the mark: only the agent, a navigation or a close clears it")
         tab.applyState(SessionStateMirror.TabRecord(attention: Self.attention("Approve the deploy", at: 2_000)), progress: nil)
@@ -75,13 +82,14 @@ import Testing
     }
 
     /// A marked tab in `store`'s one workspace, with the same id on every store.
-    private static func markedWorkspace(in store: DaemonStore, name: String, reason: String) throws -> (WorkspaceModel, TabModel) {
+    private static func markedWorkspace(in store: DaemonStore, name: String, reason: String,
+                                        markedUnread: Bool = false) throws -> (WorkspaceModel, TabModel) {
         let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, tabResourceID: "tab_forked", title: "GitHub")])
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: name, screens: [screen])]))
         let workspace = try #require(store.workspaces.first)
         let tab = try #require(workspace.screens.first?.panes.first?.tabs.first)
-        tab.applyState(SessionStateMirror.TabRecord(attention: Self.attention(reason, at: 1_000)), progress: nil)
+        tab.applyState(SessionStateMirror.TabRecord(markedUnread: markedUnread, attention: Self.attention(reason, at: 1_000)), progress: nil)
         return (workspace, tab)
     }
 
@@ -97,7 +105,8 @@ import Testing
                                     environment: { [:] })
         services.machines.add(ssh)
         let (remoteWorkspace, remoteTab) = try Self.markedWorkspace(in: ssh.daemon.store, name: "lab work", reason: "Log in to GitHub")
-        let (localWorkspace, localTab) = try Self.markedWorkspace(in: services.daemon.store, name: "coord", reason: "Confirm access")
+        let (localWorkspace, localTab) = try Self.markedWorkspace(in: services.daemon.store, name: "coord", reason: "Confirm access",
+                                                                      markedUnread: true)
         #expect(remoteTab.id == localTab.id && remoteTab !== localTab, "the two machines' tabs share an id")
         let notifications = services.notifications
         #expect(notifications.attentionMarks(for: remoteWorkspace).count == 1, "the remote marked tab has no ring")
@@ -105,7 +114,8 @@ import Testing
         #expect(notifications.attentionMarks(for: remoteWorkspace).count == 1, "focus alone hid the ring")
         notifications.interacted(.click, tabID: remoteTab.id, in: remoteWorkspace, local: false)
         #expect(notifications.attentionMarks(for: remoteWorkspace).isEmpty, "a click into the remote tab left its ring")
-        #expect(remoteTab.showsUnread, "going in keeps the mark")
+        #expect(remoteTab.attention != nil, "going in keeps the mark")
+        #expect(localTab.markedUnread, "a click on the remote tab read this Mac's tab that shares its id")
         #expect(notifications.attentionMarks(for: localWorkspace).count == 1, "a click on the remote tab hid this Mac's ring")
         remoteTab.applyState(SessionStateMirror.TabRecord(attention: Self.attention("Log in again", at: 2_000)), progress: nil)
         notifications.dismissHighlight(localWorkspace)
