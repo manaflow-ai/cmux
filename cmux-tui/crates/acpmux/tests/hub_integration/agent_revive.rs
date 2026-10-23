@@ -229,7 +229,7 @@ async fn a_deleted_worktree_is_added_back_before_the_agent_starts_and_the_agent_
     c.request(method::SESSION_PROMPT, prompt(&id, "hello", None)).await.unwrap();
     assert!(!reply(&hub, &id).contains("[acpmux]"), "{}", reply(&hub, &id));
     let saved = hub.resolve(&id).unwrap().meta().worktree.expect("the worktree is recorded");
-    assert_eq!((saved.branch.as_str(), &saved.root), ("lane", &wt));
+    assert_eq!((saved.branch.as_deref(), &saved.root), (Some("lane"), &wt));
     let shown = wt.display().to_string();
 
     // The local branch is there: the worktree comes back on it.
@@ -274,12 +274,20 @@ async fn a_deleted_worktree_is_added_back_before_the_agent_starts_and_the_agent_
     assert_eq!(git(&wt, &["rev-parse", "--abbrev-ref", "HEAD"]), "HEAD");
     assert!(reply(&hub, &id).contains("branch lane is gone, so recreated it at its last commit"));
 
-    // It cannot be added back (its repository is gone too): the session moves to the folder
-    // above, and the agent is told.
+    // It cannot be added back (its repository is gone too). With no agent running, the prompt
+    // is refused, retryably, naming the folder (a send keeps it queued), and nothing moves.
     reclaim(&hub, &id, &wt).await;
     std::fs::remove_dir_all(&repo).unwrap();
-    c.request(method::SESSION_PROMPT, prompt(&id, "cwd-probe", None)).await.unwrap();
+    let refused = c.request(method::SESSION_PROMPT, prompt(&id, "cwd-probe", None)).await;
+    assert!(refused.unwrap_err().contains("session.folder_missing"));
     assert_eq!(records(&hub, &id, "worktree_recreate_failed").len(), 1, "{:?}", kinds(&hub, &id));
+    assert_eq!(hub.resolve(&id).unwrap().meta().cwd, wt);
+    // Made again by hand as a plain folder, it is no longer a worktree (its record goes). With
+    // its agent running, the turn moves the session to the folder above, and the agent is told.
+    std::fs::create_dir_all(&wt).unwrap();
+    c.request(method::SESSION_PROMPT, prompt(&id, "hello", None)).await.unwrap();
+    std::fs::remove_dir_all(&wt).unwrap();
+    c.request(method::SESSION_PROMPT, prompt(&id, "cwd-probe", None)).await.unwrap();
     let moved = records(&hub, &id, "cwd_fallback");
     assert_eq!(moved.len(), 1, "{:?}", kinds(&hub, &id));
     assert_eq!(moved[0]["to"], json!(lanes));
@@ -288,11 +296,77 @@ async fn a_deleted_worktree_is_added_back_before_the_agent_starts_and_the_agent_
     assert!(said.starts_with(&format!("echo: cwd: {} |", lanes.display())), "{said}");
     assert!(
         said.contains(&format!(
-            "[acpmux] your cwd {shown} was missing; its worktree could not be added back"
+            "[acpmux] your cwd {shown} was missing; it was not a git worktree acpmux knew"
         )),
         "{said}"
     );
     assert!(said.contains(&format!("running in {} instead.", lanes.display())), "{said}");
+    assert!(!wt.exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A detached worktree is recorded too, and comes back at its commit, detached.
+#[tokio::test]
+async fn a_deleted_detached_worktree_comes_back_at_its_commit() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let dir = scratch("detached");
+    let (repo, wt) = (dir.join("repo"), dir.join("lanes").join("lane"));
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    std::fs::write(repo.join("README"), "hello\n").unwrap();
+    git(&repo, &["add", "README"]);
+    git(&repo, &["commit", "-q", "-m", "init"]);
+    let head = git(&repo, &["rev-parse", "HEAD"]);
+    git(&repo, &["worktree", "add", "-q", "--detach", wt.to_str().unwrap(), &head]);
+    let s = c.request(method::SESSION_NEW, json!({"cwd": wt, "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(method::SESSION_PROMPT, prompt(&id, "hello", None)).await.unwrap();
+    let saved = hub.resolve(&id).unwrap().meta().worktree.expect("the worktree is recorded");
+    assert_eq!((saved.branch, saved.head.as_deref()), (None, Some(head.as_str())));
+
+    reclaim(&hub, &id, &wt).await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "hello again", None)).await.unwrap();
+    let made = records(&hub, &id, "worktree_recreated");
+    assert_eq!(made.len(), 1, "{:?}", kinds(&hub, &id));
+    assert_eq!(made[0]["from"], "its last commit");
+    assert_eq!(git(&wt, &["rev-parse", "HEAD"]), head);
+    assert_eq!(git(&wt, &["rev-parse", "--abbrev-ref", "HEAD"]), "HEAD");
+    let said = reply(&hub, &id);
+    assert!(said.contains("recreated it at its last commit"), "{said}");
+    assert!(!said.contains("branch  is gone"), "{said}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A folder that stops being a linked worktree (its path reused for a plain folder) loses its
+/// record: deleted later, it is not made into the old worktree again.
+#[tokio::test]
+async fn a_folder_that_stops_being_a_worktree_is_never_made_into_it_again() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let dir = scratch("reused");
+    let (repo, lanes) = (dir.join("repo"), dir.join("lanes"));
+    let wt = lanes.join("lane");
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    std::fs::write(repo.join("README"), "hello\n").unwrap();
+    git(&repo, &["add", "README"]);
+    git(&repo, &["commit", "-q", "-m", "init"]);
+    git(&repo, &["worktree", "add", "-q", "-b", "lane", wt.to_str().unwrap()]);
+    let s = c.request(method::SESSION_NEW, json!({"cwd": wt, "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(method::SESSION_PROMPT, prompt(&id, "hello", None)).await.unwrap();
+    assert!(hub.resolve(&id).unwrap().meta().worktree.is_some());
+
+    // The path is reused for a plain folder; the agent starts again there.
+    reclaim(&hub, &id, &wt).await;
+    git(&repo, &["worktree", "prune"]);
+    std::fs::create_dir_all(&wt).unwrap();
+    c.request(method::SESSION_PROMPT, prompt(&id, "hello", None)).await.unwrap();
+    assert!(hub.resolve(&id).unwrap().meta().worktree.is_none(), "the old record stayed");
+
+    reclaim(&hub, &id, &wt).await;
+    let refused = c.request(method::SESSION_PROMPT, prompt(&id, "cwd-probe", None)).await;
+    assert!(refused.unwrap_err().contains("session.folder_missing"));
+    assert!(records(&hub, &id, "worktree_recreated").is_empty(), "{:?}", kinds(&hub, &id));
     assert!(!wt.exists());
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -310,7 +384,8 @@ async fn a_missing_plain_folder_moves_the_session_to_its_parent_and_the_agent_is
     let sid = agent_sid(&hub, &id);
     c.request(method::SESSION_PROMPT, prompt(&id, "hello", None)).await.unwrap();
     assert!(hub.resolve(&id).unwrap().meta().worktree.is_none());
-    hub.detach_child(&hub.resolve(&id).unwrap()).await;
+    // Its agent runs: the turn moves the session (with none running, the prompt is refused,
+    // naming the folder, and kept by a send until the folder is back: `worktree_care.rs`).
     std::fs::remove_dir_all(dir.join("plain")).unwrap();
     c.request(method::SESSION_PROMPT, prompt(&id, "cwd-probe", None)).await.unwrap();
     assert!(!folder.exists() && !dir.join("plain").exists());

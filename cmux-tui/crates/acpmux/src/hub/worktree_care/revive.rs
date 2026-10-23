@@ -43,12 +43,40 @@ const GIT_BUDGET: Duration = Duration::from_secs(60);
 /// daemon restart forgets it.
 static NOTICES: LazyLock<Mutex<HashMap<String, String>>> = LazyLock::new(Default::default);
 
+/// What `cwd`'s git state says of its worktree record (`origin_of`).
+pub(in crate::hub) enum Found {
+    /// In a linked worktree, on a branch or detached: its record.
+    Linked(WorktreeOrigin),
+    /// There, and in no linked worktree: an older record of the folder no longer holds, so a
+    /// later deletion never brings back a worktree that is not what was there.
+    NotLinked,
+    /// Not read (the folder went as it was read, or its HEAD cannot be read): the record stays.
+    Unread,
+}
+
+impl Found {
+    /// The record to keep for a read: `None` keeps the one there.
+    pub(in crate::hub) fn record(self) -> Option<Option<WorktreeOrigin>> {
+        match self {
+            Found::Linked(w) => Some(Some(w)),
+            Found::NotLinked => Some(None),
+            Found::Unread => None,
+        }
+    }
+}
+
 /// The worktree record for `cwd` in the state `git` read there (blocking).
-pub(in crate::hub) fn origin_of(cwd: &Path, git: &GitState) -> Option<WorktreeOrigin> {
-    let (root, common_dir) = linked_worktree(cwd)?;
-    let branch = git.branch.clone()?;
-    let head = git.head.clone();
-    Some(WorktreeOrigin { cwd: cwd.to_path_buf(), root, common_dir, branch, head })
+pub(in crate::hub) fn origin_of(cwd: &Path, git: &GitState) -> Found {
+    let Some((root, common_dir)) = linked_worktree(cwd) else {
+        // Gone as this read it (a reclaim deleting it now) is not a folder that stopped being a
+        // worktree: the record that brings it back stays.
+        return if cwd.is_dir() { Found::NotLinked } else { Found::Unread };
+    };
+    if git.branch.is_none() && git.head.is_none() {
+        return Found::Unread;
+    }
+    let (branch, head) = (git.branch.clone(), git.head.clone());
+    Found::Linked(WorktreeOrigin { cwd: cwd.to_path_buf(), root, common_dir, branch, head })
 }
 
 /// The line the session's next prompt starts with, once (`run_prompt`).
@@ -69,12 +97,16 @@ enum Revived {
 impl Hub {
     /// The session's folder before its agent starts (`starting`, from the cold start) or a
     /// turn starts (`one` is the machine's one-restore-at-a-time lock): there, a start refreshes
-    /// the record; gone, it comes back or the session moves (module doc).
+    /// the record; gone, it comes back or the session moves (module doc). With `may_move`
+    /// false (a prompt for a session with no running agent, `folder_ready`) it only comes back
+    /// from its record: a folder that does not stays missing, and that prompt is refused,
+    /// retryably, naming it.
     pub(super) async fn revive_folder(
         &self,
         session: &Arc<Session>,
         one: &tokio::sync::Mutex<()>,
         starting: bool,
+        may_move: bool,
     ) -> Result<(), RpcError> {
         let meta = session.meta();
         let cwd = meta.cwd.clone();
@@ -88,16 +120,20 @@ impl Hub {
                 return Ok(());
             }
             let read = tokio::task::spawn_blocking(move || origin_of(&cwd, &GitState::read(&cwd)));
-            if let Ok(Some(found)) = read.await
-                && meta.worktree.as_ref() != Some(&found)
+            if let Ok(found) = read.await
+                && let Some(found) = found.record()
+                && meta.worktree != found
             {
-                session.meta.lock().unwrap_or_else(|e| e.into_inner()).worktree = Some(found);
+                session.meta.lock().unwrap_or_else(|e| e.into_inner()).worktree = found;
                 self.save_meta(session);
             }
             return Ok(());
         }
-        let _one = one.lock().await;
         let origin = meta.worktree.filter(|w| w.cwd == cwd);
+        if !may_move && origin.is_none() {
+            return Ok(());
+        }
+        let _one = one.lock().await;
         let (job, folder) = (origin.clone(), cwd.clone());
         let revived = tokio::task::spawn_blocking(move || revive(job.as_ref(), &folder))
             .await
@@ -106,21 +142,26 @@ impl Hub {
         let notice = match revived {
             Revived::There => return Ok(()),
             Revived::Made(w, from, at) => {
-                let b = &w.branch;
-                let msg = json!({"branch": b, "cwd": cwd, "root": w.root, "from": from, "at": at});
+                let b = w.branch.as_deref().unwrap_or_default();
+                let msg =
+                    json!({"branch": w.branch, "cwd": cwd, "root": w.root, "from": from, "at": at});
                 self.append(session, "mux", "worktree_recreated", msg);
-                match from {
-                    "branch" => format!("recreated it from branch {b}"),
-                    "origin" => format!("recreated it from origin/{b} as branch {b}"),
-                    _ => format!(
+                match (from, &w.branch) {
+                    ("branch", _) => format!("recreated it from branch {b}"),
+                    ("origin", _) => format!("recreated it from origin/{b} as branch {b}"),
+                    (_, Some(_)) => format!(
                         "branch {b} is gone, so recreated it at {from} {at} (detached HEAD)"
                     ),
+                    (_, None) => format!("recreated it at {from} {at} (detached HEAD)"),
                 }
             }
             Revived::Moved(to, why) => {
                 if let Some(w) = &origin {
                     let msg = json!({"branch": w.branch, "cwd": cwd, "root": w.root, "error": why});
                     self.append(session, "mux", "worktree_recreate_failed", msg);
+                }
+                if !may_move {
+                    return Ok(());
                 }
                 if bare_root(&to) {
                     let msg = json!({"cwd": cwd, "to": to, "reason": why});
@@ -216,8 +257,11 @@ fn recreate(w: &WorktreeOrigin) -> Result<(&'static str, String), String> {
     if !w.common_dir.is_dir() {
         return Err(format!("its repository {} is gone too", w.common_dir.display()));
     }
-    if w.branch.starts_with('-') {
-        return Err(format!("{:?} is not a branch acpmux checks out", w.branch));
+    let branch = w.branch.as_deref();
+    if let Some(b) = branch
+        && b.starts_with('-')
+    {
+        return Err(format!("{b:?} is not a branch acpmux checks out"));
     }
     let by = Instant::now() + GIT_BUDGET;
     let git = |args: &[&str]| git_by(&w.common_dir, args, by);
@@ -225,14 +269,18 @@ fn recreate(w: &WorktreeOrigin) -> Result<(&'static str, String), String> {
     let root = w.root.to_string_lossy();
     let commit = |r: &str| git(&["rev-parse", "--verify", "--quiet", &format!("{r}^{{commit}}")]);
     let add = |args: &[&str], at: &str| add_without_config(&w.common_dir, args, &w.root, at, by);
-    let (local, remote) = (format!("refs/heads/{}", w.branch), format!("origin/{}", w.branch));
-    let (from, at) = if let Ok(at) = commit(&local) {
-        add(&[&root, &w.branch], &at)?;
+    // A detached worktree has no branch to come back on: it comes back at its last commit.
+    let (from, at) = if let Some(b) = branch
+        && let Ok(at) = commit(&format!("refs/heads/{b}"))
+    {
+        add(&[&root, b], &at)?;
         ("branch", at)
-    } else if let Ok(at) = commit(&format!("refs/remotes/{remote}")) {
+    } else if let Some(b) = branch
+        && let Ok(at) = commit(&format!("refs/remotes/origin/{b}"))
+    {
         // `-b`, never `-B`: a branch of that name made meanwhile is not reset; git refuses.
-        add(&["-b", &w.branch, &root, &at], &at)?;
-        let _ = git(&["branch", &format!("--set-upstream-to={remote}"), &w.branch]);
+        add(&["-b", b, &root, &at], &at)?;
+        let _ = git(&["branch", &format!("--set-upstream-to=origin/{b}"), b]);
         ("origin", at)
     } else if let Some(at) = w.head.as_deref().and_then(|h| commit(h).ok()) {
         add(&["--detach", &root, &at], &at)?;
@@ -241,7 +289,10 @@ fn recreate(w: &WorktreeOrigin) -> Result<(&'static str, String), String> {
         add(&["--detach", &root, &at], &at)?;
         ("origin/HEAD", at)
     } else {
-        return Err(format!("neither branch {0} nor origin/{0} nor origin/HEAD exists", w.branch));
+        return Err(match branch {
+            Some(b) => format!("neither branch {b} nor origin/{b} nor origin/HEAD exists"),
+            None => "neither its last commit nor origin/HEAD exists".to_owned(),
+        });
     };
     Ok((from, at.chars().take(12).collect()))
 }

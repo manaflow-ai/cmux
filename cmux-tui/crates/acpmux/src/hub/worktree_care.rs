@@ -287,7 +287,7 @@ impl Hub {
         let cwd = session.meta().cwd.clone();
         let gone = !tokio::fs::try_exists(&cwd).await.unwrap_or(true);
         self.care_restore_for(session).await;
-        self.revive_folder(session, &CARE.restoring, starting).await?;
+        self.revive_folder(session, &CARE.restoring, starting, true).await?;
         // At a turn's start, a live agent still runs in the folder that went, even once it is
         // back (restored, added back, or by another start meanwhile): it starts again where
         // the session is now, the turn kept. A cold start replaces the agent anyway.
@@ -316,6 +316,8 @@ impl Hub {
     /// file or directory`.
     async fn folder_ready(&self, session: &Arc<Session>) -> Result<(), RpcError> {
         self.care_restore_for(session).await;
+        // A worktree acpmux recorded is added back (`revive.rs`); nothing moves here.
+        self.revive_folder(session, &CARE.restoring, false, false).await?;
         let meta = session.meta();
         // A folder that cannot be read (its permissions) fails at the start as before.
         match tokio::fs::metadata(&meta.cwd).await {

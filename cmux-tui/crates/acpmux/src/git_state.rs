@@ -23,8 +23,9 @@ pub struct WorktreeOrigin {
     pub root: PathBuf,
     /// The repository's common git directory.
     pub common_dir: PathBuf,
-    /// The branch checked out there.
-    pub branch: String,
+    /// The branch checked out there: `None` on a detached HEAD, which comes back at `head`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
     /// Its commit then: a worktree whose branch is gone comes back there.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub head: Option<String>,
