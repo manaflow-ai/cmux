@@ -955,6 +955,7 @@ export default settingsPageEntry({
     "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/AgentIntegrations.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
+    "pages/settings/components/DevicesCard.tsx",
     "pages/settings/components/ChiefsCard.tsx#ChiefsCard",
     "pages/settings/components/HarnessesCard.tsx",
     "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",
