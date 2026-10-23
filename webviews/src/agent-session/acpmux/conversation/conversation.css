@@ -1155,6 +1155,16 @@ pre.cv-math-source {
   /* VirtualTranscript owns bottom-following. Letting WebKit also anchor the growing row makes
      each streamed token compete with that correction and produces the one-pixel shake at rest. */
   overflow-anchor: none;
+  /* Its scrollbar stays shown (scrollers.ts SHOWN_SCROLLER_ATTRIBUTE); under the opt-in fade it
+     paces with the pane's other fades, the host's durations after ui.animationSpeed and Reduce
+     Motion (0 with animations off). */
+  --cmux-scroller-fade-in: var(--agent-motion-in, 120ms);
+  --cmux-scroller-fade-out: var(--agent-motion-move, 180ms);
+}
+/* The spacer runs across the scrollbar's lane (VirtualTranscript `lane`), so the column matches the
+   composer's; the transcript never scrolls sideways. */
+.acpmux-scroll[data-cmux-shown-scroller] {
+  overflow-x: hidden;
 }
 .acpmux-main:has(.acpmux-asks-stack) .acpmux-scroll {
   margin-bottom: 0;
@@ -1512,13 +1522,13 @@ pre.cv-math-source {
 .cv-worked.is-below .cv-worked__time {
   color: var(--cv-text-dim);
 }
-/* Its "⌃B to run in background" shows only while the pointer is on the line. */
-.cv-worked.is-below .cv-command__bg {
+/* Its "⌃B to run in background" shows only while the pointer is on the line, on every live line. */
+:is(.cv-worked, .cv-activity) .cv-command__bg {
   animation: none;
   opacity: 0;
   transition: opacity var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out);
 }
-.cv-worked.is-below:hover .cv-command__bg {
+:is(.cv-worked, .cv-activity):hover .cv-command__bg {
   opacity: 1;
 }
 /* Its row drops the transcript row's 34px floor and bottom padding (.acpmux-row), so it is the
@@ -1583,6 +1593,46 @@ pre.cv-math-source {
   max-height: 234px;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+/* Scrolled, its top fades out under the summary line above it (Leo 2026-10-21: "in that top section
+   fade would be good"), so a row half scrolled away dissolves instead of sitting cut in half against
+   the line. The transcript's top edge (.acpmux-scroll[data-fade-top], below): an alpha mask on the
+   list itself, never a painted overlay, so it covers nothing, catches no clicks and lets the pane's
+   glass show through in light and dark; at the list's start the edge is plain (data-fade-top,
+   scrollEdges.ts). The scrollbar's lane at the right keeps full ink. Reduce Transparency keeps a
+   plain edge. */
+.cv-tool-run[data-fade-top] {
+  --cv-tool-run-fade-top: 18px;
+  -webkit-mask-image:
+    linear-gradient(to bottom, transparent, #000 var(--cv-tool-run-fade-top)),
+    linear-gradient(#000, #000);
+  mask-image:
+    linear-gradient(to bottom, transparent, #000 var(--cv-tool-run-fade-top)),
+    linear-gradient(#000, #000);
+  -webkit-mask-size:
+    100% 100%,
+    var(--cmux-scroller-size, 8px) 100%;
+  mask-size:
+    100% 100%,
+    var(--cmux-scroller-size, 8px) 100%;
+  -webkit-mask-position:
+    0 0,
+    100% 0;
+  mask-position:
+    0 0,
+    100% 0;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .cv-tool-run[data-fade-top] {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+:root[data-reduce-transparency] .cv-tool-run[data-fade-top] {
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 .cv-tool {
   all: unset;
@@ -1918,6 +1968,67 @@ pre.cv-math-source {
 .cv-command__failed {
   color: var(--agent-danger);
 }
+/* A failed call's cause (ToolFailureCause.tsx, the `tool-error-look` experiment): one quiet line
+   under the row, starting under its words (the 16px glyph, less its 1.5px overlap, and the 8px
+   gap), cut to the width; the opened call has the rest. The error tone stays on the row's word. */
+.cv-tool-error {
+  margin: -3px 0 3px;
+  padding-left: 22.5px;
+  overflow: hidden;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-tool-error__hook {
+  margin-right: 6px;
+  font-family: var(--cv-mono);
+  font-size: var(--text-caption);
+  color: var(--cv-text-muted);
+}
+.cv-tool-error__inline {
+  color: var(--cv-text-dim);
+}
+/* The `card` arm: a small glass card with a thin rail in the error tone, never a red block. */
+.cv-tool-error-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 6px 22.5px;
+  padding: 5px 10px;
+  border-radius: 10px;
+  background: var(--cv-card-fill);
+  box-shadow:
+    inset 2px 0 0 color-mix(in srgb, var(--agent-danger) 70%, transparent),
+    inset 0 0 0 1px var(--cv-card-ring);
+  font-size: var(--text-detail);
+  line-height: 18px;
+}
+.cv-tool-error-card__cause {
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  color: var(--cv-text-muted);
+}
+.cv-tool-error-card__copy {
+  all: unset;
+  flex: none;
+  cursor: pointer;
+  color: var(--cv-text-dim);
+}
+.cv-tool-error-card__copy:hover {
+  color: var(--cv-text);
+}
+.cv-tool-error-card__copy:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
 /* "Ran npm test  ✓ 4.2s": the command fills the row, its status and time sit at the right edge. */
 .cv-command__text {
   flex: 1;
@@ -1986,7 +2097,8 @@ pre.cv-math-source {
 .cv-command__stopped {
   color: var(--cv-text-dim);
 }
-/* "⌃B to run in background" on a running command (BackgroundHint.tsx), at the row's right edge.
+/* "⌃B to run in background" while a command runs (BackgroundHint.tsx), at the right of the running
+   turn's live line; never on the command's own row.
    It fades in after a moment, so a quick command never shows it; opacity only, so it runs under
    Reduce Motion too. */
 .cv-command__bg {
@@ -2024,6 +2136,14 @@ pre.cv-math-source {
 .cv-message__text.has-more {
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
   mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}
+/* A send that did not arrive says why at the line's end ("Not delivered: agent stopped"), in a
+   muted warning tone rather than the danger red: the message is fine, the other agent was gone. */
+.cv-message[data-delivery="failed"] .cv-message__status {
+  color: color-mix(in srgb, var(--agent-warning, var(--agent-danger)) 75%, var(--cv-text-dim));
+}
+.cv-message[data-delivery="failed"] .cv-agentmsg__icon {
+  color: inherit;
 }
 /* Copy, at the sent line's end: shown while the message is pointed at or focused, as a received
    message's row is. Opacity, not display, so the line never reflows under the pointer. */
@@ -2426,6 +2546,19 @@ a.cv-sha:focus-visible {
   height: 20px;
   border-radius: 5px;
 }
+/* Continue on a stopped last turn (TurnRows.tsx): a quiet text button with the footer's icon-button
+   hover pill, its label then an arrow. */
+.cv-turn-actions .cv-iconbtn.cv-turn-continue {
+  width: auto;
+  gap: 4px;
+  padding-inline: 6px;
+  margin-inline-start: -2px;
+  white-space: nowrap;
+}
+.cv-iconbtn.cv-turn-continue:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
 /* Retry's model menu (TurnRows.tsx): a narrow chevron that sits against Retry. */
 .cv-iconbtn.cv-turn-retry-menu {
   width: 14px;
@@ -2471,7 +2604,8 @@ a.cv-sha:focus-visible {
 .acpmux-turnSummary:focus-visible .cv-turn-actions,
 .acpmux-turnSummary:hover .cv-turn-actions,
 .acpmux-turnSummary .cv-turn-actions:focus-within,
-.acpmux-turnSummary .cv-turn-actions--failed {
+.acpmux-turnSummary .cv-turn-actions--failed,
+.acpmux-turnSummary .cv-turn-actions--resumable {
   opacity: 1;
 }
 .cv-turn-summary,
@@ -3579,6 +3713,13 @@ a.cv-sha:focus-visible {
   min-height: 0;
 }
 .acpmux-row.acpmux-row--before-step {
+  padding-bottom: 0;
+}
+/* A row whose renderer draws nothing (a render update that joined an earlier card, a note whose
+   payload never came) takes no room: the 34px floor and the gap under it were a blank band each,
+   between "Worked for" and the reply. The element selector outranks every row-kind padding. */
+article.acpmux-row:empty {
+  min-height: 0;
   padding-bottom: 0;
 }
 .acpmux-row--after-step > .cv-tools {

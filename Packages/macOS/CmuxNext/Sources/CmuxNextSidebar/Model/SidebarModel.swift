@@ -562,8 +562,7 @@ public final class SidebarModel {
                 o.machineStatusLabels[machine.id] = status
             }
         }
-        // The local Chief runs on this Mac (SidebarRowIndex.machineLabel): not another machine.
-        let listed = sections.compactMap(\.machine).filter { !$0.id.isLocalChief }
+        let listed = sections.compactMap(\.machine)
         if Set(listed.map(\.id)).count > 1 {
             o.machines = Dictionary(listed.filter { $0.kind != .local || showsLocalMachine }.map { ($0.id, $0) },
                                     uniquingKeysWith: { first, _ in first })
@@ -587,6 +586,12 @@ public final class SidebarModel {
 
     /// Toggle Sidebar: fully shown at `width`, or fully hidden.
     public func toggle() {
+        // The rail (`sidebar.style` = rail): the toggle opens the full sidebar over the content and
+        // closes it back to the rail (Lawrence 2026-10-21: the full sidebar opens from the toggle, not on hover).
+        if style == .rail, presentation == .shown {
+            isRailOpen.toggle()
+            return
+        }
         presentation = presentation == .hidden ? .shown : .hidden
     }
 }

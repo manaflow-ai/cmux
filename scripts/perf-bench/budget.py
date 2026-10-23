@@ -78,6 +78,20 @@ def load(path: str | None = None) -> dict:
     return data
 
 
+def animation_budgets(path: str | None = None) -> list[dict]:
+    """The app animation budgets (`animations` in budgets.json, anim-perf-terminal.py's rows): each
+    `{anim, metric, limit, enforce}`, `metric` a key of that bench's summary row. The xbench session
+    does not measure them; scripts/cmux-next/perf-budgets.py's `anim` bench does, and gates on them.
+    A file without the key has none; a malformed entry stops, as a bad `budgets` entry does."""
+    data = load(path)
+    entries = data.get("animations", [])
+    for entry in entries:
+        if not isinstance(entry.get("anim"), str) or not isinstance(entry.get("metric"), str) \
+                or not isinstance(entry.get("limit"), (int, float)):
+            raise SystemExit(f"budget: bad animation entry {entry} (anim and metric strings, limit a number)")
+    return entries
+
+
 def _sleep(seconds: float):
     time.sleep(seconds)  # bench: a deliberate settle window
 

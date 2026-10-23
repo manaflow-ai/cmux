@@ -5,6 +5,7 @@ import CmuxNextDaemon
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
+import CmuxNextWakeups
 import Foundation
 import Observation
 import os
@@ -31,6 +32,11 @@ final class HomeService {
     /// While a Chief turn waits for the compactor (ChiefSettleWatch).
     var settleNotice: String?
     @ObservationIgnored var settleWatch: ChiefSettleWatch?
+    /// While the person's last message to this Mac's Chief has had no reply for two minutes
+    /// (ChiefReplyWatchdog).
+    var replyNotice: String?
+    @ObservationIgnored private var replyWatch: Task<Void, Never>?
+    @ObservationIgnored private let replyTimer = DemandTimer(owner: "HomeService.replyWatchdog")
     /// The Chief home's conversation owner serves `local-conversations-v1`.
     var isAvailable: Bool { chief.supports(DaemonCapabilities.shared.localConversations) }
     /// The owner of every Home conversation: this build's Chief home's (one Chief per build).
@@ -161,7 +167,6 @@ final class HomeService {
         // daemon carries only the cloud proxy's events (its own conversation
         // store is the old per-tag one, which Home no longer shows).
         chief.onEvent = { [weak self] event in self?.handle(event) }
-        showLocalChiefRow()
         services.machines.local.store.sideEvents.subscribe { [weak self] event in
             if case .cloudConversations = event { self?.handle(event) }
         }
@@ -171,6 +176,7 @@ final class HomeService {
         settleWatch = ChiefSettleWatch(home: chief.home) { [weak self] text in
             if self?.settleNotice != text { self?.settleNotice = text }
         }
+        watchReplies()
         chief.start()
         let local = services.machines.local
         let auth = services.cloud.auth
@@ -380,6 +386,36 @@ final class HomeService {
             } catch {
                 self?.logger.info("conversation-op deferred to the next connection: \(String(describing: error), privacy: .public)")
             }
+        }
+    }
+}
+
+// MARK: Reply watchdog
+
+extension HomeService {
+    /// Follows the local Chief conversation's head: when the person's last message has had no
+    /// reply for `ChiefReplyWatchdog.limit`, the notice row says so, and it counts the minutes
+    /// until a reply lands. One timer at a time, armed for the next change; no polling.
+    fileprivate func watchReplies() {
+        // task-owner: lives as long as the service; event-driven (Observation)
+        replyWatch = Task { [weak self] in
+            for await head in ObservationStream({ [weak self] in self.flatMap { HomeChiefName.select(from: $0.conversations) } }) {
+                guard let self else { return }
+                armReplyTimer(head)
+            }
+        }
+    }
+
+    private func armReplyTimer(_ head: CmuxNextDaemon.ConversationSummary?) {
+        replyTimer.cancel()
+        let now = Date()
+        let notice = head.flatMap { ChiefReplyWatchdog.notice($0, now: now) }
+        if replyNotice != notice { replyNotice = notice }
+        guard let head, let next = ChiefReplyWatchdog.nextCheck(head, now: now) else { return }
+        // One deadline: when the notice appears or its minute count changes; the next head resets it.
+        replyTimer.schedule(after: .seconds(max(1, next.timeIntervalSinceNow))) { @MainActor [weak self] in
+            guard let self else { return }
+            armReplyTimer(HomeChiefName.select(from: conversations))
         }
     }
 }

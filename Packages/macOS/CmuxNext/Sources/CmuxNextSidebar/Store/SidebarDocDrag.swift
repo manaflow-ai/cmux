@@ -82,6 +82,12 @@ public struct SidebarDocDrag {
             case .section, .emptySection:
                 slots.append(.init(key: section, item: nil, section: section, frame: frame, kind: .section))
                 rows[section] = row
+            case .emptyGroup(let group):
+                // Its own key, the group as item and parent: a drop goes into the group, by the group's acceptance.
+                guard let id = item(.group(group)) else { continue }
+                let key = "empty:" + id
+                slots.append(.init(key: key, item: id, section: section, parent: id, frame: frame, kind: .emptyGroup))
+                rows[key] = row
             case .block(let id):
                 // A block's items: tiles and rows of its own arrangement, at their base frames.
                 if let block = blocks[id] { slots += blockSlots(block, at: row.y) }

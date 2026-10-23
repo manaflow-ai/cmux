@@ -17,8 +17,12 @@ public nonisolated struct AgentPresenceColor: Sendable {
 
     /// The color in `tokens`' palette.
     public func rgb(tokens: ThemeTokens) -> ThemeRGB {
-        let color = Self.order[Self.index(forKey: key, count: Self.order.count)]
-        return color.themeRGB(tokens) ?? color.swatchRGB(tokens)
+        Self.rgb(of: Self.order[Self.index(forKey: key, count: Self.order.count)], tokens: tokens)
+    }
+
+    /// One of the accents in `tokens`' palette, kept readable over the sidebar.
+    static func rgb(of color: GroupColor, tokens: ThemeTokens) -> ThemeRGB {
+        color.themeRGB(tokens) ?? color.swatchRGB(tokens)
     }
 
     /// The color in the active theme scope.

@@ -117,8 +117,9 @@ pub(super) const GUIDES: &[Guide] = &[
             "cookies",
         ],
         text: "`cmux setup list` names every setup task (folder trust, harness install and sign-in, \
-        ssh machines, peer updates, accounts, Cloud machines, Tailscale, MCP wiring, Computer \
-        Use, browser import, key bindings, notifications, team invites) with the read-only \
+        ssh machines, peer updates, accounts, Cloud machines, Tailscale, pairing tickets, MCP \
+        wiring, Computer Use, browser import, key bindings, notifications, team invites) with \
+        the read-only \
         commands that check it, the commands that do it, and what only the person can do. \
         `cmux setup status` checks the tasks setup runs. `cmux setup trust [FOLDER]` records \
         trust for a folder; it changes nothing when the folder is already trusted, --dry-run \
@@ -159,6 +160,35 @@ pub(super) const GUIDES: &[Guide] = &[
         harness, the MCP wiring, Computer Use, the Cloud machine, notifications, the \
         imported browsers and the tailnet. Every `cmux setup` command prints one JSON object: state is ok, \
         changed, planned, needs_user, failed or not_applicable.",
+    },
+    Guide {
+        topic: "Set up cmux with Chief: copyable setup prompts",
+        keywords: &[
+            "setup",
+            "prompt",
+            "prompts",
+            "chief",
+            "copy",
+            "paste",
+            "starter",
+            "remote",
+            "tailnet",
+            "tailscale",
+            "pair",
+            "pairing",
+            "ticket",
+        ],
+        text: "Every task `cmux setup list` names has a `prompt`: one paragraph a person pastes \
+        into Chief, or any agent chat in cmux, that names the exact command to run, what to hand \
+        the person and what to reply; its `status_prompt` sets up this Mac (`cmux setup status` \
+        and the fix of each check). docs/chief-setup-prompts.md has them as copyable blocks \
+        (`cmux setup list --prompts-md` writes it). A pasted prompt is the person's request for \
+        that task: run its command. Words left in capitals (HOST, FOLDER, BROWSER, EMAIL) are \
+        the person's to fill in, so ask for them. Remote machines: `cmux setup machine HOST` adds \
+        a Mac on the tailnet or any ssh host as an agent peer, and `cmux acp host doctor NAME \
+        [--fix]` checks or repairs one; `cmux host ticket new` mints a single-use line that \
+        installs cmux on another machine and joins it (`cmux host join`) without ssh; `cmux \
+        setup tailnet` serves this machine over Tailscale.",
     },
 ];
 
@@ -400,6 +430,26 @@ mod tests {
             assert!(operations.contains_key(op), "{op}");
             assert!(GUIDES[0].text.contains(&op.replace('.', "_")), "{op}");
         }
+    }
+
+    /// `cmux docs search setup` and an agent asking in its own words for
+    /// setup prompts or a remote machine find the Chief prompts guide, and it
+    /// sends them to `cmux setup list`, where the prompts live.
+    #[test]
+    fn chief_prompt_guide_is_found_by_setup_words() {
+        let topic = "Set up cmux with Chief: copyable setup prompts";
+        for query in
+            ["setup", "chief setup prompts", "set up a remote machine", "pair a tailnet mac"]
+        {
+            assert!(guides(query).iter().any(|guide| guide.topic == topic), "{query}");
+        }
+        let guide = GUIDES.iter().find(|guide| guide.topic == topic).unwrap();
+        for words in
+            ["`cmux setup list`", "`prompt`", "docs/chief-setup-prompts.md", "--prompts-md"]
+        {
+            assert!(guide.text.contains(words), "{words}");
+        }
+        assert_eq!(guides("status").len(), 1);
     }
 
     #[test]

@@ -128,7 +128,7 @@ public final class AgentPageProvider: PageProvider {
 
     /// The value of an ``AgentPaneReply``, or its failure as a ``PageError``. The model's code and
     /// message are kept; its `origin` and `details` travel in the error's details.
-    nonisolated static func value(of reply: [String: Any]) throws -> JSONValue {
+    public nonisolated static func value(of reply: [String: Any]) throws -> JSONValue {
         if reply["ok"] as? Bool == true {
             guard let value = reply["value"] else { return .null }
             guard let json = JSONValue(foundation: value) else {
