@@ -219,6 +219,10 @@ def main():
         log(f"rig {rig.host}: device {rig.device}, workspace {rig.workspace}, terminal {rig.terminal}")
     udid = ensure_sim(a.sim, a.runtime, a.reuse)
     sim = Sim(udid, shots_dir=os.path.join(a.out, "shots"))
+    # Keep the app's info and debug lines (link phases, probes, presence) in the simulator's log store.
+    for sub in ("dev.cmux.mobile", "dev.cmux"):
+        subprocess.run(["xcrun", "simctl", "spawn", udid, "log", "config", "--subsystem", sub, "--mode", "level:debug,persist:debug"],
+                       capture_output=True)
     j = Journey(sim, rigs[0], a.out, a.app, log)
     env = {"CMUX_MOBILE_LOG": a.phone_log}
     if a.relay_only:
@@ -279,6 +283,20 @@ def main():
         log(f"browser workspace opened on {a.browser}")
         time.sleep(5)
         sim.shot("browser-open")
+    def run_event(what):
+        if what.startswith("bg:"):
+            sim.home()
+            time.sleep(float(what.split(":")[1]))
+            # Back to the foreground: the same process (no terminate), as tapping its icon.
+            e = dict(os.environ, **{"SIMCTL_CHILD_" + k: v for k, v in env.items()})
+            subprocess.run(["xcrun", "simctl", "launch", udid, a.bundle], capture_output=True, env=e)
+        elif what == "kill":
+            sh("xcrun", "simctl", "terminate", udid, a.bundle, check=False)
+            launch()
+            open_ws(rigs[-1])
+        elif what == "hostd":
+            rigs[0].ssh(f"cd {rigs[0].dir} && pkill -9 -f \"$(python3 -c 'import rig; print(rig.mac().app)')/Contents/Resources/bin/cmux-mobile-host\"")
+
     events = {}
     for spec in a.event:
         what, minute = spec.split("@")
@@ -293,18 +311,12 @@ def main():
         for m in due:
             what = events.pop(m)
             log(f"event {what}")
-            if what.startswith("bg:"):
-                sim.home()
-                time.sleep(float(what.split(":")[1]))
-                launch_e = dict(os.environ, **{"SIMCTL_CHILD_" + k: v for k, v in env.items()})
-                subprocess.run(["xcrun", "simctl", "launch", udid, BUNDLE], capture_output=True, env=launch_e)
-            elif what == "kill":
-                sh("xcrun", "simctl", "terminate", udid, BUNDLE, check=False)
-                launch()
-                open_ws(rigs[-1])
-            elif what == "hostd":
-                rigs[0].ssh(f"cd {rigs[0].dir} && pkill -9 -f \"$(python3 -c 'import rig; print(rig.mac().app)')/Contents/Resources/bin/cmux-mobile-host\"")
+            try:
+                run_event(what)
+            except Exception as error:  # a step that fails is a result, not the end of the soak
+                log(f"event {what} failed: {str(error)[:200]}")
             sim.shot(f"after-{what.replace(':', '-')}")
+
         # A browser run keeps the page on screen (the media session's use); liveness then
         # comes from the Macs' logs only.
         if now >= next_echo and not a.browser:
