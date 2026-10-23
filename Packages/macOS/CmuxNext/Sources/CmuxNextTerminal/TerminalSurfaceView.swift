@@ -109,6 +109,7 @@ public final class TerminalSurfaceView: NSView {
             for observer in windowObservers { NotificationCenter.default.removeObserver(observer) }
             TerminalSecureInput.release(self)
             if let surface {
+                GhosttyRuntime.shared.hostFramePresenter.forget(self)
                 lane?.close()
                 ghostty_surface_free(surface)
             }
@@ -192,11 +193,13 @@ public final class TerminalSurfaceView: NSView {
     private func syncWindowState() {
         let shown = window != nil && !isHiddenOrHasHiddenAncestor && !isParkedOrHasParkedAncestor
         observeWindow(shown)
+        // Occlusion first: a terminal resized while hidden presents its frame at the new size in
+        // this turn's commit only once Ghostty knows it is visible again.
+        updateOcclusion()
         if shown {
             updateContentScale()
             updateSurfaceSize()
         }
-        updateOcclusion()
         updateFocus()
     }
 
@@ -333,7 +336,11 @@ public final class TerminalSurfaceView: NSView {
         let pixels = convertToBacking(bounds.size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
         defer { copyMode.syncCursor() }
+        let previous = ghostty_surface_size(surface)
         ghostty_surface_set_size(surface, UInt32(pixels.width), UInt32(pixels.height))
+        if previous.width_px != UInt32(pixels.width) || previous.height_px != UInt32(pixels.height) {
+            GhosttyRuntime.shared.hostFramePresenter.sizeChanged(surface, of: self)
+        }
         let size = ghostty_surface_size(surface)
         publish(size: size)
         guard size.columns > 0, size.rows > 0 else { return }
