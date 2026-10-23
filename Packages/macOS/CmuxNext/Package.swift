@@ -1317,6 +1317,8 @@ let package = Package(
             dependencies: [
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",
+                // The thin scroller's rest-delay wakeups are counted in an injected WakeupLedger.
+                "CmuxNextWakeups",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
             ],

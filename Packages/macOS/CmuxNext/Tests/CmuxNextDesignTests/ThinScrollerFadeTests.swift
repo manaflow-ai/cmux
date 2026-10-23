@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextWakeups
 import Testing
 
 /// Lawrence 2026-10-23 (msg 11494): "the scrollbar stuff needs to be fixed so it auto-fades away,
@@ -11,11 +12,12 @@ import Testing
 @Suite(.serialized)
 struct ThinScrollerFadeTests {
     /// A scroll view whose content is four times its height, with the shared thin scroller on
-    /// `clock`, scrolled to the top.
-    private static func scrollView(clock: ThinScrollerManualClock = ThinScrollerManualClock()) -> (NSScrollView, ThinScroller) {
+    /// `clock` counting its wakeups in `ledger`, scrolled to the top.
+    private static func scrollView(clock: ThinScrollerManualClock = ThinScrollerManualClock(),
+                                   ledger: WakeupLedger = WakeupLedger()) -> (NSScrollView, ThinScroller) {
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 200))
         scrollView.hasVerticalScroller = true
-        scrollView.verticalScroller = ThinScroller(frame: .zero, clock: clock)
+        scrollView.verticalScroller = ThinScroller(frame: .zero, clock: clock, ledger: ledger)
         SystemScrollers.followThin(scrollView)
         scrollView.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 800))
         scrollView.tile()
@@ -40,6 +42,7 @@ struct ThinScrollerFadeTests {
     @Test func scrollingShowsTheKnobAndItFadesAfterTheRestDelay() async throws {
         let clock = ThinScrollerManualClock()
         let (scrollView, scroller) = Self.scrollView(clock: clock)
+        var rests = scroller.rests.makeAsyncIterator()
         scroller.doubleValue = 0.5 // the app or a layout moved it: no knob
         #expect(!scroller.isKnobShown)
         Self.userScroll(scrollView)
@@ -52,8 +55,28 @@ struct ThinScrollerFadeTests {
         Self.userScroll(scrollView)
         try await clock.waitForSleeper()
         clock.advance(by: ThinScroller.restDelay)
-        await scroller.restTask?.value
+        await rests.next()
         #expect(!scroller.isKnobShown)
+    }
+
+    /// The rest delay is a one-shot deadline of the shared wakeup primitive (DemandTimer), so
+    /// `debug.wakeups` counts each fade-out under the scroller's owner, and only the one that ran:
+    /// a deadline the next scroll replaced is not a wakeup (plans/cmux-next/idle-wakeups.md).
+    @Test func eachFadeOutIsOneWakeupInTheLedger() async throws {
+        let clock = ThinScrollerManualClock()
+        let ledger = WakeupLedger()
+        let (_, scroller) = Self.scrollView(clock: clock, ledger: ledger)
+        var rests = scroller.rests.makeAsyncIterator()
+        scroller.flash()
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(400))
+        scroller.flash() // replaces the pending deadline
+        try await clock.waitForSleeper()
+        clock.advance(by: ThinScroller.restDelay)
+        await rests.next()
+        #expect(!scroller.isKnobShown)
+        let wakeups = ledger.snapshot().filter { $0.owner == ThinScroller.restWakeupOwner }
+        #expect(wakeups.map(\.count) == [1])
     }
 
     @Test func thePointerNearTheEdgeShowsAndWidensTheKnob() throws {
@@ -93,6 +116,7 @@ struct ThinScrollerFadeTests {
     @Test func withoutRevealAtRestThePointerOnlyHoldsAShownKnob() async throws {
         let clock = ThinScrollerManualClock()
         let (scrollView, scroller) = Self.scrollView(clock: clock)
+        var rests = scroller.rests.makeAsyncIterator()
         scroller.revealsNearPointerAtRest = false
         scroller.showsOnScroll = false
         let near = CGPoint(x: scrollView.bounds.maxX - 3, y: 100)
@@ -107,7 +131,7 @@ struct ThinScrollerFadeTests {
         #expect(scroller.isKnobExpanded)
         try await clock.waitForSleeper()
         clock.advance(by: ThinScroller.restDelay)
-        await scroller.restTask?.value
+        await rests.next()
         #expect(scroller.isKnobShown) // held while the pointer stays near
         scroller.pointerMoved(to: nil)
         #expect(!scroller.isKnobShown)
