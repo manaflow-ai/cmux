@@ -282,7 +282,8 @@ function holdsMore(output: string, depth = 0): boolean {
   const parsed = parseJSON(output);
   const peeled = parsed === undefined ? undefined : peelEnvelope(parsed);
   if (!peeled) return false;
-  if (peeled.rest.length) return true;
+  // Parts besides its text, or images its text leaves out for the strip (toolResult.ts).
+  if (peeled.rest.length || peeled.images.length) return true;
   return holdsMore(cleanText(peeled.texts.join("\n\n")).replace(/\n$/, ""), depth + 1);
 }
 

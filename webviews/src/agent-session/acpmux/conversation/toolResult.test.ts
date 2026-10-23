@@ -258,10 +258,36 @@ test("an envelope's images show in the call's strip, its text in the opened call
   expect(toolResult(output)).toEqual({ text: "Screenshot", lang: "text" });
   expect(envelopeImages(output)).toEqual([url(0)]);
   expect(toolImages({ id: "c1", title: "mcp__shots__take", status: "completed", output })).toEqual([url(0)]);
-  // An image alone: the strip shows it, and the opened call its JSON.
+  // An image alone: the strip shows it, and the opened call nothing more, never its JSON too.
   const alone = JSON.stringify([shot(1)]);
   expect(envelopeImages(alone)).toEqual([url(1)]);
-  expect(toolResult(alone).lang).toBe("json");
+  expect(toolResult(alone).text).toBe("");
+  expect(prettyOutput(alone)).toBeUndefined();
+});
+
+test("an envelope that shows as printed keeps its images there, out of the strip", () => {
+  const rounded = JSON.stringify({
+    content: [{ type: "text", text: "Shot" }, shot(0)],
+    structuredContent: { id: 1 },
+  }).replace('"id":1', '"id":9007199254740993');
+  expect(toolResult(rounded).text).toBe(rounded);
+  expect(envelopeImages(rounded)).toEqual([]);
+});
+
+test("the strip keeps every image an envelope's text leaves out, ahead of the call's own", () => {
+  const output = JSON.stringify([{ type: "text", text: "Four" }, ...[0, 1, 2, 3].map(shot)]);
+  const own = "data:image/png;base64,OWN";
+  const images = toolImages({ id: "c1", title: "mcp__shots__take", status: "completed", output, images: [own] });
+  expect(images).toEqual([0, 1, 2, 3].map(url));
+  expect(toolResult(output).text).toBe("Four");
+});
+
+test("the opened MCP call reads text and images inside text as the row does", () => {
+  const inner = JSON.stringify({ content: [{ type: "text", text: "Inner" }, shot(0)] });
+  const output = JSON.stringify({ content: [{ type: "text", text: inner }] });
+  expect(prettyOutput(output)).toBe(toolResult(output, cleanText).text);
+  expect(prettyOutput(output)).toBe("Inner");
+  expect(envelopeImages(output, cleanText)).toEqual([url(0)]);
 });
 
 test("images past the strip's room stay JSON, across envelopes inside envelopes", () => {

@@ -248,14 +248,13 @@ function read(output: string, clean: (text: string) => string): Read {
 }
 
 function fromJSON(value: unknown, printed: string, depth: number, clean: (text: string) => string, room: number): Read {
-  const found = depth < MAX_DEPTH && oneLine(printed) ? peelEnvelope(value, 0, room) : undefined;
-  // Its images show in the strip whatever its text shows as.
-  const images = found?.images ?? [];
-  let peeled = found;
-  // An envelope with nothing to read shows as the JSON it is, and so does one whose other parts
+  let peeled = depth < MAX_DEPTH && oneLine(printed) ? peelEnvelope(value, 0, room) : undefined;
+  // An envelope with nothing in it shows as the JSON it is, and so does one whose other parts
   // cannot be printed again unchanged (a number a double rounds, nesting too deep).
-  if (peeled && !says(peeled) && !peeled.rest.length) peeled = undefined;
+  if (peeled && !says(peeled) && !peeled.rest.length && !peeled.images.length) peeled = undefined;
   if (peeled?.rest.length && (losesNumbers(printed) || !peeled.rest.every(printable))) peeled = undefined;
+  // Its images show in the strip only when its text leaves them out: each image shows once.
+  const images = peeled?.images ?? [];
   if (peeled) {
     const text = clean(peeled.texts.join("\n\n")).replace(/\n$/, "");
     if (peeled.rest.length) {

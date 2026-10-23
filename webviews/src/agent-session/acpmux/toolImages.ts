@@ -20,14 +20,14 @@ const IMAGE_PATH = /(?<![\w./:~-])\/[^\s"'`()<>[\]]+\.(?:png|jpe?g|gif|webp|svg|
 /// The call's images, returned ones first, each once, at most `MAX_TOOL_IMAGES`.
 export function toolImages(tool: Tool): string[] {
   if (tool.status === "pending" || tool.status === "in_progress") return [];
-  const found: string[] = [];
+  // Images inside a result a harness passed on as JSON text (an MCP result's `image` blocks), read
+  // as ToolRow reads its text: without the context a host put around it. They come first and always
+  // fit (toolResult.ts keeps at most MAX_TOOL_IMAGES of them), since its text no longer shows them.
+  const found: string[] = [...new Set(envelopeImages(tool.output, cleanText))];
   const add = (source: string) => {
     if (found.length < MAX_TOOL_IMAGES && !found.includes(source)) found.push(source);
   };
   for (const image of tool.images ?? []) add(image);
-  // Images inside a result a harness passed on as JSON text (an MCP result's `image` blocks), read
-  // as ToolRow reads its text: without the context a host put around it.
-  for (const image of envelopeImages(tool.output, cleanText)) add(image);
   const file = (path: string) => {
     if (path.startsWith("/") && IMAGE_FILE.test(path)) add(path);
   };
