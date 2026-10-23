@@ -21,6 +21,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     let saveAppearance: (TeamAppearance, Team) -> Void
     /// The live service for the device list and account deletion (nil in mock mode).
     let directory: (any SettingsDeviceDirectory)?
+    /// The Macs' terminal sizing policies (nil in mock mode).
+    let sizing: (any TerminalSizingService)?
     @Binding var path: [SettingsRoute]
     let scrollRequest: String?
     @State private var confirmsSignOut = false
@@ -30,9 +32,10 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     @State private var notificationPermission: NotificationPermission?
     @Environment(\.scenePhase) private var scenePhase
 
-    public init(auth: CmuxMobileAuthModel, store: AppStore, settings: SettingsStore, path: Binding<[SettingsRoute]>, scrollRequest: String? = nil, directory: (any SettingsDeviceDirectory)? = nil, inviteToTeam: @escaping (Team) -> Void, saveAppearance: @escaping (TeamAppearance, Team) -> Void, @ToolbarContentBuilder leading: @escaping () -> Leading) {
+    public init(auth: CmuxMobileAuthModel, store: AppStore, settings: SettingsStore, path: Binding<[SettingsRoute]>, scrollRequest: String? = nil, directory: (any SettingsDeviceDirectory)? = nil, sizing: (any TerminalSizingService)? = nil, inviteToTeam: @escaping (Team) -> Void, saveAppearance: @escaping (TeamAppearance, Team) -> Void, @ToolbarContentBuilder leading: @escaping () -> Leading) {
         self.scrollRequest = scrollRequest
         self.directory = directory
+        self.sizing = sizing
         self.auth = auth
         self.store = store
         self.settings = settings
@@ -199,6 +202,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         case .transport: TransportPage(settings: settings, relayAvailable: directory?.relayAvailable)
         case .devices: DevicesPage(store: store, directory: directory, list: deviceList)
         case .terminal: TerminalPage(settings: settings)
+        case .terminalSizing: TerminalSizingMacsPage(store: store)
+        case .terminalSizingMac(let macID): TerminalSizingMacPage(macID: macID, store: store, service: sizing)
         case .composer: ComposerPage(settings: settings)
         case .notifications: NotificationsPage(settings: settings)
         case .acknowledgements: AcknowledgementsPage()
@@ -209,6 +214,9 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
 /// Pushed settings pages.
 public enum SettingsRoute: Hashable, Sendable {
     case account, team, transport, devices, terminal, composer, notifications, acknowledgements
+    /// Terminal → Terminal Size When Shared, and one Mac's page under it.
+    case terminalSizing
+    case terminalSizingMac(String)
 
     /// The route named by its case name (DEBUG launch arguments). The old
     /// name "pairedMacs" opens Devices.
@@ -217,7 +225,7 @@ public enum SettingsRoute: Hashable, Sendable {
             self = .devices
             return
         }
-        let all: [SettingsRoute] = [.account, .team, .transport, .devices, .terminal, .composer, .notifications, .acknowledgements]
+        let all: [SettingsRoute] = [.account, .team, .transport, .devices, .terminal, .terminalSizing, .composer, .notifications, .acknowledgements]
         guard let route = all.first(where: { "\($0)" == name }) else { return nil }
         self = route
     }
