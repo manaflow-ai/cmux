@@ -62,6 +62,8 @@ fail() { # <message>
   exit 1
 }
 
+# TEST-ONLY branch (pl-cef-layer-pin-test): the dev CEF pin has no matching remote browser host.
+CMUX_NEXT_SKIP_RB_HOST=1
 if [[ "${CMUX_NEXT_SKIP_RB_HOST:-0}" == "1" ]]; then
   echo "warning: CMUX_NEXT_SKIP_RB_HOST=1: this DEV build has NO remote browser host; \"Open Remote Browser Tab\" will not work (recorded in Contents/Resources/$OPT_OUT_FILE and About)"
   mkdir -p "$app/Contents/Resources"
