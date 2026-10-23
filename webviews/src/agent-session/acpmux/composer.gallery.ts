@@ -478,8 +478,9 @@ export default agentPaneEntry({
         await ctx.waitFor(() => text(".acpmux-composer-foot .acpmux-model .acpmux-picker-button").includes("Opus 5.5"));
         await ctx.waitFor(() => text(`.acpmux-composer-foot ${MODEL_DETAIL}`) === "Medium");
         await ctx.waitFor(() => !text(".acpmux-composer-foot").includes("claude-opus-5-5"));
-        await ctx.waitFor(() =>
-          ctx.document.querySelector(".acpmux-context")?.getAttribute("title")?.startsWith("Context: 42% used"),
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelector(".acpmux-context-ring")?.getAttribute("aria-label") === "42% of context used",
         );
       },
     },
@@ -1051,6 +1052,22 @@ export default agentPaneEntry({
         const receipt = steer?.querySelector('.cv-user__read[data-read="true"]');
         if (!receipt) throw new Error("the read steer shows no read check");
         receipt.setAttribute("data-gallery-target", "steer-read");
+        // The read steer sits above a frame-tall transcript that settles at its end after the
+        // stage is ready. Bring the steer into view and wait until the transcript has stopped
+        // scrolling: a scroll puts a title tooltip away (ui/titleTooltips.ts), so a hover that
+        // landed while it still moved never showed one.
+        steer?.scrollIntoView({ block: "center" });
+        const scroller = ctx.document.querySelector(".acpmux-scroll");
+        let top = Number.NaN;
+        let still = performance.now();
+        await ctx.waitFor(() => {
+          const now = performance.now();
+          if (scroller?.scrollTop !== top) {
+            top = scroller?.scrollTop ?? 0;
+            still = now;
+          }
+          return now - still > 300;
+        });
         await ctx.hover({ selector: '[data-gallery-target="steer-read"]' });
         await ctx.waitFor(
           () =>
@@ -1269,7 +1286,7 @@ export default agentPaneEntry({
       },
     },
     "context-breakdown": {
-      note: "Play: open the context ring after a first message on Codex; the details split Agent setup (system prompt, tools and instructions) from the conversation.",
+      note: "Play: rest the pointer on the context ring after a first message on Codex; the glass card shows the share and tokens used and the window as a bar.",
       snapshot: chat(finished, {
         summary: {
           sessionId: "gallery-context",
@@ -1281,8 +1298,8 @@ export default agentPaneEntry({
         },
       }),
       play: async (ctx) => {
-        await ctx.click({ selector: "button.acpmux-context-ring" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-part"));
+        await ctx.hover({ selector: "button.acpmux-context-ring" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-card"));
       },
     },
     "slash-menu": {
