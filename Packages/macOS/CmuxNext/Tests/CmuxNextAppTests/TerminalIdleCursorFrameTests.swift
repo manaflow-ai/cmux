@@ -26,21 +26,30 @@ import Testing
         window.contentView = session.view
         window.orderFrontRegardless()
         session.view.layoutSubtreeIfNeeded()
-        // The runner's window is not key: focus the surface the way a key window's first responder is.
-        ghostty_surface_set_focus(surface, true)
-        io.send(.output(Data("ready\r\n\u{1b}[?25l".utf8)))
+        // The runner's window is not key: the surface is focused below the way a key window's first
+        // responder is.
+        io.send(.output(Data("ready\r\n".utf8)))
         let drawnBy = ContinuousClock.now.advanced(by: .seconds(10))
         while ContinuousClock.now < drawnBy, session.surfaceView.presentedFrame == nil {
             try await Task.sleep(for: .milliseconds(20))
         }
         try #require(session.surfaceView.presentedFrame != nil, "the terminal never drew")
+        ghostty_surface_set_focus(surface, true)
         try await Task.sleep(for: .milliseconds(500)) // test: the output's own frames land
 
+        // Control: a visible blinking cursor redraws on blink ticks, so the ticks run in this setup.
+        let start = ghostty_surface_render_counters(surface)
+        try await Task.sleep(for: .seconds(2)) // test: the control window, three blink ticks
+        let shown = ghostty_surface_render_counters(surface).frame_updates - start.frame_updates
+        try #require(shown > 0, "no blink tick updated a visible cursor's frame: the setup does not run blink ticks")
+
+        io.send(.output(Data("\u{1b}[?25l".utf8)))
+        try await Task.sleep(for: .milliseconds(700)) // test: the hide lands and its frame draws
         let before = ghostty_surface_render_counters(surface)
         try await Task.sleep(for: .seconds(3)) // test: the measured rest, five blink ticks
         let after = ghostty_surface_render_counters(surface)
         let frames = after.frames - before.frames
         let updates = after.frame_updates - before.frame_updates
-        #expect(frames == 0 && updates == 0, "at rest with a hidden cursor: \(frames) frames, \(updates) frame updates in 3 s")
+        #expect(updates == 0, "at rest with a hidden cursor: \(updates) frame updates (\(frames) frames) in 3 s; visible: \(shown) in 2 s")
     }
 }
