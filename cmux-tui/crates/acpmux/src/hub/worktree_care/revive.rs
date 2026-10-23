@@ -59,7 +59,7 @@ impl Hub {
             }
             return Ok(());
         }
-        let Some(origin) = meta.worktree.filter(|w| w.cwd == cwd) else {
+        let Some(origin) = meta.worktree.clone().filter(|w| w.cwd == cwd) else {
             return Ok(());
         };
         let _one = one.lock().await;
