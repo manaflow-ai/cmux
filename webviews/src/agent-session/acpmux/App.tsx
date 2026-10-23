@@ -45,7 +45,7 @@ import { postNative } from "./native";
 import { NativeError } from "./nativeError";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
-import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost } from "./NewTabPage";
+import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabChat, type NewTabHost } from "./NewTabPage";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
@@ -7059,7 +7059,12 @@ function AcpmuxPane() {
     }
   }, []);
   /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
-  const chatFromNewTab = (text: string, cwd?: string, attachments: ComposerAttachment[] = []) => {
+  const chatFromNewTab = (
+    text: string,
+    cwd?: string,
+    attachments: ComposerAttachment[] = [],
+    chat?: NewTabChat,
+  ) => {
     const inherited = newTab?.cwd;
     setNewTab(undefined);
     const start = (folder?: string) =>
@@ -7070,9 +7075,13 @@ function AcpmuxPane() {
           heldBack.current = holdNewTabAttachments(heldBack.current, attachments);
           return setProjectDraft(folder);
         }
-        const started = folder ? await callNative("chat.new", { cwd: folder }) : undefined;
+        // The page's harness and model go with it: the picks it made sit on the deferred chat that
+        // harness opened, and a bare `chat.new {cwd}` would start the default one instead.
+        const started =
+          folder || chat ? await callNative("chat.new", { ...chat, ...(folder ? { cwd: folder } : {}) }) : undefined;
         // A chat the person started here with a prompt makes its project the default.
-        if (started && text && !directClient.current?.startsOnSend) rememberStartedProject(folder, callNative);
+        if (started && folder && text && !directClient.current?.startsOnSend)
+          rememberStartedProject(folder, callNative);
         if (text || attachments.length)
           await callNative("chat.send", { text, ...(attachments.length ? { attachments } : {}) });
       })().catch(() => undefined);
@@ -8256,7 +8265,10 @@ function AcpmuxPane() {
               location={newTab.location}
               omnibar={newTab.omnibar}
               projects={newTabProjects}
-              chips={ComposerChips}
+              // The same deferred chips as the other templates: a pick before the chat starts opens
+              // the page's chat behind it, as on the New Tab screen, never the active chat's path.
+              chips={registryChips ?? NewTabComposerChips}
+              {...(newTab.lastAgent ? { lastAgent: newTab.lastAgent } : {})}
               // A terminal or browser tab opens at once; a chat waits for acpmux (cx-hnpxh).
               onSubmit={newTabPageSubmit({ callNative, whenHandshaken, startChat: chatFromNewTab })}
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
