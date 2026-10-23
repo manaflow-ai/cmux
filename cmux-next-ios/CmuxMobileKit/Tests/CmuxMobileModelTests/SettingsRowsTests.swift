@@ -41,6 +41,33 @@ import Testing
         #expect(rows?.first?.lastSeenAt == seen)
     }
 
+    /// Settings still lists every build, and says which rows are another build of a Mac Workspaces lists once.
+    @Test func otherBuildsOfOneMacAreMarked() {
+        let machine = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        var nightly = mac("3eb7", "MacBook Pro", online: true)
+        nightly.machineID = machine
+        var old = mac("39c6", "MacBook Pro", online: false)
+        old.machineID = machine
+        var sameName = mac("aaaa", "MacBook Pro", online: false)
+        sameName.machineID = "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+        let unknown = mac("bbbb", "MacBook Pro", online: false)
+        let rows = SettingsDeviceRows.macs(service: [old, nightly, sameName, unknown], hasService: true, liveMacs: []) ?? []
+        #expect(rows.count == 4)
+        #expect(SettingsDeviceRows.otherBuilds(rows) == ["39c6"])
+    }
+
+    /// Builds of one computer in two teams are each listed by their team: neither is marked.
+    @Test func buildsInTwoTeamsAreNotMarked() {
+        let machine = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        var inTeam = mac("a", "Mini", online: true)
+        inTeam.machineID = machine
+        inTeam.teamID = "t"
+        var inPersonal = mac("b", "Mini", online: false)
+        inPersonal.machineID = machine
+        inPersonal.teamID = "personal-me"
+        #expect(SettingsDeviceRows.otherBuilds([inTeam, inPersonal]).isEmpty)
+    }
+
     @Test func withoutAServiceEveryKnownMacOnce() {
         // A Mac in two teams is one row; the count matches the rows.
         let live = [MacDevice(id: "a", name: "A", isOnline: true), MacDevice(id: "b", name: "B", isOnline: false),

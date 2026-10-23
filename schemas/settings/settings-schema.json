@@ -901,6 +901,19 @@
               "key" : "settings.group.chiefPet",
               "text" : "Chief Pet"
             }
+          },
+          {
+            "key" : "settings.group.chiefReactions",
+            "rows" : [
+              "chief.reactionsCanWake",
+              "chief.reactionClassifier.harness",
+              "chief.reactionClassifier.model",
+              "chief.reactionClassifier.prompt"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefReactions",
+              "text" : "Reactions"
+            }
           }
         ],
         "id" : "chief",
@@ -2263,18 +2276,24 @@
       },
       "help" : {
         "key" : "settings.tabs.terminalFirst.help",
-        "text" : "When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page."
+        "text" : "New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.terminalFirst",
       "keywords" : [
         "terminal",
         "classic",
+        "classic mode",
+        "cmux classic",
         "new tab",
         "split",
+        "workspace",
+        "window",
         "cmd-t",
         "cmd-d",
+        "cmd-n",
         "new tab page",
+        "gui",
         "default"
       ],
       "kind" : "toggle",
@@ -2292,7 +2311,7 @@
       "summary" : null,
       "title" : {
         "key" : "settings.tabs.terminalFirst",
-        "text" : "New Tabs and Splits Open a Terminal"
+        "text" : "cmux Classic Mode"
       },
       "validation" : "portable"
     },
@@ -31913,6 +31932,211 @@
       "title" : {
         "key" : "settings.home.chiefPetMascot",
         "text" : "Character"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefReactions",
+        "text" : "Reactions"
+      },
+      "help" : {
+        "key" : "settings.chief.reactionsCanWake.help",
+        "text" : "A reaction you put on a Chief message can start a turn when it asks for one, such as a question mark on a question or a thumbs down on a plan. A cheap model decides first, so a reaction that needs no answer never shows the typing dots. Off, reactions are only noted."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "chief.reactionsCanWake",
+      "keywords" : [
+        "chief",
+        "reaction",
+        "tapback",
+        "wake",
+        "classifier",
+        "turn",
+        "typing"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "chief",
+        "reactionsCanWake"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.chief.reactionsCanWake",
+        "text" : "Reactions Can Wake the Chief"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefReactions",
+        "text" : "Reactions"
+      },
+      "help" : {
+        "key" : "settings.chief.reactionClassifier.harness.help",
+        "text" : "The agent harness the reaction classifier runs on, for example claude or codex. Empty uses the Chief's Claude route."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "chief.reactionClassifier.harness",
+      "keywords" : [
+        "chief",
+        "reaction",
+        "tapback",
+        "wake",
+        "classifier",
+        "turn",
+        "typing",
+        "harness"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "chief",
+        "reactionClassifier",
+        "harness"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.chief.reactionClassifier.harness",
+        "text" : "Reaction Classifier Harness"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "claude-haiku-5-5",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefReactions",
+        "text" : "Reactions"
+      },
+      "help" : {
+        "key" : "settings.chief.reactionClassifier.model.help",
+        "text" : "The model that decides whether a reaction starts a turn. Claude Haiku by default: it is fast and cheap."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "chief.reactionClassifier.model",
+      "keywords" : [
+        "chief",
+        "reaction",
+        "tapback",
+        "wake",
+        "classifier",
+        "turn",
+        "typing",
+        "model",
+        "haiku"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "chief",
+        "reactionClassifier",
+        "model"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.chief.reactionClassifier.model",
+        "text" : "Reaction Classifier Model"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefReactions",
+        "text" : "Reactions"
+      },
+      "help" : {
+        "key" : "settings.chief.reactionClassifier.prompt.help",
+        "text" : "What the classifier is told when it decides. Empty uses the built-in instructions."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "chief.reactionClassifier.prompt",
+      "keywords" : [
+        "chief",
+        "reaction",
+        "tapback",
+        "wake",
+        "classifier",
+        "turn",
+        "typing",
+        "prompt",
+        "instructions"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "chief",
+        "reactionClassifier",
+        "prompt"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.chief.reactionClassifier.prompt",
+        "text" : "Reaction Classifier Instructions"
       },
       "validation" : "portable"
     },
