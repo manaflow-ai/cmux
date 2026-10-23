@@ -3,7 +3,8 @@ import Darwin
 import Foundation
 import os
 import CmuxNextCompat
-public import CmuxNextWakeups
+import CmuxNextSettings
+import CmuxNextWakeups
 
 /// Records every main-thread stall longer than `threshold` (default 50 ms)
 /// with a stack sample, into a ring buffer (`debug.hangs`).
@@ -360,7 +361,7 @@ public final class MainThreadWatchdog: Sendable {
                     // Raw addresses only: symbolicating here can outlast a short stall.
                     // Published before the main thread resumes: atomics only in here.
                     _ = sampler.sample { count in
-                        let task = board?.runningPacked ?? (0, 0, 0)
+                        let task = board?.runningPacked ?? (packed: 0, startNanos: 0, budgetNanos: 0)
                         publishedTaskPacked.store(task.packed, ordering: .relaxed)
                         publishedTaskStart.store(task.startNanos, ordering: .relaxed)
                         publishedTaskBudget.store(task.budgetNanos, ordering: .relaxed)
