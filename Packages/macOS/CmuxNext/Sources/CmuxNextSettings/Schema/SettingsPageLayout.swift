@@ -187,6 +187,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.chiefChat"),
                 // The Chief pet floating over every app, and its character.
                 group("settings.group.chiefPet"),
+                // Whether a tapback on a Chief message can start a turn, and the classifier that decides (a416).
+                group("settings.group.chiefReactions"),
             ],
             lead: [.chiefs, .chiefPet, .voiceInput]),
         // A core cmux feature: banners, sounds, the attention ring and the
@@ -228,6 +230,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                           title: SettingsText.keyed("settings.pageGroup.localData", "Data on This Mac")),
                 GroupSpec(keys: ["browser.omnibar.remoteSuggestions", "announcements.fetch"],
                           title: SettingsText.keyed("settings.pageGroup.network", "Network Requests")),
+                GroupSpec(group: "settings.group.hangReports"),
             ],
             actions: [.home], aliases: [.home]),
         CategorySpec(

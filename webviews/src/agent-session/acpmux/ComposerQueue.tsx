@@ -1,4 +1,6 @@
-// Prompts waiting for the running turn, as compact rows over the composer. The list takes its own
+// Prompts waiting for the running turn, as compact rows over the composer: one muted line each, cut
+// with an ellipsis, with no header and no number (Leo, 2026-10-21, as ChatGPT and Codex draw them);
+// the list's own name ("Queued prompts") says what they are. The list takes its own
 // place at the top of the composer form, over its location strip, so the transcript, a question
 // waiting for an answer and the pull requests above the composer each keep theirs: none is cut
 // off or drawn over, and the transcript scrolls in what is left.
@@ -7,7 +9,8 @@
 // past the last goes back to the prompt), Return edits it in place, ⌥↑/⌥↓ move it in the queue
 // and Delete removes it. Esc goes back to the prompt.
 //
-// Every row shows ChatGPT's and Codex's actions, in their order (Leo, 2026-10-21: "is this really
+// Every row shows ChatGPT's and Codex's actions, in their order, on hover and while focus is in the
+// row (Leo, 2026-10-21: "is this really
 // the right order? ... I thought we had a trash can"): Steer (its word beside its ↪ glyph), a trash
 // can that deletes the prompt, and a ⋯ menu with Edit message, Open in side chat (where the chat
 // can open one) and Turn off queueing (queueing.ts). Steer is the user's override: it steers the
@@ -58,7 +61,7 @@ const openQueues = new Set<string>();
 // The list rests on whole rows (captures of 436917b and f1a737b, 2026-10-15). Its height is the
 // bottom of the last row that fits under its cap: the CSS cap folded, the third row's bottom opened
 // (so opening moves the chat above by about a row, whatever the rows' heights), and opening lands at
-// its top. A row focused from the keyboard scrolls in whole, its "Queued" header with it at the top;
+// its top. A row focused from the keyboard scrolls in whole (the paused note with the first);
 // a press never scrolls the list (the row under it moved before the release, so a click on a row the
 // edge cut landed on another or none: Leo, 2026-10-20). A row the edge cuts still draws (a blank
 // slot read as a missing prompt).
@@ -83,14 +86,14 @@ function fitList(list: HTMLElement) {
   // list's padding (the padding under a row the list cuts off would show the next row's top).
   const ends = items.map((el, index) => offsets(list, el).bottom + (index === items.length - 1 ? pad : 0));
   let cap = opened ? offsets(list, rows[2]).bottom : parseFloat(style.getPropertyValue("--acpmux-queue-max")) || 132;
-  // The header and the next prompt always show whole, even one opened past the cap.
+  // The paused note and the next prompt always show whole, even one opened past the cap.
   if (rows[0]) cap = Math.max(cap, ends[items.indexOf(rows[0])]);
   const fit = ends.filter((end) => end <= cap + 0.5).at(-1) ?? cap;
   const height = `${fit}px`;
   if (list.style.maxHeight !== height) list.style.maxHeight = height;
 }
 
-/** Scrolls the list so `row` shows whole, starting at a row's top (its header's, for the first). */
+/** Scrolls the list so `row` shows whole, starting at a row's top (the paused note's, for the first). */
 function reveal(list: HTMLElement, row: HTMLElement) {
   const { top, bottom } = offsets(list, row);
   const view = list.clientHeight;
@@ -106,7 +109,7 @@ function reveal(list: HTMLElement, row: HTMLElement) {
   if (Math.abs(to - list.scrollTop) > 0.5) list.scrollTop = to;
 }
 
-/** Shows the full prompt as a tooltip only when its two lines (the button's inner text) cut it off. */
+/** Shows the full prompt as a tooltip only when its one line (the button's inner text) cuts it off. */
 function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: string) {
   const button = event.currentTarget;
   const text = button.firstElementChild ?? button;
@@ -506,29 +509,17 @@ export function ComposerQueue({
       <IncomingMessageLine
         id={`queued:${entry.id}`}
         message={message}
-        onOpen={(sessionId) => subsessions?.open(sessionId)}
+        onOpen={(sessionId) => (subsessions?.openSender ?? subsessions?.open)?.(sessionId)}
         actions={editing !== entry.id && actions(entry)}
       />
     );
     return subsessions ? <SubsessionContext.Provider value={subsessions}>{line}</SubsessionContext.Provider> : line;
   };
-  // A row's mark, text (or its edit) and actions.
+  // A row's text (or its edit) and actions. A prompt sent now says "Steering" ahead of its text; a
+  // queued one keeps "Queued" for assistive tech only.
   const cells = (entry: QueuedEntry, index: number) => (
     <>
-      {/* A prompt sent now keeps the narrow mark column (its send glyph) and says "Steering" ahead of
-          its text: a label in the mark column widened it for every row (round-4 captures). */}
-      {entry.next ? (
-        <span className="acpmux-queued-mark" data-kind="steer" aria-hidden="true">
-          <Icon name="composer.send" size={12} />
-        </span>
-      ) : (
-        <>
-          <span className="acpmux-queued-mark" aria-hidden="true">
-            {index + 1 - steering}
-          </span>
-          <span className="acpmux-hidden-label">{t("composer.queued")}</span>
-        </>
-      )}
+      {!entry.next && <span className="acpmux-hidden-label">{t("composer.queued")}</span>}
       {editing === entry.id ? (
         <QueuedEdit
           entry={entry}
@@ -634,15 +625,7 @@ export function ComposerQueue({
           </li>
         )}
         {/* One flat keyed list: a row keeps its element (and focus) when a row before it leaves. */}
-        {visible.flatMap((entry, index) => [
-          // "Queued" heads the prompts that wait for the turn, under any sent now.
-          index === steering && (
-            <li key="queued" className="acpmux-queue-header" aria-hidden="true">
-              <span className="acpmux-queued-kind">{t("composer.queued")}</span>
-              {/* Held by a paused queue, the prompts wait for Resume, not for the turn. */}
-              <span>{t(paused ? "composer.queueHeld" : "composer.queueAfterTurn")}</span>
-            </li>
-          ),
+        {visible.map((entry, index) => (
           // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- A row takes focus from ↑ on the prompt and has its keys (edit, move, send now, remove); its buttons do the same by pointer.
           <li
             className="acpmux-queued"
@@ -658,8 +641,8 @@ export function ComposerQueue({
                 {cells(entry, index)}
               </ContextMenu>
             )}
-          </li>,
-        ])}
+          </li>
+        ))}
       </ol>
       {/* The fold sits under the list, outside its scrolling, so no row ever runs under it. */}
       {foldable && (

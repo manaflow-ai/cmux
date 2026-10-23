@@ -15,6 +15,8 @@ import { callChipHost } from "./host";
 import { redactUrlText } from "./linkDisplay";
 import { PullRequestCardBody, type KnownPullRequest } from "./PullRequestCard";
 import type { HoverCard } from "./useHoverCard";
+// The card's rules, for every page that shows it (the agent pane, the changelog).
+import "./linkCard.css";
 
 /// `href`'s host, or `href` when it doesn't parse.
 export function linkHost(href: string): string {

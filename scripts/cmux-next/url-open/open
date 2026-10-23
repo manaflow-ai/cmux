@@ -1,0 +1,32 @@
+#!/bin/sh
+# `open` in cmux-next terminals: the bundled bin dir is first on PATH
+# (BundledCLIEnvironment), so a program that runs `open <url>` to show a page
+# (gh, the `open` npm package, Go's pkg/browser) reaches cmux-open-url. Only
+# `open` with nothing but http(s) URLs (and -g, -W, -n, their long forms
+# --background, --wait-apps, --new, which the `open` package passes, or --)
+# goes there; files,
+# folders, apps and every other option go to /usr/bin/open unchanged. A
+# BROWSER the user set to something else is their choice of browser, so then
+# every `open` goes to /usr/bin/open too.
+system_open=${CMUX_SYSTEM_OPEN:-/usr/bin/open}
+here=$(dirname "$0")
+opener="$here/cmux-open-url"
+case "${BROWSER:-}" in
+  ""|cmux-open-url|"$opener"|*/cmux-open-url) ;;
+  *) exec "$system_open" "$@" ;;
+esac
+[ $# -gt 0 ] || exec "$system_open"
+urls=0
+for arg in "$@"; do
+  case "$arg" in
+    -g|-W|-n|--background|--wait-apps|--new|--) ;;
+    http://*|https://*|HTTP://*|HTTPS://*) urls=$((urls + 1)) ;;
+    *) exec "$system_open" "$@" ;;
+  esac
+done
+[ "$urls" -gt 0 ] || exec "$system_open" "$@"
+for arg in "$@"; do
+  case "$arg" in -g|-W|-n|--background|--wait-apps|--new|--) ;; *) set -- "$@" "$arg" ;; esac
+  shift
+done
+exec "$opener" "$@"

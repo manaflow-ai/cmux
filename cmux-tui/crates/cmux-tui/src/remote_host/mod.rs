@@ -9,9 +9,9 @@
 //! `--remote` there for remote hosting.
 
 mod admit;
-mod audit;
+pub(crate) mod audit;
 mod client;
-mod config;
+pub(crate) mod config;
 mod grant;
 mod preface;
 mod serve;
@@ -276,7 +276,7 @@ fn serve_dir(args: &[String]) -> anyhow::Result<()> {
 /// install would start `cmux-tui host serve` and fail; prefer the `cmux`
 /// name this process was started by (absolute, relative or through PATH),
 /// then a `cmux` next to the binary, when it is the same file.
-fn self_exe() -> anyhow::Result<PathBuf> {
+pub(crate) fn self_exe() -> anyhow::Result<PathBuf> {
     let exe = std::env::current_exe()?;
     if is_cmux_name(&exe) {
         return Ok(exe);

@@ -3,6 +3,7 @@
 import type { AllChatsPage } from "./AllChatsList";
 import type { NewTabScreenActions } from "./NewTabScreen";
 import { savedEnvironmentHost } from "../environments";
+import { rememberStartedProject } from "./startedProject";
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
@@ -23,6 +24,8 @@ export function newTabScreenActions(deps: {
   /// A folder the user picked on the page goes through the host first (startFolder.tsx): `start`
   /// runs only with a folder it took; the home folder is asked about once.
   requestFolder?(cwd: string, start: (folder: string) => void): void;
+  /// false: the page's chats run on another machine, whose folders are never this Mac's default.
+  startsHere?(): boolean;
 }): NewTabScreenActions {
   const { callNative, cwd } = deps;
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
@@ -52,11 +55,17 @@ export function newTabScreenActions(deps: {
           );
           return;
         }
+        // The person picked this project (or kept the default) and sent: once the chat has started
+        // there (`chat.new` resolves to it), the next New Tab starts here (newtab/startedProject.ts).
+        // A refused or failed start, no project, or nothing sent leaves the default as it was.
+        const remembers = (text || attachments?.length) && deps.startsHere?.() !== false;
         ignore(
           callNative("chat.new", {
             harness,
             ...(folder ? { cwd: folder } : noProject ? { noProject: true } : {}),
             ...(model ? { model } : {}),
+          }).then((started) => {
+            if (started && remembers) rememberStartedProject(folder, callNative);
           }),
         );
         // Attachments pasted or dropped on the page go with the first prompt, or alone.

@@ -1,4 +1,5 @@
 public import QuartzCore
+public import CmuxNextDesignTokens
 
 extension MotionTunables {
     /// Default length of a color change before cmux.json applies (`appearance.colorTransition.duration`,

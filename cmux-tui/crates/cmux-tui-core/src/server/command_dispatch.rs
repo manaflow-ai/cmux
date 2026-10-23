@@ -897,17 +897,24 @@ pub(super) fn handle_command_with_cancellation(
             expected_generation,
             expected_terminal_id,
             snapshot,
-        } => cmd_attach::attach_surface(
-            mux,
-            client,
-            writer,
-            surface_id,
-            mode,
-            cols,
-            rows,
-            expected_generation,
-            expected_terminal_id,
-            snapshot,
-        ),
+        } => {
+            // A sized attach is a size report: it starts (or renews) the
+            // lease before the size applies.
+            if let Some(surface) = surface_id.filter(|_| cols.is_some() && rows.is_some()) {
+                size_lease::renew_size_lease(mux, client, surface);
+            }
+            cmd_attach::attach_surface(
+                mux,
+                client,
+                writer,
+                surface_id,
+                mode,
+                cols,
+                rows,
+                expected_generation,
+                expected_terminal_id,
+                snapshot,
+            )
+        }
     }
 }

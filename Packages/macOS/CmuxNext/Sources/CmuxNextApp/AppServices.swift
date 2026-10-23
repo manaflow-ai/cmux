@@ -31,6 +31,8 @@ import CmuxNextVSCodeServer
 import CmuxNextWorkspaceNaming
 import CmuxNextWorkspaceRepair
 import os
+import CmuxNextFocusUI
+import CmuxNextTabs
 /// Process-wide services the window controllers share. Model state is not
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
@@ -74,11 +76,15 @@ final class AppServices {
     private(set) lazy var serverReach = ServerReachService.app(services: self)
     /// Add Machine and Check Machine (plans/cmux-next/add-machine-DESIGN.md); each machine's last check.
     private(set) lazy var addMachine = AddMachineCard(services: .app(self))
+    /// Add Device and Settings > Devices (plans/cmux-next/add-device-DESIGN.md): one entry, one list, one remove.
+    private(set) lazy var addDevice = AddDeviceCard(services: .app(self))
+    private(set) lazy var devices = DeviceDirectory.app(self)
     let machineHealth = MachineHealthStore()
     let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
     let iphone = IPhoneHostService()
-    let registry = ActionRegistry.standard()
+    /// Every action; timed by the always-on `action.*` signposts, in Debug and Release.
+    let registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming())
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()
     /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md).
@@ -111,6 +117,8 @@ final class AppServices {
     lazy var findWorkGitHub: any GitHubFeedAPI = GitHubCLIClient(executable: AgentChatPullRequestReader.findGitHubCLI() ?? "/usr/bin/env")
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
     private(set) lazy var locationTrail = LocationTrailService(services: self)
+    /// The terminals and agent chats focused last: what new ones copy (``WorkContextTrail``).
+    var workContext = WorkContextTrail()
     /// The merged history read side and the per-profile visit logs.
     private(set) lazy var history = HistoryService(services: self)
     /// `cmux://history`: opens the page and serves its data.
@@ -215,6 +223,8 @@ final class AppServices {
     let paneMounts = PaneMounts()
     /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.
     let newTabChoices = NewTabChoiceMemory()
+    /// The New Tab weather widget's last reading and its refresh (`tabs.newTabWidgets.weather`).
+    let newTabWeather = NewTabWeather()
     /// The models picked per harness in the Chief card's Model menu (its Recent section).
     let chiefModelRecents = HomeChiefModelRecents(defaults: .standard)
     let newTabTypeAhead = NewTabTypeAhead()
@@ -447,12 +457,23 @@ final class AppServices {
         cache.makeExtensionMenuHandler = { [weak self] key in self.map { ExtensionMenuRouter(services: $0, tabKey: key) } }
         cache.onDevToolsChange = { [weak self] key, state, focused in self?.devToolsDidChange(key, state: state, focused: focused) }
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
+        registry.dispatchingInputEvent = { (NSApp as? CmuxApplication)?.dispatchingEvent }
+        registry.isDispatchingKeyDown = { (NSApp as? CmuxApplication)?.dispatchingEvent?.type == .keyDown }
         (NSApp as? CmuxApplication)?.assistiveClientsChanged = { [weak self] active in self?.cache.cef.setAssistiveClientActive(active) }
         (NSApp as? CmuxApplication)?.keyDownInterceptor = { [weak self] event, window in
             guard let self else { return false }
             // A key on Sleepy Mode's scene only wakes it; no shortcut runs behind the cover.
             if self.sleepyMode.consumesKeyDown() { return true }
             return self.keyRouter.interceptKeyDown(event, in: window)
+        }
+        (NSApp as? CmuxApplication)?.crossWindowKeyGuard = { [weak self] event, keyWindow in
+            // Keys typed after New Window follow its new window on purpose (NewTabInputCoordinator).
+            guard let self, !keyRouter.newTabInputCoordinator.followsNewWindow else { return false }
+            return CrossWindowInputGuard(windows: windows).dropsKey(event, keyWindow: keyWindow)
+        }
+        (NSApp as? CmuxApplication)?.dispatchScope = { [weak self] event, body in
+            guard let self else { return body() }
+            windows.dispatching(eventFrom: event.window, body)
         }
         (NSApp as? CmuxApplication)?.actionTargetOverride = { [weak self] action, found in
             self?.keyRouter.pasteTarget(for: action, found: found, in: NSApp.keyWindow)

@@ -99,6 +99,7 @@ final class PaletteContentView: NSView {
         searchBar.onPopTo = { model.pop(to: $0) }
         searchBar.onKeywordHint = { model.handle(.openActions) }
         list.onHover = { model.hover($0) }
+        list.onPointerMove = { model.pointerMoved(over: $0) }
         list.onActivate = { model.activate(rowID: $0) }
         footer.onPrimary = { model.handle(.submit) }
         footer.onActions = { model.handle(.toggleActions) }

@@ -24,9 +24,10 @@ its subagents and every other agent chat.
 - **One mark.** The blue dot is the one "needs you" mark: the sidebar's input mark, the Chief
   dock's waiting card, the badge and the pill. Its color is the window sidebar's unread dot,
   `Palette.notificationBlue`.
-- **Debug Settings toggles**, both on by default; new agent tabs read them:
-  - `agentPane.debug.needsYou`: pinned, compact or off;
-  - `agentPane.debug.needsYouPill`.
+- **Debug Settings toggles**; new agent tabs read them:
+  - `agentPane.debug.needsYou`: pinned (default), compact or off;
+  - `agentPane.debug.needsYouPill`: off by default (Leo 2026-10-23: "default off for needs your
+    input.. bc it doenstr work rn... we need to fix it").
 
 ## The data model
 

@@ -193,7 +193,10 @@ enum NewTabPage {
             home: machine.home,
             template: services.settings?.snapshot.newTabTemplate?.rawValue, pageWidgets: services.settings?.snapshot.newTabWidgets.ids
         ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
+            .turningHeadlineOff(services.settings?.snapshot.newTabWidgets)
+            .startingIn(machine.remoteFolders == nil ? services.newTabChoices.startedProject : nil)
             .warmedOnThisMac(machine.remoteFolders == nil)
+            .withWeather(services)
     }
 
     /// What a prewarmed spare page loads with before Cmd-T adopts it
@@ -204,7 +207,10 @@ enum NewTabPage {
             layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent,
             lastPicks: services.newTabChoices.picks, home: NSHomeDirectory(),
             template: services.settings?.snapshot.newTabTemplate?.rawValue, pageWidgets: services.settings?.snapshot.newTabWidgets.ids
-        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services)).warmedOnThisMac()
+        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
+            .turningHeadlineOff(services.settings?.snapshot.newTabWidgets)
+            .startingIn(services.newTabChoices.startedProject).warmedOnThisMac()
+            .withWeather(services)
     }
 
     /// Show All Chats on New Tab (`sidebar.showChats`; All chats left the sidebar for this page, cx-n0i9).
@@ -257,7 +263,7 @@ enum NewTabPage {
         }
     }
 
-    /// The style switch's pick and the edit mode's ✕ and drag, written as Settings would (a refusal is
+    /// The style switch's pick, the edit mode's ✕ and drag and the dots' quick actions, written as Settings would (a refusal is
     /// logged; the next New Tab shows what the file says); + opens Settings on the widget rows
     /// (the widgets are settings, not store items: extensibility-DESIGN.md).
     static func edit(_ edit: AgentPaneNewTabEdit, services: AppServices) {
@@ -265,6 +271,7 @@ enum NewTabPage {
         switch edit {
         case .template(let template): Task { await settings.saveNewTabTemplate(template) }
         case .remove(let widget): Task { await settings.logged("new tab widget") { try await settings.removeNewTabWidget(widget) } }
+        case .show(let widget): Task { await settings.logged("new tab widget") { try await settings.showNewTabWidget(widget) } }
         case .order(let order): Task { await settings.logged("new tab widget order") { try await settings.setNewTabWidgetOrder(order) } }
         case .add: try? services.settingsWindow.show(section: nil, setting: "tabs.newTabWidgets.greeting", focus: true)
         }
@@ -315,10 +322,24 @@ extension AgentPaneNewTab {
         return page
     }
 
+    /// The page with the project of the chat the person last picked and started, if any.
+    func startingIn(_ startedProject: String?) -> AgentPaneNewTab {
+        var page = self
+        page.startedProject = startedProject
+        return page
+    }
+
     /// The page with All chats left out (recent chats only) when Show All Chats on New Tab is off.
     func listingAllChats(_ shown: Bool) -> AgentPaneNewTab {
         var page = self
         page.allChats = shown ? nil : false
+        return page
+    }
+
+    /// The page told that `tabs.newTabWidgets.greeting` is set to false (``AgentPaneNewTab/headlineOff``).
+    func turningHeadlineOff(_ widgets: NewTabWidgetSettings?) -> AgentPaneNewTab {
+        var page = self
+        page.headlineOff = widgets?.greetingTurnedOff == true ? true : nil
         return page
     }
 }

@@ -5,6 +5,7 @@
 // PR's media waits for Load image in the same frame.
 import { agentPaneEntry, type ChipHostFixture } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
+import { LOGIN_TESTS_MP4 } from "../../../gallery/fixtures/toolImages";
 import { sampleChart, sampleDiagram, sampleGradient } from "../mockFixture";
 
 const ROOT = "/Users/you/src/atlas-web";
@@ -12,6 +13,9 @@ const BEFORE = `${ROOT}/shots/tabs-before.png`;
 const AFTER = `${ROOT}/shots/tabs-after.png`;
 const SIDEBAR = `${ROOT}/shots/sidebar.png`;
 const PR_MEDIA = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23650/tabs-light.png";
+const VIDEO = `${ROOT}/out/login-tests.mp4`;
+const REEL = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/nightly-next/3969193/reel.mp4";
+const MP4 = `data:video/mp4;base64,${LOGIN_TESTS_MP4}`;
 
 const svg = (markup: string) => `data:image/svg+xml;base64,${btoa(markup)}`;
 
@@ -20,8 +24,10 @@ const HOST: ChipHostFixture = {
     [BEFORE]: { place: "root", folder: false },
     [AFTER]: { place: "root", folder: false },
     [SIDEBAR]: { place: "root", folder: false },
+    [VIDEO]: { place: "root", folder: false },
   },
   images: { [BEFORE]: svg(sampleChart()), [AFTER]: svg(sampleGradient()), [SIDEBAR]: svg(sampleDiagram()) },
+  media: { [VIDEO]: MP4, [REEL]: MP4 },
   policy: { outsideRoots: "confirm", remoteImages: "click" },
 };
 
@@ -33,7 +39,12 @@ export default agentPaneEntry({
   title: "Screenshots in replies",
   area: "Agent pane",
   height: 560,
-  covers: ["agent-session/acpmux/conversation/Markdown.tsx", "agent-session/acpmux/chips/ReplyImage.tsx#OpenableImage"],
+  covers: [
+    "agent-session/acpmux/conversation/Markdown.tsx",
+    "agent-session/acpmux/chips/ReplyImage.tsx#OpenableImage",
+    "agent-session/acpmux/chips/ReplyMedia.tsx#VideoThumbnail",
+    "agent-session/acpmux/conversation/icons.tsx#OpenTab",
+  ],
   variants: {
     "before-after": {
       note: "Two Markdown images on one line: side by side, captioned by their alt text; each opens the viewer.",
@@ -60,6 +71,16 @@ export default agentPaneEntry({
       note: "A PR's media address: the glass frame holds Load image (agentPane.images.remote = click).",
       chipHost: HOST,
       snapshot: reply("Where are the PR screenshots?", `Light mode:\n\n![Tabs, light](${PR_MEDIA})`),
+    },
+    "video-thumbnail": {
+      note: "A video in a reply: its poster frame, a glass play button and its length; a click plays it, Open in tab opens it beside the chat.",
+      chipHost: HOST,
+      snapshot: reply("Record the login tests", `The recording of the six login tests:\n\n![Login tests](${VIDEO})`),
+    },
+    "web-video-thumbnail": {
+      note: "A nightly reel link alone on its line with images.remote = always: the host's checked copy draws as the same thumbnail.",
+      chipHost: { ...HOST, policy: { outsideRoots: "confirm", remoteImages: "always" } },
+      snapshot: reply("What changed in the last nightly?", `The nightly reel:\n\n${REEL}`),
     },
   },
 });

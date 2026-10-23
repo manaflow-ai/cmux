@@ -18,7 +18,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/MachineSectionHostView.
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepyOverlayWindows.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepySceneView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/TaskManager/TaskManagerPageService.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultColors.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextHistory/Vault/VaultColors.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultHostView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultListView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultRowView.swift

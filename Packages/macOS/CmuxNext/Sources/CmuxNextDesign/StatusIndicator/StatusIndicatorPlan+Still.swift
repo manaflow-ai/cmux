@@ -1,3 +1,4 @@
+public import CmuxNextDesignTokens
 /// The static look (`appearance.statusIndicator.animation: "static"`, or Reduce Motion;
 /// cx-sya4n): nothing moves, and every state draws its own still shape. By default that is the
 /// Static set's glyphs (`StaticStatusGlyph`, `StatusIconSet.still`; Leo's call). The Debug
