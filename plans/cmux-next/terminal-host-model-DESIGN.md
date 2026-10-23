@@ -161,6 +161,18 @@ processes and ~2,000 threads fewer.
 - A surface's close (Cmd-W) runs under its runtime lock, so it never connects, starts a holder
   or re-adopts (review 2): without an open link the CLOSE waits for the next link and the
   daemon hangs up the shell's groups itself.
+- Ownership (holder-core review): after any connect one rule decides what the daemon owns
+  (`holder_runtime::service::ownership`). A live terminal resumes on the same holder and is adopted
+  by a new one; a terminal the startup pass has not re-attached yet is kept (refreshed, or its
+  custody master handed to a new holder unattached, so the later ATTACH finds it); everything
+  else the holder runs is ended, except on the startup pass's first link, which keeps it for that
+  pass. A spawn or re-attach in flight holds a shared claim until its terminal is live, and a new
+  link's pass takes the claims exclusively, so it never ends or misses one. A spawn that fails or
+  times out CLOSEs its channel; a re-attach makes its terminal live before its ATTACH. A refused
+  ATTACH, ADOPT or SPAWN ends the sink waiting for it (host lost) instead of freezing the tab.
+  Before, only the startup pass's release closed unclaimed terminals: a spawn whose SPAWNED a
+  dropped link lost, a timed-out spawn or a failed re-attach left a shell that no daemon owned
+  running for ever and kept the holder from its idle exit.
 - Holder crash: the daemon still has every master and its parsed state; it starts a new holder
   and ADOPTs every fd. Output written while no holder reads waits in the kernel's PTY buffer (the
   shell blocks, nothing is lost). Exit statuses of shells whose parent died read
