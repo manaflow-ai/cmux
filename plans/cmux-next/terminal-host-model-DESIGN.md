@@ -123,7 +123,10 @@ processes and ~2,000 threads fewer.
   daemon is attached and the daemon's queue per terminal stays bounded. A DATA offset past what
   the daemon has, or a GAP, cancels the parser's current sequence (CAN) instead of splicing.
 - Handshake: a connection becomes the link only after a valid HELLO; a probe or a bad token never
-  drops the attached daemon. The daemon it replaces gets ERROR SUPERSEDED and does not reconnect.
+  drops the attached daemon. The daemon it replaces gets ERROR SUPERSEDED and does not reconnect:
+  always, as the last frame of its stream, after the frame its socket had taken part of; its
+  queued frames are dropped (holder-core review: before, only when its queue was empty, so a busy
+  daemon read the close as a lost holder and took it back, and the two took turns).
 
 ## 5. Daemon side
 
