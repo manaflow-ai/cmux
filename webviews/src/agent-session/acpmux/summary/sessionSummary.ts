@@ -45,7 +45,8 @@ function subagents(rows: readonly AcpmuxRow[], all: readonly Tool[]): SummarySub
     .flatMap((row) => row.subagents ?? [])
     .map((agent): SummarySubagent => ({
       id: agent.id,
-      title: agent.name,
+      // One nothing named goes by its kind (no localizer here: SubagentStack calls an empty title "Subagent").
+      title: agent.unnamed ? (agent.kind ?? "") : agent.name,
       state: agent.state === "running" ? "running" : agent.state === "completed" ? "done" : "failed",
     }));
   const tasks = all
