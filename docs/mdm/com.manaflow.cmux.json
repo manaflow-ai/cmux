@@ -4104,7 +4104,7 @@
       "type" : "string"
     },
     "tabs.newTabWidgets.actions" : {
-      "default" : false,
+      "default" : true,
       "description" : "Chats that need you, and New Terminal, New Browser Tab and New Chat.",
       "title" : "Show Quick Actions on New Tab",
       "type" : "boolean"
@@ -4146,7 +4146,7 @@
       "type" : "boolean"
     },
     "tabs.newTabWidgets.styleDots" : {
-      "default" : false,
+      "default" : true,
       "description" : "Dots under the page that switch its template.",
       "title" : "Show Template Dots on New Tab",
       "type" : "boolean"
