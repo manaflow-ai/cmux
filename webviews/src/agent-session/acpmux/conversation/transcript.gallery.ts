@@ -1694,6 +1694,34 @@ export default agentPaneEntry({
         if (live) throw new Error(`${live} running rows stack over the live line`);
       },
     },
+    "tool-run-scrolled-fade": {
+      note: 'Leo 2026-10-21, "in that top section fade would be good": a long run ("Read files, ran commands") opened past its nine-row cap and scrolled so a row sits half under its summary line. The list\'s top fades out there instead of cutting the row in half against the line. Play: open the turn and the run, scroll the list 3.5 rows.',
+      snapshot: chat([
+        user("Find where the sidebar's drag reorder loses its index.", 3),
+        activity(
+          Array.from({ length: 6 }, (_, index) => [
+            tool(`Read sidebar${index}.ts`, "read", "completed", {
+              locations: [{ path: `webviews/src/sidebar/sidebar${index}.ts` }],
+            }),
+            tool(`Read sidebar${index}.test.ts`, "read", "completed", {
+              locations: [{ path: `webviews/test/sidebar${index}.test.ts` }],
+            }),
+            describedShell(DENSE_COMMANDS[index]!, `Search the sidebar code (${index + 1})`),
+          ]).flat(),
+          2.9,
+        ),
+        assistant("The index is read before the drop moves the row; the fix reads it after.", 2),
+        summary(2, { status: "completed", toolCount: 18, durationMs: 64_000 }),
+      ]),
+      play: async (ctx) => {
+        await openGroupedRun(ctx);
+        const list = () => ctx.find({ selector: ".cv-tool-run" });
+        await ctx.waitFor(() => list().scrollHeight > list().clientHeight + 26);
+        // 3.5 rows of 26px: the fourth row sits half under the summary line.
+        list().scrollTop = 26 * 3.5;
+        await ctx.waitFor(() => list().scrollTop > 0);
+      },
+    },
     "codex-turn-run-open": {
       note: "The same turn ended: opened, Worked for shows the commentary between the runs' summary lines; a click opens Ran 3 commands to its calls. Play: open the turn, then the second run.",
       snapshot: chat([
