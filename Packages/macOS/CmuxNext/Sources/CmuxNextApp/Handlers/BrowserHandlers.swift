@@ -137,7 +137,7 @@ enum BrowserHandlers {
     /// new split in one daemon `split {tab}` call.
     private static func bindSplits(into registry: ActionRegistry, context: AppActionContext) {
         for (id, direction) in [("splitBrowserRight", SplitDirection.right), ("splitBrowserDown", .down)] {
-            registry.bind(ActionID(rawValue: id), requires: DaemonCapabilities.frontendBrowserTabs, daemon: context.daemon, run: { invocation in
+            registry.bind(ActionID(rawValue: id), requires: DaemonCapability.frontendBrowserTabs.rawValue, daemon: context.daemon, run: { invocation in
                 try splitBrowser(from: try context.pane(invocation), direction: direction, byPerson: invocation.origin == .user,
                                  context: context)
             })

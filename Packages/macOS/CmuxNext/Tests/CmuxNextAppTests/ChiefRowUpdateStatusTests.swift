@@ -18,7 +18,7 @@ struct ChiefRowUpdateStatusTests {
         let session = ServerMachineSession(reach: reach, binary: nil,
                                            paths: .init(root: URL(fileURLWithPath: "/private/tmp/cn-chief-row-unused")),
                                            environment: { [:] }, localIdentity: { nil })
-        let list = DaemonCapabilities.required.map { "\"\($0)\"" }.joined(separator: ",")
+        let list = DaemonCapability.required.map { "\"\($0)\"" }.joined(separator: ",")
         let json = #"{"app":"cmux-tui","protocol":1,"session":"cmux-chief-abcd1234","generation":"g1","capabilities":["# + list + "]}"
         let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
         session.daemon.store.noteHandshake(identity)

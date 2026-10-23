@@ -54,7 +54,7 @@ enum BrowserHitHandlers {
         registry.bind("browser.link.openInIncognitoWindow", run: { invocation in
             context.services.openOffTheRecord(try Self.url(invocation), source: Self.page(invocation, context))
         })
-        registry.bind("browser.link.openInSplit", requires: DaemonCapabilities.frontendBrowserTabs, daemon: context.daemon, run: { invocation in
+        registry.bind("browser.link.openInSplit", requires: DaemonCapability.frontendBrowserTabs.rawValue, daemon: context.daemon, run: { invocation in
             let url = try Self.url(invocation)
             let pane = try context.pane(invocation)
             let services = context.services
@@ -88,7 +88,7 @@ enum BrowserHitHandlers {
             }
             context.services.cache.pageRequests.openInNewWorkspace(url, opener: page, newWindow: false, window: window)
         })
-        registry.bind("browser.link.openInNewSpace", requires: DaemonCapabilities.profiles,
+        registry.bind("browser.link.openInNewSpace", requires: DaemonCapability.profiles.rawValue,
                       daemon: context.services.machines.local, run: { invocation in
             try context.requireRooms()
             let url = try Self.url(invocation)
@@ -112,8 +112,8 @@ enum BrowserHitHandlers {
     /// A new workspace whose only tab shows `url` on the default engine.
     static func openWorkspace(_ url: URL, newWindow: Bool, window: String?, room: ProfileID?, _ services: AppServices) throws {
         let daemon = services.activeDaemon
-        guard daemon.supports(DaemonCapabilities.frontendBrowserTabs) else {
-            throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.frontendBrowserTabs))
+        guard daemon.supports(DaemonCapability.frontendBrowserTabs.rawValue) else {
+            throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapability.frontendBrowserTabs.rawValue))
         }
         guard case let browserTabs = services.cache.browserTabs, case .open(let choice) = browserTabs.resolve(requested: nil, url: url) else { return }
         let address = url.absoluteString
