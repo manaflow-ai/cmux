@@ -1,7 +1,10 @@
 // Another agent's message to this chat (incomingMessage.ts): one left-aligned line among the tool
 // rows, never the person's bubble, with the message under it. The line is the sender's harness mark
 // (a small bot when it has none) and the sender's name as a chip, which opens the sender's chat
-// beside this one (its id from the message, else the listed chat with its name). The message is a
+// beside this one, or its tab when one shows it (its id from the message, else the listed chat with
+// its name, a chat on another machine by its bare name too; Leo, ask-7325396234: "I THINK I WANNA
+// BE ABLE TO CLICK ON THESE TO ACTUALLY GO TO THEM"), its tooltip naming the chat and that machine
+// ("Open chief-ui (huge-blue)"). The message is a
 // muted glass card under the line, its text drawn as Markdown with PR, issue and file references
 // linked, cut to its first six lines (`RECEIVED_LINES`, the last fading out) when it is longer; the
 // line's chevron, or a click on the cut card, opens it whole, with the prompt as the agent got it
@@ -58,6 +61,7 @@ export function IncomingMessageLine({
   message: IncomingMessage;
   /// The images the message sent the agent (direct.ts `promptImages`).
   images?: readonly PromptImage[];
+  /// Opens the sender's chat by its acpmux id (App.tsx `openSenderChat`, `chat.offer.open` with `sender`).
   onOpen(sessionId: string): void;
   /// Sends a reply to the message's sender; rejects when it was not sent.
   onReply?(message: IncomingMessage, text: string): Promise<void>;
@@ -111,7 +115,10 @@ export function IncomingMessageLine({
     const box = textBox.current;
     if (!box) return;
     const measure = () => {
-      const line = parseFloat(getComputedStyle(box).lineHeight);
+      // The box's own window, as PromptText's measure: a page or test without a global
+      // getComputedStyle still draws the card (unmeasured, uncut).
+      const style = box.ownerDocument.defaultView?.getComputedStyle?.(box);
+      const line = style ? parseFloat(style.lineHeight) : NaN;
       setLong(Number.isFinite(line) && box.scrollHeight > line * RECEIVED_LINES + 1);
     };
     measure();
@@ -121,6 +128,10 @@ export function IncomingMessageLine({
     return () => observer.disconnect();
   }, [body]);
   const cut = long && !open;
+  // "Open chief-ui (huge-blue)": the chat the chip opens, and the other machine it runs on.
+  const openLabel = sender.host
+    ? t("subagents.openOnHost", { name: message.name, host: sender.host })
+    : t("subagents.open", { name: message.name });
   // A sub-session family's sender says who it is to this chat.
   const from = message.relation ? t(RELATION_LABEL[message.relation], { name: message.name }) : message.name;
   const label = t("message.label", { from, to: t("message.self") });
@@ -173,7 +184,8 @@ export function IncomingMessageLine({
           <button
             type="button"
             className="cv-received__name"
-            aria-label={t("subagents.open", { name: message.name })}
+            aria-label={openLabel}
+            title={openLabel}
             onClick={() => onOpen(sessionId)}
           >
             {from}

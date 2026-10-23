@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use super::adapter::{AGENT_MUX, Drafts, UiEvent, adapt};
+use super::adapter::{Drafts, UiEvent, adapt};
 use super::link::LinkError;
 use super::messages::messages;
 use super::render::message_text;
@@ -46,7 +46,8 @@ pub(super) fn run(mut session: Session, text: &str, args: &Args, output: OutputM
     let stream = !json && std::io::stdout().is_terminal();
     let links = !json && super::hyperlink::enabled();
     let mut out = Printer { streamed: String::new(), wrote: false, json, links };
-    let mut watch = TurnWatch::new(seq).answering(&id, !args.no_wait_agents);
+    let mut watch =
+        TurnWatch::new(seq).of_chief(&session.chief).answering(&id, !args.no_wait_agents);
     let mut drafts = Drafts::default();
     let started = Instant::now();
     let deadline = args.timeout_secs.map(|s| started + Duration::from_secs(s));
@@ -108,7 +109,7 @@ pub(super) fn run(mut session: Session, text: &str, args: &Args, output: OutputM
         if let UiEvent::Draft(draft) = &event
             && stream
             && watch.working
-            && draft.participant == AGENT_MUX
+            && draft.participant == session.chief
         {
             drafts.apply(draft);
             if let Some(turn) = drafts.turns.iter().find(|t| t.turn == draft.turn) {
