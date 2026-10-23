@@ -5,7 +5,7 @@ import Foundation
 import Testing
 import WebKit
 
-/// Every cmux page renders at the display's full refresh outside Low Power Mode (perf-lead row 22,
+/// Every cmux page renders at the display's full refresh outside Low Power Mode (perf-lead row 23, WebKit pages only,
 /// #16424), by the same rule as browser tabs. WebKit's default renders a page at the display-rate
 /// divisor nearest 60 fps (60 on a 120 Hz display, 80 on 160 Hz), so a page that did not opt in
 /// (Settings, History, Cloud, Keybindings, the channels Home, Passwords, and every pooled spare)
