@@ -2653,6 +2653,25 @@
       "title" : "New Terminal Opens a Workspace",
       "type" : "boolean"
     },
+    "notifications.attention.agentChatBlinkCount" : {
+      "default" : 1,
+      "description" : "notifications.attention.agentChatBlinkCount",
+      "maximum" : 10,
+      "minimum" : 1,
+      "title" : "Agent Chat Blinks",
+      "type" : "number"
+    },
+    "notifications.attention.agentChats" : {
+      "default" : "none",
+      "description" : "Ring an agent chat's pane when its turn ends, until you click or type in it.",
+      "enum" : [
+        "glow",
+        "ring",
+        "none"
+      ],
+      "title" : "Ring Agent Chat Panes",
+      "type" : "string"
+    },
     "notifications.attention.blinkCount" : {
       "default" : 2,
       "description" : "notifications.attention.blinkCount",
@@ -2720,6 +2739,17 @@
         "none"
       ],
       "title" : "Style",
+      "type" : "string"
+    },
+    "notifications.attention.terminals" : {
+      "default" : "glow",
+      "description" : "notifications.attention.terminals",
+      "enum" : [
+        "glow",
+        "ring",
+        "none"
+      ],
+      "title" : "Ring Terminal Panes",
       "type" : "string"
     },
     "notifications.attention.width" : {
@@ -4170,6 +4200,23 @@
       "minimum" : 4,
       "title" : "Font Size",
       "type" : "number"
+    },
+    "terminal.linkOpener.default" : {
+      "default" : "cmux",
+      "description" : "Where a URL goes when a program in a terminal opens a browser, such as aws login or gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, a profile after @ (chrome@Profile 1), or command:<command> to let your script decide. A BROWSER you set yourself wins.",
+      "title" : "Open Program Links In",
+      "type" : "string"
+    },
+    "terminal.linkOpener.rules" : {
+      "default" : [
+
+      ],
+      "description" : "Checked in order before the default; the first match wins. Write <match> -> <target>: caller:aws matches the program that opened the URL, and text, * wildcards or re: match the URL. Example: caller:gh github.com -> safari",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Program Link Rules",
+      "type" : "array"
     },
     "ui.animations.bounce" : {
       "default" : "none",

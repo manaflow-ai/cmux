@@ -927,7 +927,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 /* The wiggle: small, alternate widgets out of step. Still with Reduce Motion or animations off. */
 @media (prefers-reduced-motion: no-preference) {
   .nt-widget-frame:not([data-dragging]) {
-    animation: nt-widget-wiggle 0.28s ease-in-out infinite alternate;
+    animation: nt-widget-wiggle 0.28s ease-in-out infinite alternate; /* motion-allow: the edit-mode wiggle is a loop, not a transition; still under Reduce Motion and animations off */
   }
   .nt-widget-frame:nth-of-type(even) {
     animation-delay: -0.14s;
