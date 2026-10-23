@@ -58,6 +58,14 @@ struct CrashDuplicateWindowMatcherTests {
         #expect(CrashDuplicateWindowMatcher.isDuplicate(rhs, lhs))
     }
 
+    @Test("Different window IDs with equal checkpoint sets are one window")
+    func differentIDsEqualCheckpoints() {
+        let lhs = signature(windowId: UUID(), workspaces: 4, checkpoints: ["a", "b", "c"], titles: titles)
+        let rhs = signature(windowId: UUID(), workspaces: 4, checkpoints: ["c", "b", "a"], titles: titles.reversed())
+        #expect(CrashDuplicateWindowMatcher.isDuplicate(lhs, rhs))
+        #expect(CrashDuplicateWindowMatcher.isDuplicate(rhs, lhs))
+    }
+
     @Test("Different window IDs need every checkpoint of the smaller window, not most")
     func differentIDsPartialOverlapStaySeparate() {
         let lhs = signature(windowId: UUID(), workspaces: 4, checkpoints: ["a", "b", "c", "d"], titles: titles)

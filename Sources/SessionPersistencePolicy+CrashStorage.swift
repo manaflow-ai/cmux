@@ -324,8 +324,12 @@ extension SessionPersistencePolicy {
     /// Agent sessions only: the restorable agent's session ID, an agent-hook
     /// resume binding, or the managed-agent binding. One agent session runs
     /// in one place, which is what makes a shared checkpoint evidence of a
-    /// duplicate. Process-detected bindings (tmux and herdr session names)
-    /// are excluded: two real windows can attach the same tmux session.
+    /// duplicate. The rare exception is a Claude or Codex session resumed in
+    /// two panes without forking, which keeps one session ID in both; that
+    /// is deliberate sharing, and two such windows only merge when their
+    /// titles and workspace counts match too. Excluded: process-detected
+    /// bindings (tmux and herdr session names, which two real windows can
+    /// share) and bindings from an untrusted `restore-session` import.
     /// A panel whose agent left no checkpoint contributes nothing, so partial
     /// metadata can only make a merge less likely.
     private static func workspaceCheckpointIDs(
@@ -338,7 +342,12 @@ extension SessionPersistencePolicy {
                let checkpoint = binding.checkpointId {
                 return checkpoint
             }
-            return terminal.managedAgentResumeBinding?.checkpointId
+            guard let managed = terminal.managedAgentResumeBinding,
+                  !managed.isProcessDetected,
+                  managed.source != SurfaceResumeBindingSnapshot.untrustedSessionImportSource else {
+                return nil
+            }
+            return managed.checkpointId
         })
     }
 
