@@ -14,7 +14,8 @@ import CmuxNextSettings
 /// Reports, in ms from the click: `init_ms` (getting the panel: `NSOpenPanel()` or the reuse),
 /// `begin_ms` (the `beginSheetModal` / `begin` call), `sync_ms` (both: the click's main-thread time),
 /// `visible_ms` (the first display frame with the panel on screen), `frames` (the display-link intervals
-/// from the click until 300 ms after it showed: `max_ms` is the longest the main thread held a frame).
+/// from 120 ms before the click until 300 ms after it showed: `max_ms` is the longest the main thread held a frame;
+/// a call that runs a nested run loop, as `beginSheetModal` does while the sheet animates, keeps it near one frame).
 @MainActor
 enum DebugOpenPanelBench {
     private static let frames = BenchFrames()
@@ -32,12 +33,11 @@ enum DebugOpenPanelBench {
             _ = frames.stop()
         }
         let madeBefore = shared.isMade
-        // Quiet frames first, so the click starts from an idle main thread.
+        // Quiet frames first, so the click starts from an idle main thread, and the display link keeps ticking into
+        // the click: a stall of the click's own main-thread work then shows as one long frame interval (frames.max_ms),
+        // while a nested run loop (a sheet animating inside the call) keeps the frames coming.
         frames.start()
         _ = await frames.settled(until: { true }, start: .now, window: 120, deadline: 1_000)
-        _ = frames.stop()
-
-        frames.start()
         let start = ContinuousClock.now
         guard let panel = mode == "fresh" || mode == "window" ? NSOpenPanel() : shared.panel() else {
             _ = frames.stop()

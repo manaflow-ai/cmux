@@ -101,6 +101,17 @@ def tag_of(app):
     return re.sub(r"[^a-z0-9]+", "-", match.group(1).lower()).strip("-")
 
 
+def bundle_id(app):
+    """The app's own bundle id (Info.plist): `scripts/reload.sh --tag split-spring` makes
+    `com.cmuxterm.app.debug.split.spring`, not `...debug.split-spring`, so a script never builds it from the tag."""
+    import plistlib
+    try:
+        with open(os.path.join(os.path.realpath(app), "Contents/Info.plist"), "rb") as f:
+            return plistlib.load(f).get("CFBundleIdentifier")
+    except (OSError, ValueError):
+        return None
+
+
 def socket_candidates(tag):
     """Where a tagged DEV build's control socket can be, most likely first (ControlSocketPath.swift)."""
     name = f"cmux-debug-{tag}.sock"
