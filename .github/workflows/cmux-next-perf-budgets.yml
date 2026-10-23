@@ -13,11 +13,16 @@ name: cmux-next perf cron
 #            measured (the commits in between are skipped), else one bisect step of an open
 #            regression; nothing while a nightly or dev build waits for a runner.
 #   measure  (gateway, only when plan picked a Mac part) nothing unless the bench host (cmux20-bench,
-#            a controller worker that takes no build) is idle and no dev build waits in the controller
-#            queue; then ONE part as a background (lowest priority) measurement step, cancelled when
-#            another job queues for the bench host. The first part of a measurement builds the app (up to
-#            20 min); the others reuse it from the host's app cache and measure on a 120 Hz virtual
-#            display (scripts/ci/frame-pacing/vdisplay.m), each at most 15 min.
+#            a controller worker that takes no build) offers the exclusive class in its heartbeat `fits`
+#            (it does only while nothing runs there and its host lock is free; the controller places a
+#            measurement only there), no foreground job waits that it could run, and no dev build waits
+#            in the controller queue; then ONE part as a background (lowest priority) measurement step,
+#            cancelled when another job queues for the bench host. The first part of a measurement builds
+#            the app (up to 20 min); the others reuse it from the host's app cache and ask for a 120 Hz
+#            virtual display as the main display (scripts/ci/frame-pacing/vdisplay.m `main`; not yet
+#            confirmed by a cron run, 2026-10-23), each at most 15 min (STRESS and sidebar 25, untimed).
+#            Every exit path leaves a result: a cancel or timeout cancels the fleet step and counts as one
+#            attempt.
 #   linux    (Linux, only when plan picked it) the diff-viewer budgets (scripts/benchmark-diff-viewer.sh's
 #            benches), which left ci-web.yml; it takes no Mac, so it runs while Mac parts yield.
 #   report   (Linux) stores the part; after the last part compares every row with the last good run
@@ -113,8 +118,10 @@ jobs:
     runs-on: ${{ vars.CI_PERF_CRON_GATEWAY }}
     permissions:
       contents: read
-    # One part: up to 5 minutes in the queue and 15 running (the build 20), plus the checks and the artifact.
-    timeout-minutes: 35
+    # One part: up to 5 minutes in the queue and at most 25 running (perf-cron.py run_seconds: STRESS and
+    # sidebar 25, the build 20, the others 15), up to 10 for the artifact, plus the checks; the last step
+    # gets the remaining minutes to cancel a step left running.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -125,6 +132,8 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Run one part on the bench host when the fleet is idle
+        id: part
+        timeout-minutes: 42
         env:
           SHA: ${{ needs.plan.outputs.sha }}
           PART: ${{ needs.plan.outputs.part }}
@@ -137,17 +146,33 @@ jobs:
           mkdir -p "$out"
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
           if ! [[ -x "$client" ]]; then
+            # No result.json: the cleanup step records one attempt, so a runner without the client cannot
+            # retry the part forever.
             echo "::notice title=perf cron::the build-fleet client is not installed on runner $RUNNER_NAME; no part ran"
             exit 0
           fi
           python3 -I scripts/cmux-next/perf-cron.py fleet-check --client "$client" --yield-mode "$YIELD_MODE" \
             --output "$RUNNER_TEMP/fleet.out" | tee "$RUNNER_TEMP/fleet.log"
           { echo "### perf cron fleet check"; echo; sed -n 's/^perf-cron fleet: //p' "$RUNNER_TEMP/fleet.log"; } >> "$GITHUB_STEP_SUMMARY"
-          grep -qx 'ok=true' "$RUNNER_TEMP/fleet.out" || exit 0
+          if ! grep -qx 'ok=true' "$RUNNER_TEMP/fleet.out"; then
+            # The fleet said no: not an attempt (the part waits for idle capacity, up to ABANDON_HOURS).
+            echo '{"reason": "the fleet check said no"}' > "$out/not-started.json"
+            exit 0
+          fi
           python3 -I scripts/cmux-next/perf-cron.py run-part --client "$client" --sha "$SHA" --args "$PART_ARGS" \
             --artifact "$PART_ARTIFACT" --run-seconds "$RUN_SECONDS" --key "perf-cron-${SHA:0:12}-${PART}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             --out "$out" | tee "$RUNNER_TEMP/part.log"
           { echo "### perf cron part $PART at ${SHA:0:12}"; echo; sed -n 's/^perf-cron part: //p' "$RUNNER_TEMP/part.log"; } >> "$GITHUB_STEP_SUMMARY"
+
+      # Every exit path leaves a result.json: a cancel, the step or job timeout, or a crash before run-part wrote
+      # one cancels the fleet step it started and records one attempt (perf-cron.py MAX_YIELDS).
+      - name: Cancel a step left running and record the attempt
+        if: always()
+        env:
+          WHY: ${{ steps.part.outcome }}
+        run: |
+          python3 -I scripts/cmux-next/perf-cron.py part-cleanup --out "$RUNNER_TEMP/perf-cron-part" \
+            --client "${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}" --why "run step ${WHY:-not run}"
 
       - name: Keep the part's result
         if: always()

@@ -13,7 +13,7 @@ runs on a cron instead, only on idle fleet capacity, behind every nightly and de
                     nightly or dev build waits for a Mac on GitHub.
   measure (gateway) runs only on its own runner label (vars.CI_PERF_CRON_GATEWAY; unset: no Mac part is planned),
                     skips unless the bench host is idle and no dev build waits in the controller queue, then
-                    runs ONE part (at most 15 minutes, the build included) as a background (lowest priority)
+                    runs ONE part (its run_seconds: 15 minutes, the build 20, STRESS and sidebar 25) as a background (lowest priority)
                     measurement step on the bench host, and cancels it when a foreground job queues that the
                     host could run (its labels, its name, or a target worker).
   report (Linux)    stores the part; after the last part compares every row with the last good run, and opens,
@@ -55,8 +55,9 @@ DEV_DAILY_TITLE = "cmux NEXT DEV daily"
 
 # One fleet part = one step through the allowlisted scripts/measure/split-spring.sh on the bench host. The first
 # part builds the app once per measurement (--build-only) and leaves it in the host's app cache; every other fleet
-# part reuses it (--app-cache) and measures on a 120 Hz virtual display (--vdisplay=120; it says when it fell back
-# to the 60 Hz panel). The `linux` part runs on a GitHub Linux runner, not on a Mac. `needs`: a capability the
+# part reuses it (--app-cache) and asks for a 120 Hz virtual display as the main display (--vdisplay=120; the
+# report's `display` says whether it came up, and a fallback run's frame rows have no known refresh: they are neither
+# compared nor held to a target). No cron run has confirmed the 120 Hz display on cmux20-bench yet (2026-10-23). The `linux` part runs on a GitHub Linux runner, not on a Mac. `needs`: a capability the
 # measured commit must have.
 VDISPLAY_HZ = 120
 MEASURE = ["--app-cache", f"--vdisplay={VDISPLAY_HZ}"]
@@ -64,9 +65,11 @@ PARTS = [
     # A cold tagged build: 323 s on cmux20-bench, 620 s on cmux7s (2026-10-23).
     {"name": "build", "args": ["--build-only"], "artifact": "artifacts/split-spring/report.json", "kind": "build",
      "run_seconds": 1200},
-    # STRESS: 1 round. With 2 rounds the session build and the rounds took ~900 s (cmux7s, 9e875493c37e).
+    # STRESS: 1 round. With 2 rounds the session build and the rounds took ~900 s (cmux7s, 9e875493c37e); 1 round
+    # plus the app-cache copy and the virtual display is not timed yet, so it keeps 0b05a9b73bd's 25-minute cap
+    # until a cron tick records its `seconds` (each part's time is in the state's parts entries).
     {"name": "stress", "args": [*MEASURE, "--suite=pane-perf", "--layouts=stress", "--rounds=1", "--actions=split,close,column,zoom"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "panes", "needs": "stress"},
+     "artifact": "artifacts/split-spring/report.json", "kind": "panes", "needs": "stress", "run_seconds": 1500},
     {"name": "motion", "args": [*MEASURE, "--suite=budgets", "--only=panes,new_surfaces"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     {"name": "switch", "args": [*MEASURE, "--suite=budgets", "--only=tab_switch,palette"],
@@ -75,8 +78,9 @@ PARTS = [
      "artifact": "artifacts/split-spring/perf-gate.json", "kind": "perf_gate", "needs": "perf-gate"},
     {"name": "launch", "args": [*MEASURE, "--suite=launch", "--profile", "empty", "--mode", "warm", "--runs", "5", "--timeout", "20"],
      "artifact": "artifacts/split-spring/report.json", "kind": "launch", "needs": "launch"},
+    # 400 workspaces, 6 scenarios: not timed against 900 s yet (perf-budgets' own per-bench cap is 900 s).
     {"name": "sidebar", "args": [*MEASURE, "--suite=budgets", "--only=sidebar"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "run_seconds": 1500},
     {"name": "home-idle", "args": [*MEASURE, "--suite=budgets", "--only=home,idle"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     {"name": "chat-anim", "args": [*MEASURE, "--suite=budgets", "--only=acp,anim"],
@@ -213,7 +217,10 @@ def part_for_row(name):
 # ---------- rows and targets (pure) ----------
 
 def refresh_ms_of(report):
-    """The median display refresh interval any bench in the report saw (`refresh_ms` keys), or None."""
+    """The display refresh interval (ms) a part measured at, or None (unknown). The median of the `refresh_ms` keys
+    its benches printed (the display the app was on), else the `display` scripts/measure/split-spring.sh put into
+    the report: the virtual display's measured interval, or null after a VDISPLAY-FALLBACK (the panel's rate is not
+    known). perf-budgets.py prints no refresh, so its parts get theirs from `display` only."""
     found = []
 
     def walk(v):
@@ -221,14 +228,18 @@ def refresh_ms_of(report):
             for k, x in v.items():
                 if k == "refresh_ms" and isinstance(x, (int, float)) and 2 <= x <= 50:
                     found.append(float(x))
-                else:
+                elif k != "display":
                     walk(x)
         elif isinstance(v, list):
             for x in v:
                 walk(x)
     walk(report)
     found.sort()
-    return found[len(found) // 2] if found else None
+    if found:
+        return found[len(found) // 2]
+    display = report.get("display") if isinstance(report, dict) else None
+    r = display.get("refresh_ms") if isinstance(display, dict) else None
+    return float(r) if isinstance(r, (int, float)) and 2 <= r <= 50 else None
 
 
 def rows_of_part(part, report, budgets_mod, budgets):
@@ -301,23 +312,29 @@ def frame_sensitive(name, row):
 
 
 def same_refresh(a, b):
-    """Two refresh periods (ms) within 20 %. Both unknown counts as the same setup; one known and one unknown
-    does not (the display may have changed)."""
-    if not a and not b:
-        return True
+    """Two known refresh periods (ms) within 20 %. An unknown refresh is never the same as anything, itself
+    included: a frame row whose display is not known (a VDISPLAY-FALLBACK run on a panel of unknown rate, a bench
+    that printed no refresh) is not compared."""
     return bool(a) and bool(b) and abs(a - b) <= 0.2 * max(a, b)
 
 
+def row_refresh(row, refresh_ms):
+    """The display refresh (ms) a row was measured at: its own `refresh_ms` when the row carries the key (None: its
+    part saw no refresh), else the measurement's."""
+    return row["refresh_ms"] if "refresh_ms" in row else refresh_ms
+
+
 def refresh_skipped(rows, base_rows, refresh_ms, base_refresh_ms):
-    """The frame rows find_regressions leaves out because the display refresh changed since the last good run."""
+    """The frame rows find_regressions leaves out: the display refresh changed since the last good run, or one of
+    the two is not known."""
     return sorted(n for n, r in rows.items() if frame_sensitive(n, r) and n in base_rows
-                  and not same_refresh(r.get("refresh_ms") or refresh_ms, base_rows[n].get("refresh_ms") or base_refresh_ms))
+                  and not same_refresh(row_refresh(r, refresh_ms), row_refresh(base_rows[n], base_refresh_ms)))
 
 
 def target_of(name, row, refresh_ms):
     """The row's target p95: latency 10 ms; a frame row one display refresh (the row's own when it has one); counts
     0; diff, launch and main-thread rows their budget."""
-    refresh_ms = row.get("refresh_ms") or refresh_ms
+    refresh_ms = row_refresh(row, refresh_ms)
     unit = row.get("unit") or "ms"
     if name.startswith(("diff.", "launch.")):
         return row.get("budget")
@@ -327,7 +344,9 @@ def target_of(name, row, refresh_ms):
         return None  # a count of frames longer than a 120 Hz frame: compared with the last good run only
     if unit == "ms":
         if name.endswith(".frame") or name.endswith("longest_frame"):
-            return round((refresh_ms or 1000 / 60) * 1.25, 2)  # a quarter frame of jitter; a drop is a whole frame
+            if not refresh_ms:
+                return None  # an unknown display: no frame target (a 60 Hz guess would hide a 120 Hz miss)
+            return round(refresh_ms * 1.25, 2)  # a quarter frame of jitter; a drop is a whole frame
         if name.endswith((".main_ms_max", ".main_ms_p95")):
             return row.get("budget")
         return LATENCY_TARGET_MS
@@ -357,7 +376,7 @@ def find_regressions(rows, base_rows, refresh_ms, base_refresh_ms, budgets_mod):
                    and row["p95"] - base["p95"] > row.get("floor", 1.0))
         if name in worse or crossed:
             out.append({"name": name, "p95": row["p95"], "base": base["p95"], "unit": row.get("unit", "ms"),
-                        "target": target_of(name, row, refresh_ms), "refresh_ms": row.get("refresh_ms") or refresh_ms,
+                        "target": target_of(name, row, refresh_ms), "refresh_ms": row_refresh(row, refresh_ms),
                         "why": "worse than last good" if name in worse else "newly over target"})
     return out
 
@@ -369,6 +388,15 @@ def new_measurement(sha, kind, parts, t, bisect_range=None):
     if bisect_range:
         m["bisect_range"] = {"good": bisect_range["good"], "bad": bisect_range["bad"]}
     return m
+
+
+def part_args(part, run_seconds):
+    """split-spring.sh's args for a part: a part on the virtual display holds it no longer than the part may run,
+    so a step killed outright does not leave it as the bench host's main display."""
+    args = list(part["args"])
+    if any(a.startswith("--vdisplay=") for a in args):
+        args.append(f"--vdisplay-hold={int(run_seconds)}")
+    return args
 
 
 def is_linux_part(name):
@@ -497,13 +525,21 @@ def fleet_verdict(status, workers, jobs, worker, yield_mode, mine=()):
         return f"{worker} has not been seen for over 3 minutes"
     if w.get("claim_paused"):
         return f"{worker} takes no work ({w['claim_paused']})"
-    if "exclusive" not in (w.get("fits") or []):
-        return f"{worker} has no room for an exclusive step (fits {w.get('fits')})"
     for j in jobs or []:
         if j.get("id") in mine or j.get("state") not in ("queued", "leased", "running"):
             continue
         if j.get("worker") == worker or j.get("target_worker") == worker or (j.get("state") == "queued" and "bench" in (j.get("labels") or [])):
             return f"{worker} is busy or wanted: job {j['id'][:12]} ({j.get('script') or j.get('kind')}, {j['state']})"
+    other = wanted_by_other(status, set(mine), jobs, worker)
+    if other:
+        return (f"{worker} is wanted: foreground job {other['id'][:12]} ({', '.join(other.get('labels') or []) or other.get('kind')}) "
+                f"queued {round(other.get('wait_seconds') or 0)} s")
+    # The worker's heartbeat offers the exclusive class only while nothing runs there and its host lock is free
+    # (hq build-fleet/cmd/worker/ci_step.go exclusiveFits; `fits` is left out when empty), and the controller leases
+    # a measurement step only to a worker that offers it (controller stepFitsWorker): no fits, no step there.
+    if "exclusive" not in (w.get("fits") or []):
+        why = f"job {str(w['current_job'])[:12]} runs there" if w.get("current_job") else "a step runs there or its host lock is held"
+        return f"{worker} offers no exclusive slot now ({why}); the controller would not place the part there either"
     for q in (status or {}).get("queue") or []:
         if q.get("id") in mine:
             continue
@@ -888,8 +924,9 @@ def bisect_step(state, cur, part_rows, regs):
 
 def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_mod):
     """Fold a finished measurement into the state. Returns the issue event: 'regressed', 'still', 'recovered',
-    'narrowed' or 'skipped' (a bisect step), 'first', 'good', or 'empty' (no row measured: neither a baseline nor
-    a verdict). The newest history entry gets the status and a note.
+    'narrowed' or 'skipped' (a bisect step), 'first', 'good', 'partial' (no measured row regressed, but a planned
+    part did not run), or 'empty' (no row measured: neither a baseline nor a verdict). The newest history entry gets
+    the status and a note.
 
     A tip measurement counts as recovered only when it measured every open regression's row again and each is
     within its threshold. When it misses one (its part failed or yielded, or the bench printed no value), the
@@ -917,7 +954,9 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
               "refresh_skipped": refresh_skipped(part_rows, (good or {}).get("rows") or {}, refresh_ms, (good or {}).get("refresh_ms"))}
     row_ok = state.setdefault("row_ok", {})
     if not good:
-        state["last"] = state["last_good"] = record
+        state["last_good"] = record
+        if not failed:
+            state["last"] = record  # a first run with a part that did not run is the baseline, not a stale reset
         state["regressions"] = []
         row_ok.update({name: cur["sha"] for name in part_rows})
         entry["status"] = "first"
@@ -945,6 +984,16 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
         entry["note"] = (f"{len(missing)} regressed row(s) not measured again (part(s) {', '.join(parts)}"
                          + (f"; failed: {', '.join(failed)}" if failed else "") + ")")
         return "still"
+    if failed:
+        # Rows of the parts that ran are judged (a regression of theirs opens, one they measured within its
+        # threshold again clears), but a measurement with a planned part that did not run is not complete: it is
+        # neither the last measurement (the stale clock keeps running while those parts keep failing) nor the
+        # new last good run.
+        entry["status"] = "incomplete"
+        entry["note"] = f"part(s) that did not run: {', '.join(failed)}"
+        if regressions:
+            return "still" if old else "regressed"
+        return "recovered" if old else "partial"
     state["last"] = record
     if regressions:
         entry["status"] = "regressed"
@@ -955,7 +1004,7 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     skipped = set(record["refresh_skipped"])
     for name, r in part_rows.items():
         prev = merged.get(name) or {}
-        if name in skipped and (r.get("refresh_ms") or refresh_ms or 1e9) >= (prev.get("refresh_ms") or good.get("refresh_ms") or 1e9):
+        if name in skipped and (row_refresh(r, refresh_ms) or 1e9) >= (row_refresh(prev, good.get("refresh_ms")) or 1e9):
             continue
         merged[name] = r
     state["last_good"] = {**record, "rows": merged}
@@ -1038,9 +1087,9 @@ def cmd_plan(o):
            "reason": d["reason"], "stale_hours": round(stale_hours(state, t), 1)}
     if d.get("part"):
         p = PART_BY_NAME[d["part"]]
-        out["args"] = json.dumps(p["args"])
-        out["artifact"] = p["artifact"]
         out["run_seconds"] = p.get("run_seconds", PART_RUN_SECONDS)
+        out["args"] = json.dumps(part_args(p, out["run_seconds"]))
+        out["artifact"] = p["artifact"]
     print(f"perf-cron plan: {json.dumps(out)}")
     write_outputs(o.output, out)
 
@@ -1133,6 +1182,47 @@ def cmd_run_part(o):
             result["state"], result["artifact_error"] = "failed", (got.stderr or got.stdout)[-500:]
     json.dump(result, open(os.path.join(o.out, "result.json"), "w"), indent=1)
     print(f"perf-cron part: {json.dumps({k: v for k, v in result.items() if k != 'tail'})}")
+
+
+NOT_STARTED = "not-started.json"  # a part dir with this file: the fleet check said no, no part ran (no attempt)
+NO_RESULT = {"state": "yielded", "no_result": True,
+             "reason": "the job ended without the part's result (cancelled, timed out, no fleet client, or a setup step "
+                       "failed): one attempt"}
+
+
+def missing_result(part_dir):
+    """The result to record for a part whose job wrote none (pure but for the file checks): None when the fleet
+    check said no (not an attempt), else NO_RESULT (it counts against MAX_YIELDS, so a part whose job keeps dying
+    ends as failed instead of being retried every tick)."""
+    if os.path.exists(os.path.join(part_dir, NOT_STARTED)):
+        return None
+    return dict(NO_RESULT)
+
+
+def cmd_part_cleanup(o):
+    """The gateway job's last step (always runs, also on a cancel or the job timeout): when run-part wrote no
+    result.json, cancel the fleet step it started (its id is in step.log) and write a result that counts as one
+    attempt."""
+    os.makedirs(o.out, exist_ok=True)
+    if os.path.exists(os.path.join(o.out, "result.json")) or os.path.exists(os.path.join(o.out, NOT_STARTED)):
+        return
+    step_id = None
+    try:
+        with open(os.path.join(o.out, "step.log"), errors="replace") as f:
+            m = re.search(r"cmux-ci: step ([0-9a-f]{12,}) ", f.read())
+        step_id = m.group(1) if m else None
+    except OSError:
+        pass
+    result = {**NO_RESULT, "step_id": step_id, "why": o.why}
+    if step_id and os.path.exists(o.client):
+        try:
+            got = run_capture([o.client, "cancel", step_id, "--reason", f"perf cron: the gateway job ended ({o.why})"], timeout=60)
+            result["cancel"] = f"exit {got.returncode}"
+        except (OSError, subprocess.SubprocessError) as error:
+            result["cancel"] = f"failed: {error!r}"
+    with open(os.path.join(o.out, "result.json"), "w") as f:
+        json.dump(result, f, indent=1)
+    print(f"perf-cron part: {json.dumps(result)}")
 
 
 def issue_plan(state, event, now, is_open, exists, set_changed):
@@ -1258,10 +1348,17 @@ def cmd_report(o):
     for spec in o.result:
         part, _, part_dir = spec.partition("=")
         path = os.path.join(part_dir, "result.json")
-        if not (cur and part in PART_BY_NAME and os.path.exists(path)):
+        if not (cur and part in PART_BY_NAME and part in cur["parts_todo"]):
+            continue
+        try:
+            with open(path) as f:
+                result = json.load(f)
+        except (OSError, ValueError):
+            result = missing_result(part_dir)
+        if not isinstance(result, dict) or result.get("state") not in ("done", "failed", "yielded"):
             continue
         changed = True
-        entry = record_part(cur, part, json.load(open(path)), o.run_url)
+        entry = record_part(cur, part, result, o.run_url)
         if entry["state"] == "done":
             os.makedirs(os.path.join(o.dir, "parts"), exist_ok=True)
             report = os.path.join(part_dir, "report.json")
@@ -1281,9 +1378,12 @@ def cmd_report(o):
             except (OSError, ValueError):
                 continue
             part_rows = rows_of_part(PART_BY_NAME[name], report, mod, budgets)
+            # Each fleet part's rows carry the refresh that part saw (split-spring.sh puts its display into the
+            # report): a part that saw none leaves its frame rows unknown, never another part's rate.
             r = refresh_ms_of(report)
             if r:
                 refresh.append(r)
+            if not is_linux_part(name):
                 for row in part_rows.values():
                     row.setdefault("refresh_ms", r)
             rows.update(part_rows)
@@ -1302,6 +1402,7 @@ def cmd_report(o):
                             + (f"; {note}" if note else ""),
                    "empty": f"{sha[:12]}: no row measured (failed parts: "
                             f"{', '.join((state.get('history') or [{}])[-1].get('failed_parts') or []) or 'none'})",
+                   "partial": f"{sha[:12]}: no measured row regressed ({len(rows)} rows); {note}",
                    "narrowed": f"bisect {sha[:12]}: {note}",
                    "skipped": f"bisect {sha[:12]}: {note}"}[event]
     if event == "empty":
@@ -1347,6 +1448,10 @@ def main(argv=None):
     s.add_argument("--out", required=True)
     s.add_argument("--worker", default=BENCH_WORKER)
     s.add_argument("--client", default=os.path.expanduser("~/.local/bin/cmux-ci"))
+    s = sub.add_parser("part-cleanup", help="after run-part, on every exit: cancel a step left running, write a result (gateway)")
+    s.add_argument("--out", required=True)
+    s.add_argument("--why", default="the job ended")
+    s.add_argument("--client", default=os.path.expanduser("~/.local/bin/cmux-ci"))
     s = sub.add_parser("run-linux-part", help="run the diff-viewer part (Linux, in a checkout of the measured commit)")
     s.add_argument("--out", required=True)
     s = sub.add_parser("report", help="store the parts, finish the measurement, keep the issue (Linux)")
@@ -1359,7 +1464,8 @@ def main(argv=None):
     s.add_argument("--issues", action="store_true", help="open, update or close the regression issue")
     s.add_argument("--output")
     o = ap.parse_args(argv)
-    {"fetch-state": cmd_fetch_state, "plan": cmd_plan, "fleet-check": cmd_fleet_check, "run-part": cmd_run_part, "run-linux-part": cmd_run_linux_part,
+    {"fetch-state": cmd_fetch_state, "plan": cmd_plan, "fleet-check": cmd_fleet_check, "run-part": cmd_run_part,
+     "part-cleanup": cmd_part_cleanup, "run-linux-part": cmd_run_linux_part,
      "report": cmd_report}[o.cmd](o)
 
 

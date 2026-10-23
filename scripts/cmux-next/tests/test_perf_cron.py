@@ -270,6 +270,12 @@ class FinishTests(unittest.TestCase):
 
 
 class PartTests(unittest.TestCase):
+    def test_parts_on_the_virtual_display_hold_it_no_longer_than_they_run(self):
+        stress = cron.PART_BY_NAME["stress"]
+        self.assertEqual(stress["run_seconds"], 1500, "STRESS keeps its 25-minute cap until it is timed")
+        self.assertEqual(cron.part_args(stress, 1500)[-1], "--vdisplay-hold=1500")
+        self.assertNotIn("--vdisplay-hold=1200", " ".join(cron.part_args(cron.PART_BY_NAME["build"], 1200)))
+
     def test_a_yielded_part_stays_to_do_up_to_the_limit(self):
         cur = cron.new_measurement("a" * 40, "tip", ["motion", "sidebar"], T0)
         for i in range(cron.MAX_YIELDS - 1):
@@ -302,7 +308,64 @@ class DisplayTests(unittest.TestCase):
         self.assertEqual(cron.find_regressions(now, {"p.frame": row(16.7)}, 16.67, None, budgets_mod), [])
         self.assertEqual(cron.refresh_skipped(now, {"p.frame": row(16.7)}, 16.67, None), ["p.frame"])
         both_unknown = cron.find_regressions({"p.frame": row(33.3)}, {"p.frame": row(16.7)}, None, None, budgets_mod)
-        self.assertEqual([r["name"] for r in both_unknown], ["p.frame"], "the same unknown setup still compares")
+        self.assertEqual(both_unknown, [], "an unknown display is never compared, not even with another unknown one")
+        latency = cron.find_regressions({"t.e2e": row(14.0)}, {"t.e2e": row(5.0)}, None, None, budgets_mod)
+        self.assertEqual([r["name"] for r in latency], ["t.e2e"], "latency rows do not depend on the display")
+
+    def test_a_frame_row_of_unknown_refresh_has_no_target(self):
+        self.assertIsNone(cron.target_of("panes.split.4x2.frame", row(20.0), None), "no 60 Hz guess")
+        self.assertIsNone(cron.target_of("p.frame", {**row(20.0), "refresh_ms": None}, 8.33),
+                          "a row whose part saw no refresh does not take the measurement's")
+        self.assertFalse(cron.over_target("p.frame", row(20.0), None))
+        self.assertEqual(cron.target_of("p.frame", row(9.0), 8.33), 10.41)
+
+    def test_the_refresh_comes_from_the_benches_else_the_display_split_spring_records(self):
+        self.assertEqual(cron.refresh_ms_of({"rows": [], "display": {"vdisplay": True, "refresh_ms": 8.34}}), 8.34)
+        self.assertIsNone(cron.refresh_ms_of({"rows": [], "display": {"vdisplay": False, "refresh_ms": None,
+                                                                      "line": "ready 3 16.67 main=1"}}), "VDISPLAY-FALLBACK")
+        self.assertIsNone(cron.refresh_ms_of({"rows": [], "display": None}))
+        self.assertEqual(cron.refresh_ms_of({"a": {"refresh_ms": 16.67}, "display": {"refresh_ms": 8.34}}), 16.67,
+                         "the display the app was on wins over the one asked for")
+
+    def report_tick(self, d, parts, last_good_rows):
+        """cmd_report finishing a tip measurement of `parts` ({name: report}) against last_good_rows."""
+        state = cron.empty_state(T0)
+        state["persisted"] = True
+        state["last_good"] = state["last"] = {"sha": "a" * 40, "measured_at": cron.iso(T0), "rows": last_good_rows,
+                                              "refresh_ms": 8.33}
+        state["current"] = cron.new_measurement("b" * 40, "tip", list(parts), T0)
+        with open(os.path.join(d, "state.json"), "w") as f:
+            json.dump(state, f)
+        results = []
+        for name, report in parts.items():
+            part_dir = os.path.join(d, name)
+            os.makedirs(part_dir)
+            for file, value in (("result.json", {"state": "done"}), ("report.json", report)):
+                with open(os.path.join(part_dir, file), "w") as f:
+                    json.dump(value, f)
+            results.append(f"{name}={part_dir}")
+        with mock.patch.object(cron, "now_utc", lambda: at(1)):
+            cron.cmd_report(argparse.Namespace(repo="o/r", dir=d, result=results, run_url="u", finish=False, issues=False,
+                                               output=os.path.join(d, "report.out")))
+        with open(os.path.join(d, "state.json")) as f:
+            return json.load(f)
+
+    def test_each_part_keeps_its_own_refresh(self):
+        stress = {"refresh_ms": 8.33, "summary": [{"action": "close", "layout": "stress", "frames_p50_ms": 8.3,
+                                                   "frames_p95_ms": 8.4, "missed": 0}]}
+        base = {"panes.split.4x2.frame": {**row(8.4), "refresh_ms": 8.33}, "panes.close.stress.frame": {**row(8.4), "refresh_ms": 8.33}}
+        fallback = {"rows": [{"name": "panes.split.4x2.frame", "p50": 16.7, "p95": 17.0, "unit": "ms"}],
+                    "display": {"requested_hz": 120, "vdisplay": False, "refresh_ms": None, "line": "error: x"}}
+        with tempfile.TemporaryDirectory() as d:
+            state = self.report_tick(d, {"stress": stress, "motion": fallback}, base)
+            self.assertEqual(state["regressions"], [], "a fallback part's frame rows are not compared with the 120 Hz stress part's rate")
+            self.assertIsNone(state["last"]["rows"]["panes.split.4x2.frame"]["refresh_ms"])
+            self.assertEqual(state["last_good"]["rows"]["panes.split.4x2.frame"]["p95"], 8.4, "the 120 Hz baseline stays")
+        on_vdisplay = {**fallback, "display": {"requested_hz": 120, "vdisplay": True, "refresh_ms": 8.34, "line": "ready"}}
+        with tempfile.TemporaryDirectory() as d:
+            state = self.report_tick(d, {"stress": stress, "motion": on_vdisplay}, base)
+            self.assertEqual([r["name"] for r in state["regressions"]], ["panes.split.4x2.frame"],
+                             "a budgets part on the virtual display is compared at its refresh")
 
     def test_the_issue_says_which_frame_rows_were_not_compared(self):
         state = cron.empty_state(T0)
@@ -340,7 +403,19 @@ class DisplayTests(unittest.TestCase):
         self.assertIn("display 60 Hz", body)
 
 
+FIXTURES = os.path.join(HERE, "fixtures")
+
+
 class DiffTests(unittest.TestCase):
+    def test_the_recorded_linux_part_report_gives_all_three_rows(self):
+        with open(os.path.join(FIXTURES, "perf-cron-diff-report-2026-10-23.json")) as f:
+            report = json.load(f)
+        rows = cron.rows_of_part(cron.PART_BY_NAME["diff-viewer"], report, budgets_mod, {"rows": {}})
+        self.assertEqual(sorted(rows), ["diff.sidecar.manifest_decode_p95", "diff.sidecar.read_ms_per_gib", "diff.stream.p95"])
+        self.assertEqual(rows["diff.sidecar.manifest_decode_p95"]["p95"], 4)
+        self.assertEqual(rows["diff.sidecar.read_ms_per_gib"]["p95"], 46.65, "21951 MiB/s")
+        self.assertEqual(rows["diff.stream.p95"]["p95"], 22.22)
+
     def test_diff_viewer_rows_and_their_budgets(self):
         report = {"sidecar": {"manifestDecodeP95Micros": 400, "sequentialReadMibPerSecond": 1024.0},
                   "stream": {"p95Ms": 120.5}}
@@ -353,6 +428,97 @@ class DiffTests(unittest.TestCase):
     def test_the_last_json_object_a_bench_printed(self):
         self.assertEqual(cron.last_json_object('Compiling\n{\n "a": 1\n}\nnoise\n{\n "b": 2\n}\n'), {"b": 2})
         self.assertIsNone(cron.last_json_object("no json here"))
+
+
+class IncompleteTests(unittest.TestCase):
+    def finish(self, state, sha, parts, rows, hours):
+        state["current"] = cron.new_measurement(sha, "tip", [], at(hours))
+        state["current"]["parts"] = parts
+        return cron.finish_measurement(state, rows, 8.33, "bench", "r", at(hours), budgets_mod)
+
+    def test_a_build_failure_with_a_regression_open_is_no_recovery(self):
+        state = cron.empty_state(T0)
+        ok = {p: {"state": "done"} for p in ("build", "stress", "diff-viewer")}
+        self.finish(state, "a" * 40, ok, {"panes.close.stress.frame": row(8.4), "diff.stream.p95": row(20.0)}, 0)
+        self.finish(state, "b" * 40, ok, {"panes.close.stress.frame": row(30.0), "diff.stream.p95": row(20.0)}, 1)
+        failed = {"build": {"state": "failed"}, "stress": {"state": "build_failed"}, "diff-viewer": {"state": "done"}}
+        self.assertEqual(self.finish(state, "c" * 40, failed, {"diff.stream.p95": row(20.0)}, 2), "still")
+        self.assertEqual([r["name"] for r in state["regressions"]], ["panes.close.stress.frame"])
+        self.assertEqual((state["last"]["sha"], state["last_good"]["sha"]), ("b" * 40, "a" * 40))
+        self.assertEqual(cron.stale_basis(state), cron.iso(at(1)), "the Linux rows alone do not reset the stale clock")
+
+    def test_a_build_failure_with_nothing_open_is_partial(self):
+        state = cron.empty_state(T0)
+        ok = {p: {"state": "done"} for p in ("build", "stress", "diff-viewer")}
+        self.finish(state, "a" * 40, ok, {"panes.close.stress.frame": row(8.4), "diff.stream.p95": row(20.0)}, 0)
+        failed = {"build": {"state": "failed"}, "stress": {"state": "build_failed"}, "diff-viewer": {"state": "done"}}
+        self.assertEqual(self.finish(state, "b" * 40, failed, {"diff.stream.p95": row(20.0)}, 30), "partial")
+        self.assertEqual((state["last"]["sha"], state["last_good"]["sha"]), ("a" * 40, "a" * 40))
+        self.assertGreater(cron.stale_hours(state, at(30)), cron.STALE_HOURS, "the Mac parts failing for a day is stale")
+        self.assertEqual(state["history"][-1]["status"], "incomplete")
+
+    def test_a_regressed_row_measured_again_clears_even_when_another_part_failed(self):
+        state = cron.empty_state(T0)
+        ok = {p: {"state": "done"} for p in ("stress", "motion")}
+        self.finish(state, "a" * 40, ok, {"panes.close.stress.frame": row(8.4), "t.e2e": row(5.0)}, 0)
+        self.finish(state, "b" * 40, ok, {"panes.close.stress.frame": row(8.4), "t.e2e": row(9.0)}, 1)
+        part = {"stress": {"state": "failed"}, "motion": {"state": "done"}}
+        self.assertEqual(self.finish(state, "c" * 40, part, {"t.e2e": row(5.0)}, 2), "recovered")
+        self.assertEqual(state["last"]["sha"], "b" * 40)
+
+
+class MissingResultTests(unittest.TestCase):
+    def report(self, d, state, part_dir):
+        with open(os.path.join(d, "state.json"), "w") as f:
+            json.dump(state, f)
+        with mock.patch.object(cron, "now_utc", lambda: at(1)):
+            cron.cmd_report(argparse.Namespace(repo="o/r", dir=d, result=[f"motion={part_dir}"], run_url="u", finish=False,
+                                               issues=False, output=os.path.join(d, "report.out")))
+        with open(os.path.join(d, "state.json")) as f:
+            return json.load(f)
+
+    def test_a_job_that_left_no_result_is_one_attempt(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = cron.empty_state(T0)
+            state["persisted"] = True
+            state["current"] = cron.new_measurement("b" * 40, "tip", ["motion", "sidebar"], T0)
+            gone = os.path.join(d, "no-artifact")  # the job died before it uploaded anything
+            for i in range(1, cron.MAX_YIELDS):
+                state = self.report(d, state, gone)
+                self.assertEqual(state["current"]["parts"]["motion"]["yields"], i)
+                self.assertIn("motion", state["current"]["parts_todo"])
+            state = self.report(d, state, gone)
+            self.assertEqual(state["current"]["parts"]["motion"]["state"], "failed", "not retried forever")
+            self.assertEqual(state["current"]["parts_todo"], ["sidebar"])
+
+    def test_a_fleet_check_that_said_no_is_no_attempt(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = cron.empty_state(T0)
+            state["persisted"] = True
+            state["current"] = cron.new_measurement("b" * 40, "tip", ["motion"], T0)
+            part_dir = os.path.join(d, "part")
+            os.makedirs(part_dir)
+            open(os.path.join(part_dir, cron.NOT_STARTED), "w").close()
+            state = self.report(d, state, part_dir)
+            self.assertEqual(state["current"]["parts"], {})
+            self.assertEqual(state["current"]["parts_todo"], ["motion"])
+
+    def test_cleanup_cancels_the_step_left_running_and_writes_the_attempt(self):
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "step.log"), "w") as f:
+                f.write("cmux-ci: step 0123456789abcdef01234567 queued\n")
+            client = os.path.join(d, "cmux-ci")
+            open(client, "w").close()
+            calls = []
+            with mock.patch.object(cron, "run_capture", lambda argv, timeout=120: calls.append(argv) or
+                                   argparse.Namespace(returncode=0, stdout="", stderr="")):
+                cron.cmd_part_cleanup(argparse.Namespace(out=d, client=client, why="run step cancelled"))
+            self.assertEqual(calls[0][:3], [client, "cancel", "0123456789abcdef01234567"])
+            with open(os.path.join(d, "result.json")) as f:
+                self.assertEqual(json.load(f)["state"], "yielded")
+            calls.clear()
+            cron.cmd_part_cleanup(argparse.Namespace(out=d, client=client, why="again"))
+            self.assertEqual(calls, [], "a result already there is left alone")
 
 
 class FinishEmptyTests(unittest.TestCase):
@@ -386,6 +552,33 @@ class IssueTests(unittest.TestCase):
         state["stale_noted_for"] = cron.stale_basis(state)
         self.assertEqual(cron.issue_plan(state, None, later, True, True, False), {"open": True, "comment": None})
         self.assertIn("Stale", cron.issue_body(state, "o/r", later))
+
+
+class RecordedFleetTests(unittest.TestCase):
+    """fleet_verdict on `cmux-ci workers` and /v1/status as the controller sent them (2026-10-23T14:01Z)."""
+
+    def setUp(self):
+        with open(os.path.join(FIXTURES, "perf-cron-fleet-2026-10-23.json")) as f:
+            self.rec = json.load(f)
+        seen = cron.parse_iso(self.rec["workers"]["cmux20-bench"]["last_seen"][:19] + "Z")
+        patcher = mock.patch.object(cron, "now_utc", lambda: seen + datetime.timedelta(seconds=30))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_the_busy_bench_host_sends_no_fits_and_the_part_waits(self):
+        why = cron.fleet_verdict({"queue": []}, self.rec["workers"], [], "cmux20-bench", "queued")
+        self.assertIn("offers no exclusive slot", why)
+
+    def test_the_queued_foreground_bench_jobs_come_first(self):
+        why = cron.fleet_verdict(self.rec["status"], self.rec["workers"], [], "cmux20-bench", "queued")
+        self.assertIn("foreground job 6ff77b010a92", why)
+
+    def test_an_idle_worker_offers_the_exclusive_class(self):
+        self.assertEqual(self.rec["workers"]["cmuxs-Mac-mini.local"]["fits"], ["exclusive"])
+        idle = {"cmuxs-Mac-mini.local": self.rec["workers"]["cmuxs-Mac-mini.local"]}
+        seen = cron.parse_iso(idle["cmuxs-Mac-mini.local"]["last_seen"][:19] + "Z")
+        with mock.patch.object(cron, "now_utc", lambda: seen + datetime.timedelta(seconds=30)):
+            self.assertIsNone(cron.fleet_verdict({"queue": []}, idle, [], "cmuxs-Mac-mini.local", "queued"))
 
 
 class FleetTests(unittest.TestCase):
