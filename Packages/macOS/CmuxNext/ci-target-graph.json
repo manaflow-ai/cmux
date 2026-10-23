@@ -1553,7 +1553,6 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal",
       "targets": [
-        "CmuxNextActions",
         "CmuxNextCompat",
         "CmuxNextCopyMode",
         "CmuxNextDesign",
