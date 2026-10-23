@@ -43,11 +43,13 @@ let sends = 0;
 // Where the chat reopens (`__openAt`, the reader's saved place). Its row is in an older page that never
 // lands, so the open keeps paging back for it, unseen, until it gives up or a prompt is sent.
 let openAt: ScrollAnchor | undefined;
+// The chat on show (`__switchSession`): one transcript is kept across chats, as the pane keeps it.
+let sessionId = "session-1";
 const draw = () =>
   view.render(
     <VirtualTranscript
       rows={turnView(shown, expanded)}
-      sessionId="session-1"
+      sessionId={sessionId}
       onToggleActivity={(id) => {
         expanded = new Set(expanded);
         if (!expanded.delete(id)) expanded.add(id);
@@ -70,5 +72,10 @@ const draw = () =>
 };
 (window as unknown as { __openAt: (anchor: ScrollAnchor) => void }).__openAt = (anchor) => {
   openAt = anchor;
+  draw();
+};
+(window as unknown as { __switchSession: (id: string, rows: AcpmuxRow[]) => void }).__switchSession = (id, rows) => {
+  sessionId = id;
+  shown = rows;
   draw();
 };

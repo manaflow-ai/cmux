@@ -220,6 +220,16 @@ public nonisolated struct AgentPaneTunables {
         help: "A streaming reply grows by whole words, each fading in. Off: a character at a time. New agent tabs.",
         default: true, code: "AgentPaneTunables.streamWords")
 
+    /// A mouse wheel's notch glides the transcript over the motion scale's standard 180 ms instead
+    /// of jumping (webviews agent-session/acpmux/wheelGlide.ts); trackpad scrolling is the engine's
+    /// either way. On by default (Leo 2026-10-22: "smoother scrolling in webkit: i mean with a
+    /// mouse"); off (`data-wheel-glide="off"`), the wheel scrolls as WebKit does. New agent tabs
+    /// read it.
+    public static let wheelGlide = Tunable<Bool>.toggle(
+        "agentPane.debug.wheelGlide", PageTunables.section, "Smooth mouse wheel in the transcript",
+        help: "Each mouse wheel notch glides the transcript instead of jumping. Trackpads are unchanged. New agent tabs.",
+        default: true, code: "AgentPaneTunables.wheelGlide")
+
     /// Which done thoughts fold (``foldLongThoughts``): every one by default (Leo 2026-10-20), or,
     /// as before, only a tall one. New agent tabs read it.
     public static let thoughtFoldThreshold = Tunable<AgentPaneThoughtFoldThreshold>.choice(
@@ -312,7 +322,7 @@ public nonisolated struct AgentPaneTunables {
                    thoughtFoldThreshold: thoughtFoldThreshold.value,
                    needsYou: needsYouStyle(installed: needsYouInstalled(), debug: needsYou.value),
                    needsYouPill: needsYouPill.value, turnPreviewCards: turnPreviewCards.value,
-                   streamWords: streamWords.value)
+                   streamWords: streamWords.value, wheelGlide: wheelGlide.value)
     }
 
     static func attributes(foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle,
@@ -321,7 +331,8 @@ public nonisolated struct AgentPaneTunables {
                            thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .every,
                            needsYou: AgentPaneNeedsYouStyle = .pinned, needsYouPill: Bool = true,
                            turnPreviewCards: Bool = false,
-                           streamWords: Bool = true) -> [String: String] {
+                           streamWords: Bool = true,
+                           wheelGlide: Bool = true) -> [String: String] {
         var attributes: [String: String] = [:]
         if needsYou != .pinned { attributes["needs-you"] = needsYou.rawValue }
         if !needsYouPill { attributes["needs-you-pill"] = "off" }
@@ -332,6 +343,7 @@ public nonisolated struct AgentPaneTunables {
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
         if turnPreviewCards { attributes["turn-preview-cards"] = "on" }
         if !streamWords { attributes["stream-words"] = "off" }
+        if !wheelGlide { attributes["wheel-glide"] = "off" }
         return attributes
     }
 
@@ -434,6 +446,7 @@ public nonisolated struct AgentPaneTunables {
             topStripStyle.descriptor,
             turnPreviewCards.descriptor,
             turnActionsPlacement.descriptor,
+            wheelGlide.descriptor,
             agentLinks.descriptor,
         ]
     }
