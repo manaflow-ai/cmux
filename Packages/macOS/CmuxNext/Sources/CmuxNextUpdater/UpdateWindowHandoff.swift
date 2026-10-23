@@ -1,7 +1,9 @@
 import AppKit
 public import CmuxNextDesign
 
-/// Restart to Update (cx-ncc.45 S1): what the old windows do at the click.
+/// Restart to Update (cx-ncc.45 S1): what the old windows do once Sparkle
+/// commits to the relaunch (`updaterWillRelaunchApplication`), or a
+/// rollback relaunches.
 /// ``mode`` is the one switch (hq-a3 rule 2026-10-10: hide when the click
 /// to the relaunched window's first frame takes 300 ms or less, else keep
 /// the windows on screen, frozen, with the update card's Installing state

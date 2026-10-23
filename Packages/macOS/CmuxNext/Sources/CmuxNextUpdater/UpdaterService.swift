@@ -81,9 +81,9 @@ public final class UpdaterService {
     /// The running bundle's keep for rollback (``keepRunningBuildForRollback()``).
     @ObservationIgnored var keptRunningBuild: KeepState?
     @ObservationIgnored var keepTask: Task<Void, Never>?
-    /// The click that installs, before Sparkle takes over (set by the App:
-    /// the windows go at once). ``installAbandoned`` undoes it when the
-    /// install ends without a relaunch.
+    /// The click that installs, before Sparkle takes over. ``installAbandoned``
+    /// runs when the install ends without a relaunch (the App brings back
+    /// the windows that ``willRelaunch`` hid).
     @ObservationIgnored public var willInstallStaged: (() -> Void)?
     @ObservationIgnored public var installAbandoned: (() -> Void)?
     /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
