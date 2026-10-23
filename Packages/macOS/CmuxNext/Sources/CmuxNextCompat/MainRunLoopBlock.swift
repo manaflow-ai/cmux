@@ -29,38 +29,38 @@ public nonisolated struct MainRunLoopBlock: Sendable {
 
     /// Makes a block that runs `body` on the main actor each time it is performed.
     ///
-    /// - Parameter body: The main-actor work. It runs once per ``perform(modes:)``.
+    /// - Parameter body: The main-actor work. It runs once per ``perform(mode:)``.
     public init(_ body: @escaping @MainActor () -> Void) {
         self.body = body
     }
 
     /// Queues the block on the main run loop and wakes the run loop, from any thread.
     ///
-    /// The block runs on a later pass of the main run loop in `modes`, never inline: a caller
+    /// The block runs on a later pass of the main run loop in `mode`, never inline: a caller
     /// on the main thread returns first. Each call runs the block once.
     ///
-    /// - Parameter modes: The run loop mode to run in (default `.commonModes`, which includes
+    /// - Parameter mode: The run loop mode to run in (default `.commonModes`, which includes
     ///   the default mode and the event-tracking mode of menus and drags).
-    public func perform(modes: CFRunLoopMode = .commonModes) {
+    public func perform(mode: CFRunLoopMode = .commonModes) {
         let body = body
         let main = CFRunLoopGetMain()
-        CFRunLoopPerformBlock(main, modes.rawValue) {
+        CFRunLoopPerformBlock(main, mode.rawValue) {
             // main-proof: a block queued on CFRunLoopGetMain() runs only on the main thread.
             MainActor.assumeIsolated { body() }
         }
         CFRunLoopWakeUp(main)
     }
 
-    /// Queues `body` on the main run loop once (``perform(modes:)`` of a new block).
+    /// Queues `body` on the main run loop once (``perform(mode:)`` of a new block).
     ///
     /// ```swift
     /// MainRunLoopBlock.perform { [weak self] in self?.popUp(menu) }
     /// ```
     ///
     /// - Parameters:
-    ///   - modes: The run loop mode to run in (default `.commonModes`).
+    ///   - mode: The run loop mode to run in (default `.commonModes`).
     ///   - body: The main-actor work.
-    public static func perform(modes: CFRunLoopMode = .commonModes, _ body: @escaping @MainActor () -> Void) {
-        MainRunLoopBlock(body).perform(modes: modes)
+    public static func perform(mode: CFRunLoopMode = .commonModes, _ body: @escaping @MainActor () -> Void) {
+        MainRunLoopBlock(body).perform(mode: mode)
     }
 }
