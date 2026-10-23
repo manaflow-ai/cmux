@@ -188,6 +188,31 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       await page.close();
     });
 
+    for (const [removed, kept] of [
+      ["m1", ["m2", "m3"]],
+      ["m3", ["m1", "m2"]],
+    ] as const) {
+      test(`${name}: a finished margin selection is cleared when its ${removed === "m1" ? "start" : "end"} message is taken out`, async () => {
+        const page = await open(name);
+        const first = await box(page, "m1");
+        const third = await box(page, "m3");
+        await drag(page, { x: first.left / 2, y: first.top + 4 }, { x: third.left + 300, y: third.bottom - 4 });
+        expect(await selected(page)).toContain("Bravo");
+        await page.evaluate(
+          (shown) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown),
+          rows.filter((each) => kept.includes(each.id as never)),
+        );
+        await page.evaluate(async () => {
+          for (let left = 3; left > 0; left--) await window.cmuxPaintFrame();
+        });
+        expect(await page.evaluate((id) => !!document.querySelector(`.acpmux-row[data-row-id="${id}"]`), removed)).toBe(
+          false,
+        );
+        expect(await selected(page)).toBe("");
+        await page.close();
+      });
+    }
+
     test(`${name}: a drag that stays in the left margin selects whole lines up to the line beside the pointer`, async () => {
       const page = await open(name);
       const first = await box(page, "m1");

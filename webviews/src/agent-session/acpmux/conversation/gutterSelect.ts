@@ -14,8 +14,9 @@
 // Stop conditions: the window and scroll listeners are added on a gutter press and removed on
 // mouseup, on a move with the button up (released outside the page), on window blur, and when the
 // transcript unmounts; the frame request is cancelled with them. A selection the drag left keeps its
-// two end rows mounted (at most two) through one `selectionchange` listener, removed when the
-// selection is cleared or no longer starts in its row, on the next margin press, or on unmount. One caret hit test per animation
+// two end rows mounted (at most two) through one `selectionchange` listener and one MutationObserver
+// on those rows' parents (childList only), both removed when the selection is cleared, no longer
+// starts in its row or loses an end row, on the next margin press, on a chat change, or on unmount. One caret hit test per animation
 // frame while the drag lasts, nothing per row. Edge scrolling repeats only while the pointer stays
 // above or below the view during the drag, and stops at the view's end.
 
@@ -145,8 +146,9 @@ export function installGutterSelect(
   };
   let drag: Drag | undefined;
   let frame = 0;
-  /// Rows are held (`hold`) for the drag, or for the selection it left: the row its start lies in.
-  let held: { row: HTMLElement } | undefined;
+  /// Rows are held (`hold`) for the drag, or for the selection it left: the row its start lies in,
+  /// and once the button lifts the row its end lies in.
+  let held: { row: HTMLElement; focus?: HTMLElement } | undefined;
   const inThread = (caret: Caret | undefined): caret is Caret => caret != null && thread.contains(caret.node);
   /// Moves the selection's end to the pointer. False once the start has left the transcript (its row
   /// was taken out), when the drag ends instead of scrolling on with nothing to select.
@@ -184,15 +186,30 @@ export function installGutterSelect(
   /// Lets the held rows go: the selection was cleared, moved, or another press began.
   const release = () => {
     doc.removeEventListener("selectionchange", onSelectionChange);
+    rowsGone.disconnect();
     if (!held) return;
     held = undefined;
     hold(undefined);
   };
-  function onSelectionChange() {
+  /// A held end row taken out (the message was removed): the selection's end moved with the DOM to
+  /// somewhere the reader never chose, so it is cleared rather than left selecting other text. True
+  /// when it did. (Browsers do not all send `selectionchange` for that move, so `rowsGone` asks too.)
+  const clearIfRowGone = (): boolean => {
+    if (!held || (held.row.isConnected && (!held.focus || held.focus.isConnected))) return false;
     const selection = doc.getSelection();
     const anchor = selection?.anchorNode;
-    if (!held || !held.row.isConnected || !selection || selection.isCollapsed || !anchor || !held.row.contains(anchor))
-      release();
+    if (selection && anchor && thread.contains(anchor)) selection.removeAllRanges();
+    release();
+    return true;
+  };
+  /// Watches only the held rows' parents' own children (no subtree), from the button lifting until
+  /// the selection lets go: one check of two nodes per batch of rows mounted or taken out.
+  const rowsGone = new MutationObserver(() => clearIfRowGone());
+  function onSelectionChange() {
+    if (clearIfRowGone()) return;
+    const selection = doc.getSelection();
+    const anchor = selection?.anchorNode;
+    if (!held || !selection || selection.isCollapsed || !anchor || !held.row.contains(anchor)) release();
   }
   /// Ends the drag. A selection it made keeps its end rows mounted until it lets go (`release`).
   const stop = () => {
@@ -203,8 +220,10 @@ export function installGutterSelect(
     if (current?.selecting && anchorRow?.isConnected && selection && !selection.isCollapsed) {
       const focusRow = rowOf(selection.focusNode);
       const rows = [anchorRow, ...(focusRow && focusRow !== anchorRow ? [focusRow] : [])];
+      held = { row: anchorRow, focus: focusRow };
       hold(rows.map(heldRow).filter((row): row is HeldRow => row !== undefined));
       doc.addEventListener("selectionchange", onSelectionChange);
+      for (const row of rows) if (row.parentNode) rowsGone.observe(row.parentNode, { childList: true });
     } else release();
     if (frame) win.cancelAnimationFrame(frame);
     frame = 0;
