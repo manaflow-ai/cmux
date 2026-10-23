@@ -59,6 +59,7 @@ extension HomeService {
     private func createCloudChief(named name: String) async -> HomeComposeOutcome {
         do {
             let record = try await directory.createChief(named: name)
+            lastCreatedChief = record
             // A new Chief's brain starts off: turn it on, or it never answers.
             if !record.placed { await hostedChief.enableBrain(of: record.id) }
             let id = record.mainConversation.map { ConversationID($0) }

@@ -43,7 +43,27 @@ extension AppActions {
                 homePage(services)?.presentNewChief()
                 return
             }
-            runHome(services) { await services.home.createChief(named: name) }
+            let backendName = invocation["harness"]?.stringValue
+                ?? invocation["engine"]?.stringValue
+                ?? ChiefBackend.claude.id
+            guard let backend = ChiefBackend(id: backendName) else {
+                return registry.refuse("unknown Chief harness: \(backendName)")
+            }
+            // A headless caller (CLI, MCP, or an agent acting for the person)
+            // needs the created Chief's durable id, not an empty `created` list.
+            registry.track(result: Task { @MainActor in
+                let outcome = await services.home.createChief(named: name, backend: backend)
+                guard case .opened(let conversation) = outcome,
+                      let chief = services.home.lastCreatedChief else {
+                    let reason = outcome.message ?? ""
+                    return .failure(ActionWorkFailure(refusal: .unavailable, reason: reason))
+                }
+                return .success([
+                    "id": .string(chief.id),
+                    "name": .string(chief.name),
+                    "conversation": .string(conversation.rawValue),
+                ])
+            })
         })
         registry.bind("home.archiveChief", invoke: { invocation in
             guard let chief = invocation["chief"]?.stringValue, !chief.isEmpty else {

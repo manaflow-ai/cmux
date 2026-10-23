@@ -14,6 +14,8 @@ extension HomeService {
         guard let connection else { return .offline }
         do {
             let made = try await HomeLocalChiefCreator(connection: connection, me: Self.localUser).create(name: name, backend: backend)
+            lastCreatedChief = HomeChiefRecord(id: made.chief, name: name, isDefault: false, rev: 0,
+                                               mainConversation: made.conversation.rawValue, placed: true)
             pendingSelection = made.conversation
             refreshChiefHarnesses()
             return .opened(made.conversation)
