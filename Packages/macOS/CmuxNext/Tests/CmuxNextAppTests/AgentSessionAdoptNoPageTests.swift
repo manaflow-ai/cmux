@@ -19,7 +19,11 @@ struct AgentSessionAdoptNoPageTests {
         var until: ContinuousClock.Instant?
     }
 
-    @Test func anotherMachinesChatIsRefusedWithoutTheAgentPageAndMakesNoWorkspace() async throws {
+    /// Runs `body` with this app's services (`pane`: the agent page's environment) and another
+    /// machine, a same-tree cmux-tui reached as the app reaches a machine's link socket (its path the
+    /// last argument), connected; ends both after, whatever `body` throws.
+    static func withMachine(pane: [String: String] = ["CMUX_NEXT_AGENT_PANE_MOCK": "1"],
+                            _ body: (AppServices, CloudMachineSession, String) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = URL(fileURLWithPath: "/private/tmp/cn-adopt-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -31,22 +35,33 @@ struct AgentSessionAdoptNoPageTests {
                                                      stateDirectory: root.appendingPathComponent("vm-state")), environment: environment)
         _ = NSApplication.shared
         let vmSocket = try await vm.endpointProvider().socketPath
-        // A build without the agent page (and no dev server): no chat can show here. The mock host starts no acpmux.
-        let services = AppServices(environment: AppEnvironment.current([:]), agentPaneEnvironment: ["CMUX_NEXT_AGENT_PANE_NONE": "1", "CMUX_NEXT_AGENT_PANE_MOCK": "1"])
+        let services = AppServices(environment: AppEnvironment.current([:]), agentPaneEnvironment: pane)
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         let machine = CloudMoveTests.machine(services, cli: URL(fileURLWithPath: "/usr/bin/false"), root: root)
         services.machines.add(machine)
         machine.daemon.start(remote: { vmSocket })
-
         let result: Result<Void, any Error>
         do {
-            try #require(!services.agentTabs.canHostChat, "this test build has the agent page")
             let deadline = ContinuousClock.now + .seconds(60)
-            while machine.daemon.connection == nil || machine.daemon.identity == nil, ContinuousClock.now < deadline {
+            while !machine.daemon.isLive || machine.daemon.identity == nil, ContinuousClock.now < deadline {
                 try? await Task.sleep(for: .milliseconds(100))
             }
             try #require(machine.daemon.connection != nil, "the other machine did not connect")
+            try await body(services, machine, vmSocket)
+            result = .success(())
+        } catch {
+            result = .failure(error)
+        }
+        await CloudMoveTests.end(machine.daemon)
+        for controller in services.windows.controllers { controller.window?.close() }
+        try result.get()
+    }
+
+    @Test func anotherMachinesChatIsRefusedWithoutTheAgentPageAndMakesNoWorkspace() async throws {
+        // A build without the agent page (and no dev server): no chat can show here. The mock host starts no acpmux.
+        try await Self.withMachine(pane: ["CMUX_NEXT_AGENT_PANE_NONE": "1", "CMUX_NEXT_AGENT_PANE_MOCK": "1"]) { services, machine, _ in
+            try #require(!services.agentTabs.canHostChat, "this test build has the agent page")
             try #require(services.machines.remoteDaemon(named: machine.machineID) === machine.daemon, "the host names no machine")
             let before = Set(machine.daemon.store.workspaces.map(\.id))
 
@@ -78,13 +93,7 @@ struct AgentSessionAdoptNoPageTests {
                     "the open was not refused for the missing agent page: \(String(describing: refusal)) \(failures)")
             #expect(work.isEmpty, "the refused open still started work: \(failures)")
             #expect(seen.ids.subtracting(before).isEmpty, "the other machine made a workspace: \(seen.ids.subtracting(before))")
-            result = .success(())
-        } catch {
-            result = .failure(error)
         }
-        await CloudMoveTests.end(machine.daemon)
-        for controller in services.windows.controllers { controller.window?.close() }
-        try result.get()
     }
 
     /// With the agent page, an adopt the other machine refuses (no acpmux there lists the session)
@@ -92,33 +101,9 @@ struct AgentSessionAdoptNoPageTests {
     /// unbound agent tab, closes again. Base's half-created close only closes an EMPTY workspace,
     /// and this one already held both tabs, so it stayed.
     @Test func aRefusedAdoptClosesTheWorkspaceItMade() async throws {
-        let binary = try #require(SameTreeDaemonBinary.url)
-        let root = URL(fileURLWithPath: "/private/tmp/cn-adopt-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let environment: @Sendable () -> [String: String] = {
-            ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"]
-        }
-        let vm = DaemonLauncher(configuration: .init(binary: binary, session: "cn-adopt-vm-\(UUID().uuidString.prefix(6).lowercased())",
-                                                     stateDirectory: root.appendingPathComponent("vm-state")), environment: environment)
-        _ = NSApplication.shared
-        let vmSocket = try await vm.endpointProvider().socketPath
         // The mock host starts no acpmux, so the other machine lists no session to adopt.
-        let services = AppServices(environment: AppEnvironment.current([:]), agentPaneEnvironment: ["CMUX_NEXT_AGENT_PANE_MOCK": "1"])
-        AppActions.bind(services)
-        services.windows.ordersWindowsIn = false
-        let machine = CloudMoveTests.machine(services, cli: URL(fileURLWithPath: "/usr/bin/false"), root: root)
-        services.machines.add(machine)
-        machine.daemon.start(remote: { vmSocket })
-
-        let result: Result<Void, any Error>
-        do {
+        try await Self.withMachine { services, machine, _ in
             try #require(services.agentTabs.canHostChat, "this test build has no agent page")
-            let connectDeadline = ContinuousClock.now + .seconds(60)
-            while machine.daemon.connection == nil || machine.daemon.identity == nil, ContinuousClock.now < connectDeadline {
-                try? await Task.sleep(for: .milliseconds(100))
-            }
-            try #require(machine.daemon.connection != nil, "the other machine did not connect")
             try #require(services.machines.remoteDaemon(named: machine.machineID) === machine.daemon, "the host names no machine")
             let store = machine.daemon.store
             let before = Set(store.workspaces.map(\.id))
@@ -149,13 +134,7 @@ struct AgentSessionAdoptNoPageTests {
             #expect(services.machines.workspace(id: key) == nil, "the refused adopt's workspace is still listed")
             // Its repair claim goes with it: a failed adopt never leaves the key settling.
             #expect(!repair.isSettling(WorkspaceKey(rawValue: key)), "the refused adopt's workspace is still settling in the repair")
-            result = .success(())
-        } catch {
-            result = .failure(error)
         }
-        await CloudMoveTests.end(machine.daemon)
-        for controller in services.windows.controllers { controller.window?.close() }
-        try result.get()
     }
 
     /// A failed adopt's close is sent again on the next connection after a dropped link, never after
@@ -185,31 +164,8 @@ struct AgentSessionAdoptNoPageTests {
     /// A failed adopt whose failure is the other machine's link dropping still closes the workspace
     /// it made there: the close waits for the link to come back, never runs on the dead connection.
     @Test func aFailedAdoptsWorkspaceClosesOnceTheMachineReconnects() async throws {
-        let binary = try #require(SameTreeDaemonBinary.url)
-        let root = URL(fileURLWithPath: "/private/tmp/cn-adopt-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let environment: @Sendable () -> [String: String] = {
-            ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"]
-        }
-        let vm = DaemonLauncher(configuration: .init(binary: binary, session: "cn-adopt-vm-\(UUID().uuidString.prefix(6).lowercased())",
-                                                     stateDirectory: root.appendingPathComponent("vm-state")), environment: environment)
-        _ = NSApplication.shared
-        let vmSocket = try await vm.endpointProvider().socketPath
-        let services = AppServices(environment: AppEnvironment.current([:]), agentPaneEnvironment: ["CMUX_NEXT_AGENT_PANE_MOCK": "1"])
-        AppActions.bind(services)
-        services.windows.ordersWindowsIn = false
-        let machine = CloudMoveTests.machine(services, cli: URL(fileURLWithPath: "/usr/bin/false"), root: root)
-        services.machines.add(machine)
-        let daemon = machine.daemon
-        daemon.start(remote: { vmSocket })
-
-        let result: Result<Void, any Error>
-        do {
-            let connectDeadline = ContinuousClock.now + .seconds(60)
-            while !daemon.isLive || daemon.identity == nil, ContinuousClock.now < connectDeadline {
-                try? await Task.sleep(for: .milliseconds(100))
-            }
+        try await Self.withMachine { _, machine, vmSocket in
+            let daemon = machine.daemon
             let connection = try #require(daemon.connection, "the other machine did not connect")
             // The workspace an adopt made there: a terminal, as the adopt's first step leaves it.
             let key = WorkspaceKey.generate()
@@ -231,13 +187,7 @@ struct AgentSessionAdoptNoPageTests {
             let live = try #require(daemon.connection, "the other machine did not reconnect")
             await daemon.store.applied(through: await live.eventSequence())
             #expect(!daemon.store.workspaces.contains { $0.key == key }, "the failed adopt's workspace stayed on the other machine")
-            result = .success(())
-        } catch {
-            result = .failure(error)
         }
-        await CloudMoveTests.end(daemon)
-        for controller in services.windows.controllers { controller.window?.close() }
-        try result.get()
     }
 }
 
