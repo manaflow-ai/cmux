@@ -26,7 +26,12 @@ enum DebugWorkspaceSwitch {
         if timer.isRecording { timer.setKind(ObjectIdentifier(owner), kind) }
     }
 
+    /// Workspace contents shown since launch (`WindowController.show`), recording or not: an input's
+    /// dispatch that shows one in its own turn moves it (`debug.input_commit` `workspace_shown`).
+    private(set) static var shows = 0
+
     static func shown(_ owner: AnyObject, in window: NSWindow?) {
+        shows &+= 1
         if timer.isRecording { timer.shown(ObjectIdentifier(owner), in: window) }
     }
 }
