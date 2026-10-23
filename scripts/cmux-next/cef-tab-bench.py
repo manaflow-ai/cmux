@@ -1,0 +1,303 @@
+#!/usr/bin/env python3
+"""New Chromium tab: input to the tab on screen and to its page's first pixels (perf-lead issue 1, PL-cef-tab).
+
+Launches the tagged app itself (no activation, scratch config: Chromium is the default engine), then
+per round, in a fresh terminal workspace, runs `debug.new_tab {action: bench_browser}` for each case:
+
+  cold_pane    Cmd-Shift-L (New Browser Tab) in a pane with no Chromium window (round 0: the
+               process's first Chromium tab)
+  warm_pane    Cmd-Shift-L again in that pane (it has a Chromium window)
+  second_pane  Cmd-D, then Cmd-Shift-L in the new pane (the second pane with Chromium in the process)
+  third_pane   Cmd-D, then Cmd-Shift-L in the new pane
+  url_warm     openBrowser with a file:// page in a pane with a Chromium window (a link opened in a tab)
+  url_cold     Cmd-D, then openBrowser with a file:// page in the new pane
+
+The app reports per run `key_ms` (the input's synchronous main-thread time), `visible_ms` (the
+first display frame at which the pane shows the new tab, selected, with its browser view in the
+pane), `page_ms` (the first frame after the page's first contentful paint or load end), the
+main-thread spans (cef.create_window, cef.tab_add, ...) and the frame intervals with the display's
+refresh period. The summary gives p50/p95/max per case and the refresh rate: judge in frames.
+
+`--session stress` first builds a loaded session: scripts/cmux-next/perf-stress-session.py when the
+checkout has it (STRESS, PL-motion-core), else the fallback here (`--stress-workspaces` workspaces,
+each a terminal and a Chromium page, and terminals printing output) and says which it used.
+
+Not a CI gate (Lawrence 2026-10-23): run it yourself on a fleet GUI host, before and after a change:
+  cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/cef-tab.sh --ref SHA \\
+    --artifact artifacts/cef-tab.json [--arg=--rounds=6] [--arg=--sessions=light,stress]
+Local, on a built app (never on a laptop in use):
+  cef-tab-bench.py --tag T --app "<...>/cmux DEV T.app" [--rounds 6] [--sessions light,stress] [--json F]
+"""
+import argparse, glob, json, os, signal, socket, subprocess, sys, tempfile, time
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--tag", required=True)
+parser.add_argument("--app", required=True)
+parser.add_argument("--rounds", type=int, default=6)
+parser.add_argument("--cases", default="cold_pane,warm_pane,second_pane,third_pane,url_warm,url_cold")
+parser.add_argument("--sessions", default="light", help="light, stress, or both (comma list, in that order)")
+parser.add_argument("--stress-workspaces", type=int, default=20)
+parser.add_argument("--stress-printers", type=int, default=10)
+parser.add_argument("--budget-ms", type=float, default=10.0, help="visible p95 target (reported, not enforced)")
+parser.add_argument("--out", default="/tmp")
+parser.add_argument("--json")
+opts = parser.parse_args()
+TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
+SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
+CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
+BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
+SCRATCH = tempfile.mkdtemp(prefix=f"cef-tab-{TAG}-")
+open(os.path.join(SCRATCH, "ghostty"), "w").close()
+CONFIG = os.path.join(SCRATCH, "cmux.json")
+open(CONFIG, "w").write("{}\n")
+PAGE = os.path.join(SCRATCH, "page.html")
+open(PAGE, "w").write("<!doctype html><title>cef-tab</title><body style='background:#fff'>"
+                      + "".join(f"<p>line {i} of a plain page</p>" for i in range(60)) + "</body>")
+CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+           "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
+           "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{TAG}", "CMUX_BUNDLED_CLI_PATH": CLI}
+CASES = [c for c in opts.cases.split(",") if c]
+LAUNCHED = []
+app = None
+
+
+def rpc(method, params=None, timeout=30):
+    try:
+        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        conn.settimeout(timeout)
+        conn.connect(SOCKET)
+        conn.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
+        buf = b""
+        while not buf.endswith(b"\n"):
+            chunk = conn.recv(1 << 20)
+            if not chunk:
+                break
+            buf += chunk
+        conn.close()
+        reply = json.loads(buf)
+        return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
+    except (OSError, ValueError) as error:
+        return {"error": str(error)}
+
+
+def action(name, args=None, timeout=60, focus=True):
+    return rpc("action.run", {"action": name, "args": args or {}, "focus": focus, "origin": "script"}, timeout=timeout)
+
+
+def wait(check, seconds, step=0.2):
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        try:
+            value = check()
+        except Exception:
+            value = None
+        if value:
+            return value
+        time.sleep(step)  # test harness polling a live app
+    return None
+
+
+def panes():
+    return [p for w in (rpc("debug.surfaces").get("windows") or []) for p in w.get("panes", [])]
+
+
+def focused():
+    return next((p for p in panes() if p.get("focused")), None)
+
+
+def window_key():
+    return ((rpc("debug.windows") or {}).get("windows") or [{}])[0].get("id")
+
+
+def key(k, modifiers, window):
+    return rpc("debug.key", {"key": k, "modifiers": modifiers, "window": window})
+
+
+def pct(values, q):
+    values = sorted(v for v in values if v is not None)
+    if not values:
+        return None
+    return round(values[min(len(values) - 1, int(round(q * (len(values) - 1))))], 2)
+
+
+def frame_of(row, field):
+    """Which display frame after the input showed it (1 = the first frame the display link drew)."""
+    frames = row.get("frames") or {}
+    at, seen = frames.get("first_tick_ms"), row.get(field)
+    if at is None or seen is None:
+        return None
+    index, intervals = 1, frames.get("intervals_ms") or []
+    while seen > at + 0.5 and index - 1 < len(intervals):
+        at += intervals[index - 1]
+        index += 1
+    return index
+
+
+def terminal_workspace(name):
+    reply = action("newTab", {"name": name}, focus=True)
+    if isinstance(reply, dict) and reply.get("error"):
+        print("newTab:", json.dumps(reply)[:300], flush=True)
+    ok = wait(lambda: (focused() or {}).get("kind") == "terminal", 30)
+    time.sleep(0.8)  # test harness: shell prompt
+    return ok
+
+
+def split(window):
+    before = len(panes())
+    key("d", ["command"], window)
+    ok = wait(lambda: len(panes()) > before and (focused() or {}).get("kind") == "terminal", 15)
+    time.sleep(0.6)  # test harness: shell prompt in the new pane
+    return ok
+
+
+def settle():
+    time.sleep(1.2)  # test harness: the page loads and Chromium goes idle before the next input
+
+
+def bench_case(case, window, session, rnd):
+    if case in ("second_pane", "third_pane", "url_cold"):
+        if not split(window):
+            return {"case": case, "error": "split failed"}
+    params = {"action": "bench_browser"}
+    if case.startswith("url_"):
+        params.update({"via": "url", "url": "file://" + PAGE})
+    result = rpc("debug.new_tab", params, timeout=30) or {}
+    result.update({"case": case, "session": session, "round": rnd})
+    result["visible_frame"] = frame_of(result, "visible_ms")
+    result["page_frame"] = frame_of(result, "page_ms")
+    spans = [s for s in result.get("spans") or [] if s.get("name", "").startswith("cef.") or s.get("ms", 0) >= 2]
+    print(f"{session} r{rnd} {case}: engine={result.get('engine')} key={result.get('key_ms')} "
+          f"visible={result.get('visible_ms')} (frame {result['visible_frame']}) page={result.get('page_ms')} "
+          f"spare={result.get('spare_before')}->{result.get('spare_after')} "
+          f"refresh={(result.get('frames') or {}).get('refresh_ms')} "
+          f"spans={[(s['name'], round(s['at'], 1), round(s['ms'], 1)) for s in spans][:12]} err={result.get('error')}", flush=True)
+    settle()
+    return result
+
+
+def bench_session(session, window):
+    rows = []
+    for rnd in range(opts.rounds):
+        if not terminal_workspace(f"cef-tab-{session}-{rnd}"):
+            sys.exit("no focused terminal: " + json.dumps(panes())[:800])
+        for case in CASES:
+            rows.append(bench_case(case, window, session, rnd))
+        action("closeWorkspace", {"confirm": True})
+        time.sleep(0.8)  # test harness: the workspace's pages close
+    return rows
+
+
+def build_stress(window):
+    builder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-stress-session.py")
+    if os.path.exists(builder):
+        print("stress: perf-stress-session.py (STRESS)", flush=True)
+        proc = subprocess.run([sys.executable, builder, "--tag", TAG, "--app", APP, "--attach"], timeout=900)
+        return "perf-stress-session.py" if proc.returncode == 0 else f"perf-stress-session.py exit {proc.returncode}"
+    print(f"stress: fallback, {opts.stress_workspaces} workspaces each a terminal + a Chromium page, "
+          f"{opts.stress_printers} printing terminals", flush=True)
+    for index in range(opts.stress_workspaces):
+        terminal_workspace(f"stress-{index}")
+        action("openBrowser.chromium", {"url": "file://" + PAGE}, timeout=60)
+        if index < opts.stress_printers:
+            subprocess.run([CLI, "send", "while :; do date; sleep 0.05; done\n"], env=CLI_ENV, capture_output=True, timeout=30)
+        time.sleep(0.5)  # test harness: the page loads
+    return f"fallback {opts.stress_workspaces} ws + {opts.stress_printers} printers"
+
+
+def summary(rows):
+    out = {}
+    for session in sorted({r.get("session") for r in rows if r.get("session")}):
+        for case in CASES:
+            sel = [r for r in rows if r.get("session") == session and r.get("case") == case]
+            refresh = [(r.get("frames") or {}).get("refresh_ms") for r in sel]
+            out[f"{session}/{case}"] = {
+                "n": len(sel), "missed": sum(r.get("visible_ms") is None for r in sel),
+                "engines": sorted({r.get("engine") or "none" for r in sel}),
+                "key_p50": pct([r.get("key_ms") for r in sel], .5), "key_max": pct([r.get("key_ms") for r in sel], 1),
+                "visible_p50": pct([r.get("visible_ms") for r in sel], .5),
+                "visible_p95": pct([r.get("visible_ms") for r in sel], .95),
+                "visible_max": pct([r.get("visible_ms") for r in sel], 1),
+                "visible_frame_p95": pct([r.get("visible_frame") for r in sel], .95),
+                "page_p50": pct([r.get("page_ms") for r in sel], .5),
+                "page_p95": pct([r.get("page_ms") for r in sel], .95),
+                "create_window_ms_p95": pct([sum(s["ms"] for s in r.get("spans") or [] if s.get("name") == "cef.create_window") or None
+                                             for r in sel], .95),
+                "tab_add_ms_p95": pct([sum(s["ms"] for s in r.get("spans") or [] if s.get("name") == "cef.tab_add") or None
+                                       for r in sel], .95),
+                "main_spans_ms_p95": pct([r.get("main_thread_spans_ms") for r in sel], .95),
+                "refresh_ms": pct(refresh, .5),
+            }
+    return out
+
+
+def cleanup():
+    if not LAUNCHED:
+        return
+    rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
+    if app:
+        try:
+            app.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            os.kill(app.pid, signal.SIGKILL)
+    subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
+                   env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
+    ps = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
+    for line in ps.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) == 2 and parts[1].startswith(APP + "/") and int(parts[0]) != os.getpid():
+            try:
+                os.kill(int(parts[0]), signal.SIGTERM)
+            except OSError:
+                pass
+    if os.path.exists(SOCKET):
+        os.remove(SOCKET)
+
+
+def main():
+    global app
+    if os.path.exists(SOCKET):
+        ps = subprocess.run(["ps", "-axo", "command="], capture_output=True, text=True).stdout
+        if any(line.startswith(APP + "/Contents/MacOS/") for line in ps.splitlines()):
+            sys.exit(f"{SOCKET} exists and a {TAG} app runs; pick a fresh tag")
+        os.remove(SOCKET)
+    env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+           "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
+           "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
+           "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900"}
+    os.makedirs(opts.out, exist_ok=True)
+    log = open(os.path.join(opts.out, f"app-{TAG}.log"), "a")
+    app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+    LAUNCHED.append(app.pid)
+    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
+        sys.exit("the tagged app did not come up")
+    time.sleep(2)  # test harness: first workspace
+    window = window_key()
+    rows, stress = [], None
+    for session in [s for s in opts.sessions.split(",") if s]:
+        if session == "stress":
+            stress = build_stress(window)
+        rows += bench_session(session, window)
+    cef = rpc("debug.cef") or {}
+    result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "stress_session": stress,
+              "budget_visible_ms": opts.budget_ms, "summary": summary(rows), "runs": rows,
+              "cef": {k: cef.get(k) for k in ("spare_window", "start_steps", "likely", "state") if k in cef}}
+    print("\nSUMMARY", json.dumps(result["summary"], indent=1), flush=True)
+    print(f"\n| session/case | n | visible p50 | visible p95 | frame p95 | page p50 | page p95 | create_window p95 | "
+          f"tab_add p95 | refresh |\n|---|---|---|---|---|---|---|---|---|---|")
+    for name, s in result["summary"].items():
+        print(f"| {name} | {s['n']} | {s['visible_p50']} | {s['visible_p95']} | {s['visible_frame_p95']} | {s['page_p50']} | "
+              f"{s['page_p95']} | {s['create_window_ms_p95']} | {s['tab_add_ms_p95']} | {s['refresh_ms']} |")
+    over = [k for k, v in result["summary"].items() if v["missed"] or (v["visible_p95"] or 1e9) > opts.budget_ms]
+    print("CEF-TAB", f"OVER {opts.budget_ms} ms: " + ", ".join(over) if over else "WITHIN", flush=True)
+    if opts.json:
+        os.makedirs(os.path.dirname(os.path.abspath(opts.json)), exist_ok=True)
+        open(opts.json, "w").write(json.dumps(result, indent=1))
+    return True
+
+
+ok = False
+try:
+    ok = main()
+finally:
+    cleanup()
+sys.exit(0 if ok else 1)
