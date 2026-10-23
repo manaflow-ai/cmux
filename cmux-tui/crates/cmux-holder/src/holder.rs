@@ -2,8 +2,10 @@
 //!
 //! One `poll` set: the listening socket, the daemon link, connections that
 //! have not said HELLO yet, links another daemon superseded that still
-//! finish their last frame, a self-pipe for SIGCHLD (and a launchd SIGTERM)
-//! and every PTY master. While no daemon is attached to a terminal its
+//! finish their last frame, a self-pipe for SIGCHLD (and a launchd SIGTERM),
+//! the start report of each child that has not run its program yet, and
+//! every PTY master. No handler waits: a SPAWN forks and returns, and its
+//! SPAWNED (or its error) follows when the child's report arrives. While no daemon is attached to a terminal its
 //! output is read as soon as it is ready and its ring keeps the newest
 //! bytes. While a daemon is attached nothing is lost: the holder reads a
 //! master only while fewer than [`UNSENT_HIGH_WATER`] bytes wait unsent,
@@ -91,6 +93,9 @@ struct Terminal {
     pid: libc::pid_t,
     /// This holder started the child, so it reaps it and reads its status.
     own_child: bool,
+    /// The child has not reported its start yet: nothing is sent for the
+    /// terminal, and it has not ended, until it did.
+    starting: Option<Starting>,
     ring: Ring,
     status: Option<ExitStatus>,
     /// The master read end of file or EIO: every slave closed.
@@ -119,6 +124,17 @@ struct Terminal {
     strikes: Vec<Instant>,
 }
 
+/// A terminal whose child was forked and has not reported its start
+/// ([`pty::Start`]).
+struct Starting {
+    start: pty::Start,
+    /// The daemon's custody dups, passed with SPAWNED once the program runs.
+    custody: Vec<OwnedFd>,
+    /// The link whose SPAWN started it ([`Link::id`]): only that link gets
+    /// its SPAWNED, whose descriptors were made for that link's version.
+    link: u64,
+}
+
 /// One frame waiting for the link, with the descriptors it passes.
 struct OutFrame {
     chan: u32,
@@ -130,6 +146,8 @@ struct OutFrame {
 
 /// The authenticated daemon link.
 struct Link {
+    /// This link among every link the holder had (counting from 1).
+    id: u64,
     stream: UnixStream,
     reader: wire::Reader,
     /// The daemon acknowledges what it parsed (wire version 2).
@@ -267,6 +285,8 @@ pub struct Holder {
     socket: Option<PathBuf>,
     token: [u8; 32],
     link: Option<Link>,
+    /// Links the holder had: the next one's [`Link::id`] is one more.
+    links: u64,
     /// Superseded links still writing their last frame.
     retiring: Vec<Retiring>,
     pending: Vec<Pending>,
@@ -372,6 +392,7 @@ impl Holder {
             socket,
             token,
             link: None,
+            links: 0,
             retiring: Vec::new(),
             pending: Vec::new(),
             terminals: BTreeMap::new(),
@@ -444,6 +465,14 @@ impl Holder {
             fds.push(pollfd(pending.stream.as_raw_fd(), libc::POLLIN));
         }
         let pending_count = self.pending.len();
+        let first_start = fds.len();
+        let mut starts = Vec::new();
+        for (chan, terminal) in &self.terminals {
+            if let Some(starting) = &terminal.starting {
+                fds.push(pollfd(starting.start.fd(), libc::POLLIN));
+                starts.push(*chan);
+            }
+        }
         let first_terminal = fds.len();
         // A terminal at end of file stays out of the set: its master would
         // report POLLHUP forever. So does one with no room while it has no
@@ -484,6 +513,14 @@ impl Holder {
         for index in (0..retiring_count).rev() {
             if fds[first_retiring + index].revents != 0 && self.retiring[index].write() {
                 self.retiring.swap_remove(index);
+            }
+        }
+        // A child that was reaped wrote its report (or nothing) before it
+        // ended: its pipe has the answer even if `poll` saw the exit first.
+        for (index, chan) in starts.iter().enumerate() {
+            let reaped = self.terminals.get(chan).is_some_and(|terminal| terminal.status.is_some());
+            if fds[first_start + index].revents != 0 || reaped {
+                self.finish_start(*chan);
             }
         }
         for (index, chan) in chans.iter().enumerate() {
@@ -640,7 +677,9 @@ impl Holder {
                 self.retiring.push(retiring);
             }
         }
+        self.links += 1;
         self.link = Some(Link {
+            id: self.links,
             stream: pending.stream,
             reader: pending.reader,
             credit: version >= 2,
@@ -802,16 +841,63 @@ impl Holder {
             .map_err(|error| (error_code::BAD_PAYLOAD, error.to_string()))?;
         let spawned = pty::spawn(&request, self.child_open_file_limit)
             .map_err(|error| (error_code::SPAWN_FAILED, error.to_string()))?;
-        let terminal = Terminal::new(request.id, spawned.master, spawned.pid, true, 0);
-        let rings = self.link.as_ref().is_some_and(|link| link.rings);
-        // Dropping the terminal closes the only master: the child hangs up.
-        let fds = terminal.descriptors(rings).map_err(|error| {
-            (error_code::SPAWN_FAILED, format!("dup the terminal's descriptors: {error}"))
-        })?;
+        let mut terminal = Terminal::new(request.id, spawned.master, spawned.pid, true, 0);
+        let (link, rings) = self.link.as_ref().map_or((0, false), |link| (link.id, link.rings));
+        let custody = match terminal.descriptors(rings) {
+            Ok(custody) => custody,
+            Err(error) => {
+                // SAFETY: SIGKILL to the child this call forked; the loop
+                // reaps it like any other.
+                unsafe { libc::kill(spawned.pid, libc::SIGKILL) };
+                let message = format!("dup the terminal's descriptors: {error}");
+                return Err((error_code::SPAWN_FAILED, message));
+            }
+        };
+        // Known at once, so the ATTACH right behind the SPAWN finds it;
+        // nothing is sent for it until its child reported its start.
+        terminal.starting = Some(Starting { start: spawned.start, custody, link });
         self.terminals.insert(chan, terminal);
-        let payload = Out::default().i32(spawned.pid).0;
-        self.queue_flagged(Kind::Spawned, ring_flag(&fds), chan, &payload, fds);
         Ok(())
+    }
+
+    /// A starting terminal's child reported ([`pty::Start::poll`]): once
+    /// its program runs, SPAWNED with the custody dups to the link that
+    /// asked; when it could not start, ERROR SPAWN_FAILED with what it
+    /// could not do, and the terminal is forgotten (the child exits 127 and
+    /// is reaped like any other). The error also goes to a link that
+    /// attached the terminal meanwhile (a daemon that reconnected while it
+    /// started), so its stream ends instead of waiting for ever.
+    fn finish_start(&mut self, chan: u32) {
+        let Some(terminal) = self.terminals.get_mut(&chan) else { return };
+        let Some(result) = terminal.starting.as_mut().and_then(|starting| starting.start.poll())
+        else {
+            return;
+        };
+        let Some(starting) = terminal.starting.take() else { return };
+        let (pid, attached) = (terminal.pid, terminal.sent.is_some());
+        let asked = self.link.as_ref().is_some_and(|link| link.id == starting.link);
+        match result {
+            Ok(()) => {
+                if asked {
+                    let payload = Out::default().i32(pid).0;
+                    let flags = ring_flag(&starting.custody);
+                    self.queue_flagged(Kind::Spawned, flags, chan, &payload, starting.custody);
+                }
+            }
+            Err(error) => {
+                if self.terminals.remove(&chan).is_some_and(|removed| removed.closing) {
+                    self.closing -= 1;
+                }
+                if asked || attached {
+                    let payload = Out::default()
+                        .u16(Kind::Spawn as u16)
+                        .u16(error_code::SPAWN_FAILED)
+                        .bytes(error.to_string().as_bytes())
+                        .0;
+                    self.queue(Kind::Error, chan, &payload, Vec::new());
+                }
+            }
+        }
     }
 
     fn adopt(&mut self, mut frame: Frame) -> Result<(), (u16, String)> {
@@ -1242,6 +1328,7 @@ impl Terminal {
             master,
             pid,
             own_child,
+            starting: None,
             ring,
             status: None,
             eof: false,
@@ -1269,9 +1356,11 @@ impl Terminal {
     }
 
     /// The child ended (or, adopted, cannot be waited for) and no more
-    /// output will be read.
+    /// output will be read. Never before the child reported its start: a
+    /// terminal whose child could not start is forgotten with an error, not
+    /// ended.
     fn ended(&self) -> bool {
-        self.eof && (self.status.is_some() || !self.own_child)
+        self.starting.is_none() && self.eof && (self.status.is_some() || !self.own_child)
     }
 
     /// Bytes the holder may read from the master now. Attached, at most
@@ -1294,14 +1383,16 @@ impl Terminal {
     }
 
     /// Whether the attached daemon may be sent something now: a GAP, output
-    /// within its credit, or the EXIT after the last byte.
+    /// within its credit, or the EXIT after the last byte. Nothing before
+    /// its SPAWNED: its child has not reported its start yet.
     fn sendable(&self, credit: bool) -> bool {
-        self.sent.is_some_and(|sent| {
-            let end = self.ring.end();
-            sent < self.ring.oldest()
-                || (sent < end && sent < self.send_limit(credit))
-                || (sent >= end && !self.exit_sent && self.ended())
-        })
+        self.starting.is_none()
+            && self.sent.is_some_and(|sent| {
+                let end = self.ring.end();
+                sent < self.ring.oldest()
+                    || (sent < end && sent < self.send_limit(credit))
+                    || (sent >= end && !self.exit_sent && self.ended())
+            })
     }
 
     /// Record a link that ended while it streamed this terminal.

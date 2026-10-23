@@ -1,36 +1,43 @@
 //! Open a PTY and start a child on it as its session leader.
 
-use std::ffi::{CString, OsStr};
+use std::ffi::CString;
 use std::io;
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::PermissionsExt;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 
 use crate::SpawnRequest;
 
-/// A child running on a new PTY.
+/// A child forked on a new PTY. Whether it entered its directory and runs
+/// its program is not known yet: [`Self::start`] says, later.
 pub struct Spawned {
     pub master: OwnedFd,
     pub pid: libc::pid_t,
+    /// The child's start report ([`Start::poll`]).
+    pub start: Start,
 }
 
-/// Open a PTY sized `cols` x `rows` and start `request.argv` on it with
+/// Open a PTY sized `cols` x `rows` and fork `request.argv` on it with
 /// exactly `request.env` and `request.cwd`, as the leader of a new session
-/// whose controlling terminal is the PTY. A bare program name is looked up
-/// in the request's `PATH`, as `Command::new` does on the local path. A
-/// directory or program the child cannot enter or run fails the spawn (the
-/// child reports its errno on a close-on-exec pipe) instead of starting a
-/// shell elsewhere or exiting 127. `open_file_limit` is the soft
-/// `RLIMIT_NOFILE` the child gets back (the one cmux started with, before
-/// the daemon raised its own: programs that use `select(2)` break above
-/// 1024). The holder is single threaded, so `fork` is safe here; the child
-/// only calls async-signal-safe functions before `execve`.
+/// whose controlling terminal is the PTY. Returns as soon as the child is
+/// forked: the holder's one loop serves every terminal, so it never waits
+/// for the child and never touches a path the request names (a directory
+/// or a `PATH` entry on a network mount that stopped answering would stop
+/// every terminal's output). The child enters the directory and finds the
+/// program itself: a bare name is tried in each entry of the request's
+/// `PATH`, as `execvp` does, a relative entry relative to that directory. A
+/// directory or program the child cannot enter or run fails the spawn
+/// through [`Spawned::start`] (the child reports its errno on a
+/// close-on-exec pipe and exits 127) instead of starting a shell elsewhere.
+/// `open_file_limit` is the soft `RLIMIT_NOFILE` the child gets back (the
+/// one cmux started with, before the daemon raised its own: programs that
+/// use `select(2)` break above 1024). The holder is single threaded, so
+/// `fork` is safe here; the child only calls async-signal-safe functions
+/// before `execve`.
 pub fn spawn(request: &SpawnRequest, open_file_limit: Option<u64>) -> io::Result<Spawned> {
     let argv = c_strings(&request.argv)?;
     if argv.is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "empty argv"));
     }
-    let program = resolve_program(&request.argv[0], &request.env, &request.cwd)?;
+    let programs = program_candidates(&request.argv[0], &request.env)?;
     let env = c_strings(&request.env)?;
     let cwd = CString::new(request.cwd.clone())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "cwd has a NUL"))?;
@@ -38,6 +45,7 @@ pub fn spawn(request: &SpawnRequest, open_file_limit: Option<u64>) -> io::Result
     argv_ptrs.push(std::ptr::null());
     let mut env_ptrs: Vec<*const libc::c_char> = env.iter().map(|s| s.as_ptr()).collect();
     env_ptrs.push(std::ptr::null());
+    let program_ptrs: Vec<*const libc::c_char> = programs.iter().map(|s| s.as_ptr()).collect();
 
     let mut master: libc::c_int = -1;
     let mut slave: libc::c_int = -1;
@@ -65,7 +73,7 @@ pub fn spawn(request: &SpawnRequest, open_file_limit: Option<u64>) -> io::Result
     let (master, slave) = unsafe { (OwnedFd::from_raw_fd(master), OwnedFd::from_raw_fd(slave)) };
     set_cloexec(master.as_raw_fd());
     set_cloexec(slave.as_raw_fd());
-    let (error_read, error_write) = cloexec_pipe()?;
+    let (report_read, report_write) = cloexec_pipe()?;
 
     // SAFETY: single-threaded process; the child path below calls only
     // async-signal-safe functions and ends in execve or _exit.
@@ -77,54 +85,112 @@ pub fn spawn(request: &SpawnRequest, open_file_limit: Option<u64>) -> io::Result
         // SAFETY: child side of fork, see above.
         unsafe {
             child(
-                (slave.as_raw_fd(), error_write.as_raw_fd()),
+                (slave.as_raw_fd(), report_write.as_raw_fd()),
                 open_file_limit,
                 &cwd,
-                &program,
+                &program_ptrs,
                 (&argv_ptrs, &env_ptrs),
             )
         }
     }
     drop(slave);
-    drop(error_write);
-    if let Some((stage, errno)) = child_error(&error_read) {
-        // The child reported and exits 127: reap it here, it never ran.
-        let mut status = 0;
-        // SAFETY: waits for the child this call forked.
-        while unsafe { libc::waitpid(pid, &mut status, 0) } < 0
-            && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted
-        {}
-        let error = io::Error::from_raw_os_error(errno);
-        let what = match stage {
-            STAGE_CHDIR => format!("enter {}", String::from_utf8_lossy(&request.cwd)),
-            STAGE_EXEC => format!("run {}", program.to_string_lossy()),
-            _ => "start the terminal".to_string(),
-        };
-        return Err(io::Error::new(error.kind(), format!("{what}: {error}")));
-    }
+    // The child's copy is now the only write end: its execve closes it.
+    drop(report_write);
+    set_nonblocking(report_read.as_raw_fd());
     // The master's open file description is shared with every dup the
     // daemon holds; the daemon's writer waits for room on its own
     // (holder_runtime::terminal), so non-blocking here is safe for it.
     set_nonblocking(master.as_raw_fd());
-    Ok(Spawned { master, pid })
+    let start = Start {
+        pipe: report_read,
+        report: [0; REPORT_BYTES],
+        got: 0,
+        cwd: request.cwd.clone(),
+        program: request.argv[0].clone(),
+    };
+    Ok(Spawned { master, pid, start })
 }
 
 /// The child could not enter its directory.
 const STAGE_CHDIR: u8 = b'C';
 /// The child could not `execve` its program.
 const STAGE_EXEC: u8 = b'E';
+/// A start report: `stage u8, errno i32`.
+const REPORT_BYTES: usize = 5;
+
+/// A child's start, as its close-on-exec report pipe tells it: end of file
+/// once `execve` runs its program, a `stage, errno` report when it could
+/// not enter its directory or find and run its program. The holder polls
+/// [`Self::fd`] with every other descriptor and calls [`Self::poll`] when
+/// it is readable.
+pub struct Start {
+    pipe: OwnedFd,
+    report: [u8; REPORT_BYTES],
+    got: usize,
+    cwd: Vec<u8>,
+    program: Vec<u8>,
+}
+
+impl Start {
+    /// The report pipe's read end (non-blocking), to poll for `POLLIN`.
+    pub fn fd(&self) -> RawFd {
+        self.pipe.as_raw_fd()
+    }
+
+    /// Read what the pipe has, without blocking. `None` while the child is
+    /// still starting; `Some(Ok(()))` once its program runs, or once it
+    /// ended without a report (killed before `execve`: its exit status
+    /// says how); `Some(Err(..))` with what it could not do.
+    pub fn poll(&mut self) -> Option<io::Result<()>> {
+        loop {
+            let room = &mut self.report[self.got..];
+            // SAFETY: reads into the unfilled tail of a live buffer.
+            let n =
+                unsafe { libc::read(self.pipe.as_raw_fd(), room.as_mut_ptr().cast(), room.len()) };
+            if n > 0 {
+                self.got += n as usize;
+                if self.got == REPORT_BYTES {
+                    return Some(Err(self.failure()));
+                }
+                continue;
+            }
+            if n == 0 {
+                return Some(Ok(()));
+            }
+            match io::Error::last_os_error().kind() {
+                io::ErrorKind::Interrupted => {}
+                io::ErrorKind::WouldBlock => return None,
+                // A pipe this process made does not fail otherwise; if it
+                // does, the child's exit status is all that is left.
+                _ => return Some(Ok(())),
+            }
+        }
+    }
+
+    fn failure(&self) -> io::Error {
+        let [stage, errno @ ..] = self.report;
+        let error = io::Error::from_raw_os_error(i32::from_ne_bytes(errno));
+        let what = match stage {
+            STAGE_CHDIR => format!("enter {}", String::from_utf8_lossy(&self.cwd)),
+            STAGE_EXEC => format!("run {}", String::from_utf8_lossy(&self.program)),
+            _ => "start the terminal".to_string(),
+        };
+        io::Error::new(error.kind(), format!("{what}: {error}"))
+    }
+}
 
 /// The child after `fork`: new session, the PTY as controlling terminal and
 /// stdio, default signal dispositions, the open-file limit cmux started
-/// with, its directory, then `execve`. Every other descriptor of the holder
-/// is close-on-exec ([`mark_inherited_close_on_exec`] at startup, and each
-/// one it opens later), so the program gets only its PTY. A failure writes
-/// `stage u8, errno i32` to `error` and exits 127.
+/// with, its directory, then `execve` of each of `programs` in turn (the
+/// `PATH` search, [`program_candidates`]). Every other descriptor of the
+/// holder is close-on-exec ([`mark_inherited_close_on_exec`] at startup,
+/// and each one it opens later), so the program gets only its PTY. A
+/// failure writes `stage u8, errno i32` to `report` and exits 127.
 unsafe fn child(
-    (slave, error): (libc::c_int, libc::c_int),
+    (slave, report): (libc::c_int, libc::c_int),
     open_file_limit: Option<u64>,
     cwd: &CString,
-    program: &CString,
+    programs: &[*const libc::c_char],
     (argv, env): (&[*const libc::c_char], &[*const libc::c_char]),
 ) -> ! {
     // SAFETY: async-signal-safe calls on descriptors and pointers that stay
@@ -150,44 +216,41 @@ unsafe fn child(
             }
         }
         if libc::chdir(cwd.as_ptr()) != 0 {
-            report_and_exit(error, STAGE_CHDIR)
+            report_and_exit(report, STAGE_CHDIR, errno())
         }
-        libc::execve(program.as_ptr(), argv.as_ptr(), env.as_ptr());
-        report_and_exit(error, STAGE_EXEC)
+        // As execvp: a name that is not there (or not reachable) moves on
+        // to the next entry; a program found but not executable is
+        // remembered; any other failure ends the search.
+        let mut failure = libc::ENOENT;
+        let mut denied = false;
+        for program in programs {
+            libc::execve(*program, argv.as_ptr(), env.as_ptr());
+            failure = errno();
+            match failure {
+                libc::EACCES => denied = true,
+                libc::ENOENT | libc::ENOTDIR | libc::ELOOP | libc::ENAMETOOLONG => {}
+                _ => report_and_exit(report, STAGE_EXEC, failure),
+            }
+        }
+        report_and_exit(report, STAGE_EXEC, if denied { libc::EACCES } else { failure })
     }
 }
 
-/// Write `stage` and the current errno to the parent's error pipe, then
+/// The calling thread's errno. Async-signal-safe.
+fn errno() -> i32 {
+    io::Error::last_os_error().raw_os_error().unwrap_or(libc::EIO)
+}
+
+/// Write `stage` and `errno` to the parent's report pipe, then
 /// `_exit(127)`. Async-signal-safe.
-unsafe fn report_and_exit(error: libc::c_int, stage: u8) -> ! {
-    // SAFETY: errno read and one write of a stack buffer, then _exit.
+unsafe fn report_and_exit(report: libc::c_int, stage: u8, errno: i32) -> ! {
+    let mut bytes = [stage, 0, 0, 0, 0];
+    bytes[1..].copy_from_slice(&errno.to_ne_bytes());
+    // SAFETY: one write of a stack buffer, then _exit.
     unsafe {
-        let errno = io::Error::last_os_error().raw_os_error().unwrap_or(libc::EIO);
-        let mut report = [stage, 0, 0, 0, 0];
-        report[1..].copy_from_slice(&errno.to_ne_bytes());
-        libc::write(error, report.as_ptr().cast(), report.len());
+        libc::write(report, bytes.as_ptr().cast(), bytes.len());
         libc::_exit(127)
     }
-}
-
-/// The child's `stage, errno` report, or `None` once its `execve` closed
-/// the pipe's write end (the program runs).
-fn child_error(read: &OwnedFd) -> Option<(u8, i32)> {
-    let mut report = [0u8; 5];
-    let mut got = 0;
-    while got < report.len() {
-        // SAFETY: reads into the unfilled tail of a live buffer.
-        let n = unsafe {
-            libc::read(read.as_raw_fd(), report[got..].as_mut_ptr().cast(), report.len() - got)
-        };
-        if n > 0 {
-            got += n as usize;
-        } else if n == 0 || io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
-            break;
-        }
-    }
-    (got == report.len())
-        .then(|| (report[0], i32::from_ne_bytes([report[1], report[2], report[3], report[4]])))
 }
 
 /// A blocking pipe whose two ends close on exec.
@@ -204,46 +267,34 @@ fn cloexec_pipe() -> io::Result<(OwnedFd, OwnedFd)> {
     Ok((read, write))
 }
 
-/// The path `execve` runs for `program`: itself when it names a path (has a
-/// `/`), else the first executable file of that name in the `PATH` of
-/// `env` (`/usr/bin:/bin` without one). A relative `PATH` entry is taken
-/// from `cwd`, where the child runs it.
-fn resolve_program(program: &[u8], env: &[Vec<u8>], cwd: &[u8]) -> io::Result<CString> {
+/// The paths the child tries to `execve` for `program`, in order, without
+/// touching the file system (the child finds out): `program` itself when it
+/// names a path (has a `/`), else that name in each entry of the `PATH` of
+/// `env` (`/usr/bin:/bin` without one), as `execvp` searches. An empty
+/// entry is the directory itself (`.`); a relative entry is relative to the
+/// child's directory, where it runs.
+fn program_candidates(program: &[u8], env: &[Vec<u8>]) -> io::Result<Vec<CString>> {
     let nul =
         |_: std::ffi::NulError| io::Error::new(io::ErrorKind::InvalidInput, "program has a NUL");
     if program.is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "empty program name"));
     }
     if program.contains(&b'/') {
-        return CString::new(program).map_err(nul);
+        return Ok(vec![CString::new(program).map_err(nul)?]);
     }
     let path = env
         .iter()
         .rev()
         .find_map(|entry| entry.strip_prefix(b"PATH="))
         .unwrap_or(&b"/usr/bin:/bin"[..]);
-    for dir in path.split(|byte| *byte == b':') {
-        let mut candidate = Vec::new();
-        if !dir.starts_with(b"/") {
-            candidate.extend_from_slice(cwd);
+    path.split(|byte| *byte == b':')
+        .map(|dir| {
+            let mut candidate = if dir.is_empty() { b".".to_vec() } else { dir.to_vec() };
             candidate.push(b'/');
-        }
-        candidate.extend_from_slice(if dir.is_empty() { &b"."[..] } else { dir });
-        candidate.push(b'/');
-        candidate.extend_from_slice(program);
-        if is_executable_file(&candidate) {
-            return CString::new(candidate).map_err(nul);
-        }
-    }
-    Err(io::Error::new(
-        io::ErrorKind::NotFound,
-        format!("{} is not in PATH", String::from_utf8_lossy(program)),
-    ))
-}
-
-fn is_executable_file(path: &[u8]) -> bool {
-    std::fs::metadata(OsStr::from_bytes(path))
-        .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+            candidate.extend_from_slice(program);
+            CString::new(candidate).map_err(nul)
+        })
+        .collect()
 }
 
 fn c_strings(values: &[Vec<u8>]) -> io::Result<Vec<CString>> {
@@ -335,12 +386,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_bare_program_name_resolves_on_the_requests_path() {
-        let env = vec![b"HOME=/".to_vec(), b"PATH=/nonexistent-cmux-dir:/bin:/usr/bin".to_vec()];
-        let resolved = resolve_program(b"sh", &env, b"/").unwrap();
-        assert!(resolved.to_bytes().ends_with(b"/sh"), "{resolved:?}");
-        assert_eq!(resolve_program(b"/bin/sh", &[], b"/").unwrap().to_bytes(), b"/bin/sh");
-        let missing = resolve_program(b"cmux-no-such-program", &env, b"/").unwrap_err();
-        assert_eq!(missing.kind(), io::ErrorKind::NotFound);
+    fn a_bare_program_name_is_tried_in_each_path_entry_and_a_path_as_it_is() {
+        let env = vec![b"HOME=/".to_vec(), b"PATH=/nonexistent-cmux-dir::bin:/usr/bin".to_vec()];
+        let tried = program_candidates(b"sh", &env).unwrap();
+        let tried: Vec<&[u8]> = tried.iter().map(|path| path.to_bytes()).collect();
+        assert_eq!(tried, [&b"/nonexistent-cmux-dir/sh"[..], b"./sh", b"bin/sh", b"/usr/bin/sh"]);
+        let default = program_candidates(b"sh", &[]).unwrap();
+        let default: Vec<&[u8]> = default.iter().map(|path| path.to_bytes()).collect();
+        assert_eq!(default, [&b"/usr/bin/sh"[..], b"/bin/sh"]);
+        let named = program_candidates(b"/bin/sh", &env).unwrap();
+        assert_eq!(named.len(), 1);
+        assert_eq!(named[0].to_bytes(), b"/bin/sh");
+        assert!(program_candidates(b"", &env).is_err());
     }
 }
