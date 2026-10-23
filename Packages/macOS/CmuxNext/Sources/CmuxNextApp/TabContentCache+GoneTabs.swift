@@ -11,11 +11,13 @@ import CmuxNextDaemon
 /// its terminals stay. Browser pages are tracked the same way: a tab the daemon closed
 /// (`cmux tab close`, another client) kept its page, and a Chromium page its renderer.
 ///
-/// A tab-list change costs the keys of that store this watch holds, each an O(1) lookup
-/// (`DaemonStore.liveTabListRevision`), never a read of every pane of the tree.
+/// A tab coming, going or moving in one tree (`DaemonStore.liveTabMembershipRevision`; a
+/// reorder does not wake it) costs the keys this watch holds in that tree
+/// (``StoreKeys/keys(in:)``), each an O(1) lookup, never a read of every pane of the tree nor
+/// of the keys held in other trees.
 @MainActor
 final class GoneTabWatch {
-    private var stores: [String: DaemonStore] = [:]
+    private var stores = StoreKeys()
     private var seenLive: Set<String> = []
     private var watches: [ObjectIdentifier: Task<Void, Never>] = [:]
 
@@ -25,12 +27,12 @@ final class GoneTabWatch {
         // Seen in another tree is not seen in this one: this tree must list it before it can drop it.
         if stores[key] != nil { seenLive.remove(key) }
         stores[key] = store
-        if store.liveTabListRevision != nil, store.tab(id: key) != nil { seenLive.insert(key) }
+        if store.liveTabMembershipRevision != nil, store.tab(id: key) != nil { seenLive.insert(key) }
         let id = ObjectIdentifier(store)
         guard watches[id] == nil else { return }
         // task-owner: stored in watches; cancelled once no tracked terminal belongs to the store
         watches[id] = Task { [weak self] in
-            for await revision in ObservationStream({ store.liveTabListRevision }) where revision != nil {
+            for await revision in ObservationStream({ store.liveTabMembershipRevision }) where revision != nil {
                 guard let self else { return }
                 for key in self.gone(in: store) { release(key) }
             }
@@ -40,7 +42,7 @@ final class GoneTabWatch {
     /// The tracked keys of `store` its live tree dropped; the ones it lists count as seen.
     private func gone(in store: DaemonStore) -> [String] {
         var gone: [String] = []
-        for (key, owner) in stores where owner === store {
+        for key in stores.keys(in: store) {
             if store.tab(id: key) != nil {
                 seenLive.insert(key)
             } else if seenLive.contains(key) {
@@ -57,7 +59,7 @@ final class GoneTabWatch {
     func forget(_ key: String) {
         stores[key] = nil
         seenLive.remove(key)
-        let used = Set(stores.values.map(ObjectIdentifier.init))
+        let used = stores.storeIDs
         for id in watches.keys where !used.contains(id) {
             watches.removeValue(forKey: id)?.cancel()
         }

@@ -105,6 +105,10 @@ import Foundation
     /// The order of tabs in a pane, or of the workspaces, changed.
     mutating func noteTabOrderChanged() { tabOrderChanged = true }
 
+    /// The order-free digest of which tabs and panes are listed and where
+    /// (`tabMembership`): equal digests list the same tabs in the same panes.
+    var tabMembershipDigest: Int { tabMembership }
+
     /// Whether the tab list (tabs, their panes, their order) changed since
     /// the last call; resets it.
     mutating func takeTabListChange() -> Bool {

@@ -334,11 +334,12 @@ extension AgentTabStore {
 
     /// Lets go of the view state of tabs `store` listed and no longer lists, once it is connected
     /// with a live tree. While the daemon is away its tabs keep their views; a tab the tree has
-    /// not listed yet (its creation just answered) is kept. Costs the keys this store holds, each
-    /// an O(1) lookup, never a read of every pane.
+    /// not listed yet (its creation just answered) is kept. Costs the keys held in this store
+    /// (``StoreKeys/keys(in:)``), each an O(1) lookup, never a read of every pane or of the keys
+    /// held in other trees.
     func releaseGoneTabs(in store: DaemonStore) {
-        guard store.liveTabListRevision != nil else { return }
-        for (key, owner) in tabStores where owner === store {
+        guard store.liveTabMembershipRevision != nil else { return }
+        for key in tabStores.keys(in: store) {
             if store.tab(id: key) != nil {
                 seenLive.insert(key)
             } else if seenLive.contains(key) {
@@ -351,12 +352,12 @@ extension AgentTabStore {
     /// Follows tab `key` in `store`'s tree, so its view state goes when the tree drops it.
     func track(_ key: String, in store: DaemonStore) {
         tabStores[key] = store
-        if store.liveTabListRevision != nil, store.tab(id: key) != nil { seenLive.insert(key) }
+        if store.liveTabMembershipRevision != nil, store.tab(id: key) != nil { seenLive.insert(key) }
         let id = ObjectIdentifier(store)
         guard watches[id] == nil else { return }
         // task-owner: stored in watches; cancelled once no tab belongs to the store
         watches[id] = Task { [weak self] in
-            for await revision in ObservationStream({ store.liveTabListRevision }) where revision != nil {
+            for await revision in ObservationStream({ store.liveTabMembershipRevision }) where revision != nil {
                 guard let self else { return }
                 self.releaseGoneTabs(in: store)
             }
@@ -364,7 +365,7 @@ extension AgentTabStore {
     }
 
     private func forgetUnusedStores() {
-        let used = Set(tabStores.values.map { ObjectIdentifier($0) })
+        let used = tabStores.storeIDs
         for id in watches.keys where !used.contains(id) {
             watches.removeValue(forKey: id)?.cancel()
         }
