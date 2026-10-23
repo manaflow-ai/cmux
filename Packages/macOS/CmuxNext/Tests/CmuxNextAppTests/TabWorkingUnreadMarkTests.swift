@@ -112,4 +112,30 @@ import Testing
         let marks = Self.marks(cell)
         #expect(marks.keys.sorted() == ["loading"], "an icon-only tab draws \(marks.keys.sorted())")
     }
+
+    /// The Debug Settings looks (`tabs.workingUnreadMark`) still draw one state at a time in the slot.
+    @Test func theRingLookDrawsASmallDotInsideTheSpinner() throws {
+        let cell = Self.cell(.terminal)
+        var metrics = cell.metrics
+        metrics.workingUnreadMark = .ring
+        cell.metrics = metrics
+        let marks = Self.marks(cell)
+        let spinner = try #require(marks["loading"])
+        let dot = try #require(marks["unread"])
+        #expect(abs(dot.midX - spinner.midX) < 0.51 && abs(dot.midY - spinner.midY) < 0.51, "the dot \(dot) is not inside the spinner \(spinner)")
+        #expect(dot.width < cell.metrics.badgeSize, "the ring's dot is \(dot.width) wide")
+    }
+
+    @Test func theIconLookTurnsTheSpinnerOnTheIconAndKeepsTheDot() throws {
+        let cell = Self.cell(.terminal)
+        var metrics = cell.metrics
+        metrics.workingUnreadMark = .icon
+        cell.metrics = metrics
+        let marks = Self.marks(cell)
+        let spinner = try #require(marks["loading"])
+        let dot = try #require(marks["unread"])
+        #expect(spinner.maxX < cell.titleLayer.frame.minX, "the spinner \(spinner) is not on the icon")
+        #expect(cell.iconLayer.opacity == 0, "the icon still draws under the spinner")
+        #expect(dot.minX > cell.bounds.midX, "the dot \(dot) left the trailing slot")
+    }
 }

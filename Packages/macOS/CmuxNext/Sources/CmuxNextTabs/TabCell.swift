@@ -419,8 +419,9 @@ final class TabCell {
         // trailing cluster (TabCell+TrailingMarks). A tab too narrow for its title has no
         // trailing room, so there they keep the icon's corner as before.
         let marksOnIcon = !visibility.showsTitle
+        let spinnerPlacement = marksOnIcon ? SpinnerPlacement.beside : self.spinnerPlacement
         // On the icon, a working agent keeps its brand mark, with the spinner as a small badge on it.
-        let spinnerOnIcon = marksOnIcon && spinnerLayer != nil
+        let spinnerOnIcon = (marksOnIcon || spinnerPlacement == .onIcon) && spinnerLayer != nil
         let spinnerBadgesMark = spinnerOnIcon && { if case .agentMark = item.icon { true } else { false } }()
         let showsIconArt = visibility.showsIcon && (!spinnerOnIcon || spinnerBadgesMark)
         // Bounds and position, not frame: a hibernated tab's icon is scaled (TabCell+HibernationRing).
@@ -428,18 +429,18 @@ final class TabCell {
         iconLayer.position = CGPoint(x: iconFrame.midX, y: iconFrame.midY)
         layoutHibernationRing(iconFrame: iconFrame, visible: showsIconArt)
         iconLayer.opacity = showsIconArt ? 1 : 0
+        if spinnerOnIcon, let spinnerLayer {
+            if !isSpinnerExiting { spinnerLayer.layer.opacity = visibility.showsIcon ? 1 : 0 }
+            if spinnerBadgesMark {
+                let side = pixel(iconFrame.width * 0.55)
+                spinnerLayer.frame = CGRect(x: pixel(iconFrame.maxX - side + Metrics.space1), y: pixel(iconFrame.maxY - side + Metrics.space1),
+                                            width: side, height: side)
+            } else {
+                spinnerLayer.frame = iconFrame.insetBy(dx: Metrics.space1, dy: Metrics.space1)
+            }
+        }
         if marksOnIcon {
             layoutThemeBadge(frame: themeBadgeIconFrame(iconFrame: iconFrame), visible: visibility.showsIcon)
-            if let spinnerLayer {
-                if !isSpinnerExiting { spinnerLayer.layer.opacity = visibility.showsIcon ? 1 : 0 }
-                if spinnerBadgesMark {
-                    let side = pixel(iconFrame.width * 0.55)
-                    spinnerLayer.frame = CGRect(x: pixel(iconFrame.maxX - side + Metrics.space1), y: pixel(iconFrame.maxY - side + Metrics.space1),
-                                                width: side, height: side)
-                } else {
-                    spinnerLayer.frame = iconFrame.insetBy(dx: Metrics.space1, dy: Metrics.space1)
-                }
-            }
             layoutStateMark(iconFrame: iconFrame, visible: visibility.showsIcon, onPath: onPath)
         }
 
@@ -478,7 +479,7 @@ final class TabCell {
             let lineHeight = ceil(titleFont.ascender - titleFont.descender + titleFont.leading)
             titleLayer.opacity = 1
             let titleEnd = closeRect.map { $0.minX - m.titleCloseSpacing } ?? (bounds.width - m.contentTrailingInset)
-            let visibleEnd = layoutTrailingMarks(titleX: titleX, titleEnd: titleEnd, midY: midY, onPath: onPath)
+            let visibleEnd = layoutTrailingMarks(titleX: titleX, titleEnd: titleEnd, midY: midY, onPath: onPath, spinner: spinnerPlacement)
             // The marquee fades glyphs out across the icon-title gap.
             let geometry = TitleFadeGeometry(
                 textWidth: titleWidth(), span: span, visibleWidth: visibleEnd - titleX,

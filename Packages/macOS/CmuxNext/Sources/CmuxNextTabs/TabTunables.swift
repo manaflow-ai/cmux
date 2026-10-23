@@ -24,6 +24,27 @@ public nonisolated enum TabLoadingAnimation: String, Sendable, CaseIterable, Tun
     }
 }
 
+/// How a tab that is unread and busy at once draws its one trailing mark (Leo 2026-10-22: "the
+/// tab unread + simultaneous ongoing thing feels weird idk if there's a way to combine"). Debug
+/// Settings looks; `slot` is the default.
+public nonisolated enum TabWorkingUnreadMark: String, Sendable, CaseIterable, TunableChoice {
+    /// The spinner takes the unread dot's slot while work runs; the dot comes back in the same
+    /// place when it ends.
+    case slot
+    /// The spinner turns around a smaller unread dot in that slot.
+    case ring
+    /// The spinner takes the tab icon's place; the unread dot keeps its slot.
+    case icon
+
+    public var tunableTitle: String {
+        switch self {
+        case .slot: "Spinner, then dot"
+        case .ring: "Spinner around dot"
+        case .icon: "Spinner on icon"
+        }
+    }
+}
+
 /// Debug Settings tunables of the tab strip (plans/cmux-next/tabs.md). The
 /// derived ones compute their default from the density tokens exactly as
 /// `TabStripMetrics` always did; the expression lives here once.
@@ -103,11 +124,15 @@ public nonisolated enum TabTunables {
         "tabs.loadingAnimation", .tabs, "Tab loading animation",
         help: "Prototype for a busy tab's indicator entering or leaving. Instant preserves the current behavior.",
         default: .instant, code: "TabTunables.loadingAnimation")
+    public static let workingUnreadMark = Tunable<TabWorkingUnreadMark>.choice(
+        "tabs.workingUnreadMark", .tabs, "Unread tab at work",
+        help: "How a tab that is unread and busy shows both in one mark.",
+        default: .slot, code: "TabTunables.workingUnreadMark")
     public static var all: [TunableDescriptor] {
         [compactTabWidth, scrollTabMinWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
             + [separators.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
-               hoverPreviews.descriptor, loadingAnimation.descriptor]
+               hoverPreviews.descriptor, loadingAnimation.descriptor, workingUnreadMark.descriptor]
     }
 }

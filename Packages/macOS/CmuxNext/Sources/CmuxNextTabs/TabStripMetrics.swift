@@ -44,6 +44,8 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var titleFadeWidth: CGFloat
     /// Diameter of the unread / status dot.
     public var badgeSize: CGFloat
+    /// `tabs.workingUnreadMark`: how an unread tab at work draws its one mark (TabCell+TrailingMarks).
+    public var workingUnreadMark: TabWorkingUnreadMark = .slot
 
     public var stripHeight: CGFloat
     public var tabHeight: CGFloat
@@ -133,6 +135,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         titleCloseSpacing = TabTunables.titleCloseSpacing.value
         titleFadeWidth = TabTunables.titleFadeWidth.value
         badgeSize = TabTunables.badgeSize.value
+        workingUnreadMark = TabTunables.workingUnreadMark.value
         // Never narrower than the active tab's icon and close button need (`faviconCloseWidth`; self is
         // not usable before every property is set), never wider than the max; the inactive minimum never
         // passes the active one.

@@ -8,7 +8,9 @@ import Testing
 /// end. "There should only ever be a single unread indicator for the right side", and "nothing
 /// should ever be on the left side besides the favicon": the leading slot draws only the favicon
 /// or the tab's icon, and every mark (unread or status, loading, audio) draws in the trailing
-/// cluster, ordered left to right title, loading, audio, the unread/status mark, then the x.
+/// cluster, ordered left to right title, audio, the state slot, then the x. Leo 2026-10-22 ("the
+/// tab unread + simultaneous ongoing thing feels I weird idk if there's a way to combine"): the
+/// state slot holds the spinner while the tab works and the unread dot otherwise, never both.
 @MainActor @Suite(.serialized) struct TabSingleTrailingIndicatorTests {
     private static let favicon: TabImage = {
         let context = CGContext(data: nil, width: 32, height: 32, bitsPerComponent: 8, bytesPerRow: 0,
@@ -97,10 +99,20 @@ import Testing
         let byName = Dictionary(uniqueKeysWithValues: marks.map { ($0.name, $0.frame) })
         let loading = try #require(byName["loading"], "\(kind): no loading indicator")
         let audio = try #require(byName["audio"], "\(kind): no speaker")
-        let unread = try #require(byName["unread"], "\(kind): no unread dot")
-        // Left to right: title, loading, audio, the unread dot at the far right.
+        #expect(byName["unread"] == nil, "\(kind): the unread dot draws beside the spinner")
+        // Left to right: title, audio, the spinner in the state slot at the far right.
+        #expect(audio.maxX <= loading.minX, "\(kind): the speaker \(audio) is not left of the spinner \(loading)")
+    }
+
+    /// A status keeps the state slot; the spinner then draws left of the speaker, as before.
+    @Test(arguments: Kind.allCases) func aStatusKeepsTheSlotAndTheSpinnerDrawsBesideIt(kind: Kind) throws {
+        let cell = Self.cell(kind, unread: true, status: .needsInput, busy: true, audio: true)
+        let byName = Dictionary(uniqueKeysWithValues: Self.marks(cell).map { ($0.name, $0.frame) })
+        let loading = try #require(byName["loading"], "\(kind): no loading indicator")
+        let audio = try #require(byName["audio"], "\(kind): no speaker")
+        let status = try #require(byName["unread"] ?? byName["status"], "\(kind): no status mark")
         #expect(loading.maxX <= audio.minX, "\(kind): loading \(loading) is not left of the speaker \(audio)")
-        #expect(audio.maxX <= unread.minX, "\(kind): the speaker \(audio) is not left of the unread dot \(unread)")
+        #expect(audio.maxX <= status.minX, "\(kind): the speaker \(audio) is not left of the status \(status)")
     }
 
     @Test func nothingButTheFaviconDrawsInTheLeadingSlot() {
