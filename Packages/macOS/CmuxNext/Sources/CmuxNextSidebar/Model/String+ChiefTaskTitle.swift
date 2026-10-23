@@ -1,8 +1,7 @@
 import Foundation
 
-/// The Chief's subagent workspaces read like any other workspace (Leo 2026-10-21): their rows,
-/// cards and tab titles show the task title, never the `a14` subagent id the Chief refers to
-/// them by, and no "Chief" second line; who started one is in its hover card and its menu.
+/// The Chief's subagent workspaces read like any other workspace (Leo 2026-10-21): tab titles and
+/// the Chief's tool lines show the task title, never the `a14` subagent id the Chief refers to them by.
 public nonisolated extension String {
     /// This workspace name without the `a345 · ` subagent id a Chief before 2026-10-21 put in
     /// front of its subagents' workspace names (optchat-chief `workspaces.rs`); nil when nothing
@@ -20,16 +19,10 @@ public nonisolated extension String {
     }
 }
 
-public extension MachineID {
-    /// Who started a workspace on this machine, as its hover card and right-click menu say it:
-    /// "Started by Chief" on the local Chief, nil elsewhere.
-    @MainActor var startedBy: String? { isLocalChief ? Strings.startedByChief : nil }
-}
-
 public nonisolated extension MachineID {
     /// Whether this is the Chief owner daemon on this Mac (`ServerReach.localChief`, whose
-    /// machine id is `server-host_chief<home id>`): the machine that holds the Chief's
-    /// subagent workspaces.
+    /// machine id is `server-host_chief<home id>`): an older Chief kept its subagents'
+    /// workspaces there, still named `a14 · task`.
     var isLocalChief: Bool { rawValue.hasPrefix(Self.localChiefPrefix) }
 
     /// The machine id prefix of the local Chief (`ServerReach.localChiefPrefix.host`).

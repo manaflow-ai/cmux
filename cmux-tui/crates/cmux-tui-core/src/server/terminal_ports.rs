@@ -41,7 +41,7 @@ static ADDRESS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?i)(?P<scheme>https?://)?(?P<host>localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1?\]|\[::ffff:127(?:\.\d{1,3}){3}\]|\*):(?P<port>\d{1,5})\b(?P<path>/[^\s'\x22<>()\[\],]*)?",
     )
-    .expect("static regex")
+    .expect("static regex") // crash-allow: constant pattern
 });
 
 /// Ports named in `text` on a loopback or wildcard host, the last printed

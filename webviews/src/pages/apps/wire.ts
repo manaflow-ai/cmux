@@ -5,6 +5,7 @@ import type { PageClient } from "../shared/pageClient";
 import {
   AppsOps,
   type AppDetail,
+  type AppIconRef,
   type AppSource,
   type AppTier,
   type AppVersion,
@@ -101,13 +102,20 @@ export function fromListing(listing: WireListing): CatalogApp {
     keywords: listing.keywords,
     latest_version: listing.version,
     install_count: 0,
-    // The store loads an asset through cmux.apps.asset.get; a symbol is never drawn on the web.
-    icon: listing.icon && "asset" in listing.icon ? { asset: listing.icon.asset } : undefined,
+    // The store loads an asset through cmux.apps.asset.get; a symbol is the host's own drawing
+    // of it (`glyph/<symbol>`), never Apple's symbol.
+    icon: wireIcon(listing.icon),
     installed: listing.install?.installed === true,
     enabled: listing.install?.enabled,
     hidden: listing.install?.hidden,
     hide_only: listing.hide_only,
   };
+}
+
+function wireIcon(icon: WireIcon): AppIconRef | undefined {
+  if (!icon) return undefined;
+  if ("asset" in icon) return { asset: icon.asset };
+  return icon.symbol ? { symbol: icon.symbol } : undefined;
 }
 
 export function fromDetail(detail: WireDetail): AppDetail {
