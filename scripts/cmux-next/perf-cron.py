@@ -45,28 +45,36 @@ CANDIDATE_DEPTH = 80
 NIGHTLY_WORKFLOWS = ("nightly.yml", "nightly-next-train.yml")
 DEV_DAILY_TITLE = "cmux NEXT DEV daily"
 
-# One part = one fleet step through the allowlisted scripts/measure/split-spring.sh (each builds the app at
-# the measured commit, then runs one suite). `needs`: a capability the measured commit must have.
+# One fleet part = one step through the allowlisted scripts/measure/split-spring.sh on the bench host. The first
+# part builds the app once per measurement (--build-only) and leaves it in the host's app cache; every other fleet
+# part reuses it (--app-cache) and measures on a 120 Hz virtual display (--vdisplay=120; it says when it fell back
+# to the 60 Hz panel). The `linux` part runs on a GitHub Linux runner, not on a Mac. `needs`: a capability the
+# measured commit must have.
+VDISPLAY_HZ = 120
+MEASURE = ["--app-cache", f"--vdisplay={VDISPLAY_HZ}"]
 PARTS = [
-    # STRESS: 1 round. The fleet check (cmux7s, 9e875493c37e, 2026-10-23) took 25 min with 2 rounds: tagged build
-    # 620 s cold, session build and the rounds ~900 s. Its own cap; run-part still cancels it the moment another
-    # job queues for the bench host, so the longer cap never makes a nightly or dev build wait.
-    {"name": "stress", "args": ["--suite=pane-perf", "--layouts=stress", "--rounds=1", "--actions=split,close,column,zoom"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "panes", "needs": "stress", "run_seconds": 1500},
-    {"name": "motion", "args": ["--suite=budgets", "--only=panes,new_surfaces"],
+    # A cold tagged build: 323 s on cmux20-bench, 620 s on cmux7s (2026-10-23).
+    {"name": "build", "args": ["--build-only"], "artifact": "artifacts/split-spring/report.json", "kind": "build",
+     "run_seconds": 1200},
+    # STRESS: 1 round. With 2 rounds the session build and the rounds took ~900 s (cmux7s, 9e875493c37e).
+    {"name": "stress", "args": [*MEASURE, "--suite=pane-perf", "--layouts=stress", "--rounds=1", "--actions=split,close,column,zoom"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "panes", "needs": "stress"},
+    {"name": "motion", "args": [*MEASURE, "--suite=budgets", "--only=panes,new_surfaces"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
-    {"name": "switch", "args": ["--suite=budgets", "--only=tab_switch,palette"],
+    {"name": "switch", "args": [*MEASURE, "--suite=budgets", "--only=tab_switch,palette"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
-    {"name": "perf-gate", "args": ["--suite=perf-gate", "--frames=auto"],
+    {"name": "perf-gate", "args": [*MEASURE, "--suite=perf-gate", "--frames=auto"],
      "artifact": "artifacts/split-spring/perf-gate.json", "kind": "perf_gate", "needs": "perf-gate"},
-    {"name": "launch", "args": ["--suite=launch", "--profile", "empty", "--mode", "warm", "--runs", "5", "--timeout", "20"],
+    {"name": "launch", "args": [*MEASURE, "--suite=launch", "--profile", "empty", "--mode", "warm", "--runs", "5", "--timeout", "20"],
      "artifact": "artifacts/split-spring/report.json", "kind": "launch", "needs": "launch"},
-    {"name": "sidebar", "args": ["--suite=budgets", "--only=sidebar"],
+    {"name": "sidebar", "args": [*MEASURE, "--suite=budgets", "--only=sidebar"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
-    {"name": "home-idle", "args": ["--suite=budgets", "--only=home,idle"],
+    {"name": "home-idle", "args": [*MEASURE, "--suite=budgets", "--only=home,idle"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
-    {"name": "chat-anim", "args": ["--suite=budgets", "--only=acp,anim"],
+    {"name": "chat-anim", "args": [*MEASURE, "--suite=budgets", "--only=acp,anim"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
+    # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
+    {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
 ]
 PART_BY_NAME = {p["name"]: p for p in PARTS}
 # Which part measures a row (bisect re-measures only the parts of the regressed rows).
@@ -74,7 +82,11 @@ ROW_PARTS = [
     (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.", "launch"),
+    (r"^diff\.", "diff-viewer"),
 ]
+# The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
+DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
+                "diff.stream.p95": 250.0}
 # The launch-time budget that left the pull request CI (ms since process start, warm launch, empty profile).
 LAUNCH_BUDGETS = {"did_finish_launching_end": 800, "first_window_frame_committed": 1000, "sidebar_rows_shown": 1000}
 
@@ -165,6 +177,11 @@ def rows_of_part(part, report, budgets_mod, budgets):
             spec = budgets_mod.budget_for(name, budgets)
             out[name] = {"p50": round(p50, 2) if p50 is not None else None, "p95": round(p95, 2),
                          "unit": spec.get("unit", "ms"), "budget": spec.get("p95"), "floor": spec.get("floor", 1.0)}
+        # Dropped frames, judged in frames (a 60 Hz and a 120 Hz run differ in ms, not in drops).
+        for s in report.get("summary") or []:
+            if isinstance(s.get("missed"), (int, float)) and s.get("action") and s.get("layout"):
+                n = s["missed"]
+                out[f"panes.{s['action']}.{s['layout']}.missed"] = {"p50": n, "p95": n, "unit": "frames", "budget": 0, "floor": 1.0}
     elif part["kind"] == "perf_gate":
         per = {}
         for c in report.get("checks") or []:
@@ -181,12 +198,37 @@ def rows_of_part(part, report, budgets_mod, budgets):
                         p50, p95 = budgets_mod.pct(values, 0.5), budgets_mod.pct(values, 0.95)
                         out[f"launch.{mode}.{mark}"] = {"p50": round(p50, 1), "p95": round(p95, 1), "unit": "ms",
                                                         "budget": budget, "floor": 20.0}
+    elif part["kind"] == "diff":
+        sidecar, stream = report.get("sidecar") or {}, report.get("stream") or {}
+        values = {}
+        if isinstance(sidecar.get("manifest_decode_p95_micros"), (int, float)):
+            values["diff.sidecar.manifest_decode_p95"] = (sidecar["manifest_decode_p95_micros"], "us", 50.0)
+        if isinstance(sidecar.get("sequential_read_mib_per_second"), (int, float)) and sidecar["sequential_read_mib_per_second"] > 0:
+            values["diff.sidecar.read_ms_per_gib"] = (round(1024 * 1000 / sidecar["sequential_read_mib_per_second"], 2), "ms/GiB", 50.0)
+        if isinstance(stream.get("p95Ms"), (int, float)):
+            values["diff.stream.p95"] = (stream["p95Ms"], "ms", 10.0)
+        for name, (v, unit, floor) in values.items():
+            out[name] = {"p50": v, "p95": v, "unit": unit, "budget": DIFF_BUDGETS[name], "floor": floor}
     return out
 
 
+def frame_sensitive(name, row):
+    """A row whose value depends on the display refresh (frame intervals, frame counts)."""
+    return (row.get("unit") == "frames" or name.endswith((".frame", "longest_frame", ".missed", ".dropped", ".over_8_33")))
+
+
+def same_refresh(a, b):
+    """Two refresh periods (ms) within 20 %; an unknown one counts as the same."""
+    return not a or not b or abs(a - b) <= 0.2 * max(a, b)
+
+
 def target_of(name, row, refresh_ms):
-    """The row's target p95: latency 10 ms; a frame row one display refresh; counts 0; else its budget."""
+    """The row's target p95: latency 10 ms; a frame row one display refresh (the row's own when it has one); counts
+    0; diff, launch and main-thread rows their budget."""
+    refresh_ms = row.get("refresh_ms") or refresh_ms
     unit = row.get("unit") or "ms"
+    if name.startswith(("diff.", "launch.")):
+        return row.get("budget")
     if unit in ("frames", "checks") or name.endswith(".dropped"):
         return 0
     if name.endswith(".over_8_33"):
@@ -194,7 +236,7 @@ def target_of(name, row, refresh_ms):
     if unit == "ms":
         if name.endswith(".frame") or name.endswith("longest_frame"):
             return round((refresh_ms or 1000 / 60) * 1.25, 2)  # a quarter frame of jitter; a drop is a whole frame
-        if name.endswith((".main_ms_max", ".main_ms_p95")) or name.startswith("launch."):
+        if name.endswith((".main_ms_max", ".main_ms_p95")):
             return row.get("budget")
         return LATENCY_TARGET_MS
     return row.get("budget")
@@ -206,9 +248,14 @@ def over_target(name, row, refresh_ms):
 
 
 def find_regressions(rows, base_rows, refresh_ms, base_refresh_ms, budgets_mod):
-    """Rows worse than the last good run: past perf-budgets' 10 % and floor rule, or newly over target."""
+    """Rows worse than the last good run: past perf-budgets' 10 % and floor rule, or newly over target. A frame row
+    measured at another display refresh than its last good value is not compared (the next good run rebases it)."""
     if not base_rows:
         return []
+    def refresh(r, fallback):
+        return r.get("refresh_ms") or fallback
+    rows = {n: r for n, r in rows.items() if not (frame_sensitive(n, r) and n in base_rows
+            and not same_refresh(refresh(r, refresh_ms), refresh(base_rows[n], base_refresh_ms)))}
     listed = [{"name": n, "p95": r["p95"], "floor": r.get("floor", 1.0)} for n, r in rows.items()]
     worse = {r["name"]: r for r in budgets_mod.compare(listed, {n: b["p95"] for n, b in base_rows.items() if b.get("p95") is not None})}
     out = []
@@ -220,7 +267,7 @@ def find_regressions(rows, base_rows, refresh_ms, base_refresh_ms, budgets_mod):
                    and row["p95"] - base["p95"] > row.get("floor", 1.0))
         if name in worse or crossed:
             out.append({"name": name, "p95": row["p95"], "base": base["p95"], "unit": row.get("unit", "ms"),
-                        "target": target_of(name, row, refresh_ms),
+                        "target": target_of(name, row, refresh_ms), "refresh_ms": row.get("refresh_ms") or refresh_ms,
                         "why": "worse than last good" if name in worse else "newly over target"})
     return out
 
@@ -231,35 +278,58 @@ def new_measurement(sha, kind, parts, t):
     return {"sha": sha, "kind": kind, "started_at": iso(t), "parts_todo": list(parts), "parts": {}}
 
 
-def decide(state, t, candidate, bisect_sha, supported_parts, github_busy):
-    """The tick's work: {'action': 'part'|'none', ...}. May set state['current'] (a new measurement).
+def is_linux_part(name):
+    return PART_BY_NAME[name].get("where") == "linux"
+
+
+def with_build(parts):
+    """A measurement's parts in order: the build first whenever a fleet part needs the app."""
+    fleet = [p for p in parts if p != "build" and not is_linux_part(p)]
+    return (["build"] if fleet else []) + [p for p in parts if p != "build"]
+
+
+def decide(state, t, candidate, bisect_sha, supported_parts, github_busy, measurable=lambda sha: True):
+    """The tick's work: {'action': 'part'|'none'|'finish', 'part': a fleet part or '', 'linux_part': '' or one}.
+    May set state['current'] (a new measurement).
     candidate: the newest measurable tip commit newer than the last one measured (or None).
     bisect_sha: a measurable commit inside an open regression's range (or None).
-    supported_parts(sha) -> the PARTS names the commit can run. github_busy: a reason string or None."""
+    supported_parts(sha) -> the PARTS names the commit can run. github_busy: a reason string or None (it holds
+    back the Mac parts only; the Linux part takes no Mac). measurable(sha): the fleet would still run the commit
+    (its scripts/measure/split-spring.sh is the reviewed one)."""
     cur = state.get("current")
+    why_dropped = None
     if cur and hours_between(parse_iso(cur["started_at"]), t) > ABANDON_HOURS:
-        state.setdefault("history", []).append({"sha": cur["sha"], "kind": cur["kind"], "status": "abandoned",
+        why_dropped = "abandoned"
+    elif cur and not measurable(cur["sha"]):
+        why_dropped = "unmeasurable"  # the fleet refuses its split-spring.sh now
+    if why_dropped:
+        state.setdefault("history", []).append({"sha": cur["sha"], "kind": cur["kind"], "status": why_dropped,
                                                 "at": iso(t), "parts": sorted(cur.get("parts", {}))})
         state["current"] = cur = None
     if not cur:
         if candidate:
-            state["current"] = cur = new_measurement(candidate, "tip", supported_parts(candidate), t)
+            state["current"] = cur = new_measurement(candidate, "tip", with_build(supported_parts(candidate)), t)
         elif bisect_sha:
             regressed = {part_for_row(r["name"]) for r in state.get("regressions") or []}
             parts = [p for p in supported_parts(bisect_sha) if p in regressed]
             if parts:
-                state["current"] = cur = new_measurement(bisect_sha, "bisect", parts, t)
+                state["current"] = cur = new_measurement(bisect_sha, "bisect", with_build(parts), t)
     if not cur:
         return {"action": "none", "reason": "nothing new to measure: the newest measurable feat-cmux-next commit "
                                             "was measured, and no regression range to bisect"}
     if not cur["parts_todo"]:
         return {"action": "finish", "sha": cur["sha"], "reason": "every part ran; report only"}
+    linux = next((p for p in cur["parts_todo"] if is_linux_part(p)), "")
+    fleet = next((p for p in cur["parts_todo"] if not is_linux_part(p)), "")
+    done = f"{len(cur['parts'])} of {len(cur['parts']) + len(cur['parts_todo'])} done"
     if github_busy:
+        fleet = ""
+    if not fleet and not linux:
         return {"action": "none", "sha": cur["sha"], "reason": github_busy, "yielded": True}
-    part = PART_BY_NAME[cur["parts_todo"][0]]
-    return {"action": "part", "sha": cur["sha"], "kind": cur["kind"], "part": part["name"],
-            "reason": f"{cur['kind']} measurement of {cur['sha'][:12]}: part {part['name']} "
-                      f"({len(cur['parts'])} of {len(cur['parts']) + len(cur['parts_todo'])} done)"}
+    what = " and ".join(x for x in (fleet, linux) if x)
+    return {"action": "part", "sha": cur["sha"], "kind": cur["kind"], "part": fleet, "linux_part": linux,
+            "reason": f"{cur['kind']} measurement of {cur['sha'][:12]}: part {what} ({done})"
+                      + (f"; the Mac parts wait: {github_busy}" if github_busy and linux else "")}
 
 
 def bisect_midpoint(commits, measurable):
@@ -476,6 +546,9 @@ def supported_parts_at(sha):
         if need == "stress":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:scripts/cmux-next/perf-stress-session.py"],
                                 capture_output=True).returncode == 0
+        elif need == "diff-viewer":
+            ok = all(subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{path}"], capture_output=True).returncode == 0
+                     for path in ("Native/DiffSidecar/Cargo.toml", "webviews/bench/diff-stream.bench.ts"))
         elif need in ("perf-gate", "launch"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
@@ -485,6 +558,18 @@ def supported_parts_at(sha):
         if ok:
             names.append(p["name"])
     return names
+
+
+MEASURE_SCRIPT = "scripts/measure/split-spring.sh"
+
+
+def script_blob(sha):
+    return subprocess.run(["git", "-C", ROOT, "rev-parse", f"{sha}:{MEASURE_SCRIPT}"], capture_output=True, text=True).stdout.strip()
+
+
+def fleet_runs(sha, tip_blob):
+    """The fleet runs an allowlisted script only when its blob at the commit is the reviewed one (the tip's)."""
+    return bool(tip_blob) and script_blob(sha) == tip_blob
 
 
 def is_ancestor(a, b):
@@ -507,6 +592,10 @@ def link(repo, sha):
     return f"[`{sha[:11]}`](https://github.com/{repo}/commit/{sha})"
 
 
+def hz(refresh_ms):
+    return f"{round(1000 / refresh_ms)} Hz" if refresh_ms else "n/a"
+
+
 def fmt(v):
     return "n/a" if v is None else (f"{v:g}" if isinstance(v, (int, float)) else str(v))
 
@@ -522,10 +611,11 @@ def issue_body(state, repo, now):
                   f"first bad {link(repo, bad['sha'])} ([run]({bad.get('run_url')})).",
                   f"Culprit range: [`{g[:11]}...{b[:11]}`](https://github.com/{repo}/compare/{g}...{b})"
                   + (" (narrowed by bisect)" if rng and (rng.get("good") != good["sha"] or rng.get("bad") != bad["sha"]) else "") + ".",
-                  "", "| row | last good p95 | now p95 | change | target | why |", "|---|---|---|---|---|---|"]
+                  "", "| row | last good p95 | now p95 | change | target | display | why |", "|---|---|---|---|---|---|---|"]
         for r in regs:
             change = f"+{round(100 * (r['p95'] - r['base']) / r['base'], 1)} %" if r["base"] else "new"
-            lines.append(f"| {r['name']} | {fmt(r['base'])} {r['unit']} | {fmt(r['p95'])} {r['unit']} | {change} | {fmt(r['target'])} | {r['why']} |")
+            lines.append(f"| {r['name']} | {fmt(r['base'])} {r['unit']} | {fmt(r['p95'])} {r['unit']} | {change} | "
+                         f"{fmt(r['target'])} | {hz(r.get('refresh_ms'))} | {r['why']} |")
     elif regs:
         lines.append(f"**{len(regs)} row(s) regressed** (no good run on record).")
     else:
@@ -541,23 +631,25 @@ def issue_body(state, repo, now):
     rows = (last or {}).get("rows") or {}
     if rows:
         lines += ["", "<details><summary>Every row of the last measurement</summary>", "",
-                  "| row | p50 | p95 | target | last good p95 | |", "|---|---|---|---|---|---|"]
+                  "| row | p50 | p95 | target | last good p95 | display | |", "|---|---|---|---|---|---|---|"]
         base = (good or {}).get("rows") or {}
         for name in sorted(rows):
             r = rows[name]
             tgt = target_of(name, r, last.get("refresh_ms"))
             mark = "over target" if over_target(name, r, last.get("refresh_ms")) else ""
             lines.append(f"| {name} | {fmt(r.get('p50'))} | {fmt(r.get('p95'))} {r.get('unit', '')} | {fmt(tgt)} | "
-                         f"{fmt((base.get(name) or {}).get('p95'))} | {mark} |")
+                         f"{fmt((base.get(name) or {}).get('p95'))} | {hz(r.get('refresh_ms'))} | {mark} |")
         lines += ["", "</details>"]
     lines += ["", "Opened and closed by the perf cron (scripts/cmux-next/perf-cron.py, workflow cmux-next-perf-budgets.yml); "
-                  "it never fails a check. Latency target 10 ms p95; frame rows one display refresh."]
+                  "it never fails a check. Latency target 10 ms p95; frame rows one display refresh, dropped frames 0, judged in "
+                  f"frames. Frame rows run on a {VDISPLAY_HZ} Hz virtual display; a row on another refresh than its last good "
+                  "value is not compared until a good run rebases it."]
     return "\n".join(lines)
 
 
 def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_mod):
     """Fold a finished measurement into the state. Returns the issue event: 'regressed', 'still', 'recovered',
-    'narrowed', 'first' or 'good'."""
+    'narrowed', 'first', 'good', or 'empty' (no row measured: neither a baseline nor a verdict)."""
     cur = state["current"]
     failed = sorted(n for n, p in cur["parts"].items() if p.get("state") != "done")
     good = state.get("last_good")
@@ -567,12 +659,13 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     state.setdefault("history", []).append({"sha": cur["sha"], "kind": cur["kind"], "at": iso(t), "run_url": run_url,
                                             "failed_parts": failed})
     state["history"] = state["history"][-60:]
+    if not part_rows:
+        state["history"][-1]["status"] = "empty"
+        return "empty"
     if cur["kind"] == "bisect":
         regs = find_regressions(part_rows, (good or {}).get("rows") or {}, refresh_ms, (good or {}).get("refresh_ms"), budgets_mod)
         names = {r["name"] for r in state.get("regressions") or []}
         rng = state.get("range") or {}
-        if not part_rows:
-            return "good"  # nothing measured: the range stays
         if any(r["name"] in names for r in regs):
             rng["bad"] = cur["sha"]
         else:
@@ -628,11 +721,15 @@ def cmd_plan(o):
     t = now_utc()
     state = load_state(o.dir, t)
     tip = git("rev-parse", o.tip)
+    tip_blob = script_blob(tip)
     last_sha = (state.get("last") or {}).get("sha")
     candidate = None
     if not state.get("current"):
         for sha in git("rev-list", "--first-parent", f"-n{CANDIDATE_DEPTH}", tip).split():
             if sha == last_sha or (last_sha and is_ancestor(sha, last_sha)):
+                break
+            if not fleet_runs(sha, tip_blob):
+                print(f"perf-cron: {sha[:12]} predates the reviewed {MEASURE_SCRIPT}; the fleet would refuse it")
                 break
             if tree_published(sha):
                 candidate = sha
@@ -642,15 +739,15 @@ def cmd_plan(o):
     rng = state.get("range")
     if not candidate and not state.get("current") and rng and state.get("regressions"):
         between = git("rev-list", "--first-parent", "--reverse", f"{rng['good']}..{rng['bad']}", check=False).split()[:-1]
-        bisect_sha = bisect_midpoint(between, tree_published)
+        bisect_sha = bisect_midpoint(between, lambda sha: fleet_runs(sha, tip_blob) and tree_published(sha))
     busy = None
     if candidate or bisect_sha or state.get("current"):
         busy = github_busy(o.repo, o.yield_mode)
-    d = decide(state, t, candidate, bisect_sha, supported_parts_at, busy)
+    d = decide(state, t, candidate, bisect_sha, supported_parts_at, busy, lambda sha: fleet_runs(sha, tip_blob))
     json.dump(state, open(os.path.join(o.dir, "state.json"), "w"), indent=1)
-    out = {"action": d["action"], "sha": d.get("sha", ""), "part": d.get("part", ""), "reason": d["reason"],
-           "stale_hours": round(stale_hours(state, t), 1)}
-    if d["action"] == "part":
+    out = {"action": d["action"], "sha": d.get("sha", ""), "part": d.get("part", ""), "linux_part": d.get("linux_part", ""),
+           "reason": d["reason"], "stale_hours": round(stale_hours(state, t), 1)}
+    if d.get("part"):
         p = PART_BY_NAME[d["part"]]
         out["args"] = json.dumps(p["args"])
         out["artifact"] = p["artifact"]
@@ -737,6 +834,48 @@ def issue_plan(state, event, now, is_open, exists, set_changed):
     return {"open": True, "comment": None}
 
 
+def last_json_object(text):
+    """The last top-level JSON object a bench printed (it may log lines before it), or None."""
+    starts = [i for i in range(len(text)) if text[i] == "{" and (i == 0 or text[i - 1] == "\n")]
+    for i in reversed(starts):
+        try:
+            value, _ = json.JSONDecoder().raw_decode(text[i:])
+        except ValueError:
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def cmd_run_linux_part(o):
+    """The diff-viewer part on Linux, in a checkout of the measured commit with Rust and the webviews packages
+    installed: scripts/benchmark-diff-viewer.sh's two benches without their budget env, so they report instead of
+    failing; perf-cron judges the numbers."""
+    os.makedirs(o.out, exist_ok=True)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_DIFF_BENCH_MAX") and not k.startswith("CMUX_DIFF_BENCH_MIN")}
+    started = time.monotonic()
+    runs = {
+        "sidecar": ([os.path.join(ROOT, "scripts/run-diff-sidecar-cargo.sh"), "run", "--quiet", "--release", "--locked",
+                     "--manifest-path", os.path.join(ROOT, "Native/DiffSidecar/Cargo.toml"), "--bin", "cmux-diff-sidecar",
+                     "--features", "benchmark", "--", "benchmark", "16777216", "20"], ROOT, {}),
+        "stream": (["bun", "run", "benchmark"], os.path.join(ROOT, "webviews"),
+                   {"CMUX_DIFF_BENCH_ITERATIONS": "10", "CMUX_DIFF_BENCH_RENDER_APP": "1"}),
+    }
+    report, tail, ok = {}, [], True
+    for name, (argv, cwd, extra) in runs.items():
+        proc = subprocess.run(argv, cwd=cwd, env={**env, **extra}, capture_output=True, text=True, timeout=1800)
+        value = last_json_object(proc.stdout)
+        tail += [f"{name}: exit {proc.returncode}"] + (proc.stderr or "").splitlines()[-10:]
+        if proc.returncode != 0 or value is None:
+            ok = False
+        else:
+            report[name] = value
+    json.dump(report, open(os.path.join(o.out, "report.json"), "w"), indent=1)
+    result = {"state": "done" if ok else "failed", "seconds": round(time.monotonic() - started), "tail": tail[-40:]}
+    json.dump(result, open(os.path.join(o.out, "result.json"), "w"), indent=1)
+    print(f"perf-cron linux part: {json.dumps({k: v for k, v in result.items() if k != 'tail'})} {json.dumps(report)[:600]}")
+
+
 def manage_issue(repo, state, event, now, run_url, summary, set_changed):
     """Open, update, comment on or close the one regression issue. Returns a line for the run summary."""
     issue = find_issue(repo, state.get("issue"))
@@ -769,7 +908,8 @@ def manage_issue(repo, state, event, now, run_url, summary, set_changed):
 
 def record_part(cur, part, result, run_url):
     """Fold one part's run into the measurement in flight (pure). A yielded part stays to do (at most MAX_YIELDS
-    times); a part whose app build failed ends the measurement's other parts too (each would build the same)."""
+    times); a failed build part (or any part whose app build failed) ends the measurement's other fleet parts (each
+    would build the same); the Linux part still runs."""
     entry = dict(cur["parts"].get(part) or {"yields": 0})
     entry.update({"state": result["state"], "step_id": result.get("step_id"), "run_url": run_url,
                   "seconds": result.get("seconds")})
@@ -780,10 +920,11 @@ def record_part(cur, part, result, run_url):
     if entry["state"] != "yielded" and part in cur["parts_todo"]:
         cur["parts_todo"].remove(part)
     cur["parts"][part] = entry
-    if entry["state"] == "failed" and any("printed no app path" in line for line in result.get("tail") or []):
-        for other in list(cur["parts_todo"]):
+    build_failed = part == "build" or any("printed no app path" in line for line in result.get("tail") or [])
+    if entry["state"] == "failed" and build_failed:
+        for other in [p for p in cur["parts_todo"] if not is_linux_part(p)]:
             cur["parts"][other] = {"state": "build_failed", "run_url": run_url}
-        cur["parts_todo"] = []
+            cur["parts_todo"].remove(other)
     return entry
 
 
@@ -793,19 +934,20 @@ def cmd_report(o):
     changed = not state.get("persisted")
     state["persisted"] = True
     event, summary = None, ""
-    result = None
-    if o.part_dir and os.path.exists(os.path.join(o.part_dir, "result.json")):
-        result = json.load(open(os.path.join(o.part_dir, "result.json")))
     cur = state.get("current")
     before_names = sorted(r["name"] for r in state.get("regressions") or [])
-    if cur and o.part and result:
+    for spec in o.result:
+        part, _, part_dir = spec.partition("=")
+        path = os.path.join(part_dir, "result.json")
+        if not (cur and part in PART_BY_NAME and os.path.exists(path)):
+            continue
         changed = True
-        entry = record_part(cur, o.part, result, o.run_url)
+        entry = record_part(cur, part, json.load(open(path)), o.run_url)
         if entry["state"] == "done":
             os.makedirs(os.path.join(o.dir, "parts"), exist_ok=True)
-            report = os.path.join(o.part_dir, "report.json")
+            report = os.path.join(part_dir, "report.json")
             if os.path.exists(report):
-                with open(report) as src, open(os.path.join(o.dir, "parts", f"{o.part}.json"), "w") as dst:
+                with open(report) as src, open(os.path.join(o.dir, "parts", f"{part}.json"), "w") as dst:
                     dst.write(src.read())
     if cur and not cur["parts_todo"] and (changed or o.finish):
         changed = True
@@ -819,10 +961,13 @@ def cmd_report(o):
                 report = json.load(open(path))
             except (OSError, ValueError):
                 continue
-            rows.update(rows_of_part(PART_BY_NAME[name], report, mod, budgets))
+            part_rows = rows_of_part(PART_BY_NAME[name], report, mod, budgets)
             r = refresh_ms_of(report)
             if r:
                 refresh.append(r)
+                for row in part_rows.values():
+                    row.setdefault("refresh_ms", r)
+            rows.update(part_rows)
         refresh_ms = sorted(refresh)[len(refresh) // 2] if refresh else None
         sha = cur["sha"]
         event = finish_measurement(state, rows, refresh_ms, BENCH_WORKER, o.run_url, t, mod)
@@ -834,8 +979,12 @@ def cmd_report(o):
                    "recovered": f"{sha[:12]}: every row is back within its threshold ({len(rows)} rows)",
                    "regressed": f"{sha[:12]}: {len(regs)} row(s) regressed: " + ", ".join(r["name"] for r in regs[:8]),
                    "still": f"{sha[:12]}: still regressed, {len(regs)} row(s): " + ", ".join(r["name"] for r in regs[:8]),
+                   "empty": f"{sha[:12]}: no row measured (failed parts: "
+                            f"{', '.join((state.get('history') or [{}])[-1].get('failed_parts') or []) or 'none'})",
                    "narrowed": f"bisect {sha[:12]}: range now {(state.get('range') or {}).get('good', '?')[:11]}..."
                                f"{(state.get('range') or {}).get('bad', '?')[:11]}"}[event]
+    if event == "empty":
+        event = None  # neither a baseline nor a verdict: the issue is left as it is (staleness still counts)
     line = summary or "no measurement finished this tick"
     stale = stale_hours(state, t) > STALE_HOURS
     if stale:
@@ -876,17 +1025,19 @@ def main(argv=None):
     s.add_argument("--out", required=True)
     s.add_argument("--worker", default=BENCH_WORKER)
     s.add_argument("--client", default=os.path.expanduser("~/.local/bin/cmux-ci"))
-    s = sub.add_parser("report", help="store the part, finish the measurement, keep the issue (Linux)")
+    s = sub.add_parser("run-linux-part", help="run the diff-viewer part (Linux, in a checkout of the measured commit)")
+    s.add_argument("--out", required=True)
+    s = sub.add_parser("report", help="store the parts, finish the measurement, keep the issue (Linux)")
     s.add_argument("--repo", required=True)
     s.add_argument("--dir", required=True)
-    s.add_argument("--part", default="")
-    s.add_argument("--part-dir", default="")
+    s.add_argument("--result", action="append", default=[], metavar="PART=DIR",
+                   help="a part that ran this tick and the directory with its result.json (repeatable)")
     s.add_argument("--run-url", default="")
     s.add_argument("--finish", action="store_true", help="finish a measurement whose parts all ran")
     s.add_argument("--issues", action="store_true", help="open, update or close the regression issue")
     s.add_argument("--output")
     o = ap.parse_args(argv)
-    {"fetch-state": cmd_fetch_state, "plan": cmd_plan, "fleet-check": cmd_fleet_check, "run-part": cmd_run_part,
+    {"fetch-state": cmd_fetch_state, "plan": cmd_plan, "fleet-check": cmd_fleet_check, "run-part": cmd_run_part, "run-linux-part": cmd_run_linux_part,
      "report": cmd_report}[o.cmd](o)
 
 
