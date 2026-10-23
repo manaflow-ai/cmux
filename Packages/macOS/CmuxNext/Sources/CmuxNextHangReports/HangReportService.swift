@@ -15,14 +15,20 @@ import os
 public actor HangReportService {
     /// The values a report's envelope needs from the app.
     public struct Environment: Sendable {
+        /// The app that wrote the report.
         public var app: HangReport.App
+        /// The macOS version.
         public var os: HangReport.OS
+        /// The kind of Mac.
         public var hardware: HardwareClass
         /// The coarse counts of what is open now (the app reads them on the main actor).
         public var counts: @Sendable () async -> CoarseCounts
+        /// The clock (tests pass a fixed one).
         public var now: @Sendable () -> Date
+        /// Makes each report's random id.
         public var makeReportID: @Sendable () -> String
 
+        /// Makes the value from its parts.
         public init(app: HangReport.App, os: HangReport.OS, hardware: HardwareClass,
                     counts: @escaping @Sendable () async -> CoarseCounts, now: @escaping @Sendable () -> Date = Date.init,
                     makeReportID: @escaping @Sendable () -> String = { UUID().uuidString.lowercased() }) {
@@ -47,14 +53,27 @@ public actor HangReportService {
     private let scanner: PrivacyLeakScanner
     private let identity: InstallIdentity
     private let environment: Environment
+    /// The watchdog sink that feeds each report.
     public nonisolated let collector: HangReportCollector
 
+    /// Whether hang reports are on.
     public private(set) var isEnabled = false
+    /// The first ``setEnabled(_:)`` always runs, so a setting turned off while cmux was closed
+    /// still clears what an earlier launch left on disk.
+    private var settled = false
+    /// Changes at every ``setEnabled(_:)``: work that suspended checks it before it writes or
+    /// sends, so nothing goes out after the person turned reports off (actor reentrancy).
+    private var generation = 0
+    /// One send or flush at a time; a trigger that arrives meanwhile asks for another pass.
+    private var isSending = false
+    private var sendAgain = false
+    private var isFlushing = false
     /// MetricKit deliveries not yet in a report (the daily cap was reached).
     private var waiting: [MetricKitInput] = []
     /// Reports the leak scan refused (a bug if ever above 0; logged, never sent).
     public private(set) var refusedCount = 0
 
+    /// Makes the value from its parts.
     public init(store: HangReportStore, transport: any HangReportTransport, builder: HangReportBuilder,
                 scanner: PrivacyLeakScanner, identity: InstallIdentity, collector: HangReportCollector,
                 environment: Environment) {
@@ -73,8 +92,10 @@ public actor HangReportService {
     /// Follows `diagnostics.hangReports`. Off drops what was recorded and queued and forgets the
     /// install id; the last report's readable copy stays for View Hang Report.
     public func setEnabled(_ on: Bool) async {
-        guard on != isEnabled else { return }
+        guard !settled || on != isEnabled else { return }
+        settled = true
         isEnabled = on
+        generation += 1
         collector.setEnabled(on)
         if on {
             if let saved = await store.takePending() { collector.merge(saved) }
@@ -129,16 +150,37 @@ public actor HangReportService {
 
     // MARK: Sending
 
+    /// Builds and queues one report from what was recorded, then flushes the outbox. Takes its
+    /// inputs and its daily slot before the first suspension, and stops when reports were turned
+    /// off while it waited.
     private func sendReport() async {
+        guard !isSending else { sendAgain = true; return }
+        isSending = true
+        defer { isSending = false }
+        repeat {
+            sendAgain = false
+            await sendOnce()
+        } while sendAgain && isEnabled
+    }
+
+    private func sendOnce() async {
+        let started = generation
         let now = environment.now()
         let today = Self.day(now)
         var log = await store.sendLog()
+        guard generation == started else { return }
         if log.day != today { log = HangReportStore.SendLog() }
         guard log.sentToday < Self.dailyLimit else { return }
         let aggregate = collector.drain()
-        let report = Self.fitted(await build(watchdog: aggregate, metricKit: waiting))
+        let deliveries = waiting
         waiting = []
-        guard !report.hasNoFindings, let body = try? HangReport.encoder.encode(report),
+        guard !aggregate.isEmpty || !deliveries.isEmpty else { return }
+        log.day = today
+        log.sentToday += 1
+        log.lastSentAt = now
+        await store.saveSendLog(log)
+        let report = Self.fitted(await build(watchdog: aggregate, metricKit: deliveries))
+        guard generation == started, !report.hasNoFindings, let body = try? HangReport.encoder.encode(report),
               body.count <= HangReport.maxBodyBytes else { return }
         let findings = scanner.findings(in: body)
         guard findings.isEmpty else {
@@ -147,16 +189,18 @@ public actor HangReportService {
             return
         }
         if let readable = try? HangReport.readableEncoder.encode(report) { await store.saveLastReport(readable) }
+        guard generation == started else { return }
         await store.enqueue(body, reportId: report.reportId)
-        log.day = today
-        log.sentToday += 1
-        log.lastSentAt = now
-        await store.saveSendLog(log)
         await flushOutbox()
     }
 
     private func flushOutbox() async {
+        guard isEnabled, !isFlushing else { return }
+        isFlushing = true
+        defer { isFlushing = false }
+        let started = generation
         for entry in await store.outbox(now: environment.now()) {
+            guard generation == started else { return }
             switch await transport.send(entry.body) {
             case .accepted, .refused:
                 await store.remove(entry.url)

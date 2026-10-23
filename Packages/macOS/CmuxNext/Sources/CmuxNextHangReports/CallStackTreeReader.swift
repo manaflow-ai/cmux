@@ -11,10 +11,14 @@ public nonisolated struct CallStackTreeReader: Sendable {
     /// One frame as MetricKit wrote it. Its text is untrusted: only ``ImageClassifier`` turns it
     /// into a ``HangReportFrame``.
     public struct RawFrame: Sendable, Equatable {
+        /// MetricKit's `binaryName` (untrusted text).
         public var binaryName: String?
+        /// MetricKit's `binaryUUID`.
         public var binaryUUID: String?
+        /// The offset into the image's `__TEXT` segment.
         public var offset: UInt64?
 
+        /// Makes the value from its parts.
         public init(binaryName: String?, binaryUUID: String?, offset: UInt64?) {
             self.binaryName = binaryName
             self.binaryUUID = binaryUUID
@@ -22,6 +26,7 @@ public nonisolated struct CallStackTreeReader: Sendable {
         }
     }
 
+    /// Makes the value from its parts.
     public init() {}
 
     /// The stack in `json`, innermost first and at most `limit` frames; empty when it does not parse.

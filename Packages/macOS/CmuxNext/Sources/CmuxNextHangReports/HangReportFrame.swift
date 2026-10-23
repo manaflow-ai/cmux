@@ -17,6 +17,7 @@ public nonisolated struct HangReportFrame: Codable, Sendable, Hashable {
     /// A frame that is not ours or Apple's.
     public static let other = HangReportFrame(image: otherImage, uuid: nil, offset: nil)
 
+    /// Makes the value from its parts.
     public init(image: String, uuid: String?, offset: UInt64?) {
         self.image = image
         self.uuid = uuid

@@ -7,7 +7,7 @@ import Foundation
 enum HangReportsHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("diagnostics.viewHangReport", run: { invocation in
-            guard let controller = AppProcessRoot.shared.hangReports else {
+            guard let controller = AppProcessRoot.shared.hangReports, controller.isAvailable else {
                 throw ActionFailure(message: HangReportsStrings.unavailable)
             }
             let pane = invocation.target == nil ? context.services.windows.active?.focusedPane : context.paneController(invocation)

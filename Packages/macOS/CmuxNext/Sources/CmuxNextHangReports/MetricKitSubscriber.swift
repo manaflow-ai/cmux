@@ -19,6 +19,7 @@ public final class MetricKitSubscriber: NSObject, MXMetricManagerSubscriber, Sen
     /// Stops receiving deliveries.
     public func stop() { MXMetricManager.shared.remove(self) }
 
+    /// A MetricKit delivery (MetricKit's queue).
     public func didReceive(_ payloads: [MXMetricPayload]) {
         for payload in payloads {
             let input = Self.input(payload)
@@ -26,6 +27,7 @@ public final class MetricKitSubscriber: NSObject, MXMetricManagerSubscriber, Sen
         }
     }
 
+    /// A MetricKit delivery (MetricKit's queue).
     public func didReceive(_ payloads: [MXDiagnosticPayload]) {
         for payload in payloads {
             let hangs = (payload.hangDiagnostics ?? []).map {

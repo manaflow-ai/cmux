@@ -20,24 +20,32 @@ public final class SignpostMetricKitMirror: Sendable {
     public static let shared = SignpostMetricKitMirror()
 
     private let on = Atomic<Bool>(false)
-    /// One MetricKit log per category, made once.
-    private let logs: [SignpostCategory: OSLog]
+    // Lock carve-out: a read of an immutable-once-set dictionary at a mirrored begin or end, only
+    // while the mirror is on; an actor would add a Task per interval.
+    /// One MetricKit log per category, made at the first ``setOn(_:)`` with true (never while off).
+    private let logs = Mutex<[SignpostCategory: OSLog]>([:])
 
-    init() {
-        logs = Dictionary(uniqueKeysWithValues: SignpostCategory.allCases.map {
-            ($0, MXMetricManager.makeLogHandle(category: $0.rawValue))
-        })
-    }
+    init() {}
 
     /// Whether intervals are mirrored.
     public var isOn: Bool { on.load(ordering: .relaxed) }
 
     /// Turns mirroring on (hang reports on) or off.
-    public func setOn(_ value: Bool) { on.store(value, ordering: .relaxed) }
+    public func setOn(_ value: Bool) {
+        if value {
+            logs.withLock { logs in
+                guard logs.isEmpty else { return }
+                logs = Dictionary(uniqueKeysWithValues: SignpostCategory.allCases.map {
+                    ($0, MXMetricManager.makeLogHandle(category: $0.rawValue))
+                })
+            }
+        }
+        on.store(value, ordering: .relaxed)
+    }
 
     /// Mirrors a begin; returns the id the end needs, nil while off.
     func begin(_ name: SignpostName) -> OSSignpostID? {
-        guard isOn, let log = logs[name.category] else { return nil }
+        guard isOn, let log = logs.withLock({ $0[name.category] }) else { return nil }
         let id = OSSignpostID(log: log)
         mxSignpost(.begin, log: log, name: name.staticName, signpostID: id)
         return id
@@ -45,7 +53,7 @@ public final class SignpostMetricKitMirror: Sendable {
 
     /// Mirrors the end of an interval whose begin was mirrored (even if mirroring went off since).
     func end(_ name: SignpostName, id: OSSignpostID) {
-        guard let log = logs[name.category] else { return }
+        guard let log = logs.withLock({ $0[name.category] }) else { return }
         mxSignpost(.end, log: log, name: name.staticName, signpostID: id)
     }
 }

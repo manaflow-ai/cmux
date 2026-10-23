@@ -11,7 +11,9 @@ public import Foundation
 /// It keeps the defaults domain's name, not a `UserDefaults` object (which is not `Sendable`), and
 /// opens the domain at each call; nil is the app's own domain.
 public nonisolated struct InstallIdentity: Sendable {
+    /// The defaults key of the id.
     public static let idKey = "cmux.next.hangReports.installId"
+    /// The defaults key of the id's creation date.
     public static let createdKey = "cmux.next.hangReports.installIdCreated"
     /// How long one id lives.
     public static let rotation: TimeInterval = 30 * 24 * 60 * 60
@@ -31,6 +33,7 @@ public nonisolated struct InstallIdentity: Sendable {
     /// The id to send now: the stored one while it is younger than ``rotation``, else a new one.
     private var defaults: UserDefaults { suiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard }
 
+    /// The id to send now: the stored one while younger than ``rotation``, else a new one.
     public func current() -> String {
         let defaults = defaults
         let date = now()

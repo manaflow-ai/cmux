@@ -31,7 +31,22 @@ struct HangReportServiceTests {
     private var defaults: UserDefaults { UserDefaults(suiteName: suite) ?? .standard }
     private let clock = TestClock()
 
-    private func service(_ transport: RecordingTransport) -> HangReportService {
+    /// A transport whose sends wait until the test lets them go.
+    final class GatedTransport: HangReportTransport {
+        let started = AsyncStream<Void>.makeStream()
+        let release = AsyncStream<Void>.makeStream()
+        let bodies = Mutex<[Data]>([])
+
+        func send(_ body: Data) async -> HangReportTransportResult {
+            started.continuation.yield()
+            for await _ in release.stream { break }
+            bodies.withLock { $0.append(body) }
+            return .accepted
+        }
+    }
+
+    private func service(_ transport: any HangReportTransport, counts: @escaping @Sendable () async -> CoarseCounts = { CoarseCounts(windows: 1, workspaces: 3, panes: 4, tabs: 9) })
+        -> HangReportService {
         let clock = clock
         let collector = HangReportCollector(resolve: { _ in [.other] }, schedule: { $0() })
         return HangReportService(
@@ -41,7 +56,7 @@ struct HangReportServiceTests {
             environment: HangReportService.Environment(
                 app: HangReport.App(version: "0.70.0", build: "70123", channel: "nightly"), os: HangReport.OS(version: "15.7.4"),
                 hardware: HardwareClass(arch: "arm64", chip: "Apple M4 Pro", cores: 14, memoryGB: 48),
-                counts: { CoarseCounts(windows: 1, workspaces: 3, panes: 4, tabs: 9) }, now: { clock.now }))
+                counts: counts, now: { clock.now }))
     }
 
     @Test func offSendsNothing() async {
@@ -135,6 +150,62 @@ struct HangReportServiceTests {
         await service.setEnabled(true)
         await service.launched()
         #expect(transport.sent.count == 1)
+    }
+
+    @Test func turningOffWhileAReportIsBuiltSendsNothing() async {
+        let transport = RecordingTransport()
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        let (entered, enteredSignal) = AsyncStream<Void>.makeStream()
+        // The envelope's counts read waits on the test: reports go off while the report is built.
+        let service = service(transport, counts: {
+            enteredSignal.yield()
+            for await _ in gate { break }
+            return .unknown
+        })
+        await service.setEnabled(true)
+        let delivery = Task { await service.receive(HangReportFixtures.metricKitInput()) }
+        for await _ in entered { break }
+        await service.setEnabled(false)
+        open.yield()
+        await delivery.value
+        #expect(transport.sent.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: service.lastReportURL.path))
+    }
+
+    @Test func turningOffDuringAFlushStopsTheRestOfTheOutbox() async {
+        let failing = RecordingTransport([.retryLater, .retryLater])
+        let first = service(failing)
+        await first.setEnabled(true)
+        await first.receive(HangReportFixtures.metricKitInput())
+        clock.advance(60)
+        await first.receive(HangReportFixtures.metricKitInput())
+        let gated = GatedTransport()
+        let second = service(gated)
+        await second.setEnabled(true)
+        let flush = Task { await second.launched() }
+        for await _ in gated.started.stream { break }
+        await second.setEnabled(false)
+        gated.release.continuation.yield()
+        gated.release.continuation.finish()
+        await flush.value
+        #expect(gated.bodies.withLock { $0.count } <= 1)
+    }
+
+    @Test func aSettingTurnedOffWhileClosedClearsWhatAnEarlierLaunchLeft() async {
+        let first = service(RecordingTransport([.retryLater]))
+        await first.setEnabled(true)
+        await first.receive(HangReportFixtures.metricKitInput())
+        first.collector.noteStall(durationNanos: 600_000_000, cpuNanos: 0, addresses: [1])
+        first.saveForNextLaunch()
+        #expect(defaults.string(forKey: InstallIdentity.idKey) != nil)
+        let second = service(RecordingTransport())
+        await second.setEnabled(false)
+        #expect(defaults.string(forKey: InstallIdentity.idKey) == nil)
+        let transport = RecordingTransport()
+        let third = service(transport)
+        await third.setEnabled(true)
+        await third.launched()
+        #expect(transport.sent.isEmpty)
     }
 
     @Test func viewBeforeAnySendIsAPreviewThatSendsNothing() async throws {

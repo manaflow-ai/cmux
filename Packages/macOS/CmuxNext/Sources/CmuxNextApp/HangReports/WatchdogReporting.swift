@@ -20,7 +20,7 @@ enum WatchdogReporting {
         let collector = hangReports.collector
         watchdog.onHang = { hang in
             reporter.reportHang(duration: hang.duration, addresses: hang.addresses, otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) })
-            collector.noteHang(durationNanos: Self.nanos(hang.duration), addresses: hang.addresses)
+            collector?.noteHang(durationNanos: Self.nanos(hang.duration), addresses: hang.addresses)
         }
         // ~/Library/Logs/<bundle id>/hangs, listed in Debug Settings > Hangs.
         watchdog.episodes = HangFileTunables.recorder(bundleID: Bundle.main.bundleIdentifier)
@@ -36,7 +36,7 @@ enum WatchdogReporting {
         }
         watchdog.onStall = { record in
             lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses)
-            collector.noteStall(durationNanos: Self.nanos(record.duration), cpuNanos: Self.nanos(record.cpu), addresses: record.addresses)
+            collector?.noteStall(durationNanos: Self.nanos(record.duration), cpuNanos: Self.nanos(record.cpu), addresses: record.addresses)
         }
         return hangReports
     }

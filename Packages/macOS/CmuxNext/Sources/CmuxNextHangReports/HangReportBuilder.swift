@@ -10,14 +10,22 @@ public import Foundation
 public nonisolated struct HangReportBuilder: Sendable {
     /// The envelope of one report: who, when and what was open.
     public struct Context: Sendable, Equatable {
+        /// A random id per report.
         public var reportId: String
+        /// ``InstallIdentity``'s id.
         public var installId: String
+        /// The UTC day (`yyyy-MM-dd`).
         public var day: String
+        /// The app that wrote the report.
         public var app: HangReport.App
+        /// The macOS version.
         public var os: HangReport.OS
+        /// The kind of Mac.
         public var hardware: HardwareClass
+        /// Rounded counts of what was open.
         public var counts: CoarseCounts
 
+        /// Makes the value from its parts.
         public init(reportId: String, installId: String, day: String, app: HangReport.App, os: HangReport.OS,
                     hardware: HardwareClass, counts: CoarseCounts) {
             self.reportId = reportId
@@ -30,10 +38,13 @@ public nonisolated struct HangReportBuilder: Sendable {
         }
     }
 
+    /// Decides what each frame may say.
     public let classifier: ImageClassifier
+    /// Finds the loaded image of an address or UUID.
     public let resolver: any ImageResolving
     private let reader = CallStackTreeReader()
 
+    /// Makes the value from its parts.
     public init(classifier: ImageClassifier, resolver: any ImageResolving) {
         self.classifier = classifier
         self.resolver = resolver

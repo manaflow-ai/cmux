@@ -7,6 +7,7 @@ public nonisolated struct HardwareClass: Codable, Sendable, Equatable {
     public var arch: String
     /// `Apple M<n>[ Pro| Max| Ultra]`, `Intel` or `other`.
     public var chip: String
+    /// Active processor cores.
     public var cores: Int
     /// Physical memory rounded to the nearest of ``memorySizesGB``.
     public var memoryGB: Int
@@ -14,6 +15,7 @@ public nonisolated struct HardwareClass: Codable, Sendable, Equatable {
     /// The memory sizes a report may name.
     public static let memorySizesGB = [4, 8, 16, 18, 24, 32, 36, 48, 64, 96, 128, 192, 256, 512]
 
+    /// Makes the value from its parts.
     public init(arch: String, chip: String, cores: Int, memoryGB: Int) {
         self.arch = arch
         self.chip = chip

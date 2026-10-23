@@ -5,12 +5,14 @@ public import Foundation
 public nonisolated struct URLSessionHangReportTransport: HangReportTransport {
     /// The production endpoint.
     public static let defaultEndpoint = "https://cmux.com/api/hang-reports"
+    /// The fixed user agent of every request.
     public static let userAgent = "cmux-hang-reports/1"
 
     /// Where reports go; nil (an address that does not parse) sends nothing.
     public let endpoint: URL?
     private let session: URLSession
 
+    /// Makes the value from its parts.
     public init(endpoint: String = URLSessionHangReportTransport.defaultEndpoint) {
         self.endpoint = URL(string: endpoint).flatMap { $0.scheme == "https" || $0.host == "localhost" ? $0 : nil }
         let configuration = URLSessionConfiguration.ephemeral
@@ -23,6 +25,7 @@ public nonisolated struct URLSessionHangReportTransport: HangReportTransport {
         session = URLSession(configuration: configuration)
     }
 
+    /// Posts one body; see ``HangReportTransportResult``.
     public func send(_ body: Data) async -> HangReportTransportResult {
         guard let endpoint else { return .refused(status: 0) }
         var request = URLRequest(url: endpoint)

@@ -19,6 +19,7 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
     /// The longest hangs, longest first.
     public private(set) var hangs: [HangSample] = []
 
+    /// Makes the value from its parts.
     public init() {}
 
     /// Whether nothing was recorded.

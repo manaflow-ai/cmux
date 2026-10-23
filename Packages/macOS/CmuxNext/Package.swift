@@ -112,7 +112,7 @@ import PackageDescription
 //     path bar, Quick Look, drag in and out)
 //   CmuxNextCrashReporting -> CmuxSentryReporting, Sentry (crash and exception reports to Sentry:
 //     consent, channel environment, release, scrubbing; no UI, no daemon; cx-urd.58)
-//   CmuxNextHangReports -> Compat, Signposts, system frameworks, MetricKit (opt-in hang reports for NIGHTLY:
+//   CmuxNextHangReports -> Compat, system frameworks, MetricKit (opt-in hang reports for NIGHTLY:
 //     MetricKit and watchdog inputs, allow-list redaction, leak scan, rotating install id, outbox,
 //     upload; no UI, no daemon; plans/cmux-next/hang-reports-DESIGN.md)
 
@@ -1158,7 +1158,7 @@ let package = Package(
         // (plans/cmux-next/architecture-refactor-DESIGN.md section 7).
         .target(
             name: "CmuxNextSignposts",
-            // Compat's Atomic: the MetricKit mirror's on/off flag (Signposter+MetricKit.swift).
+            // Compat's Atomic and Mutex: the MetricKit mirror's switch and logs (SignpostMetricKitMirror.swift).
             dependencies: ["CmuxNextCompat"],
             swiftSettings: daemonSwiftSettings
         ),
@@ -1189,7 +1189,7 @@ let package = Package(
         // MetricKit and watchdog inputs, redaction by allow-list, leak scan, upload.
         .target(
             name: "CmuxNextHangReports",
-            dependencies: ["CmuxNextCompat", "CmuxNextSignposts"],
+            dependencies: ["CmuxNextCompat"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(

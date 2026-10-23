@@ -25,6 +25,8 @@ public nonisolated struct ImageClassifier: Sendable {
     public static let ownNamePrefixes = ["cmux", "Cmux", "GhosttyKit", "Chromium Embedded Framework", "Sparkle", "Sentry"]
     /// The characters and length a sent image name may have.
     public static let namePattern = #"^[A-Za-z0-9 ._+()\-]{1,64}$"#
+    /// The largest offset a frame may name (the server's limit, 2^40).
+    public static let maxOffset: UInt64 = 1 << 40
     /// The folders whose images are Apple's.
     public static let applePathPrefixes = ["/System/", "/usr/lib/"]
 
@@ -54,7 +56,7 @@ public nonisolated struct ImageClassifier: Sendable {
 
     /// The frame at `offset` into a loaded image, or ``HangReportFrame/other``.
     public func frame(image: LoadedImage, offset: UInt64) -> HangReportFrame {
-        guard owner(path: image.path) != .other, let name = sendableName(image.path) else { return .other }
+        guard offset <= Self.maxOffset, owner(path: image.path) != .other, let name = sendableName(image.path) else { return .other }
         return HangReportFrame(image: name, uuid: image.uuid, offset: offset)
     }
 
@@ -62,7 +64,7 @@ public nonisolated struct ImageClassifier: Sendable {
     /// process (nil when none matches, for example after an update), `name` MetricKit's
     /// `binaryName`.
     public func frame(metricKitName name: String?, uuid: String?, offset: UInt64?, loaded: LoadedImage?) -> HangReportFrame {
-        guard let uuid, Self.isUUID(uuid), let offset else { return .other }
+        guard let uuid, Self.isUUID(uuid), let offset, offset <= Self.maxOffset else { return .other }
         if let loaded { return frame(image: loaded, offset: offset) }
         guard let name, !name.isEmpty else { return .other }
         // A name that is a path is judged as a path; a bare name is ours by prefix or Apple's

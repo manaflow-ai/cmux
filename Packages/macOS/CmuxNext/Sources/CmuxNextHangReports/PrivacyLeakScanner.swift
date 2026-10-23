@@ -25,11 +25,15 @@ public nonisolated struct PrivacyLeakScanner: Sendable {
 
     /// One finding: where, and what it looked like.
     public struct Finding: Sendable, Equatable, CustomStringConvertible {
+        /// Where in the JSON (never the value).
         public var path: String
+        /// How long it was.
         public var kind: Kind
+        /// The finding as a log line (kind and path only).
         public var description: String { "\(kind.rawValue) at \(path)" }
     }
 
+    /// The longest string a report may hold.
     public static let maxStringLength = 128
     private static let safeCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ._+()-")
 

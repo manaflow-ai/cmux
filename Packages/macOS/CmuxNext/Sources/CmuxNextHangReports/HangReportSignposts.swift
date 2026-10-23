@@ -19,6 +19,7 @@ public nonisolated struct HangReportSignposts: Sendable {
     /// The characters and length an interval name may have.
     public static let namePattern = #"^[a-z0-9_.\-]{1,48}$"#
 
+    /// Makes the value from its parts.
     public init() {}
 
     /// Whether an interval of this category and name may be sent.

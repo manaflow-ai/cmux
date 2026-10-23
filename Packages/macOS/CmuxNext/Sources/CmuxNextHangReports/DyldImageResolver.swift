@@ -5,8 +5,10 @@ import MachO
 /// ``ImageResolving`` over this process's dyld image list. Runs off the main thread, when a
 /// report or a stall's stack is resolved (it walks load commands and allocates).
 public nonisolated struct DyldImageResolver: ImageResolving {
+    /// Makes the value from its parts.
     public init() {}
 
+    /// Looks up a loaded image (``ImageResolving``).
     public func image(containing address: UInt64) -> LoadedImage? {
         var info = Dl_info()
         guard let pointer = UnsafeRawPointer(bitPattern: UInt(address)), dladdr(pointer, &info) != 0,
@@ -15,6 +17,7 @@ public nonisolated struct DyldImageResolver: ImageResolving {
         return Self.image(header: base.assumingMemoryBound(to: mach_header_64.self), path: path)
     }
 
+    /// Looks up a loaded image (``ImageResolving``).
     public func image(uuid: String) -> LoadedImage? {
         let wanted = uuid.uppercased()
         for index in 0..<_dyld_image_count() {

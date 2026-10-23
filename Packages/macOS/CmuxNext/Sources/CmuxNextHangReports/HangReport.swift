@@ -31,6 +31,7 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         /// `nightly`, `dev`, `rc` or `release`.
         public var channel: String
 
+        /// Makes the value from its parts.
         public init(version: String, build: String, channel: String) {
             self.version = version
             self.build = build
@@ -40,8 +41,10 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
 
     /// The operating system, as `major.minor.patch` only.
     public struct OS: Codable, Sendable, Equatable {
+        /// Digits and dots only.
         public var version: String
 
+        /// Makes the value from its parts.
         public init(version: String) {
             self.version = version
         }
@@ -50,16 +53,22 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     /// MetricKit's aggregated histograms and ratios (all optional: a report without a metric
     /// payload carries none).
     public struct Metrics: Codable, Sendable, Equatable {
+        /// `MXAppResponsivenessMetric` hang-time histogram.
         public var hangTime: [HistogramBucket] = []
+        /// Time to first draw (`MXAppLaunchMetric`).
         public var launchFirstDraw: [HistogramBucket] = []
+        /// Resume time (`MXAppLaunchMetric`).
         public var launchResume: [HistogramBucket] = []
+        /// Optimized time to first draw (`MXAppLaunchMetric`).
         public var launchOptimizedFirstDraw: [HistogramBucket] = []
+        /// Extended launch time (`MXAppLaunchMetric`).
         public var launchExtended: [HistogramBucket] = []
         /// `MXAnimationMetric.scrollHitchTimeRatio`, milliseconds of hitch per second of scrolling.
         public var scrollHitchMsPerS: Double?
         /// `MXAnimationMetric.hitchTimeRatio` (macOS 26), milliseconds of hitch per second.
         public var hitchMsPerS: Double?
 
+        /// Makes the value from its parts.
         public init() {}
 
         /// Whether no metric arrived.
@@ -69,6 +78,7 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         }
     }
 
+    /// The wire schema version (``schemaVersion``).
     public var schema: Int = HangReport.schemaVersion
     /// A random id per report: the server stores a retried report once.
     public var reportId: String
@@ -76,18 +86,26 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     public var installId: String
     /// The UTC day the report was built (`yyyy-MM-dd`).
     public var day: String
+    /// The app that wrote the report.
     public var app: App
+    /// The macOS version.
     public var os: OS
+    /// The kind of Mac.
     public var hardware: HardwareClass
+    /// Rounded counts of what was open.
     public var counts: CoarseCounts
     /// MetricKit hangs and the watchdog's hangs and stalls, longest first.
     public var hangs: [HangSample] = []
+    /// MetricKit CPU exceptions, heaviest first.
     public var cpuExceptions: [CPUExceptionSample] = []
     /// The watchdog's finished stalls by duration (``StallAggregate/bucketEdgesMs``).
     public var stallHistogram: [HistogramBucket] = []
+    /// MetricKit's aggregated metrics.
     public var metrics = Metrics()
+    /// Allowlisted signpost interval histograms.
     public var intervals: [IntervalHistogram] = []
 
+    /// Makes the value from its parts.
     public init(reportId: String, installId: String, day: String, app: App, os: OS, hardware: HardwareClass,
                 counts: CoarseCounts) {
         self.reportId = reportId

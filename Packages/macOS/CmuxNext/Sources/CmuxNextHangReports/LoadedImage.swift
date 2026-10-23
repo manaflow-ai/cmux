@@ -9,6 +9,7 @@ public nonisolated struct LoadedImage: Sendable, Equatable {
     /// The `__TEXT` segment's size.
     public var size: UInt64
 
+    /// Makes the value from its parts.
     public init(path: String, uuid: String, base: UInt64, size: UInt64) {
         self.path = path
         self.uuid = uuid.uppercased()

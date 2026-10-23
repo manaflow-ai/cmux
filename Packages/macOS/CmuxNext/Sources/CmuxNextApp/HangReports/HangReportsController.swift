@@ -22,9 +22,9 @@ final class HangReportsController {
     static let devOptInKey = "CMUX_NEXT_DEV_HANG_REPORTS"
     static let devEndpointKey = "CMUX_NEXT_HANG_REPORTS_URL"
 
-    let service: HangReportService
-    /// This build may send at all (NIGHTLY, or a DEV build opted in); a managed block is read later.
-    private let mayReport: Bool
+    /// Nil on a build that never sends (Release, RC, DEV without the opt-in, tests): nothing is
+    /// built, read or subscribed there.
+    let service: HangReportService?
     /// Whether a managed profile forces `DisableTelemetry` (read off the main thread at start).
     private let managedDisables: @Sendable () -> Bool
     private let defaults: UserDefaults
@@ -33,10 +33,8 @@ final class HangReportsController {
     private var settingsObservation: Task<Void, Never>?
     private var launchedOnce = false
 
-    init(service: HangReportService, mayReport: Bool, managedDisables: @escaping @Sendable () -> Bool,
-         defaults: UserDefaults = .standard) {
+    init(service: HangReportService?, managedDisables: @escaping @Sendable () -> Bool, defaults: UserDefaults = .standard) {
         self.service = service
-        self.mayReport = mayReport
         self.managedDisables = managedDisables
         self.defaults = defaults
     }
@@ -47,6 +45,11 @@ final class HangReportsController {
                               environment: [String: String] = ProcessInfo.processInfo.environment) -> HangReportsController {
         let devOptIn = policy.channel == .dev && environment[devOptInKey] == "1"
         let mayReport = (policy.channel == .nightly || devOptIn) && environment["XCTestConfigurationFilePath"] == nil
+        let managed = ManagedPreferenceLocation.defaultReader(environment: environment)
+        let managedDisables: @Sendable () -> Bool = {
+            managed.read().forced[CrashReportingPolicy.disableTelemetryPolicyKey]?.boolValue == true
+        }
+        guard mayReport else { return HangReportsController(service: nil, managedDisables: managedDisables) }
         let endpoint = devOptIn ? environment[devEndpointKey] ?? URLSessionHangReportTransport.defaultEndpoint
             : URLSessionHangReportTransport.defaultEndpoint
         let terms = ImageClassifier.personalTerms()
@@ -66,19 +69,19 @@ final class HangReportsController {
                                     channel: policy.channel?.rawValue ?? "dev"),
                 os: HangReport.OS(version: "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)"),
                 hardware: .current(), counts: counts))
-        let managed = ManagedPreferenceLocation.defaultReader(environment: environment)
-        return HangReportsController(service: service, mayReport: mayReport, managedDisables: {
-            managed.read().forced[CrashReportingPolicy.disableTelemetryPolicyKey]?.boolValue == true
-        })
+        return HangReportsController(service: service, managedDisables: managedDisables)
     }
 
-    /// The watchdog sink (the app chains it after the lag-spike reporter).
-    var collector: HangReportCollector { service.collector }
+    /// The watchdog sink (the app chains it after the lag-spike reporter); nil where nothing is sent.
+    var collector: HangReportCollector? { service?.collector }
+
+    /// Whether this build can send hang reports at all.
+    var isAvailable: Bool { service != nil }
 
     /// Follows the setting from the first load on; asks once (NIGHTLY, setting off) after
     /// `firstWindow` resolves.
     func start(settings: SettingsController, asks: SidebarAsks, firstWindow: @escaping @MainActor () async -> Void) {
-        guard mayReport else { return }
+        guard service != nil else { return }
         let managedDisables = managedDisables
         settingsObservation = Task { [weak self, weak settings] in
             guard let settings else { return }
@@ -90,9 +93,11 @@ final class HangReportsController {
                 await apply(on)
                 if !on, !asked, !defaults.bool(forKey: Self.askedKey) {
                     asked = true
-                    await firstWindow()
-                    // task-owner: one question; it ends when the person answers.
-                    Task { await self.ask(asks: asks, settings: settings) }
+                    // task-owner: one question after the first frame; it ends when the person answers.
+                    Task { [weak self] in
+                        await firstWindow()
+                        await self?.ask(asks: asks, settings: settings)
+                    }
                 }
             }
         }
@@ -100,12 +105,12 @@ final class HangReportsController {
 
     /// Quitting: the watchdog's findings wait on disk for the next launch's report.
     func applicationWillTerminate() {
-        service.saveForNextLaunch()
+        service?.saveForNextLaunch()
     }
 
     /// View Hang Report: the last report sent, else a preview; opened in a cmux file tab.
     func viewReport(open: @escaping @MainActor (URL) -> Void) {
-        let service = service
+        guard let service else { return }
         // task-owner: one read and open; nothing to cancel.
         Task {
             guard let url = await service.viewableReport() else { return }
@@ -114,12 +119,12 @@ final class HangReportsController {
     }
 
     private func apply(_ on: Bool) async {
+        guard let service else { return }
         await service.setEnabled(on)
         // The catalog's Release intervals reach MetricKit only while reports are on.
         SignpostMetricKitMirror.shared.setOn(on)
         if on {
             if subscriber == nil {
-                let service = service
                 let subscriber = MetricKitSubscriber { input in
                     // task-owner: one delivery handed to the service actor.
                     Task { await service.receive(input) }

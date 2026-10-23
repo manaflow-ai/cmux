@@ -26,6 +26,7 @@ public final class HangReportCollector: Sendable {
     /// Runs a resolution job; the default is a detached utility task. Tests run it inline.
     private let schedule: @Sendable (@escaping @Sendable () -> Void) -> Void
 
+    /// Makes the value from its parts.
     public init(resolve: @escaping Resolve,
                 schedule: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void = { job in
                     // task-owner: one short resolution per sampled stall; nothing to cancel.
