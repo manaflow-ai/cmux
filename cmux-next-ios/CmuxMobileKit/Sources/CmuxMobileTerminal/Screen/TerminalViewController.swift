@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileArtifacts
 import CmuxMobileDesign
 import GhosttyNextKit
 import SwiftUI
@@ -803,6 +804,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         artifactsHost = host
         present(host, animated: true)
+    }
+
+    /// A composer attachment's full-screen preview (UIKit, as Files and Artifacts is).
+    func presentFilePreview(_ request: FilePreviewRequest) {
+        guard presentedViewController == nil else { return }
+        request.present(from: self)
     }
 
     func dismissArtifacts() {

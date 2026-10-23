@@ -32063,6 +32063,11 @@ Result<Json> Codec<UpdateBrowserProfileRequest>::encode(const UpdateBrowserProfi
         if (!encoded) return std::move(encoded).error();
         object.emplace("name", std::move(encoded).value());
     }
+    if (!value.proxy.is_absent()) {
+        auto encoded = encode_value(value.proxy);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("proxy", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -32107,6 +32112,16 @@ Result<UpdateBrowserProfileRequest> Codec<UpdateBrowserProfileRequest>::decode(c
             auto decoded = decode_value<std::string>(*field_name);
             if (!decoded) return std::move(decoded).error();
             result.name = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_proxy = value.find("proxy");
+    if (field_proxy) {
+        if (field_proxy->is_null()) {
+            result.proxy = Field<JsonValue>::null();
+        } else {
+            auto decoded = decode_value<JsonValue>(*field_proxy);
+            if (!decoded) return std::move(decoded).error();
+            result.proxy = Field<JsonValue>(std::move(decoded).value());
         }
     }
     return result;

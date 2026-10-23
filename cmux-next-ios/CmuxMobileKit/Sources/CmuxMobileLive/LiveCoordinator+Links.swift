@@ -615,6 +615,10 @@ extension LiveCoordinator {
         // Try Again on Chief's unavailable bar opens the channel again on this link.
         session.reconnect = { [weak self] in self?.retryChief() }
         session.macName = owner.name
+        // A file a Chief message links to previews from this Mac (absolute paths only).
+        session.fileSource = LinkFileArtifactSource(macName: owner.name, baseDirectory: nil) { [weak owner] in
+            await owner?.servedLink
+        }
         // Chief's settings show this Mac's last known model until it answers.
         session.macID = owner.macID
         // A newer link (or another focused Mac) took over while this one was opening: leave it be.

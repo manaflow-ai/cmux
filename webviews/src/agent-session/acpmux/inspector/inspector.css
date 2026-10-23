@@ -58,24 +58,23 @@
   /* The card is as tall as its sections; past its max-height, the body scrolls. */
   flex: 0 1 auto;
 }
-/* As the overlay approaches the transcript column, ChatInspector.tsx shifts the chat toward the
-   room left of the card. The quick transition follows ResizeObserver's measured width; it ends when
-   the handoff reaches the push boundary. A pushed layout disables it for that boundary frame so the
-   flex reflow and the overlay shift describe the same center. */
-.acpmux-main > .acpmux-stage {
+/* As the overlay approaches the transcript column, ChatInspector.tsx shifts the conversation toward
+   the room left of the card. Keep the header outside that shift: its top-right controls stay anchored
+   in the pane while the transcript makes room for Session Info. */
+.acpmux-main > .acpmux-stage > .acpmux-scroll {
   translate: calc(-1 * var(--acpmux-chat-shift, 0px)) 0;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage {
+  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll {
     transition: translate var(--agent-motion-move, var(--cmux-motion-quick, 80ms))
       var(--acpmux-motion-ease, ease-out);
   }
 }
-:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage,
-:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage {
+:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll,
+:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll {
   transition: none;
 }
-.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage {
+.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage > .acpmux-scroll {
   transition: none;
 }
 /* It slides in from the pane's right edge and back out (ui/presence.ts, data-presence). Over the chat

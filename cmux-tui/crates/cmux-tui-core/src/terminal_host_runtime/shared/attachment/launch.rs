@@ -150,9 +150,17 @@ pub(crate) fn launch_terminal_host_seeded(
     presentation: HostPresentation,
     terminal_id: TerminalId,
     standby: Option<StandbyTerminalHost>,
-    seed: &[u8],
+    (seed, workspace_key): (&[u8], &str),
 ) -> anyhow::Result<HostAttachment> {
-    launch_terminal_host_seeded_in(options, root, presentation, terminal_id, standby, seed, "")
+    launch_terminal_host_seeded_in(
+        options,
+        root,
+        presentation,
+        terminal_id,
+        standby,
+        seed,
+        workspace_key,
+    )
 }
 
 /// [`launch_terminal_host_seeded`] whose host's first record names

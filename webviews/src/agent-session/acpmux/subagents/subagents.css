@@ -448,7 +448,7 @@ button.cv-subagent > :last-child {
   padding-top: 2px;
   border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
 }
-/* The one folded line of what ended ("3 subagents done"), dim beside what runs. */
+/* The overflow control for ended cards, dim beside what runs. */
 .acpmux-running-tray__finished {
   color: var(--agent-muted);
 }

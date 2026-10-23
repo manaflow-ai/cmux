@@ -261,8 +261,8 @@ Ordered by perf impact, then risk, then collisions (unowned areas first).
 | A4 | (WindowKeyFamily landed: one key tracker per window for the inactive wash) `WindowEvents` per-window fan-out; migrate unowned class-B sites (StatusIndicatorView, Design, Pages, AgentPane); hand TerminalSurfaceView and Sidebar sites to PL-ghostty and a590 | medium (row 8 Cmd-Tab O(views)) | medium | Terminal, Sidebar by message | |
 | A5 | Class C: reduceMotion / accessibility / speed / inactive-dim as Appearance observables, hidden views off the path | medium (F3/F8 hidden cost) | medium | none for Design/Pages/AgentPane leaf files | |
 | B1 | CmuxNextApp leaf directories (zero-outside rows of section 4) | - (lines) | low | none | TextBox, Router, Refusals, Process done (SleepyMode stays: its raw font sizes are baselined at the App path) |
-| B2 | `CmuxNextDesignTokens` split of Design (re-exported) | - (unblocks 4 hard edges) | medium (43 importers, but re-export keeps sources) | WindowOverlayHost stays in Design | |
-| B3 | `CmuxNextAppearance` with injected DesignSettings/ThemeStore (singletons 2 of 148, 210 reads) | low | medium | theme paths: run perf gate theme scenario | |
+| B2 | `CmuxNextDesignTokens` split of Design (re-exported) | - (unblocks 4 hard edges) | medium (43 importers, but re-export keeps sources) | WindowOverlayHost stays in Design | landed 72673e48762 (117 files, 6.6k lines); WorkspaceNaming off Design |
+| B3 | `CmuxNextAppearance` with injected DesignSettings/ThemeStore (singletons 2 of 148, 210 reads) | low | medium | theme paths: run perf gate theme scenario | BackdropRevision owned by ThemeStore (bc6284f47b6); ThemeStore/ThemeScope injection next |
 | B4 | Host protocols + moves for the AppServices-only rows, then Quit, Cloud, Server, Remote, History, Feed, Bookmarks, Notifications | - | medium | check owners per directory | |
 | B5 | Handlers and page providers by domain | - | medium | Handlers touched by PL-cef-tab (BrowserHandlers, PaneTabBarHandlers, HomeDockOpens, ChatColumnPlacement, TabLifecycle): those last | |
 | C1 | Browser split (section 8) | enables engine work | high | PL-cef-*, PL-motion-cef, PL-engine | after they land |
@@ -279,6 +279,7 @@ violations), sha ranges on feat-cmux-next:
 | 2026-10-23 | baseline | 184fa32532c | 141,651 | 148 | 290 | 163 | 32 / 12 |
 | 2026-10-23 | 1: A2 signposts, B1 4 dirs, A3 24 files | 1549981b654..5846e103ece | 141,393 | 148 | 253 | 130 | 32 / 12 |
 | 2026-10-23 | 2: review-1 fixes, A3 18 files, B1 53 leaf files, A4 WindowKeyFamily | this push | 139,814 | 148 | 228 | 108 | 32 / 12 |
+| 2026-10-23 | 3: DaemonCapabilities static, B2 CmuxNextDesignTokens, Release-test compiler crash fixes, generic-class deinit rule, bench config, signpost port, B3 BackdropRevision | cc7a964ef61..bc6284f47b6 | 140,765 (base grew) | 147 | 231 | 106 | 31 / 12 |
 
 App lines are measured at each tip, so other lanes' additions count too (the base grew about 1,000
 lines during batch 2; batch 2 moved 2,399 lines out). The hard/soft edges are unchanged so far:
