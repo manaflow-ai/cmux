@@ -75,7 +75,7 @@ extension DaemonStore {
     /// waiter still has to find that pane after the lift (``resumeStandInWaiters()``).
     func releaseStandIns() {
         guard !standIns.isEmpty else { return }
-        var kept = Set(standInWaiters.map { $0.handle })
+        var kept: Set<PaneID> = []
         for entry in intentLog.entries {
             switch entry.kind {
             case .splitPane(let target, _, _, let provisional):
