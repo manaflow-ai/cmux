@@ -130,21 +130,23 @@ struct SidebarRowsMoveOnRenderServerTests {
     }
 
     /// Leo 2026-10-21: "when you create a workspace at the top it's a huge cascade". Under the default
-    /// `sidebar.insertMotion` (nudge) each row below a top insert travels at most the nudge, not a row height, and the
+    /// `sidebar.insertMotion` (nudge) each row below a new row near the top travels at most the nudge, not a row height, and the
     /// new row opens only its last nudge of height, on a spring that is at rest by 150 ms (`SidebarInsertMotionTests`).
     @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
         await SidebarInsertWhileDisplayAsleepTests.animatesHere()
     })
-    func aTopInsertNudgesTheRowsBelowByAtMostTheNudge() throws {
+    func aNewRowNearTheTopNudgesTheRowsBelowByAtMostTheNudge() throws {
         let (model, list, _, restore) = try Self.sidebar(count: 30)
         defer { restore() }
         try #require(SidebarInsertMotion.tunable.value == .nudge)
         let nudge = SidebarInsertMotion.nudgeDistance.value
 
         // Cmd-N: the user's own request, so its change moves rows (a change nobody asked for shows in one step,
-        // `SidebarListView.showModelChange`).
+        // `SidebarListView.showModelChange`). The new row goes below the first one, which stays in place: an insert
+        // above the first shown row keeps what the user sees still (`ListViewport.anchored`), so no row would move.
+        // In the app Home stands above the list and is that row.
         model.noteUserIntent()
-        model.sections = Self.sections([0] + Array(1...30))
+        model.sections = Self.sections([1, 0] + Array(2...30))
         list.reload(animated: true)
 
         var springs = 0
