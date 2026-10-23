@@ -45,6 +45,15 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ContextMenuPlacement(.agentChat, .inspect, 0)])
             ),
             ActionDescriptor(
+                id: "agentPane.togglePointerInspector",
+                title: String(localized: "action.agentPane.togglePointerInspector", defaultValue: "Point at cmux UI", bundle: .module),
+                keywords: ["agent", "ui", "pointer", "inspect", "pick", "element", "debug"],
+                defaultShortcut: Shortcut("p", modifiers: [.control, .option, .command]),
+                category: .agents, symbol: "scope", surfaces: [.palette, .keyboard, .contextMenu],
+                cliName: "agent toggle-ui-pointer",
+                surfacePlan: ActionSurfacePlan(contextMenus: [ContextMenuPlacement(.agentChat, .inspect, 1)])
+            ),
+            ActionDescriptor(
                 id: "palette.quickAgentChat",
                 title: String(localized: "action.palette.quickAgentChat", defaultValue: "Start Agent…", bundle: .module),
                 keywords: ["agent", "start", "session", "launcher", "new", "chat", "ai", "acpmux", "quick", "composer", "summon"],
