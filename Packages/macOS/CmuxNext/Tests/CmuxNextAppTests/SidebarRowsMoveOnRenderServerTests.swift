@@ -426,6 +426,88 @@ struct SidebarRowsMoveOnRenderServerTests {
         }
     }
 
+    /// Codex review of #24374 at 2c21552: one change that adds a workspace and closes another gave the closing row the
+    /// insert's cap and spring (under snap it vanished at once, under the nudge it closed from a shortened row). A change
+    /// that does more than add rows moves every row as before: the closing row closes its whole height on `.move`.
+    @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func aRowClosedInTheSameChangeAsAnInsertClosesAsBefore() throws {
+        for motion in [SidebarInsertMotion.nudge, .snap, .quick] {
+            let (model, list, _, restore) = try Self.sidebar(count: 30)
+            defer { restore() }
+            let reset = Self.insertMotion(motion)
+            defer { reset() }
+            let closedKey = SidebarRowKey.workspace(try #require(Self.sections([3]).first?.workspaces.first?.id))
+            let closing = try #require(list.rowViews[closedKey])
+            let height = closing.frame.height
+
+            model.noteUserIntent()
+            model.sections = Self.sections([1, 0, 2] + Array(4...30))
+            list.reload(animated: true)
+
+            #expect(closing.superview != nil && closing.closingEnd != nil, "\(motion): the closed row went at once instead of closing")
+            let move = Motion.sidebar.springAnimation(.move, "bounds.size", from: 0, to: 0).duration
+            let sizes = (closing.layer?.animationKeys() ?? []).compactMap { closing.layer?.animation(forKey: $0) as? CASpringAnimation }
+                .filter { $0.isAdditive && $0.keyPath == "bounds.size" }
+            #expect(sizes.count == 1, "\(motion): the closed row has \(sizes.count) size springs")
+            for spring in sizes {
+                #expect(abs(((spring.fromValue as? NSValue)?.sizeValue.height ?? 0) - height) < 0.5,
+                        "\(motion): the closed row closes \((spring.fromValue as? NSValue)?.sizeValue.height ?? 0) pt of its \(height)")
+                #expect(abs(spring.duration - move) < 0.001, "\(motion): the closed row closes in \(spring.duration) s, .move is \(move) s")
+            }
+        }
+    }
+
+    /// Codex review of #24374 at 2c21552: rows placed without motion (the display's sleep settling a move, a reload
+    /// without motion, Reduce Motion) left an offscreen new row's open armed, so a scroll to it before the open's
+    /// deadline replayed the open. Each path settles every open (`settleOpenings`): the row shows at its slot.
+    @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func aNewRowPlacedWithoutMotionShowsAtItsSlotWhenScrolledTo() throws {
+        for path in ["display sleep", "reload without motion", "Reduce Motion"] {
+            let (model, list, _, restore) = try Self.sidebar(count: 60)
+            defer { restore() }
+            // The full spring at normal speed: the longest open, so the scroll below comes well inside it.
+            let reset = Self.insertMotion(.spring)
+            defer { reset() }
+            DesignSettings.shared.animationSpeed = .normal
+            let key = SidebarRowKey.workspace(try #require(Self.sections([0]).first?.workspaces.first?.id))
+            let opensUntil = CACurrentMediaTime() + Motion.sidebar.spring(.move).settlingTime()
+
+            if path == "Reduce Motion" { Motion.reduceMotionOverride = true }
+            // A new row in view (it moves the rows below it) and one far below the realized rows.
+            model.noteUserIntent()
+            model.sections = Self.sections([1, 500] + Array(2...54) + [0] + Array(55...60))
+            list.reload(animated: true)
+            try #require(list.rowViews[key] == nil, "\(path): the new row was realized at the insert")
+            switch path {
+            case "display sleep":
+                try #require(list.openingRows[key] != nil, "\(path): the insert did not open the new row")
+                let workspace = NSWorkspace.shared.notificationCenter
+                workspace.post(name: NSWorkspace.screensDidSleepNotification, object: NSWorkspace.shared)
+                workspace.post(name: NSWorkspace.screensDidWakeNotification, object: NSWorkspace.shared)
+            case "reload without motion":
+                try #require(list.openingRows[key] != nil, "\(path): the insert did not open the new row")
+                list.reload(animated: false)
+            default:
+                Motion.reduceMotionOverride = false
+            }
+            #expect(list.openingRows[key] == nil, "\(path): the new row is still opening")
+
+            let slot = try #require(list.displayed.row(for: key).map(list.frame(for:)))
+            let clip = try #require(list.enclosingScrollView?.contentView)
+            clip.scroll(to: NSPoint(x: 0, y: max(0, slot.minY - 100)))
+            list.enclosingScrollView?.reflectScrolledClipView(clip)
+            list.realizeVisibleRows()
+            try #require(CACurrentMediaTime() < opensUntil, "\(path): the scroll came after the open would have ended anyway")
+            let view = try #require(list.rowViews[key], "\(path): the scroll did not realize the new row")
+            #expect(view.frame == slot && view.alphaValue == 1, "\(path): the row is at \(view.frame) alpha \(view.alphaValue), slot \(slot)")
+            #expect(Self.sizeSprings(view) + Self.positionSprings(view) == 0, "\(path): the row opened again")
+        }
+    }
+
     /// A second insert while the first one's rows still move: each row keeps the first spring and adds one
     /// from where it is now, so nothing on screen jumps back to the first move's end. Under the full spring
     /// (`sidebar.insertMotion` spring); the nudge instead caps what is drawn (`twoQuickNewRowsNeverMoveARowPastTheNudgeOrOverlap`).
