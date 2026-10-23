@@ -87,4 +87,22 @@ import Testing
         #expect(GhosttyRuntime.backgroundOverride.material == .glass)
         #expect(harness.file.contains(Self.work) && harness.file.contains("glass"), "\(harness.file)")
     }
+
+    /// A live preview of the switch (Settings, the palette) draws it, and leaving the preview
+    /// brings the person's background back; nothing is written.
+    @Test func previewDrawsThePlainBackgroundAndEndingItRestores() async throws {
+        let harness = try await make(reduced: nil)
+        defer { tearDown(harness) }
+        let row = try #require(SettingsSchema.descriptor(for: ReducedBackgroundsSetting.configPath))
+        #expect(harness.settings.preview(row, .bool(true)))
+        await settle { harness.room.backdropSelection == nil }
+        #expect(harness.room.backdropSelection == nil, "the preview still draws the painting")
+        #expect(GhosttyRuntime.backgroundOverride == ReducedBackgroundsSetting.plainWindowBackground,
+                "the preview keeps \(GhosttyRuntime.backgroundOverride)")
+        harness.settings.endPreview()
+        await settle { harness.room.backdropSelection != nil && GhosttyRuntime.backgroundOverride.material == .glass }
+        #expect(harness.room.backdropSelection?.id == Self.work)
+        #expect(GhosttyRuntime.backgroundOverride.material == .glass)
+        #expect(!harness.file.contains("reducedBackgrounds"), "\(harness.file)")
+    }
 }

@@ -88,7 +88,8 @@ final class TerminalThemeSetting {
         // repaints at once and reloads Ghostty after the steps stop (`apply`).
         take(settings.snapshot, theme: settings.applied.appTheme, edits: settings.applied.themeEdits,
              background: settings.applied.windowBackground, art: settings.applied.backdropSelection,
-             shuffle: BackdropSelectionSetting.shuffle(settings.applied.root), tuning: settings.applied.windowTuning)
+             shuffle: BackdropSelectionSetting.shuffle(settings.applied.root), tuning: settings.applied.windowTuning,
+             reduced: settings.applied.reducedBackgrounds)
         // A time zone or clock change moves local midnight, which the armed timer cannot see.
         for name in [Notification.Name.NSCalendarDayChanged, .NSSystemTimeZoneDidChange, .NSSystemClockDidChange] {
             dayObservers.append(notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -99,20 +100,22 @@ final class TerminalThemeSetting {
             })
         }
         observation = Task { [weak self] in
-            for await (snapshot, theme, edits, background, art, shuffle, tuning) in ObservationStream({
+            for await (snapshot, theme, edits, background, art, shuffle, tuning, reduced) in ObservationStream({
                 (settings.snapshot, settings.applied.appTheme, settings.applied.themeEdits, settings.applied.windowBackground,
-                 settings.applied.backdropSelection, BackdropSelectionSetting.shuffle(settings.applied.root), settings.applied.windowTuning)
+                 settings.applied.backdropSelection, BackdropSelectionSetting.shuffle(settings.applied.root), settings.applied.windowTuning,
+                 settings.applied.reducedBackgrounds)
             }) {
-                self?.take(snapshot, theme: theme, edits: edits, background: background, art: art, shuffle: shuffle, tuning: tuning)
+                self?.take(snapshot, theme: theme, edits: edits, background: background, art: art, shuffle: shuffle, tuning: tuning,
+                           reduced: reduced)
             }
         }
     }
 
     private func take(_ snapshot: CmuxConfigSnapshot, theme: String?, edits: ThemeEdits, background: WindowBackgroundOverride,
-                      art: BackdropSelection?, shuffle: BackdropShuffle?, tuning: AppearanceTuning) {
+                      art: BackdropSelection?, shuffle: BackdropShuffle?, tuning: AppearanceTuning, reduced: Bool) {
         shuffling = shuffle
-        // `ui.reducedBackgrounds`: the plain theme background; the person's picks are kept.
-        let reduced = snapshot.reducedBackgrounds
+        // `reduced` (`ui.reducedBackgrounds`, from `applied` so a preview of it repaints): the plain
+        // theme background; the person's picks are kept.
         backdropScope.setBackdropsHidden(reduced)
         if shuffle != nil {
             showShuffledArt()
