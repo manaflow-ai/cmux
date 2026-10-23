@@ -5,6 +5,8 @@ import { COMPOSER_READY_EVENT } from "../composerFocus";
 import { Check, ChevronDown } from "../conversation/icons";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { Keycap } from "../Keycap";
+import { NativeError } from "../nativeError";
+import { errorMessage, isHostRefusal } from "../transportErrors";
 import {
   activeItem,
   canSubmit,
@@ -21,18 +23,21 @@ import {
   type CardInput,
   type CardState,
 } from "./cardState";
+import { HtmlPreview } from "./HtmlPreview";
+import { inlineText, plainText } from "./inlineText";
 import {
   declineReply,
   hasPreviews,
   itemAnswerText,
   QuestionProblemError,
-  questionSummary,
+  cancelledKey,
   reply,
   type AgentQuestion,
   type Answer,
   type Option,
   type QuestionReply,
 } from "./model";
+import { cancelledArgs } from "./record";
 import { questionPreviewLayout, type QuestionPreviewLayout } from "./previewLayout.experiment";
 
 /// The keys a pending card answers while focus is inside it (the AgentQuestionCardState inputs).
@@ -114,6 +119,16 @@ function PendingAsk({ question, onReply }: { question: AgentQuestion; onReply: R
 /// The prompt's typed text, without the placeholder MarkdownField keeps beside the editor.
 const composerText = (composer: Element) => composer.querySelector(".acpmux-md-root")?.textContent?.trim() ?? "";
 
+/// A refused reply's message when it is already in the person's language: the app's reply
+/// (NativeError's userMessage) or the pane's own words for a lost or timed-out request
+/// (`native.*`, direct.ts). Any other message is acpmux's English, meant for its CLI.
+function localizedMessage(error: unknown): string | undefined {
+  if (!(error instanceof Error) || !error.message) return undefined;
+  const { code } = error as { code?: unknown };
+  const local = error instanceof NativeError || (typeof code === "string" && code.startsWith("native."));
+  return local ? error.message : undefined;
+}
+
 /// Whether a card that just arrived may take the keyboard: nothing in the page has it, or the
 /// composer has it, and either way the composer holds no draft. A half-written (or restored)
 /// prompt keeps it, so a typed digit or Enter never answers the ask by surprise.
@@ -153,7 +168,9 @@ function PendingQuestion({
   // The ask a person already answered: the owner clears it a moment later, and until then a
   // second click or key must not answer it again. A refused reply clears it for a retry.
   const [sentFor, setSentFor] = useState<string | undefined>();
-  // Why the last reply was refused (the host's message, when it gave one), shown until the next try.
+  // The last reply's refusal, shown until the next try: the card's sentence, then the pane's words
+  // for a refusal it knows (transportErrors.ts) or a message already in the person's language (the
+  // app's or the pane's own). acpmux's English is for its CLI.
   const [refused, setRefused] = useState<{ reason?: string } | undefined>();
   // The row under the pointer: its preview shows while it is hovered, then the highlighted row's.
   const [hovered, setHovered] = useState<{ item: string; row: number } | undefined>();
@@ -177,7 +194,16 @@ function PendingQuestion({
     Promise.resolve(onReply(sentReply)).catch((error: unknown) => {
       // The ask stays pending: say why on the card and take input again.
       setSentFor((current) => (current === askId ? undefined : current));
-      setRefused({ reason: error instanceof Error && error.message ? error.message : undefined });
+      if (isHostRefusal(error)) {
+        setRefused({ reason: errorMessage(error) });
+        return;
+      }
+      const reason = localizedMessage(error);
+      if (reason) setRefused({ reason });
+      else {
+        console.warn("agent pane: an answer was refused", error);
+        setRefused({});
+      }
     });
   };
   /// Gives the keyboard back: the composer claims an idle keyboard on this event (composerFocus.ts).
@@ -328,7 +354,7 @@ function PendingQuestion({
     >
       <legend id={legendId} className="acpmux-question-head">
         <span className="acpmux-hidden-label">{t("question.asking", { agent })}</span>
-        <span className="acpmux-question-prompt">{item.prompt}</span>
+        <span className="acpmux-question-prompt">{inlineText(item.prompt)}</span>
         {item.header && <span className="acpmux-question-chip">{item.header}</span>}
       </legend>
       {state.question.items.length > 1 && (
@@ -377,8 +403,8 @@ function PendingQuestion({
                 >
                   <ChoiceMark multi={multi} chosen={chosen} />
                   <span className="acpmux-question-text">
-                    <span className="acpmux-question-label">{option.label}</span>
-                    {option.detail && <span className="acpmux-question-detail">{option.detail}</span>}
+                    <span className="acpmux-question-label">{inlineText(option.label)}</span>
+                    {option.detail && <span className="acpmux-question-detail">{inlineText(option.detail)}</span>}
                   </span>
                 </button>
                 {layout === "inline" && option === previewOption && preview}
@@ -473,11 +499,20 @@ export function previewText(text: string): string {
 /// it opens under that option's row.
 function OptionPreview({ id, t, option, inline }: { id: string; t: Translate; option: Option; inline: boolean }) {
   return (
-    <section className="acpmux-question-preview" data-inline={inline || undefined} aria-labelledby={id}>
+    <section
+      className="acpmux-question-preview"
+      data-inline={inline || undefined}
+      data-format={option.preview?.format}
+      aria-labelledby={id}
+    >
       <span id={id} className="acpmux-question-preview-label">
-        {t("question.preview", { option: option.label })}
+        {t("question.preview", { option: plainText(option.label) })}
       </span>
-      <pre>{previewText(option.preview?.text ?? "")}</pre>
+      {option.preview?.format === "html" ? (
+        <HtmlPreview html={option.preview.text} title={t("question.preview", { option: plainText(option.label) })} />
+      ) : (
+        <pre>{previewText(option.preview?.text ?? "")}</pre>
+      )}
     </section>
   );
 }
@@ -577,6 +612,8 @@ function respondentLine(t: Translate, answer: Answer): string | undefined {
   if (name && device) return t("question.answeredBy", { name, device });
   if (name) return t("question.answeredByName", { name });
   if (device) return t("question.answeredOn", { device });
+  // The person's app answered for another of their devices, which it names by an install id only.
+  if (answer.respondent?.isRemote) return t("question.answeredElsewhere");
   return undefined;
 }
 
@@ -594,8 +631,8 @@ function AnsweredQuestion({ question, answer }: { question: AgentQuestion; answe
       <span className="acpmux-question-answered-lines">
         {question.items.map((item) => (
           <span key={item.id} className="acpmux-question-answered-line">
-            <span className="acpmux-question-answered-key">{item.header ?? item.prompt}:</span>{" "}
-            {itemAnswerText(item, answer)}
+            <span className="acpmux-question-answered-key">{item.header ?? inlineText(item.prompt)}:</span>{" "}
+            {inlineText(itemAnswerText(item, answer))}
           </span>
         ))}
       </span>
@@ -604,9 +641,16 @@ function AnsweredQuestion({ question, answer }: { question: AgentQuestion; answe
   );
 }
 
+/// An ask that ended unanswered: one muted line that says how, when the record says (Skip, or the
+/// turn stopped before an answer), else "Not answered", and the question.
 function CancelledQuestion({ question }: { question: AgentQuestion }) {
   const t = useT();
   return (
-    <div className="acpmux-question-cancelled">{t("question.cancelled", { prompt: questionSummary(question) })}</div>
+    <div
+      className="acpmux-question-cancelled"
+      data-reason={question.state.kind === "cancelled" ? question.state.reason : undefined}
+    >
+      {t(cancelledKey(question), cancelledArgs(question))}
+    </div>
   );
 }

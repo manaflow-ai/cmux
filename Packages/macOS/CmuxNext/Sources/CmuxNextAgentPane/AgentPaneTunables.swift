@@ -145,8 +145,8 @@ public nonisolated struct AgentPaneTunables {
     /// with a header toggle that shows and hides it. On by default; off brings back the summary card.
     /// Listed in TunableCatalog on its own line, outside `all`, so it does not churn with that list.
     public static let inspector = Tunable<Bool>.toggle(
-        "agent.inspector", PageTunables.section, "Inspector",
-        help: "A header toggle opens the Inspector at the right of the chat: its environment, context, pull requests, subagents, background tasks and outputs.",
+        "agent.inspector", PageTunables.section, "Session Info",
+        help: "A header toggle opens Session Info at the right of the chat: its environment, context, pull requests, subagents, background tasks and outputs.",
         default: true, code: "AgentPaneTunables.inspector")
 
     /// Leo 2026-10-15: "Terminal: maybe not a toggle. Clicking the terminal button adds another
@@ -421,6 +421,7 @@ public nonisolated struct AgentPaneTunables {
             reasoningSliderStyle.descriptor,
             sessionStatus.descriptor,
             sidebarPreviewVariant.descriptor,
+            scrollerFade.descriptor,
             sideSessions.descriptor,
             streamWords.descriptor,
             subagentTray.descriptor,

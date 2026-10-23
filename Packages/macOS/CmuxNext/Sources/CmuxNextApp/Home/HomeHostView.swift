@@ -9,7 +9,6 @@ import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
-import CmuxNextImportCards
 import CmuxNextPages
 import CmuxNextWakeups
 
@@ -230,12 +229,6 @@ final class HomeHostView: NSView {
         }
         // The first-run panel's agent rows open the agent's tab like a jump (Search Tabs).
         transcript.onFirstRunAgent = { [weak services] tab in _ = services?.revealTab(tab) }
-        // What this Mac can bring over (Claude Code's sessions, a browser's history) is one row on
-        // the Chief's front page, under its action rows: never a strip over the conversation
-        // (Leo 2026-10-21, nightly 331e2e9). Not Now dismisses it; Show All opens Settings › Import.
-        let suggestion = ImportSuggestionRowView()
-        suggestion.onChange = { [weak transcript] in transcript?.firstRunAccessoryChanged() }
-        transcript.setFirstRunAccessory(suggestion)
         // task-owner: lives as long as this view; event-driven (Observation):
         // the user's agents for the first-run glance, only while it can show
         // (the Chief with no messages yet): otherwise no tab is read, so tab
