@@ -1263,6 +1263,16 @@
               "key" : "settings.group.palette",
               "text" : "Command Palette"
             }
+          },
+          {
+            "key" : "settings.group.macScreenKeyboard",
+            "rows" : [
+              "macScreen.systemShortcuts"
+            ],
+            "title" : {
+              "key" : "settings.group.macScreenKeyboard",
+              "text" : "Mac Screen"
+            }
           }
         ],
         "id" : "keyboard",
@@ -1414,6 +1424,30 @@
       },
       {
         "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "dev_only" : true,
+        "groups" : [
+
+        ],
+        "id" : "devices",
+        "lead" : [
+          "devices"
+        ],
+        "symbol" : "laptopcomputer",
+        "title" : {
+          "key" : "settings.category.devices",
+          "text" : "Devices"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
           "advanced"
         ],
         "aliases" : [
@@ -1475,6 +1509,49 @@
         "title" : {
           "key" : "settings.category.experimental",
           "text" : "Experimental"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+          "development"
+        ],
+        "dev_only" : true,
+        "groups" : [
+          {
+            "key" : "settings.group.macScreen",
+            "rows" : [
+              "macScreen.debug.relayOnly"
+            ],
+            "title" : {
+              "key" : "settings.group.macScreen",
+              "text" : "Mac Screen"
+            }
+          },
+          {
+            "key" : "settings.group.deviceHub",
+            "rows" : [
+              "deviceHub.url"
+            ],
+            "title" : {
+              "key" : "settings.group.deviceHub",
+              "text" : "Device Hub"
+            }
+          }
+        ],
+        "id" : "development",
+        "lead" : [
+
+        ],
+        "symbol" : "hammer",
+        "title" : {
+          "key" : "settings.section.development",
+          "text" : "Development"
         },
         "trail" : [
 
@@ -34925,6 +35002,170 @@
         true,
         false
       ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.macScreenKeyboard",
+        "text" : "Mac Screen"
+      },
+      "help" : {
+        "key" : "settings.macScreen.systemShortcuts.help",
+        "text" : "While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "macScreen.systemShortcuts",
+      "keywords" : [
+        "mac screen",
+        "remote",
+        "system shortcuts",
+        "command tab",
+        "spotlight",
+        "mission control",
+        "keyboard",
+        "accessibility"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "macScreen",
+        "systemShortcuts"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "keyboard",
+      "summary" : {
+        "key" : "settings.macScreen.systemShortcuts.summary",
+        "text" : "System shortcuts go to the remote Mac"
+      },
+      "title" : {
+        "key" : "settings.macScreen.systemShortcuts",
+        "text" : "Send System Shortcuts to the Remote Mac"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.macScreen",
+        "text" : "Mac Screen"
+      },
+      "help" : {
+        "key" : "settings.macScreen.debug.relayOnly.help",
+        "text" : "Mac Screen tabs connect through the TURN relay only, never directly, to check the relay path. Tabs that are connected reconnect."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "macScreen.debug.relayOnly",
+      "keywords" : [
+        "mac screen",
+        "relay",
+        "turn",
+        "webrtc",
+        "ice",
+        "development",
+        "debug"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "macScreen",
+        "debug",
+        "relayOnly"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "development",
+      "summary" : {
+        "key" : "settings.macScreen.debug.relayOnly.summary",
+        "text" : "Mac Screen streams use the relay only"
+      },
+      "title" : {
+        "key" : "settings.macScreen.debug.relayOnly",
+        "text" : "Relay Only"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "",
+        "https://cmux.com",
+        "example.com/path",
+        "about:blank",
+        "file:///tmp/a.html"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.deviceHub",
+        "text" : "Device Hub"
+      },
+      "help" : {
+        "key" : "settings.deviceHub.url.help",
+        "text" : "Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "deviceHub.url",
+      "keywords" : [
+        "device hub",
+        "devices",
+        "mac screen",
+        "backend",
+        "development",
+        "debug"
+      ],
+      "kind" : "url",
+      "page_hidden" : false,
+      "path" : [
+        "deviceHub",
+        "url"
+      ],
+      "refuses" : [
+        "not a url",
+        "ftp://example.com",
+        "localhost",
+        1
+      ],
+      "section" : "development",
+      "summary" : {
+        "key" : "settings.deviceHub.url.summary",
+        "text" : "Device hub address"
+      },
+      "title" : {
+        "key" : "settings.deviceHub.url",
+        "text" : "Device Hub Address"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
@@ -35807,6 +36048,14 @@
       "title" : {
         "key" : "settings.section.advanced",
         "text" : "Advanced"
+      }
+    },
+    {
+      "id" : "development",
+      "symbol" : "hammer",
+      "title" : {
+        "key" : "settings.section.development",
+        "text" : "Development"
       }
     }
   ],

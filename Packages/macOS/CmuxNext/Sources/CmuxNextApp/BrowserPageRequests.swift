@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
 import CmuxNextDaemon
+import CmuxNextMacScreen
 import CmuxNextNowPlaying
 import CmuxNextSettings
 import CmuxNextTabs
@@ -266,6 +267,11 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// browser profile. Shift-Return opens a new window with a new
     /// workspace that holds the tab (cmux windows hold workspaces).
     func openFromOmnibar(_ url: URL, _ disposition: OmnibarDisposition, page: any BrowserTab) {
+        // A pairing link (or a search for one) never loads anywhere: Mac Screen says why.
+        if let refusal = MacScreenPages.pairingLinkRefusal(for: url.absoluteString) {
+            services?.registry.refuse(refusal)
+            return
+        }
         switch disposition {
         case .currentTab:
             // The host's own pages and routed chrome:// pages, as a plain Return does.
