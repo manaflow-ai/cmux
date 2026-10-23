@@ -75,12 +75,12 @@ afterAll(() => {
 type Snapshot = import("../src/agent-session/acpmux/model").AcpmuxSnapshot;
 type Option = NonNullable<NonNullable<Snapshot["summary"]>["configOptions"]>[number];
 
-const effortOption = (id = "effort"): Option => ({
+const effortOption = (id = "effort", values = ["low", "medium", "high"]): Option => ({
   id,
   name: "Effort",
   category: "thought_level",
   currentValue: "medium",
-  options: ["low", "medium", "high"].map((value) => ({ value, name: value })),
+  options: values.map((value) => ({ value, name: value })),
 });
 const fastOption = (id = "fast-mode", values: [string, string] = ["off", "on"]): Option => ({
   id,
@@ -238,4 +238,20 @@ test("a held Fast pick the opened session does not offer is not sent", async () 
   await pickCombo("opus high fast", "Opus 5.5");
   await send("hello");
   expect(wire).toEqual(["model claude-opus-5-5", "effort=high", "prompt hello"]);
+});
+
+test("a session that reports no options takes none of the held picks", async () => {
+  const { wire, pickCombo, send } = await mountNewTab({ opened: [] });
+  await pickCombo("opus high fast", "Opus 5.5");
+  await send("hello");
+  expect(wire).toEqual(["model claude-opus-5-5", "prompt hello"]);
+});
+
+test("a held effort the opened session does not offer is not sent, and no other level stands in", async () => {
+  const { wire, pickCombo, send } = await mountNewTab({
+    opened: [effortOption("effort", ["low", "medium"]), fastOption()],
+  });
+  await pickCombo("opus high fast", "Opus 5.5");
+  await send("hello");
+  expect(wire).toEqual(["model claude-opus-5-5", "fast-mode=on", "prompt hello"]);
 });
