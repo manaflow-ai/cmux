@@ -52,6 +52,12 @@
 #   workspace opens: `NSWorkspace.shared.open(url)` and the Finder reveal
 #               calls block the main thread in LaunchServices (cx-050n); only
 #               CmuxNextCompat/NSWorkspace+Background.swift makes them.
+#   self-ending handles: a main-actor class in a uiSwiftSettings target that
+#               stores an OwnedTask or a MainDirectoryWatch declares
+#               `nonisolated deinit`. Those handles stop on the thread that
+#               releases them; behind an implicit (isolated) deinit the release
+#               hops to the main actor instead, the cx-t7hu trap inside an
+#               action's task-local scope. Full run only (pre-push).
 #   CHECK_CONCURRENCY_ONLY=crash-class runs only the isolated-deinit,
 #               generic-class deinit, task-local and workspace-open rules; CI
 #               blocks on it.
@@ -178,6 +184,13 @@ GENERIC_CLASS = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|package|internal
 NONISOLATED_DEINIT = re.compile(r"^\s*nonisolated\s+deinit\b")
 # A plain deinit takes the target's default isolation: main-actor in a uiSwiftSettings target.
 PLAIN_DEINIT = re.compile(r"^\s*deinit\b")
+# Any class declaration (not `class func` / `class var`); `nonisolated class` is not main-actor.
+CLASS_DECL = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|package|internal|private|fileprivate|open|final)\s+)*"
+                        r"class\s+(?!(func|var|let|subscript)\b)\w+")
+# A stored handle that stops when released, on the releasing thread (CmuxNextCompat's OwnedTask,
+# CmuxNextWakeups' MainDirectoryWatch): its owner's deinit must not hop to the main actor.
+SELF_ENDING_HANDLE = re.compile(r"^\s*(@\w+\s+)*((public|package|internal|private|fileprivate)(\(set\))?\s+)*"
+                                r"(lazy\s+)?(var|let)\s+\w+\s*:\s*\[?\s*(OwnedTask|MainDirectoryWatch)\b")
 TASK_LOCAL_BINDING = re.compile(r"\.withValue\s*\(")
 TASK_LOCAL_HELPER = "CmuxNextActions/TaskLocal+InTask.swift"
 # NSWorkspace.shared.open(x) with one argument, and the Finder reveal calls.
@@ -210,11 +223,16 @@ def crash_class_hits(code, lines, index, module, main_lines, relative):
 
 def declares_nonisolated_deinit(lines, index):
     """Whether the class declared at `index` has a `nonisolated deinit` at its own depth."""
+    return declares_at_class_depth(lines, index, NONISOLATED_DEINIT)
+
+
+def declares_at_class_depth(lines, index, pattern):
+    """Whether the type declared at `index` has a line matching `pattern` at its own depth."""
     depth = 0
     opened = False
     for line in lines[index:]:
         code = main_actor_scope.strip(line)  # no braces from string literals or comments
-        if opened and depth == 1 and NONISOLATED_DEINIT.match(code):
+        if opened and depth == 1 and pattern.match(code):
             return True
         for char in code:
             if char == "{":
@@ -286,6 +304,13 @@ for dirpath, _, files in os.walk(sources):
             if (module != WAKEUP_PRIMITIVES_MODULE and relative.replace(os.sep, "/") not in WAKEUP_PENDING_FILES
                     and not allowed(lines, index, WAKEUP_ALLOW)):
                 hits += [name for name, rx in rules_wakeup if rx.search(code)]
+            if (module in MAIN_ACTOR_MODULES and main_lines[index] and CLASS_DECL.match(code)
+                    and not GENERIC_CLASS.match(code)  # the crash-class rule already asks those for one
+                    and declares_at_class_depth(lines, index, SELF_ENDING_HANDLE)
+                    and not declares_nonisolated_deinit(lines, index) and not allowed(lines, index)):
+                hits.append("main-actor class stores an OwnedTask or MainDirectoryWatch with no `nonisolated deinit` "
+                            "(its implicit deinit is isolated: the release hops to the main actor, the cx-t7hu trap "
+                            "inside an action's task-local scope); declare `nonisolated deinit {}`")
             if is_service and UNOWNED_TASK.search(code) and not allowed(lines, index, TASK_OWNER):
                 hits.append("unowned Task in service code (store and cancel the handle, or `// task-owner: <reason>`)")
             for name in hits:
