@@ -129,7 +129,8 @@ public struct MailboxReply: Sendable, Equatable {
     public static func supports(_ reply: PushReply) -> Bool {
         switch reply.action {
         case .text(_, let attachments): attachments.isEmpty
-        case .deny: true
+        // A terminal agent's question (no permission id) is answered only over the link.
+        case .deny: !(reply.kind == .question && reply.permissionId == nil)
         case .allow: reply.decisionNonce != nil && reply.personInstance != nil
         case .option, .answers: false
         }

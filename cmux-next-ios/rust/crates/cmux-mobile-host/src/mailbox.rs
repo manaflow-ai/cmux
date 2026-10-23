@@ -247,7 +247,7 @@ impl SpentReplies {
             entry.outcome = Some(outcome.unwrap_or("applied").to_owned());
             entry.pending = false;
         }
-        self.save(&spent);
+        let _ = self.save(&spent);
     }
 
     /// Gives a claimed reply back (it could not be settled): a later copy is applied.
@@ -256,14 +256,14 @@ impl SpentReplies {
         for key in Self::keys(id, phone, nonce) {
             spent.remove(&key);
         }
-        self.save(&spent);
+        let _ = self.save(&spent);
     }
 
     /// Gives a claimed link reply back.
     pub fn release_link_reply(&self, id: &str) {
         let mut spent = self.spent.lock().unwrap_or_else(PoisonError::into_inner);
         spent.remove(&format!("id:{id}"));
-        self.save(&spent);
+        let _ = self.save(&spent);
     }
 
     fn claim_keys(&self, keys: Vec<String>, expires: u64, now: u64) -> Claim {
@@ -281,21 +281,30 @@ impl SpentReplies {
                 None => Claim::Seen { in_progress: false },
             };
         }
-        for key in keys {
-            spent.insert(key, Spent { until: expires, outcome: None, pending: true });
+        for key in &keys {
+            spent.insert(key.clone(), Spent { until: expires, outcome: None, pending: true });
         }
-        self.save(&spent);
+        // A claim the store could not write is not applied: a restart would forget it
+        // (review 2, N3).
+        if !self.save(&spent) {
+            for key in &keys {
+                spent.remove(key);
+            }
+            return Claim::Unreadable;
+        }
         Claim::Fresh
     }
 
-    fn save(&self, spent: &HashMap<String, Spent>) {
+    /// Writes the store; false when it could not.
+    fn save(&self, spent: &HashMap<String, Spent>) -> bool {
         if let Some(path) = &self.path
             && let Err(error) =
                 crate::push_keys::write_private(path, &serde_json::to_vec(spent).unwrap_or_default())
         {
-            // Memory still holds it: a replay before a restart is refused anyway.
             tracing::warn!(%error, "could not save spent mailbox replies");
+            return false;
         }
+        true
     }
 }
 
@@ -821,10 +830,15 @@ mod tests {
     #[test]
     fn a_claim_that_cannot_be_saved_is_not_applied() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("no-such-dir").join("mailbox-spent.json");
-        let spent = SpentReplies::load(path);
+        // A folder this user can read but not write: the store loads (empty), then can't save.
+        use std::os::unix::fs::PermissionsExt as _;
+        let locked = dir.path().join("locked");
+        std::fs::create_dir(&locked).unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let spent = SpentReplies::load(locked.join("mailbox-spent.json"));
         assert_eq!(spent.claim("r", PHONE, "n", NOW + 60, NOW), Claim::Unreadable);
         assert_eq!(spent.claim_link_reply("r", NOW), Claim::Unreadable);
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
 
     #[test]

@@ -138,9 +138,17 @@ pinned. The service alone can't make the phone believe a reply was applied.
   and its name.
 - **Terminal text.** A program can word a notification to invite a harmful
   reply. The reply is text the person typed, goes only to the program that
-  posted that notification while it still holds its terminal, and needs the
-  device unlocked; an agent's reply waits for the agent's prompt where the
-  daemon supports it (`send-expect-agent-v1`).
+  posted that notification (the same pid and executable) while it still holds its
+  terminal, and needs the device unlocked. On a terminal where an agent runs (a
+  hook's notification, or `cmux notify --reply` posted from inside the agent), the
+  reply is one write bound to that agent's session that the daemon makes only while
+  the agent waits at its prompt (`send-expect-agent-v1`), so a Return never lands on
+  an approval dialog; a Mac without it, or an agent whose session is unknown, takes
+  no reply.
+- **Mailbox outcomes.** The Mac signs its outcome over the reply's id, not the
+  sealed blob: a service that delivers junk under a real reply's id gets a signed
+  rejection, and the phone says the reply wasn't accepted although it never
+  arrived. That is the same as the service dropping the reply (availability).
 
 ## Recommendation for #13742 (draft, not posted)
 
@@ -157,9 +165,11 @@ pinned. The service alone can't make the phone believe a reply was applied.
 >    key and signed by the phone's Secure Enclave key. The Mac applies it only
 >    when the signature is a paired phone's, the target is still pending, it
 >    is at most 9 minutes old from when the person sent it (a Retry doesn't
->    extend that), and it was never applied before. An Allow still needs Face
+>    extend that; the Mac itself accepts at most 10), and it was never applied
+>    before. An Allow still needs Face
 >    ID and the acpmux approval signature, as in the app; question answers
->    never take this path. The Mac signs what it did with each reply, so the
+>    never take this path (the phone sends none; an answer the Mac received
+>    would still need the Face ID approval signature). The Mac signs what it did with each reply, so the
 >    phone shows "applied" only on the Mac's word. The service can delay,
 >    drop or flood replies (up to 10 minutes, then they expire), and sees
 >    their size, timing and target Mac. It can't read, change, forge or
@@ -167,14 +177,19 @@ pinned. The service alone can't make the phone believe a reply was applied.
 > 2. **Terminal input from a notification.** A program in a cmux terminal that
 >    asks for replies (`cmux notify --reply`) gets a Reply button. The text
 >    goes as typed input only to the program that posted that notification,
->    only while that same process still holds the terminal, within 15
->    minutes, and only after the device is unlocked (Face ID or passcode),
->    from the lock screen too. Nothing typed into the long-press view reaches
->    a terminal. A program can word its notification to invite a harmful
->    reply; what is sent is only what the person typed.
+>    only while it (the same pid and executable) still holds the terminal,
+>    within 15 minutes, and only after the device is unlocked (Face ID or
+>    passcode), from the lock screen too. On a terminal where an agent runs, it
+>    goes only while that agent waits at its prompt, never onto an approval
+>    dialog. No free text typed into the long-press view reaches a terminal; a
+>    terminal agent's question answered there is typed as its option keys,
+>    after unlock and only while the terminal shows that very question. A
+>    program can word its notification to invite a harmful reply; what is sent
+>    is only what the person typed.
 >
-> Sealed payloads (the Mac encrypts notification content to the phone, and the
-> phone ignores unsealed pushes from that Mac) only narrow what the service
+> Sealed payloads (the Mac encrypts notification content to the phone; the phone
+> ignores unsealed pushes from that Mac, and a sealed push acts only under the
+> banner and buttons the phone itself wrote from it) only narrow what the service
 > and Apple see and can steer, and need no decision.
 >
 > Residual risks: a service in the middle of a phone's first pairing with a

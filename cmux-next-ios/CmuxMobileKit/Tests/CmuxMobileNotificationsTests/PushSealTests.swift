@@ -274,6 +274,10 @@ struct SealVectors: Decodable {
         let answer = PushReply(mac: "m", kind: .question, action: .option(0, label: "A"))
         #expect(throws: MailboxReply.Failure.unsupported) { try MailboxReply(reply: answer, phone: "p", nonce: "n", now: Self.when) }
         #expect(!MailboxReply.supports(answer))
+        // A terminal agent's question has no permission id: its Deny is Escape typed into the
+        // terminal, which only the link's screen check may do (review 2, N5).
+        #expect(!MailboxReply.supports(PushReply(mac: "m", kind: .question, tabId: "s1", action: .deny(optionID: nil))))
+        #expect(MailboxReply.supports(PushReply(mac: "m", kind: .permission, permissionId: "p", action: .deny(optionID: nil))))
         let allow = PushReply(mac: "m", kind: .permission, action: .allow(optionID: "o"))
         #expect(throws: MailboxReply.Failure.unsigned) { try MailboxReply(reply: allow, phone: "p", nonce: "n", now: Self.when) }
         #expect(!MailboxReply.supports(allow))

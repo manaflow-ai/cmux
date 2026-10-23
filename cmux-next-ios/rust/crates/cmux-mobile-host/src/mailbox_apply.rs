@@ -224,17 +224,27 @@ pub async fn reply_to_notification(
         .await?;
     let now_ms = crate::mailbox::now().saturating_mul(1000);
     let program = reply_target(row, &info, now_ms)?;
-    // An agent's notification (a hook on a terminal tab): with `send-expect-agent-v1`
-    // (#24205) one write, text and Return, only while that agent waits at its prompt,
-    // so a Return never lands on an approval dialog. Else, or when this host's policy
-    // does not know the fields yet, the two writes below.
-    if row.get("source").and_then(Value::as_str) == Some("agent") {
-        let identify =
-            lines.call_daemon(&policy, &json!({"id": "mailbox-identify", "cmd": "identify"})).await?;
-        if has_capability(&identify, SEND_EXPECT_AGENT)
-            && let Some(answer) =
-                lines.call_daemon_if_allowed(&policy, &agent_reply_line(found, text, &program, "")).await?
-        {
+    // Any notification on a terminal where an agent runs (a hook's, or `cmux notify
+    // --reply` from inside the agent): one write, text and Return, only while that agent
+    // waits at its prompt in its own session (`send-expect-agent-v1`, #24205), so a Return
+    // never lands on an approval dialog. Without the capability or the session, nothing
+    // is typed (review 2, N1, N2). A plain program's terminal takes the two writes below.
+    let agents = lines.call_daemon(&policy, &json!({"id": "mailbox-agents", "cmd": "list-agents"})).await?;
+    match agent_session(&agents, found) {
+        AgentOnTerminal::None => {}
+        AgentOnTerminal::Unknown => return Err(refused("an agent runs in that terminal; answer it in the app")),
+        AgentOnTerminal::Session(session) => {
+            let identify =
+                lines.call_daemon(&policy, &json!({"id": "mailbox-identify", "cmd": "identify"})).await?;
+            if !has_capability(&identify, SEND_EXPECT_AGENT) {
+                return Err(refused("update cmux on this Mac to reply to an agent from a notification"));
+            }
+            let Some(answer) = lines
+                .call_daemon_if_allowed(&policy, &agent_reply_line(found, text, &program, &session))
+                .await?
+            else {
+                return Err(refused("update cmux on this Mac to reply to an agent from a notification"));
+            };
             return failed(&answer).map_or(Ok(()), |why| Err(refused(why)));
         }
     }
@@ -330,9 +340,9 @@ pub fn has_capability(identify: &Value, capability: &str) -> bool {
 
 /// One `send` of a reply to an agent's notification: pasted and submitted only
 /// while the terminal's agent waits at its prompt and `program` holds the terminal.
-pub fn agent_reply_line(surface: u64, text: &str, program: &str, _session: &str) -> Value {
+pub fn agent_reply_line(surface: u64, text: &str, program: &str, session: &str) -> Value {
     json!({"id": "mailbox-agent-reply", "cmd": "send", "surface": surface, "text": text, "paste": true,
-           "submit": true, "expect_agent": {}, "expect_foreground": program})
+           "submit": true, "expect_agent": {"session": session}, "expect_foreground": program})
 }
 
 /// What `list-agents` says runs on a terminal.
@@ -344,8 +354,16 @@ pub enum AgentOnTerminal {
 }
 
 /// The agent on `surface` in `list-agents`' answer.
-pub fn agent_session(_agents: &Value, _surface: u64) -> AgentOnTerminal {
-    AgentOnTerminal::None
+pub fn agent_session(agents: &Value, surface: u64) -> AgentOnTerminal {
+    let data = agents.get("data").unwrap_or(agents);
+    let rows = data.get("agents").and_then(Value::as_array);
+    let Some(row) = rows.into_iter().flatten().find(|a| a.get("surface").and_then(Value::as_u64) == Some(surface)) else {
+        return AgentOnTerminal::None;
+    };
+    match row.get("agent_session_id").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+        Some(session) => AgentOnTerminal::Session(session.to_owned()),
+        None => AgentOnTerminal::Unknown,
+    }
 }
 
 /// The two `send` lines of a terminal reply: the text pasted, then Return.
