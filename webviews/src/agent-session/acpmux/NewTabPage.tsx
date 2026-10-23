@@ -120,8 +120,12 @@ export type NewTabHost = {
   /// The widget view under the composer (Debug Settings `newTab.widgets`, newtab/WidgetCards.tsx).
   widgets?: boolean;
   /// The Minimal layout's widgets the user turned on (`tabs.newTabWidgets.*`, newtab/pageWidgets.ts);
-  /// unset is Settings' defaults (the greeting).
+  /// unset is Settings' defaults (none: the composer alone).
   pageWidgets?: PageWidget[];
+  /// `tabs.newTabWidgets.greeting` is set to false in cmux.json, not left to the default: Minimal
+  /// keeps no room for the headline over the composer, which stays where it sat with the greeting
+  /// off (newtab/screen.css .nt-headline-slot).
+  headlineOff?: true;
   /// The page lists only its own connection's chats, not the store every page shares (Debug
   /// Settings `newTab.privateChatLists`, newtab/chatStore.ts).
   privateChatLists?: boolean;
@@ -179,6 +183,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(object.history === true ? { history: true } : {}),
     ...(object.widgets === true ? { widgets: true } : {}),
     ...(pageWidgets ? { pageWidgets } : {}),
+    ...(object.headlineOff === true ? { headlineOff: true as const } : {}),
     ...(object.privateChatLists === true ? { privateChatLists: true } : {}),
     ...(object.allChats === false ? { allChats: false as const } : {}),
   };

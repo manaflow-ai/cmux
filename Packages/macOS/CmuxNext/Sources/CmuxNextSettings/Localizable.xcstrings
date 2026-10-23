@@ -78031,265 +78031,265 @@
       }
     },
     "settings.tabs.newTabWidgets.greeting": {
-      "comment": "Settings: toggle that shows a short greeting by the time of day over the New Tab page's composer.",
+      "comment": "Settings: toggle that shows a headline over the New Tab page's composer asking what to work on, with the project as an inline picker.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إظهار التحية في علامة التبويب الجديدة"
+            "value": "السؤال عمّا نعمل عليه في علامة التبويب الجديدة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prikaži pozdrav na novoj kartici"
+            "value": "Pitaj na čemu radimo na novoj kartici"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis hilsen på ny fane"
+            "value": "Spørg, hvad vi skal arbejde på, på ny fane"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Begrüßung im neuen Tab anzeigen"
+            "value": "Im neuen Tab fragen, woran wir arbeiten"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show Greeting on New Tab"
+            "value": "Ask What to Work On on New Tab"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar saludo en la nueva pestaña"
+            "value": "Preguntar en qué trabajar en la nueva pestaña"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afficher le message d’accueil dans le nouvel onglet"
+            "value": "Demander sur quoi travailler dans le nouvel onglet"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostra saluto nella nuova scheda"
+            "value": "Chiedi su cosa lavorare nella nuova scheda"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新規タブに挨拶を表示"
+            "value": "新規タブで取り組む内容を尋ねる"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បង្ហាញ​ការ​ស្វាគមន៍​នៅ​លើ​ផ្ទាំង​ថ្មី"
+            "value": "សួរថាត្រូវធ្វើការលើអ្វីនៅលើផ្ទាំងថ្មី"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 탭에 인사말 보기"
+            "value": "새 탭에서 무엇을 작업할지 묻기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis hilsen på ny fane"
+            "value": "Spør hva vi skal jobbe med på ny fane"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pokaż powitanie na nowej karcie"
+            "value": "Pytaj, nad czym pracujemy, na nowej karcie"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar saudação na nova aba"
+            "value": "Perguntar no que trabalhar na nova aba"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Показывать приветствие на новой вкладке"
+            "value": "Спрашивать, над чем работаем, на новой вкладке"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แสดงคำทักทายบนแท็บใหม่"
+            "value": "ถามว่าจะทำงานอะไรบนแท็บใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yeni sekmede selamlamayı göster"
+            "value": "Yeni sekmede ne üzerinde çalışacağımızı sor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Показувати привітання на новій вкладці"
+            "value": "Питати, над чим працюємо, на новій вкладці"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hiện lời chào trên tab mới"
+            "value": "Hỏi sẽ làm gì trên thẻ mới"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在新标签页显示问候语"
+            "value": "在新标签页询问要做什么"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在新分頁顯示問候語"
+            "value": "在新分頁詢問要做什麼"
           }
         }
       }
     },
     "settings.tabs.newTabWidgets.greeting.help": {
-      "comment": "Settings: help for the toggle that shows a greeting on the New Tab page.",
+      "comment": "Settings: help for the toggle that shows a headline over the New Tab page's composer asking what to work on.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تحية قصيرة فوق مربع الكتابة."
+            "value": "عنوان فوق محرر الرسائل يسأل عمّا نعمل عليه، مع المشروع كأداة اختيار."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kratak pozdrav iznad polja za pisanje."
+            "value": "Naslov iznad polja za unos koji pita na čemu radimo, s projektom kao biračem."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "En kort hilsen over skrivefeltet."
+            "value": "En overskrift over skrivefeltet, der spørger, hvad vi skal arbejde på, med projektet som vælger."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eine kurze Begrüßung über dem Eingabefeld."
+            "value": "Eine Überschrift über dem Eingabefeld, die fragt, woran wir arbeiten, mit dem Projekt als Auswahl."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A short greeting over the composer."
+            "value": "A headline over the composer that asks what to work on, with the project as a picker."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un breve saludo sobre el compositor."
+            "value": "Un titular sobre el editor que pregunta en qué trabajar, con el proyecto como selector."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un court message d’accueil au-dessus du champ de saisie."
+            "value": "Un titre au-dessus de la zone de saisie qui demande sur quoi travailler, avec le projet comme sélecteur."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un breve saluto sopra il compositore."
+            "value": "Un titolo sopra il campo di composizione che chiede su cosa lavorare, con il progetto come selettore."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "入力欄の上に短い挨拶を表示します。"
+            "value": "コンポーザーの上に、何に取り組むかを尋ねる見出しを表示します。プロジェクトはその場で選べます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ការ​ស្វាគមន៍​ខ្លី​នៅ​ពី​លើ​ប្រអប់​សរសេរ។"
+            "value": "ចំណងជើងនៅពីលើប្រអប់សរសេរ ដែលសួរថាត្រូវធ្វើការលើអ្វី ដោយមានគម្រោងជាអ្នកជ្រើសរើស។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "입력창 위에 짧은 인사말을 보여 줍니다."
+            "value": "작성기 위에 무엇을 작업할지 묻는 제목을 표시하며, 프로젝트를 바로 고를 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "En kort hilsen over skrivefeltet."
+            "value": "En overskrift over skrivefeltet som spør hva vi skal jobbe med, med prosjektet som velger."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Krótkie powitanie nad polem tekstowym."
+            "value": "Nagłówek nad polem tekstowym, który pyta, nad czym pracujemy, z projektem do wybrania."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uma saudação curta acima do compositor."
+            "value": "Um título acima do editor que pergunta no que trabalhar, com o projeto como seletor."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Короткое приветствие над полем ввода."
+            "value": "Заголовок над полем ввода, который спрашивает, над чем работаем, с выбором проекта."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "คำทักทายสั้น ๆ เหนือช่องเขียน"
+            "value": "หัวข้อเหนือช่องเขียนข้อความที่ถามว่าจะทำงานอะไร พร้อมตัวเลือกโปรเจกต์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yazma alanının üstünde kısa bir selamlama."
+            "value": "Oluşturucunun üstünde ne üzerinde çalışacağımızı soran bir başlık; proje bir seçici olarak gösterilir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Коротке привітання над полем введення."
+            "value": "Заголовок над полем введення, який питає, над чим працюємо, з вибором проєкту."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Một lời chào ngắn phía trên ô soạn thảo."
+            "value": "Một tiêu đề phía trên ô soạn thảo hỏi sẽ làm gì, với dự án là một bộ chọn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在输入框上方显示简短的问候语。"
+            "value": "在输入框上方显示询问要做什么的标题，项目可直接选择。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在輸入框上方顯示簡短的問候語。"
+            "value": "在輸入框上方顯示詢問要做什麼的標題，專案可直接選擇。"
           }
         }
       }

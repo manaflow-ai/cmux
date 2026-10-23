@@ -15,8 +15,8 @@ const page = (dot: NewTabDot) => ({
     cwd: CWD,
     home: "/Users/you",
     lastAgent: "claude",
-    // The host's widget list: the greeting (Settings' default), and the quick actions for the second dot.
-    pageWidgets: DOT_STATES[dot].actions ? ["greeting", "actions"] : ["greeting"],
+    // The host's widget list: none (Settings' default, no headline), and the quick actions for the second dot.
+    pageWidgets: DOT_STATES[dot].actions ? ["actions"] : [],
   },
   newSession: true,
 });
