@@ -53,7 +53,7 @@ import Testing
     }
 
     @Test func theUndoOfAnOlderDaemonsCloseFindsOneItemPerWorkspace() {
-        let items = ["x", "y"].map { ClosedItem(id: "closed_\($0)", kind: .workspace, name: $0) }
+        let items = ["x", "y"].map { (name: String) in ClosedItem(id: "closed_\(name)", kind: .workspace, name: name) }
         let found = WorkspaceGroupClose.matching(names: ["x", "y", "z"], group: nil, fresh: items)
         #expect(found.workspaces == ["closed_x", "closed_y"])
         #expect(found.missing == ["z"], "z has not arrived yet")
