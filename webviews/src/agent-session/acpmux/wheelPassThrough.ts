@@ -29,7 +29,9 @@ function passesThrough(target: Element): boolean {
 /// Scrolls `scroller` by a vertical wheel that landed outside it. The scroller first gets a copy of
 /// the event, so its own wheel listeners run as for a wheel over it (the scroll counts as the
 /// reader's, a glide, a minimap jump or a Jump to latest in flight ends, a mouse wheel's notch
-/// glides instead of jumping). A pinch (ctrl) or a mostly sideways wheel is left alone.
+/// glides instead of jumping). A pinch (ctrl) or a mostly sideways wheel is left alone, and a wheel
+/// with shift, option or command scrolls nothing here, as the transcript's own wheel handling
+/// (wheelGlide.ts) leaves a modified wheel to the engine; its copy still ends a glide in flight.
 export function forwardWheel(scroller: HTMLElement, event: WheelEvent): void {
   if (event.defaultPrevented || event.ctrlKey) return;
   if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
@@ -49,6 +51,7 @@ export function forwardWheel(scroller: HTMLElement, event: WheelEvent): void {
     wheelDeltaY: (event as WheelEvent & { wheelDeltaY?: number }).wheelDeltaY,
   } as WheelEventInit);
   if (!scroller.dispatchEvent(copy)) return;
+  if (event.metaKey || event.shiftKey || event.altKey) return;
   scroller.scrollTop += wheelPixels(event, scroller.clientHeight);
 }
 

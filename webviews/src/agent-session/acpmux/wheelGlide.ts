@@ -85,12 +85,16 @@ export function installWheelGlide(scroller: HTMLElement): { stop: () => void; re
   let wrote = 0;
   /// The offset a step announced with its own scroll event, until the browser's event for that write.
   let announced: number | undefined;
+  /// Whether the wheel sent the view to the bottom: a reply that grows meanwhile moves the bottom, and
+  /// the glide follows it there, so it lands where the chat follows the reply.
+  let toEnd = false;
   const stop = () => {
     if (!frame) return;
     cancelAnimationFrame(frame);
     frame = 0;
     distance = 0;
     done = 0;
+    toEnd = false;
     for (const name of READER_INPUTS) page.removeEventListener(name, stop, true);
     doc.removeEventListener("visibilitychange", onVisibility);
   };
@@ -109,6 +113,12 @@ export function installWheelGlide(scroller: HTMLElement): { stop: () => void; re
     const progress = Math.min(1, Math.max(0, (now - start) / WHEEL_GLIDE_MS));
     // Rows that landed or measured moved the view: the glide carries on from where they put it.
     position += scroller.scrollTop - wrote;
+    const max = scroller.scrollHeight - scroller.clientHeight;
+    // Headed for the bottom, and the reply below grew: the rest of the glide goes to the new bottom.
+    if (toEnd) {
+      const short = max - (position + distance - done);
+      if (short > 0) distance += short;
+    }
     const next = distance * ease(progress);
     position += next - done;
     done = next;
@@ -123,7 +133,6 @@ export function installWheelGlide(scroller: HTMLElement): { stop: () => void; re
       announced = wrote;
       scroller.dispatchEvent(new Event("scroll"));
     }
-    const max = scroller.scrollHeight - scroller.clientHeight;
     // At an end the rest of the distance goes nowhere.
     const blocked = (distance < 0 && wrote <= 0) || (distance > 0 && wrote >= max - 0.5);
     if (progress >= 1 || blocked) stop();
@@ -160,7 +169,8 @@ export function installWheelGlide(scroller: HTMLElement): { stop: () => void; re
     const gliding = frame !== 0;
     const from = gliding ? position + scroller.scrollTop - wrote : scroller.scrollTop;
     const headed = gliding ? from + distance - done : from;
-    const target = Math.max(0, Math.min(max, headed + wheelPixels(event, scroller.clientHeight)));
+    const wanted = headed + wheelPixels(event, scroller.clientHeight);
+    const target = Math.max(0, Math.min(max, wanted));
     // Already at that end: nothing to glide (and the event still asks for older history at the top).
     if (Math.abs(target - from) < 0.5) return;
     event.preventDefault();
@@ -168,6 +178,7 @@ export function installWheelGlide(scroller: HTMLElement): { stop: () => void; re
     wrote = scroller.scrollTop;
     distance = target - from;
     done = 0;
+    toEnd = wanted >= max - 0.5;
     // The glide starts in the next frame, one frame along, so a notch never waits a frame unmoved.
     start = -1;
     if (!gliding) {
