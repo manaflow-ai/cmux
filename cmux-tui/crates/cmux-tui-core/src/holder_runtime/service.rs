@@ -379,12 +379,15 @@ impl HolderService {
         )
     }
 
-    /// Start the holder from the host executable (the slim, content-addressed
-    /// `cmux-tui-host` on macOS) and wait until it listens.
+    /// Start a holder and wait until it listens: the standalone
+    /// `cmux-holder` (std and libc only, its own content-addressed copy on
+    /// macOS, `crate::host_exe::holder_executable`) when the daemon has one
+    /// that speaks its wire, else the holder built into the host executable
+    /// (`cmux-tui-host __holder`).
     fn launch(&self) -> io::Result<()> {
-        let mut child = crate::host_exe::spawn_host(|command| {
+        let configure = |command: &mut std::process::Command| {
             command
-                .args(["__holder", "--socket"])
+                .arg("--socket")
                 .arg(&self.socket)
                 // Every shell gets back the open-file limit cmux started
                 // with; the holder keeps the daemon's raised one.
@@ -395,7 +398,26 @@ impl HolderService {
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null());
-        })?;
+        };
+        let standalone = standalone_holder().and_then(|path| {
+            use std::os::unix::process::CommandExt;
+            let mut command = std::process::Command::new(&path);
+            command.arg0(crate::host_exe::HOLDER_NAME);
+            configure(&mut command);
+            command
+                .spawn()
+                .inspect_err(|error| {
+                    eprintln!("cmux-tui: start the terminal holder {}: {error}", path.display());
+                })
+                .ok()
+        });
+        let mut child = match standalone {
+            Some(child) => child,
+            None => crate::host_exe::spawn_host(|command| {
+                command.arg("__holder");
+                configure(command);
+            })?,
+        };
         let hex: String = self.token.iter().map(|byte| format!("{byte:02x}")).collect();
         let mut stdin = child.stdin.take().ok_or_else(|| io::Error::other("no holder stdin"))?;
         stdin.write_all(format!("{hex}\n").as_bytes())?;
@@ -412,6 +434,30 @@ impl HolderService {
         }
         Ok(())
     }
+}
+
+/// The standalone holder this daemon starts, when it has one whose wire
+/// range it speaks (`cmux-holder --version`).
+pub(crate) fn standalone_holder() -> Option<PathBuf> {
+    crate::host_exe::holder_executable(&|answer| {
+        cmux_holder::parse_version_line(answer).is_some_and(|(min, max)| {
+            min <= cmux_holder::wire::VERSION && max >= cmux_holder::wire::MIN_VERSION
+        })
+    })
+}
+
+/// Make the standalone holder's copy and run its `--version` on a
+/// background thread, so the first terminal of a session does not pay for
+/// the copy, its hash and its first exec. Only with the holder model on.
+/// A daemon calls it when it starts serving (unit tests start none).
+#[cfg(not(test))]
+pub(crate) fn prepare_in_background() {
+    if !super::enabled() {
+        return;
+    }
+    let _ = std::thread::Builder::new().name("cmux-holder-exe".into()).spawn(|| {
+        let _ = standalone_holder();
+    });
 }
 
 /// `/tmp/cmux-hd-<uid>/<hash of the host root>.sock`: short enough for

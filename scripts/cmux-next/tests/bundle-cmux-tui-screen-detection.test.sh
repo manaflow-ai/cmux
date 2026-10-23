@@ -23,7 +23,7 @@ bin="$TMP/app/Contents/Resources/bin"
 bundle() { # <tui binary> <mode> [extra env...]
   local tui="$1" mode="$2"; shift 2
   env -u CMUX_NEXT_APP_HOST_BIN -u CMUX_NEXT_CLOUD_SERVER_BIN -u CMUX_NEXT_BROWSER_HOST_BIN \
-    -u CMUX_NEXT_AGENT_SCREEN_DETECTION_BIN -u CMUX_TUI_CLIENT_LOCAL \
+    -u CMUX_NEXT_AGENT_SCREEN_DETECTION_BIN -u CMUX_NEXT_TERMINAL_HOST_BIN -u CMUX_NEXT_HOLDER_BIN -u CMUX_TUI_CLIENT_LOCAL \
     TARGET_BUILD_DIR="$TMP/app" UNLOCALIZED_RESOURCES_FOLDER_PATH=Contents/Resources \
     SRCROOT="$ROOT" CONFIGURATION=Release CMUX_NEXT_TUI_MODE="$mode" CMUX_NEXT_TUI_BIN="$tui" \
     "$@" bash "$ROOT/scripts/cmux-next/bundle-cmux-tui.sh" >"$TMP/out" 2>&1 \

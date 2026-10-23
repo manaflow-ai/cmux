@@ -2026,6 +2026,8 @@ jobs:
           CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty-next rev-parse HEAD)"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-host --release --locked --target aarch64-apple-darwin
+          # The terminal holder, installed beside cmux-tui (its own invocation: std and libc only).
+          cargo build -p cmux-holder --bin cmux-holder --release --locked --target aarch64-apple-darwin
           cargo build -p acpmux --bin acpmux --release --locked --target aarch64-apple-darwin
           binary="target/aarch64-apple-darwin/release/cmux-tui"
           test -x "$binary"
@@ -2424,7 +2426,7 @@ jobs:
           SENTRY_ORG: manaflow
           SENTRY_PROJECT: cmuxterm-macos
         # Retried, and only a warning when Sentry stays down: a nightly is never lost to symbolication.
-        # The fast build also uploads the Rust client's dSYMs (cmux-tui, cmux-tui-host; acpmux is
+        # The fast build also uploads the Rust client's dSYMs (cmux-tui, cmux-tui-host, cmux-holder; acpmux is
         # linked into cmux-tui), when the build step above made them.
         # It runs in the background while the unsigned app and the kept dSYMs upload (it held
         # this serialized warm slot 38-39 s after them in runs 39509829525, 39519824930); "Finish
@@ -2434,7 +2436,8 @@ jobs:
           set -uo pipefail
           paths=(build-universal/Build/Products/Release/)
           for dsym in cmux-tui/target/aarch64-apple-darwin/release/cmux-tui.dSYM \
-                      cmux-tui/target/aarch64-apple-darwin/release/cmux-tui-host.dSYM; do
+                      cmux-tui/target/aarch64-apple-darwin/release/cmux-tui-host.dSYM \
+                      cmux-tui/target/aarch64-apple-darwin/release/cmux-holder.dSYM; do
             [ -d "$dsym" ] && paths+=("$dsym")
           done
           state="$RUNNER_TEMP/sentry-dsyms"
