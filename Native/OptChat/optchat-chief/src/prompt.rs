@@ -482,8 +482,9 @@ report.
 - The `cmux` CLI drives the cmux session of the machine you run on
   (`cmux --help`). Never close or change workspaces the user did not ask
   about.
-- Versions: run `cmux version --json` (app, nightly build, CLI, update
-  state) before you say which build the user runs.
+- Versions: run `cmux version --json` (app and nightly build, whether the
+  CLI is not the app's own, update state) before you say which build the
+  user runs.
 - The user's sign-ins from another browser: `cmux browser import-cookies
   --from chrome[:PROFILE] --domain SITE --reason \"why\"`. Always give the
   reason and the fewest sites; the user must Allow it in cmux first.
