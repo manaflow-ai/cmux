@@ -188,6 +188,20 @@ struct CLIWorkspaceRefResolutionTests {
         #expect(params["workspace_id"] as? String == Self.liveWorkspaceId)
     }
 
+    /// A positional pane selector after another flag must be sent as the pane,
+    /// rather than treating the preceding flag name as the selector.
+    @Test func focusPaneAfterWorkspaceFlagUsesPositionalPane() throws {
+        let (requests, result) = try runFocusPane(
+            arguments: ["--workspace", Self.focusWorkspaceId, Self.focusPaneRef]
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        let focus = try #require(requests.last { $0["method"] as? String == "pane.focus" })
+        let params = try #require(focus["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.focusWorkspaceId)
+        #expect(params["pane_id"] as? String == Self.focusPaneRef)
+    }
+
     /// Drives `reorder-workspace` against a mock socket holding one window with one
     /// workspace, and returns the recorded JSON-RPC requests plus the process result.
     ///
@@ -310,12 +324,69 @@ struct CLIWorkspaceRefResolutionTests {
         return (try state.requestObjects(), result)
     }
 
+    /// Drives `focus-pane` against a mock socket and returns the recorded JSON-RPC
+    /// requests plus the process result.
+    private func runFocusPane(
+        arguments: [String]
+    ) throws -> ([[String: Any]], ProcessRunResult) {
+        let socketPath = Self.makeSocketPath("pane-focus")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            guard method == "pane.focus" else {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+            return Self.v2Response(id: id, ok: true, result: [
+                "pane_id": Self.focusPaneRef,
+                "workspace_id": Self.focusWorkspaceId,
+            ])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment.removeValue(forKey: "CMUX_SURFACE_ID")
+        environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
+        environment.removeValue(forKey: "CMUX_WINDOW_ID")
+
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: ["focus-pane"] + arguments,
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+
+        return (try state.requestObjects(), result)
+    }
+
     // Post-#13633 ordinals start at 1_000_000_000, so these are realistic live refs.
     private static let liveRef = "workspace:1000000003"
     private static let staleRef = "workspace:1000000009"
     private static let liveWorkspaceId = "33333333-3333-3333-3333-333333333333"
     private static let windowId = "55555555-5555-5555-5555-555555555555"
     private static let secondWindowId = "66666666-6666-6666-6666-666666666666"
+    private static let focusWorkspaceId = "77777777-7777-7777-7777-777777777777"
+    private static let focusPaneRef = "pane:3"
 
     private final class CLIWorkspaceRefResolutionBundleToken {}
 
