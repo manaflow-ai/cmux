@@ -869,9 +869,15 @@ impl crate::browser_policy::MacPages for ServiceConfig {
 impl crate::surface::SurfaceTabs for ServiceConfig {
     fn is_phone_tab(&self, surface: u64) -> futures_util::future::BoxFuture<'_, bool> {
         Box::pin(async move {
-            list_workspaces(&self.daemon_socket())
-                .await
-                .is_ok_and(|reply| crate::surface::phone_tab_in(&reply, surface))
+            // Page tabs read as their record (`conversation.page`) only for a client
+            // that negotiated `page-tabs-v1`; without it every page tab reads `browser`.
+            daemon_query(
+                &self.daemon_socket(),
+                b"{\"cmd\":\"set-client-info\",\"id\":\"cmux-mobile-surface-hello\",\"name\":\"cmux-mobile-host\",\"kind\":\"cli\",\"capabilities\":[\"conversation-tabs-v1\",\"page-tabs-v1\"]}\n{\"cmd\":\"list-workspaces\",\"id\":\"cmux-mobile-surface\"}\n",
+                "cmux-mobile-surface",
+            )
+            .await
+            .is_ok_and(|reply| crate::surface::phone_tab_in(&reply, surface))
         })
     }
 }
