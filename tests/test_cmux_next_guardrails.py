@@ -447,6 +447,44 @@ class RuleTests(Fixture):
         self.assertEqual([r.id for r, _ in refusals], ["singleton"])
         self.assertIn("perf-hot failed (RuntimeError: boom", " ".join(text for _, text in warnings))
 
+    def test_a_rule_that_raises_only_on_the_pushed_range_of_a_merge_is_warned_once(self):
+        # A branch that merged feat-cmux-next in: check_push checks the pushed range and the branch's own range.
+        self.git("checkout", "--quiet", "-b", "topic")
+        self.write(f"{KIT}/Topic.swift", "struct Topic {}\n")
+        self.commit("topic work")
+        pushed = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.write(f"{APP}/Landed.swift", "struct Landed {}\n")
+        self.commit("landed on feat-cmux-next")
+        self.git("checkout", "--quiet", "topic")
+        self.git("merge", "--quiet", "--no-edit", "feat-cmux-next")
+        self.write(f"{KIT}/Own.swift", "final class Own {\n    static let shared = Own()\n}\n")
+        self.commit("the branch's own singleton")
+        original = next(r for r in guardrails.RULES if r.id == "app-size")
+
+        def only_pushed(changes, moved):  # Landed.swift is only in the pushed range, never in the branch's own
+            if any(c.path.endswith("/Landed.swift") for c in changes):
+                raise RuntimeError("boom")
+            return original.find(changes, moved)
+
+        def always(changes, moved):
+            raise RuntimeError("boom")
+
+        for name, find in (("pushed range only", only_pushed), ("both ranges", always)):
+            with self.subTest(failing=name):
+                rules = tuple(dataclasses.replace(r, find=find) if r.id == "app-size" else r for r in guardrails.RULES)
+                with mock.patch.object(guardrails, "RULES", rules):
+                    _, branch_warnings = self.check(guardrails.check, "feat-cmux-next", "HEAD")
+                    refusals, warnings = self.check(guardrails.check_push, pushed, "HEAD", "feat-cmux-next")
+                if find is only_pushed:
+                    self.assertEqual([t for k, t in branch_warnings if k == "guardrails"], [],
+                                     "control: the rule runs on the branch's own range")
+                self.assertEqual([(r.id, [h.path.rsplit("/", 1)[-1] for h in hits]) for r, hits in refusals],
+                                 [("singleton", ["Own.swift"])])
+                failed = [text for kind, text in warnings if kind == "guardrails"]
+                self.assertEqual(len(failed), 1, warnings)
+                self.assertIn("rule app-size failed (RuntimeError: boom at test_cmux_next_guardrails.py:", failed[0])
+
     def test_skip_reason_skips_only_the_named_rules(self):
         self.write(f"{KIT}/Added.swift", CASES["singleton"][0] + CASES["main-async"][0])
         self.commit("adds a singleton and a main hop")
