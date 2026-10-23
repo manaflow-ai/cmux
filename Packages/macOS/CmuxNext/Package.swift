@@ -1321,6 +1321,7 @@ let package = Package(
             dependencies: [
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",
+                "CmuxNextWakeups",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
             ],

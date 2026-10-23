@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 import CmuxNextDesignTokens
+import CmuxNextWakeups
 import Testing
 
 /// Hover and power-state owners clean up when they are released, on any thread. Each deinit
@@ -162,6 +163,48 @@ import Testing
         }
         func hoverCardActivated(_ id: HoverTargetID) {}
         func hoverCardDeactivated(_ id: HoverTargetID) {}
+    }
+
+    /// A display link that never fires: a ``FrameScheduler`` built on it ticks only when told.
+    private final class StillFrameLink: FrameLink {
+        var isPaused = false
+        func invalidate() {}
+    }
+
+    /// A glass backdrop feed with a frame pending takes that frame client off its scheduler when
+    /// released. Off main the deinit returned early, and the client stayed active on its scheduler.
+    /// The feeds tick on a scheduler whose link never fires and whose stall deadline waits on a
+    /// clock that never moves, so no frame can end the client by itself before the check.
+    @Test func aReleasedGlassBackdropFeedEndsItsPendingFrameOnAnyThread() async {
+        let scheduler = FrameScheduler.testing(clock: ThinScrollerManualClock()) { _ in StillFrameLink() }
+        func pending() -> GlassBackdropFeed {
+            let host = NSView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+            let feed = GlassBackdropFeed(host: host, zoom: { 1 }, images: GlassBackdropImages(), mode: { .plain },
+                                         frames: { _ in scheduler }) { _ in }
+            feed.setNeedsUpdate()
+            return feed
+        }
+        // Reads the feed's frame client after the feed is gone.
+        func activity(of feed: GlassBackdropFeed) -> () -> Bool? {
+            let client = feed.nextFrame
+            return { client?.isActive }
+        }
+        var feed: GlassBackdropFeed? = pending()
+        let onMain = feed.map(activity) ?? { nil }
+        #expect(onMain() == true)
+        #expect(scheduler.activeClients == ["glass.backdrop"])
+        feed = nil
+        #expect(onMain() == false, "a feed released on main left its frame client active")
+        #expect(scheduler.activeClients.isEmpty, "a feed released on main left its frame client on its scheduler")
+
+        var offMain: () -> Bool? = { nil }
+        await releaseOffMain {
+            let feed = pending()
+            offMain = activity(of: feed)
+            return feed
+        }
+        #expect(offMain() == false, "a feed released off main left its frame client active")
+        #expect(scheduler.activeClients.isEmpty, "a feed released off main left its frame client on its scheduler")
     }
 
     @Test func aReleasedLowPowerObservationStopsItsCallsOnAnyThread() async {
