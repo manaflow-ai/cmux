@@ -34,8 +34,10 @@ import QuartzCore
     /// move AppKit still runs on a view (a plain set does not, and AppKit would write over it). Nothing
     /// is left to run on the main thread per frame; the springs end on their own (`settlingTime`).
     /// `token`: the spring (`.move`, or a new row's `SidebarInsertMotion.token`). `travel`: when set, each view's edges
-    /// start at most that many points from where they end (`SidebarInsertMotion.cap`), so a new row at the top moves the
-    /// rows below it by the nudge, not a row height; 0 moves nothing (the frames land at once).
+    /// are drawn at most that many points from where they end (`SidebarInsertMotion.cap`), so a new row at the top moves
+    /// the rows below it by the nudge, not a row height; 0 moves nothing (the frames land at once). The cap holds for
+    /// what is drawn, not for each spring: the offset this batch's springs still carry (an insert 30 ms before) counts
+    /// toward it, and those springs give way to one that starts there, so two quick inserts never stack two nudges.
     static func move<View: NSView>(_ moves: [(View, NSRect)], in host: NSView, _ token: MotionSpring = .move, travel: CGFloat? = nil) {
         // Out of a window nothing draws a spring (and none would end), and with movement off nothing moves: the
         // frames land at once, and a spring an earlier move left on any of these views ends with them (it would
@@ -48,12 +50,25 @@ import QuartzCore
         }
         let moving = moves.filter { $0.0.frame != $0.1 }
         guard !moving.isEmpty else { return }
-        let starts = moving.map { view, _ in view.layer.map(start(of:)) }
-        Motion.withoutAnimation { for (view, frame) in moving { view.animator().frame = frame } }
         let now = CACurrentMediaTime()
+        // Where each view is drawn now: its model geometry, plus (under a cap) what this batch's springs still carry.
+        let starts = moving.map { view, _ in
+            view.layer.map { layer in
+                let start = start(of: layer)
+                guard travel != nil else { return start }
+                let carried = inFlight(on: layer, at: now)
+                return (CGPoint(x: start.0.x + carried.0.x, y: start.0.y + carried.0.y),
+                        CGSize(width: start.1.width + carried.1.width, height: start.1.height + carried.1.height))
+            }
+        }
+        Motion.withoutAnimation { for (view, frame) in moving { view.animator().frame = frame } }
         for ((view, _), start) in zip(moving, starts) {
             guard let layer = view.layer, var start else { continue }
-            if let travel { start = capped(start, of: layer, travel: travel) }
+            if let travel {
+                // One spring from where the view is drawn, capped, replaces the ones that carried it there.
+                stop([view])
+                start = capped(start, of: layer, travel: travel)
+            }
             addDelta(to: layer, position: start.0, size: start.1, now: now, key: batchKey, token)
         }
     }
@@ -100,6 +115,25 @@ import QuartzCore
             if let path = (layer.animation(forKey: key) as? CAPropertyAnimation)?.keyPath, geometryPaths.contains(path) { layer.removeAnimation(forKey: key) }
         }
         return (shown.position, shown.bounds.size)
+    }
+
+    /// The offset this batch's springs (`batchKey`) still add to `layer`'s position and size at media time `now`.
+    private static func inFlight(on layer: CALayer, at now: CFTimeInterval) -> (CGPoint, CGSize) {
+        var position = CGPoint.zero, size = CGSize.zero
+        let local = layer.convertTime(now, from: nil)
+        for key in layer.animationKeys() ?? [] where key.hasPrefix("\(batchKey).") {
+            guard let spring = layer.animation(forKey: key) as? CASpringAnimation, spring.isAdditive,
+                  let from = spring.fromValue as? NSValue else { continue }
+            let left = 1 - MotionPath.springProgress(spring, at: local - spring.beginTime)
+            if spring.keyPath == "position" {
+                position.x += from.pointValue.x * left
+                position.y += from.pointValue.y * left
+            } else if spring.keyPath == "bounds.size" {
+                size.width += from.sizeValue.width * left
+                size.height += from.sizeValue.height * left
+            }
+        }
+        return (position, size)
     }
 
     /// The start `start` (a layer's position and size) with each edge within `travel` points of the layer's model

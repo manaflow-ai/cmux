@@ -165,14 +165,157 @@ struct SidebarRowsMoveOnRenderServerTests {
         #expect(springs > 3, "the insert at the top moved \(springs) springs")
     }
 
+    /// Where `view` is drawn at media time `time`, in its superlayer's coordinates: its model geometry plus every
+    /// additive spring on its layer now, run forward to `time` (`MotionPath.springProgress`, Core Animation's spring).
+    private static func drawn(_ view: NSView, at time: CFTimeInterval) -> CGRect? {
+        guard let layer = view.layer else { return nil }
+        var position = layer.position, size = layer.bounds.size
+        let local = layer.convertTime(time, from: nil)
+        for key in layer.animationKeys() ?? [] {
+            guard let spring = layer.animation(forKey: key) as? CASpringAnimation, spring.isAdditive,
+                  let from = spring.fromValue as? NSValue else { continue }
+            let left = 1 - MotionPath.springProgress(spring, at: local - spring.beginTime)
+            if spring.keyPath == "position" {
+                position.x += from.pointValue.x * left
+                position.y += from.pointValue.y * left
+            } else if spring.keyPath == "bounds.size" {
+                size.width += from.sizeValue.width * left
+                size.height += from.sizeValue.height * left
+            }
+        }
+        let anchor = layer.anchorPoint
+        return CGRect(x: position.x - anchor.x * size.width, y: position.y - anchor.y * size.height, width: size.width, height: size.height)
+    }
+
+    /// Codex review of #24374: a second new row 30 ms after the first stacked a second nudge on the rows still
+    /// moving from the first, so a row travelled 12 pt, or jumped, or overlapped the new row. Every frame for
+    /// 300 ms after the second insert: no workspace row is drawn more than the nudge from its slot, and none
+    /// overlaps the next one.
+    @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func twoQuickNewRowsNeverMoveARowPastTheNudgeOrOverlap() throws {
+        let (model, list, _, restore) = try Self.sidebar(count: 30)
+        defer { restore() }
+        try #require(SidebarInsertMotion.tunable.value == .nudge)
+        let nudge = SidebarInsertMotion.nudgeDistance.value
+
+        model.noteUserIntent()
+        model.sections = Self.sections([1, 0] + Array(2...30))
+        list.reload(animated: true)
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.03))
+        model.noteUserIntent()
+        model.sections = Self.sections([1, 999, 0] + Array(2...30))
+        list.reload(animated: true)
+        let now = CACurrentMediaTime()
+
+        let rows = list.rowViews.compactMap { key, view -> (SidebarRowKey, SidebarRowView)? in
+            if case .workspace = key, view.layer != nil { (key, view) } else { nil }
+        }.sorted { ($0.1.layer?.frame.minY ?? 0) < ($1.1.layer?.frame.minY ?? 0) }
+        try #require(rows.count > 5)
+        var worst: CGFloat = 0
+        var springs = 0
+        for (_, view) in rows { springs += Self.positionSprings(view) + Self.sizeSprings(view) }
+        #expect(springs > 3, "the second insert moved \(springs) springs")
+        for step in 0...72 {
+            let time = now + Double(step) / 240
+            let frames = rows.map { (key: $0.0, slot: $0.1.layer?.frame ?? .zero, drawn: Self.drawn($0.1, at: time) ?? .zero) }
+            for row in frames {
+                let off = max(abs(row.drawn.minY - row.slot.minY), abs(row.drawn.maxY - row.slot.maxY))
+                worst = max(worst, off)
+                #expect(off <= nudge + 0.5, "\(row.key) is drawn \(off) pt from its slot \(step * 1000 / 240) ms on")
+            }
+            for (above, below) in zip(frames, frames.dropFirst()) {
+                #expect(above.drawn.maxY <= below.drawn.minY + 0.5,
+                        "\(above.key) overlaps \(below.key) by \(above.drawn.maxY - below.drawn.minY) pt \(step * 1000 / 240) ms on")
+            }
+        }
+        #expect(worst > 0, "no row moved at all")
+    }
+
+    /// Codex review of #24374: a group's expand lists its members again, which are no new workspaces. They come out
+    /// from under the header on `.move` over their whole distance, as on base, not on the new row nudge.
+    @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func expandingAGroupMovesAsBeforeNotByTheNudge() throws {
+        func work(collapsed: Bool) -> [CmuxNextSidebar.SidebarSection] {
+            var sections = Self.grouped(["w1", "w2"])
+            guard case var .group(group) = sections[0].nodes[2] else { return sections }
+            group.isCollapsed = collapsed
+            sections[0].nodes[2] = .group(group)
+            return sections
+        }
+        let (model, list, _, restore) = try Self.sidebar(work(collapsed: true))
+        defer { restore() }
+        try #require(SidebarInsertMotion.tunable.value == .nudge)
+        let nudge = SidebarInsertMotion.nudgeDistance.value
+        try #require(list.rowViews[.workspace(CmuxNextSidebar.WorkspaceID("api"))] == nil, "the group did not start collapsed")
+
+        model.noteUserIntent()
+        model.sections = work(collapsed: false)
+        list.reload(animated: true)
+
+        let moveDuration = Motion.sidebar.springAnimation(.move, "position", from: 0, to: 0).duration
+        var farthest: CGFloat = 0
+        for member in ["docs", "web", "api"] {
+            let view = try #require(list.rowViews[.workspace(CmuxNextSidebar.WorkspaceID(member))], "\(member) has no view")
+            for key in view.layer?.animationKeys() ?? [] {
+                guard let spring = view.layer?.animation(forKey: key) as? CASpringAnimation, spring.isAdditive,
+                      spring.keyPath == "position", let from = spring.fromValue as? NSValue else { continue }
+                farthest = max(farthest, abs(from.pointValue.y))
+                #expect(abs(spring.duration - moveDuration) < 0.001, "\(member) moves for \(spring.duration) s, .move is \(moveDuration) s")
+            }
+        }
+        #expect(farthest > nudge + 1, "the expanded members came out by at most \(farthest) pt (the nudge), not from under the header")
+    }
+
+    /// Codex review of #24374: a row's open is over once the spring it opened on settles. Under the nudge that is
+    /// `.tabOpen`, shorter than `.move`: a reorder just after it moves the row, in the same view, and does not open
+    /// it again (a new view, its fade and its size replayed).
+    @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func aNewRowWhoseOpenSettledMovesWithoutOpeningAgain() throws {
+        let (model, list, _, restore) = try Self.sidebar(count: 30)
+        defer { restore() }
+        try #require(SidebarInsertMotion.tunable.value == .nudge)
+        let key = SidebarRowKey.workspace(try #require(Self.sections([0]).first?.workspaces.first?.id))
+
+        model.noteUserIntent()
+        model.sections = Self.sections([1, 0] + Array(2...30))
+        list.reload(animated: true)
+        let inserted = CACurrentMediaTime()
+        let view = try #require(list.rowViews[key])
+        let until = try #require(list.openingRows[key])
+        let open = Motion.sidebar.spring(SidebarInsertMotion.nudge.token).settlingTime()
+        #expect(abs(until - inserted - open) < 0.02, "the open lasts \(until - inserted) s, its spring settles in \(open) s")
+        #expect(open < Motion.sidebar.spring(.move).settlingTime())
+
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: max(0, until - CACurrentMediaTime()) + 0.01))
+        let sizing = Self.sizeSprings(view)
+        model.noteUserIntent()
+        model.sections = Self.sections([1, 2, 0] + Array(3...30))
+        list.reload(animated: true)
+
+        #expect(list.rowViews[key] === view, "the settled row opened again in a new view")
+        #expect(Self.sizeSprings(view) <= sizing, "the settled row opened its slot again")
+    }
+
     /// A second insert while the first one's rows still move: each row keeps the first spring and adds one
-    /// from where it is now, so nothing on screen jumps back to the first move's end.
+    /// from where it is now, so nothing on screen jumps back to the first move's end. Under the full spring
+    /// (`sidebar.insertMotion` spring); the nudge instead caps what is drawn (`twoQuickNewRowsNeverMoveARowPastTheNudgeOrOverlap`).
     @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
         await SidebarInsertWhileDisplayAsleepTests.animatesHere()
     })
     func aSecondInsertStacksOnTheFirstMove() throws {
         let (model, list, _, restore) = try Self.sidebar(count: 30)
         defer { restore() }
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        TunableStore.shared.set(SidebarInsertMotion.tunable.key, .choice(SidebarInsertMotion.spring.rawValue))
+        defer { TunableStore.shared.set(SidebarInsertMotion.tunable.key, nil) }
+        try #require(SidebarInsertMotion.tunable.value == .spring)
         let key = SidebarRowKey.workspace(try #require(Self.sections([1]).first?.workspaces.first?.id))
         let view = try #require(list.rowViews[key])
 
