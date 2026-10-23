@@ -1028,6 +1028,7 @@ async fn dispatch_request(
         }
         method::MUX_EVENTS | method::MUX_ATTACHMENT => events::handle(hub, m, &params),
         method::MUX_MAIL_SEND
+        | method::MUX_MAIL_DELIVER
         | method::MUX_MAIL_READ
         | method::MUX_MAIL_WAIT
         | method::MUX_MAIL_ACK => mailbox::handle(hub, conn, m, &params).await,

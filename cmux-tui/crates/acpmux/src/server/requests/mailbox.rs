@@ -19,6 +19,41 @@ pub(super) async fn handle(
 ) -> Result<Value, RpcError> {
     require_local_origin(conn.origin)?;
     match method {
+        crate::rpc::method::MUX_MAIL_DELIVER => {
+            let id = required_string(params, "id")?;
+            let (sender_id, sender_receipt) = identity_params_or_bound(conn, params, "sender")?;
+            let sender_bound =
+                conn.mailbox_receipt(&sender_id).ok_or_else(|| detached("deliver", &sender_id))?;
+            let sender = validate_binding("sender", &sender_id, &sender_receipt, &sender_bound)?;
+            let target = required_string(params, "target")?;
+            if !target.starts_with("reports:") {
+                return Err(RpcError::invalid_params(
+                    "mailbox deliver target must start with reports:",
+                ));
+            }
+            let body = params
+                .get("body")
+                .and_then(Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("body is required"))?;
+            let metadata = parse_metadata(params)?;
+            let result = hub
+                .mailbox()
+                .deliver_quiet(SendInput {
+                    id,
+                    sender,
+                    recipient: target,
+                    body: body.to_owned(),
+                    metadata,
+                })
+                .map_err(map_error)?;
+            Ok(json!({
+                "message": result.message,
+                "delivery": result.receipt,
+                "created": matches!(result.outcome, crate::mailbox::SendOutcome::Created),
+                "duplicate": matches!(result.outcome, crate::mailbox::SendOutcome::Duplicate),
+                "woke": false,
+            }))
+        }
         crate::rpc::method::MUX_MAIL_SEND => {
             let id = required_string(params, "id")?;
             let (sender_id, sender_receipt) = identity_params(params, "sender")?;
@@ -145,6 +180,26 @@ fn identity_params(params: &Value, role: &str) -> Result<(String, SessionReceipt
             .with_data(json!({"reason": "mailbox_identity_receipt_invalid", "role": role}))
     })?;
     Ok((id, receipt))
+}
+
+/// The local agent CLI is already attached to one session, so `deliver` may
+/// omit the verbose receipt object. Session-to-session mail keeps the explicit
+/// receipt requirement; the no-wake reports target only uses this convenience
+/// on a local connection with exactly one bound sender.
+fn identity_params_or_bound(
+    conn: &Arc<Conn>,
+    params: &Value,
+    role: &str,
+) -> Result<(String, SessionReceipt), RpcError> {
+    match identity_params(params, role) {
+        Ok(value) => Ok(value),
+        Err(error) if role == "sender" && error.message.contains("session receipt is required") => {
+            let id = params.get(role).and_then(Value::as_str).ok_or(error)?.to_owned();
+            let receipt = conn.mailbox_receipt(&id).ok_or_else(|| detached("deliver", &id))?;
+            Ok((id, receipt))
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn current_identity(hub: &Hub, requested: &str) -> Result<SessionReceipt, RpcError> {

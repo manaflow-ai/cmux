@@ -271,6 +271,8 @@ pub mod method {
     pub const MUX_EVENTS: &str = "_acpmux/events";
     /// Durable inter-session mailbox: send, page/wait, and recipient-only ack.
     pub const MUX_MAIL_SEND: &str = "_acpmux/mail/send";
+    /// Append a human reports-basket message without waking a session.
+    pub const MUX_MAIL_DELIVER: &str = "_acpmux/mail/deliver";
     pub const MUX_MAIL_READ: &str = "_acpmux/mail/read";
     pub const MUX_MAIL_WAIT: &str = "_acpmux/mail/wait";
     pub const MUX_MAIL_ACK: &str = "_acpmux/mail/ack";

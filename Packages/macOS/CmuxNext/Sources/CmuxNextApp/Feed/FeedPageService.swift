@@ -37,6 +37,12 @@ final class FeedPageService: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let feed = services.feed
         FeedGitHubActions.install(on: feed.model, services: services)
-        return FeedHostView(model: feed.model, layoutOverride: .inbox)
+        let layout: FeedLayout = FeedTunables.reportsBasket.value ? .reportsBasket : .inbox
+        return FeedHostView(model: feed.model, layoutOverride: layout) { reportID, reply in
+            // The first dogfood surface keeps the reply seam explicit. The
+            // mailbox-v2 transport is the owner of the actual no-wake delivery;
+            // the app wires this callback to it in the follow-up integration.
+            _ = (reportID, reply)
+        }
     }
 }
