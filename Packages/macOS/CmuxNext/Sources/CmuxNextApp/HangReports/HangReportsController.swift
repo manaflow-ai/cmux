@@ -5,6 +5,7 @@ import CmuxNextCrashReporting
 import CmuxNextHangReports
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextSignposts
 import os
 
 /// The app side of opt-in hang reports (plans/cmux-next/hang-reports-DESIGN.md): follows
@@ -114,6 +115,8 @@ final class HangReportsController {
 
     private func apply(_ on: Bool) async {
         await service.setEnabled(on)
+        // The catalog's Release intervals reach MetricKit only while reports are on.
+        SignpostMetricKitMirror.shared.setOn(on)
         if on {
             if subscriber == nil {
                 let service = service

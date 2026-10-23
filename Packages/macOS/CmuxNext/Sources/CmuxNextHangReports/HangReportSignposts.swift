@@ -1,12 +1,10 @@
 import Foundation
-public import os
-public import MetricKit
 
 /// The Release signpost intervals a hang report may carry (PL-arch's always-on catalog,
 /// `CmuxNextSignposts`: subsystem `com.cmuxterm.app.next`), and the MetricKit log handle that
 /// makes MetricKit aggregate them (`MXSignpostMetric`; an `OSSignposter` interval on a normal log
-/// is not seen by MetricKit, so the catalog mirrors its intervals to ``log(category:)`` only while
-/// hang reports are on).
+/// is not seen by MetricKit, so `SignpostMetricKitMirror` repeats the catalog's intervals on a
+/// MetricKit log only while hang reports are on).
 ///
 /// An interval reaches a report only when its category is one of ``categories`` (the catalog's
 /// `stall` category is left out: the watchdog reports stalls itself) and its name is a static
@@ -14,9 +12,7 @@ public import MetricKit
 /// histogram, never one event or its message.
 ///
 /// ```swift
-/// let log = HangReportSignposts().log(category: "motion")
-/// mxSignpost(.begin, log: log, name: "motion.frame")
-/// mxSignpost(.end, log: log, name: "motion.frame")
+/// HangReportSignposts.allows(category: "motion", name: "motion.frame")  // true
 /// ```
 public nonisolated struct HangReportSignposts: Sendable {
     /// The catalog categories a report may carry.
@@ -25,11 +21,6 @@ public nonisolated struct HangReportSignposts: Sendable {
     public static let namePattern = #"^[a-z0-9_.\-]{1,48}$"#
 
     public init() {}
-
-    /// The MetricKit log handle of a catalog category.
-    public func log(category: String) -> OSLog {
-        MXMetricManager.makeLogHandle(category: category)
-    }
 
     /// Whether an interval of this category and name may be sent.
     public static func allows(category: String, name: String) -> Bool {
