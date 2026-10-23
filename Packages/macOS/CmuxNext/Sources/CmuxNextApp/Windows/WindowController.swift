@@ -172,29 +172,39 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// The shown workspace's kept terminals (End Sessions, Keep Layout; the classic migration's
-    /// parked tabs) start when it is shown and when a connection's live tree lands; a workspace no
-    /// window shows starts nothing (`DaemonService.startKeptTabs`, #17587).
+    /// parked tabs) start when it is shown, when a connection's live tree lands and when a kept tab
+    /// comes into it (moved there from a hidden workspace); a workspace no window shows starts
+    /// nothing (`DaemonService.startKeptTabs`, #17587).
     private func observeKeptTabs() {
         let machines = services.machines
         let state = state
         keptTabsObservation = Task {
             for await _ in ObservationStream({ Self.readKeptTabInputs(state, machines: machines) }) {
-                // The shown workspace, and with `sidebar.multiView` the ones beside it.
-                for id in [state.workspaceID].compactMap({ $0 }) + (state.viewSet?.ids ?? []) {
+                for id in Self.shownWorkspaceIDs(state) {
                     if let (workspace, daemon) = machines.workspace(id: id) { daemon.startKeptTabs(in: workspace) }
                 }
             }
         }
     }
 
-    /// Reads what starting the shown workspace's kept tabs depends on: the request, and for each
+    /// The shown workspace, and with `sidebar.multiView` the ones beside it.
+    private static func shownWorkspaceIDs(_ state: WindowState) -> [String] {
+        [state.workspaceID].compactMap { $0 } + (state.viewSet?.ids ?? [])
+    }
+
+    /// Reads what starting the shown workspace's kept tabs depends on: the request; for each
     /// machine its connection, the owner it reached, its workspace list and the owner its tree
-    /// came from. O(machines).
+    /// came from; and the shown workspaces' tabs (their set and which are dead). O(machines + tabs
+    /// shown).
     private static func readKeptTabInputs(_ state: WindowState, machines: MachineRegistry) {
         _ = (state.workspaceID, state.viewSet)
         for daemon in machines.daemons {
             _ = (daemon.connection.map { ObjectIdentifier($0) }, daemon.store.identity?.generation, daemon.store.isLoaded,
                  daemon.store.generation, daemon.store.workspaces.count)
+        }
+        for id in shownWorkspaceIDs(state) {
+            guard let (workspace, _) = machines.workspace(id: id) else { continue }
+            for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) { _ = (tab.surface, tab.dead) }
         }
     }
 
