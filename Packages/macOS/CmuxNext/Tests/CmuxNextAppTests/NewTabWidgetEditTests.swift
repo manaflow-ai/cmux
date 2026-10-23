@@ -122,14 +122,17 @@ import Testing
     }
 
     /// A `show` with a well-formed name that is no widget (it passes the request's name check) is
-    /// refused by the schema, and the settings file stays as it was.
+    /// refused by the schema, and the settings file stays as it was. The weather widget fetches
+    /// from the network, so only the person turns it on, in Settings (#22775): the page's show is
+    /// refused too.
     @Test func aDotsShowOfAnUnknownWidgetIsRefused() async throws {
         let (settings, directory) = try await Self.settings()
         defer { try? FileManager.default.removeItem(at: directory) }
-        #expect(AgentPaneNewTabEdit(widgetParams: ["edit": "show", "widget": "weather"]) == .show("weather"))
+        #expect(AgentPaneNewTabEdit(widgetParams: ["edit": "show", "widget": "forecast"]) == .show("forecast"))
         let before = settings.fileRoot
-        await #expect(throws: SettingNotInSchema.self) { try await settings.showNewTabWidget("weather") }
+        await #expect(throws: SettingNotInSchema.self) { try await settings.showNewTabWidget("forecast") }
         await #expect(throws: SettingNotInSchema.self) { try await settings.showNewTabWidget("weatherCity") }
+        await #expect(throws: SettingUserOnly.self) { try await settings.showNewTabWidget("weather") }
         #expect(settings.fileRoot == before)
         #expect(settings.snapshot.newTabWidgets.ids == ["greeting"])
     }

@@ -190,7 +190,9 @@ test("the handshake's pageWidgets: known names in order, Settings' defaults when
   expect(newTabHost({ newTab: {} })?.pageWidgets).toBeUndefined();
   expect([...shownPageWidgets("minimal")]).toEqual(["greeting"]);
   expect([...shownPageWidgets("minimal", [])]).toEqual([]);
-  expect([...shownPageWidgets("cards", ["greeting"])]).toEqual(PAGE_WIDGETS.filter((widget) => widget !== "greeting"));
+  expect([...shownPageWidgets("cards", ["greeting"])]).toEqual(
+    PAGE_WIDGETS.filter((widget) => widget !== "greeting" && widget !== "weather" && widget !== "machines"),
+  );
 });
 
 test("the greeting follows the hour", () => {

@@ -48,6 +48,9 @@
               "tabs.newTabWidgets.actions",
               "tabs.newTabWidgets.chats",
               "tabs.newTabWidgets.styleDots",
+              "tabs.newTabWidgets.weather",
+              "tabs.newTabWidgets.weatherCity",
+              "tabs.newTabWidgets.machines",
               "tabs.newTabWidgets.order",
               "sidebar.showChats"
             ],
@@ -24261,6 +24264,155 @@
       "title" : {
         "key" : "settings.tabs.newTabWidgets.styleDots",
         "text" : "Show Template Dots on New Tab"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabWidgets.weather.help",
+        "text" : "The current weather and today's high and low, for the city below or your time zone's city."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabWidgets.weather",
+      "keywords" : [
+        "new tab",
+        "widget",
+        "weather",
+        "temperature",
+        "forecast",
+        "location"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabWidgets",
+        "weather"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabWidgets.weather",
+        "text" : "Show Weather on New Tab"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabWidgets.weatherCity.help",
+        "text" : "A city for the weather widget. Empty uses your time zone's city."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabWidgets.weatherCity",
+      "keywords" : [
+        "new tab",
+        "widget",
+        "weather",
+        "city",
+        "location"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabWidgets",
+        "weatherCity"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabWidgets.weatherCity",
+        "text" : "Weather City"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabWidgets.machines.help",
+        "text" : "Your machines and whether each is online."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabWidgets.machines",
+      "keywords" : [
+        "new tab",
+        "widget",
+        "machines",
+        "computers",
+        "ssh",
+        "cloud",
+        "online"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabWidgets",
+        "machines"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabWidgets.machines",
+        "text" : "Show Machines on New Tab"
       },
       "validation" : "portable"
     },
