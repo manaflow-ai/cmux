@@ -171,7 +171,7 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
 
   /// A glide: the page took the notch, and the view covered the whole distance through at least two
   /// positions on the way, taking at least 100 ms from its first move to its rest (the glide runs
-  /// 200 ms; the engine's own wheel step lands in one frame in Chromium and two or three in WPE).
+  /// 180 ms, the motion scale's standard step; the engine's own wheel step lands in one frame in Chromium and two or three in WPE).
   function expectGlide(result: Motion, distance: number) {
     expect(result.prevented.length).toBeGreaterThan(0);
     expect(result.prevented.every(Boolean)).toBe(true);

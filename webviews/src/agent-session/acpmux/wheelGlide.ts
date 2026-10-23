@@ -4,13 +4,15 @@
 // spun wheel moves the transcript in jumps; a trackpad's (and Mos's) many small steps already read
 // as smooth. Each notch here eases the view toward where the wheel has sent it instead, and a notch
 // during a glide adds to where it is headed. Trackpad and momentum scrolling are never touched.
+import { MOTION_MS } from "../../motion/scale.generated";
 import { isAgentMotionOff } from "../shared/motion";
 import { wheelTarget } from "../../scrollers";
 import { reducedMotion } from "./threadMinimap/scrollMotion";
 import { wheelPixels } from "./wheelPassThrough";
 
-/// How long one notch's glide runs, eased out (a notch during it starts a new one from where it is).
-export const WHEEL_GLIDE_MS = 200;
+/// How long one notch's glide runs, eased out (a notch during it starts a new one from where it is):
+/// the motion scale's step for a structural move.
+export const WHEEL_GLIDE_MS = MOTION_MS.standard;
 
 /// One display frame at 60Hz.
 const FRAME_MS = 1000 / 60;
