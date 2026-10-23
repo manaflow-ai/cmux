@@ -12,7 +12,6 @@
 //   path): nothing is copied or uploaded. Images, PDFs and text files still go as blocks.
 import { afterEach, describe, expect, test } from "bun:test";
 import {
-  MAX_ATTACHMENTS,
   MAX_TEXT_BYTES,
   linkItems,
   promptBlocks,
@@ -61,7 +60,6 @@ async function take(
   const upload =
     typeof options.upload === "function" ? options.upload : options.upload === false ? undefined : saving.upload;
   const taken = await intakeFiles(files, {
-    held: 0,
     allowImages: options.allowImages ?? true,
     ...(upload ? { upload } : {}),
     ...(options.localPaths ? { localPaths: options.localPaths } : {}),
@@ -242,13 +240,13 @@ describe("attachment matrix: what the agent receives per file type", () => {
     expect(result.error).toEqual({ text: "Disk full" });
   });
 
-  test("many files at once: up to the composer's limit, the rest refused", async () => {
-    const files = Array.from({ length: MAX_ATTACHMENTS + 2 }, (_, index) =>
+  test("many files at once: every attachment is accepted", async () => {
+    const files = Array.from({ length: 12 }, (_, index) =>
       index % 2 ? file(`shot-${index}.png`, "image/png", PNG) : file(`part-${index}.zip`, "application/zip"),
     );
     const result = await take(files);
-    expect(result.attachments.length).toBe(MAX_ATTACHMENTS);
-    expect(result.error).toEqual({ name: "part-8.zip", reason: "tooMany" });
+    expect(result.attachments.length).toBe(files.length);
+    expect(result.error).toBeUndefined();
   });
 
   test("no row puts a data: URI or a saved path in the prompt's text", async () => {
@@ -382,15 +380,13 @@ describe("attachment matrix: a chat on this Mac links what no block takes where 
     expect(only(result.attachments)).toMatchObject({ kind: "link", saved: true });
   });
 
-  test("links count toward the composer's limit; past it the note says so", async () => {
+  test("more than ten links are accepted", async () => {
     const local = paths();
-    const files = Array.from({ length: MAX_ATTACHMENTS + 1 }, (_, index) =>
-      file(`part-${index}.zip`, "application/zip"),
-    );
+    const files = Array.from({ length: 11 }, (_, index) => file(`part-${index}.zip`, "application/zip"));
     const result = await take(files, { localPaths: local.localPaths });
-    expect(result.attachments.length).toBe(MAX_ATTACHMENTS);
+    expect(result.attachments.length).toBe(files.length);
     expect(result.sent).toEqual([]);
-    expect(result.error).toEqual({ name: `part-${MAX_ATTACHMENTS}.zip`, reason: "tooMany" });
+    expect(result.error).toBeUndefined();
   });
 });
 

@@ -220,6 +220,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_EXPORT, Request),
         untyped(method::MUX_IMPORT, Request),
         untyped(method::MUX_FILE_PUT, Request),
+        untyped(method::MUX_FILE_PUT_BEGIN, Request),
+        untyped(method::MUX_FILE_PUT_CHUNK, Request),
+        untyped(method::MUX_FILE_PUT_FINISH, Request),
         // Permissions.
         request::<PermissionRespondParams, PermissionRespondResult>(method::MUX_PERMISSION_RESPOND),
         request::<PermissionGroupsParams, PermissionGroupList>(method::MUX_PERMISSION_GROUPS),
