@@ -456,6 +456,12 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         return value
     }
 
+    /// Reads the captured `CODEX_HOME/config.toml` when the restore is
+    /// planned, not when the session was captured, so its contents can have
+    /// changed since. That is why config evidence only fills in for captures
+    /// whose argv names no provider, and only upgrades to the fixed
+    /// `sr codex resume` launcher. The read is one bounded (64 KiB),
+    /// non-blocking open of a regular file.
     private static func readCapturedConfigToml(
         environment: [String: String]?,
         verificationHome: String?
@@ -468,12 +474,17 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         let home = (rawHome as NSString).expandingTildeInPath
         guard home.hasPrefix("/") else { return nil }
         let path = (home as NSString).appendingPathComponent("config.toml")
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
-              let type = attributes[.type] as? FileAttributeType,
-              type == .typeRegular,
-              let size = attributes[.size] as? NSNumber,
-              size.intValue <= maxConfigTomlBytes,
-              let data = try? Data(contentsOf: URL(fileURLWithPath: path), options: .mappedIfSafe),
+        // Open first (following a symlink), then check the opened file, so
+        // what is checked is what is read. O_NONBLOCK keeps a FIFO from
+        // blocking the open; it must be a regular file to be read at all.
+        let descriptor = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else { return nil }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        var info = stat()
+        guard fstat(descriptor, &info) == 0,
+              (info.st_mode & S_IFMT) == S_IFREG,
+              info.st_size <= off_t(maxConfigTomlBytes),
+              let data = try? handle.read(upToCount: maxConfigTomlBytes + 1),
               data.count <= maxConfigTomlBytes else {
             return nil
         }
