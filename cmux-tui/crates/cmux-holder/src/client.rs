@@ -202,7 +202,7 @@ impl HolderClient {
                     client.version = input.u16()?;
                     break input.u32()?;
                 }
-                Some(Kind::Error) => return Err(io::Error::other("holder refused the token")),
+                Some(Kind::Error) => return Err(refusal(&frame.payload)),
                 _ => continue,
             }
         };
@@ -210,7 +210,7 @@ impl HolderClient {
         while listed.len() < count as usize {
             let frame = client.frame(deadline)?;
             if frame.kind == Kind::Listed as u16 {
-                listed.push(Listed::decode(frame.chan, &frame.payload, frame.fds)?);
+                listed.push(Listed::decode(frame.chan, frame.flags, &frame.payload, frame.fds)?);
             }
         }
         Ok((client, listed))
@@ -298,8 +298,15 @@ impl HolderClient {
         prologue: &[u8],
     ) -> io::Result<()> {
         let payload = Out::default().i32(pid).u64(base).bytes(id).u64(resume).bytes(prologue).0;
-        let frame = wire::encode_flagged(Kind::Adopt, wire::FLAG_RING, chan, &payload);
-        wire::send_all(self.stream.as_raw_fd(), &frame, &[master.as_raw_fd(), ring.as_raw_fd()])
+        let fds = [master.as_raw_fd(), ring.as_raw_fd()];
+        wire::send_frame(
+            self.stream.as_raw_fd(),
+            Kind::Adopt,
+            wire::FLAG_RING,
+            chan,
+            &payload,
+            &fds,
+        )
     }
 
     /// The wire version the holder's WELCOME settled on.
@@ -345,13 +352,9 @@ impl HolderClient {
 
     /// [`Self::attach`] as a restarted daemon does: the prologue first.
     pub fn reattach(&mut self, chan: u32, from: u64) -> io::Result<()> {
-        let frame = wire::encode_flagged(
-            Kind::Attach,
-            wire::FLAG_WITH_PROLOGUE,
-            chan,
-            &Out::default().u64(from).0,
-        );
-        wire::send_all(self.stream.as_raw_fd(), &frame, &[])
+        let payload = Out::default().u64(from).0;
+        let flags = wire::FLAG_WITH_PROLOGUE;
+        wire::send_frame(self.stream.as_raw_fd(), Kind::Attach, flags, chan, &payload, &[])
     }
 
     /// Hand the holder a VT replay of `chan`'s screen at offset `base`.
@@ -434,7 +437,7 @@ impl HolderClient {
         fd: Option<&OwnedFd>,
     ) -> io::Result<()> {
         let fds: Vec<_> = fd.map(AsRawFd::as_raw_fd).into_iter().collect();
-        wire::send_all(self.stream.as_raw_fd(), &wire::encode(kind, chan, payload), &fds)
+        wire::send_frame(self.stream.as_raw_fd(), kind, 0, chan, payload, &fds)
     }
 
     fn frame(&mut self, deadline: Instant) -> io::Result<wire::Frame> {
@@ -468,4 +471,13 @@ impl HolderClient {
 
 fn error_message(payload: &[u8]) -> String {
     String::from_utf8_lossy(payload.get(4..).unwrap_or_default()).into_owned()
+}
+
+/// The error a holder's refusal of the HELLO stands for.
+fn refusal(payload: &[u8]) -> io::Error {
+    let code = In(payload.get(2..).unwrap_or_default()).u16().unwrap_or_default();
+    if code == crate::holder::error_code::BAD_TOKEN {
+        return io::Error::other("holder refused the token");
+    }
+    io::Error::other(format!("holder refused the link (code {code}): {}", error_message(payload)))
 }
