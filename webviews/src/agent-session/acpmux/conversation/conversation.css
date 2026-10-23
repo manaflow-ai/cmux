@@ -1594,6 +1594,46 @@ pre.cv-math-source {
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+/* Scrolled, its top fades out under the summary line above it (Leo 2026-10-21: "in that top section
+   fade would be good"), so a row half scrolled away dissolves instead of sitting cut in half against
+   the line. The transcript's top edge (.acpmux-scroll[data-fade-top], below): an alpha mask on the
+   list itself, never a painted overlay, so it covers nothing, catches no clicks and lets the pane's
+   glass show through in light and dark; at the list's start the edge is plain (data-fade-top,
+   scrollEdges.ts). The scrollbar's lane at the right keeps full ink. Reduce Transparency keeps a
+   plain edge. */
+.cv-tool-run[data-fade-top] {
+  --cv-tool-run-fade-top: 18px;
+  -webkit-mask-image:
+    linear-gradient(to bottom, transparent, #000 var(--cv-tool-run-fade-top)),
+    linear-gradient(#000, #000);
+  mask-image:
+    linear-gradient(to bottom, transparent, #000 var(--cv-tool-run-fade-top)),
+    linear-gradient(#000, #000);
+  -webkit-mask-size:
+    100% 100%,
+    var(--cmux-scroller-size, 8px) 100%;
+  mask-size:
+    100% 100%,
+    var(--cmux-scroller-size, 8px) 100%;
+  -webkit-mask-position:
+    0 0,
+    100% 0;
+  mask-position:
+    0 0,
+    100% 0;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .cv-tool-run[data-fade-top] {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+:root[data-reduce-transparency] .cv-tool-run[data-fade-top] {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
 .cv-tool {
   all: unset;
   box-sizing: border-box;
