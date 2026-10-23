@@ -92,6 +92,8 @@ opts = parser.parse_args()
 OUT = os.path.abspath(opts.out)
 os.makedirs(OUT, exist_ok=True)
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
+# A tagged build's socket lives in ~/.local/state/cmux with a /tmp link, or at /tmp when the path is too long.
+SOCKETS = [SOCKET, os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{opts.tag}.sock")]
 SCRATCH = tempfile.mkdtemp(prefix=f"every-action-{opts.tag}-")
 CONFIG = os.path.join(SCRATCH, "cmux.json")
 GHOSTTY = os.path.join(SCRATCH, "ghostty")
@@ -185,27 +187,47 @@ class App:
         with open(CONFIG, "w") as f:
             json.dump({"appearance": {"backgroundOpacity": 1}}, f)
         open(GHOSTTY, "w").close()
-        if os.path.exists(SOCKET):
-            os.unlink(SOCKET)
+        for path in SOCKETS:
+            if os.path.lexists(path):
+                os.unlink(path)
+        # The environment typing-frame-bench.py launches with on the fleet (a step's HOME, no login shell).
         env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-               "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
+               "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/zsh", "CMUX_DEV_BACKEND_MODE": "local",
+               "CMUX_NEXT_AGENT_PANE_MOCK": "1", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
                "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(map(str, WINDOW)),
                "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY, "CMUX_NEXT_CHIEF_ISOLATED": "1",
                "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"), "CMUX_NEXT_TYPING_PROBE": PROBE,
-               "CMUX_NEXT_HANG_THRESHOLD_MS": "8", "ACPMUX_AGENT_LAUNCH": "deny", "NX_REMOTE": "1"}
+               "CMUX_NEXT_HANG_THRESHOLD_MS": "8", "ACPMUX_AGENT_LAUNCH": "deny"}
         binary = next((p for p in sorted(glob.glob(os.path.join(opts.app, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
         log = open(os.path.join(OUT, "app.log"), "a")
         self.process = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
         self.pids.append(self.process.pid)
         SIGNPOSTS.pids.add(self.process.pid)
         note(f"every-action: launched pid {self.process.pid}")
-        if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 180, step=0.25):
-            raise SystemExit(f"every-action: the tagged app did not come up (exit={self.process.poll()})")
+        def up():
+            global SOCKET
+            for path in SOCKETS:
+                if os.path.exists(path):
+                    SOCKET = path
+                    if (rpc("debug.windows") or {}).get("windows"):
+                        return True
+            return False
+        if not wait(up, 180, step=0.25):
+            log.flush()
+            tail = open(os.path.join(OUT, "app.log"), errors="replace").read()[-3000:]
+            raise SystemExit(f"every-action: the tagged app did not come up (exit={self.process.poll()}, sockets "
+                             f"{[(p, os.path.exists(p)) for p in SOCKETS]})\n{tail}")
         time.sleep(3)  # test script: launch work (restore, first pages) ends before the first measure
 
     def stop(self):
         if not self.process or self.process.poll() is not None:
             return
+        rpc("action.run", {"action": "quitEndSessions"}, timeout=10)  # ends the tag's terminal sessions too
+        try:
+            self.process.wait(timeout=25)
+            return
+        except subprocess.TimeoutExpired:
+            pass
         self.process.terminate()  # our own child only
         try:
             self.process.wait(timeout=30)
