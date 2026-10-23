@@ -248,7 +248,9 @@ export type AcpmuxRow = {
   doingDraft?: boolean;
   untimed?: boolean;
   quietKey?: string;
-  /// The call it names is a command, so the line leads with the terminal glyph (WorkingFor.tsx).
+  /// The call in flight is a command: the line offers "⌃B to run in background" (BackgroundHint.tsx;
+  /// never on the command's own row), and leads with the terminal glyph when it names it
+  /// (WorkingFor.tsx).
   doingCommand?: boolean;
   /// The disclosure of the group that draws the call's own row, and whether it opens by default: while
   /// it is open the row names the call, so the line does not (conversation/turns.ts `ownRow`).
@@ -490,11 +492,11 @@ export type AcpmuxSnapshot = {
     sessionId: string;
     cwd?: string;
     turnCount?: number;
-    /// Context-window tokens used of the session's window, from the agent's last usage update.
-    usage?: { used: number; size: number };
-    /// What the context holds by category, as Claude Code's /context said after the last turn
-    /// (acpmux `contextBreakdown`); unset for other harnesses. Each list holds at most 50 rows,
-    /// the largest.
+    /// Context-window tokens used of the session's window, from the agent's last usage update, and
+    /// `setup`, the part the agent took before the conversation (its system prompt, tools and
+    /// memory), when the harness reports it (`_meta.acpmux.setup`).
+    usage?: { used: number; size: number; setup?: number };
+    /// What the context holds by category, as Claude Code's /context reports it.
     contextBreakdown?: AcpmuxContextBreakdown;
     host?: string;
     peer?: string;
