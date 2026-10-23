@@ -21,10 +21,14 @@ extension AppServices {
 
     /// ``revealTab(_:intent:)`` for tab `id` on machine `machineID` only, never a tab of
     /// another machine that shares the id (Go to What Needs Me's rows name their machine).
+    /// Windows find a workspace by its id alone, so a workspace whose id another machine's
+    /// workspace also has (a cloned machine's) is refused rather than shown as the other one.
     @discardableResult
     func revealTab(_ id: String, onMachine machineID: String, intent: WindowActivation.Intent = .raise) -> Bool {
         guard let daemon = machines.daemons.first(where: { $0.machineID == machineID }),
-              let tab = daemon.store.tab(idOrResource: id), let pane = daemon.store.pane(holding: tab) else { return false }
+              let tab = daemon.store.tab(idOrResource: id), let pane = daemon.store.pane(holding: tab),
+              let workspace = daemon.store.workspace(containing: pane.handle),
+              machines.workspace(id: workspace.id)?.1 === daemon else { return false }
         return reveal((tab, pane), id: id, intent: intent)
     }
 

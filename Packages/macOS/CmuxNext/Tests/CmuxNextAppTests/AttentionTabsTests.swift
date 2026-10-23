@@ -69,6 +69,17 @@ struct AttentionTabsTests {
             #expect(tab.attention?.reason == item.reason, "\(item.reason)'s row found the other machine's tab")
             #expect(item.tabId.utf8.count <= AgentPaneAttentionTabs.maximumTabID)
         }
+        // Both machines' workspaces also share an id here (a cloned machine's state): windows find a
+        // workspace by id alone, so Go to on the SSH row refuses rather than show this Mac's tab.
+        let shared = AgentPaneAttentionTabs.shared
+        let (savedItems, savedOnOpen) = (shared.items, shared.onOpen)
+        defer { shared.items = savedItems; shared.onOpen = savedOnOpen }
+        AppActions.bind(services)
+        shared.items = items
+        let lab = try #require(items.first { $0.reason == "Log in on lab" })
+        let windowsBefore = services.windows.controllers.count
+        #expect(!shared.open(lab.tabId), "Go to on the SSH row showed a tab although its workspace id is this Mac's too")
+        #expect(services.windows.controllers.count == windowsBefore, "a refused Go to opened a window")
         let long = AttentionTabsWatch.key(machine: String(repeating: "m", count: 1_000), tab: "tab_forked")
         #expect(long.utf8.count <= AgentPaneAttentionTabs.maximumTabID, "a long machine id made a key Go to refuses")
         #expect(AttentionTabsWatch.locate("tab_forked", in: services.machines.daemons) == nil, "a bare tab id names no machine")
