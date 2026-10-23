@@ -3146,6 +3146,8 @@ export class AcpmuxDirectClient {
     }
     if (!update) return;
     this.subagents.cause = this.turnStopCause(event);
+    const chat = this.summary?.agentSessionId;
+    this.subagents.chat = typeof chat === "string" && chat ? chat : undefined;
     if (this.subagents.reduce(event, update)) {
       this.takeSubagentRows();
       return;
