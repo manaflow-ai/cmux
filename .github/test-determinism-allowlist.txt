@@ -80,7 +80,6 @@ Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ThemedTooltipTests.swift	sleep-th
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/TooltipSurfaceTests.swift	assert-on-duration	feat-cmux-next debt before the gate ran there
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/WorkspaceRemoteLocalhostTests.swift	sleep-then-assert	feat-cmux-next debt before the gate ran there
 Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/BrowserProtectedMediaTests.swift	sleep-then-assert	feat-cmux-next debt before the gate ran there
-Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/ExtensionsMenuPerformanceTests.swift	assert-on-duration	feat-cmux-next debt before the gate ran there
 Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/OmniboxPhaseABenchmarkTests.swift	assert-on-duration	feat-cmux-next debt before the gate ran there
 Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/ToolbarButtonsStateTests.swift	assert-on-duration	feat-cmux-next debt before the gate ran there
 Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/BrowserPageWaitTests.swift	sleep-then-assert	feat-cmux-next debt before the gate ran there
