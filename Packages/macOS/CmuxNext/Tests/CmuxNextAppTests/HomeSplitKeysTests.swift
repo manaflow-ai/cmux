@@ -46,14 +46,20 @@ struct HomeSplitKeysTests {
                 if !docked, placed.pane.tabs.count == 1 {
                     // A real Home's page joined the shell its workspace opened with; the daemon never
                     // splits a pane's only tab out of it ("a pane's only tab cannot be split out").
-                    _ = try await connection.newTab(in: placed.pane.handle)
-                    dockSteps.append("added the shell a real Home starts with")
+                    // The dock move can drop that pane before the tree reports it ("unknown pane"):
+                    // the next round reads the tree again.
+                    do {
+                        _ = try await connection.newTab(in: placed.pane.handle)
+                        dockSteps.append("added the shell a real Home starts with")
+                    } catch { dockSteps.append("adding the shell: \(error)") }
                 } else if docked {
                     // The dock is made: what is left on its right is that shell; Home stands alone.
                     let right = Self.panes(home).filter { $0 !== placed.pane }.flatMap(\.tabs).map(\.surface)
                     if !right.isEmpty {
-                        try await connection.closeTabs(right, endTerminals: true)
-                        dockSteps.append("closed \(right.count) tab(s) right of the dock")
+                        do {
+                            try await connection.closeTabs(right, endTerminals: true)
+                            dockSteps.append("closed \(right.count) tab(s) right of the dock")
+                        } catch { dockSteps.append("closing the shell: \(error)") }
                     } else if window.focusedPane?.pane !== placed.pane, let content = window.content,
                               let id = content.handles.paneIDs[placed.pane.handle] {
                         PaneHandlers.focus(id, in: content)
