@@ -150,6 +150,10 @@ final class InternalPageTabStore {
     func storeTabItem(_ tab: TabModel, page: InternalPageID? = nil) -> (title: String, icon: TabIcon)? {
         guard let page = page ?? tab.page.map(InternalPageID.init(rawValue:)) else { return nil }
         let provider = providers[page]
+        // A restored tab before its first show has no key yet: its route names what it shows.
+        if storeKeys[tab.id] == nil, let route = tab.pageRoute, let title = provider?.title(forRoute: route) {
+            return (title, Self.tabIcon(provider))
+        }
         return (Self.tabTitle(provider, key: storeKeys[tab.id] ?? "", page: page), Self.tabIcon(provider))
     }
 
