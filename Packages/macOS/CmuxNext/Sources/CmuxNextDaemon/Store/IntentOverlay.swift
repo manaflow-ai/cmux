@@ -57,8 +57,7 @@ import Foundation
         case .setRowHeights(let column, let heights):
             // A row edge dragged on a pending New Column's or New Row's stand-in names its ids: it
             // shows on whichever column and rows show that create now (the daemon's, once placed).
-            let shown = store.shownColumnTarget(column: column, heights: heights)
-            return setRowHeights(shown.heights, of: shown.column, in: store)
+            return setRowHeights(heights, of: column, in: store)
         case .createTab(let paneHandle, let provisional):
             guard let pane = store.panesByHandle[paneHandle], store.tabsBySurface[provisional.surface] == nil else { return nil }
             let tab = TabModel(provisional)
