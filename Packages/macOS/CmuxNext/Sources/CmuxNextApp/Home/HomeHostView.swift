@@ -430,7 +430,7 @@ final class HomeHostView: NSView {
         }
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.home.drive` engine_set: one pick in this view's Chief settings panel, as its popup does.
     func debugPickEngine(_ key: String, _ value: String?) { settingsView.pick(key, value) }
     /// `debug.home.drive` chief_control: the named Chief this view's controls name (nil: the default).

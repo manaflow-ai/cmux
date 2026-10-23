@@ -450,7 +450,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// their home's place here, so a pane ring follows a pane that moved
     /// because an ancestor moved (sidebar width), not only its own layout.
     override func layoutIfNeeded() {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         let traced = DebugWindowTransition.shared.isActive && overlayLayer.layoutDepth == 0
         let began = traced ? CACurrentMediaTime() : 0
         defer { if traced { DebugWindowTransition.shared.noteLayoutPass(self, seconds: CACurrentMediaTime() - began) } }

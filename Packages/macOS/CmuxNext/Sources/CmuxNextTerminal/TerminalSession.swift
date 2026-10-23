@@ -178,7 +178,7 @@ public final class TerminalSession {
         // The first grid report fired inside the surface init, before
         // `session` was set; report it now.
         surfaceView.updateSurfaceSize(forceReport: true)
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceSurfaceCreated(io: io) }
         #endif
     }
@@ -307,7 +307,7 @@ public final class TerminalSession {
     }
 
     private func apply(_ event: TerminalIOEvent) async {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceEvent(event) }
         #endif
         switch event {
@@ -394,7 +394,7 @@ public final class TerminalSession {
         let wasFirstResponder = old.isFirstResponder
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self)
         swappedSurfaces += 1
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceSurfaceSwapped(fresh) }
         #endif
         fresh.ownsGeometry = ownsGeometry
