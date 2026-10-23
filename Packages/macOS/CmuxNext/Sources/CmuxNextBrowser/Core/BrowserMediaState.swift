@@ -103,12 +103,18 @@ public nonisolated struct BrowserMediaState: Hashable, Sendable {
             rate: seconds("rate").flatMap { $0 > 0 ? $0 : nil } ?? 1))
     }
 
-    /// The Chromium binding's payload: the same report as JSON text.
-    public static func report(json: String) -> BrowserMediaState?? {
-        guard let data = json.data(using: .utf8), let body = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
-            return nil
-        }
-        return report(body)
+    /// One frame's message from the observer: `{frame, report}`, the id its observer picked
+    /// for its document and that frame's report (``report(_:)``). Nil for anything else.
+    static func frameReport(_ body: Any?) -> (frame: String, media: BrowserMediaState?)? {
+        guard let object = body as? [String: Any], let frame = object["frame"] as? String,
+              let media = report(object["report"]) else { return nil }
+        return (String(frame.prefix(64)), media)
+    }
+
+    /// ``frameReport(_:)`` from JSON (Chromium's binding payload).
+    static func frameReport(json: String) -> (frame: String, media: BrowserMediaState?)? {
+        guard let data = json.data(using: .utf8), let body = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        return frameReport(body)
     }
 }
 

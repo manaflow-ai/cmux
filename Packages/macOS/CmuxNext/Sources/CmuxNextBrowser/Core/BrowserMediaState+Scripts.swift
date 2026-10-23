@@ -4,9 +4,11 @@ import Foundation
 /// engines; no engine API reports media. `observerScript` runs in an isolated
 /// world from document start in every frame: it watches media elements
 /// (their events, in the capture phase) and `navigator.mediaSession`, and
-/// posts a report when what plays changes, null once nothing does. A frame
-/// that never played posts nothing, so a page's frames do not clear each
-/// other. `actionsScript` runs in the page's world: it records the page's
+/// posts `{frame, report}` when what plays changes (report null once
+/// nothing does, or when the document goes). `frame` is an id the observer
+/// picks for its document: the tab keeps one report per frame
+/// (`BrowserMediaFrames`), so one frame's null never erases another frame's
+/// report. A frame that never played posts nothing. `actionsScript` runs in the page's world: it records the page's
 /// `mediaSession` action handlers so Previous and Next can call them
 /// (handlers live in the page's world only); a page can see that wrapper,
 /// so those two are best effort. Media elements outside the document (a
@@ -15,15 +17,18 @@ import Foundation
 /// next, and passes on to the frame's child frames. A video floating in
 /// Picture in Picture is the one reported, playing or not, until it comes back.
 /// The observer keeps a timer only while what it reported plays or a report
-/// waits for the binding: an idle frame costs its renderer no wakeup.
+/// waits for the binding: an idle frame costs its renderer no wakeup. While a
+/// paused report is live it watches DOM removals, so a paused element the
+/// page removes (its events fire on a detached node no listener here sees)
+/// reports null at once.
 nonisolated extension BrowserMediaState {
     /// WebKit's message handler and Chromium's binding.
     static let channel = "cmuxMedia"
     /// The isolated world the observer runs in.
     static let world = "cmux-media"
 
-    /// The observer, posting with `post` (a JS expression taking the report)
-    /// once `ready` (a JS expression) is true.
+    /// The observer, posting with `post` (a JS expression taking `message`,
+    /// `{frame, report}`) once `ready` (a JS expression) is true.
     static func observerScript(post: String, ready: String = "true") -> String {
         #"""
         (() => {
@@ -32,6 +37,10 @@ nonisolated extension BrowserMediaState {
           let last = '', reported = false, pending = false, heartbeat = false, timer = 0, actions = '', tabMuted = false, seeked = false;
           // What the last look found playing, and the one-second look-again while it plays (`follow`).
           let playing = false, ticks = 0, ticker = 0;
+          // The element last reported, and the DOM-removal watch kept while it is reported paused.
+          let held = null, watcher = null;
+          // This document's id: the tab keeps one report per frame.
+          const frame = Math.random().toString(36).slice(2) + Date.now().toString(36);
           // The elements the tab's mute muted, which Unmute unmutes.
           const hushed = new WeakSet();
           const media = (e) => !!e && (e.tagName === 'VIDEO' || e.tagName === 'AUDIO');
@@ -39,6 +48,7 @@ nonisolated extension BrowserMediaState {
           const send = (report) => {
             if (!(\#(ready))) { pending = true; return false; }
             pending = false;
+            const message = { frame, report };
             try { \#(post); return true; } catch (_) { return false; }
           };
           // The video in Picture in Picture: Chromium's (and WebKit's) API, or WebKit's presentation mode.
@@ -59,7 +69,7 @@ nonisolated extension BrowserMediaState {
             playing = false;
             const element = active();
             if (!element) {
-              if (reported && send(null)) { reported = false; last = ''; }
+              if (reported && send(null)) { reported = false; last = ''; held = null; }
               return;
             }
             const meta = navigator.mediaSession ? navigator.mediaSession.metadata : null;
@@ -71,25 +81,38 @@ nonisolated extension BrowserMediaState {
               tabMuted, actions,
             };
             playing = state.playing;
-            // The position leaves the key: the heartbeat carries it on, and a seek reports at once.
+            // The position leaves the key: the heartbeat corrects its drift, and a seek reports at once.
             const key = JSON.stringify(state) + '#' + (isFinite(element.duration) ? Math.round(element.duration) : '')
               + (seeked ? '#' + Math.round(element.currentTime) : '');
             seeked = false;
             state.position = element.currentTime;
             state.duration = isFinite(element.duration) ? element.duration : null;
             state.rate = element.playbackRate;
-            // Again every few seconds while it plays: another frame's
-            // report may have replaced it.
+            // Again every few seconds while it plays: the position the app runs on may have drifted.
             if (key === last && !heartbeat) return;
             if (!send(state)) return;
             last = key;
             reported = true;
+            held = element;
+          };
+          // A paused element the page removes fires its events on a detached node: while a paused
+          // report is live, a DOM change that took the reported element out of the document looks
+          // again (one `isConnected` read per change batch). No watch at any other time.
+          const watchRemovals = (on) => {
+            if (on && !watcher && typeof MutationObserver === 'function') {
+              watcher = new MutationObserver(() => { if (held && !held.isConnected) schedule(); });
+              watcher.observe(document, { childList: true, subtree: true });
+            } else if (!on && watcher) {
+              watcher.disconnect();
+              watcher = null;
+            }
           };
           // Metadata changes fire no event: look again every second while what this frame reported
-          // plays (every third look sends it again: another frame's report may have replaced it),
-          // and while a report waits for the binding. Nothing else keeps a timer, so a frame with
-          // nothing playing (every idle page, hidden or shown) never wakes its renderer.
+          // plays (every third look sends it again with its position), and while a report waits
+          // for the binding. Nothing else keeps a timer, so a frame with nothing playing (every
+          // idle page, hidden or shown) never wakes its renderer.
           const follow = () => {
+            watchRemovals(reported && !playing);
             const on = (playing && reported) || pending;
             if (on && !ticker) {
               ticks = 0;
@@ -113,6 +136,13 @@ nonisolated extension BrowserMediaState {
             'enterpictureinpicture', 'leavepictureinpicture', 'webkitpresentationmodechanged']) {
             addEventListener(type, schedule, true);
           }
+          // The document goes (navigation, its frame removed): its report goes with it. A page
+          // restored from the back-forward cache looks again.
+          addEventListener('pagehide', () => {
+            watchRemovals(false);
+            if (reported && send(null)) { reported = false; last = ''; held = null; }
+          }, true);
+          addEventListener('pageshow', (event) => { if (event.persisted) schedule(); }, true);
           for (const type of ['seeked', 'ratechange']) {
             addEventListener(type, () => { seeked = true; schedule(); }, true);
           }
