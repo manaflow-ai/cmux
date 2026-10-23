@@ -15,11 +15,12 @@ environment below, and a GUI login session of this account on the console: from 
 working session: its display does not tick (frame numbers mean nothing), and the made-ahead open panel
 blocked its main thread about 40 s on ViewBridge (`HostCallsAuxiliary: Connection interrupted`), so the
 socket often never answered, then crashed it (MadeAheadOpenPanel; the crash fixed in c41e7e7296a, and the
-warm-up no longer runs off the console session or again after a dead panel since the review-pl-fleet-gui fix).
-Found on the AWS measure workers 2026-10-23, where only aws-m4pro-9 had ec2-user on the console.
+warm-up runs only when this account is the console user, and never again after a dead panel, since the
+review-pl-fleet-gui fixes). Found on the AWS measure workers 2026-10-23, where only aws-m4pro-9 had ec2-user on
+the console.
 
-The session rule (the same as the hq worker gate, build-fleet console_session.go readConsoleUser; change both
-together): the console user is the `Name` of SCDynamicStore `State:/Users/ConsoleUser` (`scutil`); `loginwindow`,
+The session rule (the same as the hq worker gate, build-fleet console_session.go readConsoleUser, and the app's
+open-panel warm-up, CmuxNextDesign OpenPanelWarmGate; change all three together): the console user is the `Name` of SCDynamicStore `State:/Users/ConsoleUser` (`scutil`); `loginwindow`,
 no such key, or no answer at all means nobody, and the check fails closed. This account has a GUI session only
 when it is that user. A locked screen is reported (`screen_locked`, from IOConsoleUsers) but does not fail the
 check.
@@ -128,6 +129,35 @@ def rpc_at(path, method, params=None, timeout=60):
     except (OSError, ValueError) as error:
         return {"error": str(error), "unreachable": True}
     return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
+
+
+def socket_in_use(path):
+    """Whether a process accepts connections on the socket at `path`. Only a refused connect (nothing listens) or a
+    missing file (a dangling link) is free: a socket that accepts but answers slowly (a busy main thread, a long
+    restore, the ViewBridge block above) belongs to a live app, and any other error (permissions) is treated as in
+    use too, so a probe never unlinks a live app's socket."""
+    conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    conn.settimeout(2)
+    try:
+        conn.connect(path)
+    except (ConnectionRefusedError, FileNotFoundError):
+        return False
+    except OSError:
+        return True
+    finally:
+        conn.close()
+    return True
+
+
+def unique_paths(paths):
+    """`paths` with the ones that resolve to the same file dropped (the state-folder socket and its /tmp link)."""
+    seen, out = set(), []
+    for path in paths:
+        real = os.path.realpath(path)
+        if real not in seen:
+            seen.add(real)
+            out.append(path)
+    return out
 
 
 def console_user():
@@ -366,11 +396,11 @@ class BenchApp:
                                                 "quit it or pick a fresh tag"})
         for path in socket_candidates(self.tag):
             if os.path.lexists(path) and not os.path.isdir(path):
-                if not (rpc_at(path, "debug.windows", timeout=2) or {}).get("unreachable"):
-                    # Another app of this tag (another bundle path) answers there: never cut it off.
+                if socket_in_use(path):
+                    # Another app of this tag (another bundle path) accepts there, maybe slowly: never cut it off.
                     self._fail("tag-in-use", {"tag": self.tag, **host_facts(), "socket": path, "log_tail": "",
-                                              "detail": f"an app of tag {self.tag} answers on {path}; quit it or pick a fresh tag"})
-                os.unlink(path)  # a socket a killed run of this tag left; the app makes it again
+                                              "detail": f"an app of tag {self.tag} accepts on {path}; quit it or pick a fresh tag"})
+                os.unlink(path)  # nothing listens: a socket a killed run of this tag left; the app makes it again
         if self.teardown:
             self.teardown.install()
         log = open(self.log_path, "a")
@@ -386,16 +416,19 @@ class BenchApp:
         while time.monotonic() < deadline:  # bounded poll of the socket of the app this script started
             if self.process.poll() is not None:
                 break
-            for path in socket_candidates(self.tag):
-                if os.path.exists(path):
-                    self.socket = path
-                    last = rpc_at(path, ready, timeout=10)
-                    if isinstance(last, dict) and not last.get("error") and (ready != "debug.windows" or last.get("windows")):
-                        self.ready_seconds = round(time.monotonic() - start, 2)
-                        note(f"bench-launch: {self.tag} answered on {path} after {self.ready_seconds} s")
-                        if settle:
-                            time.sleep(settle)  # bench: launch work (restore, first pages) ends before a measure
-                        return self
+            # The state-folder socket and its /tmp link are one socket: probe it once, and never past the deadline.
+            for path in unique_paths(p for p in socket_candidates(self.tag) if os.path.exists(p)):
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    break
+                self.socket = path
+                last = rpc_at(path, ready, timeout=min(10, left))
+                if isinstance(last, dict) and not last.get("error") and (ready != "debug.windows" or last.get("windows")):
+                    self.ready_seconds = round(time.monotonic() - start, 2)
+                    note(f"bench-launch: {self.tag} answered on {path} after {self.ready_seconds} s")
+                    if settle:
+                        time.sleep(settle)  # bench: launch work (restore, first pages) ends before a measure
+                    return self
             time.sleep(0.25)  # the poll interval
         log.flush()
         self._fail(*self.diagnose(last, timeout))
@@ -415,8 +448,7 @@ class BenchApp:
         exit_code = self.process.poll() if self.process else None
         report = {"tag": self.tag, **host_facts(), "pid": self.process.pid if self.process else None, "exit": exit_code,
                   "sockets": sockets, "last_reply": last, "gui_session": session, "log": self.log_path}
-        crashes = crash_reports(self.launched_at - 1, pid=self.process.pid if self.process else None,
-                                binary=self.binary) if self.launched_at else []
+        crashes = self.wait_for_crash_report(exit_code)
         if crashes:
             report["crash_report"] = crashes[-1]
             report["crash"] = crash_summary(crashes[-1])
@@ -442,6 +474,19 @@ class BenchApp:
             report["log_tail"] = ""
         return reason, report
 
+    def wait_for_crash_report(self, exit_code, wait=10):
+        """This launch's crash and hang reports. After a signal exit (exit < 0) ReportCrash writes the .ips a few
+        seconds after the process ends, so this waits up to `wait` seconds for one; otherwise it reads once."""
+        if not self.launched_at:
+            return []
+        pid = self.process.pid if self.process else None
+        deadline = time.monotonic() + (wait if exit_code is not None and exit_code < 0 else 0)
+        while True:
+            found = crash_reports(self.launched_at - 1, pid=pid, binary=self.binary)
+            if found or time.monotonic() >= deadline:
+                return found
+            time.sleep(0.5)  # bounded wait for ReportCrash, which gives no signal when it is done
+
     def sample_main_thread(self, seconds=2):
         path = os.path.join(self.out, f"sample-launch-{self.tag}.txt")
         try:
@@ -455,7 +500,12 @@ class BenchApp:
         return "\n".join(l.rstrip()[:180] for l in main[:40])
 
     def stop(self, quit_timeout=30):
-        """Quits the app (debug.quit, then TERM and KILL of its own PID) and ends the tag's daemons."""
+        """Quits the app (debug.quit, then TERM and KILL of its own PID) and ends the tag's daemons.
+
+        Nothing when this BenchApp started no app (launch() refused: no-gui-session, tag-in-use): the bundle's
+        processes are then another run's, and the teardown would end that live app and its daemons."""
+        if self.process is None:
+            return
         try:
             if self.process and self.process.poll() is None:
                 self.rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
