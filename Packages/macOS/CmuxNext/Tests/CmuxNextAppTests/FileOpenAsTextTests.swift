@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBrowser
 @testable import CmuxNextApp
 import CmuxNextFiles
 import CmuxNextFilesUI
@@ -32,6 +33,11 @@ struct FileOpenAsTextTests {
     func openAsTextRoutesARenderedPageToTheCodeEditor(name: String, open: FilePageOpener.Route, asText: FilePageOpener.Route) {
         #expect(FilePageOpener.route(for: Self.url(name), userChose: true) == open)
         #expect(FilePageOpener.route(for: Self.url(name), userChose: true, asText: true) == asText)
+    }
+
+    @Test(arguments: ["sidebar-clean-cmux.png", "wide.jpg", "poster.webp", "document.pdf"])
+    func localImageAndPDFPreviewsUseTheScopedWebKitReader(name: String) {
+        #expect(FilePageOpener.tabEngine(for: Self.url(name)) == BrowserEngineTag.webkit.rawValue)
     }
 
     // MARK: The shared file menu (Home attachments and file links, the Files pane)
