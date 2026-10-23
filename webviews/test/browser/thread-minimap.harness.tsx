@@ -7,6 +7,8 @@ import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import { turnView } from "../../src/agent-session/acpmux/conversation/turns";
 // The pane's styles, as its dev entry loads them (acpmux/dev.tsx).
 import "../../src/pages/shared/desktop.css";
+// The liquid glass next, as dev.tsx and the bundle load it: the user bubble is `.ui-glass`.
+import "../../src/ui/glass/glass.css";
 import "../../src/ui/popupSurface.css";
 import "../../src/agent-session/shared/styles.css";
 import "../../src/agent-session/acpmux/styles.css";
@@ -29,6 +31,10 @@ import "../../src/agent-session/acpmux/keys.css";
 import "../../src/agent-session/acpmux/newtab/screen.css";
 import "../../src/agent-session/acpmux/newtab/history.css";
 import "../../src/agent-session/acpmux/threadMinimap/threadMinimap.css";
+// The motion tests measure the compact (Codex) rail; `?layout=full` shows the full-height map.
+(globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
+  "thread-minimap-layout": new URLSearchParams(location.search).get("layout") === "full" ? "full" : "compact",
+};
 
 const root = document.getElementById("root")!;
 document.documentElement.style.height = document.body.style.height = "100%";

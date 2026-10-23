@@ -44,7 +44,7 @@ extension ScreenContentView {
         if MotionTrace.isEnabled { MotionTrace.sample("layout.travel", Double(travelLeft)) }
         let panesMoving = paneFrames.values.contains { $0.rect != $0.targetRect }
         // The panes landed: their terminals' grids go to the PTY once, now.
-        if closing, !panesMoving { closing = false }
+        if holdsGrids, !panesMoving { holdsGrids = false }
         if !isUserScrolling {
             if scroll.advance(dt, parameters: cameraSpring, epsilon: 0.25) {
                 moving = true
@@ -97,6 +97,7 @@ extension ScreenContentView {
             // Before the frame moves: chrome that re-checks itself on the move reads the rest.
             let rest = frame.targetRect.offsetBy(dx: (scrolls ? restStrip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
             host.restOffset = CGVector(dx: rest.minX - placed.minX, dy: rest.minY - placed.minY)
+            host.restSize = rest.size
             // On a spring until the frame it lands at is laid out (`PaneHostView.isOnLayoutSpring`).
             let springing = frame.rect != frame.targetRect
             if springing { host.isOnLayoutSpring = true }
@@ -128,6 +129,10 @@ extension ScreenContentView {
             let hidden = (scrolls && !geometry.dock.isEmpty && view.frame.intersection(uncovered).width < 0.5)
                 || areaWindow(of: kind).map { !$0.contains(CGPoint(x: view.frame.midX, y: view.frame.midY)) } == true
             if view.isHidden != hidden { view.isHidden = hidden }
+            // Shown, its cursor and click catcher still stop at a dock and at its area's window.
+            var pointerClip: CGRect? = scrolls && !geometry.dock.isEmpty ? uncovered : nil
+            if let area = areaWindow(of: kind) { pointerClip = pointerClip.map { $0.intersection(area) } ?? area }
+            view.cursorClip = pointerClip
         }
         updateScrollbar()
         refreshDividerHover()

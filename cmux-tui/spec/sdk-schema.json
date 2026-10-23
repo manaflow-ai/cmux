@@ -3942,6 +3942,88 @@
    },
    "additional_properties": false
   },
+  "TerminalPortsListener": {
+   "kind": "object",
+   "fields": {
+    "port": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint16"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "host": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The host as the terminal printed it: localhost, 127.0.0.1, 0.0.0.0, [::1], ..."
+    },
+    "url": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The printed URL, or http://HOST:PORT/ when the text had no scheme."
+    },
+    "bound": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The loopback address that accepted the daemon's connect: 127.0.0.1 or ::1."
+    }
+   },
+   "additional_properties": false
+  },
+  "TerminalPortsResult": {
+   "kind": "object",
+   "fields": {
+    "surface": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "listeners": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "TerminalPortsListener"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "closed": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "uint16"
+      }
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Ports the text names that refused the connect."
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Ports come from the terminal's text (the active screen with scrollback, the last 1 MiB) on loopback or wildcard hosts, newest mention first, at most 32.",
+    "A port is listed only when a TCP connect to 127.0.0.1 or ::1 succeeds within 150 ms."
+   ]
+  },
   "TerminalResourcesResult": {
    "kind": "object",
    "fields": {
@@ -5039,6 +5121,16 @@
      "nullable": true,
      "since": 12,
      "description": "Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports."
+    },
+    "agent_session_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this."
     },
     "last_prompt": {
      "type": {
@@ -13337,6 +13429,34 @@
    "stream": null,
    "constraints": [
     "PTY surfaces only."
+   ]
+  },
+  "terminal-ports": {
+   "authority": "control",
+   "since": 12,
+   "capability": "terminal-ports-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "TerminalPortsResult"
+   },
+   "stream": null,
+   "constraints": [
+    "PTY surfaces only.",
+    "Read when the request arrives; the daemon keeps no poller or cache and never scans processes."
    ]
   },
   "terminal-resources": {
@@ -22416,12 +22536,20 @@
       "presence": "required",
       "nullable": false
      },
+     "auth": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
      "access_token": {
       "type": {
        "kind": "scalar",
        "name": "string"
       },
-      "presence": "required",
+      "presence": "optional",
       "nullable": false
      },
      "expires_at": {
@@ -22429,7 +22557,7 @@
        "kind": "scalar",
        "name": "uint64"
       },
-      "presence": "required",
+      "presence": "optional",
       "nullable": false
      },
      "client_version": {
@@ -22449,7 +22577,7 @@
    },
    "stream": null,
    "constraints": [
-    "Trusted local connections only. Leases the app's cmux Cloud session to the daemon (memory only; never echoed). api_base_url is an https origin (http only for loopback). See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    "Trusted local connections only. Leases the app's cmux Cloud session to the daemon (memory only; never echoed). api_base_url is an https origin (http only for loopback); access_token and expires_at are required. With auth \"tailscale\" (capability cloud-selfhost-v1) the lease names a self-hosted chat server: an http or https origin on a tailnet host (*.ts.net, 100.64.0.0/10, fd7a:115c:a1e0::/48), no access_token, no expiry, and no Authorization header is sent. See plans/cmux-next/home-cloud-proxy.md, plans/cmux-next/dm-group-chat-DESIGN.md and spec/commands.md."
    ]
   },
   "cloud-session-clear": {
@@ -22719,6 +22847,24 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. Reads the lease person's open message requests (POST /v1/read home.requests.list); no fields are accepted. Returns {requests} with rows whose conversation is not a conversation id dropped. Calls the cloud; errors carry error_code, reason and retryable. See spec/commands.md."
+   ]
+  },
+  "cloud-selfhost-info": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-selfhost-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. Needs a self-hosted lease (cloud-session-set with auth \"tailscale\"), else cloud_conversation_rejected with reason not_selfhost. Reads GET /v1/selfhost/info without an Authorization header and returns {kind:\"selfhost\", user_id, login?, display_name?, server_name?}; user_id becomes the lease's account (events carry it as account, cloud-session-status as participant). Calls the cloud; errors carry error_code, reason and retryable. See spec/commands.md."
    ]
   },
   "cloud-conversation-snapshot": {
@@ -25122,6 +25268,16 @@
       "nullable": true,
       "since": 12,
       "description": "Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified."
+     },
+     "agent_session_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "since": 12,
+      "description": "The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this."
      },
      "event": {
       "type": {

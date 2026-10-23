@@ -1,7 +1,7 @@
 // The Theme section (P3, P4): the preview draws the theme in effect, the picker writes
 // appearance.theme, Match System Appearance writes a light/dark pair, a narrower scope's theme
 // shows inline with a Reset that clears that level, and the app theme is the host's `app` level.
-import { afterAll, afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, expect, jest, test } from "bun:test";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
 
@@ -12,9 +12,19 @@ const { act } = await import("react");
 
 let page: Rendered | null = null;
 afterEach(() => {
+  jest.useRealTimers();
   page?.unmount();
   page = null;
 });
+
+/// Yields to the page until `ready()` holds; fails after 2 s with what it waited for.
+async function until(ready: () => boolean, what: string) {
+  const deadline = performance.now() + 2_000;
+  while (!ready()) {
+    if (performance.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await settle();
+  }
+}
 
 const theme = (page: Rendered) => page.container.querySelector<HTMLElement>('[data-card="theme"]')!;
 
@@ -127,14 +137,20 @@ test("a pointer passing over themes previews nothing until it rests; the arrow k
     .slice(0, 4)
     .map((el) => el.getAttribute("data-theme-option")!);
   const before = previews().length;
-  // A sweep down the list: the rows highlight, but the app shows none of them.
+  // A sweep down the list: the rows highlight, but the app shows none of them. The dwell runs on a
+  // fake clock: it is the behavior, so a slow runner's late wake-ups must not decide it. The mock
+  // transport answers in microtasks, which an empty act drains.
+  jest.useFakeTimers();
   for (const name of names) await pointer(row(name));
-  await settle();
+  await act(async () => void jest.advanceTimersByTime(DWELL_MS - 1));
+  await act(async () => {});
   expect(previews().length).toBe(before);
   // The pointer rests on the last row: that one previews, once.
-  await act(() => new Promise((done) => setTimeout(done, DWELL_MS + 50)));
+  await act(async () => void jest.advanceTimersByTime(1));
+  await act(async () => {});
+  jest.useRealTimers();
   const rested = previews().slice(before);
-  expect(rested.length).toBeLessThanOrEqual(1);
+  expect(rested.length).toBe(1);
   // The arrow keys preview the row they land on with no wait.
   const search = document.querySelector<HTMLElement>(".theme-search")!;
   const keyed = previews().length;
@@ -172,7 +188,6 @@ test("each theme color is editable: sliders and snaps preview live, Done keeps t
   });
   const token = (name: string) => theme(page!).querySelector<HTMLButtonElement>(`[data-token="${name}"]`)!;
   const tuner = () => document.querySelector<HTMLElement>("[data-token-tuner]");
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 120));
   const edits = () =>
     ops(page!.provider, "cmux.settings.set").filter((op) => (op as { key: string }).key === "appearance.themeEdits");
   expect(token("1").hasAttribute("data-edited")).toBe(true);
@@ -182,7 +197,14 @@ test("each theme color is editable: sliders and snaps preview live, Done keeps t
   await click(token("4"));
   const hue = tuner()!.querySelectorAll<HTMLInputElement>('input[type="range"]')[2]!;
   await changeValue(hue, "30");
-  await settle();
+  // The live preview goes out at most every 80 ms.
+  await until(
+    () =>
+      ops(page!.provider, "cmux.settings.preview").some(
+        (op) => (op as { key: string }).key === "appearance.themeEdits",
+      ),
+    "the hue's live preview",
+  );
   const preview = ops(page.provider, "cmux.settings.preview").at(-1) as { key: string; value: Record<string, string> };
   expect(preview.key).toBe("appearance.themeEdits");
   expect(preview.value["Dracula/1"]).toBe("#ff0000");
@@ -190,7 +212,6 @@ test("each theme color is editable: sliders and snaps preview live, Done keeps t
   expect(edits()).toEqual([]);
   // Escape reverts: the preview ends and nothing is written.
   await fire(tuner()!.querySelector("input")!, "keydown", { key: "Escape" });
-  await settle();
   expect(tuner()).toBeNull();
   expect(edits()).toEqual([]);
   expect(ops(page.provider, "cmux.settings.preview.end").length).toBeGreaterThan(0);

@@ -10,6 +10,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -136,6 +137,7 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
   /// Opens the chat and records its `pane.tabRowTools` calls in `window.__tabRowCalls`.
   async function openChat(): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    await installPaintedFrames(page);
     await page.goto(url());
     await page.getByText(REPLY).waitFor();
     await page.waitForFunction(
@@ -160,7 +162,8 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
   /// The header's height and mode, and how far its tools end from the page's right edge.
   const header = (page: Page) =>
     page.evaluate(async () => {
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame();
       const header = document.querySelector<HTMLElement>(".acpmux-header")!;
       const tools = header.querySelector(".acpmux-handoff-header-tools")!.getBoundingClientRect();
       return {
@@ -177,7 +180,7 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
     expect(before).toMatchObject({ tabRow: false, height: 44, inset: 8 });
     // A row of height 0 (the setting is off, or the pane's tabs are hidden) changes nothing.
     await offer(page, { height: 0, trailingInset: 40 });
-    await page.waitForTimeout(200);
+    // header() reads after two painted frames: the row, had it applied, and any report are in by then.
     expect(await header(page)).toEqual(before);
     expect(await calls(page)).toEqual([]);
     await page.close();
@@ -195,7 +198,7 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
     );
     expect(tools).toBeGreaterThan(0);
     // The tools' width and the gap the tabs keep from them.
-    expect(reported.at(-1)).toEqual({ width: tools + 8 });
+    expect(reported.at(-1)).toEqual({ width: tools + 4 });
     // Only the tools take clicks: the row's left part is the App's tabs.
     expect(await page.evaluate(() => getComputedStyle(document.querySelector(".acpmux-header")!).pointerEvents)).toBe(
       "none",

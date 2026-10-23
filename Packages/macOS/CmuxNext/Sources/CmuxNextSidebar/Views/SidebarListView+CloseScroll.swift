@@ -43,6 +43,7 @@ extension SidebarListViewComponents {
                 if frame.height < after.content { setFrameSize(NSSize(width: frame.width, height: after.content)) }
                 decorations.shift(by: delta)
                 groupLineViews.shift(by: delta)
+                chatHistory.shift(by: delta)
                 // Rows are realized by `apply` from the new layout, not from
                 // the old one while the offset moves.
                 isShiftingViewport = true

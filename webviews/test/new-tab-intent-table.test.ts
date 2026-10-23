@@ -7,6 +7,7 @@ import { expect, test } from "bun:test";
 import table from "./fixtures/new-tab-intents.json";
 import { classifyNewTabInput, type NewTabIntent } from "../src/agent-session/acpmux/newTabIntent";
 import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
+import { omniboxAction } from "../src/agent-session/acpmux/omniboxAction";
 import {
   defaultSelection,
   isAddress,
@@ -42,12 +43,11 @@ test("a bare single word stays a prompt", () => {
 // ask an agent with it or open it, and Return shows the address bar's refusal instead.
 test("a pairing link offers no web search, no Ask and no address", () => {
   const link = "cmux-vnc://pair?room=h7dummyroom0000&secret=h7dummysecret0000";
-  for (const mode of ["ask", "search"] as const) {
-    const list = screenRows(link, { omnibar: EMPTY_OMNIBAR, ask, mode, create: ["terminal", "browser", "chat"] });
-    // Not even New chat or New browser tab: both would carry the field's text.
-    expect(list).toEqual([]);
-  }
+  const list = screenRows(link, { omnibar: EMPTY_OMNIBAR, ask, create: ["terminal", "browser", "chat"] });
+  // Not even New chat or New browser tab: both would carry the field's text.
+  expect(list).toEqual([]);
   expect(isAddress(link)).toBe(false);
+  expect(omniboxAction(link)).toEqual({ kind: "none" });
   expect(pairingLinkRefused(link)).toBe(true);
   expect(pairingLinkRefused(`please open ${link}`)).toBe(true);
   expect(pairingLinkRefused("github.com")).toBe(false);

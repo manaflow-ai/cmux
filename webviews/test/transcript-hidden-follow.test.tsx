@@ -1,7 +1,7 @@
 // cx-t0zqt: a chat at the latest message keeps following it across a stretch hidden (Home shown in
 // its place). The hidden scroller has no height; a scroll there must not read as "scrolled up", or
 // the chat stops following and reopens on an old turn.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
@@ -79,7 +79,6 @@ const turns = Array.from({ length: 30 }, (_, index) => [
 ]).flat();
 
 type Anchor = { rowId: string; offset: number } | null;
-const settle = () => new Promise((resolve) => setTimeout(resolve, SCROLL_ANCHOR_SETTLE_MS + 50));
 
 test("a chat at the latest message still follows it after a stretch hidden", async () => {
   const rows = turnView(turns, new Set());
@@ -103,8 +102,14 @@ test("a chat at the latest message still follows it after a stretch hidden", asy
 
     // Home is shown: the pane is hidden and its scroller reports a scroll with no height.
     viewport = 0;
-    await act(async () => void scroller().dispatchEvent(new dom.window.Event("scroll")));
-    await act(settle);
+    // The scroll's anchor reports once the scroll has rested; the test moves the clock past that.
+    jest.useFakeTimers();
+    try {
+      await act(async () => void scroller().dispatchEvent(new dom.window.Event("scroll")));
+      await act(async () => void jest.advanceTimersByTime(SCROLL_ANCHOR_SETTLE_MS + 50));
+    } finally {
+      jest.useRealTimers();
+    }
     expect(anchors.filter((a) => a !== null)).toEqual([]);
 
     // Back in the chat, a new turn arrives: the view follows it to the latest message.

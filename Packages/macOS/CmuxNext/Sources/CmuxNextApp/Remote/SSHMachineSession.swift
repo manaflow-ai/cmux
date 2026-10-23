@@ -10,7 +10,8 @@ import Observation
 /// machine's daemon is its own tree and sidebar section.
 @Observable
 final class SSHMachineSession {
-    let host: SSHHost
+    /// Its route and name; Add Machine may rename it (`SSHHost.named`), never reroute it.
+    var host: SSHHost
     /// The host's id, or the paired server's (`ServerMachineSession`).
     let machineID: String
     let daemon: DaemonService

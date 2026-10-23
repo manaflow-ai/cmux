@@ -1,0 +1,8 @@
+/* The page's sheets in cascade order: layout.css overrides styles.css (33 shared selectors) and
+   refined.css (scoped to the one look) overrides both. Import this file, never the sheets on their
+   own: the gallery bundle split separately imported sheets into shared chunks and loaded them out
+   of order, so it showed the old switch, rows and titles instead of the app's. tailwind.css stays
+   apart: its rules sit in cascade layers, which lose to these whatever the load order. */
+@import "./styles.css";
+@import "./layout.css";
+@import "./refined.css";

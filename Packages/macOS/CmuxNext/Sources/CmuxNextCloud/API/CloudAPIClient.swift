@@ -41,8 +41,14 @@ public struct CloudAPIClient: Sendable {
     // MARK: Machines
 
     public func listMachines() async throws -> [CloudMachine] {
-        struct List: Decodable { var vms: [CloudMachine] }
-        return try await send("GET", "/api/vm", as: List.self).vms
+        try await listMachinesAndLimits().machines
+    }
+
+    /// `GET /api/vm`: the machines and the account's machine cap (`limits`;
+    /// nil when the server sent none or sent one this client cannot read).
+    public func listMachinesAndLimits() async throws -> (machines: [CloudMachine], limits: CloudMachineLimits?) {
+        let list = try await send("GET", "/api/vm", as: CloudMachineList.self)
+        return (list.vms, list.limits)
     }
 
     public func machine(_ id: String) async throws -> CloudMachine {
@@ -82,9 +88,23 @@ public struct CloudAPIClient: Sendable {
         _ = try await send("POST", "/api/vm/\(id)/resume", timeout: .seconds(960), as: Ignored.self)
     }
 
-    public func attachEndpoint(_ id: String) async throws -> CloudAttachEndpoint {
-        try await send("POST", "/api/vm/\(id)/attach-endpoint", body: ["transport": "cmux-remote"], timeout: .seconds(30),
+    /// `PUT /api/vm/{id}/idle-pause`: minutes of idle before the server
+    /// pauses the machine, one of ``CloudMachine/idlePauseChoices``; 0 is Off.
+    public func setIdlePause(_ id: String, minutes: Int) async throws {
+        let value: any Sendable = minutes == 0 ? "off" : minutes
+        _ = try await send("PUT", "/api/vm/\(id)/idle-pause", body: ["minutes": value], timeout: .seconds(30), as: Ignored.self)
+    }
+
+    public func attachEndpoint(_ id: String, deviceFingerprint: String? = nil) async throws -> CloudAttachEndpoint {
+        var body: [String: any Sendable] = ["transport": "cmux-remote"]
+        if let deviceFingerprint { body["deviceFingerprint"] = deviceFingerprint }
+        return try await send("POST", "/api/vm/\(id)/attach-endpoint", body: body, timeout: .seconds(30),
                        as: CloudAttachEndpoint.self)
+    }
+
+    public func approveCmuxRemoteEnrollment(_ id: String, invitationID: String) async throws -> CloudEnrollmentApproval {
+        try await send("POST", "/api/vm/\(id)/cmux-remote/approve", body: ["invitationId": invitationID],
+                       timeout: .seconds(60), as: CloudEnrollmentApproval.self)
     }
 
     public func stats(_ id: String) async throws -> CloudMachineStats {

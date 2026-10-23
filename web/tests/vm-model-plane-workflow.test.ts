@@ -88,6 +88,8 @@ function fakeRepo(input: {
     claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
     markBillingGrantApplied: () => Effect.void,
     deleteBillingGrant: () => Effect.void,
+    beginSnapshotRequest: () => Effect.succeed({ kind: "started" }),
+    finishSnapshotRequest: () => Effect.void,
     recordUsageEvent: (event) =>
       Effect.sync(() => {
         input.usageEvents.push(event);

@@ -199,7 +199,10 @@ impl Hub {
             meta.parent_id = Some(session.id.clone());
             // Its sub-session too, unless something already linked it.
             if meta.subsession.is_none() {
-                meta.subsession = link;
+                meta.subsession = link.map(|mut link| {
+                    link.short_name = self.subsessions.claim_name(&session.id, &link.short_name);
+                    link
+                });
                 if meta.status != super::SessionStatus::Closed {
                     self.subsessions.set_open(&session.id, &child.id, true);
                 }

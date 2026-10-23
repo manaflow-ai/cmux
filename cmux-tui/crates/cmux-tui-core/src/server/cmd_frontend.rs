@@ -10,6 +10,7 @@ use super::MAX_CREATION_SELECTOR_FALLBACKS;
 use super::origin_gate;
 use super::paired_surface_size;
 use crate::WorkspaceMutation;
+use crate::panic_free::JsonFields;
 use crate::resource::ResourceOperation;
 
 use crate::AgentRecord;
@@ -76,7 +77,7 @@ pub(super) fn put_frontend_projection(
         &projection,
     )?;
     let mut value = serde_json::to_value(commit.projection)?;
-    value["replayed"] = json!(commit.replayed);
+    value.insert("replayed", json!(commit.replayed));
     Ok(value)
 }
 
@@ -202,6 +203,7 @@ fn agent_json(record: &AgentRecord) -> Value {
         "source": record.source.as_str(),
         "session": record.session,
         "agent": record.agent,
+        "agent_session_id": record.agent_session_id,
         "updated_at_ms": record.updated_at_ms,
         "since_ms": record.since_ms,
         "last_prompt": record.last_prompt.as_deref(),

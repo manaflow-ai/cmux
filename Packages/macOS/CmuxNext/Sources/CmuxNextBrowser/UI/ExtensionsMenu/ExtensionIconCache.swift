@@ -13,7 +13,7 @@ final class ExtensionIconCache {
     /// Files read (a test seam: a second open reads none).
     private(set) var loads = 0
 
-    init(side: CGFloat = ExtensionsMenuStyle.chrome.extensionIcon) {
+    init(side: CGFloat = ExtensionsMenuStyle.standard.extensionIcon) {
         self.side = side
     }
 

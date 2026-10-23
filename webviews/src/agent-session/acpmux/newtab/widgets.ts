@@ -4,7 +4,7 @@
 import type { AcpmuxSnapshot } from "../model";
 import { recentSessions } from "../NewTabPage";
 import type { Project } from "../ProjectChooser";
-import { isAgentHome, sessionMark } from "../sessionList";
+import { activityTime, isAgentHome, sessionMark } from "../sessionList";
 
 /// How many projects the Projects card lists.
 export const WIDGET_PROJECTS = 4;
@@ -33,7 +33,8 @@ export function attentionChats(
   for (const session of recentSessions(sessions, Number.POSITIVE_INFINITY, false)) {
     const mark = session.indicator === "failed" ? "failed" : sessionMark(session, false);
     if (mark !== "input" && mark !== "failed" && mark !== "error") continue;
-    const key = `${session.sessionId}@${session.updatedAt ?? 0}`;
+    // Keyed on activity: a new question or failure shows the chat again, a warm or stop does not.
+    const key = `${session.sessionId}@${activityTime(session) ?? 0}`;
     if (dismissed.has(key)) continue;
     chats.push({
       sessionId: session.sessionId,
@@ -57,7 +58,7 @@ export function recentProjects(
   const used = new Map<string, number>();
   for (const session of sessions) {
     if (!session.cwd || session.peer || session.hostKind === "cloud") continue;
-    used.set(session.cwd, Math.max(used.get(session.cwd) ?? 0, session.updatedAt ?? 0));
+    used.set(session.cwd, Math.max(used.get(session.cwd) ?? 0, activityTime(session) ?? 0));
   }
   return projects
     .filter((project) => !project.peer && !isAgentHome(project.cwd))

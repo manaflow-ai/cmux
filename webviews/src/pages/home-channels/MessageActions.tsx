@@ -92,7 +92,6 @@ export function MessageActions({
       <MenuButton
         className={one ? "hc-tool hc-msg-more" : "hc-tool ui-toolbar-button"}
         label={one ? t("message.actions") : t("action.more")}
-        title={t("action.more")}
       >
         <HomeIcon name="more" />
       </MenuButton>
@@ -124,6 +123,7 @@ export function MessageActions({
                 <ToolbarButton
                   key={value}
                   label={format("action.reactWith", value)}
+                  tooltip={false}
                   className="hc-tool hc-quick"
                   onPress={() => onReact(value)}
                 >

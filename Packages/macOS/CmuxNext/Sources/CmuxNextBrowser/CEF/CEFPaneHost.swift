@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import os
+import CmuxNextWakeups
 
 /// One Chromium `Browser` (tabbed window) per cmux pane and profile
 /// (browser.md, Decision 1). The first CEF tab shown in the pane creates the
@@ -50,6 +51,7 @@ final class CEFPaneHost {
         self.lifecycleTrace = lifecycleTrace
         self.contextMenus = contextMenus
         hostView.liveResizeWillStart = { [weak self] in self?.visibleTab?.samplePageBackdrop() }
+        hostView.fileDrag.target = { [weak self] in self?.visibleTab }
     }
 
     /// The viewport of a tab no pane has shown (Playwright's default page
@@ -174,7 +176,7 @@ final class CEFPaneHost {
     // MARK: Creation
 
     func ensureCreated(_ tab: CEFTab) {
-        guard tab.browserID == nil, tab.isCreationPending == false, let shim = runtime.shim else { return }
+        guard tab.browserID == nil, tab.isCreationPending == false, runtime.acceptsNewBrowsers, let shim = runtime.shim else { return }
         switch window {
         case .none:
             let request = runtime.makeRequestToken()
@@ -207,6 +209,9 @@ final class CEFPaneHost {
             // The first frame takes this pane's theme scope (room,
             // workspace), which may differ from the app theme.
             shim.setBackgroundColor(PageBackground.themeARGB(in: hostView))
+            #if DEBUG
+            ChatOpenTrace.shared.mark(.cefWindowCreate, chromiumPane: key.pane.rawValue)
+            #endif
             let initialURL = tab.takeInitialURLString()
             let started = CEFStartSteps.shared.createWindow {
                 shim.createWindow(request, Unmanaged.passUnretained(hostView).toOpaque(),
@@ -245,6 +250,9 @@ final class CEFPaneHost {
     func windowCreated(browser: Int32, request: Int32) {
         CEFStartSteps.shared.firstWindowEnded()
         guard case .creating(let expected) = window, expected == request, let tab = windowTab else { return }
+        #if DEBUG
+        ChatOpenTrace.shared.mark(.cefWindowCreated, chromiumPane: key.pane.rawValue)
+        #endif
         let windowID = runtime.shim?.tabWindowID(browser) ?? 0
         window = .live(window: windowID)
         lastActivated = browser
@@ -287,8 +295,9 @@ final class CEFPaneHost {
         tab.isCreationPending = true
         add(tab)
         runtime.register(tab, browser: browser)
-        // Opened by a page: past a new tab's first paint (PageBackground).
-        tab.reachedFirstRealPage()
+        // Opened by a page: past a new tab's first paint (PageBackground), and
+        // Chromium, not us, drives its document, so its page area is its own.
+        tab.reachedFirstRealPage(settled: true)
         tab.inheritDelegates(from: opener)
         opener?.emit(.adoptTab(tab, disposition))
     }

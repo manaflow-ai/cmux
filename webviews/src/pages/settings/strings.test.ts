@@ -8,7 +8,7 @@ import { schema } from "./schema";
 import { resolveLocale } from "./strings";
 
 const catalog = strings as Record<string, Record<string, string>>;
-const here = path.dirname(new URL(import.meta.url).pathname);
+const here = import.meta.dir;
 
 function sources(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {

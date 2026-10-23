@@ -158,6 +158,7 @@ function Confirm({
   onCancel: () => void;
 }) {
   return (
+    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
     <div className="accounts-form" data-devices-confirm="" role="group" aria-label={title}>
       <div className="row-title">{title}</div>
       {body && <div className="row-help">{body}</div>}

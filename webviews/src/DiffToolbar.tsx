@@ -635,7 +635,6 @@ export function FileMenuButton({ items, label }: { items: FileMenuItem[]; label:
         type="button"
         className="file-header-menu-button"
         data-file-header-control=""
-        title={label}
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}

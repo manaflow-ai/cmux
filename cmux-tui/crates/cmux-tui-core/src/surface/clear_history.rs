@@ -35,6 +35,23 @@ impl Surface {
         &self,
         fallback_key: Option<&KeyInput>,
     ) -> Result<(), ClearHistoryFailure> {
+        self.clear_history_in_terminal(fallback_key)?;
+        // What the person cleared must not come back from disk: the output
+        // store drops this terminal's stored output and rewrites its
+        // snapshot at once.
+        if let Some(pty) = self.as_pty()
+            && let (Some(terminal_id), Some(mux)) =
+                (pty.terminal_public_id.as_ref(), pty.mux.upgrade())
+        {
+            mux.output_store.history_cleared(terminal_id);
+        }
+        Ok(())
+    }
+
+    fn clear_history_in_terminal(
+        &self,
+        fallback_key: Option<&KeyInput>,
+    ) -> Result<(), ClearHistoryFailure> {
         let Some(pty) = self.as_pty() else {
             return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
                 "browser surface does not have a VT terminal"

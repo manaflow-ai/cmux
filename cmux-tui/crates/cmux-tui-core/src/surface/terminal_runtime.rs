@@ -62,6 +62,9 @@ impl PtyTerminalRuntime {
         bytes: &[u8],
     ) -> Vec<crate::terminal_metadata::TerminalNotification> {
         let mut metadata = self.terminal_metadata.lock().unwrap();
+        if !bytes.is_empty() {
+            metadata.activity.note_output(crate::workspace_registry::unix_epoch_ms().unwrap_or(0));
+        }
         metadata.observe_output(bytes);
         metadata.take_admitted_notifications(Instant::now())
     }
@@ -191,10 +194,6 @@ pub struct PtyTerminalRuntime {
     pub(super) journal_capture_gate: Mutex<()>,
     pub(super) journal_capture_idle: Condvar,
     pub(super) journal_capture_open: AtomicBool,
-    /// Set when the journal writer failed or stayed full past the durable
-    /// deadline. Capture stops, but `journal_capture_open` stays set so the
-    /// terminal reader keeps reading and rendering output.
-    pub(super) journal_capture_disabled: AtomicBool,
     pub(super) journal_capture_reserved: AtomicBool,
     pub(super) journal_capture_active: AtomicBool,
     /// Owned reader join fence. Shutdown gives this reader a bounded drain

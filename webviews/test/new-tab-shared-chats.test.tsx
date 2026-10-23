@@ -235,7 +235,9 @@ test("a chat past the newest 60 keeps its folder for the project picker", async 
 });
 
 test("only a New Tab page of this Mac's daemon lists the shared chats, and not while its daemon is down", async () => {
-  const { sharesChatList } = await import("../src/agent-session/acpmux/newtab/chatStore");
+  const { markMockPage, sharesChatList } = await import("../src/agent-session/acpmux/newtab/chatStore");
+  // A mock App mounted by another test file in the same process marks its page; this one is not.
+  markMockPage(false);
   const page = {};
   // Before the handshake a page names no origin: its context said whether it is this Mac's.
   expect(sharesChatList(page, { connection: "connecting" })).toBe(true);

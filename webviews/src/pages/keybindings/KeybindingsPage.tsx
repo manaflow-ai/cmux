@@ -174,7 +174,6 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
             type="button"
             className="keys-icon-button"
             aria-label={t("keybindings.page.dismiss")}
-            title={t("keybindings.page.dismiss")}
             onClick={() => store.dismissNotice()}
           >
             <Icon name="close" />
@@ -367,7 +366,6 @@ function BindingRow({ binding, strings, selected, editing, recordingDisplay, res
               type="button"
               className="keys-icon-button keys-remove"
               aria-label={t("keybindings.page.remove")}
-              title={t("keybindings.page.remove")}
               onClick={(event) => {
                 event.stopPropagation();
                 void store.remove(binding);

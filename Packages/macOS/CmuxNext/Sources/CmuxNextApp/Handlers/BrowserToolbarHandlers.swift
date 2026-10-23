@@ -12,7 +12,7 @@ import CmuxNextSettings
 /// | media hub | `browser.media.show`, the media hub (`BrowserMediaMenu`) |
 /// | zoom | `browserZoomReset` |
 /// | Favorites | `bookmark.manager` |
-/// | Downloads | `browser.downloads.show`, the downloads menu (`BrowserDownloadsMenu`) |
+/// | Downloads | `browser.downloads.show`, the downloads popup (`BrowserDownloadsPopup`) |
 /// | design mode | `toggleBrowserDesignMode` |
 /// | profile | `browser.profile.choose`, a menu of `browserProfile.moveTab` per profile |
 /// | theme | a menu of `browserTheme` system, light, dark |
@@ -52,8 +52,7 @@ enum BrowserToolbarHandlers {
         })
         registry.bind("browser.downloads.show", run: { invocation in
             let entry = try context.page(invocation)
-            let menu = BrowserDownloadsMenu.menu(context.services.cache.pageRequests.downloads, target: tabTarget(entry), registry: registry)
-            entry.chrome.toolbarButtons.present(menu, from: .downloads)
+            showDownloads(for: entry, services: context.services, finished: false)
         })
         registry.bind("browser.overflow.menu", run: { invocation in
             let entry = try context.page(invocation)
@@ -84,6 +83,25 @@ enum BrowserToolbarHandlers {
             guard let services, let entry else { return }
             services.registry.perform("toggleBrowserFocusMode", invocation: ActionInvocation(target: tabTarget(entry), origin: .user))
         }
+    }
+
+    /// Opens (or closes) the Downloads popup under `entry`'s Downloads
+    /// button. With `finished` (a download of that tab just finished) it
+    /// opens without the keys and closes by itself, and only while the tab's
+    /// toolbar is on screen in the active window: false when it did not
+    /// open, so the caller shows the notice over the tab instead.
+    @discardableResult
+    static func showDownloads(for entry: BrowserEntry, services: AppServices, finished: Bool) -> Bool {
+        let buttons = entry.chrome.toolbarButtons
+        let target = tabTarget(entry)
+        let showFolder = { [weak services] in
+            _ = services?.registry.perform("browser.downloads.showFolder", invocation: ActionInvocation(target: target, origin: .user))
+        }
+        let list = services.cache.pageRequests.downloads
+        buttons.refresh()
+        if finished { return BrowserDownloadsPopup.shared.showFinished(list, buttons: buttons, showFolder: showFolder) }
+        BrowserDownloadsPopup.shared.toggle(list, buttons: buttons, showFolder: showFolder)
+        return true
     }
 
     static func press(_ button: BrowserToolbarButton, entry: BrowserEntry, registry: ActionRegistry) {
@@ -147,6 +165,9 @@ enum BrowserToolbarHandlers {
         let entries: [ContextMenuEntry] = [.action("browserProfile.new"), .action("importFromBrowser")]
         move(registry.makeContextMenu(for: .browserPage, target: target, entries: entries), into: menu)
         move(registry.makeContextMenu(for: .browserProfile, target: profileTarget, entries: [.action("browserProfile.rename")]), into: menu)
+        // This profile's own extensions (chrome://extensions and the Web Store open in it).
+        move(registry.makeContextMenu(for: .browserPage, target: target,
+                                      entries: [.separator, .action("browser.extensions.manage"), .action("browser.extensions.webStore")]), into: menu)
         return menu
     }
 

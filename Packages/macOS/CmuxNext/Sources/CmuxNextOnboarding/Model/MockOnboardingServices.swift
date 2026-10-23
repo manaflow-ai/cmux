@@ -81,5 +81,11 @@ public final class MockOnboardingServices: OnboardingServices {
     public private(set) var csvImports: [String?] = []
     public func importPasswordsFromCSV(into profile: String?) { csvImports.append(profile) }
 
+    /// The cmux profiles rows can go into, and where earlier imports put sources.
+    public var targetChoices: [ImportTargetChoice] = []
+    public var earlierTargets: [String: String] = [:]
+    public func importTargets() async -> [ImportTargetChoice] { targetChoices }
+    public func earlierImportTargets() async -> [String: String] { earlierTargets }
+
     public var computerUsePermissions: (any ComputerUsePermissionSource)? { computerUseSource }
 }

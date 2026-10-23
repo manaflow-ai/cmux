@@ -10,12 +10,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 mod lock;
-use lock::{acquire_lock, wait_for_lock_release};
+#[cfg(unix)]
+mod open_file_limit;
+use lock::{LockHeld, acquire_lock, wait_for_lock_release};
 mod router_owner;
 #[cfg(unix)]
 pub(crate) use router_owner::open_router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
+mod notify;
 #[cfg(windows)]
 mod windows;
 
@@ -66,6 +69,10 @@ fn install_panic_log() {
         is_test_panic_thread,
     );
     #[cfg(debug_assertions)]
+    #[allow(
+        clippy::panic,
+        reason = "debug-build test trigger for the acpmux panic log; release builds have no seam"
+    )]
     if std::env::var(TEST_PANIC_ENV).as_deref() == Ok("thread") {
         let _ = std::thread::Builder::new()
             .name(TEST_PANIC_THREAD.into())
@@ -125,6 +132,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // home with the process umask; narrow it before reading any of them.
     crate::config::private_state_dir(&home())?;
     install_panic_log();
+    // Before the store, the sockets and any agent: launchd's soft limit is 256.
+    #[cfg(unix)]
+    open_file_limit::raise();
     let mut config = Config::load()?;
     // config.json holds the dashboard token: owner-only, also when another
     // tool wrote it with the umask's mode and the daemon never saves it.
@@ -145,7 +155,16 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // walk the user's folders (LAUNCH-NO-TCC-PROMPTS).
     let _ = std::env::set_current_dir(home());
     let lock = home().join("daemon.lock");
-    let _lock_file = acquire_lock(&lock)?;
+    let _lock_file = match acquire_lock(&lock) {
+        Ok(lock) => lock,
+        Err(e) => {
+            // The command that started this daemon waits for the holder (`connect`).
+            if let Some(fd) = opts.ready_fd.filter(|_| e.downcast_ref::<LockHeld>().is_some()) {
+                write_ready(fd, &serde_json::json!({"ready": false, "lockHeld": true}));
+            }
+            return Err(e);
+        }
+    };
     // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and
     // `local-coderouter` routes read its port and mint keys from it. Opt-in
     // (the cmux app sets ACPMUX_LOCAL_ROUTER=1). Its owner ties the router's
@@ -182,7 +201,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             .unwrap_or_default();
         config.websocket = Some(crate::config::WebSocketConfig {
             listen: first_run_listen(shared_home, saved_listen.as_deref()).to_owned(),
-            token: Some(kept_token.unwrap_or_else(random_token)),
+            token: Some(kept_token.map_or_else(random_token, Ok)?),
             allowed_origins,
             allowed_hosts,
             // A kept token was rotated just above; a new one is new.
@@ -272,8 +291,24 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         }
     }
     let mailbox = crate::mailbox::Mailbox::open(home().join("mailbox"))?;
+    let memory_store = config.store.mode == crate::config::StoreMode::Memory;
     // Only the session list before the ready line; the chat logs load right after it.
     let hub = Hub::new_deferred(config, store, mailbox);
+    // Temporary folders of sessions this daemon no longer has, before the
+    // socket serves (`agent/session_tmp.rs`).
+    #[cfg(unix)]
+    hub.sweep_session_tmp();
+    // The forum log (`forum.rs`): on disk unless the store is in memory; a
+    // log that cannot open leaves the posts in memory.
+    if !memory_store && let Err(e) = hub.open_forum(&home().join("forum")) {
+        tracing::warn!("forum log unavailable, keeping posts in memory: {e:#}");
+    }
+    // Messages `send --no-wait` handed over (`hub/outbox.rs`): saved beside the sessions, and
+    // what a restart left undelivered goes on.
+    if !memory_store {
+        let pending = hub.outbox.open(&home().join("outbox.json"));
+        crate::server::outbox::resume(&hub, pending);
+    }
     if let Some(key) = person_key {
         // A Team-signed daemon takes the key only from the signed app's
         // `_acpmux/person_enroll`: a same-uid process could restart it with
@@ -304,6 +339,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             codex_config: none.join("config.toml"),
             record: none.join("trust.json"),
             agent_home: None,
+            cmux_worktrees: None,
         }
     })));
     // Agents outlive this daemon unless the user opts out for this release.
@@ -319,24 +355,34 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.set_probe_only(Hub::probe_only_from_env(
         std::env::var("ACPMUX_PROBE_HARNESSES").ok().as_deref(),
     ));
+    // The agent message runaway guard (`hub/agent_pairs.rs`): `ACPMUX_AGENT_PAIR_GUARD=0` turns
+    // it off; `ACPMUX_AGENT_PAIR_{ALTERNATIONS,REPEATS,SIMILARITY,MAX_MESSAGES,WINDOW_SECS}` tune it.
+    hub.set_agent_pair_guard(crate::hub::PairGuard::from_env(|k| std::env::var(k).ok()));
     if !std::env::var("ACPMUX_AGENT_HOSTS").is_ok_and(|v| v == "0") {
         hub.enable_agent_hosts();
     }
     hub.begin_startup(login_env);
+    // Pairing tickets and paired machines, hashes only (`crate::pairing`).
+    hub.pairing.persist_at(home().join("pairing.json"));
     // The ACP Registry and agent CLI health, off the startup path (`hub/health_view.rs`).
     hub.start_harness_checks();
+    // Uploads past their age cap (`hub/file_uploads.rs`).
+    hub.start_upload_sweep();
     crate::config::write_atomic(
         &home().join("daemon.pid"),
         std::process::id().to_string().as_bytes(),
     )?;
     // The listener's token is on the hub before the unix socket serves, so a
     // `_acpmux/web_token_rotate` can never be overwritten by the launch token.
-    let ws_listener = ws_listener.map(|(l, token)| {
-        // `needs_token` above gave the saved listener a token.
-        let token = token.unwrap_or_else(random_token);
-        hub.web_token.set(token.clone());
-        (l, token)
-    });
+    let ws_listener = match ws_listener {
+        Some((l, token)) => {
+            // `needs_token` above gave the saved listener a token.
+            let token = token.map_or_else(random_token, Ok)?;
+            hub.web_token.set(token.clone());
+            Some((l, token))
+        }
+        None => None,
+    };
     let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
     // A new LocalApp token at every launch (`server/local_app.rs`), for the
     // app's bundled pane and an explicit `--allow-dev-origin` page only.
@@ -419,6 +465,16 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     {
         let hub = hub.clone();
         tokio::spawn(async move {
+            // Debug builds only: `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the chat-log
+            // load, as a large log store does, so integration tests can ask in that
+            // window. Bounded; release builds have no seam.
+            #[cfg(debug_assertions)]
+            if let Some(ms) = std::env::var("ACPMUX_TEST_DELAY_LOAD_LOGS_MS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+            {
+                tokio::time::sleep(Duration::from_millis(ms.min(10_000))).await;
+            }
             // The chat logs (tails, cut-off turns, queues), before adoption as before.
             hub.load_logs_async().await;
             // Agents that outlived the previous daemon come back first.
@@ -433,7 +489,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             }
         });
     }
-    tokio::spawn(notify_loop(hub.clone()));
+    tokio::spawn(notify::notify_loop(hub.clone()));
 
     let shutdown = async {
         #[cfg(unix)]
@@ -582,24 +638,57 @@ pub async fn start_keyed(fd: i32) -> Result<String> {
     // buffer keeps another copy. One line: 64 hex characters and a newline.
     let mut line = zeroize::Zeroizing::new([0u8; 129]);
     let mut filled = 0;
-    while filled < line.len() && !line[..filled].contains(&b'\n') {
-        match (&*input).read(&mut line[filled..]) {
+    while filled < line.len() && !line.get(..filled).unwrap_or_default().contains(&b'\n') {
+        let Some(rest) = line.get_mut(filled..) else { break };
+        match (&*input).read(rest) {
             Ok(0) => break,
             Ok(n) => filled += n,
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
             Err(e) => return Err(e).context("read the person key"),
         }
     }
-    let end = line[..filled].iter().position(|b| *b == b'\n').unwrap_or(filled);
+    let read = line.get(..filled).unwrap_or_default();
+    let end = read.iter().position(|b| *b == b'\n').unwrap_or(filled);
     let key = zeroize::Zeroizing::new(
-        std::str::from_utf8(&line[..end]).unwrap_or_default().trim().to_owned(),
+        std::str::from_utf8(read.get(..end).unwrap_or_default())
+            .unwrap_or_default()
+            .trim()
+            .to_owned(),
     );
     if !crate::hub::person::valid_key(&key) {
         return Err(anyhow!(
             "--person-key-fd {fd}: not a person key (64 lowercase hex characters)"
         ));
     }
-    start_daemon_with(Some(key)).await
+    // Another daemon is stopping or starting: start again until this key's daemon has the lock,
+    // never leaving the caller to start an unkeyed one.
+    let deadline = tokio::time::Instant::now() + HANDOVER_BUDGET;
+    loop {
+        let ready = start_daemon_with(Some(key.clone())).await?;
+        if !lock_held(&ready) {
+            // A keyed daemon that exited before it was ready fails this start: the caller must
+            // not go on to start an unkeyed daemon in its place.
+            anyhow::ensure!(
+                !ready.trim().is_empty(),
+                "the keyed daemon exited before it was ready; see {}",
+                home().join("daemon.log").display()
+            );
+            return Ok(ready);
+        }
+        if tokio::time::Instant::now() + HANDOVER_RETRY >= deadline {
+            return Err(anyhow!(
+                "another acpmux daemon still holds {} after {HANDOVER_BUDGET:?}; the keyed daemon did not start",
+                home().join("daemon.lock").display()
+            ));
+        }
+        tokio::time::sleep(HANDOVER_RETRY).await;
+        if Client::connect(&path).await.is_ok() {
+            return Err(anyhow!(
+                "a daemon started at {} meanwhile: it holds another person key or none; stop it with `acpmux daemon shutdown --keep-agents`, then start it again with the key",
+                path.display()
+            ));
+        }
+    }
 }
 
 /// Makes this process not dumpable before it holds a person key (cx-0q7o):
@@ -704,7 +793,15 @@ fn rotate_saved_token_once(config: &mut crate::config::Config) -> bool {
     if w.token_rotated >= TOKEN_ROTATION || w.token.as_deref().is_none_or(|t| t.trim().is_empty()) {
         return false;
     }
-    let old = w.token.replace(random_token());
+    let fresh = match random_token() {
+        Ok(token) => token,
+        Err(e) => {
+            // Keep the saved token and try again at the next start.
+            tracing::warn!("could not rotate the saved WebSocket token: {e}");
+            return false;
+        }
+    };
+    let old = w.token.replace(fresh);
     w.token_rotated = TOKEN_ROTATION;
     match config.save() {
         Ok(()) => {
@@ -726,10 +823,10 @@ fn rotate_saved_token_once(config: &mut crate::config::Config) -> bool {
     }
 }
 
-fn random_token() -> String {
+fn random_token() -> Result<String> {
     let mut bytes = [0u8; 24];
-    getrandom::fill(&mut bytes).expect("the OS random generator");
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    getrandom::fill(&mut bytes).map_err(|e| anyhow!("the OS random generator: {e}"))?;
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
 static DAEMON_PREFIX: std::sync::OnceLock<Vec<std::ffi::OsString>> = std::sync::OnceLock::new();
@@ -766,8 +863,7 @@ pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
     if !autostart {
         return Err(anyhow!("no acpmux daemon at {} (run `acpmux daemon`)", path.display()));
     }
-    let ready = start_daemon().await?;
-    Client::connect(&path).await.map_err(|e| not_ready(&path, &ready, &e))
+    start_and_connect(&path, || Client::connect(&path)).await
 }
 
 /// A connected socket to the daemon, starting one if needed, for a client
@@ -777,8 +873,59 @@ pub async fn connect_stream() -> Result<crate::local_stream::Stream> {
     if let Ok(stream) = crate::local_stream::connect(&path).await {
         return Ok(stream);
     }
-    let ready = start_daemon().await?;
-    crate::local_stream::connect(&path).await.map_err(|e| not_ready(&path, &ready, &e.into()))
+    start_and_connect(&path, || async { Ok(crate::local_stream::connect(&path).await?) }).await
+}
+
+/// How long a command waits for a daemon that holds the lock: a stopping one settles its agents
+/// first (`SHUTDOWN_BUDGET`, the router's stop and kill waits; 12.3 s on cosmic-gray on
+/// 2026-10-22), a starting one binds within `START_BUDGET`. The last start then has its own
+/// `START_BUDGET`.
+const HANDOVER_BUDGET: Duration = Duration::from_secs(20);
+
+/// How often a command tries again while another daemon holds the lock.
+const HANDOVER_RETRY: Duration = Duration::from_millis(250);
+
+/// Starts a daemon and connects. When the started daemon found the lock taken (its readiness
+/// line says `lockHeld`), another daemon is stopping (the app's handover to its bundled build,
+/// `host update`, `daemon shutdown`) or starting: the command connects once that one serves, or
+/// starts the next daemon once it has exited, instead of failing. Each try is a daemon start, so
+/// the command never takes the lock itself and never makes a starting daemon lose it.
+async fn start_and_connect<T, F, Fut>(path: &std::path::Path, connect: F) -> Result<T>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    let deadline = tokio::time::Instant::now() + HANDOVER_BUDGET;
+    loop {
+        let ready = start_daemon().await?;
+        let error = match connect().await {
+            Ok(c) => return Ok(c),
+            Err(e) => e,
+        };
+        if !lock_held(&ready) {
+            return Err(not_ready(path, &ready, &error));
+        }
+        if tokio::time::Instant::now() + HANDOVER_RETRY >= deadline {
+            return Err(anyhow!(
+                "another acpmux daemon still holds {} after {HANDOVER_BUDGET:?} and serves no socket at {}; see {}",
+                home().join("daemon.lock").display(),
+                path.display(),
+                home().join("daemon.log").display()
+            ));
+        }
+        tokio::time::sleep(HANDOVER_RETRY).await;
+        if let Ok(c) = connect().await {
+            return Ok(c);
+        }
+    }
+}
+
+/// Whether a started daemon's readiness line says another daemon holds the lock.
+fn lock_held(ready: &str) -> bool {
+    serde_json::from_str::<Value>(ready.trim())
+        .ok()
+        .and_then(|v| v.get("lockHeld").and_then(Value::as_bool))
+        == Some(true)
 }
 
 /// Start a daemon and wait until it reports readiness or exits. Returns its
@@ -869,7 +1016,7 @@ mod state_file_tests {
 /// only after the daemon wrote [`KEY_READY`] on it.
 #[cfg(unix)]
 fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::File> {
-    let exe = std::env::current_exe()?;
+    let this = crate::self_command::SelfCommand::current()?;
     crate::config::private_state_dir(&home())?;
     let log = open_daemon_log(&home().join("daemon.log"))?;
     let log_err = log.try_clone()?;
@@ -889,7 +1036,7 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
         None => None,
     };
     let key_fd = pair.as_ref().map(|(_, theirs)| std::os::fd::AsRawFd::as_raw_fd(theirs));
-    let mut cmd = std::process::Command::new(exe);
+    let mut cmd = this.command(&["daemon", "run", "--ready-fd"]);
     crate::config::scrub_nested_claude_env(&mut cmd);
     // The daemon serves every session: its starter's turn values are not its own.
     for k in crate::config::inherited_caller_scoped_keys() {
@@ -898,8 +1045,6 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
     // The daemon must use this client's state directory, including a host
     // override that its own environment would not reproduce.
     cmd.env("ACPMUX_HOME", home())
-        .args(DAEMON_PREFIX.get().map(Vec::as_slice).unwrap_or_default())
-        .args(["daemon", "run", "--ready-fd"])
         .arg(write_fd.to_string())
         .args(key_fd.map(|fd| ["--person-key-fd".to_owned(), fd.to_string()]).into_iter().flatten())
         .stdin(std::process::Stdio::null())
@@ -948,63 +1093,6 @@ fn hand_key(mut link: std::os::unix::net::UnixStream, key: &str) {
         tracing::warn!("hand the person key to the daemon: {e}");
     }
     let _ = link.shutdown(std::net::Shutdown::Both);
-}
-
-/// Run `notify_command` from the config on two transitions only: a
-/// permission request, and a turn that ended while no client was attached.
-async fn notify_loop(hub: Arc<Hub>) {
-    let mut rx = hub.subscribe();
-    loop {
-        let ev = match rx.recv().await {
-            Ok(e) => e,
-            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-            Err(_) => break,
-        };
-        let kind = ev.record.kind.as_str();
-        if kind != "permission_request" && kind != "turn_result" {
-            continue;
-        }
-        let Some(cmd) = hub.config.read().await.notify_command.clone() else { continue };
-        let Ok(session) = hub.resolve(&ev.session_id) else { continue };
-        let summary = hub.session_summary(&session);
-        // A chat some client shows needs no notification (`hub/seen.rs`).
-        if kind == "turn_result" && summary["shown"] == true {
-            continue;
-        }
-        let name = summary.get("name").and_then(Value::as_str).unwrap_or("").to_owned();
-        let text = match kind {
-            "permission_request" => format!(
-                "{name} needs a permission: {}",
-                ev.record
-                    .msg
-                    .pointer("/request/toolCall/title")
-                    .and_then(Value::as_str)
-                    .unwrap_or("tool")
-            ),
-            _ => format!(
-                "{name} finished ({})",
-                ev.record.msg.get("status").and_then(Value::as_str).unwrap_or("completed")
-            ),
-        };
-        let mut c = tokio::process::Command::new("sh");
-        // The daemon starter's turn values are not this command's (config::TURN_SCOPED_ENV).
-        for k in crate::config::inherited_caller_scoped_keys() {
-            c.env_remove(k);
-        }
-        crate::login_env::apply_tokio(&mut c);
-        c.arg("-c")
-            .arg(&cmd)
-            .env("ACPMUX_EVENT", kind)
-            .env("ACPMUX_SESSION_ID", &ev.session_id)
-            .env("ACPMUX_SESSION_NAME", &name)
-            .env("ACPMUX_TEXT", &text);
-        crate::config::scrub_nested_claude_env_tokio(&mut c);
-        let _ = c
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn();
-    }
 }
 
 /// The fixed dashboard port belongs to the shared daemon (`~/.acpmux`). Any other home (a

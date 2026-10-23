@@ -251,6 +251,13 @@ impl Drop for Daemon {
     fn drop(&mut self) {
         // SAFETY: the pid of the child this test spawned and still owns.
         unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
+        // A daemon that does not stop in time is killed, so a failed test
+        // never hangs here holding its agents' stdin open.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while matches!(self.child.try_wait(), Ok(None)) && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let _ = self.child.kill();
         let _ = self.child.wait();
         let _ = std::fs::remove_dir_all(&self.dir);
     }
@@ -687,6 +694,62 @@ async fn auto_start_a_request_during_the_start_never_rebinds_the_approval() {
     let s = starter.reply(rid).await;
     assert!(s.get("error").is_none(), "{s}");
     assert_eq!(current_mode(&s["result"]), "bypass", "{s}");
+}
+
+/// The gated harness never outlives the daemon holding its stdin: a test that
+/// fails before it opens the gate leaves no agent polling for it (257 were
+/// left on huge-blue, 2026-10-21). What the daemon sent before the gate opens
+/// is still read after it.
+#[test]
+fn auto_start_a_gated_agent_exits_with_its_daemon_and_keeps_what_came_first() {
+    use std::io::Write;
+    let dir = std::env::temp_dir().join(format!("aas-gate-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let gate = dir.join("gate");
+    let spawn = || {
+        std::process::Command::new("python3")
+            .arg(FAKE)
+            .env("FAKE_START_GATE", &gate)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap()
+    };
+    let exited = |child: &mut std::process::Child| {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Ok(Some(_)) = child.try_wait() {
+                return true;
+            }
+            if std::time::Instant::now() > deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+
+    let mut waiting = spawn();
+    std::thread::sleep(Duration::from_millis(300));
+    drop(waiting.stdin.take());
+    assert!(exited(&mut waiting), "a gated agent outlived the stdin of its daemon");
+
+    let mut early = spawn();
+    let mut stdin = early.stdin.take().unwrap();
+    let init = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": 1}});
+    writeln!(stdin, "{init}").unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    std::fs::write(&gate, "").unwrap();
+    let mut line = String::new();
+    BufReader::new(early.stdout.take().unwrap()).read_line(&mut line).unwrap();
+    drop(stdin);
+    assert!(exited(&mut early), "the agent did not exit at EOF after its gate");
+    let _ = std::fs::remove_dir_all(&dir);
+    let reply: Value = serde_json::from_str(&line).unwrap_or_else(|e| panic!("{e}: {line:?}"));
+    assert_eq!(reply["id"], 1, "{reply}");
 }
 
 /// The caller token and its socket are acpmux's own: a harness profile's or

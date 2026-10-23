@@ -12,13 +12,16 @@ public import Foundation
 ///    `chrome-extension://` pages and `about:` aliases of WebUI pages, in
 ///    Chromium's canonical form (ChromiumInternalURL: `chrome://extensions`
 ///    is `chrome://extensions/`); every tab also takes the `chrome://` pages
-///    cmux shows itself (ChromiumPageRoute), and Mac Screen addresses
+///    cmux shows itself (ChromiumPageRoute), `cmux://stashed`, the Stashed Tabs page
+///    (`cmuxAppPageHosts`; the App opens it), and Mac Screen addresses
 ///    (`cmux://mac-screen`; an old `cmux-vnc://pair?…` pairing link, which the host refuses
 ///    with a word and never loads). Every other scheme (`javascript:`,
 ///    `data:`, `mailto:`, ...) is searched, so typed text can never run
 ///    script or open another app.
 /// 3. `/abs/path`, `~`, and `~/path` are file URLs, spaces allowed.
-/// 4. Remaining text with whitespace is a search.
+/// 4. Remaining text with whitespace is a search, except an explicit
+///    `http`, `https` or `file` URL whose spaces all come after its host:
+///    it loads with them percent-encoded, as in Chrome.
 /// 5. Scheme-less text: userinfo (`user@host`) is refused, loopback hosts
 ///    and non-unique hosts (private IPs, `devbox:8080`, `router/`,
 ///    `nas.local`) get `http`, other dotted hosts, IPv6 literals or hosts
@@ -58,12 +61,29 @@ public nonisolated struct BrowserURLResolver: Sendable {
         if let fileURL = fileURL(for: text) {
             return fileURL
         }
-        guard !text.contains(where: \.isWhitespace) else { return nil }
+        guard !text.contains(where: \.isWhitespace) else { return encodingSpaces(text) }
 
         if let scheme = explicitScheme(of: text) {
             return explicitURL(text, scheme: scheme)
         }
         return schemeLessURL(text)
+    }
+
+    // MARK: Spaces
+
+    /// An `http`, `https` or `file` URL with spaces only after its host
+    /// (`https://x.com/search?q=a b`, `file:///My Notes.html`): the spaces
+    /// percent-encoded, as Chrome loads them. Nil for everything else with
+    /// a space, which is searched.
+    private func encodingSpaces(_ text: String) -> URL? {
+        guard let scheme = explicitScheme(of: text), ["http", "https", "file"].contains(scheme),
+              let authorityStart = text.range(of: "://")?.upperBound,
+              let authorityEnd = text[authorityStart...].firstIndex(where: { "/?#".contains($0) }),
+              let firstSpace = text.firstIndex(where: \.isWhitespace), authorityEnd < firstSpace,
+              text.allSatisfy({ !$0.isWhitespace || $0 == " " }) else {
+            return nil
+        }
+        return explicitURL(text.replacingOccurrences(of: " ", with: "%20"), scheme: scheme)
     }
 
     // MARK: Wrapped paste
@@ -139,8 +159,10 @@ public nonisolated struct BrowserURLResolver: Sendable {
             return chromiumPage(text, scheme: scheme)
         case "chrome", "chrome-extension":
             return chromiumPage(text, scheme: scheme)
-        case "cmux-vnc", "cmux":
+        case "cmux-vnc":
             return macScreenAddress(text, scheme: scheme)
+        case "cmux":
+            return macScreenAddress(text, scheme: scheme) ?? cmuxAppPage(text)
         default:
             return nil
         }
@@ -155,6 +177,16 @@ public nonisolated struct BrowserURLResolver: Sendable {
         guard let url = URL(string: text) else { return nil }
         if scheme == "cmux-vnc" { return Self.containsPairingLink(text) ? url : nil }
         return url.host?.lowercased() == "mac-screen" ? url : nil
+    }
+
+    /// cmux's own pages that are no browser page, which the App opens instead of loading
+    /// (ChromiumPageRouter). Every other `cmux:` link (`cmux://tab/…`) is searched, never run.
+    static let cmuxAppPageHosts: Set<String> = ["stashed"]
+
+    /// `cmux://stashed` in canonical form, with any path, query or fragment dropped.
+    private func cmuxAppPage(_ text: String) -> URL? {
+        guard let host = URL(string: text)?.host()?.lowercased(), Self.cmuxAppPageHosts.contains(host) else { return nil }
+        return URL(string: "cmux://\(host)")
     }
 
     /// A Chromium internal page in canonical form. A WebKit tab takes only

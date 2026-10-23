@@ -65,6 +65,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("did_finish_launching_start")
         DebugTimings.install()
         defer { DebugTimings.markLaunch("did_finish_launching_end") }
+        // No system caret bubble over cmux's own native text fields (before any field edits).
+        NativeCaretAccessory.install()
         // Every window, shell or auxiliary, opens by one placement rule.
         WindowPlacement.noActivate = environment.noActivate
         WindowPlacement.testScreen = environment.testWindow?.screen
@@ -87,13 +89,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The diff page's files live in the app bundle (markdown-viewer/webviews-app).
         PageDescriptor.registerDiffRoot()
         PageDescriptor.registerFilePageRoots()
+        PageDescriptor.registerAgentActivityRoot()
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment)
         AppProcessRoot.shared.adopt(services)
         self.services = services
         // A main-thread hang still running after 2 s goes to crash reporting with its stack.
         let reporter = services.crashReporting.reporter
-        control.watchdog.onHang = { hang in reporter.reportHang(duration: hang.duration, addresses: hang.addresses) }
+        control.watchdog.onHang = { reporter.reportHang(duration: $0.duration, addresses: $0.addresses, otherThreads: $0.otherThreads.map { ($0.name, $0.addresses) }) }
+        // And to a file per hang (~/Library/Logs/<bundle id>/hangs), listed in Debug Settings > Hangs.
+        control.watchdog.episodes = HangFileTunables.recorder(bundleID: Bundle.main.bundleIdentifier)
         // Shorter lag spikes (250 ms and up, rate-limited) go there too, once they end.
         let lagSpikes = LagSpikeReporter(reporter: reporter)
         lagSpikes.setContextProvider {
@@ -202,6 +207,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.
         services.observeBorders()
+        services.observeGlass()
+        services.updateFeedObservation = UpdateFeedPosting.follow(services)
         // The runtime pack check wires the engine reason at once; its download waits until asked.
         services.startChromiumRuntime()
         firstFrame.whenOpen { [weak services] in services?.startLaterTabWarmups() }
@@ -263,8 +270,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 bundleID: bundleID
             )
         )
-        settings.start()
-        ChatSettingsPush.start(settings: settings, environment: QuitAgents.environment(services))
+        settings.start(announcingDiagnostics: true)
+        ChatSettingsPush.start(settings: settings, socketPath: QuitAgents.environment(services)?.socketPath)
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
         services.mobile.follow(settings, launch: services.environment.launch)
         services.chatsFeed?.keepCurrent()
@@ -326,6 +333,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)
                 control.registerAccountsMethods(services)
+                control.registerBillingMethods(services)
                 control.registerRemoteMethods(services)
                 control.registerMobileMethods(services)
                 control.registerUpdateMethods(services.updater, services: services)
@@ -367,8 +375,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the incognito close confirmation, saves windows, and for End stops
     /// the local daemon. `kill` never gets here.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let services else { return .terminateNow }
-        return services.quit.shouldTerminate(sender)
+        services?.quit.shouldTerminate(sender) ?? .terminateNow
+    }
+
+    /// Chromium's `CommandDispatcher` asks NSApp.delegate (in Chrome, its `AppController`) to
+    /// validate a `commandDispatch:` item that no Chromium window handles, with no
+    /// `respondsToSelector:` check first. Chrome enables only the commands its AppController can
+    /// run with no browser window; cmux has no AppController, so those commands are disabled
+    /// (enabled, AppKit would send the command where nothing runs it). Any other action is one
+    /// this delegate implements, which AppKit enables when it has no validator.
+    @objc(validateUserInterfaceItem:) func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        item.action != Selector(("commandDispatch:")) && item.action != Selector(("commandDispatchUsingKeyModifiers:"))
     }
 
     /// Web, `ssh:` and `x-man-page:` links (cmux as their handler) open as
@@ -438,10 +455,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
-    /// Dock click with no window open: the last closed window comes back with its workspaces, else a new window with a new workspace.
+    /// Dock click with no window open: the last closed window comes back
+    /// with its workspaces, else a new window (in background mode a panel or the menu bar item may count as visible).
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        guard !hasVisibleWindows, let windows = services?.windows else { return true }
-        windows.reopenOrCreateWindow()
+        guard let services, !hasVisibleWindows || services.background.isBackground else { return true }
+        services.windows.reopenOrCreateWindow()
         return false
     }
 }

@@ -32,6 +32,19 @@
 #             scripts/ci/package-test-lane.sh --ref SHA --arg=suite
 #             --arg=Packages/macOS/CmuxNext --arg=SuiteA,SuiteB,SuiteC
 #             --env CMUX_CI_XCODE_APP=/Applications/Xcode_26.6.app
+#   compile-tests MERGE_BASE_SHA
+#             compile, without running, the test targets this commit's change
+#             can break: scripts/ci/compile_test_plan.py over `git diff
+#             MERGE_BASE_SHA HEAD` (the CmuxNext test targets that depend on a
+#             changed target, and the lane's packages whose sources or path
+#             dependencies changed). fleet-test-compile.yml runs it on pull
+#             requests as an advisory check (fleet/compile-check compiles only
+#             the app, which links no test target: #23360, #23163). Exit 0
+#             when every planned target compiled (or none was
+#             planned), 1 after "compile-tests: a test target did not
+#             compile", anything else when there is no verdict. The marker is
+#             printed as soon as a target fails, so a later package's setup
+#             failure (any exit) never hides an earlier compile failure.
 #
 # --event and --full-suite default to EVENT_NAME and FULL_SUITE. Run from the
 # repository root; every helper path is relative to it.
@@ -41,6 +54,14 @@ phase=run
 case "${1:-}" in
   run|select|packages|ghostty-sha) phase="$1"; shift ;;
   prebuild-one) phase="$1"; prebuild_package="$2"; prebuild_log="$3"; shift 3 ;;
+  compile-tests)
+    phase="$1"
+    if [ "$#" -ne 2 ] || ! [[ "$2" =~ ^[0-9a-f]{40}$ ]]; then
+      echo "usage: package-test-lane.sh compile-tests MERGE_BASE_SHA (the full sha of the change's merge base)" >&2; exit 2
+    fi
+    compile_base="$2"
+    shift 2
+    ;;
   suite)
     phase="$1"; suite_package="${2:-}"
     if [ "$#" -lt 3 ]; then
@@ -746,9 +767,129 @@ run_suite() {
   echo "All ${#suite_filters[@]} suites passed."
 }
 
+# compile_one LOG SWIFT_BUILD_ARGS...: one `swift build` into LOG (and the step
+# log), built again from clean outputs when it read a stale explicit module
+# (the backstop run_suite has). Returns the build's status.
+compile_one() {
+  local log="$1" status=0
+  shift
+  swift build "$@" < /dev/null 2>&1 | tee "$log" || status=$?
+  if [ "$status" -ne 0 ] && swiftpm_stale_module_failure "$log"; then
+    echo "::warning title=Stale precompiled module::the warm build read a stale explicit module; building again from clean outputs"
+    swiftpm_purge_build_outputs "$compile_scratch"
+    swiftpm_binary_module_guard "$compile_pkgdir" "$compile_scratch"
+    status=0
+    swift build "$@" < /dev/null 2>&1 | tee "$log" || status=$?
+  fi
+  return "$status"
+}
+
+run_compile_tests() {
+  # The merge base may be missing from a shallow step checkout: fetch that one commit.
+  if ! git cat-file -e "$compile_base^{commit}" 2>/dev/null; then
+    local depth=()
+    [ "$(git rev-parse --is-shallow-repository)" = true ] && depth=(--depth=1)
+    git fetch --no-tags --no-write-fetch-head ${depth[@]+"${depth[@]}"} \
+      "$(git remote get-url origin 2>/dev/null || echo https://github.com/manaflow-ai/cmux.git)" "$compile_base" \
+      || { echo "compile-tests: could not fetch the merge base $compile_base" >&2; exit 3; }
+  fi
+  local changed="$work/compile-tests-changed.txt" plan="$work/compile-tests-plan.txt"
+  git diff --no-renames --name-only "$compile_base" HEAD > "$changed" \
+    || { echo "compile-tests: no diff from $compile_base" >&2; exit 3; }
+  python3 scripts/ci/compile_test_plan.py --changed-files "$changed" > "$plan" \
+    || { echo "compile-tests: compile_test_plan.py failed" >&2; exit 3; }
+  echo "compile-tests: $(wc -l < "$changed" | tr -d ' ') files changed since ${compile_base:0:12}"
+  if [ ! -s "$plan" ]; then
+    echo "compile-tests: the change reaches no test target; nothing to compile."
+    return 0
+  fi
+  echo "compile-tests plan (package, then its test targets; none listed is every one):"
+  sed 's/^/  /' "$plan"
+  select_xcode
+  echo "Xcode: $DEVELOPER_DIR"
+  local words target log status started failed=0 rows=() builds submodules submodule refused
+  local debug_args=(${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"})
+  log="$(mktemp -t swift-compile-tests.XXXXXX)"
+  # The plan on fd 9: nothing a build step reads from stdin can eat its lines.
+  while read -r -a words <&9; do
+    [ "${#words[@]}" -gt 0 ] || continue
+    compile_pkgdir="${words[0]}"
+    compile_scratch="$compile_pkgdir/.build"
+    if grep -q 'GhosttyKit\.xcframework' "$compile_pkgdir/Package.swift"; then
+      ensure_ghosttykit
+    fi
+    if [ "$compile_pkgdir" = Packages/macOS/CmuxNext ]; then
+      ensure_web_bundles
+    fi
+    # A fleet step checks the commit out with every submodule deinitialized:
+    # populate the ones this package reaches (run-swift-testing-suites.sh does too).
+    submodules=()
+    while IFS= read -r submodule; do
+      [ -n "$(ls -A "$submodule" 2>/dev/null)" ] || submodules+=("$submodule")
+    done < <(python3 scripts/ci/swift_package_submodules.py "$PWD" "$compile_pkgdir")
+    if [ "${#submodules[@]}" -gt 0 ]; then
+      git submodule update --init --depth 1 -- "${submodules[@]}"
+    fi
+    swiftpm_binary_module_guard "$compile_pkgdir" "$compile_scratch"
+    if [ "${#words[@]}" -gt 1 ]; then
+      builds=("${words[@]:1}")
+    else
+      builds=(--build-tests)
+    fi
+    for target in "${builds[@]}"; do
+      started=$SECONDS
+      status=0
+      refused=0
+      if [ "$target" = --build-tests ]; then
+        echo "::group::swift build --build-tests $compile_pkgdir"
+        compile_one "$log" --build-tests ${debug_args[@]+"${debug_args[@]}"} --package-path "$compile_pkgdir" || status=$?
+      else
+        echo "::group::swift build --target $target ($compile_pkgdir)"
+        compile_one "$log" ${debug_args[@]+"${debug_args[@]}"} --package-path "$compile_pkgdir" --target "$target" || status=$?
+        # A SwiftPM that will not build one test target on its own: build them
+        # all, once, in place of this package's remaining targets.
+        if [ "$status" -ne 0 ] && grep -qiE "no (target|module) named|unknown target" "$log"; then
+          echo "::warning title=compile-tests::swift build --target $target was refused; building every test target of $compile_pkgdir instead"
+          refused=1
+          target=--build-tests
+          status=0
+          compile_one "$log" --build-tests ${debug_args[@]+"${debug_args[@]}"} --package-path "$compile_pkgdir" || status=$?
+        fi
+      fi
+      echo "::endgroup::"
+      if [ "$status" -eq 0 ]; then
+        rows+=("$(printf '%-34s %-30s %-10s %6ss' "${compile_pkgdir##*/}" "${target#--}" compiled "$((SECONDS - started))")")
+      else
+        failed=$((failed + 1))
+        rows+=("$(printf '%-34s %-30s %-10s %6ss' "${compile_pkgdir##*/}" "${target#--}" FAILED "$((SECONDS - started))")")
+        echo "::error title=Test target did not compile::$compile_pkgdir: ${target#--} (exit $status)"
+        # The verdict now, before any later setup can end the run.
+        echo "compile-tests: a test target did not compile: ${compile_pkgdir##*/} ${target#--}"
+      fi
+      [ "$refused" -eq 0 ] || break
+    done
+    [ "$failed" -ne 0 ] || record_built_ref "$compile_pkgdir"
+  done 9< "$plan"
+  rm -f "$log"
+  local table
+  table="$(printf '%-34s %-30s %-10s %7s\n' package target result time; printf '%s\n' "${rows[@]}")"
+  printf 'compile-tests results:\n%s\n' "$table"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    printf '### Test target compile\n\n```\n%s\n```\n' "$table" >> "$GITHUB_STEP_SUMMARY"
+  fi
+  if [ "$failed" -ne 0 ]; then
+    echo "compile-tests: a test target did not compile ($failed of ${#rows[@]})"
+    exit 1
+  fi
+  echo "compile-tests: every planned test target compiled (${#rows[@]})"
+}
+
 case "$phase" in
   suite)
     run_suite
+    ;;
+  compile-tests)
+    run_compile_tests
     ;;
   prebuild-one)
     prebuild_one "$prebuild_package" "$prebuild_log"

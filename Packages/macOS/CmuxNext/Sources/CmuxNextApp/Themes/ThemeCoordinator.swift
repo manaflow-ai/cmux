@@ -78,6 +78,7 @@ final class ThemeCoordinator {
     private var chromeObservation: Task<Void, Never>?
     private var accentObservation: Task<Void, Never>?
     private var artAccentObservation: Task<Void, Never>?
+    private var machineColorsObservation: Task<Void, Never>?
 
     /// Follows `appearance.appTheme`: the app theme pages get (`--cmux-app-*`, `WebTheme`),
     /// resolved like the other theme levels (the variant for the system appearance, the user's
@@ -108,6 +109,11 @@ final class ThemeCoordinator {
                 self.applyChromeTheme()
             }
         }
+        // `appearance.machineColors`: every machine mark reads the store's picks (MachineColor).
+        ThemeStore.shared.setMachineColors(settings.applied.machineColors)
+        machineColorsObservation = Task {
+            for await colors in ObservationStream({ settings.applied.machineColors }) { ThemeStore.shared.setMachineColors(colors) }
+        }
     }
 
     private func applyChromeTheme() {
@@ -126,7 +132,9 @@ final class ThemeCoordinator {
         registry.choicePreview = { [weak self] action, _, value, target in
             self?.pickerPreview(action, value: value, target: target)
         }
-        registry.choiceState = { [weak self] action, target in self?.currentChoice(action, target: target) }
+        // Other owners (Team Picker) keep the current values they installed.
+        let otherState = registry.choiceState
+        registry.choiceState = { [weak self] action, target in self?.currentChoice(action, target: target) ?? otherState?(action, target) }
         let catalog = catalog
         // A theme's own accent: its `<theme>/accent` edit, else its file's `# cmux-accent`.
         ThemeBridge.accent = { name in ThemeBridge.edited(name) ?? catalog.colors[name]?.accent }

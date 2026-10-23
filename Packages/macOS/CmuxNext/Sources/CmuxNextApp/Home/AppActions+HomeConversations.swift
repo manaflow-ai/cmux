@@ -56,17 +56,28 @@ extension AppActions {
             }
             registry.track(work)
         })
-        // Cmd-Shift-[ / ] on Home: the previous or next conversation in the list; stops at the ends.
+        // Ctrl-Tab / Ctrl-Shift-Tab and Cmd-Shift-] / [ on Home: the next or previous conversation in
+        // the list, wrapping as a pane's tabs do; opening it gives its message box the keyboard.
         for (id, offset) in [("home.previousConversation", -1), ("home.nextConversation", 1)] as [(ActionID, Int)] {
             registry.bind(id) {
                 let step: @MainActor (TopHomePageView) -> Void = { page in
-                    guard let next = page.sidebar.model().neighbor(of: page.shown, offset: offset) else { return }
+                    guard let next = page.sidebar.model().neighbor(of: page.shown, offset: offset, wrapping: true) else { return }
                     page.open(next)
                 }
-                // The docked Home steps its Messages list; Channels has its own keys (j/k).
+                // The docked Home steps its Messages list, or asks the Channels page to move through
+                // its own list (`home.moveConversation`, the page's Option-Up/Down).
                 guard services.home.dock.isClassic else {
                     return withDock(services) { dock in
-                        guard dock.mode == .messages, let page = dock.messages else { return }
+                        if dock.mode == .channels, let channels = dock.channels {
+                            // task-owner: one page call; ends with its answer (a second at most)
+                            Task { @MainActor in
+                                if await !HomeDockTab.moveConversation(channels, by: offset) {
+                                    registry.refuse(MiscHandlerStrings.channelsCannotStep, quiet: true)
+                                }
+                            }
+                            return
+                        }
+                        guard let page = dock.messages else { return }
                         step(page)
                     }
                 }
@@ -74,6 +85,25 @@ extension AppActions {
                 step(page)
             }
         }
+        // Ctrl-1…9 on Home: the nth conversation in the list, 9 the last (as Select Tab 1…9).
+        registry.bind("home.selectConversationByNumber", invoke: { invocation in
+            guard let number = invocation["index"]?.intValue else { return registry.refuse(RefusalStrings.indexRequired) }
+            let pick: @MainActor (TopHomePageView) -> Void = { page in
+                guard let id = page.sidebar.model().conversation(number: number) else { return }
+                page.open(id)
+            }
+            guard services.home.dock.isClassic else {
+                return withDock(services) { dock in
+                    // The Channels page keeps its own list; it has no numbered pick.
+                    guard dock.mode != .channels, let page = dock.messages else {
+                        return registry.refuse(MiscHandlerStrings.channelsCannotStep, quiet: true)
+                    }
+                    pick(page)
+                }
+            }
+            guard let page = homePage(services) else { return }
+            pick(page)
+        })
         registry.bind("home.switchView", invoke: { switchHomeView(services, $0) })
         registry.bind("home.openConversation", invoke: { invocation in
             guard let id = invocation["conversation"]?.stringValue, !id.isEmpty else {

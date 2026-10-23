@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
 import typealias CmuxNextDaemon.SurfaceID
@@ -148,47 +149,22 @@ extension AppServices {
     static func makeMacScreenPages(_ services: AppServices) -> MacScreenPages {
         let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID))
         pages.useShortcuts(of: services.registry)
+        pages.hubHost.indicatorMenuItem = { [weak registry = services.registry] in registry?.makeMenuItem(for: $0) }
         return pages
     }
 
-    /// Keyboard > Mac Screen > Send System Shortcuts to the Remote Mac drives the
-    /// system shortcut tap; the toolbar's menu item writes the same setting.
-    /// DEV builds: Settings > Development > Relay Only drives every Mac Screen session.
-    func followMacScreenSettings(_ settings: SettingsController) {
-        let shortcuts = macScreenPages.systemShortcuts
-        shortcuts.setEnabled = { [weak settings, weak self] on in
-            // The setting is user-only, the same writer check as Settings: any
-            // in-app UI interaction (mouse, keyboard, accessibility press) is the
-            // user; an automation run (CLI, agents, scripts, the socket) is refused.
-            let writer = Self.systemShortcutsWriter(run: ActionRunScope.current)
-            guard let descriptor = SettingsSchema.descriptor(for: MacScreenSettings.systemShortcutsPath) else { return }
-            // task-owner: one settings write per menu or switch change
-            Task {
-                do { try await settings?.setSetting(descriptor, to: .bool(on), by: writer) } catch is SettingUserOnly {
-                    self?.registry.refuse(String(describing: SettingUserOnly(key: descriptor.id, writer: writer)))
-                } catch {}
-            }
-        }
-        // task-owner: app-lifetime settings observation, made once at launch (AppDelegate); event-driven, holds the tap weakly
-        Task { [weak shortcuts] in
-            for await on in ObservationStream({ settings.snapshot.macScreen.systemShortcuts }) {
-                shortcuts?.enabled = on
-            }
-        }
-        #if DEBUG
-        // task-owner: app-lifetime settings observation, made once at launch (AppDelegate); event-driven, holds the services weakly
-        Task { [weak self] in
-            for await relayOnly in ObservationStream({ settings.snapshot.macScreenDebug.relayOnly }) {
-                self?.macScreenPages.relayOnly = relayOnly
-            }
-        }
-        #endif
+    /// The device hub follows the cmux account (CloudAuth).
+    static func makeDeviceHub(_ services: AppServices) -> DeviceHubService {
+        let auth = services.cloud.auth
+        let account = DeviceHubService.Account(awaitRestored: { await auth.awaitRestored() },
+                                                userID: { auth.isSignedIn ? (auth.user?.id ?? "") : nil },
+                                                accessToken: { try await auth.tokens().access })
+        return DeviceHubService(pages: services.macScreenPages, account: account, bundleIdentifier: services.environment.launch.bundleID)
     }
 
-    /// Who is changing Send System Shortcuts to the Remote Mac from Mac
-    /// Screen: an automation run's origin, else (a gesture in this app's UI) the user.
-    nonisolated static func systemShortcutsWriter(run: ActionRunScope?) -> SettingWriter {
-        run.map { SettingWriter($0.origin) } ?? .user
+    /// Mac Screen follows its settings (Send System Shortcuts; DEV: Relay Only).
+    func followMacScreenSettings(_ settings: SettingsController) {
+        macScreenPages.follow(settings) { [weak self] in self?.registry.refuse($0) }
     }
 
     /// New Mac Screen Tab: the home page in the pane the action ran on, else the active window's focused pane.
@@ -203,11 +179,27 @@ extension AppServices {
     }
 
     func registerMacScreenDebug(on router: ControlRouter?) {
-        macScreenPages.registerDebug(on: router) { [weak self] record, key in
-            let named = key.flatMap { key in self?.windows.controllers.lazy.compactMap { $0.content?.panes.values.first { $0.paneKey == key } }.first }
-            guard let self, let pane = named ?? windows.active?.focusedPane ?? windows.controllers.first?.focusedPane else { return "no pane" }
-            macScreenTabs.open(record, in: pane, focus: true, byPerson: false)
-            return nil
+        macScreenPages.registerDebug(on: router) { [weak self] record, key in self?.openDebugMacScreen(record, pane: key, byPerson: false) ?? "no pane" }
+    }
+
+    /// The device hub follows the hub address (`deviceHub.url` in DEV builds) and the cmux account.
+    func startDeviceHub(_ settings: SettingsController) {
+        deviceHub.start(settings: settings)
+        cloud.willSignOut.append { [weak self] in self?.deviceHub.willSignOut() }
+    }
+
+    /// `debug.device_hub` (DEV builds).
+    func registerDeviceHubDebug(on router: ControlRouter?) {
+        macScreenPages.registerDeviceHubDebug(on: router, settings: deviceHub.settingsModel) { [weak self] record, key in
+            self?.openDebugMacScreen(record, pane: key, byPerson: true) ?? "no pane"
         }
+    }
+
+    /// A debug method's Mac Screen tab: in the pane named `key`, else the active or first window's focused pane.
+    private func openDebugMacScreen(_ record: MacScreenRecord, pane key: String?, byPerson: Bool) -> String? {
+        let named = key.flatMap { key in windows.controllers.lazy.compactMap { $0.content?.panes.values.first { $0.paneKey == key } }.first }
+        guard let pane = named ?? windows.active?.focusedPane ?? windows.controllers.first?.focusedPane else { return "no pane" }
+        macScreenTabs.open(record, in: pane, focus: true, byPerson: byPerson)
+        return nil
     }
 }

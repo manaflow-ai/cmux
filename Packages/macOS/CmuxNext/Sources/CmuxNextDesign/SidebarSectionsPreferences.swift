@@ -2,7 +2,8 @@
 /// `sidebar.topBandMaxShare`, `sidebar.bottomBandMaxShare`,
 /// `sidebar.pinnedBandsScroll`, `sidebar.showWorkspaceTabs` and
 /// `sidebar.workspaceRow.*`; plans/cmux-next/sidebar-sections.md 7).
-/// `sidebar.showChats` shows the device-wide All chats section (on by default, cx-xub5).
+/// `sidebar.showChats` lists every chat (All chats) on the New Tab page, where All chats moved
+/// from the sidebar (cx-n0i9); on by default (cx-xub5).
 /// `sidebar.minimalMode`: which pinned bands hide until the pointer is over
 /// the sidebar (R54).
 public nonisolated enum SidebarMinimalMode: String, Hashable, Sendable, CaseIterable {
@@ -14,6 +15,16 @@ public nonisolated enum SidebarMinimalMode: String, Hashable, Sendable, CaseIter
 
     public var hidesTop: Bool { self == .top || self == .both }
     public var hidesBottom: Bool { self == .bottom || self == .both }
+}
+
+/// `sidebar.style` (Lawrence 2026-10-21: "a minimal custom design for the sidebar that is
+/// thinner and takes up virtually 0 horizontal space"; plans/cmux-next/minimal-sidebar.md).
+public nonisolated enum SidebarLayoutStyle: String, Hashable, Sendable, CaseIterable {
+    /// The sidebar at the user's width, beside the content (the default).
+    case standard
+    /// A few-point rail of workspace ticks beside the content; pointing at it
+    /// opens the full sidebar over the content, which never moves.
+    case rail
 }
 
 /// `sidebar.groupBy`: how the Projects list buckets its loose workspaces
@@ -53,8 +64,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var showProjects = true
     /// The Projects menu's Group By (`sidebar.groupBy`).
     public var groupBy: SidebarGroupBy = .none
-    /// Whether the device-wide All chats section is shown at the bottom of the
-    /// sidebar (Lawrence 2026-10-09: on by default); its header's Hide Section turns it off.
+    /// Show All Chats on New Tab: the New Tab page's Threads and Console styles list every
+    /// chat on this device; off, the recent chats only (Lawrence 2026-10-09: on by default). The
+    /// key keeps its `sidebar.` name from when All chats was a sidebar section (cx-n0i9).
     public var showChats = true
     /// The bottom band's pieces (cx-wab7m): each hides from its own right-click menu and comes
     /// back from the band's (`sidebar.showSpaces`: the spaces dots; `sidebar.showProfileControl`:
@@ -77,6 +89,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// age such as `3d`) on the name's line. Off by default (Lawrence 2026-10-19: "By default in the
     /// sidebar, we should never show timestamps"); the hover card keeps its times either way.
     public var showTimestamps = false
+    /// `sidebar.showLocalMachine`: with more than one machine listed, this Mac's workspace rows
+    /// carry its machine mark too. Off by default (Leo 2026-10-20): only another machine's rows
+    /// are marked, since that is the news; this Mac is where a row runs unless it says otherwise.
+    public var showLocalMachine = false
     /// `sidebar.groupHeader.memberCount`: a collapsed group's header shows how many workspaces it
     /// holds after its name. Off by default (Lawrence 2026-10-20: "All we care about is the
     /// loading"); the header shows only its loading spinner.
@@ -98,6 +114,18 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// BOTTOM-LEFT-CARDS K1). The update card always shows when an update
     /// is staged.
     public var showsTips = true
+    /// The Priority view (`sidebar.priorityView.enabled`): an optional App Store item, off by
+    /// default. On, a bell in the sidebar's titlebar row shows or hides it.
+    public var priorityViewEnabled = false
+    /// `sidebar.priorityView.shown`: the bell's state, whether the installed Priority view shows
+    /// at the top of the sidebar. Off, the sidebar is unchanged.
+    public var priorityViewShown = true
+    /// `sidebar.sessionTree` (Claude desktop's Code tab): a workspace started by another
+    /// workspace's agent lists under it on a thin line, rows carry their pull requests, and the
+    /// first rows their Command-number keycaps. Off by default: it changes the list's look.
+    public var sessionTree = false
+    /// `sidebar.style`: the standard sidebar (default) or the thin rail.
+    public var style: SidebarLayoutStyle = .standard
 
     public init(look: String = "quiet", topBandMaxShare: Double = 1.0 / 3.0, bottomBandMaxShare: Double = 0.25,
                 pinnedBandsScroll: Bool = true, showWorkspaceTabs: Bool = false) {

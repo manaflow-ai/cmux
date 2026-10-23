@@ -8,7 +8,6 @@ import CmuxNextSettings
 import CmuxScreenKit
 import CmuxTheme
 import Foundation
-import SwiftUI
 import Testing
 
 nonisolated private let deviceID = "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff"
@@ -285,7 +284,7 @@ struct MacScreenPageTabTests {
 
     /// Without a device hub (or signed out) the home page says how to set Mac Screen up.
     @Test func theHomePageExplainsTheSetup() {
-        #expect(MacScreenHomeDeviceSections.setupNote(configured: false) != MacScreenHomeDeviceSections.setupNote(configured: true))
+        #expect(MacScreenHomeSnapshot.setupNote(configured: false) != MacScreenHomeSnapshot.setupNote(configured: true))
     }
 }
 
@@ -311,47 +310,35 @@ struct MacScreenThemeTests {
         pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
         let tab = pages.makeView(for: "home")
         root.addSubview(tab)
-        let home = try #require(tab.subviews.first as? MacScreenHostingView<MacScreenHomeView>)
+        let home = try #require(tab.subviews.first as? MacScreenHomeView)
         let pane = devicePane("Theme Test")
         root.addSubview(pane.view)
-        let hosts: [any MacScreenThemedHost] = [home, pane.view.chrome.toolbar, pane.view.chrome.card]
+        let hosts: [MacScreenThemedView] = [home, pane.view.chrome.toolbar, pane.view.chrome.card]
 
         let darkInk = try rgb(MacScreenColors.resolved(in: root).primary)
         for host in hosts {
-            #expect(try rgb(host.resolvedColors.primary) == darkInk)
-            #expect(try rgb(host.resolvedColors.page) == rgb(MacScreenColors.resolved(in: host.hostView).page))
-            #expect(host.resolvedColors.isDark)
+            #expect(try rgb(host.colors.primary) == darkInk)
+            #expect(try rgb(host.colors.page) == rgb(MacScreenColors.resolved(in: host).page))
+            #expect(host.colors.isDark)
         }
         try paint(scope, background: 0xF7F3E8, foreground: 0x1D1A14)
         let lightInk = try rgb(MacScreenColors.resolved(in: root).primary)
         #expect(lightInk != darkInk)
         for host in hosts {
             // Live: the theme change reached every surface without a new view.
-            #expect(try rgb(host.resolvedColors.primary) == lightInk)
-            #expect(try rgb(host.resolvedColors.chrome) == rgb(MacScreenColors.resolved(in: host.hostView).chrome))
-            #expect(!host.resolvedColors.isDark)
+            #expect(try rgb(host.colors.primary) == lightInk)
+            #expect(try rgb(host.colors.chrome) == rgb(MacScreenColors.resolved(in: host).chrome))
+            #expect(!host.colors.isDark)
         }
         pane.close()
         pages.tabClosed("home")
     }
 
     /// A color's sRGB components, rounded (to compare colors made apart).
-    private func rgb(_ color: Color) throws -> [Int] {
-        let srgb = try #require(NSColor(color).usingColorSpace(.sRGB))
+    private func rgb(_ color: NSColor) throws -> [Int] {
+        let srgb = try #require(color.usingColorSpace(.sRGB))
         return [srgb.redComponent, srgb.greenComponent, srgb.blueComponent, srgb.alphaComponent].map { Int(($0 * 255).rounded()) }
     }
-}
-
-/// The colors a Mac Screen hosting view resolved, whatever it hosts.
-@MainActor
-private protocol MacScreenThemedHost {
-    var resolvedColors: MacScreenColors { get }
-    var hostView: NSView { get }
-}
-
-extension MacScreenHostingView: MacScreenThemedHost {
-    var resolvedColors: MacScreenColors { themeAppearance.colors }
-    var hostView: NSView { self }
 }
 
 /// A stalled connection shows Reconnecting at once, not a frozen picture.
@@ -440,11 +427,11 @@ struct MacScreenFrameRateTests {
     }
 
     @Test func statsShowTheAgreedRateNextToTheMeasuredOne() {
-        let agreed = MacScreenToolbar.statsLine(path: "Direct", fps: 118.4, targetFps: 120, latencyMs: 4, encoding: "H264 HW",
+        let agreed = MacScreenToolbarView.statsLine(path: "Direct", fps: 118.4, targetFps: 120, latencyMs: 4, encoding: "H264 HW",
                                                 frameSize: CGSize(width: 3024, height: 1964))
         #expect(agreed == "Direct · 118/120 fps · 4 ms · H264 HW · 3024×1964")
         // A host that predates the agreed rate sends none: the line is as before.
-        let oldHost = MacScreenToolbar.statsLine(path: "Relay", fps: 59.6, targetFps: nil, latencyMs: nil, encoding: "-", frameSize: .zero)
+        let oldHost = MacScreenToolbarView.statsLine(path: "Relay", fps: 59.6, targetFps: nil, latencyMs: nil, encoding: "-", frameSize: .zero)
         #expect(oldHost == "Relay · 60 fps")
     }
 }

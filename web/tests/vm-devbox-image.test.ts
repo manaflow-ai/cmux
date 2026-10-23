@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 declare const Bun: {
   readonly TOML: { parse(input: string): unknown };
@@ -58,6 +58,19 @@ const scriptsDir = path.join(import.meta.dirname, "../scripts");
 const read = (name: string) => readFileSync(path.join(templateDir, name), "utf8");
 const readScript = (name: string) => readFileSync(path.join(scriptsDir, name), "utf8");
 
+// Behavioral generator tests model an owner-only machine. The production
+// script reads a root-owned kind file and deliberately fails closed when it is
+// absent, so source a transformed fixture rather than the host's /etc state.
+const agentConfigFixtureRoot = mkdtempSync(path.join(tmpdir(), "cmux-agent-config-owner-"));
+const agentConfigFixtureKind = path.join(agentConfigFixtureRoot, "vm-kind");
+const ownerAgentConfig = path.join(agentConfigFixtureRoot, "agent-config.sh");
+writeFileSync(agentConfigFixtureKind, "owner\n");
+writeFileSync(
+  ownerAgentConfig,
+  read("agent-config.sh").replaceAll("/etc/cmux/vm-kind", agentConfigFixtureKind),
+);
+afterAll(() => rmSync(agentConfigFixtureRoot, { recursive: true, force: true }));
+
 const dockerfile = read("Dockerfile");
 const bashrc = read("cmux-bashrc");
 const devboxBoot = read("cmux-devbox-boot");
@@ -83,9 +96,26 @@ const listen = (
     });
   });
 
+// Process groups of sourceAgentConfig shells that have not been reaped. A
+// test that times out never reaches its finally block, so the shells (and a
+// writer they started) would outlive it and keep writing into a temp dir
+// that is deleted later; afterEach kills every group still listed.
+const liveAgentConfigGroups = new Set<number>();
+const killAgentConfigGroup = (pid: number) => {
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    // The group is already gone.
+  }
+  liveAgentConfigGroups.delete(pid);
+};
+afterEach(() => {
+  for (const pid of [...liveAgentConfigGroups]) killAgentConfigGroup(pid);
+});
+
 const sourceAgentConfig = (home: string, coderouterOrigin: string, fetchOpenCodeConfig = false, onFetchStarted?: () => void): Promise<void> =>
   new Promise((resolve, reject) => {
-    const child = spawn("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; ${fetchOpenCodeConfig ? "printf 'cmux-fetch-started\\n'; cmux_ensure_opencode_config" : ":"}`], {
+    const child = spawn("/bin/bash", ["-c", `. ${ownerAgentConfig}; ${fetchOpenCodeConfig ? "printf 'cmux-fetch-started\\n'; cmux_ensure_opencode_config" : ":"}`], {
       env: {
         ...process.env,
         HOME: home,
@@ -94,7 +124,9 @@ const sourceAgentConfig = (home: string, coderouterOrigin: string, fetchOpenCode
         CMUX_CODEROUTER_URL: coderouterOrigin,
       },
       stdio: ["ignore", "pipe", "ignore"],
+      detached: true,
     });
+    if (child.pid !== undefined) liveAgentConfigGroups.add(child.pid);
     let output = "";
     let reportedStart = false;
     child.stdout.on("data", (data: Buffer) => {
@@ -105,9 +137,11 @@ const sourceAgentConfig = (home: string, coderouterOrigin: string, fetchOpenCode
       }
     });
     child.on("error", reject);
-    child.on("exit", (code) =>
-      code === 0 ? resolve() : reject(new Error(`agent-config.sh exited ${code}`)),
-    );
+    child.on("exit", (code) => {
+      // Nothing the shell started may outlive it.
+      if (child.pid !== undefined) killAgentConfigGroup(child.pid);
+      code === 0 ? resolve() : reject(new Error(`agent-config.sh exited ${code}`));
+    });
   });
 
 describe("devbox image template", () => {
@@ -169,7 +203,7 @@ describe("devbox image template", () => {
     const home = mkdtempSync(path.join(tmpdir(), "cmux-agent-config-origin-"));
     try {
       const run = (extraEnv: Record<string, string>) =>
-        runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; printf '%s' "\${ANTHROPIC_CUSTOM_HEADERS-}"`], {
+        runChild("/bin/bash", ["-c", `. ${ownerAgentConfig}; printf '%s' "\${ANTHROPIC_CUSTOM_HEADERS-}"`], {
           env: {
             NODE_ENV: "test",
             PATH: process.env.PATH ?? "/usr/bin:/bin",
@@ -954,7 +988,7 @@ test "$daemon_pid" = fixture
     try {
       const result = await runChild(
         "sh",
-        ["-c", `. ${path.join(templateDir, "agent-config.sh")}; printf '%s' "\${NODE_EXTRA_CA_CERTS-unset}"`],
+        ["-c", `. ${ownerAgentConfig}; printf '%s' "\${NODE_EXTRA_CA_CERTS-unset}"`],
         { env: { ...process.env, HOME: home, NODE_EXTRA_CA_CERTS: undefined } },
       );
       expect(result.status).toBe(0);
@@ -965,7 +999,7 @@ test "$daemon_pid" = fixture
       );
       const kept = await runChild(
         "sh",
-        ["-c", `. ${path.join(templateDir, "agent-config.sh")}; printf '%s' "$NODE_EXTRA_CA_CERTS"`],
+        ["-c", `. ${ownerAgentConfig}; printf '%s' "$NODE_EXTRA_CA_CERTS"`],
         { env: { ...process.env, HOME: home, NODE_EXTRA_CA_CERTS: "/tmp/mine.crt" } },
       );
       expect(kept.stdout.toString()).toBe("/tmp/mine.crt");
@@ -973,6 +1007,60 @@ test "$daemon_pid" = fixture
       rmSync(home, { recursive: true, force: true });
     }
   });
+
+  test("concurrent shell starts merge the codex provider once, stay bounded, and leave no writer behind", async () => {
+    // Every terminal of a machine sources agent-config.sh at the same moment.
+    // The merge once re-read config.toml while writing a shared temp name: one
+    // shell's rename made another shell's open output config.toml, and its
+    // `cat config.toml` appended the file to itself (an orphaned cat wrote
+    // 71.6 GB into a deleted test dir). Each shell runs under `ulimit -f` so a
+    // regression fails here instead of filling the disk.
+    const hooks = '[hooks.state."/home/cmux/.codex/hooks.json:Stop:0:0"]\ntrusted_hash = "3f0c"\n';
+    // The computer-use MCP writer edits the same file on every start; a fake
+    // driver on PATH makes both writers race, and both entries must survive.
+    const bin = mkdtempSync(path.join(tmpdir(), "cmux-devbox-agent-config-race-bin-"));
+    writeFileSync(path.join(bin, "cua-driver"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    try {
+      for (const existing of [hooks, null]) {
+        for (let round = 0; round < 3; round += 1) {
+          const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-agent-config-race-"));
+          try {
+            mkdirSync(path.join(home, ".codex"), { recursive: true });
+            if (existing !== null) writeFileSync(path.join(home, ".codex/config.toml"), existing);
+            const env = {
+              ...process.env,
+              HOME: home,
+              PATH: `${bin}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`,
+              OPENAI_BASE_URL: "https://example.invalid/v1",
+              OPENAI_API_KEY: "cmux-vm-edge-placeholder",
+              CMUX_CODEROUTER_URL: "https://example.invalid",
+            };
+            const results = await Promise.all(Array.from({ length: 8 }, () =>
+              runChild("/bin/bash", ["-c", `ulimit -f 256; . ${ownerAgentConfig}`], { env, timeout: 20_000, reapGroup: true }),
+            ));
+            for (const result of results) {
+              expect(result.error).toBeUndefined();
+              expect(result.status).toBe(0);
+              expect(result.orphans).toBe(false);
+            }
+            const merged = readFileSync(path.join(home, ".codex/config.toml"), "utf8");
+            expect(merged.length).toBeLessThan(4096);
+            const parsed = Bun.TOML.parse(merged) as Record<string, unknown>;
+            expect(parsed.model_provider).toBe("cmux");
+            expect(merged.match(/^model_provider = /gm)).toHaveLength(1);
+            expect(merged.match(/^\[model_providers\.cmux\]$/gm)).toHaveLength(1);
+            if (existing !== null) expect(merged).toContain('trusted_hash = "3f0c"');
+            expect((parsed.mcp_servers as Record<string, unknown> | undefined)?.["cua-driver"]).toBeDefined();
+            expect(readdirSync(path.join(home, ".codex")).filter((name) => name.includes("cmux-tmp") || name.startsWith(".cmux-cua-"))).toEqual([]);
+          } finally {
+            rmSync(home, { recursive: true, force: true });
+          }
+        }
+      }
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  }, 120_000);
 
   test("agent config generator adds the codex provider around hook trust state another writer left first", async () => {
     // The bake runs `cmux-tui agent hook install codex` before any shell has
@@ -993,12 +1081,14 @@ test "$daemon_pid" = fixture
       const env = {
         ...process.env,
         HOME: home,
-        PATH: "/usr/bin:/bin",
+        // Keep modern Python on macOS/CI while excluding a developer's local
+        // cua-driver; this case isolates Codex provider merging.
+        PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
         OPENAI_BASE_URL: "https://example.invalid/v1",
         OPENAI_API_KEY: "cmux-vm-edge-placeholder",
         CMUX_CODEROUTER_URL: "https://example.invalid",
       };
-      expect((await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env })).status).toBe(0);
+      expect((await runChild("/bin/bash", ["-c", `. ${ownerAgentConfig}`], { env })).status).toBe(0);
       const merged = readFileSync(path.join(home, ".codex/config.toml"), "utf8");
       const parsed = Bun.TOML.parse(merged) as Record<string, unknown>;
       expect(parsed.model_provider).toBe("cmux");
@@ -1020,9 +1110,9 @@ test "$daemon_pid" = fixture
       expect(parsed.history).toEqual({ persistence: "save-all" });
       // The bare key precedes the first table header, or TOML would file it under [hooks].
       expect(merged.indexOf('model_provider = "cmux"')).toBeLessThan(merged.indexOf("[hooks]"));
-      expect(existsSync(path.join(home, ".codex/config.toml.cmux-tmp"))).toBe(false);
+      expect(readdirSync(path.join(home, ".codex")).filter((name) => name.includes("cmux-tmp"))).toEqual([]);
       // Idempotent: a second login sees the provider and rewrites nothing.
-      expect((await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env })).status).toBe(0);
+      expect((await runChild("/bin/bash", ["-c", `. ${ownerAgentConfig}`], { env })).status).toBe(0);
       expect(readFileSync(path.join(home, ".codex/config.toml"), "utf8")).toBe(merged);
       // A config that already names a provider is the user's, even without
       // ours, however the key is spaced (TOML allows none around "=").
@@ -1044,7 +1134,7 @@ test "$daemon_pid" = fixture
         'model_provider = "unterminated\n',
       ]) {
         writeFileSync(path.join(home, ".codex/config.toml"), theirs);
-        expect((await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env })).status).toBe(0);
+        expect((await runChild("/bin/bash", ["-c", `. ${ownerAgentConfig}`], { env })).status).toBe(0);
         expect(readFileSync(path.join(home, ".codex/config.toml"), "utf8")).toBe(theirs);
       }
     } finally {
@@ -1083,7 +1173,7 @@ test "$daemon_pid" = fixture
         ANTHROPIC_BASE_URL: "",
         ANTHROPIC_API_KEY: "",
       };
-      const source = `. ${path.join(templateDir, "agent-config.sh")}; cmux_write_cua_mcp_config allow-missing`;
+      const source = `. ${ownerAgentConfig}; cmux_write_cua_mcp_config allow-missing`;
       expect((await runChild("/bin/bash", ["-c", source], { env })).status).toBe(0);
 
       const claude = JSON.parse(readFileSync(path.join(home, ".claude.json"), "utf8")) as {
@@ -1149,7 +1239,7 @@ test "$daemon_pid" = fixture
         ANTHROPIC_BASE_URL: "",
         ANTHROPIC_API_KEY: "",
       };
-      const source = `. ${path.join(templateDir, "agent-config.sh")}; cmux_write_cua_mcp_config allow-missing`;
+      const source = `. ${ownerAgentConfig}; cmux_write_cua_mcp_config allow-missing`;
       expect((await runChild("/bin/bash", ["-c", source], { env })).status).toBe(0);
 
       const config = JSON.parse(readFileSync(selected, "utf8")) as {
@@ -1187,7 +1277,7 @@ test "$daemon_pid" = fixture
         ANTHROPIC_BASE_URL: "",
         ANTHROPIC_API_KEY: "",
       };
-      const source = `. ${path.join(templateDir, "agent-config.sh")}; cmux_write_cua_mcp_config allow-missing`;
+      const source = `. ${ownerAgentConfig}; cmux_write_cua_mcp_config allow-missing`;
       const result = await runChild("/bin/bash", ["-c", source], { env });
       expect(result.status).toBe(0);
       const stderr = result.stderr.toString();
@@ -1207,7 +1297,7 @@ test "$daemon_pid" = fixture
     try {
       const result = await runChild(
         "bash",
-        ["-c", `. ${path.join(templateDir, "agent-config.sh")}`],
+        ["-c", `. ${ownerAgentConfig}`],
         {
           env: {
             ...process.env,
@@ -1407,7 +1497,7 @@ test "$daemon_pid" = fixture
       response.end(JSON.stringify({ error: { message, type: "invalid_request_error", code: "no_account_configured" } }));
     });
     try {
-      const result = await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; cmux_ensure_opencode_config`], {
+      const result = await runChild("/bin/bash", ["-c", `. ${ownerAgentConfig}; cmux_ensure_opencode_config`], {
         env: {
           PATH: process.env.PATH ?? "/usr/bin:/bin",
           HOME: home,

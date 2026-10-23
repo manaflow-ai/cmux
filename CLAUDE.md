@@ -113,6 +113,16 @@ staged, and committed. CI keeps the non-mutating lint as the backstop.
 
 Claude Code and Codex post-edit hooks (`.claude/settings.json`, `.codex/hooks.json`)
 run the same fixer on edited `Packages/**/*.swift` files; they print repairs and never fail an edit.
+They also warn, for the edited files only, about workflow YAML that does not parse or that
+actionlint rejects, a new `tests/test_*.py` missing from `tests/test-execution.toml`, and a
+CmuxNext Swift or cmux-tui Rust file grown past its god-file cap (`scripts/ci/check-post-edit.sh`).
+
+`scripts/ci/format-post-edit.sh` formats each edited file the way CI checks it:
+`webviews/` and `cmux-tui/frontends/web/` with that package's own `vp fmt`
+(reinstalled from its lockfile when stale), Rust with the pinned toolchain's
+rustfmt. The pre-commit hook does the same for staged files and restages them.
+Both touch only those files, so agents sharing a checkout never reformat each
+other's work. `CMUX_SKIP_FORMAT_HOOKS=1` skips both in an emergency.
 
 ## Area instructions
 
@@ -169,17 +179,23 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   tailnet URL that shows each gallery state your change reaches at the merge-base and at your branch, side
   by side (no Swift build).
   Mac captures (the `cmux-next media` tours) are only for native/AppKit UI or real end-to-end flows.
+- A native UI change shows a real capture in its description (`pr-capture-check` fails it otherwise):
+  `cmux-ci capture <head sha> --state scene:NAME|tour:NAME --pr N [--video]` builds that commit, drives the
+  real app on a capture mini, takes light and dark stills, refuses any that show private text, and prints
+  the Markdown to paste. Or add the `media-tour` label, or write `No capture: <why>`. Never mock stills.
 - Every `feat-cmux-next` PR gets a `risk:low|normal|high` label ([risk tiers](docs/ci/risk-tiers.md)).
   Low (docs, copy, generated, tests) and normal (most UI and logic) never wait for a person:
   agent review and the relevant checks, then merge. High (auth, socket and relay policy,
   migrations, release/signing/updater, the risk gate and its enforcers (`gh-merge-green`,
   `next_batch.py`), a new delete of user data, a new
-  `pull_request_target` or `workflow_run` trigger) holds `risk evidence` until a collaborator approves the
-  head or a maintainer adds `risk:human-ok`. Any tier is held while it takes back a change
+  `pull_request_target` or `workflow_run` trigger) lands on an independent review receipt
+  `Review (<reviewer>): SHIP at <full head sha>` on the exact head plus a green compile; agents
+  never need a label. A collaborator's approval of the head, or `risk:human-ok` from a maintainer,
+  also counts. Any tier is held while it takes back a change
   merged in the last week, until the description has `Takes back #N: <why>`. Ship
   user-visible high-tier behavior behind a default-off setting; revert with
-  `gh-merge-green --revert` if it breaks nightly-next and the fix misses the next cut. Never add
-  `risk:human-ok` or `risk:waived`; only a maintainer does.
+  `gh-merge-green --revert` if it breaks nightly-next and the fix misses the next cut. Agents never
+  add `risk:human-ok` or `risk:waived`.
 - Before opening a PR and before merging, check it against [REVIEW.md](REVIEW.md) (draft),
   the mistakes our review history keeps catching.
 - Before merging, use a [review subagent](skills/cmux-review/SKILL.md), correctness

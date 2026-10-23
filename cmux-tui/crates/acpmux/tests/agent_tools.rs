@@ -185,7 +185,7 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         upstreams.as_array().unwrap().iter().filter_map(|s| s["name"].as_str()).collect();
     assert_eq!(
         names,
-        ["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux-subsessions"],
+        ["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux-forum"],
         "{upstreams}"
     );
     assert_eq!(upstreams[0]["command"], json!(cua), "{upstreams}");
@@ -201,6 +201,13 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         assert!(sub_env.contains(key), "{key}: {upstreams}");
     }
     assert!(sub_env.contains(&id), "{upstreams}");
+    // The forum tools (`forum_mcp.rs`) act as this session the same way.
+    assert_eq!(upstreams[4]["args"], json!(["forum-mcp"]), "{upstreams}");
+    let forum_env = upstreams[4]["env"].to_string();
+    for key in ["ACPMUX_SESSION_ID", "ACPMUX_SESSION_TOKEN", "ACPMUX_SESSION_TOKEN_SOCKET"] {
+        assert!(forum_env.contains(key), "{key}: {upstreams}");
+    }
+    assert!(forum_env.contains(&id), "{upstreams}");
     // No allowlist: the cmux server speaks code mode.
     assert_eq!(value("CMUX_MCP_TOOLS"), None, "{servers}");
 

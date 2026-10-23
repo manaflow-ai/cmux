@@ -14,7 +14,7 @@ mod brand;
 mod open;
 mod query;
 mod settings;
-mod sources;
+pub(crate) mod sources;
 mod watch;
 
 use std::collections::{HashMap, HashSet};

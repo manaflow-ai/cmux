@@ -95,10 +95,51 @@ class ReleaseHelperTest(unittest.TestCase):
         cargo = str(ROOT / "cmux-tui/crates/cmux-browser-host/Cargo.toml")
         import tomllib
         crate = tomllib.loads(Path(cargo).read_text())["package"]["version"]
+        if crate == {"workspace": True}:
+            # fbae5c71f017: the crate takes the cmux-next version from the workspace.
+            crate = tomllib.loads((ROOT / "cmux-tui/Cargo.toml").read_text())["workspace"]["package"]["version"]
         ok = self.helper("version", f"cmux-browser-host-v{crate}", cargo)
         self.assertEqual((ok.returncode, ok.stdout.strip()), (0, crate), ok.stderr)
         for tag in ("cmux-browser-host-v99.0.0", "cmux-browser-host-1.0.0", "v" + crate):
             self.assertNotEqual(self.helper("version", tag, cargo).returncode, 0, tag)
+
+    def test_an_inherited_workspace_version_is_the_crate_version(self):
+        """`version.workspace = true` (fbae5c71f017) made every real release tag fail: the helper
+        compared the tag with the table {'workspace': True}."""
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            (workspace / "Cargo.toml").write_text('[workspace]\nmembers = ["crates/host"]\n\n'
+                                                  '[workspace.package]\nversion = "2.3.4"\n')
+            crate = workspace / "crates" / "host" / "Cargo.toml"
+            crate.parent.mkdir(parents=True)
+            crate.write_text('[package]\nname = "cmux-browser-host"\nversion.workspace = true\n')
+            ok = self.helper("version", "cmux-browser-host-v2.3.4", str(crate))
+            self.assertEqual((ok.returncode, ok.stdout.strip()), (0, "2.3.4"), ok.stderr)
+            self.assertNotEqual(self.helper("version", "cmux-browser-host-v2.3.5", str(crate)).returncode, 0)
+
+    def test_a_crate_that_is_its_own_workspace_root_reads_its_own_workspace_version(self):
+        """Cargo takes `version.workspace = true` from the crate's own [workspace] when it has one."""
+        with tempfile.TemporaryDirectory() as tmp:
+            outer = Path(tmp)
+            (outer / "Cargo.toml").write_text('[workspace]\n\n[workspace.package]\nversion = "9.9.9"\n')
+            crate = outer / "host" / "Cargo.toml"
+            crate.parent.mkdir()
+            crate.write_text('[package]\nname = "cmux-browser-host"\nversion.workspace = true\n\n'
+                             '[workspace]\n\n[workspace.package]\nversion = "1.2.3"\n')
+            ok = self.helper("version", "cmux-browser-host-v1.2.3", str(crate))
+            self.assertEqual((ok.returncode, ok.stdout.strip()), (0, "1.2.3"), ok.stderr)
+
+    def test_crate_version_prints_what_a_push_build_packages(self):
+        """A push (not a tag) build read ["package"]["version"] itself and packaged the version
+        "{'workspace': True}"; it asks the helper, which resolves the workspace version."""
+        cargo = ROOT / "cmux-tui/crates/cmux-browser-host/Cargo.toml"
+        import tomllib
+        workspace = tomllib.loads((ROOT / "cmux-tui/Cargo.toml").read_text())["workspace"]["package"]["version"]
+        ok = self.helper("crate-version", str(cargo))
+        self.assertEqual((ok.returncode, ok.stdout.strip()), (0, workspace), ok.stderr)
+        workflow = (ROOT / ".github/workflows/cmux-browser-host-release.yml").read_text()
+        self.assertIn('browser-host-release.py crate-version "$cargo_toml"', workflow)
+        self.assertNotIn('["package"]["version"]', workflow)
 
     def test_packages_are_reproducible_and_entries_cover_both_targets(self):
         with tempfile.TemporaryDirectory() as tmp:

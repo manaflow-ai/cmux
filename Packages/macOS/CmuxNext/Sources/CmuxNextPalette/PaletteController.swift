@@ -104,30 +104,38 @@ public final class PaletteController {
     // MARK: Registry wiring
 
     /// Binds the palette's own catalog actions: Command Palette (toggle),
-    /// Go to Workspace (Cmd-P, which opens Search) and Search Keyboard Shortcuts. Go to Tab is Search
-    /// Tabs, which the App binds (`tab.search`).
+    /// Go to Workspace (Cmd-P, what is open now), Search (Cmd-Shift-A, everything) and Search
+    /// Keyboard Shortcuts. Go to Tab is Search Tabs, which the App binds (`tab.search`).
     public func bindRegistryActions() {
         registry.bind("commandPalette") { [weak self] in self?.toggle(.commands) }
         registry.bind("palette.searchShortcuts") { [weak self] in self?.show(.keyboardShortcuts) }
-        // Cmd-Shift-A: Search with the Chats & agents chip (search-everything-DESIGN.md section 10.1).
+        // Cmd-Shift-A: Search, which adds history and agent chats to the open items
+        // (search-everything-DESIGN.md section 10.1). The id predates the change; user key files name it.
         registry.bind("search.chats", invoke: { [weak self] invocation in
-            self?.showChats(query: invocation["query"]?.stringValue ?? "")
+            self?.show(scope: PaletteScopeID.search, query: invocation["query"]?.stringValue ?? "")
         })
         if sources.workspaces != nil {
             // With a workspace (a palette row's typed ref, `palette.run`,
             // the CLI) it switches to it; without one it opens the page.
             registry.bind("goToWorkspace", invoke: { [weak self] invocation in
                 if let workspace = invocation["workspace"]?.targetValue?.id ?? invocation["workspace"]?.stringValue {
-                    self?.sources.workspaces?.selectWorkspace(id: workspace)
-                } else if self?.show(scope: PaletteScopeID.search) != true {
-                    // Cmd-P opens the merged Search window (search-everything-DESIGN.md section 10);
-                    // its empty query lists the workspaces, as Go to Workspace did.
+                    guard let self, let source = self.sources.workspaces else { return }
+                    // An id that names no workspace is refused, never a silent success.
+                    guard source.workspaces.contains(where: { $0.id == workspace }) else {
+                        return self.registry.refuseNotFound(PaletteStrings.workspaceNotFound(workspace))
+                    }
+                    source.selectWorkspace(id: workspace)
+                } else if self?.show(scope: PaletteScopeID.workspaces) != true {
+                    // Cmd-P lists only what is open: workspaces, then their groups, panes and tabs.
                     self?.show(.workspaces)
                 }
             })
         }
         registry.argumentCollector = { [weak self] id, invocation in
             self?.collectArguments(for: id, invocation: invocation)
+        }
+        registry.argumentAsker = { [weak self] id, invocation, ask in
+            self?.collectArguments(for: id, invocation: invocation, asking: ask)
         }
     }
 
@@ -205,15 +213,18 @@ public final class PaletteController {
 
     /// Opens the palette to collect the missing arguments of `id`, then runs
     /// it. Installed as the registry's `argumentCollector`, so a menu item or
-    /// shortcut for an argument-taking action asks inline.
-    public func collectArguments(for id: ActionID, invocation: ActionInvocation, relativeTo window: NSWindow? = nil) {
+    /// shortcut for an argument-taking action asks inline. `ask` also asks for
+    /// one optional argument (``ActionRegistry/ask(_:_:_:)``: a menu Rename with
+    /// no name asks for it here instead of in a separate dialog).
+    public func collectArguments(for id: ActionID, invocation: ActionInvocation, asking ask: ActionArgumentAsk? = nil,
+                                 relativeTo window: NSWindow? = nil) {
         guard let descriptor = registry.descriptor(for: id) else { return }
         // Without its arguments, an action that opens a scope opens it, as its palette row does.
-        if invocation.arguments.isEmpty, let scope = scope(openedBy: id), show(scope: scope, relativeTo: window) { return }
+        if ask == nil, invocation.arguments.isEmpty, let scope = scope(openedBy: id), show(scope: scope, relativeTo: window) { return }
         captureContext()
         let flow = PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: sources.targets,
                                        captured: capturedTargets, preview: sources.argumentPreview,
-                                       swatches: sources.argumentSwatches)
+                                       swatches: sources.argumentSwatches, ask: ask)
         let effect = flow.effect(collected: invocation)
         if case .perform(let handler) = effect {
             // Nothing left to ask.
@@ -425,6 +436,7 @@ public final class PaletteController {
         if model.shortcutRecorder != nil {
             return shortcutRecorder.handle(PaletteShortcutRecorder.shortcut(for: event), keyCode: event.keyCode, event: event)
         }
+        if Self.inputMethodOwns(event) { return false }
         guard let command = PaletteKeyMap.command(
             for: event,
             actionsMenuOpen: model.actionsMenu != nil,

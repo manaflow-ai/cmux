@@ -176,6 +176,15 @@ function value(): Stored | undefined {
 
 const unsubscribed = () => () => {};
 
+// A page on the in-page mock daemon (a tour or a demo inside the app): it lists its own mock chats,
+// never the app's, though the mock names itself local.
+let mockPage = false;
+
+/// The page runs on the in-page mock daemon (App.tsx, `transport: "mock"`).
+export function markMockPage(mock = true): void {
+  mockPage = mock;
+}
+
 /// Whether a page lists the shared chats: a New Tab page (`page`, its context) of this Mac's daemon
 /// (before its handshake no origin is named, and another machine's context turns the store off with
 /// `privateChatLists`, as Debug Settings `newTab.privateChatLists` does), whose daemon is not down: a
@@ -185,7 +194,7 @@ export function sharesChatList(
   page: { privateChatLists?: boolean } | undefined,
   snapshot: Pick<AcpmuxSnapshot, "origin" | "connection">,
 ): boolean {
-  if (!page || page.privateChatLists) return false;
+  if (!page || page.privateChatLists || mockPage) return false;
   if (snapshot.origin !== undefined && snapshot.origin !== "local") return false;
   return snapshot.connection !== "disconnected" && snapshot.connection !== "debug";
 }

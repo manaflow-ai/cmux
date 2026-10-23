@@ -17,16 +17,22 @@ public final class HomeCloudLink {
         var id: ObjectIdentifier?
         var userID: String?
         var displayName: String
+        /// The chat server (`home.server`): the build's cmux Cloud with the
+        /// Stack account (`userID`), or a self-hosted server over Tailscale,
+        /// which names the person itself.
+        var server: HomeCloudServer
 
-        public init(endpoint: (any HomeCloudEndpoint)? = nil, id: ObjectIdentifier? = nil, userID: String? = nil, displayName: String) {
+        public init(endpoint: (any HomeCloudEndpoint)? = nil, id: ObjectIdentifier? = nil, userID: String? = nil, displayName: String,
+                    server: HomeCloudServer = .hosted) {
             self.endpoint = endpoint
             self.id = id
             self.userID = userID
             self.displayName = displayName
+            self.server = server
         }
 
         public static func == (lhs: Link, rhs: Link) -> Bool {
-            lhs.id == rhs.id && lhs.userID == rhs.userID && lhs.displayName == rhs.displayName
+            lhs.id == rhs.id && lhs.userID == rhs.userID && lhs.displayName == rhs.displayName && lhs.server == rhs.server
         }
     }
 
@@ -121,14 +127,20 @@ public final class HomeCloudLink {
     /// (`leaseMissing`), and a failed lease is tried again after a backoff
     /// until it holds or the link changes. A new display name alone is the
     /// same account on the same connection and keeps the lease.
+    ///
+    /// A self-hosted server (`link.server`) needs no Stack account: the
+    /// daemon leases it without a token and the server names the person, so
+    /// a Stack sign-in or sign-out changes nothing there. Another server is
+    /// another account: the previous one ends first.
     public func apply(_ link: Link) async {
         guard link != last else { return }
-        if let previous = last, previous.id == link.id, previous.userID == link.userID {
+        if let previous = last, previous.id == link.id, previous.server == link.server,
+           previous.userID == link.userID || link.server != .hosted {
             last = link
-            if let identity = identity(link.userID, link) { source.rename(identity) }
+            if link.server == .hosted, let identity = identity(link.userID, link) { source.rename(identity) }
             return
         }
-        if let previous = last, previous.userID != nil, previous.userID != link.userID {
+        if let previous = last, previous.server != link.server || (previous.userID != nil && previous.userID != link.userID) {
             // The previous account ends before the daemon holds the next
             // one's lease: an op submitted in between is refused here
             // instead of committing under the new account.
@@ -151,16 +163,20 @@ public final class HomeCloudLink {
         }
         leasing += 1
         probe.setLeasing(leasing)
-        let outcome = await lease.sync(endpoint, expectedUserID: link.userID)
+        let outcome = await lease.sync(endpoint, expectedUserID: link.userID, server: link.server)
         leasing -= 1
         switch outcome {
         case .leased(let subject, let expiresAt):
             leasedExpiry = expiresAt
             source.configure(commands: endpoint, link: link.id, identity: identity(subject, link), leased: true)
+        case .selfHosted(let info):
+            source.configure(commands: endpoint, link: link.id, identity: selfHostedIdentity(info), leased: true)
         case .signedOut:
             source.configure(commands: endpoint, link: link.id, identity: nil)
         case .failed, .superseded:
-            source.configure(commands: endpoint, link: link.id, identity: identity(link.userID, link), leased: false)
+            // A self-hosted server that did not answer names nobody yet: the retry asks it again.
+            let pending = link.server == .hosted ? identity(link.userID, link) : nil
+            source.configure(commands: endpoint, link: link.id, identity: pending, leased: false)
         }
         settled(outcome, reason: "missing")
         // Published after the follow-up work above, so a test that waits
@@ -230,14 +246,20 @@ public final class HomeCloudLink {
     /// `answering`: the expiry the daemon's request named; once a new lease
     /// holds, a late request naming it needs nothing more.
     private func renew(reason: String, answering expiry: UInt64? = nil) {
-        guard let endpoint = last?.endpoint else { return }
+        guard let current = last, let endpoint = current.endpoint else { return }
         leasing += 1
         probe.setLeasing(leasing)
-        lease.renew(endpoint, reason: reason, expectedUserID: { [source] in source.accountID }) { [weak self, source] outcome in
+        lease.renew(endpoint, reason: reason, server: current.server,
+                    expectedUserID: { [source] in source.accountID }) { [weak self, source] outcome in
             if case .leased(let subject, let expiresAt) = outcome {
                 if let expiry, expiry != expiresAt { self?.answered(expiry) }
                 self?.leasedExpiry = expiresAt
                 source.leaseRenewed(subject: subject)
+            }
+            // The server named the person again (the first time, after a failed lease): the
+            // source acts as them on the link it was asked for, unless a newer link replaced it.
+            if case .selfHosted(let info) = outcome, let self, last?.id == current.id, last?.server == current.server {
+                source.configure(commands: endpoint, link: current.id, identity: selfHostedIdentity(info), leased: true)
             }
             guard let self else { return }
             leasing -= 1
@@ -281,7 +303,7 @@ public final class HomeCloudLink {
     /// after it. No account (signed out) or newer work needs no retry.
     private func settled(_ outcome: HomeCloudLease.Outcome, reason: String) {
         switch outcome {
-        case .leased:
+        case .leased, .selfHosted:
             retry.cancel()
             retryDelay = Self.firstRetry
         case .failed:
@@ -296,6 +318,13 @@ public final class HomeCloudLink {
         case .signedOut, .superseded:
             break
         }
+    }
+
+    /// The person a self-hosted server named: its user id is both the
+    /// account and the participant (no Stack project derives it).
+    private func selfHostedIdentity(_ info: CloudSelfHostInfo) -> CloudIdentity {
+        let name = info.displayName.flatMap { $0.isEmpty ? nil : $0 } ?? info.login
+        return CloudIdentity(stackUserID: info.userID, displayName: name, localID: localID)
     }
 
     private func identity(_ userID: String?, _ link: Link) -> CloudIdentity? {

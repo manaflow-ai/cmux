@@ -39,7 +39,10 @@ pub(crate) fn connect_record_with_timeout(
                 handshake_timeout,
                 protocol_version,
                 smart_renderer,
-                stream.take().expect("protocol attempt has a connected stream"),
+                match stream.take() {
+                    Some(stream) => stream,
+                    None => break 'protocols,
+                },
                 intent,
             ) {
                 Ok(attachment) => return Ok(attachment),
@@ -267,6 +270,7 @@ pub(crate) fn connect_record_at_version(
         // live protocol-v1 hosts whose older implementation registered
         // every connection at the snapshot grid.
         viewer_size: Mutex::new(Some(snapshot_size)),
+        viewer_size_acks: hello_frame.flags & FLAG_VIEWER_SIZE_ACKS != 0,
         launch_process: None,
         launch_activation_pending,
         pty_custody: None,

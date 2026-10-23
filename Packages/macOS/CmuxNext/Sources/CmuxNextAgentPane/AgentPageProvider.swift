@@ -32,16 +32,17 @@ public nonisolated struct AgentPageOps {
     static let methods: [String: String] = {
         var methods = Dictionary(uniqueKeysWithValues: [
             "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.showContextUsage", "pane.showDictation", "pane.setDisplay",
-            "pane.edit", "pane.setQuickActions", "tab.open", "tab.typeAhead", "tab.jump",
-            "newTab.remember", "newTab.setTemplate", "nowPlaying.command", "newTab.inputReady", "newTab.touched", "newTab.context", "newTab.warm", "shortcut.edit", "action.run", "file.open", "browser.open",
-            "project.list", "project.icon", "project.browse", "workspace.chooseFolder", "workspace.useFolder", "chat.folder.choose", "chat.attach.choose", "app.action", "chats.open", "chats.openInTerminal", "chats.page",
-            "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "quick.setOnTop", "quick.setCollapsed", "quick.floatingState", "quick.context", "pane.action", "pane.tabState", "pane.tabRowTools", "chat.toolCard.respond", "chat.upload", "chat.sideChat", "chat.subagentPane", "chat.processTerminal", "chat.openTab", "chat.newHere", "chat.unsentDraft", "chat.scrollAnchor", "chat.scrollAnchor.get",
+            "pane.edit", "pane.setQuickActions", "tab.open", "run.attach", "tab.typeAhead", "tab.jump",
+            "newTab.remember", "newTab.setTemplate", "newTab.editWidgets", "nowPlaying.command", "newTab.inputReady", "newTab.touched", "newTab.context", "newTab.warm", "shortcut.edit", "action.run", "file.open", "browser.open",
+            "project.list", "project.icon", "project.browse", "workspace.chooseFolder", "workspace.useFolder", "chat.folder.choose", "chat.attach.choose", "chat.attach.dropped", "app.action", "chats.open", "chats.openInTerminal", "chats.watch", "chats.page",
+            "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "quick.setOnTop", "quick.setCollapsed", "quick.floatingState", "quick.context", "pane.action", "pane.tabState", "pane.tabRowTools", "chat.toolCard.respond", "chat.upload", "chat.sideChat", "chat.subagentPane", "chat.processTerminal", "chat.openTab", "chat.offer.open", "chat.asks.open", "chat.newHere", "chat.unsentDraft", "chat.scrollAnchor", "chat.scrollAnchor.get", "chat.tail", "chat.tail.get", "chat.draftAttachments", "chat.draftAttachments.get", "chat.asks.pending",
             "shell.run", "shell.read", "shell.stop", "harness.update", "harness.restart",
             "git.diff", "git.status", "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo", "git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk", "git.pullRequest", "project.instructions", "project.addFiles", "composer.capture",
             "dictation.toggle", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings", "dictation.audio",
             "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",
+            "chat.missing",
         ].map { ($0, $0) })
-        for method in AgentPaneReplyRequest.methods { methods[method] = method }
+        for method in AgentPaneReplyRequest.methods.union(AgentPaneEnvironmentRequest.methods) { methods[method] = method }
         methods["handshake"] = "ready"
         methods["session.persist"] = "chat.persistSession"
         return methods
@@ -76,6 +77,12 @@ public final class AgentPageProvider: PageProvider {
     public var replay: (@MainActor () -> [AgentPageEvent])?
     /// Runs a composer menu edit (`pane.edit`) in the page view; ``AgentPanePageHost`` sets it.
     public var onEdit: (@MainActor (AgentPaneEditCommand) -> Void)?
+    /// The pane's own acpmux socket (``AgentPaneModel/pendingAsksSocket``), asked at each
+    /// `chat.asks.pending`: its chats are read there and nowhere else. ``AgentPaneView`` sets it;
+    /// until then, and whenever it is nil, the op answers null.
+    public var pendingAsksSocket: @MainActor () -> String? = { nil }
+    /// Reads `chat.asks.pending` through ``pendingAsksSocket`` (tests inject the reader).
+    public var pendingAsks = AgentPanePendingAsks()
 
     public init(prepare: @escaping Prepare) {
         self.prepare = prepare
@@ -106,7 +113,13 @@ public final class AgentPageProvider: PageProvider {
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let method = AgentPageOps.method(for: op) else { throw PageError.unknownOp(op) }
         if method == "pane.edit" { return try edit(params, op: op, context: context) }
-        if method.hasPrefix("chat.scrollAnchor") { return try Self.scrollAnchor(method, params: params, op: op) }
+        // Named, not a prefix: `scrollAnchor` treats anything but `.get` as a write, so a later
+        // `chat.scrollAnchor.forget` would have erased a chat's place instead of being refused.
+        if AgentPaneScrollAnchors.handles(method: method) { return try Self.scrollAnchor(method, params: params, op: op) }
+        if AgentPaneTailCache.handles(method: method) { return try Self.tail(method, params: params, op: op) }
+        // Needs you's read of a chat's open requests: the host's, never the relay's (AgentPanePendingAsks).
+        if method == "chat.asks.pending" { return try await pendingAsks.reply(params, op: op, socket: pendingAsksSocket()) }
+        if method.hasPrefix("chat.draftAttachments") { return try await Self.draftAttachments(method, params: params, op: op) }
         let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }
         guard let model = prepare(request) else { throw PageError.closed }
@@ -115,7 +128,7 @@ public final class AgentPageProvider: PageProvider {
 
     /// The value of an ``AgentPaneReply``, or its failure as a ``PageError``. The model's code and
     /// message are kept; its `origin` and `details` travel in the error's details.
-    nonisolated static func value(of reply: [String: Any]) throws -> JSONValue {
+    public nonisolated static func value(of reply: [String: Any]) throws -> JSONValue {
         if reply["ok"] as? Bool == true {
             guard let value = reply["value"] else { return .null }
             guard let json = JSONValue(foundation: value) else {

@@ -4,7 +4,6 @@ import CmuxNextDevices
 import CmuxNextRemoteView
 import CmuxNextWakeups
 public import Observation
-import SwiftUI
 
 /// What the pane's chrome shows, beyond `ScreenSession`'s own state.
 @Observable

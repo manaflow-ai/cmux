@@ -9,7 +9,9 @@ import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextMacScreen
 import CmuxNextRemoteView
+import CmuxNextRemoteViewSessions
 import CmuxNextScreenshots
+import CmuxNextStash
 import Foundation
 import os
 #if DEBUG
@@ -21,6 +23,9 @@ import CmuxNextRemoteBrowser
 /// it survives relaunch like any tab.
 final class HistoryPageService: HistoryPageSource {
     private unowned let services: AppServices
+    /// The Stashed page's stashes (stash-v1), History's sibling page.
+    private(set) lazy var stash = StashService(host: stashHost)
+    private(set) lazy var stashHost = StashAppHost(services)
 
     init(services: AppServices) {
         self.services = services

@@ -421,7 +421,7 @@ RUN chmod 0755 /usr/local/bin/cmux-devbox-boot \
   && sh -n /usr/local/bin/cmux-vm-kind-sync \
   && sh -n /usr/local/bin/cmux-tui-state-mount \
   && mkdir -p /etc/cmux \
-  && printf 'team\n' > /etc/cmux/vm-kind && chmod 0644 /etc/cmux/vm-kind \
+  && echo team > /etc/cmux/vm-kind && chmod 0644 /etc/cmux/vm-kind \
   && echo "$CMUX_IMAGE_GHOSTTY_DEB_URL" | sed -n 's|.*/ghostty_\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)[-_].*|\1|p' > /etc/cmux/ghostty-version \
   && grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' /etc/cmux/ghostty-version
 

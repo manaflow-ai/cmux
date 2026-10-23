@@ -1,7 +1,7 @@
 @testable import CmuxNextDaemon
 import Testing
 
-/// Toggle Tab Unread (Cmd-Opt-U) shows its dot in the same main-actor turn
+/// Mark Tab Read/Unread (Cmd-Opt-U) shows its dot in the same main-actor turn
 /// as the key: the daemon's `tab.update` round trip (220-1000 ms on a busy
 /// daemon) is never on the visible path. The record's echo confirms the mark;
 /// a refused write rolls it back.

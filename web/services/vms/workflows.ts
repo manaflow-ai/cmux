@@ -17,7 +17,7 @@ import * as Option from "effect/Option";
 import { eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
-import { hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, ProviderStateConflictError, type CreateOptions } from "./drivers/types";
+import { hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, ProviderStateConflictError, type CreateOptions, type VmPauseState } from "./drivers/types";
 import { isVmProviderHang, withVmAnswerDeadline, withVmRouteDeadline, type VmRouteDeadline } from "./routeDeadline";
 import * as Layer from "effect/Layer";
 import type {
@@ -128,6 +128,7 @@ import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirect
 import { detachNetworkTunnels } from "./teamNetworkAccess";
 import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { withVmReadDeadline, type VmReadDeadline } from "./routeDeadline";
+import { CLOUD_REMOTE_AUTH_METADATA_KEY, cloudRemoteAuthMode } from "./clientGrant";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import {
@@ -163,6 +164,15 @@ import {
 import { measureVmEffect, type VmTimingSink } from "./timings";
 import { guestPromptInstallCommand, vmPromptIdentity } from "./guestPrompt";
 import { vmAgentUpdatesFromRow, type VmAgentUpdatesSetting } from "./agentUpdates";
+import {
+  VM_API_ACTIVITY_MIN_INTERVAL_MS,
+  VM_IDLE_PAUSE_MINUTES_KEY,
+  vmIdlePauseMinutesFromRow,
+  vmLastApiActivityFromRow,
+  vmPauseReasonFromRow,
+  type VmIdlePauseMinutes,
+  type VmPauseReason,
+} from "./idlePause";
 import { guestAgentUpdatesCommand } from "./guestAgentUpdates";
 
 export {
@@ -238,6 +248,10 @@ export type VmEntry = {
   readonly cmuxTuiContract: string | null;
   /** Coding agents: "image" keeps the baked pins, "latest" updates them on attach. */
   readonly agentUpdates: VmAgentUpdatesSetting;
+  /** Minutes without activity before the machine pauses by itself; 0 is Off (services/vms/idlePause.ts). */
+  readonly idlePauseMinutes: VmIdlePauseMinutes;
+  /** Why a paused machine is paused: "idle" (auto-pause) or "user"; null when running or unknown. */
+  readonly pauseReason: VmPauseReason | null;
   /**
    * The machine's recorded share of the shared vCPU/memory pool, or null for a
    * legacy row without a valid reservation marker (the pool conservatively
@@ -1238,6 +1252,8 @@ type CreateVmInput = {
   readonly networkPolicy?: NetworkPolicy;
   /** "latest" opts the machine into coding-agent updates on attach; absent keeps the image's pins. */
   readonly agentUpdates?: VmAgentUpdatesSetting;
+  /** Trusted provider metadata copied from an owned source machine/snapshot. */
+  readonly providerMetadata?: Readonly<Record<string, unknown>>;
   /** Set only when the requesting client routes team networks. */
   readonly teamDirectory?: VmTeamDirectory;
   readonly timing?: VmTimingSink;
@@ -1414,7 +1430,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         // blocking post-create rename on current backends.
         displayName: create.vm.displayName ?? create.vm.slug ?? undefined,
         promptIdentity: vmPromptIdentity(create.vm),
-        providerMetadata: create.vm.providerMetadata,
+        providerMetadata: { ...create.vm.providerMetadata, ...(input.providerMetadata ?? {}) },
         homeVolume: input.perMachineHome
           ? homeVolumeTemplateForUser(input.userId)
           : input.persistentHome
@@ -1608,6 +1624,29 @@ export function setVmAgentUpdates(input: ExistingVmAccessInput & {
       yield* scheduleGuestAgentUpdates(providers, updated, input.agentUpdates, input.deferAfterResponse);
     }
     return vmEntryFromRow(updated);
+  });
+}
+
+/**
+ * Set a machine's idle auto-pause: minutes without activity before it pauses
+ * by itself (15, 30, 60 or 120), or 0 for Off. The row is the source of truth;
+ * the idle cron reads it on its next run.
+ */
+export function setVmIdlePause(input: ExistingVmAccessInput & {
+  readonly minutes: VmIdlePauseMinutes;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const vm = yield* requireAccessibleUserVm(input);
+    if (!repo.setIdlePauseMinutes) {
+      return yield* Effect.fail(new VmDatabaseError({ operation: "setIdlePauseMinutes", cause: new Error("repository cannot store the idle pause") }));
+    }
+    yield* repo.setIdlePauseMinutes({ id: vm.id, minutes: input.minutes });
+    return vmEntryFromRow({
+      ...vm,
+      providerMetadata: { ...(vm.providerMetadata ?? {}), [VM_IDLE_PAUSE_MINUTES_KEY]: input.minutes },
+      updatedAt: new Date(),
+    });
   });
 }
 
@@ -2164,6 +2203,7 @@ export function snapshotVm(input: {
           vcpus: snapshotReservation.vcpus,
           memoryMb: snapshotReservation.memoryMb,
           diskMb: snapshotReservation.diskMb,
+          [CLOUD_REMOTE_AUTH_METADATA_KEY]: cloudRemoteAuthMode(vm.providerMetadata),
         },
       };
       yield* repo.recordSnapshotUsageEventIfMissing
@@ -2191,29 +2231,31 @@ export function snapshotVm(input: {
       }
     }
     const finish = repo.finishSnapshotRequest;
+    const releaseRejectedKey = key && finish
+      ? Effect.suspend(() => finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "rejected" } })).pipe(
+        Effect.retry({ times: 2 }),
+      )
+      : Effect.void;
     if (!providers.snapshot) {
-      if (key && finish) {
-        yield* Effect.ignore(finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "rejected" } }));
-      }
+      yield* releaseRejectedKey;
       return yield* Effect.fail(new VmOperationUnsupportedError({
         provider: vm.provider,
         operation: "snapshot",
       }));
     }
     const takeSnapshot = providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name);
-    const releaseRejectedKey = (error: VmProviderOperationError): Effect.Effect<void> =>
-      key && finish && snapshotProviderDefinitelyRejected(error)
-        ? Effect.ignore(finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "rejected" } }))
-        : Effect.void;
     const snapshot = yield* measureVmEffect(
       input.timing,
       "provider_snapshot",
-      Effect.tapError(takeSnapshot, releaseRejectedKey),
+      Effect.tapError(takeSnapshot, (error) => snapshotProviderDefinitelyRejected(error) ? releaseRejectedKey : Effect.void),
     );
     if (key && finish) {
-      // The snapshot exists now. A failed write leaves a permanent pending
-      // fence; retries cannot duplicate the ambiguous provider result.
-      yield* Effect.ignore(finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "succeeded", snapshot } }));
+      // Persist the provider result before the ownership event. Retrying a
+      // transient write prevents one snapshot from counting as both a pending
+      // request and a created snapshot.
+      yield* Effect.suspend(() => finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "succeeded", snapshot } })).pipe(
+        Effect.retry({ times: 2 }),
+      );
     }
     const recordCreated = recordSnapshotCreated(snapshot);
     // Idempotent requests must durably record ownership before returning. A
@@ -2344,9 +2386,22 @@ export function pauseVm(input: {
   readonly providerVmId: string;
 }) {
   return Effect.gen(function* () {
+    const vm = yield* requireUserVm(input);
+    return yield* pauseVmRow(vm, input.providerVmId, "user");
+  });
+}
+
+/**
+ * The one pause path: the Pause Machine action and API (`pauseVm`, reason
+ * `user`) and the idle auto-pause cron (services/vms/idlePauseJob.ts, reason
+ * `idle`, after its own access-free row read). `reason` is recorded on the row
+ * (`pauseReason`) and in the usage event.
+ */
+export function pauseVmRow(vm: CloudVmRow, requestedProviderVmId: string, reason: VmPauseReason) {
+  return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input);
+    const input = { providerVmId: requestedProviderVmId };
     const providerVmId = vm.providerVmId ?? input.providerVmId;
     if (vm.status === "destroyed") {
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
@@ -2358,34 +2413,7 @@ export function pauseVm(input: {
     if (!pause) {
       return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "pause" }));
     }
-    // A pause the route answered as in progress (routeDeadline.ts) may have
-    // finished at the provider without reaching the row. A retry reconciles
-    // on the provider's raw pause state instead of pausing twice: a finished
-    // pause is recorded (with its usage event), a pause still under way or a
-    // probe that could not tell answers in progress (never a second pause), a
-    // powered-off machine is recorded as parked without a pause the provider
-    // would refuse, and only a running machine is paused now.
-    const probed = providers.getPauseState
-      ? yield* providers.getPauseState(vm.provider, providerVmId).pipe(
-        Effect.timeoutFail({
-          duration: PAUSE_STATE_PROBE_TIMEOUT_MS,
-          onTimeout: () => new VmOperationDeadlineError({
-            operation: "pause",
-            mutating: true,
-            waitedMs: PAUSE_STATE_PROBE_TIMEOUT_MS,
-          }),
-        }),
-        Effect.either,
-      )
-      : null;
-    if (probed?._tag === "Left") {
-      if (probed.left._tag === "VmOperationDeadlineError") return yield* Effect.fail(probed.left);
-      return yield* Effect.fail(new VmOperationDeadlineError({ operation: "pause", mutating: true, waitedMs: 0 }));
-    }
-    if (probed?._tag === "Right" && probed.right === "in_progress") {
-      return yield* Effect.fail(new VmOperationDeadlineError({ operation: "pause", mutating: true, waitedMs: 0 }));
-    }
-    const observed = probed?._tag === "Right" ? probed.right : null;
+    const observed = yield* observedPauseState(providers, vm, providerVmId);
     // Gone at the provider: the same not-found answer as a destroyed row.
     if (observed === "destroyed") {
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
@@ -2406,7 +2434,12 @@ export function pauseVm(input: {
         }),
       );
     }
-    const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused" });
+    const recorded = yield* repo.markProviderObservedStatus({
+      id: vm.id,
+      providerVmId,
+      status: "paused",
+      ...pauseReasonPatch(observed, reason),
+    });
     if (!recorded) {
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
@@ -2418,10 +2451,76 @@ export function pauseVm(input: {
       eventType: "vm.paused",
       provider: vm.provider,
       imageId: vm.imageId,
-      metadata: { source: observed === "stopped" ? "provider_stopped" : "user" },
+      metadata: pausedUsageMetadata(observed, reason),
     }).pipe(Effect.catchAll(() => Effect.void));
     return { id: providerVmId, status: "paused" } satisfies VmPauseResumeResult;
   });
+}
+
+/**
+ * The provider's raw pause state before a pause; null when the provider
+ * cannot tell. A pause the route answered as in progress (routeDeadline.ts)
+ * may have finished at the provider without reaching the row. A retry
+ * reconciles on this state instead of pausing twice: a finished pause is
+ * recorded (with its usage event), a pause still under way or a probe that
+ * could not tell answers in progress (never a second pause), a powered-off
+ * machine is recorded as parked without a pause the provider would refuse,
+ * and only a running machine is paused now.
+ */
+function observedPauseState(providers: VmProviderGatewayShape, vm: CloudVmRow, providerVmId: string) {
+  return Effect.gen(function* () {
+    if (!providers.getPauseState) return null;
+    const probed = yield* providers.getPauseState(vm.provider, providerVmId).pipe(
+      Effect.timeoutFail({
+        duration: PAUSE_STATE_PROBE_TIMEOUT_MS,
+        onTimeout: () => new VmOperationDeadlineError({
+          operation: "pause",
+          mutating: true,
+          waitedMs: PAUSE_STATE_PROBE_TIMEOUT_MS,
+        }),
+      }),
+      Effect.either,
+    );
+    if (probed._tag === "Left") {
+      if (probed.left._tag === "VmOperationDeadlineError") return yield* Effect.fail(probed.left);
+      return yield* Effect.fail(new VmOperationDeadlineError({ operation: "pause", mutating: true, waitedMs: 0 }));
+    }
+    if (probed.right === "in_progress") {
+      return yield* Effect.fail(new VmOperationDeadlineError({ operation: "pause", mutating: true, waitedMs: 0 }));
+    }
+    return probed.right;
+  });
+}
+
+/** A machine the provider had already stopped was not paused by us, so it records no reason. */
+function pauseReasonPatch(observed: VmPauseState | null, reason: VmPauseReason): { readonly pauseReason?: VmPauseReason } {
+  return observed === "stopped" ? {} : { pauseReason: reason };
+}
+
+function pausedUsageMetadata(observed: VmPauseState | null, reason: VmPauseReason): Record<string, string | boolean> {
+  if (observed === "stopped") return { source: "provider_stopped" };
+  return reason === "idle" ? { source: "idle", automated: true } : { source: "user" };
+}
+
+/**
+ * Note a person's exec, files or attach call for the idle timer
+ * (services/vms/idlePause.ts). Best-effort: never fails the call. At most one
+ * write a minute per machine: skipped when the row, or `since` (a write this
+ * request already made), is within VM_API_ACTIVITY_MIN_INTERVAL_MS. The idle
+ * cron's probe and the resource sampler call the provider directly and never
+ * come through here.
+ */
+function noteVmApiActivity(vm: CloudVmRow, since: number | null = null): Effect.Effect<void, never, VmRepository> {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const record = repo.recordVmApiActivity;
+    const providerVmId = vm.providerVmId;
+    if (!record || !providerVmId) return;
+    const at = yield* Clock.currentTimeMillis;
+    const last = Math.max(vmLastApiActivityFromRow(vm) ?? 0, since ?? 0);
+    if (at - last < VM_API_ACTIVITY_MIN_INTERVAL_MS) return;
+    yield* record({ id: vm.id, providerVmId, at });
+  }).pipe(Effect.catchAll(() => Effect.void));
 }
 
 /**
@@ -2617,6 +2716,14 @@ export function restoreVm(input: {
       yield* requireGoShape(input.billingPlanId, snapshotReservation);
       yield* requireMemoryPlan(input.billingPlanId, snapshotReservation?.memoryMb ?? null, snapshotReservation?.vcpus ?? null);
     }
+    const snapshotRemoteAuthMode = repo.ownedSnapshotRemoteAuthMode
+      ? yield* repo.ownedSnapshotRemoteAuthMode({
+        userId: input.userId,
+        billingTeamId: input.billingTeamId,
+        provider: input.provider,
+        snapshotId: input.snapshotId,
+      })
+      : "trusted-carrier";
     return yield* createVm({
       userId: input.userId,
       billingCustomerType: input.billingCustomerType,
@@ -2629,6 +2736,7 @@ export function restoreVm(input: {
       ...(resourceReservation ? { memoryMb: resourceReservation.memoryMb } : {}),
       idempotencyKey: input.idempotencyKey,
       origin: "restore",
+      providerMetadata: { [CLOUD_REMOTE_AUTH_METADATA_KEY]: snapshotRemoteAuthMode },
       ...(resourceReservation ? { resourceReservation } : {}),
       modelPlane: input.modelPlane,
       teamDirectory: input.teamDirectory,
@@ -2969,7 +3077,11 @@ export function forkVm(input: {
             providerVmId: handle.providerVmId,
             image: source.imageId,
             imageVersion: source.imageVersion,
-            providerMetadata: handle.providerMetadata ?? source.providerMetadata,
+            providerMetadata: {
+              ...source.providerMetadata,
+              ...(handle.providerMetadata ?? {}),
+              [CLOUD_REMOTE_AUTH_METADATA_KEY]: cloudRemoteAuthMode(source.providerMetadata),
+            },
           }),
         );
       }).pipe(
@@ -3050,6 +3162,9 @@ export function forkVm(input: {
       ...(sourceReservation ? { resourceReservation: sourceReservation } : {}),
       idempotencyKey: input.idempotencyKey,
       origin: "fork",
+      providerMetadata: {
+        [CLOUD_REMOTE_AUTH_METADATA_KEY]: cloudRemoteAuthMode(source.providerMetadata),
+      },
       modelPlane: input.modelPlane,
       ...(sourceNetworkPolicy ? { networkPolicy: sourceNetworkPolicy } : {}),
       agentUpdates: vmAgentUpdatesFromRow(source),
@@ -4556,6 +4671,8 @@ export function execVm(input: {
     const vm = yield* requireAccessibleUserVm(input);
     // Lookup and resume are never cut short: interrupting a resume midway
     // would strand its bookkeeping. The deadline governs only the command.
+    // Stamped before the preflight, so the idle cron's re-read sees this call before it can pause.
+    yield* noteVmApiActivity(vm);
     yield* preflightResumeIfSuspended(
       repo,
       providers,
@@ -4602,6 +4719,8 @@ export function execVm(input: {
       imageId: vm.imageId,
       metadata: { commandLength: input.command.length, exitCode: result.exitCode },
     }).pipe(Effect.catchAll(() => Effect.void));
+    // A long command is activity until it ends, not only when it starts.
+    yield* noteVmApiActivity(vm, execStartedAtMs);
     return result satisfies ExecResult;
   });
 }
@@ -4799,6 +4918,8 @@ function fileVm<A>(input: VmFileInput, run: (provider: VmProviderGatewayShape, v
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
+    // Stamped before the preflight, so the idle cron's re-read sees this call before it can pause.
+    yield* noteVmApiActivity(vm);
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "user", {
       maxActiveVms: input.maxActiveVms,
     });
@@ -5455,6 +5576,8 @@ export function openVmCmuxRemote(input: {
         }),
       );
     }
+    // Stamped before the preflight, so the idle cron's re-read sees this call before it can pause.
+    yield* noteVmApiActivity(vm);
     yield* preflightResumeIfSuspended(
       repo,
       providers,
@@ -5485,7 +5608,7 @@ export function openVmCmuxRemote(input: {
       tokenHash: hashToken(endpoint.token),
       expiresAt: new Date(endpoint.expiresAtUnix * 1000),
       transport: "cmux-remote",
-      metadata: { session: endpoint.session, invited: false, trustedCarrier: endpoint.trustedCarrier },
+      metadata: { session: endpoint.session, invited: endpoint.invitation != null, trustedCarrier: endpoint.trustedCarrier },
     }).pipe(
       Effect.catchAll((err) => {
         const cleanup = providers.revokeEndpointLeases
@@ -5502,7 +5625,7 @@ export function openVmCmuxRemote(input: {
       eventType: "vm.attach",
       provider: vm.provider,
       imageId: vm.imageId,
-      metadata: { transport: "cmux-remote", invited: false, trustedCarrier: endpoint.trustedCarrier },
+      metadata: { transport: "cmux-remote", invited: endpoint.invitation != null, trustedCarrier: endpoint.trustedCarrier },
     }).pipe(Effect.catchAll(() => Effect.void));
     // Only an opted-in machine pays this exec; the default attach stays exec-free.
     if (vmAgentUpdatesFromRow(vm) === "latest") {
@@ -5775,6 +5898,8 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
         }),
       );
     }
+    // Stamped before the preflight, so the idle cron's re-read sees this call before it can pause.
+    yield* noteVmApiActivity(vm);
     yield* preflightResumeIfSuspended(
       repo,
       providers,
@@ -6445,6 +6570,8 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     addressIpv6: typeof addressIpv6 === "string" && addressIpv6 ? addressIpv6 : null,
     cmuxTuiContract: typeof metadata["cmuxTuiContract"] === "string" ? metadata["cmuxTuiContract"] : null,
     agentUpdates: vmAgentUpdatesFromRow(row),
+    idlePauseMinutes: vmIdlePauseMinutesFromRow(row),
+    pauseReason: vmPauseReasonFromRow(row),
     resourceReservation: hasVmResourceReservationMetadata(row.providerMetadata)
       ? (({ vcpus, memoryMb }) => ({ vcpus, memoryMb }))(vmResourceReservationFromMetadata(row.providerMetadata))
       : null,

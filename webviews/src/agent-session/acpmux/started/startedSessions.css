@@ -94,7 +94,7 @@
   color: var(--agent-accent);
 }
 .acpmux-session-status[data-status="waiting"] {
-  color: var(--acpmux-warning);
+  color: var(--acpmux-needs-you-mark);
 }
 .acpmux-session-status[data-status="failed"],
 .acpmux-session-status[data-status="failing"],
@@ -150,13 +150,5 @@
   .acpmux-started-row,
   .acpmux-started-chip {
     transition: background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease);
-  }
-  .acpmux-session-status-spinner {
-    animation: acpmux-session-status-spin 800ms linear infinite;
-  }
-}
-@keyframes acpmux-session-status-spin {
-  to {
-    transform: rotate(360deg);
   }
 }

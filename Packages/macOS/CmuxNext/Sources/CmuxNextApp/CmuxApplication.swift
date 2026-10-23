@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextCrashReporting
 import CmuxNextWakeups
 import os
 
@@ -99,9 +100,12 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// `NSApplicationCrashOnExceptions` (`CrashOnExceptions`) AppKit traps
     /// here and the uncaught-exception handler never runs, so the record is
     /// written first; the next launch's notice and report then name it.
+    ///
+    /// With crashing on, the crash has begun here: the crash deadline then
+    /// ends the process even if a crash handler after this blocks.
     override func reportException(_ exception: NSException) {
-        UncaughtExceptionRecorder.handle(exception)
-        super.reportException(exception)
+        CrashReporter.reportException(exception, crashes: UserDefaults.standard.bool(forKey: CrashOnExceptions.key),
+                                      record: UncaughtExceptionRecorder.handle) { super.reportException(exception) }
     }
 
     // MARK: Accessibility windows
@@ -133,6 +137,40 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         return accessibilityWindow(for: window)
     }
 
+    // MARK: Assistive clients
+
+    /// Set once by `AppServices`: whether an assistive client asks for the app's accessibility
+    /// tree (Chromium pages build theirs only then, `CEFEngine.setAssistiveClientActive`). It is
+    /// told the current state when set, so a client that asked before launch finished counts.
+    var assistiveClientsChanged: ((Bool) -> Void)? {
+        didSet { assistiveClientsChanged?(assistiveRequests.wantsAccessibility) }
+    }
+    private var assistiveRequests = AssistiveClientRequests()
+
+    nonisolated override func accessibilitySetValue(_ value: Any?, forAttribute attribute: NSAccessibility.Attribute) {
+        guard AssistiveClientRequests.attributes.contains(attribute.rawValue), Thread.isMainThread else {
+            return super.accessibilitySetValue(value, forAttribute: attribute)
+        }
+        let number = value as? NSNumber
+        MainActor.assumeIsolated { // main-proof: checked Thread.isMainThread above
+            let wanted = assistiveRequests.wantsAccessibility
+            _ = assistiveRequests.set(number, for: attribute.rawValue)
+            if assistiveRequests.wantsAccessibility != wanted { assistiveClientsChanged?(assistiveRequests.wantsAccessibility) }
+        }
+    }
+
+    nonisolated override func accessibilityIsAttributeSettable(_ attribute: NSAccessibility.Attribute) -> Bool {
+        AssistiveClientRequests.attributes.contains(attribute.rawValue) || super.accessibilityIsAttributeSettable(attribute)
+    }
+
+    nonisolated override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        guard AssistiveClientRequests.attributes.contains(attribute.rawValue), Thread.isMainThread else {
+            return super.accessibilityAttributeValue(attribute)
+        }
+        let value = MainActor.assumeIsolated { assistiveRequests.value(for: attribute.rawValue) } // main-proof: checked Thread.isMainThread above
+        return value.map { NSNumber(value: $0) }
+    }
+
     // MARK: Activation
 
     override func activate() {
@@ -148,5 +186,28 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
 
     private func logRefused() {
         logger.info("activation refused (CMUX_NEXT_NO_ACTIVATE=1)")
+    }
+}
+
+/// What assistive clients asked of the app: VoiceOver sets `AXEnhancedUserInterface`, automation
+/// drivers (cua) `AXManualAccessibility`, on the application element. The app wants Chromium's page
+/// accessibility while either is on.
+nonisolated struct AssistiveClientRequests: Equatable {
+    static let attributes: Set<String> = ["AXEnhancedUserInterface", "AXManualAccessibility"]
+    private var values: [String: Bool] = [:]
+
+    var wantsAccessibility: Bool { values.values.contains(true) }
+
+    /// Records `value` for `attribute`; false (nothing recorded) for an attribute no assistive
+    /// client sets.
+    mutating func set(_ value: Any?, for attribute: String) -> Bool {
+        guard Self.attributes.contains(attribute) else { return false }
+        values[attribute] = (value as? NSNumber)?.boolValue ?? false
+        return true
+    }
+
+    /// What was set for `attribute`; nil for other attributes. Unset reads as false.
+    func value(for attribute: String) -> Bool? {
+        Self.attributes.contains(attribute) ? values[attribute] ?? false : nil
     }
 }

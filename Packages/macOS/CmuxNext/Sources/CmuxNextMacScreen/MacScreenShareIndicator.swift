@@ -1,15 +1,22 @@
 import AppKit
+import CmuxNextActions
 
 /// The menu bar item shown while a device sees or controls this Mac: visible
 /// from every app. It names who and how (a device hub session) and offers
 /// Stop Sharing (ends the session) and, for a device hub session, Revoke
-/// This Device (sets its access to None and ends the session).
+/// This Device (sets its access to None and ends the session). Both rows run
+/// registered actions (`macScreen.stopSharing`, `macScreen.revokeViewer`), the
+/// same path as the palette and `cmux action run`.
 @MainActor
 final class MacScreenShareIndicator: NSObject {
+    static let stopSharingAction: ActionID = "macScreen.stopSharing"
+    static let revokeViewerAction: ActionID = "macScreen.revokeViewer"
+
     private var item: NSStatusItem?
-    var stopSharing: () -> Void = {}
-    /// Set while a device hub session shows: Revoke This Device.
-    var revokeDevice: (() -> Void)?
+    /// The registry's row for an action (`ActionRegistry.makeMenuItem`); the app sets it.
+    var menuItem: (ActionID) -> NSMenuItem? = { _ in nil }
+    /// Whether the session shown offers Revoke This Device.
+    private(set) var offersRevoke = false
     /// The menu's first line: who sees or controls this Mac.
     private(set) var title = MacScreenShareIndicator.defaultTitle
 
@@ -30,9 +37,9 @@ final class MacScreenShareIndicator: NSObject {
     }
 
     /// Shows `title` (who, and View Only or Full Control) from now on.
-    func update(title: String, revoke: (() -> Void)?) {
+    func update(title: String, offersRevoke: Bool) {
         self.title = title
-        revokeDevice = revoke
+        self.offersRevoke = offersRevoke
         rebuild()
     }
 
@@ -45,17 +52,12 @@ final class MacScreenShareIndicator: NSObject {
         heading.isEnabled = false
         menu.addItem(heading)
         menu.addItem(.separator())
-        let stop = NSMenuItem(title: L.t("macScreen.indicator.stop", "Stop Sharing This Mac"), action: #selector(stopPressed), keyEquivalent: "")
-        stop.target = self
-        menu.addItem(stop)
-        if revokeDevice != nil {
-            let revoke = NSMenuItem(title: L.t("macScreen.indicator.revoke", "Revoke This Device"), action: #selector(revokePressed), keyEquivalent: "")
-            revoke.target = self
+        if let stop = menuItem(Self.stopSharingAction) {
+            menu.addItem(stop)
+        }
+        if offersRevoke, let revoke = menuItem(Self.revokeViewerAction) {
             menu.addItem(revoke)
         }
         item.menu = menu
     }
-
-    @objc private func stopPressed() { stopSharing() }
-    @objc private func revokePressed() { revokeDevice?() }
 }

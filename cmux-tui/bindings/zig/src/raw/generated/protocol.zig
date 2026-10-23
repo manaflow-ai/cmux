@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "618580395ad650b750fb7be122cdc20524f93ba299cc62b7afebb68b22ff6b12";
+pub const ir_sha256 = "655baaa1d0f11bd63754ffcda70267c4b8f07a2d8d415bf0c302c2ccab838a96";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -56,6 +56,8 @@ pub const AgentPresenceActivity = enum {
 pub const AgentRecord = struct {
     /// Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports.
     agent: wire.Field([]const u8) = .absent,
+    /// The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this.
+    agent_session_id: wire.Field([]const u8) = .absent,
     /// The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.
     last_prompt: wire.Field([]const u8) = .absent,
     session: wire.Nullable([]const u8),
@@ -2942,6 +2944,23 @@ pub const TerminalPlacement = struct {
     };
 };
 
+pub const TerminalPortsListener = struct {
+    /// The loopback address that accepted the daemon's connect: 127.0.0.1 or ::1.
+    bound: []const u8,
+    /// The host as the terminal printed it: localhost, 127.0.0.1, 0.0.0.0, [::1], ...
+    host: []const u8,
+    port: u16,
+    /// The printed URL, or http://HOST:PORT/ when the text had no scheme.
+    url: []const u8,
+};
+
+pub const TerminalPortsResult = struct {
+    /// Ports the text names that refused the connect.
+    closed: []const u16,
+    listeners: []const TerminalPortsListener,
+    surface: Id,
+};
+
 pub const TerminalReadRangeResult = struct {
     surface: Id,
     text: []const u8,
@@ -4513,6 +4532,23 @@ pub fn cloudRequestsList(client: anytype, request: CloudRequestsListRequest) !wi
     );
 }
 
+pub const CloudSelfhostInfoRequest = struct {};
+
+pub const CloudSelfhostInfoResult = JsonValue;
+
+pub fn cloudSelfhostInfo(client: anytype, request: CloudSelfhostInfoRequest) !wire.Decoded(CloudSelfhostInfoResult) {
+    return client.callTyped(
+        CloudSelfhostInfoResult,
+        .{
+            .name = "cloud-selfhost-info",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "cloud-selfhost-v1",
+        },
+        request,
+    );
+}
+
 pub const CloudSessionClearRequest = struct {};
 
 pub const CloudSessionClearResult = JsonValue;
@@ -4531,10 +4567,16 @@ pub fn cloudSessionClear(client: anytype, request: CloudSessionClearRequest) !wi
 }
 
 pub const CloudSessionSetRequest = struct {
-    access_token: []const u8,
+    access_token: ?[]const u8 = null,
     api_base_url: []const u8,
+    auth: wire.Field([]const u8) = .absent,
     client_version: wire.Field([]const u8) = .absent,
-    expires_at: u64,
+    expires_at: ?u64 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "access_token",
+        "expires_at",
+    };
 };
 
 pub const CloudSessionSetResult = JsonValue;
@@ -9193,6 +9235,23 @@ pub fn terminalHistory(client: anytype, request: TerminalHistoryRequest) !wire.D
     );
 }
 
+pub const TerminalPortsRequest = struct {
+    surface: Id,
+};
+
+pub fn terminalPorts(client: anytype, request: TerminalPortsRequest) !wire.Decoded(TerminalPortsResult) {
+    return client.callTyped(
+        TerminalPortsResult,
+        .{
+            .name = "terminal-ports",
+            .authority = "control",
+            .since = 12,
+            .capability = "terminal-ports-v1",
+        },
+        request,
+    );
+}
+
 pub const TerminalReadRangeRequest = struct {
     format: wire.Field([]const u8) = .absent,
     from: RowMarkerPoint,
@@ -9799,6 +9858,8 @@ pub const ActivityChangedEvent = struct {
 pub const AgentChangedEvent = struct {
     /// Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified.
     agent: wire.Field([]const u8) = .absent,
+    /// The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this.
+    agent_session_id: wire.Field([]const u8) = .absent,
     event: []const u8,
     /// The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.
     last_prompt: wire.Field([]const u8) = .absent,
@@ -11370,7 +11431,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 281;
+pub const command_count: usize = 283;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11430,6 +11491,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "cloud-mux-unsubscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-participant-avatar-get", .authority = "local-admin", .since = 12, .capability = "participant-avatars-v1", .stream = null },
     .{ .name = "cloud-requests-list", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
+    .{ .name = "cloud-selfhost-info", .authority = "local-admin", .since = 12, .capability = "cloud-selfhost-v1", .stream = null },
     .{ .name = "cloud-session-clear", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-set", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-status", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
@@ -11626,6 +11688,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "terminal-clipboard-subscribe", .authority = "frontend", .since = 12, .capability = "terminal-clipboard-read-v1", .stream = "subscribe" },
     .{ .name = "terminal-events", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "terminal-history", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
+    .{ .name = "terminal-ports", .authority = "control", .since = 12, .capability = "terminal-ports-v1", .stream = null },
     .{ .name = "terminal-read-range", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
     .{ .name = "terminal-resources", .authority = "control", .since = 12, .capability = "terminal-resources-v1", .stream = null },
     .{ .name = "terminal-resume-command", .authority = "control", .since = 12, .capability = "resume-command", .stream = null },

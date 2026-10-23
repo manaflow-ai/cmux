@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "618580395ad650b750fb7be122cdc20524f93ba299cc62b7afebb68b22ff6b12";
+inline constexpr std::string_view kProtocolIrSha256 = "655baaa1d0f11bd63754ffcda70267c4b8f07a2d8d415bf0c302c2ccab838a96";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -211,6 +211,8 @@ struct TerminalKeyInput;
 enum class TerminalLifecycle;
 struct TerminalModifiers;
 struct TerminalPlacement;
+struct TerminalPortsListener;
+struct TerminalPortsResult;
 struct TerminalReadRangeResult;
 struct TerminalRecord;
 struct TerminalRegistryEvent;
@@ -292,6 +294,7 @@ struct CloudMuxSubscribeRequest;
 struct CloudMuxUnsubscribeRequest;
 struct CloudParticipantAvatarGetRequest;
 struct CloudRequestsListRequest;
+struct CloudSelfhostInfoRequest;
 struct CloudSessionClearRequest;
 struct CloudSessionSetRequest;
 struct CloudSessionStatusRequest;
@@ -524,6 +527,7 @@ struct TerminalClipboardReplyRequest;
 struct TerminalClipboardSubscribeRequest;
 struct TerminalEventsRequest;
 struct TerminalHistoryRequest;
+struct TerminalPortsRequest;
 struct TerminalReadRangeRequest;
 struct TerminalResourcesRequest;
 struct TerminalResumeCommandRequest;
@@ -743,6 +747,7 @@ enum class AgentState {
 
 struct AgentChangedEvent {
     Field<std::string> agent{};
+    Field<std::string> agent_session_id{};
     Field<std::string> last_prompt{};
     std::optional<std::string> session{};
     std::optional<std::uint64_t> since_ms{};
@@ -791,6 +796,7 @@ struct AgentPresenceChangedEvent {
 
 struct AgentRecord {
     Field<std::string> agent{};
+    Field<std::string> agent_session_id{};
     Field<std::string> last_prompt{};
     std::optional<std::string> session{};
     std::optional<std::uint64_t> since_ms{};
@@ -1831,6 +1837,10 @@ struct CloudRequestsListRequest {
     friend bool operator==(const CloudRequestsListRequest&, const CloudRequestsListRequest&) = default;
 };
 
+struct CloudSelfhostInfoRequest {
+    friend bool operator==(const CloudSelfhostInfoRequest&, const CloudSelfhostInfoRequest&) = default;
+};
+
 struct CloudSessionClearRequest {
     friend bool operator==(const CloudSessionClearRequest&, const CloudSessionClearRequest&) = default;
 };
@@ -1842,10 +1852,11 @@ struct CloudSessionNeededEvent {
 };
 
 struct CloudSessionSetRequest {
-    std::string access_token{};
+    std::optional<std::string> access_token{};
     std::string api_base_url{};
+    Field<std::string> auth{};
     Field<std::string> client_version{};
-    std::uint64_t expires_at{};
+    std::optional<std::uint64_t> expires_at{};
     friend bool operator==(const CloudSessionSetRequest&, const CloudSessionSetRequest&) = default;
 };
 
@@ -5467,6 +5478,26 @@ struct TerminalPlacement {
     friend bool operator==(const TerminalPlacement&, const TerminalPlacement&) = default;
 };
 
+struct TerminalPortsListener {
+    std::string bound{};
+    std::string host{};
+    std::uint16_t port{};
+    std::string url{};
+    friend bool operator==(const TerminalPortsListener&, const TerminalPortsListener&) = default;
+};
+
+struct TerminalPortsRequest {
+    Id surface{};
+    friend bool operator==(const TerminalPortsRequest&, const TerminalPortsRequest&) = default;
+};
+
+struct TerminalPortsResult {
+    std::vector<std::uint16_t> closed{};
+    std::vector<TerminalPortsListener> listeners{};
+    Id surface{};
+    friend bool operator==(const TerminalPortsResult&, const TerminalPortsResult&) = default;
+};
+
 struct TerminalReadRangeRequest {
     Field<std::string> format{};
     RowMarkerPoint from{};
@@ -7062,6 +7093,18 @@ struct Codec<TerminalPlacement> {
 };
 
 template <>
+struct Codec<TerminalPortsListener> {
+    static Result<Json> encode(const TerminalPortsListener& value);
+    static Result<TerminalPortsListener> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalPortsResult> {
+    static Result<Json> encode(const TerminalPortsResult& value);
+    static Result<TerminalPortsResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<TerminalReadRangeResult> {
     static Result<Json> encode(const TerminalReadRangeResult& value);
     static Result<TerminalReadRangeResult> decode(const Json& value);
@@ -7545,6 +7588,12 @@ template <>
 struct Codec<CloudRequestsListRequest> {
     static Result<Json> encode(const CloudRequestsListRequest& value);
     static Result<CloudRequestsListRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudSelfhostInfoRequest> {
+    static Result<Json> encode(const CloudSelfhostInfoRequest& value);
+    static Result<CloudSelfhostInfoRequest> decode(const Json& value);
 };
 
 template <>
@@ -8937,6 +8986,12 @@ template <>
 struct Codec<TerminalHistoryRequest> {
     static Result<Json> encode(const TerminalHistoryRequest& value);
     static Result<TerminalHistoryRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalPortsRequest> {
+    static Result<Json> encode(const TerminalPortsRequest& value);
+    static Result<TerminalPortsRequest> decode(const Json& value);
 };
 
 template <>

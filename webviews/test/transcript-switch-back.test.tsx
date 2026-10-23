@@ -162,7 +162,7 @@ test("back on a chat, a revealed reply's backlog draws at once with no entrance"
     queue = new Map();
     await act(async () => {
       for (const tick of run.values()) tick(clock);
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await new Promise((resolve) => dom.window.requestAnimationFrame(resolve));
     });
   };
   const root = createRoot(dom.window.document.getElementById("root")!);
@@ -203,11 +203,56 @@ test("back on a chat, a code block that closed while it was hidden does not cros
       away: () => render("Here:\n\n```js\nconst a = 1;\n```\n\nDone."),
     });
     // The handoff waits up to a second for the highlighted lines, then hands over.
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 1_200)));
+    const handoff = dom.window.document.querySelector(".cv-code-handoff")!;
+    const deadline = performance.now() + 3_000;
+    while (handoff.classList.contains("is-plain") && performance.now() < deadline)
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(handoff.classList.contains("is-plain")).toBe(false);
     expect(seen.entrances).toEqual([]);
     expect(page.entrances()).toEqual([]);
     expect(dom.window.document.querySelector(".cv-code-handoff.is-fading")).toBeNull();
   } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+// Leo 2026-10-20 ("no layout shifts" on a switch back): the backlog committed after the first
+// frame back had painted (a state update from a frame callback renders in a later task), so that
+// frame showed the reply as it was when the user left and the next one grew it and moved the
+// transcript. The backlog is in the document when the first frame back's tick returns.
+test("back on a chat, a revealed reply's backlog is in the first frame back", async () => {
+  const request = revealFrames.request;
+  const cancel = revealFrames.cancel;
+  let queue = new Map<number, (now: number) => void>();
+  let nextHandle = 0;
+  revealFrames.request = (run) => {
+    queue.set((nextHandle += 1), run);
+    return nextHandle;
+  };
+  revealFrames.cancel = (handle) => void queue.delete(handle);
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const render = (text: string) => root.render(<RevealedMarkdown text={text} streaming />);
+  try {
+    let text = "First paragraph.";
+    await act(async () => render(text));
+    await page.setVisibility("hidden");
+    text += "\n\nWritten while the chat was hidden.";
+    await act(async () => render(text));
+    await page.setVisibility("visible");
+    // The first frame back: its ticks run, then it paints, with no task in between (no act()).
+    const run = queue;
+    queue = new Map();
+    scope.IS_REACT_ACT_ENVIRONMENT = false;
+    try {
+      for (const tick of run.values()) tick(2_000);
+      expect(dom.window.document.body.textContent).toContain("Written while the chat was hidden.");
+    } finally {
+      scope.IS_REACT_ACT_ENVIRONMENT = true;
+    }
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  } finally {
+    revealFrames.request = request;
+    revealFrames.cancel = cancel;
     await act(async () => root.unmount());
   }
 });

@@ -47,6 +47,35 @@ page. No copy of the field, its glass, focus ring, suggestions or keys.
   Copy Path and the chip's help show the `~` form. A `~` field display needs a display hook in
   `BrowserURLDisplay`, owned by the omnibar-parity work (a146); left as a follow-up.
 
+## 2b. Back, Forward, Reload: the Markdown tab navigates like a page
+
+Request (Lawrence, Oct 20): "I want a Markdown viewer OmniBar to be a standard OmniBar that has back,
+forward, and reload as well... like it's just a web page in a sense."
+
+- **One row.** `OmnibarToolbarView(navigation: true)` has the browser toolbar's Back, Forward and
+  Reload (`ChromeIconButton`, the same icons, labels, size, spacing and place as
+  `BrowserChromeView`), at the browser toolbar's height (`withButtons: true`). The owner gives
+  `onBack` / `onForward` / `onReload` and `setNavigation(canGoBack:canGoForward:canReload:)`. The
+  New Tab page and the popup window keep the row without buttons.
+- **One history, in the page.** The page already kept the tab's link history (`MarkdownStore`
+  `navigate` / `go`, scroll per entry). Now a heading anchor (`#usage`) is an entry too (the same
+  anchor again adds none), and every change sends `cmux.markdown.history {canBack, canForward}`;
+  `FilePageHosting.historyChanged` sets the bar's buttons. The page's own ‹ › buttons hide when the
+  native bar is there (config `omnibar: true`).
+- **Buttons and keys are one path.** Back, Forward and Reload send the page commands `back`,
+  `forward` and `reload`, the same ones Cmd-[, Cmd-] and the new Cmd-R action `markdownReload`
+  (`requires: markdownFocused`, as `markdownBack`) send. Reload saves pending edits, reads the file
+  from disk again (`cmux.markdown.open` of the current path), and puts the scroll back; the history
+  stays. A conflict or edits that would not save keep the page as it is. Cmd-L focuses the field.
+- **Typing.** A Markdown path or `file://` URL typed in the field opens in this tab as the next
+  history entry (page command `open`); from the empty state it opens as before (a page load). Another
+  file goes through the file routing (its own tab). An `http(s)` URL or a search opens a cmux browser
+  tab beside the Markdown tab, by the clicked-link rule (`LinkRouter` setting, `LinkOpener`
+  placement): the Markdown tab stays, so Back on the Markdown tab never has to leave the browser. A
+  modified commit (Cmd-Enter and the others) opens a new tab.
+- **Not in this slice.** The browser's long-press Back/Forward menu and the Reload menu, mouse side
+  buttons and swipe on a Markdown tab.
+
 Ownership: a146 owns omnibar parity and a180 owns omnibar mouse-down. This work only constructs
 `OmnibarToolbarView` and calls its public API; it changes no file under `CmuxNextBrowser/UI`.
 

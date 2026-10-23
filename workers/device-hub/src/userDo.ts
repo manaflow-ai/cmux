@@ -579,13 +579,15 @@ export class UserDO extends DurableObject<Env> {
     if (before !== scope) {
       this.audit("permission_changed", { hostId, viewerId, scope, detail: `${before}->${scope}` });
       // Lowering ends the sessions it no longer allows: none ends every session between
-      // the pair, view ends full ones, ask ends view and full ones. Raising ends nothing.
+      // the pair (pending requests too), view ends full ones, ask ends view and full ones.
+      // A pending request above the new permission stays: it already waits for the host.
       if (scope === "none" || rank(scope) < rank(before)) {
         const open = this.sql
           .exec("SELECT * FROM sessions WHERE state != 'ended' AND host_id = ? AND viewer_id = ?", hostId, viewerId)
           .toArray() as unknown as SessionRow[];
         for (const s of open) {
-          if (scope === "none" || rank(s.scope) > rank(scope)) await this.endSession(s, "permission_revoked", "revoked", true);
+          const ends = scope === "none" || (s.state !== "pending" && rank(s.scope) > rank(scope));
+          if (ends) await this.endSession(s, "permission_revoked", "revoked", true);
         }
       }
     }

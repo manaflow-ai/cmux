@@ -13,7 +13,9 @@
 //! - A folder field (`cwd`, `additionalDirectories`) of `session/new`,
 //!   `session/fork`, `session/load`, `session/resume` and `acp.trust.set`
 //!   must be an absolute path to an existing directory; the request goes on
-//!   with the canonical path (symlinks resolved, no `..`).
+//!   with the canonical path (symlinks resolved, no `..`). An `acp.trust.set`
+//!   for a peer's session names the peer's folder: it goes on to that peer
+//!   unchanged, and the peer's own guard checks the folder there.
 //! - A session method acpmux does not handle itself is not passed to the
 //!   harness (`requests.rs` catch-all), so no harness extension method can
 //!   take caller params that spawn or read. LocalApp may pass
@@ -41,12 +43,23 @@
 //! - Web and Peer: no `_acpmux/btw` (`btw.remote`). A side session is a new
 //!   session on this machine, in the chat's harness and folder, with a policy
 //!   that approves reads: the app and the unix socket only.
-//! - Web and LocalApp: no `_acpmux/peer_add` or `_acpmux/peer_remove` (they
-//!   change which machines this daemon reaches with the user's ssh keys and
-//!   tokens); `peer_reconnect` only retries a configured peer.
+//! - Web and LocalApp: no `_acpmux/peer_add`, `_acpmux/peer_remove` or
+//!   `_acpmux/peer_lease` (they change which machines this daemon reaches
+//!   with the user's ssh keys and tokens); `peer_reconnect` only retries a
+//!   configured peer.
+//! - Web only: no `_acpmux/file_put` (`filePut.remote`). It writes a file
+//!   of the caller's bytes on this machine (under acpmux's own `uploads`
+//!   folder, never a path of the caller's), for a file the person dropped
+//!   into a chat in the app: the unix socket, the app (LocalApp) and a peer
+//!   forwarding for either take it; a peer forwarding for its own Web client
+//!   does not. The app sends it over the unix socket after the person's
+//!   gesture, but a LocalApp page could send it itself with no gesture: that
+//!   is accepted, since the page can already prompt the agent, and it writes
+//!   at most `MAX_BYTES` owner-only into a fresh folder under `uploads`.
 //!
 //! The unix socket keeps today's behavior.
 
+use crate::no_panic::JsonExt;
 use crate::rpc::{RpcError, method};
 use serde_json::Value;
 use std::path::Path;
@@ -127,6 +140,12 @@ pub(super) async fn check(
         return Err(super::conn_auth::refused());
     }
     let web = origin.web_class();
+    // Taking over a watched conversation starts its harness on this machine (`hub/watch.rs`):
+    // only a local client does that.
+    if web && m == method::MUX_WATCH_TAKE_OVER {
+        return Err(RpcError::new(-32602, "a watched chat is taken over only on this machine")
+            .with_data(serde_json::json!({"reason": "watch.origin_refused"})));
+    }
     if m == method::SESSION_CANCEL && web {
         check_cancel_ownership(hub, params)?;
     }
@@ -150,6 +169,7 @@ pub(super) async fn check(
         .with_data(serde_json::json!({"reason": "route.origin_refused"})));
     }
     // So is a prompt's provenance (prompt_provenance.rs): no remote text passes as an agent's.
+    // Nor does the app pane's: its reply in place is no prompt (`app_reply.rs`).
     if m == method::SESSION_PROMPT
         && crate::prompt_provenance::present(params.pointer("/_meta/acpmux"))
     {
@@ -159,9 +179,15 @@ pub(super) async fn check(
     if m == method::MUX_PROMPT_WITHDRAW {
         return Err(crate::prompt_provenance::withdraw_origin_refused());
     }
+    // A paused agent pair is the person's to resume, on this machine (`hub/agent_pairs.rs`).
+    if m == method::MUX_AGENT_PAIR_RESUME && origin.web_class() {
+        return Err(RpcError::invalid_params(
+            "resuming agent pairs is accepted only from this machine's app or unix socket",
+        ));
+    }
     // Which machines this daemon reaches with the user's ssh keys and
     // tokens changes over the unix socket only (LocalApp included).
-    if matches!(m, "_acpmux/peer_add" | "_acpmux/peer_remove") {
+    if matches!(m, "_acpmux/peer_add" | "_acpmux/peer_remove" | "_acpmux/peer_lease") {
         return Err(refused("changing peers"));
     }
     // The native relay reads the guard's own table and lists over the unix
@@ -217,14 +243,25 @@ pub(super) async fn check(
             .with_data(serde_json::json!({"reason": "remote.adopt_refused"})));
         }
     }
-    let folders = matches!(
-        m,
-        method::SESSION_NEW
-            | method::SESSION_FORK
-            | method::SESSION_LOAD
-            | method::SESSION_RESUME
-            | method::ACP_TRUST_SET
-    );
+    // The pane's Trust for a chat on a peer names a folder on that peer, which this machine
+    // may not have: the set is forwarded whole (`peer_forward.rs`), and the peer, which serves
+    // it as Peer, checks the folder on its own disk. Only its spelling is checked here.
+    let peers_folder = m == method::ACP_TRUST_SET && names_a_peers_session(hub, params);
+    if peers_folder
+        && let Some(cwd) = params.get("cwd").filter(|v| !v.is_null())
+        && !cwd.as_str().is_some_and(|c| Path::new(c).is_absolute())
+    {
+        return Err(folder_refused("cwd"));
+    }
+    let folders = !peers_folder
+        && matches!(
+            m,
+            method::SESSION_NEW
+                | method::SESSION_FORK
+                | method::SESSION_LOAD
+                | method::SESSION_RESUME
+                | method::ACP_TRUST_SET
+        );
     if folders {
         // A Web folder must also sit inside a root (`web_roots`); LocalApp
         // keeps the native relay's pane roots (no daemon root check).
@@ -238,7 +275,7 @@ pub(super) async fn check(
             if !inside(&canonical) {
                 return Err(outside_roots("cwd"));
             }
-            params["cwd"] = Value::String(canonical);
+            params.set("cwd", Value::String(canonical));
         } else if web && m == method::SESSION_NEW {
             // An absent cwd means the home directory, which is never a root.
             return Err(outside_roots("cwd"));
@@ -256,7 +293,7 @@ pub(super) async fn check(
                 }
                 out.push(Value::String(c));
             }
-            params["additionalDirectories"] = Value::Array(out);
+            params.set("additionalDirectories", Value::Array(out));
         }
     }
     // The folder-trust question is the user's: a remote browser cannot answer
@@ -276,9 +313,45 @@ pub(super) async fn check(
         )
         .with_data(serde_json::json!({"reason": "tools.remote"})));
     }
+    // A dropped file is saved from the app or the unix socket only (`hub/file_uploads.rs`).
+    if m == method::MUX_FILE_PUT && control_of(origin, auth, params) == crate::hub::Control::Web {
+        return Err(RpcError::invalid_params(
+            "filePut.remote: a file is saved for a chat only from the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "filePut.remote"})));
+    }
     // After the folder checks: what the request starts from, and its mode.
     if web {
         web_starts_asking(hub, control_of(origin, auth, params), m, params).await?;
+    }
+    Ok(())
+}
+
+/// Whether the request's session lives on a peer: what `peer_forward::forward` forwards an
+/// `acp.trust.*` request on. A session this daemon holds, an unknown key or none is not one.
+fn names_a_peers_session(hub: &crate::hub::Hub, params: &Value) -> bool {
+    super::session_key(params)
+        .is_ok_and(|key| hub.resolve(key).is_err() && hub.resolve_remote(key).is_some())
+}
+
+/// The folder an `acp.trust.set` from a connection that is not the unix socket records on this
+/// daemon: one `check` made canonical (inside a root for a Web or Peer connection), or none.
+/// `check` passes a peer's folder on unchecked for the peer to judge; if that peer's session is
+/// gone before the forward, the set lands here and is refused rather than recorded unchecked.
+pub(super) async fn local_trust_folder(
+    hub: &std::sync::Arc<crate::hub::Hub>,
+    origin: super::Origin,
+    params: &Value,
+) -> Result<(), RpcError> {
+    let Some(cwd) = params.get("cwd").filter(|v| !v.is_null()) else { return Ok(()) };
+    let cwd = cwd.as_str().ok_or_else(|| folder_refused("cwd"))?;
+    if canonical_dir(cwd).await.as_deref() != Some(cwd) {
+        return Err(folder_refused("cwd"));
+    }
+    if origin.web_class()
+        && !web_roots(hub).await.iter().any(|root| Path::new(cwd).starts_with(root))
+    {
+        return Err(outside_roots("cwd"));
     }
     Ok(())
 }
@@ -368,7 +441,10 @@ pub(super) async fn settle_web_session_mode(
         if asks(&s.meta()) {
             return Ok(());
         }
-        let start = crate::web_modes::BRIDGE_ASKING_MODES[0];
+        let Some(&start) = crate::web_modes::BRIDGE_ASKING_MODES.first() else {
+            let _ = hub.kill(s, true).await;
+            return Err(no_reviewed_asking_mode());
+        };
         if hub.set_mode(s, start).await.is_err() || !asks(&s.meta()) {
             let _ = hub.kill(s, true).await;
             return Err(no_reviewed_asking_mode());
@@ -516,7 +592,10 @@ async fn web_starts_asking(
         && params.get("policy").is_none_or(Value::is_null)
         && params.pointer("/_meta/acpmux/policy").is_none_or(Value::is_null)
     {
-        params["policy"] = Value::String("ask".into());
+        // Fail closed: params that are not an object cannot carry the forced policy.
+        if !params.set("policy", Value::String("ask".into())) {
+            return Err(RpcError::invalid_params("session/new params must be an object"));
+        }
     }
     let copies = matches!(
         m,

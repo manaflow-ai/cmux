@@ -64,7 +64,8 @@ public struct BrowserSourceDetector: Sendable {
                     bookmarksFile = sidebar
                 }
                 return BrowserSourceProfile(browser: browser, directoryName: entry.directoryName, displayName: entry.displayName,
-                                            path: path, availability: availability, avatar: avatar, bookmarksFile: bookmarksFile)
+                                            path: path, availability: availability, avatar: avatar, color: entry.color,
+                                            bookmarksFile: bookmarksFile)
             }
             return profiles.isEmpty ? nil : BrowserSource(browser: browser, appURL: appURL, profiles: profiles)
         case .firefox:
@@ -129,6 +130,7 @@ public struct BrowserSourceDetector: Sendable {
             .history: present(files?.history ?? "History") ? .available : .absent,
             .openTabs: hasSession ? .available : .absent,
             .extensions: present("Extensions") ? .available : .absent,
+            .searchEngines: present("Preferences") ? .available : .absent,
             // Read only after the consent step (PasswordImporter).
             .passwords: !present(files?.passwords ?? "Login Data") ? .absent : browser.readsSavedPasswords ? .available : .unsupported(.exportFromSource),
             .cookies: chromiumCookieFile(profile) != nil ? .available : .absent,
@@ -151,6 +153,7 @@ public struct BrowserSourceDetector: Sendable {
             .history: session(places),
             .openTabs: session(FirefoxSessionReader().sessionFile(in: profile) != nil ? .available : .absent),
             .extensions: present("extensions.json") ? .unsupported(.notChromeExtensions) : .absent,
+            .searchEngines: present("search.json.mozlz4") ? .available : .absent,
             // Firefox keeps passwords in logins.json, sealed with the NSS key store key4.db.
             .passwords: session(firefoxPasswords(profile, present: present("logins.json"))),
             .cookies: session(present("cookies.sqlite") ? .available : .absent),
@@ -183,6 +186,8 @@ public struct BrowserSourceDetector: Sendable {
             .history: state(directory.appending(path: "History.db")),
             .cookies: cookies.map(state) ?? .absent,
             .passwords: .unsupported(.exportFromSource),
+            // A Mac setting (NSPreferredWebServices), not a file in Safari's folder.
+            .searchEngines: SafariSearchEngineReader().read() != nil ? .available : .absent,
         ]
         #endif
     }

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 618580395ad650b750fb7be122cdc20524f93ba299cc62b7afebb68b22ff6b12.
+// cmux-tui mux protocol 12, IR 655baaa1d0f11bd63754ffcda70267c4b8f07a2d8d415bf0c302c2ccab838a96.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -61,6 +61,9 @@ pub struct AgentRecord {
     /// Adapter identity (\`claude\`, \`codex\`, ...) when a hook claimed the terminal; null for socket-only reports.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub agent: Optional<String>,
+    /// The harness's own session id that the agent's hooks reported (\`claude\`, \`codex\` session ids), checked to \`[A-Za-z0-9._:-]\` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep \`session\` for a human label, so clients find a terminal's agent session by this.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub agent_session_id: Optional<String>,
     /// The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub last_prompt: Optional<String>,
@@ -2599,6 +2602,27 @@ pub struct TerminalPlacement {
     pub terminal_resource_id: Option<String>,
     pub terminal_revision: u64,
     pub workspace: Nullable<Id>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalPortsListener {
+    /// The loopback address that accepted the daemon's connect: 127.0.0.1 or ::1.
+    pub bound: String,
+    /// The host as the terminal printed it: localhost, 127.0.0.1, 0.0.0.0, [::1], ...
+    pub host: String,
+    pub port: u16,
+    /// The printed URL, or http://HOST:PORT/ when the text had no scheme.
+    pub url: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalPortsResult {
+    /// Ports the text names that refused the connect.
+    pub closed: Vec<u16>,
+    pub listeners: Vec<TerminalPortsListener>,
+    pub surface: Id,
 }
 
 #[rustfmt::skip]

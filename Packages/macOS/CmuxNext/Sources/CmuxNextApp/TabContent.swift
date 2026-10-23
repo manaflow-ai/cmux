@@ -67,7 +67,7 @@ enum TabContent {
         switch self {
         case .terminal(let entry): entry.session.surfaceView
         case .browser(let entry): entry.tab.contentView
-        case .agent(let view): view.webView
+        case .agent(let view): view.focusTarget
         case .page(let view): view.focusTarget
         case .placeholder(let view): view
         case .notice(let view): view

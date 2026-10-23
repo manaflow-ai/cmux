@@ -26,5 +26,5 @@ extension SettingsPresentation {
         help: "Debug Settings opens as a tab in the focused pane or as a separate window.",
         default: .pane, code: "SettingsPresentation.tunable")
 
-    public static var tunables: [TunableDescriptor] { [tunable.descriptor] }
+    public static var tunables: [TunableDescriptor] { [tunable.descriptor, SettingsDiagnosticToastStyle.tunable.descriptor] }
 }

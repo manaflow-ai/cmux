@@ -368,7 +368,7 @@ try {
   // echo-fed seed shells and test -s guards; see ../services/vms/images/devbox/Dockerfile).
   // Cache seeds cover root and the work user (uid 1000).
   await step("cmux-etc", "mkdir -p /etc/cmux /etc/skel");
-  await step("vm-kind-default", "printf 'team\\n' > /etc/cmux/vm-kind && chmod 0644 /etc/cmux/vm-kind");
+  await step("vm-kind-default", "echo team > /etc/cmux/vm-kind && chmod 0644 /etc/cmux/vm-kind");
   await put("cmux-bashrc", "/etc/cmux/bashrc");
   await put("cmux-prompt.bash", "/etc/cmux/prompt.bash");
   await step("python-completion-dir", "mkdir -p /usr/local/share/bash-completion/completions");

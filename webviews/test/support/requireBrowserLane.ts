@@ -31,7 +31,10 @@ async function unlaunchableEngines(): Promise<string[]> {
  * On GitHub Actions an engine that cannot launch fails the file before it registers anything. The
  * suites skip themselves when their engine is missing, which is right on a laptop but let
  * react-apps-check report them as passing while it ran none of them. Fleet cmux-ci steps run the
- * same files without installing engines, so they keep the skip.
+ * same files without installing engines, so they keep the skip: the worker sets CI=true on every
+ * step (with CMUX_CI_STEP_KEY), and only a step with CMUX_BROWSER_TESTS=1 installs the engines
+ * (scripts/ci/run-webviews-tests.sh). Without that skip every fleet webviews step failed each
+ * browser file on "Executable doesn't exist" (2026-10-21, all workers).
  */
 export async function requireBrowserLane(
   name: string,
@@ -45,6 +48,11 @@ export async function requireBrowserLane(
 ): Promise<void> {
   if (env.CI !== "true" && env.CMUX_BROWSER_TESTS !== "1") {
     report("browser test skipped: runs only in CI or on a Freestyle VM (set CMUX_BROWSER_TESTS=1 there)");
+    skip(name);
+    return;
+  }
+  if (env.CMUX_CI_STEP_KEY && env.CMUX_BROWSER_TESTS !== "1") {
+    report("browser test skipped: a fleet step installs the engines only with CMUX_BROWSER_TESTS=1");
     skip(name);
     return;
   }

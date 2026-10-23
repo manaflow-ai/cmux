@@ -1,7 +1,7 @@
+import AppKit
 import CmuxNextDesign
 import CmuxNextDevices
 import Foundation
-import SwiftUI
 
 /// What the home page reads of the device hub: the hub (while signed in),
 /// this Mac as a host, and whether the build has a hub at all.
@@ -16,33 +16,82 @@ public struct MacScreenHomeDevices {
     }
 }
 
-/// The home page's device hub sections: Your Devices (the user's other
-/// devices that share Mac Screen, online state and this Mac's access to
-/// each, Connect with View Only or Full Control, Change Access) and Allow
-/// Mac Screen on This Mac (the switch, its permissions and who is
-/// connected).
-struct MacScreenHomeDeviceSections: View {
-    let devices: MacScreenHomeDevices
-    let host: MacScreenShareHost
-    let actions: MacScreenHomeActions
-    @Environment(\.macScreenColors) private var colors
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 28) {
-            yourDevices
-            if let hub = devices.box.hub, hub.thisDevice != nil { sharing(hub) }
-        }
+/// What the home page shows, as values: the page builds its rows from this
+/// and again only when it changes (the snapshot boundary: rows never hold
+/// the hub or the host).
+struct MacScreenHomeSnapshot: Equatable {
+    /// One of the user's devices that shares Mac Screen.
+    struct Device: Equatable {
+        var id: String
+        var name: String
+        var isPhone: Bool
+        var online: Bool
+        /// This Mac's access to it.
+        var access: MacScreenAccess
     }
 
-    // MARK: Your Devices
+    /// Your Devices: a note (signed out, loading, none shared) or the list.
+    enum Devices: Equatable {
+        case note(String)
+        case list([Device])
+    }
 
-    private var yourDevices: some View {
-        MacScreenSection(title: L.t("macScreen.home.yourDevices", "Your Devices")) {
-            if let hub = devices.box.hub {
-                deviceList(hub)
+    /// Allow Mac Screen on This Mac.
+    struct Sharing: Equatable {
+        var isSharing: Bool
+        var busy: Bool
+        var screenRecordingGranted: Bool
+        var accessibilityGranted: Bool
+        var session: MacScreenHubHost.Session?
+        var lastError: String?
+    }
+
+    struct Keyboard: Equatable {
+        var enabled: Bool
+        var needsAccessibility: Bool
+    }
+
+    var devices: Devices?
+    var sharing: Sharing?
+    var keyboard: Keyboard?
+    /// The type scale the rows were built at (`MacScreenType.sizes`).
+    var typeSizes = MacScreenType.sizes
+
+    /// The hosts listed, whose permission lists the page reads.
+    var deviceIDs: [String] {
+        guard case let .list(devices) = devices else { return [] }
+        return devices.map(\.id)
+    }
+
+    /// Reads `home`'s models (under Observation, so a change of any value read here redraws the page).
+    @MainActor
+    init(home: MacScreenHomeView) {
+        if let source = home.devices {
+            if let hub = source.box.hub {
+                let shared = hub.otherDevices.filter(\.macScreenShared)
+                if shared.isEmpty {
+                    devices = .note(hub.status == .ready || hub.status == .idle
+                        ? L.t("macScreen.home.noSharedDevices", "None of your other devices share Mac Screen. On the Mac you want to see, turn on Allow Mac Screen on this Mac.")
+                        : L.t("macScreen.home.devicesLoading", "Loading your devices…"))
+                } else {
+                    devices = .list(shared.map { device in
+                        Device(id: device.id, name: device.name, isPhone: device.platform == .ios, online: device.online,
+                               access: MacScreenAccess(hub.scope(host: device.id, viewer: hub.identity.id)))
+                    })
+                }
+                if hub.thisDevice != nil {
+                    let hubHost = source.hubHost
+                    sharing = Sharing(isSharing: hubHost.isSharing, busy: hubHost.busy,
+                                      screenRecordingGranted: home.host.screenRecordingGranted,
+                                      accessibilityGranted: home.host.accessibilityGranted,
+                                      session: hubHost.session, lastError: hubHost.lastError)
+                }
             } else {
-                note(Self.setupNote(configured: devices.box.configured))
+                devices = .note(Self.setupNote(configured: source.box.configured))
             }
+        }
+        if let shortcuts = home.systemShortcuts {
+            keyboard = Keyboard(enabled: shortcuts.enabled, needsAccessibility: shortcuts.needsAccessibility)
         }
     }
 
@@ -55,211 +104,187 @@ struct MacScreenHomeDeviceSections: View {
         }
         return L.t("macScreen.home.devicesSignIn", "Sign in to cmux to see your other Macs here.")
     }
+}
 
-    @ViewBuilder
-    private func deviceList(_ hub: DeviceHub) -> some View {
-        let shared = hub.otherDevices.filter(\.macScreenShared)
-        if shared.isEmpty {
-            note(hub.status == .ready || hub.status == .idle
-                 ? L.t("macScreen.home.noSharedDevices", "None of your other devices share Mac Screen. On the Mac you want to see, turn on Allow Mac Screen on this Mac.")
-                 : L.t("macScreen.home.devicesLoading", "Loading your devices…"))
-        } else {
-            VStack(spacing: 0) {
-                ForEach(shared) { device in
-                    deviceRow(device, hub: hub)
-                    if device.id != shared.last?.id, colors.borders { colors.separator.frame(height: 1).padding(.leading, 50) }
+/// The home page's device hub sections: Your Devices (the user's other
+/// devices that share Mac Screen, online state and this Mac's access to
+/// each, Connect with View Only or Full Control, Change Access) and Allow
+/// Mac Screen on This Mac (the switch, its permissions and who is
+/// connected).
+extension MacScreenHomeView {
+    // MARK: Your Devices
+
+    func yourDevices(_ devices: MacScreenHomeSnapshot.Devices) -> NSView {
+        let content: NSView
+        switch devices {
+        case let .note(text):
+            content = MacScreenHomeParts.note(text)
+        case let .list(list):
+            let rows = MacScreenStack.make(.vertical, spacing: 0, alignment: .leading)
+            for device in list {
+                MacScreenStack.addFullWidth(deviceRow(device), to: rows)
+                if device.id != list.last?.id, colors.borders {
+                    let line = MacScreenFill(\.separator)
+                    line.heightAnchor.constraint(equalToConstant: 1).isActive = true
+                    let inset = NSView()
+                    inset.translatesAutoresizingMaskIntoConstraints = false
+                    inset.addSubview(line)
+                    NSLayoutConstraint.activate([
+                        line.leadingAnchor.constraint(equalTo: inset.leadingAnchor, constant: 50),
+                        line.trailingAnchor.constraint(equalTo: inset.trailingAnchor),
+                        line.topAnchor.constraint(equalTo: inset.topAnchor),
+                        line.bottomAnchor.constraint(equalTo: inset.bottomAnchor),
+                    ])
+                    MacScreenStack.addFullWidth(inset, to: rows)
                 }
             }
-            // This Mac's access to each host is that host's permission list: read it for the hosts shown.
-            .task(id: shared.map(\.id)) {
-                for device in shared { await hub.refreshPermissions(host: device.id) }
-            }
+            content = rows
         }
+        return MacScreenHomeParts.section(L.t("macScreen.home.yourDevices", "Your Devices"), content: content)
     }
 
-    private func deviceRow(_ device: HubDevice, hub: DeviceHub) -> some View {
-        let access = hub.scope(host: device.id, viewer: hub.identity.id)
-        return HStack(spacing: 12) {
-            Image(systemName: device.platform == .ios ? "iphone" : "desktopcomputer")
-                .font(MacScreenType.glyph).foregroundStyle(colors.secondary).frame(width: 26)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(device.name).font(MacScreenType.emphasized)
-                HStack(spacing: 6) {
-                    Circle().fill(device.online ? colors.success : colors.tertiary).frame(width: 7, height: 7)
-                    Text(device.online ? L.t("macScreen.home.online", "Online") : L.t("macScreen.home.offline", "Offline"))
-                    Text("·")
-                    Text(String(format: L.t("macScreen.home.access", "Your access: %@"), MacScreenAccess(access).title))
-                }
-                .font(MacScreenType.caption).foregroundStyle(colors.secondary)
-            }
-            Spacer()
-            if !MacScreenAccess(access).allowsRequests {
-                // None: the host blocked this Mac, and the hub refuses a request without a prompt.
-                Text(String(format: L.t("macScreen.home.blocked", "%1$@ doesn’t allow this Mac. Change it on %2$@ in Settings › Devices."),
-                            device.name, device.name))
-                    .font(MacScreenType.caption).foregroundStyle(colors.secondary)
-                    .multilineTextAlignment(.trailing).frame(maxWidth: 260, alignment: .trailing)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("macScreen.home.blocked.\(device.name)")
-            } else {
-                Button(L.t("macScreen.hub.view", "View Only")) { actions.openDevice(device.id, .view) }
-                    .buttonStyle(MacScreenButtonStyle())
-                    .accessibilityIdentifier("macScreen.home.view.\(device.name)")
-                Button(L.t("macScreen.hub.control", "Full Control")) { actions.openDevice(device.id, .full) }
-                    .buttonStyle(MacScreenButtonStyle(role: .primary))
-                    .accessibilityIdentifier("macScreen.home.control.\(device.name)")
-                Menu {
-                    Button(L.t("macScreen.home.openViewNewTab", "View Only in New Tab")) { actions.openDeviceInNewTab(device.id, .view) }
-                    Button(L.t("macScreen.home.openControlNewTab", "Full Control in New Tab")) { actions.openDeviceInNewTab(device.id, .full) }
-                    Divider()
-                    // Only the host sets access to itself: from here this Mac asks, and the
-                    // host's prompt offers Always Allow.
-                    Menu(L.t("macScreen.home.requestAccess", "Ask for Access")) {
-                        Button(L.t("macScreen.hub.view", "View Only")) { actions.openDevice(device.id, .view) }
-                        Button(L.t("macScreen.hub.control", "Full Control")) { actions.openDevice(device.id, .full) }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .macScreenMenu(colors.secondary)
-                .accessibilityIdentifier("macScreen.home.more.\(device.name)")
-            }
+    private func deviceRow(_ device: MacScreenHomeSnapshot.Device) -> NSView {
+        let glyph = MacScreenGlyph(device.isPhone ? "iphone" : "desktopcomputer", font: MacScreenType.glyph, width: 26)
+        let status = MacScreenStack.make(.horizontal, spacing: 6, alignment: .centerY, [
+            MacScreenFill.dot(device.online ? \.success : \.tertiary, side: 7),
+            MacScreenText(device.online ? L.t("macScreen.home.online", "Online") : L.t("macScreen.home.offline", "Offline"),
+                          font: MacScreenType.caption, ink: \.secondary),
+            MacScreenText("·", font: MacScreenType.caption, ink: \.secondary),
+            MacScreenText(String(format: L.t("macScreen.home.access", "Your access: %@"), device.access.title),
+                          font: MacScreenType.caption, ink: \.secondary),
+        ])
+        let name = MacScreenText(device.name, font: MacScreenType.emphasized)
+        name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let labels = MacScreenStack.make(.vertical, spacing: 2, alignment: .leading, [name, status])
+        labels.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        var views: [NSView] = [glyph, labels, MacScreenSpacer()]
+        if !device.access.allowsRequests {
+            // None: the host blocked this Mac, and the hub refuses a request without a prompt.
+            let blocked = MacScreenText(String(format: L.t("macScreen.home.blocked", "%1$@ doesn’t allow this Mac. Change it on %2$@ in Settings › Devices."),
+                                               device.name, device.name),
+                                        font: MacScreenType.caption, ink: \.secondary, wraps: true, alignment: .right, width: 260)
+            blocked.widthAnchor.constraint(lessThanOrEqualToConstant: 260).isActive = true
+            blocked.setAccessibilityIdentifier("macScreen.home.blocked.\(device.name)")
+            views.append(blocked)
+        } else {
+            let id = device.id
+            views.append(MacScreenButton(L.t("macScreen.hub.view", "View Only"), id: "macScreen.home.view.\(device.name)") { [weak self] in
+                self?.actions.openDevice(id, .view)
+            })
+            views.append(MacScreenButton(L.t("macScreen.hub.control", "Full Control"), role: .primary, id: "macScreen.home.control.\(device.name)") { [weak self] in
+                self?.actions.openDevice(id, .full)
+            })
+            let more = MacScreenMenuButton(symbol: "ellipsis.circle", accessibilityTitle: nil, id: "macScreen.home.more.\(device.name)")
+            more.makeMenu = { [weak self] in self?.moreMenu(id) ?? NSMenu() }
+            views.append(more)
         }
-        .padding(.horizontal, 14).padding(.vertical, 10)
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2) { if MacScreenAccess(access).allowsRequests { actions.openDevice(device.id, nil) } }
+        let stack = MacScreenStack.make(.horizontal, spacing: 12, alignment: .centerY, views,
+                                        insets: NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14))
+        let row = MacScreenRowView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: row.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: row.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: row.bottomAnchor),
+            // The name and status lines keep the row's 10-point padding above and below them, as the
+            // SwiftUI row's did: a centered stack alone sizes the row to its buttons and lets the
+            // two lines run into the padding (a row 4 points shorter than before the port).
+            labels.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: 10),
+            labels.bottomAnchor.constraint(lessThanOrEqualTo: row.bottomAnchor, constant: -10),
+        ])
+        if device.access.allowsRequests {
+            let id = device.id
+            row.onDoubleClick = { [weak self] in self?.actions.openDevice(id, nil) }
+        }
+        return row
+    }
+
+    /// The row's More menu: open in a new tab, or ask the host for access.
+    private func moreMenu(_ id: String) -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        menu.addItem(NSMenuItem.macScreen(L.t("macScreen.home.openViewNewTab", "View Only in New Tab")) { [weak self] in
+            self?.actions.openDeviceInNewTab(id, .view)
+        })
+        menu.addItem(NSMenuItem.macScreen(L.t("macScreen.home.openControlNewTab", "Full Control in New Tab")) { [weak self] in
+            self?.actions.openDeviceInNewTab(id, .full)
+        })
+        menu.addItem(.separator())
+        // Only the host sets access to itself: from here this Mac asks, and the
+        // host's prompt offers Always Allow.
+        let ask = NSMenu()
+        ask.autoenablesItems = false
+        ask.addItem(NSMenuItem.macScreen(L.t("macScreen.hub.view", "View Only")) { [weak self] in self?.actions.openDevice(id, .view) })
+        ask.addItem(NSMenuItem.macScreen(L.t("macScreen.hub.control", "Full Control")) { [weak self] in self?.actions.openDevice(id, .full) })
+        let request = NSMenuItem(title: L.t("macScreen.home.requestAccess", "Ask for Access"), action: nil, keyEquivalent: "")
+        request.submenu = ask
+        menu.addItem(request)
+        return menu
     }
 
     // MARK: Allow Mac Screen on This Mac
 
-    private func sharing(_ hub: DeviceHub) -> some View {
-        let hubHost = devices.hubHost
-        return MacScreenSection(title: L.t("macScreen.home.allowTitle", "Allow Mac Screen on This Mac")) {
-            VStack(alignment: .leading, spacing: 12) {
-                Toggle(isOn: Binding(get: { hubHost.isSharing }, set: { on in
-                    // task-owner: one sharing write; the switch follows the hub's record
-                    Task { try? await hubHost.setSharing(on) }
-                })) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(L.t("macScreen.home.allowToggle", "Allow Mac Screen on this Mac"))
-                        Text(L.t("macScreen.home.allowDetail", "Your other devices signed in to this cmux account can ask to see or control this Mac. You approve each device, or choose its access in Settings › Devices."))
-                            .font(MacScreenType.caption).foregroundStyle(colors.secondary).fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .toggleStyle(.switch)
-                .tint(colors.focus)
-                .disabled(hubHost.busy)
-                .accessibilityIdentifier("macScreen.home.allowToggle")
-                if hubHost.isSharing {
-                    MacScreenDivider()
-                    MacScreenPermissionRow(title: L.t("macScreen.home.screenRecording", "Screen Recording"),
-                                           detail: L.t("macScreen.home.screenRecordingDetail", "Lets cmux send this screen. macOS may ask you to quit and reopen cmux."),
-                                           granted: host.screenRecordingGranted) { host.openSettings(screenRecording: true) }
-                    MacScreenPermissionRow(title: L.t("macScreen.home.accessibility", "Accessibility"),
-                                           detail: L.t("macScreen.home.accessibilityDetail", "Lets the other Mac click and type here. Without it, it can only watch."),
-                                           granted: host.accessibilityGranted) { host.openSettings(screenRecording: false) }
-                    MacScreenDivider()
-                    sessionRow(hubHost)
-                }
-                if let error = hubHost.lastError {
-                    Label(error, systemImage: "exclamationmark.circle.fill").foregroundStyle(colors.danger).font(MacScreenType.caption)
-                }
-            }
-            .padding(14)
+    func sharingSection(_ sharing: MacScreenHomeSnapshot.Sharing) -> NSView {
+        let content = MacScreenHomeParts.cardColumn()
+        let hubHost = devices?.hubHost
+        let toggle = MacScreenHomeParts.switchRow(
+            title: L.t("macScreen.home.allowToggle", "Allow Mac Screen on this Mac"),
+            detail: L.t("macScreen.home.allowDetail", "Your other devices signed in to this cmux account can ask to see or control this Mac. You approve each device, or choose its access in Settings › Devices."),
+            isOn: sharing.isSharing, enabled: !sharing.busy, id: "macScreen.home.allowToggle"
+        ) { [weak self] on in
+            // task-owner: one sharing write; the switch follows the hub's record
+            Task { try? await hubHost?.setSharing(on) }
+            // The switch shows the hub's record: back to it if the write does not change it.
+            self?.syncSwitchesSoon()
         }
-        .onAppear { host.refreshPermissions() }
+        MacScreenStack.addFullWidth(toggle, to: content)
+        if sharing.isSharing {
+            MacScreenStack.addFullWidth(MacScreenFill.divider(), to: content)
+            MacScreenStack.addFullWidth(MacScreenHomeParts.permissionRow(
+                title: L.t("macScreen.home.screenRecording", "Screen Recording"),
+                detail: L.t("macScreen.home.screenRecordingDetail", "Lets cmux send this screen. macOS may ask you to quit and reopen cmux."),
+                granted: sharing.screenRecordingGranted
+            ) { [weak self] in self?.host.openSettings(screenRecording: true) }, to: content)
+            MacScreenStack.addFullWidth(MacScreenHomeParts.permissionRow(
+                title: L.t("macScreen.home.accessibility", "Accessibility"),
+                detail: L.t("macScreen.home.accessibilityDetail", "Lets the other Mac click and type here. Without it, it can only watch."),
+                granted: sharing.accessibilityGranted
+            ) { [weak self] in self?.host.openSettings(screenRecording: false) }, to: content)
+            MacScreenStack.addFullWidth(MacScreenFill.divider(), to: content)
+            MacScreenStack.addFullWidth(sessionRow(sharing.session), to: content)
+        }
+        if let error = sharing.lastError {
+            let row = MacScreenStack.make(.horizontal, spacing: 6, alignment: .firstBaseline, [
+                MacScreenGlyph("exclamationmark.circle.fill", font: MacScreenType.caption, ink: \.danger),
+                MacScreenText(error, font: MacScreenType.caption, ink: \.danger, wraps: true),
+            ])
+            MacScreenStack.addFullWidth(row, to: content)
+        }
+        return MacScreenHomeParts.section(L.t("macScreen.home.allowTitle", "Allow Mac Screen on This Mac"), content: content)
     }
 
-    private func sessionRow(_ hubHost: MacScreenHubHost) -> some View {
-        HStack(spacing: 8) {
-            Circle().fill(hubHost.session?.connected == true ? colors.accent : colors.success).frame(width: 8, height: 8)
-            Text(sessionText(hubHost)).accessibilityIdentifier("macScreen.home.hubStatus")
-            Spacer()
-            if hubHost.session != nil {
-                Button(L.t("macScreen.indicator.revoke", "Revoke This Device")) { hubHost.revokeViewer() }
-                    .buttonStyle(MacScreenButtonStyle(compact: true))
-                Button(L.t("macScreen.indicator.stop", "Stop Sharing This Mac")) { hubHost.stopSession() }
-                    .buttonStyle(MacScreenButtonStyle(role: .destructive, compact: true))
-            }
+    private func sessionRow(_ session: MacScreenHubHost.Session?) -> NSView {
+        let status = MacScreenText(Self.sessionText(session), font: MacScreenType.body)
+        status.setAccessibilityIdentifier("macScreen.home.hubStatus")
+        status.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        var views: [NSView] = [MacScreenFill.dot(session?.connected == true ? \.litGlyph : \.success, side: 8), status, MacScreenSpacer()]
+        if session != nil {
+            let hubHost = devices?.hubHost
+            views.append(MacScreenButton(L.t("macScreen.indicator.revoke", "Revoke This Device"), compact: true) { hubHost?.revokeViewer() })
+            views.append(MacScreenButton(L.t("macScreen.indicator.stop", "Stop Sharing This Mac"), role: .destructive, compact: true) {
+                hubHost?.stopSession()
+            })
         }
+        return MacScreenStack.make(.horizontal, spacing: 8, alignment: .centerY, views)
     }
 
-    private func sessionText(_ hubHost: MacScreenHubHost) -> String {
-        guard let session = hubHost.session else { return L.t("macScreen.home.hubReady", "Ready. Your devices can connect.") }
+    static func sessionText(_ session: MacScreenHubHost.Session?) -> String {
+        guard let session else { return L.t("macScreen.home.hubReady", "Ready. Your devices can connect.") }
         if !session.connected { return String(format: L.t("macScreen.home.hubConnecting", "%@ is connecting…"), session.viewerName) }
         return session.scope == .view
             ? String(format: L.t("macScreen.indicator.viewing", "%@ is viewing this Mac"), session.viewerName)
             : String(format: L.t("macScreen.indicator.controlling", "%@ is controlling this Mac"), session.viewerName)
-    }
-
-    private func note(_ text: String) -> some View {
-        Text(text).foregroundStyle(colors.secondary).fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading).padding(14)
-    }
-}
-
-/// A titled group card of the home page.
-struct MacScreenSection<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: Content
-    @Environment(\.macScreenColors) private var colors
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(MacScreenType.header).foregroundStyle(colors.secondary)
-            content
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(colors.card, in: RoundedRectangle(cornerRadius: Metrics.panelCornerRadius, style: .continuous))
-                .overlay {
-                    if colors.borders {
-                        RoundedRectangle(cornerRadius: Metrics.panelCornerRadius, style: .continuous).strokeBorder(colors.separator)
-                    }
-                }
-        }
-    }
-}
-
-/// A hairline between rows of a group card.
-struct MacScreenDivider: View {
-    @Environment(\.macScreenColors) private var colors
-
-    var body: some View {
-        (colors.borders ? colors.separator : colors.hover).frame(height: 1)
-    }
-}
-
-/// A permission's row: granted, or a button that opens its System Settings pane.
-struct MacScreenPermissionRow: View {
-    let title: String
-    let detail: String
-    let granted: Bool
-    var action: String?
-    let open: () -> Void
-    @Environment(\.macScreenColors) private var colors
-
-    init(title: String, detail: String, granted: Bool, action: String? = nil, open: @escaping () -> Void) {
-        self.title = title
-        self.detail = detail
-        self.granted = granted
-        self.action = action
-        self.open = open
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: granted ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                .foregroundStyle(granted ? colors.success : colors.attention)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(MacScreenType.emphasized)
-                Text(detail).font(MacScreenType.caption).foregroundStyle(colors.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-            if granted {
-                Text(L.t("macScreen.home.granted", "Allowed")).font(MacScreenType.caption).foregroundStyle(colors.secondary)
-            } else {
-                Button(action ?? L.t("macScreen.home.openSettings", "Open System Settings"), action: open)
-                    .buttonStyle(MacScreenButtonStyle(compact: true))
-            }
-        }
     }
 }

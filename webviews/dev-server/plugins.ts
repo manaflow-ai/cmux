@@ -87,16 +87,68 @@ export const DEV_SERVER_PORT = Number(process.env.CMUX_WEBVIEWS_DEV_PORT) || 420
 /// All dev-server plugins, for vite.config.ts.
 export function cmuxDevServer(): Plugin[] {
   return [
+    appHostServer(),
     devServerShell(),
     agentPaneHost(),
     pagesHost(),
     viewerEmptyHost(),
     diffHost(),
+    diffWorkerEntry(),
     markdownHost(),
     editorHost(),
     galleryHost(),
     { ...galleryModules(), apply: "serve" },
   ];
+}
+
+/// worker-pool.ts spawns `./diff-worker.mjs` next to itself, which the build emits; in dev that
+/// sibling is the TypeScript entry. Every dev server that draws a diff needs this, the live gallery
+/// (vite.config.gallery-dev.ts) too. Plugin middleware runs before Vite strips the base, so the path
+/// carries it.
+export function diffWorkerEntry(): Plugin {
+  return {
+    name: "cmux-dev-diff-worker",
+    apply: "serve",
+    configureServer(server) {
+      const worker = `${server.config.base}src/diff-worker.mjs`;
+      server.middlewares.use((request, _response, next) => {
+        const url = new URL(request.url ?? "/", "http://localhost");
+        if (url.pathname === worker) request.url = `${server.config.base}src/diff-worker.ts${url.search}`;
+        next();
+      });
+    },
+  };
+}
+
+/// A running cmux-next can load its pages and agent pane from this server (`web-dev.json`,
+/// WebDevOverride.swift): each page keeps its own `cmux-page://` or `cmux-agent://pane` origin and
+/// the app fetches the files from here, so the Vite client must be told where its HMR socket is,
+/// and the Settings page imports its schema from schemas/settings above webviews/. Only a server on
+/// a fixed port (`bun run dev`, dev-slot.sh, fastloop, `bun run dev:pages`) that sets neither
+/// itself; a test's server on port 0 keeps Vite's defaults.
+function appHostServer(): Plugin {
+  return {
+    name: "cmux-dev-app-host",
+    apply: "serve",
+    config(config) {
+      const port = config.server?.port;
+      if (typeof port !== "number" || port === 0) return;
+      return {
+        server: {
+          // Vite 8 builds the client's socket address from `server.ws` (`server.hmr.host` and
+          // `clientPort` are deprecated and no longer reach the client). `vp dev` passes an empty
+          // `ws` object, so a value the config sets wins key by key.
+          ws:
+            config.server?.ws === false
+              ? false
+              : { protocol: "ws", host: "127.0.0.1", clientPort: port, ...config.server?.ws },
+          fs: config.server?.fs?.allow
+            ? undefined
+            : { allow: [webviewsRoot, path.join(webviewsRoot, "..", "schemas/settings")] },
+        },
+      };
+    },
+  };
 }
 
 let recentsStore: ReturnType<typeof devRecents> | undefined;
@@ -323,6 +375,7 @@ const DEV_PAGES = [
   "files",
   "stats",
   "chief-usage",
+  "chief-views",
   "mobile-pairing",
 ];
 
@@ -569,12 +622,6 @@ function diffHost(): Plugin {
           } catch (error) {
             return next(error);
           }
-        }
-        // worker-pool.ts spawns `./diff-worker.mjs` next to itself, which the build emits; in dev
-        // that sibling is the TypeScript entry.
-        if (url.pathname === "/src/diff-worker.mjs") {
-          request.url = `/src/diff-worker.ts${url.search}`;
-          return next();
         }
         if (!url.pathname.startsWith("/__cmux-diff/")) return next();
         if (!isLoopbackHost(request.headers.host, port())) return send(response, 403, "text/plain", "");

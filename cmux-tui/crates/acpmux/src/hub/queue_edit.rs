@@ -1,11 +1,15 @@
 //! Part of `Hub`; see `hub/mod.rs`. `_acpmux/queue_edit`: change a queued prompt before its
-//! turn (`update` its prompt, `move` it, or `send_now`), or `resume` the prompts a failed turn
-//! holds (`queue.rs` `pause_queue`; any of the queue's prompts names it). Every change is a record in the log, so
-//! a new daemon rebuilds the edited queue (`queue.rs` `restore_queues`), and every client sees it.
+//! turn (`update` its prompt, or its text, which keeps its images; `move` it, `send_now` or
+//! `interrupt`), or `resume` the prompts a failed turn holds (`queue.rs` `pause_queue`; any of
+//! the queue's prompts names it). Every change is a record in the log, so a new daemon rebuilds
+//! the edited queue (`queue.rs` `restore_queues`), and every client sees it.
 
 use super::queue::PromptRun;
 use super::*;
 use std::sync::atomic::Ordering;
+
+/// How long Send now waits for the agent to stop its step for a steer.
+const STEP_NOW_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
 // `_acpmux/prompt_withdraw`, a queue change too (here: `hub/mod.rs` is at its size budget).
 #[path = "withdraw.rs"]
@@ -21,10 +25,63 @@ fn stricter(a: Control, b: Control) -> Control {
     }
 }
 
+/// What an `update` puts in a waiting prompt.
+enum Edit {
+    /// `prompt`: these blocks, all of it.
+    Prompt(Vec<Value>),
+    /// `text`: new words. The prompt keeps its other blocks (its images and files) after them,
+    /// in their order (Leo, 2026-10-21: an edit dropped the screenshot); with `images` (ids, as
+    /// the queue lists them) only the images it names.
+    Text { text: String, images: Option<Vec<String>> },
+}
+
+impl Edit {
+    fn parse(params: &Value) -> Result<Self, RpcError> {
+        if let Some(blocks) = params.get("prompt").and_then(Value::as_array) {
+            return Ok(Self::Prompt(blocks.clone()));
+        }
+        let text = params
+            .get("text")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError::invalid_params("update needs prompt or text"))?;
+        let images = match params.get("images") {
+            None | Some(Value::Null) => None,
+            Some(Value::Array(ids)) => Some(
+                ids.iter()
+                    .map(|id| id.as_str().map(str::to_owned))
+                    .collect::<Option<Vec<_>>>()
+                    .ok_or_else(|| RpcError::invalid_params("images must be image ids"))?,
+            ),
+            Some(_) => return Err(RpcError::invalid_params("images must be image ids")),
+        };
+        Ok(Self::Text { text: text.to_owned(), images })
+    }
+
+    /// The blocks the waiting prompt `before` runs once edited.
+    fn blocks(self, before: &[Value]) -> Vec<Value> {
+        let (text, images) = match self {
+            Self::Prompt(blocks) => return blocks,
+            Self::Text { text, images } => (text, images),
+        };
+        let kept = before.iter().filter(|block| {
+            if block.get("type").and_then(Value::as_str) == Some("text") {
+                return false;
+            }
+            let Some(ids) = &images else { return true };
+            match super::prompt_images::id_of(block) {
+                Some(id) => ids.contains(&id),
+                // Not an image (or not one it can name): it stays.
+                None => true,
+            }
+        });
+        std::iter::once(json!({"type": "text", "text": text})).chain(kept.cloned()).collect()
+    }
+}
+
 impl Hub {
-    /// `_acpmux/queue_edit {sessionId, promptId, op, prompt?|text?, index?}`. Answers
-    /// `{sessionId, promptId, op, ok}`, and `send_now` also how it was sent (`sent`: `steer`,
-    /// `interrupt` or `next`). `ok` is false when the prompt no longer waits.
+    /// `_acpmux/queue_edit {sessionId, promptId, op, prompt?|text?, images?, index?}`. Answers
+    /// `{sessionId, promptId, op, ok}`, and `send_now` and `interrupt` also how it was sent
+    /// (`sent`: `steer`, `interrupt` or `next`). `ok` is false when the prompt no longer waits.
     pub async fn queue_edit(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -45,16 +102,8 @@ impl Hub {
         let mut reply = json!({"sessionId": session.id, "promptId": prompt_id, "op": op});
         reply["ok"] = match op {
             "update" => {
-                let blocks = params
-                    .get("prompt")
-                    .and_then(Value::as_array)
-                    .cloned()
-                    .or_else(|| {
-                        let text = params.get("text").and_then(Value::as_str)?;
-                        Some(vec![json!({"type": "text", "text": text})])
-                    })
-                    .ok_or_else(|| RpcError::invalid_params("update needs prompt or text"))?;
-                json!(self.update_queued(session, prompt_id, blocks, control, trust_gate))
+                let edit = Edit::parse(params)?;
+                json!(self.update_queued(session, prompt_id, edit, control, trust_gate))
             }
             "move" => {
                 let index = params
@@ -64,13 +113,21 @@ impl Hub {
                 json!(self.move_queued(session, prompt_id, index as usize))
             }
             "send_now" => {
-                let sent = self.send_queued_now(session, prompt_id, control).await?;
+                let sent = match self.send_queued_now(session, prompt_id, control)? {
+                    Some(sent) => Some(sent),
+                    None => self.step_now(session, prompt_id, control).await?,
+                };
+                reply["sent"] = json!(sent);
+                json!(sent.is_some())
+            }
+            "interrupt" => {
+                let sent = self.interrupt_for_queued(session, prompt_id).await;
                 reply["sent"] = json!(sent);
                 json!(sent.is_some())
             }
             "resume" => json!(self.resume_queue(session)),
             _ => {
-                let e = "op must be update, move, send_now or resume";
+                let e = "op must be update, move, send_now, interrupt or resume";
                 return Err(RpcError::invalid_params(e));
             }
         };
@@ -88,40 +145,45 @@ impl Hub {
             .is_some_and(|q| !crate::secret_scan::find(&prompt_text(&q.run.blocks)).is_empty())
     }
 
-    /// Replaces a waiting prompt's content; it keeps its place. It runs under the stricter
-    /// rules of its sender and its editor.
+    /// Replaces a waiting prompt's content (`Edit`); it keeps its place. It runs under the
+    /// stricter rules of its sender and its editor.
     fn update_queued(
         &self,
         session: &Arc<Session>,
         prompt_id: &str,
-        mut blocks: Vec<Value>,
+        edit: Edit,
         control: Control,
         trust_gate: bool,
     ) -> bool {
-        // Only `session/prompt` adds a hidden context (prompt_context.rs).
-        crate::prompt_context::strip_marks(&mut blocks);
-        let text = prompt_text(&blocks);
-        let (turn_id, run) = {
+        let (turn_id, run, text) = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(q) = queue.iter_mut().find(|q| q.prompt_id == prompt_id) else {
                 return false;
             };
+            let mut blocks = edit.blocks(&q.run.blocks);
+            // Only `session/prompt` adds a hidden context (prompt_context.rs).
+            crate::prompt_context::strip_marks(&mut blocks);
+            let text = prompt_text(&blocks);
             q.run = Arc::new(PromptRun {
                 blocks,
                 control: stricter(q.run.control, control),
                 trust_gate: q.run.trust_gate || trust_gate,
                 // The person rewrote it: it is no longer the sender's message.
                 provenance: None,
+                agent: None,
+                supersede: None,
             });
             q.preview = short_text(&text, 200);
-            (q.turn_id.clone(), q.run.clone())
+            (q.turn_id.clone(), q.run.clone(), text)
         };
-        self.append(
-            session,
-            "mux",
-            "queue_updated",
-            json!({"promptId": prompt_id, "turnId": turn_id, "text": text, "prompt": run.blocks, "control": run.control.as_str(), "trustGate": run.trust_gate}),
-        );
+        let mut msg = json!({"promptId": prompt_id, "turnId": turn_id, "text": text, "prompt": run.blocks, "control": run.control.as_str(), "trustGate": run.trust_gate});
+        // Its images, kept and named as `queued` names them (`prompt_images.rs`).
+        let images = super::prompt_images::keep(&run.blocks);
+        if !images.is_empty() {
+            msg["images"] = Value::Array(images);
+        }
+        super::session::mark_pasted(&mut msg, &run.blocks);
+        self.append(session, "mux", "queue_updated", msg);
         true
     }
 
@@ -147,20 +209,19 @@ impl Hub {
         true
     }
 
-    /// Sends a waiting prompt now. With no turn running it goes next (`next`); into a running turn
-    /// of an agent that steers it is steered in (`steer`) by the task that waits with it, so its
-    /// `session/prompt` answers how it ran; otherwise it goes next and the running turn stops
-    /// (`interrupt`). `None` when it no longer waits. A failed turn no longer holds it.
-    async fn send_queued_now(
+    /// Sends a waiting prompt now. Into a running turn of an agent that steers it is steered in
+    /// (`steer`) by the task that waits with it, so its `session/prompt` answers how it ran, and
+    /// the agent's current step stops so it reads it at once (Claude Code; another agent reads it
+    /// when its step ends); otherwise it goes next (`next`) and runs once the turn ends. It never
+    /// stops the turn: `interrupt` does. `None` when it no longer waits. A failed turn no longer
+    /// holds it.
+    fn send_queued_now(
         self: &Arc<Self>,
         session: &Arc<Session>,
         prompt_id: &str,
         control: Control,
     ) -> Result<Option<&'static str>, RpcError> {
-        let Some(running) = session.turn().map(|t| t.turn_id) else {
-            return Ok(self.put_next(session, prompt_id).then_some("next"));
-        };
-        if session.steering.load(Ordering::SeqCst) {
+        if session.turn().is_some() && session.steering.load(Ordering::SeqCst) {
             let Some(waiting) = session.queue().into_iter().find(|q| q.prompt_id == prompt_id)
             else {
                 return Ok(None);
@@ -179,16 +240,66 @@ impl Hub {
                     control,
                     trust_gate: q.run.trust_gate,
                     provenance: q.run.provenance.clone(),
+                    agent: q.run.agent.clone(),
+                    supersede: q.run.supersede.clone(),
                 };
                 (q.run, q.steer) = (Arc::new(run), true);
             }
+            let mut now =
+                session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            now.step.insert(prompt_id.to_owned());
+            drop(now);
             session.queue_moved.notify_waiters();
             return Ok(Some("steer"));
         }
+        Ok(self.put_next(session, prompt_id).then_some("next"))
+    }
+
+    /// `interrupt`: a waiting prompt goes next and the running turn stops, whether or not its
+    /// agent could take the prompt as a steer (`next` with no turn running). `None` when it no
+    /// longer waits.
+    async fn interrupt_for_queued(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        prompt_id: &str,
+    ) -> Option<&'static str> {
+        let running = session.turn().map(|t| t.turn_id);
         if !self.put_next(session, prompt_id) {
+            return None;
+        }
+        let Some(running) = running else {
+            return Some("next");
+        };
+        self.cancel_turn(session, &running).await;
+        Some("interrupt")
+    }
+
+    /// Send now on a steer the agent has not read yet (`steer_end.rs`): the agent's current step
+    /// stops so it reads the steer at once, and the turn runs on (`now`). An agent that cannot
+    /// stop one step reads it when the step ends (`steer`). `None` when no steer of that id waits.
+    async fn step_now(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        prompt_id: &str,
+        control: Control,
+    ) -> Result<Option<&'static str>, RpcError> {
+        let waiting = session
+            .steer_now
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .waiting
+            .contains(prompt_id);
+        if !waiting {
             return Ok(None);
         }
-        self.cancel_turn(session, &running).await;
-        Ok(Some("interrupt"))
+        self.check_steer(session, control)?;
+        let child = session.child.lock().await.clone();
+        let (Some(child), Some(sid)) = (child, session.meta().agent_session_id) else {
+            return Ok(Some("steer"));
+        };
+        let ask = child.request(method::MUX_STEP_NOW, json!({"sessionId": sid}));
+        let answer = tokio::time::timeout(STEP_NOW_WAIT, ask).await;
+        let stopped = matches!(&answer, Ok(Ok(v)) if v["interrupted"] == true);
+        Ok(Some(if stopped { "now" } else { "steer" }))
     }
 }

@@ -161,7 +161,7 @@ function signIn(m: Machine, agent: Agent = "claude"): void {
 /** agent-config.sh with its launcher directory pointed at this machine's launchers. */
 function routedAgentConfig(m: Machine): string {
   const file = path.join(m.root, "agent-config.sh");
-  writeFileSync(file, readFileSync(path.join(templateDir, "agent-config.sh"), "utf8").replaceAll('"/etc/cmux/$cmux_ar_agent"', `"${m.root}/$cmux_ar_agent"`));
+  writeFileSync(file, readFileSync(m.config, "utf8").replaceAll('"/etc/cmux/$cmux_ar_agent"', `"${m.root}/$cmux_ar_agent"`));
   return file;
 }
 
@@ -182,13 +182,13 @@ describe("Claude Code sign-in precedence", () => {
   test("a shell never exports the CodeRouter pair, and still persists it for the launcher", async () => {
     const m = machine();
     const probe = `printf '%s|%s|%s|%s' "\${ANTHROPIC_BASE_URL-unset}" "\${ANTHROPIC_API_KEY-unset}" "\${CMUX_CLAUDE_TEAM_BASE_URL-}" "\${CMUX_CLAUDE_TEAM_API_KEY-}"`;
-    const first = await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; ${probe}`], { env: bootEnv(m) });
+    const first = await runChild("/bin/bash", ["-c", `. ${m.config}; ${probe}`], { env: bootEnv(m) });
     expect(first.stdout).toBe(`unset|unset|${ORIGIN}|${PLACEHOLDER}`);
     // A nested shell inherits only the set-aside pair; it re-persists the
     // model-plane names and keeps the pair out of its own env too.
     const nested = await runChild(
       "/bin/bash",
-      ["-c", `. ${path.join(templateDir, "agent-config.sh")}; bash -c '. ${path.join(templateDir, "agent-config.sh")}; ${probe.replaceAll("'", "'\\''")}'`],
+      ["-c", `. ${m.config}; bash -c '. ${m.config}; ${probe.replaceAll("'", "'\\''")}'`],
       { env: bootEnv(m) },
     );
     expect(nested.stdout).toBe(`unset|unset|${ORIGIN}|${PLACEHOLDER}`);
@@ -203,14 +203,14 @@ describe("Claude Code sign-in precedence", () => {
   test("a user-set Anthropic endpoint or key is never moved or replaced", async () => {
     const m = machine();
     const probe = `printf '%s|%s' "\${ANTHROPIC_BASE_URL-unset}" "\${ANTHROPIC_API_KEY-unset}"`;
-    const own = await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; ${probe}`], {
+    const own = await runChild("/bin/bash", ["-c", `. ${m.config}; ${probe}`], {
       env: bootEnv(m, { ANTHROPIC_BASE_URL: "https://api.example.test", ANTHROPIC_API_KEY: "sk-ant-user" }),
     });
     expect(own.stdout).toBe("https://api.example.test|sk-ant-user");
     // A key the user exported after the pair was set aside survives a nested shell.
     const nested = await runChild(
       "/bin/bash",
-      ["-c", `. ${path.join(templateDir, "agent-config.sh")}; export ANTHROPIC_API_KEY=sk-ant-user; bash -c '. ${path.join(templateDir, "agent-config.sh")}; ${probe.replaceAll("'", "'\\''")}'`],
+      ["-c", `. ${m.config}; export ANTHROPIC_API_KEY=sk-ant-user; bash -c '. ${m.config}; ${probe.replaceAll("'", "'\\''")}'`],
       { env: bootEnv(m) },
     );
     expect(nested.stdout).toBe("unset|sk-ant-user");
@@ -266,7 +266,7 @@ describe("Claude Code sign-in precedence", () => {
     expect(plane).not.toContain("sk-ant-oneoff");
     expect(plane).toContain(`export ANTHROPIC_API_KEY='${PLACEHOLDER}'`);
     // A fresh shell without the boot env reads the persisted file only.
-    const fresh = await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; ${m.launchers.claude}`], {
+    const fresh = await runChild("/bin/bash", ["-c", `. ${m.config}; ${m.launchers.claude}`], {
       env: { PATH: `${m.bin}:${process.env.PATH ?? "/usr/bin:/bin"}`, HOME: m.home },
     });
     expect(parse(fresh.stdout).ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
@@ -732,7 +732,7 @@ describe("cr use", () => {
       chmodSync(path.join(m.bin, name), 0o755);
     }
     const config = path.join(m.root, "agent-config-cr.sh");
-    writeFileSync(config, readFileSync(path.join(templateDir, "agent-config.sh"), "utf8").replaceAll("/usr/local/libexec/cmux-cloud-adapter", adapter));
+    writeFileSync(config, readFileSync(m.config, "utf8").replaceAll("/usr/local/libexec/cmux-cloud-adapter", adapter));
     const run = async (command: string) =>
       (await runChild("/bin/bash", ["-c", `. ${config}; ${command}`], { env: bootEnv(m) })).stdout.trim();
     expect(await run("cr use own codex")).toBe("adapter coderouter use own codex");

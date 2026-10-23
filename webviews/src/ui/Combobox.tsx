@@ -38,8 +38,9 @@ export interface ComboboxProps {
   isItemDisabled?(value: string): boolean;
   /** true: the first row highlights while filtering; "always": also before any typing. */
   autoHighlight?: boolean | "always";
-  /** Handle a shortcut while the Base UI input owns focus. */
-  onCommand?(event: KeyboardEvent<HTMLInputElement>): void;
+  /** Handle a shortcut while the Base UI input owns focus. `preventDefault` skips the Combobox's own
+   * handling; `preventBaseUIHandler` also skips Base UI's (Return clicking the highlighted row). */
+  onCommand?(event: BaseUIKeyEvent): void;
   /** Class for the Base UI root when the field and list are laid out together. */
   rootClassName?: string;
   /** A row's content (a name over a path); default: the suggestion text. The row still submits
@@ -215,7 +216,7 @@ export function Combobox({
       ) : (
         <Autocomplete.Portal container={container}>
           <Autocomplete.Positioner className="ui-positioner" sideOffset={2} align="start">
-            <Autocomplete.Popup ref={host ? setPopup : undefined} className="ui-popup ui-combobox-popup">
+            <Autocomplete.Popup ref={host ? setPopup : undefined} className="ui-popup ui-glass ui-combobox-popup">
               {list}
             </Autocomplete.Popup>
           </Autocomplete.Positioner>

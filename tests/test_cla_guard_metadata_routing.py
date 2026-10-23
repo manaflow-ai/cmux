@@ -77,6 +77,7 @@ class CLAMetadataRoutingTests(unittest.TestCase):
                 path.write_text(yaml.safe_dump(document))
                 with patch.object(bounded, "ROOT", root), patch.object(bounded, "WORKFLOWS", workflows), \
                      patch.object(bounded, "REQUIRED_CONTEXTS", (REQUIRED_CHECK,)), \
+                     patch.object(bounded, "OWN_SUPERSESSION", {}), \
                      contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                     return bounded.main()
             workflow = candidate()

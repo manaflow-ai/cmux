@@ -54,6 +54,7 @@ import {
   devboxIdentityInstallCommand,
   devboxJournalResetCommand,
   devboxSnapshotClockCommand,
+  devboxTerminfoInstallCommand,
   devboxWaitForDaemonCommand,
 } from "../devbox-image-common";
 import { AGENT_TOOLS_PROFILE, agentToolsDaemonEnv, agentToolsFiles, agentToolsLinkCommand, browserRoleBakePhases, daemonEnvLines } from "./agent-tools";
@@ -98,6 +99,8 @@ import {
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const GUEST_DIR = path.resolve(HERE, "../../../images/cmux-vm/guest");
+/** Cloud VM shell defaults shared with the Chief VM bake (cmux-shell.sh: TERM fallback, UTF-8, truecolor). */
+export const SHELL_DIR = path.resolve(HERE, "../../services/vms/images/shell");
 const DPKG_LIST = "dpkg-query -W -f='${Package}\\t${Version}\\t${Architecture}\\n' | LC_ALL=C sort";
 const PGDG_KEY = "/usr/share/keyrings/cmux-pgdg.asc";
 const DAEMON_UNIT = HOST_UNIT;
@@ -359,8 +362,9 @@ async function installApt(ctx: Ctx): Promise<void> {
   await L.step(vm, "pgdg-key", `mkdir -p /etc/postgresql-common/createcluster.d && printf 'create_main_cluster = false\\n' > /etc/postgresql-common/createcluster.d/00-cmux.conf && curl -fsSL --retry 3 -o ${PGDG_KEY} ${sq(pgdg.keyUrl)} && printf '%s  %s\\n' ${pgdg.keySha256} ${PGDG_KEY} | sha256sum -c --quiet -`);
   await writeGuestFile(vm, "/etc/apt/sources.list.d/pgdg.sources", pgdgSourcesFile(pgdg, PGDG_KEY), 0o644);
   await L.step(vm, "apt-install-pgdg", `apt-get update -q >/tmp/apt-update.log 2>&1 || { tail -30 /tmp/apt-update.log; exit 1; }; apt-get install -y --no-install-recommends ${aptPinArgs(pgdg.packages)} >/tmp/apt-pg.log 2>&1 || { tail -40 /tmp/apt-pg.log; exit 1; }; ${DPKG_LIST} > /root/after-dpkg.tsv`);
-  const added = dpkgChanges(parseDpkgList(await readGuestText(vm, "/root/base-dpkg.tsv")), parseDpkgList(await readGuestText(vm, "/root/after-dpkg.tsv")));
-  const problems = aptClosureProblems({ ...ubuntu.packages, ...pgdg.packages }, added);
+  const baseDpkg = parseDpkgList(await readGuestText(vm, "/root/base-dpkg.tsv"));
+  const added = dpkgChanges(baseDpkg, parseDpkgList(await readGuestText(vm, "/root/after-dpkg.tsv")));
+  const problems = aptClosureProblems({ ...ubuntu.packages, ...pgdg.packages }, added, baseDpkg);
   if (problems.length > 0) throw new Error(`apt closure differs from the lock:\n${problems.join("\n")}`);
   ctx.result.aptInstalled = added.size;
   await L.step(vm, "postgres-binaries-only", [
@@ -416,6 +420,25 @@ async function configureSystem(ctx: Ctx): Promise<void> {
     "systemctl list-timers --all --no-legend | awk '{print $NF}' | tr '\\n' ' '",
   ].join(" && "));
   await writeGuestFile(vm, "/etc/tmpfiles.d/cmux-snapshot-resume.conf", "# Clones resume with a monotonic clock jump; do not report a workqueue lockup.\nw- /sys/module/workqueue/parameters/watchdog_thresh - - - - 0\n", 0o644);
+  // Shell defaults (web/services/vms/images/shell): the devbox terminfo overlay
+  // so TERM=xterm-ghostty works in htop/vim/tmux/less, the TERM fallback and
+  // truecolor profile, and no provider banner (Freestyle's static /etc/motd,
+  // the stock Ubuntu motd scripts).
+  await writeGuestFile(vm, "/etc/cmux/terminfo.src", devboxFileBytes("cmux-terminfo.src"), 0o644);
+  await writeGuestFile(vm, "/etc/profile.d/cmux-terminfo.sh", devboxFileBytes("cmux-terminfo.sh"), 0o644);
+  await writeGuestFile(vm, "/etc/profile.d/cmux-shell.sh", readFileSync(path.join(SHELL_DIR, "cmux-shell.sh")), 0o644);
+  await writeGuestFile(vm, "/etc/cmux/nvm-lazy.sh", readFileSync(path.join(SHELL_DIR, "nvm-lazy.sh")), 0o644);
+  await L.step(vm, "terminfo", devboxTerminfoInstallCommand);
+  await L.step(vm, "shell-env", [
+    "grep -qxF '[ -f /etc/profile.d/cmux-shell.sh ] && . /etc/profile.d/cmux-shell.sh' /etc/bash.bashrc || echo '[ -f /etc/profile.d/cmux-shell.sh ] && . /etc/profile.d/cmux-shell.sh' >> /etc/bash.bashrc",
+    ": > /etc/motd",
+    // The provider's eager nvm loader costs ~300 ms per login shell; node stays on PATH.
+    "if [ -f /etc/profile.d/nvm.sh ] && grep -q 'nvm\\.sh\"' /etc/profile.d/nvm.sh; then cp /etc/profile.d/nvm.sh /etc/cmux/nvm.sh.orig && cp /etc/cmux/nvm-lazy.sh /etc/profile.d/nvm.sh; fi",
+    "env -i HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -lc 'command -v node' >/dev/null",
+    "for f in /etc/update-motd.d/*; do [ -f \"$f\" ] && chmod -x \"$f\"; done; true",
+    "[ \"$(env -i HOME=/root TERM=bogus-term sh -c '. /etc/profile.d/cmux-shell.sh; echo $TERM $COLORTERM')\" = 'xterm-256color truecolor' ]",
+    "echo shell-env-ok",
+  ].join(" && "));
   await L.step(vm, "snapshot-resume-quiet", "{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && echo ok");
 }
 
@@ -463,10 +486,13 @@ async function configureRoles(ctx: Ctx): Promise<void> {
 async function installHostConfig(ctx: Ctx): Promise<void> {
   const { vm, L } = ctx;
   await L.step(vm, "host-dirs", "install -d -m 0700 /var/lib/cmux && install -d -m 0755 /etc/cmux");
-  await writeGuestFile(vm, HOST_CONFIG_PATH, hostConfig(), 0o644);
+  const hostConfigBody = hostConfig();
+  const hostCarrier = (JSON.parse(hostConfigBody) as { remoteWs: { carrier: string } }).remoteWs.carrier;
+  ctx.result.cmuxRemoteAuth = hostCarrier === "freestyle-edge-grant" ? "client-grant" : "trusted-carrier";
+  await writeGuestFile(vm, HOST_CONFIG_PATH, hostConfigBody, 0o644);
   ctx.result.hostConfig = (await L.step(vm, "host-config", [
     `chown root:root ${HOST_CONFIG_PATH}`,
-    `python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); assert c == {"remoteWs": {"bind": "[::]:1337", "carrier": "freestyle-edge"}}, c' ${HOST_CONFIG_PATH}`,
+    `python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); assert c == {"remoteWs": {"bind": "[::]:1337", "carrier": "${hostCarrier}"}}, c' ${HOST_CONFIG_PATH}`,
     `test "$(stat -c '%U %a' ${HOST_CONFIG_PATH})" = "root 644"`,
     "test ! -e /var/lib/cmux/bind.json && test ! -e /var/lib/cmux/bound.json",
     `${HOST_CLI} --help >/dev/null`,

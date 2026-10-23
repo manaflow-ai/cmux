@@ -11,7 +11,8 @@ afterAll(() => restore());
 const { renderPage, settle, changeValue, click } = await import("./testing");
 
 const card = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-card="devices"]')!;
-const nonRefresh = (runs: Array<{ action: string }>) => runs.filter((run) => run.action !== "refresh");
+const nonRefresh = <Run extends { action: string }>(runs: readonly Run[]) =>
+  runs.filter((run) => run.action !== "refresh");
 
 async function open() {
   const page = await renderPage({ path: "/settings/devices" });

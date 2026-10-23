@@ -26,13 +26,15 @@ cmux app capabilities
 ```
 
 `action describe` prints the action's targets and arguments. Actions drive the app
-the same way its palette and sidebar do, and return an action result, not machine
-data such as command output. They need the app, sign-in and its private tunnel.
+the same way its palette and sidebar do. Run from the CLI or MCP, read actions answer
+in the action result (`--json` prints it): `cloud exec` returns `exit_code`, `stdout`
+and `stderr`, `cloud new-machine` the new `machine_id`, `machine-status` and the file
+and listing actions their facts. They need the app, sign-in and its private tunnel.
 
 ## Machine lifecycle from the Mac
 
 ```sh
-cmux cloud new-machine                                    # opens the New Cloud Machine sheet
+cmux cloud new-machine                                    # answers machine_id (or pending)
 cmux cloud new-workspace                                  # a new cloud workspace
 cmux cloud open-machine --target machine:vm-…
 cmux cloud new-terminal-on-machine --target machine:vm-…
@@ -43,12 +45,13 @@ cmux cloud restore-machine --target machine:vm-… --snapshot <snapshot-id>
 cmux workspace new-on-machine --machine machine:vm-…
 ```
 
-Without `--target`, a machine action applies to the focused cloud workspace's
-machine. The full set is in [the command reference](references/commands.md).
+From the CLI or MCP, every machine action needs `--target machine:vm-…`; without it
+the app refuses the run (only a person's own click acts on the machine in front of
+them). The full set is in [the command reference](references/commands.md).
 
 ## Work inside a machine
 
-Open a terminal on the machine (`cmux cloud open-machine`, or the sidebar), then use
+Open a terminal on the machine (`cmux cloud open-machine --target machine:vm-…`, or the sidebar), then use
 the machine's own `cmux` from that terminal. `current` selectors address the
 session's active terminal, pane and workspace; use `$CMUX_TUI_TERMINAL_ID` for the
 caller's own terminal:
@@ -80,9 +83,9 @@ browser authentication. The machine's `cmux --help` is authoritative.
 ## Old `vm` verbs
 
 The Swift `cmux vm …` family is gone. Its replacements are app actions:
-`cmux cloud exec --command …` and `cmux cloud ssh` (both open a terminal),
-`cmux cloud file-write`, `cmux cloud file-read|files-list|prepare-scp` (these
-show their result to the person in a toast, not on stdout),
+`cmux cloud exec --command …` (returns the exit code and output), `cmux cloud ssh`
+(opens a terminal), `cmux cloud file-write`, `cmux cloud file-read|files-list|prepare-scp`
+(these return their result to the CLI),
 `cmux cloud pause-machine|resume-machine`, and `cmux cloud domain-list` (listing
 only). These have no CLI path: `vm route|tree|wait|restart|stats|prompt`,
 `vm open <m>:port/<n>`, `vm terminal …` against a machine from the Mac,

@@ -70,6 +70,22 @@ open class HomeDockSwitchView: NSView {
     private var switching: Task<Void, Never>?
     /// Work that needs this view in a window (a sheet, the keyboard).
     private var windowWaiters: [@MainActor () -> Void] = []
+    /// Makes a view's tools for its pane's tab row, nil for none: the Chief's over Messages
+    /// (`ChiefPaneTools`, set when the app binds its actions). Each dock view asks once, when made.
+    public static var makeRowTools: (@MainActor (HomeDockMode) -> NSView?)?
+    /// Tools a view puts in its pane's tab row (HomeDockSwitchView+TabRow).
+    public var rowTools: [HomeDockMode: NSView] = [:] {
+        didSet {
+            for (_, tools) in oldValue where !rowTools.values.contains(where: { $0 === tools }) { tools.removeFromSuperview() }
+            needsLayout = true
+        }
+    }
+    /// The row the pane last offered (`setTabRow`).
+    var tabRow = (height: CGFloat(0), trailingInset: CGFloat(0))
+    /// The shown view's tools' width last reported to the pane, gap included; 0: none.
+    var reportedToolsWidth: CGFloat = 0
+    public internal(set) var tabRowToolsNeed: CGFloat?
+    public var onTabRowToolsChange: (() -> Void)?
 
     public init(mode: HomeDockMode) {
         self.mode = mode
@@ -77,6 +93,7 @@ open class HomeDockSwitchView: NSView {
         setAccessibilityIdentifier("cmux.homeDock")
         content.autoresizingMask = [.width, .height]
         addSubview(content)
+        for mode in HomeDockMode.allCases { rowTools[mode] = Self.makeRowTools?(mode) }
         show(mode)
     }
 
@@ -121,7 +138,9 @@ open class HomeDockSwitchView: NSView {
 
     override open func layout() {
         super.layout()
-        content.frame = bounds
+        // Under the tab row while the shown view's tools are in it (the pane lays this view under the strip then).
+        let cover = layoutRowTools()
+        content.frame = NSRect(x: 0, y: isFlipped ? cover : 0, width: bounds.width, height: max(0, bounds.height - cover))
     }
 
     /// Switches to `target` (the other view when nil) with `selection`, else the current selection
@@ -168,6 +187,7 @@ open class HomeDockSwitchView: NSView {
 
     private func show(_ target: HomeDockMode) {
         mode = target
+        needsLayout = true // the shown view's row tools (HomeDockSwitchView+TabRow)
         let view = made[target] ?? makeContent(for: target)
         made[target] = view
         for subview in content.subviews where subview !== view { subview.isHidden = true }

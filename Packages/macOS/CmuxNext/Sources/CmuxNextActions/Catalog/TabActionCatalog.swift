@@ -109,6 +109,22 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 category: .tab, symbol: "display", surfaces: [.palette, .menu, .contextMenu],
                 targets: [.pane], cliName: "tab new-mac-screen", mainMenu: .file
             ),
+            // The menu bar item shown while a device sees or controls this Mac runs these two
+            // (MacScreenShareIndicator); unavailable while no device is connected.
+            ActionDescriptor(
+                id: "macScreen.stopSharing",
+                title: String(localized: "action.macScreen.stopSharing", defaultValue: "Stop Sharing This Mac", bundle: .module),
+                keywords: ["mac", "screen", "sharing", "stop", "end", "disconnect", "viewer", "control"],
+                category: .tab, symbol: "display", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "macScreen.revokeViewer",
+                title: String(localized: "action.macScreen.revokeViewer", defaultValue: "Revoke This Device", bundle: .module),
+                keywords: ["mac", "screen", "sharing", "revoke", "device", "permission", "viewer", "block"],
+                category: .tab, symbol: "person.badge.minus", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "openBrowser.webkit",
                 title: String(localized: "action.openBrowser.webkit", defaultValue: "New WebKit Tab", bundle: .module),
@@ -301,7 +317,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 // Also "Go to Tab…": `palette.goToTab` is an alias (legacyAliases).
                 keywords: ["tab", "search", "find", "switch", "switcher", "go to tab", "surface", "recently closed", "url",
                            "folder", "process"],
-                // No default key: Cmd-Shift-A opens Search with the Chats & agents chip (`search.chats`).
+                // No default key: Cmd-Shift-A opens Search (`search.chats`).
                 category: .tab, symbol: "magnifyingglass",
                 surfaces: [.palette, .keyboard, .menu], arguments: [CatalogArgument.queryString], targets: [.tab],
                 cliName: "tab search", mainMenu: .file,
@@ -382,21 +398,16 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 targets: [.tab], cliName: "tab copy-identifiers"
             ),
             // A PNG of the tab's content, never changing focus or selection
-            // (ScreenshotHandlers): Copy menu and palette; automation is refused.
-            {
-                var screenshot = ActionDescriptor(
-                    id: "tab.screenshot",
-                    title: String(localized: "action.tab.screenshot", defaultValue: "Screenshot Tab", bundle: .module),
-                    keywords: ["screenshot", "capture", "image", "png", "picture"], category: .tab, symbol: "camera",
-                    surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.screenshotOut], targets: [.tab],
-                    cliName: "tab screenshot",
-                    surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.tab, .inspect, 510, folder: .copy)])
-                )
-                // A tab can be a browser. Automation must use the browser host's guarded
-                // capture, which masks cross-session secrets before it returns pixels.
-                screenshot.isPersonOnly = true
-                return screenshot
-            }(),
+            // (ScreenshotHandlers): Copy menu, palette and automation. Automation gets no
+            // browser tab's pixels here: the browser host's guarded capture masks its secrets.
+            ActionDescriptor(
+                id: "tab.screenshot",
+                title: String(localized: "action.tab.screenshot", defaultValue: "Screenshot Tab", bundle: .module),
+                keywords: ["screenshot", "capture", "image", "png", "picture"], category: .tab, symbol: "camera",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.screenshotOut], targets: [.tab],
+                cliName: "tab screenshot",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.tab, .inspect, 510, folder: .copy)])
+            ),
             ActionDescriptor(
                 id: "palette.copyPaneID",
                 title: String(localized: "action.palette.copyPaneID", defaultValue: "Copy Pane ID", bundle: .module),

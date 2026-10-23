@@ -193,7 +193,8 @@ async fn compact_ends_its_prompt_and_reports_the_compaction() {
 /// A `/compact` that fails: the compacting status, then a status clearing it
 /// with a failed `compact_result`, and the same zero-turn success result. The
 /// failed status is the turn's output, so the result ends the prompt rather
-/// than read as startup noise, and the chat gets a failed `compaction`.
+/// than read as startup noise, and the chat gets a failed `compaction` that
+/// says why (`compact_error`).
 #[tokio::test]
 async fn a_failed_compact_ends_its_prompt() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
@@ -205,10 +206,11 @@ async fn a_failed_compact_ends_its_prompt() {
     let Outbound::Lines(_) = t.outbound(&prompt).await else { panic!() };
     let lines = [
         json!({"type": "system", "subtype": "status", "status": "compacting", "session_id": "s"}),
-        json!({"type": "system", "subtype": "status", "status": null, "compact_result": "failed", "session_id": "s"}),
+        json!({"type": "system", "subtype": "status", "status": null, "compact_result": "failed", "compact_error": "Prompt is too long", "session_id": "s"}),
         json!({"type": "result", "subtype": "success", "is_error": false, "num_turns": 0, "duration_api_ms": 0, "local_command": "compact", "result": ""}),
     ];
     let mut states = Vec::new();
+    let mut errors = Vec::new();
     let mut ended = false;
     for line in &lines {
         for m in t.inbound(line).await {
@@ -216,6 +218,7 @@ async fn a_failed_compact_ends_its_prompt() {
                 Message::Notification { params, .. } => {
                     if let Some(u) = params.as_ref().and_then(|p| p.get("update")) {
                         states.push(u["state"].clone());
+                        errors.push(u.get("error").cloned());
                     }
                 }
                 Message::Response { id, result: Some(_), .. } if id == 5 => ended = true,
@@ -225,4 +228,41 @@ async fn a_failed_compact_ends_its_prompt() {
     }
     assert!(ended, "a failed /compact left its prompt open: {states:?}");
     assert_eq!(states, [json!("running"), json!("failed")]);
+    assert_eq!(errors, [None, Some(json!("Prompt is too long"))]);
+}
+
+/// The mode menu shows Claude Code's own modes, as Claude Code shows them:
+/// its labels, its one-line descriptions and its order (Auto, Manual, Accept
+/// edits, Plan, Bypass permissions). acpmux invents none ("Normal", "Full
+/// access"); the ids stay Claude Code's `--permission-mode` values.
+#[tokio::test]
+async fn modes_are_claude_codes_own_labels_descriptions_and_order() {
+    let t = Translator::new("acp-1".into(), "bypassPermissions", "haiku", "default");
+    let modes = t.modes_value().await;
+    assert_eq!(modes["currentModeId"], "bypassPermissions");
+    let listed: Vec<(String, String, String)> = modes["availableModes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| {
+            let s = |k: &str| m[k].as_str().unwrap_or("").to_owned();
+            (s("id"), s("name"), s("description"))
+        })
+        .collect();
+    let want = [
+        ("auto", "Auto", "Claude handles permission decisions"),
+        ("default", "Manual", "Always ask before making changes"),
+        ("acceptEdits", "Accept edits", "Automatically accept all file edits"),
+        ("plan", "Plan", "Create a plan before making changes"),
+        ("bypassPermissions", "Bypass permissions", "Accepts all permissions"),
+    ];
+    let want: Vec<(String, String, String)> =
+        want.iter().map(|(i, n, d)| (i.to_string(), n.to_string(), d.to_string())).collect();
+    assert_eq!(listed, want);
+    // The config option offers the same list, in the same order.
+    let options = t.config_options_value().await;
+    let mode = options.as_array().unwrap().iter().find(|o| o["id"] == "mode").unwrap();
+    let values: Vec<&str> =
+        mode["options"].as_array().unwrap().iter().filter_map(|o| o["value"].as_str()).collect();
+    assert_eq!(values, ["auto", "default", "acceptEdits", "plan", "bypassPermissions"]);
 }

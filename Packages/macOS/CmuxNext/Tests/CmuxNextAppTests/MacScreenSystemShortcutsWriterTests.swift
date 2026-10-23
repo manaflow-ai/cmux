@@ -1,5 +1,6 @@
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextMacScreen
 import CmuxNextPages
 import CmuxNextSettings
 import Testing
@@ -14,9 +15,9 @@ struct MacScreenSystemShortcutsWriterTests {
     @Test func theUIPathAcceptsAndAutomationRefuses() throws {
         let descriptor = try #require(SettingsSchema.descriptor(for: MacScreenSettings.systemShortcutsPath))
         // Mac Screen home switch and Send Keys: outside an action run, the user.
-        #expect(AppServices.systemShortcutsWriter(run: nil).mayWrite(descriptor))
+        #expect(MacScreenPages.systemShortcutsWriter(run: nil).mayWrite(descriptor))
         for origin: ActionOrigin in [.cli, .mcp, .script, .remote, .page] {
-            #expect(!AppServices.systemShortcutsWriter(run: ActionRunScope(origin: origin, allowsViewChange: false)).mayWrite(descriptor))
+            #expect(!MacScreenPages.systemShortcutsWriter(run: ActionRunScope(origin: origin, allowsViewChange: false)).mayWrite(descriptor))
         }
         // Settings: its own page's calls are the user's with or without a recorded mouse or key
         // event (an accessibility press has none); another page is not.

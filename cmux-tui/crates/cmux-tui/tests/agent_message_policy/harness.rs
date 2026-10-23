@@ -71,6 +71,10 @@ struct FakeAcpmux {
     /// Sessions whose withdraws wait, unanswered, until released.
     withdraw_gates: Mutex<std::collections::HashSet<String>>,
     withdraw_gate_opened: Condvar,
+    /// acpmux still reads its chat logs after a restart: an `_acpmux/info`
+    /// that waits for them (any without `waitLogs: false`) gets no answer, as
+    /// on a large log store that takes longer than its caller waits.
+    reading_logs: std::sync::atomic::AtomicBool,
 }
 
 pub struct Daemon {
@@ -102,16 +106,18 @@ impl Daemon {
     /// A daemon `server ensure` starts with an install key, so [`Self::app`]
     /// can prove a connection as the cmux app. No acpmux listens.
     pub fn start_owner(name: &str) -> Self {
-        Self::owner(name, false)
+        Self::start_owner_with(name, &[], false)
     }
 
     /// [`Self::start_owner`] with a fake acpmux.
     pub fn start_owner_with_acpmux(name: &str) -> Self {
-        Self::owner(name, true)
+        Self::start_owner_with(name, &[], true)
     }
 
-    fn owner(name: &str, acpmux: bool) -> Self {
-        let mut daemon = Self::prepare(name, &[], acpmux);
+    /// [`Self::start_owner`] with `env` and, when `acpmux`, a fake acpmux:
+    /// a daemon on which [`Self::acp_credential`] can mint.
+    pub fn start_owner_with(name: &str, env: &[(&str, &str)], acpmux: bool) -> Self {
+        let mut daemon = Self::prepare(name, env, acpmux);
         daemon.owner = Some(unique("amp-owner"));
         daemon.spawn();
         daemon
@@ -239,6 +245,12 @@ impl Daemon {
     /// How many `_acpmux/info` requests named `session`.
     pub fn lookups_of(&self, session: &str) -> usize {
         self.fake.looked_up.lock().unwrap().iter().filter(|s| *s == session).count()
+    }
+
+    /// The fake acpmux reads its chat logs from now on and never finishes
+    /// ([`FakeAcpmux::reading_logs`]).
+    pub fn reading_chat_logs(&self) {
+        self.fake.reading_logs.store(true, Ordering::SeqCst);
     }
 
     /// The fake acpmux no longer knows `session` (it was deleted).
@@ -412,9 +424,11 @@ impl Daemon {
         reply["result"].as_array().unwrap().clone()
     }
 
-    /// A launch credential for the ACP session `session` (owner only).
+    /// A launch credential for the ACP session `session`, minted on a
+    /// connection proven as the cmux app: only the verified frontend mints
+    /// (an owner daemon only, [`Self::start_owner_with`]).
     pub fn acp_credential(&self, session: &str) -> String {
-        let minted = self.v2("credential.mint", json!({"acp_session": session}), json!({}));
+        let minted = self.app().call("credential.mint", json!({"acp_session": session}));
         assert_eq!(minted["ok"], true, "{minted}");
         minted["result"]["credential"].as_str().unwrap().to_owned()
     }
@@ -618,6 +632,9 @@ fn answer(stream: UnixStream, sessions: &Sessions, fake: &FakeAcpmux) {
             (Some("_acpmux/info"), workspace) => {
                 fake.lookups.fetch_add(1, Ordering::SeqCst);
                 fake.looked_up.lock().unwrap().push(session.to_owned());
+                if fake.reading_logs.load(Ordering::SeqCst) && params["waitLogs"] != json!(false) {
+                    continue;
+                }
                 let prompted =
                     fake.prompts.lock().unwrap().iter().any(|p| p["sessionId"] == session);
                 let unreachable =
@@ -747,6 +764,18 @@ impl App {
         }
     }
 
+    /// A `cmux.protocol/2` request that is not a mutation (no idempotency key).
+    pub fn call(&mut self, operation: &str, mut params: Value) -> Value {
+        params["machine"] = json!("current");
+        params["session"] = json!("current");
+        self.request(json!({
+            "protocol": "cmux.protocol/2",
+            "type": "request",
+            "operation": operation,
+            "params": params,
+        }))
+    }
+
     /// A `cmux.protocol/2` mutation with a fresh idempotency key.
     pub fn mutate(&mut self, operation: &str, mut params: Value) -> Value {
         params["machine"] = json!("current");
@@ -757,6 +786,27 @@ impl App {
             "operation": operation,
             "params": params,
             "idempotency_key": unique("key"),
+        }))
+    }
+
+    /// A `cmux.protocol/2` mutation under `key`, as the holder of `credential` (the app sending
+    /// for an ACP session it minted one for).
+    pub fn mutate_as(
+        &mut self,
+        operation: &str,
+        mut params: Value,
+        credential: &str,
+        key: &str,
+    ) -> Value {
+        params["machine"] = json!("current");
+        params["session"] = json!("current");
+        self.request(json!({
+            "protocol": "cmux.protocol/2",
+            "type": "request",
+            "operation": operation,
+            "params": params,
+            "credential": credential,
+            "idempotency_key": key,
         }))
     }
 }

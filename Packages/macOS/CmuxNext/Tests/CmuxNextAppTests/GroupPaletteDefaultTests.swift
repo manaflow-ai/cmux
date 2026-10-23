@@ -161,7 +161,7 @@ import Testing
         #expect(rows.map(\.id) == ["workspaceGroup.newWorkspace", "workspaceGroup.moveToNewWindow", "workspaceGroup.closeWorkspaces",
                                    "workspaceGroup.togglePin", "workspaceGroup.moveToTop",
                                    "workspaceGroup.ungroup", "workspaceGroup.delete"])
-        #expect(rows.map(\.title) == ["New Workspace in Group", "Move to New Window", "Close Group",
+        #expect(rows.map(\.title) == ["New Workspace in Group", "Move to New Window", "Close All in Group",
                                       "Pin Group", "Move to Top", "Ungroup", "Delete Group"])
     }
 

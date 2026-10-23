@@ -26,7 +26,7 @@ import Observation
 final class WindowManager {
     unowned let services: AppServices
     let registry = WindowRegistryStore()
-    private(set) var controllers: [WindowController] = []
+    private(set) var controllers: [WindowController] = [] { didSet { services.background.windowsDidChange() } } // none left: background mode (cx-ghagp)
     /// Per-window state by window id, for every registered window.
     var states: [String: WindowState] = [:]
     private weak var lastActive: WindowController?
@@ -131,10 +131,7 @@ final class WindowManager {
     func didActivate(_ controller: WindowController) {
         lastActive = controller
         if keepsOrder { return }
-        registry.apply { registry in
-            registry.activate(controller.state.id)
-            return WindowRegistry.Changes()
-        }
+        registry.apply { $0.activate(controller.state.id); return WindowRegistry.Changes() }
     }
 
     /// Records invariant breaks found after a transition (a fault in debug
@@ -221,10 +218,7 @@ final class WindowManager {
         // Every remaining window closed (the open ones lost their workspaces while the app was
         // not running): the most recent one opens, so the app never starts with no window.
         if !registry.value.windows.isEmpty, !registry.value.windows.contains(where: \.isOpen), let front = registry.value.recency.first {
-            registry.apply { registry in
-                registry.setRestored(front, open: true)
-                return WindowRegistry.Changes()
-            }
+            registry.apply { $0.setRestored(front, open: true); return WindowRegistry.Changes() }
         }
         // Restored windows but the front one come back at their saved place, in any content arrival order.
         restacking = Set(registry.value.recency.filter { registry.value.window($0)?.isOpen == true }.dropFirst())
@@ -339,6 +333,7 @@ final class WindowManager {
         // Tests: never on the user's display. Otherwise one rule: under
         // no-activate behind the others (in front on a test screen), never key.
         let behind = behindWindows.remove(controller.state.id) != nil
+        services.background.windowWillAppear(activates: !behind && ordersWindowsIn) // leave background mode first (cx-ghagp)
         let restacks = restacking.remove(controller.state.id) != nil
         if ordersWindowsIn, let window = controller.window,
            !(restacks && WindowActivation.restack(window, in: registry.value.recency.map { self.controller(for: $0)?.window })) {

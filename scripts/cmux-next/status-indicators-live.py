@@ -384,13 +384,13 @@ class Run:
         def banners():
             value = rpc("debug.notifications")
             return value.get("banners", []) if isinstance(value, dict) else []
-        wait(lambda: all(any(b.get("title") == t for b in banners()) for t in expected), 20)
+        wait(lambda: all(any((b.get("subtitle") or "").split(" · ")[0] == t for b in banners()) for t in expected), 20)
         found = banners()
         notes = rpc("debug.notifications")
         with open(os.path.join(self.dir, "notifications.json"), "w") as f:
             json.dump(notes, f, indent=1)
         for title in expected:
-            hits = [b for b in found if b.get("title") == title]
+            hits = [b for b in found if (b.get("subtitle") or "").split(" · ")[0] == title]
             self.check(f"banner {title}", hits, [{k: b.get(k) for k in ("title", "subtitle", "body")} for b in hits])
             for i, banner in enumerate(hits):
                 attachment = banner.get("attachment")
@@ -406,7 +406,7 @@ class Run:
                         f.write(base64.b64decode(attachment["png_base64"]))
                     ok = open(path, "rb").read(4) == b"\x89PNG"
                 self.check(f"badge {title} #{i}", ok, {"bytes": (attachment or {}).get("bytes")})
-        others = [b.get("title") for b in found if b.get("title") not in expected]
+        others = [(b.get("subtitle") or "").split(" · ")[0] for b in found if (b.get("subtitle") or "").split(" · ")[0] not in expected]
         self.evidence["other_banners"] = others
         done_banners = [t for t in others if t and "Tests" in t]
         if done_banners:
