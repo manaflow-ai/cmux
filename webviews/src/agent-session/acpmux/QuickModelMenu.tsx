@@ -25,7 +25,7 @@ import {
 /// harness's top models, numbered, then Effort, More models and Account submenus, then Fast mode.
 export type QuickMenu = {
   /// The numbered rows: this harness's top models, with the running one among them.
-  models: readonly { id: string; name: string }[];
+  models: readonly Omit<QuickModel, "family">[];
   current?: string;
   onModel(id: string): void;
   /// The reasoning levels; absent when the model offers no choice.
@@ -55,9 +55,16 @@ export type QuickMenu = {
   /// When the search field shows (gallery versions): `always` (the default), `typed` (only once
   /// a key is typed), or `long` (when the list holds more than LONG_LIST models, or once typed).
   searchField?: QuickSearchField;
+  /// How a model several providers serve offers them (gallery versions; Lawrence 2026-10-22,
+  /// OpenCode's DeepSeek rows): `row` (the default) lists it once and adds a Provider row for the
+  /// running one, `submenu` makes its row a submenu of providers, `expanded` lists its providers
+  /// under its name.
+  providers?: QuickProviderLook;
 };
 
 export type QuickSearchField = "always" | "typed" | "long";
+
+export type QuickProviderLook = "row" | "submenu" | "expanded";
 
 /// How many models (the tab's rows and More models) make a list long enough for the `long`
 /// version's search field.
@@ -65,6 +72,8 @@ const LONG_LIST = 8;
 
 /// A model row of any harness: `family` is the rail tab (harness) it belongs to. A searched row
 /// names its harness, effort and fast mode in `hint`, and lands `effort` and `fast` when picked.
+/// A model several providers serve is one row (modelVariants.ts): it lands its own `id`, and
+/// `offers` holds every provider's row; `tag` is a note its name carried ("New").
 export type QuickModel = {
   id: string;
   name: string;
@@ -73,6 +82,10 @@ export type QuickModel = {
   hint?: string;
   effort?: string;
   fast?: boolean;
+  tag?: string;
+  /// The provider the row lands, named at its trailing edge (a harness that routes to several).
+  provider?: string;
+  offers?: (QuickModel & { provider: string })[];
 };
 
 /// A rail tab: its harness's top models (numbered), the rest under More models, or a `note` in
@@ -189,7 +202,7 @@ function QuickMenuSpacer({
 }
 
 /// What the composer hands the model picker for its compact menu; the picker adds the models.
-export type QuickMenuExtras = Pick<QuickMenu, "effort" | "account" | "fast" | "searchField">;
+export type QuickMenuExtras = Pick<QuickMenu, "effort" | "account" | "fast" | "searchField" | "providers">;
 
 /// The compact model menu keeps numbered rows, Effort and Account flyouts, and Fast mode.
 /// Its search field filters models in place using the full picker's matching.
@@ -300,6 +313,24 @@ export function QuickModelMenu({
       : !families
         ? models.map((model) => ({ ...model, family: "" }))
         : (shown?.models.slice(0, FILTER_ROWS) ?? []);
+  const offerLook = menu.providers ?? "row";
+  // The running model's row when several providers serve it: the Provider row switches among them.
+  const offered = onChatTab
+    ? (families ? shown?.models : models)?.find((model) => model.id === current && model.offers)
+    : undefined;
+  const runningProvider = offered?.offers?.find((offer) => offer.id === current)?.provider;
+  const valueOf = (model: Pick<QuickModel, "family" | "id">) => (families ? rowValue(model) : model.id);
+  const providerRow = (offer: QuickModel & { provider: string }, className = "acpmux-quick-item") => (
+    <MenuRadioItem
+      key={valueOf(offer)}
+      value={valueOf(offer)}
+      closeOnClick
+      disabled={offer.disabled}
+      className={className}
+    >
+      <span className="acpmux-menu-label">{offer.provider}</span>
+    </MenuRadioItem>
+  );
   const pickRow = (row: QuickModel) => {
     if (row.disabled) return;
     onOpenChange(false);
@@ -445,12 +476,57 @@ export function QuickModelMenu({
       <MenuRadioGroup
         value={currentValue}
         onValueChange={(value) => {
-          const row = rows.find((choice) => (families ? rowValue(choice) : choice.id) === value);
+          const row = rows
+            .flatMap((choice) => [choice, ...(choice.offers ?? [])])
+            .find((choice) => valueOf(choice) === value);
           if (row) pickRow(row);
         }}
       >
         {rows.map((choice, index) => {
-          const value = families ? rowValue(choice) : choice.id;
+          const value = valueOf(choice);
+          // The provider the row lands, at its trailing edge, where a filtered row names its harness.
+          const detail = choice.hint ?? choice.provider;
+          const label = (
+            <>
+              <span className="acpmux-menu-label">{choice.name}</span>
+              {choice.tag && <span className="acpmux-quick-tag">{choice.tag}</span>}
+            </>
+          );
+          if (choice.offers && offerLook === "submenu")
+            return (
+              <Submenu
+                key={value}
+                className="acpmux-quick-item acpmux-quick-sub"
+                popupClassName="acpmux-quick-menu"
+                label={
+                  <>
+                    <span className="acpmux-quick-label">
+                      {label}
+                      {detail && <span className="acpmux-quick-value">{detail}</span>}
+                    </span>
+                  </>
+                }
+              >
+                <MenuRadioGroup
+                  value={currentValue}
+                  onValueChange={(next) => {
+                    const offer = choice.offers?.find((candidate) => valueOf(candidate) === next);
+                    if (offer) pickRow(offer);
+                  }}
+                >
+                  {choice.offers.map((offer) => providerRow(offer))}
+                </MenuRadioGroup>
+              </Submenu>
+            );
+          if (choice.offers && offerLook === "expanded")
+            return (
+              <React.Fragment key={value}>
+                <MenuItem disabled className="acpmux-quick-item acpmux-quick-model-head">
+                  <span className="acpmux-quick-label">{label}</span>
+                </MenuItem>
+                {choice.offers.map((offer) => providerRow(offer, "acpmux-quick-item acpmux-quick-offer"))}
+              </React.Fragment>
+            );
           return (
             <MenuRadioItem
               key={value}
@@ -465,8 +541,8 @@ export function QuickModelMenu({
               }
             >
               <span className="acpmux-quick-label">
-                <span className="acpmux-menu-label">{choice.name}</span>
-                {choice.hint && <span className="acpmux-quick-value">{choice.hint}</span>}
+                {label}
+                {detail && <span className="acpmux-quick-value">{detail}</span>}
               </span>
             </MenuRadioItem>
           );
@@ -584,6 +660,23 @@ export function QuickModelMenu({
             )}
           </Submenu>
         </>
+      )}
+      {!query && offered?.offers && offerLook === "row" && (
+        <Submenu
+          className="acpmux-quick-item acpmux-quick-sub"
+          popupClassName="acpmux-quick-menu"
+          label={<QuickRowLabel label={t("picker.provider")} value={runningProvider} />}
+        >
+          <MenuRadioGroup
+            value={currentValue}
+            onValueChange={(next) => {
+              const offer = offered.offers?.find((candidate) => valueOf(candidate) === next);
+              if (offer) pickRow(offer);
+            }}
+          >
+            {offered.offers.map((offer) => providerRow(offer))}
+          </MenuRadioGroup>
+        </Submenu>
       )}
       {!query && !(forkTab && !profiles) && (!inlineMore || (onChatTab && account) || profiles) && <MenuSeparator />}
       {!query && !inlineMore && families && ((shown?.more.length ?? 0) > 0 || families.onAddHarness) && (
@@ -912,7 +1005,10 @@ function useAccountList(open: boolean, account: QuickMenu["account"]) {
     const forSession = sessionId;
     setList((old) =>
       old
-        ? { ...old, ...(routeId ? { active: routeId, scope: "chat" } : { active: undefined, scope: undefined }) }
+        ? {
+            ...old,
+            ...(routeId ? { active: routeId, scope: "chat" } : { active: undefined, scope: undefined }),
+          }
         : old,
     );
     accounts.set(sessionId, routeId).then(
