@@ -70,6 +70,7 @@ struct WorkspaceAutoNameTests {
     @Test func terminalWithABareShellTitleShowsItsFolder() {
         #expect(Self.live.label(name: "workspace-3", title: nil, front: Self.terminal(title: "zsh", cwd: "/Users/me/src/cmux")) == "cmux")
         #expect(Self.live.label(name: "workspace-3", title: nil, front: Self.terminal(title: "-bash", cwd: "/tmp/api")) == "api")
+        #expect(Self.live.label(name: "workspace-3", title: nil, front: Self.terminal(title: "~", cwd: "/tmp/api")) == "api")
     }
 
     @Test func multiLineAndLongNamesAreTrimmedToOneLine() {
