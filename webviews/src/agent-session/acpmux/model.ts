@@ -443,6 +443,7 @@ export type AcpmuxCatalogModel = {
   efforts?: string[];
   defaultEffort?: string;
   fast?: boolean;
+  serviceTiers?: (string | { id: string; name?: string; description?: string })[];
   contextWindow?: number;
   /** The catalog release an alias stands for (the picker catalog's alias rows). */
   release?: string;
@@ -503,6 +504,7 @@ export type AcpmuxSnapshot = {
     usage?: { used: number; size: number; setup?: number };
     /// What the context holds by category, as Claude Code's /context reports it.
     contextBreakdown?: AcpmuxContextBreakdown;
+    goal?: import("./goal").TaskGoal;
     host?: string;
     peer?: string;
     hostKind?: "local" | "cloud";

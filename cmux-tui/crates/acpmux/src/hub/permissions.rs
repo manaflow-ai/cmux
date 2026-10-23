@@ -137,6 +137,9 @@ impl Hub {
                 mode_write = update.get("configOptions").cloned().map(ModeWrite::ConfigOptions);
             }
             "session_info_update" => {
+                if let Some(goal) = update.pointer("/_meta/goal") {
+                    m.goal = goal.as_object().map(|_| goal.clone());
+                }
                 // A harness title made from the first input stops before a client context
                 // (prompt_context.rs), so a Cmd-I chat titles from the person's words.
                 if let Some(title) = update.get("title").and_then(Value::as_str) {

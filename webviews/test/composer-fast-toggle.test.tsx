@@ -267,6 +267,17 @@ test("Codex: with a tier past Fast, the bolt steps Fast, Ultrafast, then back to
   expect(sent).toEqual(["fast-mode=fast", "fast-mode=ultrafast", "fast-mode=standard"]);
 });
 
+test("Codex exposes Fast and Ultrafast as direct choices", async () => {
+  sent.length = 0;
+  await render(snapshot({ options: threeTier, current: "standard" }, codex));
+  expect(bolt()?.textContent).toContain("Fast");
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Speed"]')!.click());
+  const choices = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
+  expect(choices.map((choice) => choice.textContent)).toContain("Ultrafast");
+  await act(async () => choices.find((choice) => choice.textContent === "Ultrafast")!.click());
+  expect(sent).toEqual(["fast-mode=ultrafast"]);
+});
+
 test("Claude: with a tier past Fast, any tier on checks the row, and a click goes back to off", async () => {
   sent.length = 0;
   await render(snapshot({ options: threeTier, current: "ultrafast" }, claude));
