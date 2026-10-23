@@ -10,6 +10,7 @@ import { commandFolder } from "./commandFolder";
 import { cleanText, mcpCall, prettyOutput, prettyValue } from "./mcpCalls";
 import { plainText } from "./messageMenu";
 import { drawnThought } from "./thoughts";
+import { shellOutput } from "./toolFailure";
 import { toolResult } from "./toolResult";
 
 /** One match: the `occurrence`th match of the query in row `rowIndex`. */
@@ -32,10 +33,18 @@ function drawnText(item: AcpmuxActivity): string {
   const call = mcpCall(tool);
   if (call) return [prettyValue(call.args), prettyOutput(tool.output)].filter(Boolean).join("\n");
   const shell = tool.kind === "execute" && Boolean(tool.command);
-  // Other output reads as ToolRow draws it: out of its envelope, without injected context (toolResult.ts).
-  // Markdown reads as it draws: its words, without the marks (messageMenu.ts plainText).
+  // A shell draws its output without Claude Code's leading "Exit code N" line (toolFailure.ts), which
+  // its Shell block says once, at its end. Other output reads as ToolRow draws it: out of its envelope,
+  // without injected context (toolResult.ts), and Markdown as its words, without the marks
+  // (messageMenu.ts plainText).
   const result = shell || !tool.output ? undefined : toolResult(tool.output, cleanText);
-  const output = !result ? tool.output : result.lang === "markdown" ? plainText(result.text) : result.text;
+  const output = shell
+    ? shellOutput(tool)
+    : !result
+      ? tool.output
+      : result.lang === "markdown"
+        ? plainText(result.text)
+        : result.text;
   // The command as its rows draw it, without a leading `cd <folder> &&` (commandFolder).
   return [(tool.command && commandFolder(tool.command).rest) || tool.title, output].filter(Boolean).join("\n");
 }
