@@ -571,6 +571,11 @@ export function ThreadMinimap({
   // under Reduce Motion (threadMinimap.css).
   const expanded = hovered !== undefined || focused !== undefined || scrubbing || showCard;
   const minimal = placement.narrow && !expanded;
+  // The row the magnify centers on: the hovered one, or, in a narrow rail with the pointer gone to
+  // the card, the row the card previews, so the card-held state stays the full wave and not 6 px
+  // ticks in the 36 px box (#24525 review round 1). The wide rail eases its ticks back to rest
+  // there, its previewed prompt lit, as #24058 shipped.
+  const magnified = hovered ?? (placement.narrow && showCard ? cardRow : undefined);
   const cardMarked = cardTurn ? marks.has(cardTurn) : false;
   const cardTop =
     cardRow === undefined
@@ -663,7 +668,7 @@ export function ThreadMinimap({
           <TickList
             ticks={ticks}
             sessionId={sessionId}
-            hovered={hovered}
+            hovered={magnified}
             focused={focused}
             minimal={minimal}
             active={active}
@@ -723,6 +728,7 @@ const TickList = memo(function TickList({
 }: {
   ticks: readonly MinimapTickRow[];
   sessionId: string | undefined;
+  /// The row the magnify centers on (the hovered one, or a narrow rail's held card's).
   hovered: number | undefined;
   focused: number | undefined;
   /// A resting narrow rail (model.ts railPlacement): every tick short.

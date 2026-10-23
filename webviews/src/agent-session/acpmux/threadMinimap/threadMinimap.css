@@ -118,8 +118,7 @@
     animation: none;
   }
   .acpmux-minimap__bar,
-  .acpmux-minimap__dot,
-  .acpmux-minimap__rail[data-narrow]::before {
+  .acpmux-minimap__dot {
     transition: none;
   }
 }
@@ -146,6 +145,12 @@
 }
 .acpmux-minimap__rail[data-reduce][data-narrow]::before {
   transition: none;
+}
+/* After the base rule, whose specificity it has: earlier, the base transition won. */
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-minimap__rail[data-narrow]::before {
+    transition: none;
+  }
 }
 /* Prompts on screen: the text at 60%; back to rest while the pointer is on the rail. */
 .acpmux-minimap__tick[data-tone="current"] {
