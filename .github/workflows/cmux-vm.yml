@@ -180,6 +180,9 @@ jobs:
       - name: Fork capture intent survives the previous ledger
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun scripts/test-fork-capture-compat.ts
+      - name: Mesh labels survive the previous creation engine
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun scripts/test-mesh-label-compat.ts
       - name: Pending history discovers slots from the previous writer
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun scripts/test-pending-history-compat.ts

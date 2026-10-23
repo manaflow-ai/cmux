@@ -135,6 +135,7 @@ export const ALL_SCOPES: ReadonlyArray<Scope> = SCOPES;
  * (no id), a mesh, a device, a tunnel, or a mesh plus a VM.
  */
 export const MESH_ENDPOINTS = [
+  { name: "createMeshIntent", method: "POST", template: "/v1/mesh-creations", scope: "mesh:write", target: "tenant" },
   { name: "createMesh", method: "POST", template: "/v1/meshes", scope: "mesh:write", target: "tenant" },
   { name: "listMeshes", method: "GET", template: "/v1/meshes", scope: "mesh:read", target: "tenant" },
   { name: "getMesh", method: "GET", template: "/v1/meshes/{meshId}", scope: "mesh:read", target: "mesh" },

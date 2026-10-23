@@ -18,7 +18,7 @@ import { TeamAdmin } from "../auth/team-admin.ts";
 import { MeshStore, type MeshDeviceRow } from "../db/mesh.ts";
 import type { OverlayServerRow } from "../db/overlay-servers.ts";
 import { AuditStore, OwnershipStore } from "../db/stores.ts";
-import { actorRef, CurrentPrincipal, type Principal } from "../domain/principal.ts";
+import { actorRef, carriesRequiredLabels, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import type { Scope } from "../domain/scopes.ts";
 import {
   BadRequest,
@@ -796,6 +796,12 @@ export const meshEnrollHandlers = HttpApiBuilder.group(CmuxVmApi, "meshEnroll", 
 
 export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =>
   handlers
+    .handle("createMeshIntent", ({ payload, headers }) =>
+      withMeshCaller("mesh:write", "write", (caller, scope) => audited("mesh.create", null, Effect.gen(function* () {
+        yield* requireAdmin(caller.value, "mesh:write");
+        return yield* createMeshWithKey(caller, scope, headers["idempotency-key"], payload);
+      }), (mesh) => mesh.id)),
+    )
     .handle("createMesh", ({ payload, headers }) =>
       withMeshCaller("mesh:write", "write", (caller, scope) =>
         audited(
@@ -805,6 +811,7 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
             const principal = caller.value;
             yield* requireAdmin(principal, "mesh:write");
             if (headers["idempotency-key"] !== undefined) return yield* createMeshWithKey(caller, scope, headers["idempotency-key"], payload);
+            if (principal.resourceAllowlist !== null || !carriesRequiredLabels(principal, {})) return yield* Effect.fail(new Forbidden({ message: "This credential cannot create this mesh" }));
             const store = yield* MeshStore;
             const ownership = yield* OwnershipStore;
             const upstream = yield* UpstreamMesh;
@@ -863,7 +870,7 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
           const ownership = yield* OwnershipStore;
           const store = yield* MeshStore;
           const rows = yield* ownership
-            .listPage(principal.tenantId, "mesh", { limit: 100, after: null, only: principal.resourceAllowlist, labels: null })
+            .listPage(principal.tenantId, "mesh", { limit: 100, after: null, only: principal.resourceAllowlist, labels: principal.requiredLabels ?? null })
             .pipe(Effect.catchAll(dependencyDown("ownership.list")));
           const items = yield* Effect.forEach(rows, (row) =>
             Effect.map(store.cidrOf(principal.tenantId, row.cmuxId).pipe(Effect.catchAll(dependencyDown("mesh.cidrOf"))), (cidr) =>

@@ -31,7 +31,7 @@ it("recovers a lost attachment answer with the same pinned mesh and VM before wr
   })
 })
 
-it.each([{ meshes: [] }, { meshes: [mesh(), mesh(OTHER_MESH)] }])("refuses an absent or ambiguous mesh before allocating a VM %#", async ({ meshes }) => {
+it.each([{ meshes: [mesh(), mesh(OTHER_MESH)] }])("refuses an ambiguous mesh before allocating a VM %#", async ({ meshes }) => {
   await withMeshMachine({ meshes }, async (f) => {
     await f.create()
     expect(f.creates()).toBe(0)

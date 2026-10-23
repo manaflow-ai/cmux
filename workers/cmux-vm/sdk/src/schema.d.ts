@@ -805,6 +805,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/mesh-creations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a mesh with durable replay
+         * @description Create a mesh with durable replay. Requires the mesh:write scope. Requires an Idempotency-Key and a team admin for sessions. Reuses the original mesh across retries, conflicts on changed intent and never recreates a deleted mesh. Older servers without this route refuse it before allocation. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+         */
+        post: operations["mesh.createMeshIntent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/meshes": {
         parameters: {
             query?: never;
@@ -2021,12 +2041,16 @@ export interface components {
             };
             createdAt: string;
         };
-        CreateMeshRequest: {
+        CreateMeshIntentRequest: {
             /**
              * maxLength(100)
              * @description a string at most 100 character(s) long
              */
             displayName?: string;
+            labels?: components["schemas"]["MeshLabels"];
+        };
+        MeshLabels: {
+            [key: string]: string;
         };
         Mesh: {
             /** @description a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
@@ -2035,6 +2059,13 @@ export interface components {
             /** @description The mesh's IPv4 block; VMs and devices get addresses inside it. */
             ipv4Cidr: string;
             createdAt: string;
+        };
+        CreateMeshRequest: {
+            /**
+             * maxLength(100)
+             * @description a string at most 100 character(s) long
+             */
+            displayName?: string;
         };
         MeshList: {
             items: components["schemas"]["Mesh"][];
@@ -6158,6 +6189,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "mesh.createMeshIntent": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+                /** @description a string at most 255 character(s) long */
+                "idempotency-key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateMeshIntentRequest"];
+            };
+        };
+        responses: {
+            /** @description Mesh */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Mesh"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description PaymentRequired */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentRequired"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
                 };
             };
             /** @description QuotaExceeded */
