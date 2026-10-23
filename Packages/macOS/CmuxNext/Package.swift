@@ -1525,6 +1525,7 @@ let package = Package(
                 "CmuxNextFloating",
                 "CmuxNextFocus",
                 "CmuxNextFocusUI",
+                "CmuxNextHangReports",
                 "CmuxNextHistory",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
