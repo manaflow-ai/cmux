@@ -62,7 +62,7 @@ public nonisolated enum SettingsSchema {
         case .home: ["diagnostics.viewHangReport"]
         case .keyboard: ["keybindings.open", "palette.searchShortcuts"]
         case .notifications: []
-        case .accounts: ["accounts.refresh", "openTeamPicker"]
+        case .accounts: ["accounts.refresh"]
         case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"]
         case .machines: ["device.add", "remote.connect", "newCloudMachine", "palette.auth.signIn"]
         // The page draws Open <settings file> itself, named from the loaded path.
