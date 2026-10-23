@@ -4,7 +4,7 @@ import Foundation
 
 extension AgentPaneRequest {
     private static let maximumUploadStageChunk = 512 * 1024
-    private static let maximumUploadStageFile = 32 * 1024 * 1024
+    private static let maximumUploadStageFile = 1 * 1024 * 1024 * 1024
 
     private static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
         guard let params else { return .unsupported(method) }
