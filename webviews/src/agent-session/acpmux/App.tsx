@@ -207,7 +207,7 @@ import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { PromptActions, ReceivedActions } from "./conversation/MessageActions";
 import { AgentNamesContext, agentNames } from "./conversation/agentNames";
 import { stopReadingAloud } from "./conversation/readAloud";
-import { foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
+import { ANCHORED_COLLAPSE_EVENT, foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { loadHighlightedCode } from "./conversation/CodeBlock";
 import { loadEditDiffHunks } from "./conversation/EditDiff";
@@ -2467,7 +2467,15 @@ export function VirtualTranscript({
   // of building them in its own frame. A jump past them mounts only what it shows.
   const warmTop = useDeferredValue(renderScroll.top);
   const warm = visibleLayoutRange(layout, warmTop - height * WARM_VIEWPORTS, height * (1 + 2 * WARM_VIEWPORTS));
-  const mountedRanges = mergeRowRanges(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]);
+  // The row whose line a fold holds stays mounted while the hold lasts: a body that shrank under
+  // the old offset (Show less on a long prompt) would otherwise drop the row, and the hold with it,
+  // before the hold puts the line back (foldAnchor.ts).
+  const heldAt = Number(foldAnchor.current?.toggle.closest(".acpmux-row")?.getAttribute("aria-posinset")) - 1;
+  const held = heldAt >= 0 && heldAt < rows.length ? [{ first: heldAt, last: heldAt + 1 }] : [];
+  const mountedRanges = mergeRowRanges([
+    ...(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),
+    ...held,
+  ]);
   // Find highlights only need repainting when the query/target, row content, or mounted DOM
   // window changes. Keep this signature primitive so scroll and layout state updates that leave
   // the mounted rows alone do not walk every text node in the transcript again.
@@ -2664,8 +2672,14 @@ export function VirtualTranscript({
     }
     // A disclosure the reader clicked stays where they clicked it while what it opens lays out: this
     // pass neither follows the latest row nor keeps the top row, it puts the clicked line back.
+    const heldFrom = node?.scrollTop ?? 0;
     const folding = Boolean(old && node && foldAnchor.current && keepFold(foldAnchor.current, node));
     if (!folding) foldAnchor.current = undefined;
+    if (folding && node && Math.abs(node.scrollTop - heldFrom) >= 0.5) {
+      // The rows mounted for this frame read the held offset too, before its scroll event comes.
+      const moved = node.scrollTop;
+      setScroll((current) => ({ top: moved, delta: moved - current.top }));
+    }
     if (folding && node) {
       // What opened pushed the latest row out of view: the view is the reader's now, not following.
       if (followingRef.current && node.scrollTop < layout.totalHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX)
@@ -3194,6 +3208,15 @@ export function VirtualTranscript({
       if (!toggle) return;
       foldAnchor.current = holdFold(toggle);
     };
+    // A collapsible's header that asks to be held (useAnchoredCollapse.ts): a toggle from the keyboard
+    // or a header that is no disclosure button, as well as the click above.
+    const holdAsked = (event: Event) => {
+      const header = event.target as HTMLElement | null;
+      if (!node || typeof header?.closest !== "function" || !node.contains(header) || !header.closest(".acpmux-row"))
+        return;
+      event.preventDefault();
+      foldAnchor.current = holdFold(header);
+    };
     // The reader scrolling lets go of it.
     const release = (event: Event) => {
       const key = (event as KeyboardEvent).key;
@@ -3202,6 +3225,7 @@ export function VirtualTranscript({
     };
     const releases = ["wheel", "touchstart", "keydown"] as const;
     node?.addEventListener("click", holdClicked, { capture: true });
+    node?.addEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
     for (const name of releases) node?.addEventListener(name, release, { passive: true });
     // The wheel over Jump to latest scrolls the transcript (wheelPassThrough.ts).
     // The chat's own transcript only (a replay's sits in its own screen).
@@ -3211,6 +3235,7 @@ export function VirtualTranscript({
       clearTimeout(settle.current);
       for (const name of inputs) node?.removeEventListener(name, reader);
       node?.removeEventListener("click", holdClicked, { capture: true });
+      node?.removeEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
       for (const name of releases) node?.removeEventListener(name, release);
       removeWheel?.();
     };
