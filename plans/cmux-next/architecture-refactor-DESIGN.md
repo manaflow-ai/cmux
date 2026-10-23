@@ -158,13 +158,18 @@ Host protocols, below 40k after Handlers/Pages/Control, and wiring only after th
 
 ## 5. Singletons to injection
 
-148 `shared` declarations, three kinds:
+148 `shared` declarations at the baseline, three kinds:
 
-1. **Name catalogs and stateless handles** (DaemonCapabilities 503 reads, ContextMenuCatalog,
-   OSSignposter holders): declarations, allowed by CLAUDE.md; the Mirror export test is the
-   derived list CLAUDE.md asks for. The 503-read rewrite is not perf work and is not scheduled;
-   if it happens later, use `enum DaemonCapability: String, CaseIterable` (`allCases` replaces
-   the Mirror) and a mechanical rewrite of the reads. Its one piece of state, the locked
+1. **Name catalogs and stateless handles** (ContextMenuCatalog, OSSignposter holders): declarations,
+   allowed by CLAUDE.md. The daemon capability catalog is `enum DaemonCapability: String,
+   CaseIterable` (one case per wire name, 503 reads as `DaemonCapability.name.rawValue`): its
+   `tier` is an exhaustive `switch` without a `default`, so `required`, `optional` and
+   `unservedByBundledDaemon` are derived from `allCases` and the compiler places every new case.
+   This replaced cc7a964ef61's static catalog, whose hand-kept lists were checked by a source regex
+   that missed a typed constant (`let name: String = "..."`) and statics in extensions;
+   check-daemon-capabilities-fresh.py now reads the cases and the `tier` arms and refuses a
+   `default` arm or a stray String constant, and check-app-capability-references.py refuses a
+   String constant declared in the catalog type in any file. Its one piece of state, the locked
    `echoesPlacementShift` static, is gone (review 2): it is a `DaemonConnectionConfiguration`
    field the composition root sets.
 2. **Process-wide state** (DesignSettings 170, CEFRuntime 70, ThemeStore 40, GhosttyRuntime 39,

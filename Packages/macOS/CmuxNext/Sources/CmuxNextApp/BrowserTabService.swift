@@ -72,7 +72,7 @@ final class BrowserTabService {
     /// memory (`ClosedBrowserHistories`): the daemon's copy is not applied.
     var restoredInMemory: @MainActor (String, BrowserEngineKind) -> Bool = { _, _ in false }
     /// Whether `daemon` serves `frontend-browser-tabs-v1`.
-    var serves: @MainActor (DaemonService) -> Bool = { $0.supports(DaemonCapabilities.frontendBrowserTabs) }
+    var serves: @MainActor (DaemonService) -> Bool = { $0.supports(DaemonCapability.frontendBrowserTabs.rawValue) }
     /// Why Chromium cannot open a tab now; nil when it can (or may still
     /// start).
     var cefUnavailable: @MainActor () -> CEFUnavailableReason?
@@ -121,8 +121,8 @@ final class BrowserTabService {
         daemons = { [local] in [local] }
         create = { daemon, pane, url, engine, profile, activate, after in
             // An older daemon without the capability would ignore the field: send it only when served.
-            let background = !activate && daemon.supports(DaemonCapabilities.frontendBrowserActivate)
-            let slot = daemon.supports(DaemonCapabilities.frontendBrowserInsertAfter) ? after : nil
+            let background = !activate && daemon.supports(DaemonCapability.frontendBrowserActivate.rawValue)
+            let slot = daemon.supports(DaemonCapability.frontendBrowserInsertAfter.rawValue) ? after : nil
             // Through the funnel: the action scope waits for the tab's echo
             // before it maps `created` to public ids.
             return try await daemon.perform(NewFrontendBrowserTabRequest.command) { connection in
@@ -146,13 +146,13 @@ final class BrowserTabService {
         }
         keepsState = { _ in false }
         storeHistory = { daemon, surface, history in
-            guard daemon.supports(DaemonCapabilities.frontendBrowserHistory) else { return false }
+            guard daemon.supports(DaemonCapability.frontendBrowserHistory.rawValue) else { return false }
             return await daemon.run(SetFrontendBrowserHistoryRequest.command) { connection in
                 _ = try await connection.request(SetFrontendBrowserHistoryRequest(surface: surface, history: history))
             }
         }
         fetchHistory = { daemon, surface in
-            guard daemon.supports(DaemonCapabilities.frontendBrowserHistory), let connection = daemon.connection else { return nil }
+            guard daemon.supports(DaemonCapability.frontendBrowserHistory.rawValue), let connection = daemon.connection else { return nil }
             return try? await connection.request(GetFrontendBrowserHistoryRequest(surface: surface)).history
         }
         tabModel = { _ in nil }

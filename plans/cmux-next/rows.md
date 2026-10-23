@@ -386,7 +386,7 @@ that run is green. `Destination::Row` is `MoveTabToRow` (no Destination enum exi
 ## Step 4 status (2026-10-04)
 
 App half on branch `feat-cmux-next-rows-app`. Done: decode of `columns[].rows` and `rows-v1` in
-`DaemonCapabilities.optional`; `LayoutColumn.rows` (the column's `root` stays the compat chain for
+`DaemonCapability.optional`; `LayoutColumn.rows` (the column's `root` stays the compat chain for
 pane queries; split queries use the row trees); geometry G1 with gaps only between rows
 (`(height + gap) * p - gap`, so a row of 1000 is today's column) and G2; rendering; a vertical
 offset per overflowing column through the column scroll reducer behind the `RowScroll` adapter

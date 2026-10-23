@@ -102,7 +102,7 @@ extension PaneController {
     /// After a drag moved `tab` into this pane: joins `group` (or leaves its
     /// group when nil) if membership differs. Needs tab-groups-v1.
     func syncGroupMembership(of tab: TabModel, to group: String?) {
-        guard tab.tabGroup?.rawValue != group, daemon.supports(DaemonCapabilities.tabGroups) else { return }
+        guard tab.tabGroup?.rawValue != group, daemon.supports(DaemonCapability.tabGroups.rawValue) else { return }
         if let group {
             groupCommand("add-tabs-to-group", groupWrites.add([tab], to: CmuxNextDaemon.TabGroupID(rawValue: group)))
         } else {

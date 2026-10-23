@@ -22,8 +22,8 @@ wire for cmux-tui; this doc adds the user-facing half.
 | Piece | Where | State |
 | --- | --- | --- |
 | Handshake | cmux-tui `identify`: `version`, `build_commit`, `protocol_version` (12), `capabilities[]` | built |
-| GUI capability gate | `DaemonIdentity.supports(_:)`, `DaemonCapabilities.shared` (required + optional) | built; the GUI hides a feature when the daemon lacks its capability |
-| Required set | `DaemonCapabilities.required`: a daemon without one is refused | built |
+| GUI capability gate | `DaemonIdentity.supports(_:)`, `DaemonCapability` (required + optional) | built; the GUI hides a feature when the daemon lacks its capability |
+| Required set | `DaemonCapability.required`: a daemon without one is refused | built |
 | Local daemon upgrade | `DaemonLauncher.handOffIfStale` at app launch: other build -> fenced `shutdown-daemon`, terminals adopted | built, automatic, lossless |
 | Capability handoff | `handOffForCapability` (page listener) | built, one capability |
 | acpmux upgrade | `AcpmuxVersionHandoff`: hand off only when the daemon runs agent hosts; otherwise **keep it running** ("its agents would end") | built; the kept daemon never upgrades and nothing tells the user |
@@ -65,7 +65,7 @@ daemon, and every remote daemon. Today the matching features just disappear with
 
 The app side: `ServerSkewPolicy.notice(for:appCapabilities:bundledBuild:)` returns a
 `ServerUpdateNotice` when the server lacks capabilities this app can use and its build is known to
-serve (`DaemonCapabilities` optional set minus `unservedByBundledDaemon`), or, for a server that
+serve (`DaemonCapability` optional set minus `unservedByBundledDaemon`), or, for a server that
 advertises nothing, when its build differs from the bundled one. Required capabilities never reach
 this path (a daemon without them is refused before attach, as today).
 
@@ -75,7 +75,7 @@ this path (a daemon without them is refused before attach, as today).
 groups", "Workspace checklists", "Browser profiles", "Pinned workspaces", ...). Only capabilities a
 person can see are listed; the rest are counted. The toast names up to three, then "and N more".
 The catalog lives next to the strings (21 locales) and has a test that every listed capability is a
-real `DaemonCapabilities` optional capability.
+real `DaemonCapability` optional capability.
 
 ## 5. Restart impact (the confirm's text)
 

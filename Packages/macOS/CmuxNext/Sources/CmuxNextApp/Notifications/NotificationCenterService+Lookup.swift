@@ -107,7 +107,7 @@ extension NotificationCenterService {
         }
         return FeedHandoffDriver(
             daemon: .init(
-                serves: { daemon.isLocal && daemon.identity?.supports(DaemonCapabilities.feedLocalOwner) == true },
+                serves: { daemon.isLocal && daemon.identity?.supports(DaemonCapability.feedLocalOwner.rawValue) == true },
                 list: { state, unread in
                     try await connection().request(FeedLocalListRequest(state: state, unread: unread ? true : nil)).items
                 },
