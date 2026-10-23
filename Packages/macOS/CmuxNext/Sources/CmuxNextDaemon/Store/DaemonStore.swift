@@ -119,10 +119,14 @@ public final class DaemonStore: StateResourceQueries {
     /// The one model of each pending split's provisional pane, by public pane id: every overlay
     /// restore shows it, and the daemon's pane takes it over in place (`confirmedPane`).
     @ObservationIgnored var provisionalPanes: [String: PaneModel] = [:]
-    /// Stand-in pane handles a pending create names as its target (a New Column or split pressed on
-    /// a create still in flight), by handle: the stand-in's public pane id, under which the
-    /// daemon's pane takes it over with a new handle (``daemonHandle(showing:)``).
-    @ObservationIgnored var standInTargets: [PaneID: String] = [:]
+    /// Every pending split's stand-in pane, by handle, from the turn its intent enters the log
+    /// while a pending create could still name it or fall back through it: its public pane id
+    /// (the daemon's pane takes it over under it with a new handle), its anchor and its create
+    /// (``daemonHandle(showing:)``, ``daemonTarget(for:)``).
+    @ObservationIgnored var standIns: [PaneID: StandInPane] = [:]
+    /// Creates waiting at send time for the stand-in they were pressed on to get its daemon pane
+    /// (``daemonTarget(for:)``): resumed after every overlay lift, when that can have changed.
+    @ObservationIgnored var standInWaiters: [CheckedContinuation<Void, Never>] = []
     /// True while daemon state applies to the confirmed records (the
     /// intent overlay is undone).
     @ObservationIgnored var overlayLifted = false

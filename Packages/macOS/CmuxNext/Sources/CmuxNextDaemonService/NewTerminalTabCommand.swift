@@ -55,10 +55,11 @@ public struct NewTerminalTabCommand: Sendable {
         let transaction = ClientTransactionID.generate()
         let pane = pane, sent = options
         let intent = Intent.createTab(pane: pane, provisional: provisional.terminal(terminal, cwd: options.cwd))
-        let send = daemon.intendNow("new-tab", intent, transaction: transaction) { connection in
+        // A tab opened in a pending create's stand-in pane goes to the daemon's pane for it.
+        let send = daemon.intendCreate("new-tab", intent, transaction: transaction, target: pane) { connection, target in
             var sent = sent
             if let cwd, let start = await cwd.value { sent.cwd = start }
-            return try await connection.newTab(in: pane, options: sent)
+            return try await connection.newTab(in: target, options: sent)
         }
         return Pending(tab: provisional.id, surface: provisional.surface) {
             guard let created = await send() else { throw NewTerminalTabFailure() }
