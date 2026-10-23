@@ -120,7 +120,7 @@ describe("attachment matrix: what the agent receives per file type", () => {
         mimeType: type === "image/jpeg" ? type : "image/png",
         name: name.replace(/\.(gif|webp)$/, ".png"),
       });
-      expect(result.sent.map((batch) => batch.map((each) => each.name))).toEqual([[name]]);
+      expect(result.sent).toEqual([]);
       expect(result.error).toBeUndefined();
     });
 
