@@ -159,7 +159,7 @@
    description and state stay visible; long lists use the View all row instead of hiding completed
    work behind an aggregate count. */
 .acpmux-summary-task{display:flex;align-items:center;gap:2px;margin:2px 0;border:var(--cmux-hairline,.5px) solid var(--agent-border);border-radius:8px;background:color-mix(in srgb,var(--agent-text) 3%,transparent)}
-.acpmux-summary-task>.acpmux-summary-row{flex:1 1 auto;min-width:0}
+.acpmux-summary-task>.acpmux-summary-row{flex:1 1 auto;min-width:0;height:auto;min-height:40px;padding-block:6px}
 .acpmux-summary-task>.acpmux-chat-inspector-stop{margin-right:4px}
 .acpmux-summary-task[data-state=failed]>.acpmux-summary-row>svg{color:var(--agent-danger)}
 .acpmux-summary-task[data-state=stopped]>.acpmux-summary-row>svg,.acpmux-summary-task[data-state=lost]>.acpmux-summary-row>svg{color:var(--agent-muted)}

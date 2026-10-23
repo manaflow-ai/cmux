@@ -85,20 +85,23 @@ export function SummaryTasks({
       </li>
     );
   };
-  return (
-    <section className="acpmux-summary-section acpmux-summary-tasks" aria-label={title}>
-      <h3 className="acpmux-summary-title">{title}</h3>
-      <ul className="acpmux-summary-list">
-        {shown.map(row)}
-        {running.length > FOLDED && (
-          <li>
+  // Keep every card and overflow control in one keyed child list. A task can move from running to
+  // finished without remounting, so a focused card keeps its DOM node and terminal affordance.
+  const cards = [
+    ...shown.map(row),
+    ...(running.length > FOLDED
+      ? [
+          <li key="running-overflow">
             <button type="button" className="acpmux-summary-more" onClick={() => setAll(!all)}>
               {all ? t("summary.showFewer") : t("summary.viewAll", { n: running.length })}
             </button>
-          </li>
-        )}
-        {finished.length > 0 && finished.length > FOLDED && (
-          <li>
+          </li>,
+        ]
+      : []),
+    ...shownFinished.map(row),
+    ...(finished.length > FOLDED
+      ? [
+          <li key="finished-overflow">
             <button
               type="button"
               className="acpmux-summary-more acpmux-summary-finished"
@@ -108,10 +111,14 @@ export function SummaryTasks({
               <Icon name={finishedOpen ? "disclosure.expanded" : "disclosure.collapsed"} size={10} />
               {finishedOpen ? t("summary.showFewer") : t("summary.viewAll", { n: finished.length })}
             </button>
-          </li>
-        )}
-        {shownFinished.map(row)}
-      </ul>
+          </li>,
+        ]
+      : []),
+  ];
+  return (
+    <section className="acpmux-summary-section acpmux-summary-tasks" aria-label={title}>
+      <h3 className="acpmux-summary-title">{title}</h3>
+      <ul className="acpmux-summary-list">{cards}</ul>
     </section>
   );
 }

@@ -82,7 +82,7 @@ export const SubagentTray = memo(function SubagentTray({
   // The person's choice holds; until then a short list shows and a long one folds.
   const [opened, setOpened] = useState<boolean>();
   const [showFinished, setShowFinished] = useState(false);
-  if (items.length === 0) return null;
+  if (items.length === 0 && finished.length === 0) return null;
   const headed = items.length > 1;
   const open = !headed || (opened ?? items.length <= TRAY_OPEN_MAX);
   // Its subagents and the chats it started are one word: subagents.
@@ -96,6 +96,33 @@ export const SubagentTray = memo(function SubagentTray({
   ]
     .filter((part): part is string => typeof part === "string")
     .join(" · ");
+  // Keep live and ended cards in one keyed child list. When a task completes, its card moves
+  // between groups without remounting, so keyboard focus and the open affordance stay put.
+  const cards = [
+    ...items.map((item) => <li key={`${item.kind}:${item.id}`}>{line(item)}</li>),
+    ...finished.slice(0, showFinished ? finished.length : TRAY_OPEN_MAX).map((item) => (
+      <li key={`${item.kind}:${item.id}`} data-finished="">
+        {line(item)}
+      </li>
+    )),
+    ...(finished.length > TRAY_OPEN_MAX
+      ? [
+          <li key="finished-overflow">
+            <button
+              type="button"
+              className="acpmux-summary-row acpmux-summary-link acpmux-running-tray__finished"
+              aria-expanded={showFinished}
+              onClick={() => setShowFinished(!showFinished)}
+            >
+              <span className="acpmux-summary-text">
+                {showFinished ? t("summary.showFewer") : t("summary.viewAll", { n: finished.length })}
+              </span>
+              <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
+            </button>
+          </li>,
+        ]
+      : []),
+  ];
   return (
     <section className="acpmux-running-tray" aria-label={t("summary.subagents")} data-open={open || undefined}>
       {headed && (
@@ -120,29 +147,7 @@ export const SubagentTray = memo(function SubagentTray({
       )}
       {open && (
         <ul id={listId} className="acpmux-running-tray__list">
-          {items.map((item) => (
-            <li key={`${item.kind}:${item.id}`}>{line(item)}</li>
-          ))}
-          {finished.slice(0, showFinished ? finished.length : TRAY_OPEN_MAX).map((item) => (
-            <li key={`${item.kind}:${item.id}`} data-finished="">
-              {line(item)}
-            </li>
-          ))}
-          {finished.length > TRAY_OPEN_MAX && (
-            <li>
-              <button
-                type="button"
-                className="acpmux-summary-row acpmux-summary-link acpmux-running-tray__finished"
-                aria-expanded={showFinished}
-                onClick={() => setShowFinished(!showFinished)}
-              >
-                <span className="acpmux-summary-text">
-                  {showFinished ? t("summary.showFewer") : t("summary.viewAll", { n: finished.length })}
-                </span>
-                <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
-              </button>
-            </li>
-          )}
+          {cards}
         </ul>
       )}
     </section>
