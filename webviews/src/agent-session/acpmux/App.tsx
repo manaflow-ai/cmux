@@ -3598,7 +3598,11 @@ function DefaultComposerChips({
   };
   const picker = usePickerCatalog(
     snapshot.catalog,
-    { harness: snapshot.summary?.harness, configOptions: snapshot.summary?.configOptions },
+    {
+      harness: snapshot.summary?.harness,
+      model: snapshot.summary?.model,
+      configOptions: snapshot.summary?.configOptions,
+    },
     snapshot.sessions,
   );
   const [refreshStatus, setRefreshStatus] = useState<"idle" | "fetching" | "updated" | "error">("idle");
@@ -4698,8 +4702,12 @@ function AcpmuxPane() {
   // harness (user-hidden ones left out, aliases folded, the session's own choices added) that it can
   // run now, kept the same array while they stay the same.
   const pickerSession = useMemo(
-    () => ({ harness: snapshot.summary?.harness, configOptions: snapshot.summary?.configOptions }),
-    [snapshot.summary?.harness, snapshot.summary?.configOptions],
+    () => ({
+      harness: snapshot.summary?.harness,
+      model: snapshot.summary?.model,
+      configOptions: snapshot.summary?.configOptions,
+    }),
+    [snapshot.summary?.harness, snapshot.summary?.model, snapshot.summary?.configOptions],
   );
   const pickerState = usePickerCatalog(snapshot.catalog, pickerSession, snapshot.sessions);
   const pickerCatalog = pickerState.catalog;
@@ -4720,7 +4728,7 @@ function AcpmuxPane() {
     .map((model) => `${model.id}\t${model.shortName || model.name || model.id}\t${model.release ?? ""}`)
     .join("\n");
   const retryHarnessName = retryHarness?.name;
-  const retryTop = retryHarness ? topModelsFor(retryHarness.id) : undefined;
+  const retryTop = retryHarness ? topModelsFor(retryHarness.kin ?? retryHarness.id) : undefined;
   const retryModels = useMemo(
     () =>
       retryModelsKey

@@ -4,10 +4,88 @@ import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { AcpmuxSnapshot } from "./model";
 import { ComposerPickers, type ComposerPermissionGrant } from "./ComposerPickers";
+import { BUNDLED_MODEL_CATALOG, buildPickerCatalog } from "./modelCatalogData";
+import { ChatAccountsContext, type ChatAccounts } from "./chatAccounts";
 
-type Props = Record<string, never>;
+/// The chat's accounts: its CLI login alone, as Leo's chat had (the Account row names it).
+const galleryAccounts: ChatAccounts = {
+  list: async () => ({ accounts: [] }),
+  set: async () => undefined,
+};
 
-const initialSnapshot: AcpmuxSnapshot = {
+/** `claude`: Leo's started claude-sr2 chat (2026-10-21), whose model menu listed nine models. */
+type Props = { claude?: boolean };
+
+/// Claude Code's model list as Leo's chat reported it: its aliases named as the releases they run,
+/// its 1M and plan modes, and Fable 5.1 pinned. The chat runs the pinned release claude-opus-5-5
+/// on claude-sr2, a Claude Code profile the model catalog does not map; Claude Code's `opus` is the
+/// same model, so the menu lists it once.
+const claudeCodeModels = [
+  { id: "default", name: "Default (recommended)" },
+  { id: "opus", name: "Opus 5.5" },
+  { id: "claude-fable-5-1[1m]", name: "Fable 5.1 · 1M context" },
+  { id: "sonnet", name: "Sonnet 5.5" },
+  { id: "haiku", name: "Haiku 5.5" },
+  { id: "opus[1m]", name: "Opus · 1M context" },
+  { id: "opusplan", name: "Opus plan · Sonnet execute" },
+  { id: "sonnet[1m]", name: "Sonnet · 1M context" },
+  { id: "claude-fable-5-1", name: "Fable 5.1" },
+];
+
+const claudeSnapshot: AcpmuxSnapshot = {
+  type: "snapshot",
+  protocolVersion: 1,
+  rows: [],
+  sessions: [],
+  connection: "gallery",
+  isWorking: false,
+  queue: [],
+  canLoadOlder: false,
+  catalog: [{ id: "claude-sr2", name: "Claude Code", family: "claude-sr2", models: claudeCodeModels }],
+  summary: {
+    sessionId: "gallery-claude",
+    harness: "claude-sr2",
+    family: "claude-sr2",
+    model: "claude-opus-5-5",
+    turnCount: 12,
+    usage: { used: 300_000, size: 1_000_000 },
+    modes: {
+      availableModes: [
+        { id: "default", name: "Default" },
+        { id: "acceptEdits", name: "Accept edits" },
+        { id: "bypassPermissions", name: "Full access" },
+      ],
+      currentModeId: "default",
+    },
+    configOptions: [
+      {
+        id: "model",
+        name: "Model",
+        category: "model",
+        currentValue: "claude-opus-5-5",
+        options: claudeCodeModels.map((model) => ({ value: model.id, name: model.name })),
+      },
+      {
+        id: "effort",
+        name: "Effort",
+        category: "thought_level",
+        currentValue: "medium",
+        options: ["low", "medium", "high", "xhigh", "max"].map((value) => ({ value, name: value })),
+      },
+      {
+        id: "fast-mode",
+        name: "Fast mode",
+        currentValue: "off",
+        options: [
+          { value: "off", name: "Off" },
+          { value: "on", name: "On" },
+        ],
+      },
+    ],
+  },
+};
+
+const codexSnapshot: AcpmuxSnapshot = {
   type: "snapshot",
   protocolVersion: 1,
   rows: [],
@@ -77,7 +155,8 @@ const initialSnapshot: AcpmuxSnapshot = {
   },
 };
 
-function GalleryComposerPickers() {
+function GalleryComposerPickers({ claude }: Props) {
+  const initialSnapshot = claude ? claudeSnapshot : codexSnapshot;
   const [model, setModel] = useState(initialSnapshot.summary!.model!);
   const [mode, setMode] = useState(initialSnapshot.summary!.modes!.currentModeId!);
   const [effort, setEffort] = useState("medium");
@@ -99,23 +178,42 @@ function GalleryComposerPickers() {
         })),
       },
     }),
-    [effort, fast, mode, model],
+    [initialSnapshot, effort, fast, mode, model],
+  );
+  // The model catalog's join, as the agent pane builds it, so Claude Code's aliases fold.
+  const pickerCatalog = useMemo(
+    () =>
+      claude
+        ? buildPickerCatalog({
+            catalog: BUNDLED_MODEL_CATALOG,
+            acpmux: snapshot.catalog,
+            session: {
+              harness: "claude-sr2",
+              model: snapshot.summary?.model,
+              configOptions: snapshot.summary?.configOptions,
+            },
+          })
+        : undefined,
+    [claude, snapshot],
   );
   return (
-    <div className="acpmux-composer-gallery-shell">
-      <div className="acpmux-composer-gallery-copy">
-        <strong>Composer controls</strong>
-        <span>One model button (model and effort), permission, and Plan controls share one quiet footer rail.</span>
+    <ChatAccountsContext.Provider value={galleryAccounts}>
+      <div className="acpmux-composer-gallery-shell">
+        <div className="acpmux-composer-gallery-copy">
+          <strong>Composer controls</strong>
+          <span>One model button (model and effort), permission, and Plan controls share one quiet footer rail.</span>
+        </div>
+        <ComposerPickers
+          snapshot={snapshot}
+          {...(pickerCatalog ? { pickerCatalog } : {})}
+          permissionAccess={{ grants }}
+          onModel={setModel}
+          onMode={setMode}
+          onEffort={(id, value) => (id === "fast-mode" ? setFast(value) : setEffort(value))}
+          showPlan
+        />
       </div>
-      <ComposerPickers
-        snapshot={snapshot}
-        permissionAccess={{ grants }}
-        onModel={setModel}
-        onMode={setMode}
-        onEffort={(id, value) => (id === "fast-mode" ? setFast(value) : setEffort(value))}
-        showPlan
-      />
-    </div>
+    </ChatAccountsContext.Provider>
   );
 }
 
@@ -343,6 +441,16 @@ export default componentEntry<Props>({
       note: "Picking High in the Effort submenu closes the menu, and the model button then reads High after the model.",
       props: {},
       play: effortPick,
+    },
+    "claude-model-menu": {
+      note: "Leo's started claude-sr2 chat (2026-10-21; nine numbered rows, Opus 5.5 twice): the menu lists four models, Opus 5.5 once and checked; Effort names Medium, Account names CLI login, Fast mode names Off, and the rest are under More models.",
+      props: { claude: true },
+      play: openModel,
+    },
+    "claude-effort-up": {
+      note: "Opened from the composer at the window's foot, the Effort submenu grows up from its row, Medium checked (Leo 2026-10-21: it opened downward).",
+      props: { claude: true },
+      play: openEffort,
     },
     "fast-mode": {
       note: "Fast mode is the model menu's last row, a checkbox (Leo 2026-10-20): a click turns it on, and the menu shows it checked.",

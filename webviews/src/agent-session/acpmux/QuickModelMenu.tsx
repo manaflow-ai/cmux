@@ -22,7 +22,7 @@ import {
 /// harness's top models, numbered, then Effort, More models and Account submenus, then Fast mode.
 export type QuickMenu = {
   /// The numbered rows: this harness's top models, with the running one among them.
-  models: readonly { id: string; name: string }[];
+  models: readonly Omit<QuickModel, "family">[];
   current?: string;
   onModel(id: string): void;
   /// The reasoning levels; absent when the model offers no choice.
@@ -38,10 +38,28 @@ export type QuickMenu = {
   families?: QuickFamilies;
   /// The chat's agent CLI has an update (hq#2569 #12): the last row starts it.
   update?: { text: string; run(): void };
+  /// How a model several providers serve offers them (gallery versions; Lawrence 2026-10-22,
+  /// OpenCode's DeepSeek rows): `row` (the default) lists it once and adds a Provider row for the
+  /// running one, `submenu` makes its row a submenu of providers, `expanded` lists its providers
+  /// under its name.
+  providers?: QuickProviderLook;
 };
 
-/// A model row of any harness: `family` is the rail tab (harness) it belongs to.
-export type QuickModel = { id: string; name: string; family: string; disabled?: boolean };
+export type QuickProviderLook = "row" | "submenu" | "expanded";
+
+/// A model row of any harness: `family` is the rail tab (harness) it belongs to. A model several
+/// providers serve is one row (modelVariants.ts): it lands its own `id`, and `offers` holds every
+/// provider's row; `tag` is a note its name carried ("New").
+export type QuickModel = {
+  id: string;
+  name: string;
+  family: string;
+  disabled?: boolean;
+  tag?: string;
+  /// The provider the row lands, named at its trailing edge (a harness that routes to several).
+  provider?: string;
+  offers?: (QuickModel & { provider: string })[];
+};
 
 /// A rail tab: its harness's top models (numbered), the rest under More models, or a `note` in
 /// their place (a signed-out harness). `mark` is the AgentMark brand; without one the tab draws
@@ -88,10 +106,10 @@ function filtered(families: QuickFamily[], query: string): (QuickModel & { hint:
 const rowValue = (model: Pick<QuickModel, "family" | "id">) => `${model.family}\u0000${model.id}`;
 
 /// What the composer hands the model picker for its compact menu; the picker adds the models.
-export type QuickMenuExtras = Pick<QuickMenu, "effort" | "account" | "fast">;
+export type QuickMenuExtras = Pick<QuickMenu, "effort" | "account" | "fast" | "providers">;
 
 /// The Claude Code style model menu (Leo 2026-10-18): a short rounded menu headed "Model · this
-/// session". Keys 1 to 9 pick a model in place, its check sits at the row's trailing edge, Effort
+/// session". Its few numbered rows (ModelPicker's QUICK_ROWS) are picked in place by their keys, its check sits at the row's trailing edge, Effort
 /// and Account open beside their rows, and More models opens the full picker (the harness rail and
 /// search). Typing a letter opens that picker searching for it. Fast mode is the last row, a
 /// checkbox (Leo 2026-10-20), never a radio group inside Effort.
@@ -162,6 +180,24 @@ export function QuickModelMenu({
     : query
       ? filtered(families.list, query)
       : (shown?.models.slice(0, FILTER_ROWS) ?? []);
+  const look = menu.providers ?? "row";
+  // The running model's row when several providers serve it: the Provider row switches among them.
+  const running = onChatTab
+    ? (families ? shown?.models : models)?.find((model) => model.id === current && model.offers)
+    : undefined;
+  const runningProvider = running?.offers?.find((offer) => offer.id === current)?.provider;
+  const valueOf = (model: Pick<QuickModel, "family" | "id">) => (families ? rowValue(model) : model.id);
+  const providerRow = (offer: QuickModel & { provider: string }, className = "acpmux-quick-item") => (
+    <MenuRadioItem
+      key={valueOf(offer)}
+      value={valueOf(offer)}
+      closeOnClick
+      disabled={offer.disabled}
+      className={className}
+    >
+      <span className="acpmux-menu-label">{offer.provider}</span>
+    </MenuRadioItem>
+  );
   const pickRow = (row: QuickModel) => {
     if (row.disabled) return;
     onOpenChange(false);
@@ -212,12 +248,55 @@ export function QuickModelMenu({
         <MenuRadioGroup
           value={currentValue}
           onValueChange={(value) => {
-            const row = rows.find((choice) => (families ? rowValue(choice) : choice.id) === value);
+            const row = rows
+              .flatMap((choice) => [choice, ...(choice.offers ?? [])])
+              .find((choice) => valueOf(choice) === value);
             if (row) pickRow(row);
           }}
         >
           {rows.map((choice, index) => {
-            const value = families ? rowValue(choice) : choice.id;
+            const value = valueOf(choice);
+            // The provider the row lands, at its trailing edge, where a filtered row names its harness.
+            const detail = choice.hint ?? choice.provider;
+            const label = (
+              <>
+                <span className="acpmux-menu-label">{choice.name}</span>
+                {choice.tag && <span className="acpmux-quick-tag">{choice.tag}</span>}
+              </>
+            );
+            if (choice.offers && look === "submenu")
+              return (
+                <Submenu
+                  key={value}
+                  className="acpmux-quick-item acpmux-quick-sub"
+                  popupClassName="acpmux-quick-menu"
+                  label={
+                    <>
+                      {label}
+                      {detail && <span className="acpmux-quick-value">{detail}</span>}
+                    </>
+                  }
+                >
+                  <MenuRadioGroup
+                    value={currentValue}
+                    onValueChange={(next) => {
+                      const offer = choice.offers?.find((candidate) => valueOf(candidate) === next);
+                      if (offer) pickRow(offer);
+                    }}
+                  >
+                    {choice.offers.map((offer) => providerRow(offer))}
+                  </MenuRadioGroup>
+                </Submenu>
+              );
+            if (choice.offers && look === "expanded")
+              return (
+                <React.Fragment key={value}>
+                  <MenuItem disabled className="acpmux-quick-item acpmux-quick-model-head">
+                    {label}
+                  </MenuItem>
+                  {choice.offers.map((offer) => providerRow(offer, "acpmux-quick-item acpmux-quick-offer"))}
+                </React.Fragment>
+              );
             return (
               <MenuRadioItem
                 key={value}
@@ -227,8 +306,8 @@ export function QuickModelMenu({
                 className="acpmux-quick-item"
                 shortcut={!query && index < FILTER_ROWS && value !== currentValue ? String(index + 1) : undefined}
               >
-                <span className="acpmux-menu-label">{choice.name}</span>
-                {choice.hint && <span className="acpmux-quick-value">{choice.hint}</span>}
+                {label}
+                {detail && <span className="acpmux-quick-value">{detail}</span>}
               </MenuRadioItem>
             );
           })}
@@ -261,6 +340,24 @@ export function QuickModelMenu({
             </MenuRadioGroup>
           </Submenu>
         </>
+      )}
+      {!query && running?.offers && look === "row" && !(effort && levels.length > 1) && <MenuSeparator />}
+      {!query && running?.offers && look === "row" && (
+        <Submenu
+          className="acpmux-quick-item acpmux-quick-sub"
+          popupClassName="acpmux-quick-menu"
+          label={<QuickRowLabel label={t("picker.provider")} value={runningProvider} />}
+        >
+          <MenuRadioGroup
+            value={currentValue}
+            onValueChange={(next) => {
+              const offer = running.offers?.find((candidate) => valueOf(candidate) === next);
+              if (offer) pickRow(offer);
+            }}
+          >
+            {running.offers.map((offer) => providerRow(offer))}
+          </MenuRadioGroup>
+        </Submenu>
       )}
       {!query && <MenuSeparator />}
       {!query && families && ((shown?.more.length ?? 0) > 0 || families.onAddHarness) && (
@@ -343,6 +440,9 @@ export function QuickModelMenu({
             onCheckedChange={(on) => fast.onChange(on)}
           >
             <span className="acpmux-menu-label">{t("picker.fastMode")}</span>
+            {/* Its state in words at the trailing edge, as Effort and Account name theirs (Leo
+                2026-10-21): Off in secondary ink, On in the theme accent. */}
+            <span className="acpmux-quick-value">{t(fast.checked ? "picker.on" : "picker.off")}</span>
           </MenuCheckboxItem>
         </>
       )}
@@ -530,7 +630,10 @@ function useAccountList(open: boolean, account: QuickMenu["account"]) {
     const forSession = sessionId;
     setList((old) =>
       old
-        ? { ...old, ...(routeId ? { active: routeId, scope: "chat" } : { active: undefined, scope: undefined }) }
+        ? {
+            ...old,
+            ...(routeId ? { active: routeId, scope: "chat" } : { active: undefined, scope: undefined }),
+          }
         : old,
     );
     accounts.set(sessionId, routeId).then(
