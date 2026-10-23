@@ -52,9 +52,7 @@ extension DaemonStore {
             case .gone:
                 throw CreateTargetGone(pane: handle)
             case .pending:
-                await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
-                    standInWaiters.append((handle: handle, resume: resume))
-                }
+                return handle
             }
         }
     }

@@ -88,8 +88,7 @@ import Foundation
         while seen.insert(target).inserted {
             if store.panesByHandle[target] != nil { return target }
             if let daemon = daemonHandle(showing: target, in: store) { return daemon }
-            guard let anchor = store.standIns[target]?.anchor else { return nil }
-            target = anchor
+            return nil
         }
         return nil
     }
