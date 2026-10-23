@@ -34,9 +34,9 @@ public final class PointerHover: NSObject {
     public let requiresKeyWindow: Bool
 
     private weak var view: NSView?
-    /// The tracking area this target owns on `view`, by identity: a deinit cannot hold the area
-    /// itself (it is not `Sendable`), and the view keeps it alive until it is removed.
-    private var areaID: ObjectIdentifier?
+    /// The tracking area this target owns on `view`, held by exact object (a deinit cannot hold
+    /// the `NSTrackingArea` itself: it is not `Sendable`).
+    private let area: PointerHoverArea
 
     /// - Parameter requiresKeyWindow: false for window chrome (hover shows in
     ///   a background window, as in the sidebar), true for sheets.
@@ -44,36 +44,29 @@ public final class PointerHover: NSObject {
         self.view = view
         self.requiresKeyWindow = requiresKeyWindow
         self.onChange = onChange
-        super.init()
         // `.inVisibleRect` follows the view's visible rect, so the area never
         // needs replacing; the view's own `updateTrackingAreas` leaves it alone
         // (it removes only areas it owns).
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, requiresKeyWindow ? .activeInKeyWindow : .activeAlways, .inVisibleRect],
-                                  owner: self)
-        view.addTrackingArea(area)
-        areaID = ObjectIdentifier(area)
+        area = PointerHoverArea(view: view, options: [.mouseEnteredAndExited, requiresKeyWindow ? .activeInKeyWindow : .activeAlways, .inVisibleRect])
+        super.init()
+        area.install(for: self)
         Self.index.insert(self)
         Self.index.observeKeyWindowsIfNeeded()
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    // Reads Sendable state only. The area must leave a view that outlives this target (AppKit does not
-    // retain an area's owner): on main that happens inline, as before; a release on another thread
-    // (it skipped the removal before) hands it to the main thread. A view in deallocation reads nil
-    // here, and its areas go with it.
+    // Reads Sendable state only (`area` is a main-actor class). The area leaves the view on main
+    // inline, as before; a release on another thread (it skipped the removal before) hands it to the
+    // main thread, and until then the area's owner (retained by `area`) drops its enters and exits.
     nonisolated deinit {
-        guard let view, let areaID else { return }
-        MainDelivery().run {
-            if let area = view.trackingAreas.first(where: { ObjectIdentifier($0) == areaID }) { view.removeTrackingArea(area) }
-        }
+        let area = area
+        MainDelivery().run { area.remove() }
     }
 
     // MARK: Events
 
-    // AppKit sends a tracking area's owner `mouseEntered:` and `mouseExited:`.
-    // This owner is not an NSResponder, so the selectors must be named: a bare
-    // `@objc` exports `mouseEnteredWith:`, and the first enter raised
-    // NSInvalidArgumentException in `_dispatchMouseEntered:` (cx-2mp6).
+    // The target's tracking area forwards its enters and exits here (`PointerHoverArea`).
+    // The selectors stay named (cx-2mp6) for callers that send them as an owner would.
     // The target's own event files it under its window first: a view moved to another window
     // since the last refresh is found there.
     @objc(mouseEntered:) public func mouseEntered(with event: NSEvent) {
