@@ -53,23 +53,23 @@ import Testing
         indicator.reconcile()
         #expect(indicator.isSampling)
         #expect(service?.subscriberCount == 1)
-        #expect(service?.isMonitoring == true)
+        #expect(await service?.monitorIsRunning() == true)
 
         // Hidden, minimized or occluded: it unsubscribes and the monitor (and its timer) stops.
         visibility.visible = false
         indicator.reconcile()
         #expect(!indicator.isSampling)
         #expect(service?.subscriberCount == 0)
-        #expect(service?.isMonitoring == false)
+        #expect(await service?.monitorIsRunning() == false)
 
         // Visible again: it samples again; the toggle going off stops it the same way.
         visibility.visible = true
         indicator.reconcile()
-        #expect(service?.isMonitoring == true)
+        #expect(await service?.monitorIsRunning() == true)
         _ = store.set(HostPressureTunables.enabled.key, false.tunableValue)
         indicator.reconcile()
         #expect(!indicator.isSampling)
-        #expect(service?.isMonitoring == false)
+        #expect(await service?.monitorIsRunning() == false)
         #expect(indicator.isHidden)
         service?.stop()
     }
@@ -94,8 +94,18 @@ import Testing
         center.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
         for _ in 0 ..< 50 where indicator.isSampling { await Task.yield() }
         #expect(!indicator.isSampling)
-        #expect(service?.isMonitoring == false)
+        #expect(await service?.monitorIsRunning() == false)
 
+        visibility.visible = true
+        center.post(name: NSApplication.didUnhideNotification, object: NSApplication.shared)
+        for _ in 0 ..< 50 where !indicator.isSampling { await Task.yield() }
+        #expect(indicator.isSampling)
+
+        // Hide cmux: the app's didHide stops it too.
+        visibility.visible = false
+        center.post(name: NSApplication.didHideNotification, object: NSApplication.shared)
+        for _ in 0 ..< 50 where indicator.isSampling { await Task.yield() }
+        #expect(!indicator.isSampling)
         visibility.visible = true
         center.post(name: NSApplication.didUnhideNotification, object: NSApplication.shared)
         for _ in 0 ..< 50 where !indicator.isSampling { await Task.yield() }
@@ -105,6 +115,7 @@ import Testing
         for _ in 0 ..< 50 where indicator.isSampling { await Task.yield() }
         #expect(!indicator.isSampling)
         #expect(service?.subscriberCount == 0)
+        #expect(await service?.monitorIsRunning() == false)
         indicator.removeFromSuperview()
         service?.stop()
     }
@@ -117,7 +128,7 @@ import Testing
         subscription = nil
         for _ in 0 ..< 50 where service.subscriberCount != 0 { await Task.yield() }
         #expect(service.subscriberCount == 0)
-        #expect(!service.isMonitoring)
+        #expect(await !service.monitorIsRunning())
         service.stop()
     }
 

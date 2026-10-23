@@ -13,9 +13,9 @@ import os
 
     var samples: Bool { enabled && windowVisible }
 
-    /// Whether `window` can be seen right now.
+    /// Whether `window` can be seen right now (the app not hidden either).
     static func isVisible(_ window: NSWindow?) -> Bool {
-        guard let window else { return false }
+        guard let window, !NSApplication.shared.isHidden else { return false }
         return window.isVisible && !window.isMiniaturized && window.occlusionState.contains(.visible)
     }
 

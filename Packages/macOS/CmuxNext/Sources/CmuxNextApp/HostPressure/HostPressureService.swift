@@ -48,6 +48,9 @@ final class HostPressureService {
     /// Bumped by each start and stop: a start hop whose number is no longer current when its turn
     /// comes (the last window left first) starts nothing.
     @ObservationIgnored private var lifecycleGeneration = 0
+    /// The generation the monitor should run for, read by the monitor actor itself right before it
+    /// builds its timer, so a stop issued while a start hop is in flight wins.
+    @ObservationIgnored private let wanted = OSAllocatedUnfairLock(initialState: 0)
     private static let log = Logger(subsystem: "com.cmuxterm.next", category: "host-pressure")
 
     /// `acpmux`: the daemon whose verdict counts, nil without one (showcase, mock agent host).
@@ -78,6 +81,8 @@ final class HostPressureService {
     /// How many windows' indicators are subscribed, and whether the monitor (and its timer) runs.
     var subscriberCount: Int { subscribers }
     var isMonitoring: Bool { running }
+    /// Whether Debug Settings forces the level (its sessions are samples, with no Stop).
+    var isForced: Bool { forced != nil }
     /// Whether the monitor itself runs (its timer and source exist), after the hops so far.
     func monitorIsRunning() async -> Bool {
         await lifecycle?.value
@@ -100,12 +105,13 @@ final class HostPressureService {
         if subscribers > 0, !running {
             running = true
             lifecycleGeneration += 1
-            let (monitor, previous, generation) = (monitor, lifecycle, lifecycleGeneration)
+            let (monitor, previous, generation, wanted) = (monitor, lifecycle, lifecycleGeneration, wanted)
+            wanted.withLock { $0 = generation }
             // task-owner: one hop to start the monitor, after the previous hop; it ends when the monitor has started
             lifecycle = Task { [weak self] in
                 await previous?.value
                 guard let self, lifecycleGeneration == generation else { return }
-                await monitor.start { [weak self] level, verdict in
+                await monitor.start(while: { wanted.withLock { $0 } == generation }) { [weak self] level, verdict in
                     self?.monitored = level
                     self?.monitoredVerdict = verdict
                 }
@@ -128,6 +134,7 @@ final class HostPressureService {
     private func stopMonitor() {
         running = false
         lifecycleGeneration += 1
+        wanted.withLock { $0 = lifecycleGeneration }
         monitored = .normal
         monitoredVerdict = nil
         let (monitor, previous) = (monitor, lifecycle)

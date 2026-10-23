@@ -67,7 +67,8 @@ final class HostPressurePopoverView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    func update(level: HostPressureLevel, verdict: HostBudgetVerdict?) {
+    /// `canStop`: whether its sessions are real (a forced level's samples get no Stop).
+    func update(level: HostPressureLevel, verdict: HostBudgetVerdict?, canStop: Bool = true) {
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let title = level == .critical ? HostPressureStrings.criticalTitle : HostPressureStrings.warningTitle
         stack.addArrangedSubview(label(title, font: Typography.bodyEmphasized, ink: .primary))
@@ -79,7 +80,7 @@ final class HostPressurePopoverView: NSView {
                                               label(HostPressureStrings.processes, font: Typography.caption, ink: .secondary),
                                               label(processes.formatted(), font: Typography.caption, ink: .primary)]))
             }
-            if let top = verdict.top, !top.isEmpty { addSessions(top) }
+            if let top = verdict.top, !top.isEmpty { addSessions(top, canStop: canStop) }
         }
         stack.addArrangedSubview(label(HostPressureStrings.warnOnly, font: Typography.caption, ink: .tertiary))
         let activity = ThemedBezelButton(title: HostPressureStrings.openActivity, target: self, action: #selector(openActivity))
@@ -95,13 +96,14 @@ final class HostPressurePopoverView: NSView {
         return [HostPressureStrings.load(load, limit: limit)] + verdict.over.filter { !$0.hasPrefix("load1 ") }
     }
 
-    private func addSessions(_ sessions: [HostBudgetSession]) {
+    private func addSessions(_ sessions: [HostBudgetSession], canStop: Bool) {
         stack.addArrangedSubview(label(HostPressureStrings.sessions, font: Typography.header, ink: .secondary))
         let grid = NSGridView(views: [[label("", font: Typography.caption, ink: .tertiary),
                                        label(HostPressureStrings.turns, font: Typography.caption, ink: .tertiary),
                                        label(HostPressureStrings.processes, font: Typography.caption, ink: .tertiary), NSView()]])
         for session in sessions {
             let stop = ThemedBezelButton(title: HostPressureStrings.stop, target: self, action: #selector(stop(_:)))
+            stop.isHidden = !canStop
             stop.controlSize = .small
             stop.identifier = NSUserInterfaceItemIdentifier(session.sessionId)
             stop.setAccessibilityIdentifier("cmux.hostPressure.stop.\(session.name)")

@@ -105,7 +105,8 @@ final class HostPressureIndicatorView: NSView {
             watching.add(Task { [weak self, weak object] in
                 guard let object else { return }
                 for await _ in center.notifications(named: name, object: object) {
-                    guard let self else { return }
+                    // Cancelled (willClose, a window change) on the main actor before this body ran: nothing.
+                    guard !Task.isCancelled, let self else { return }
                     if closing {
                         leave()
                         watching.cancelAll()
@@ -119,7 +120,7 @@ final class HostPressureIndicatorView: NSView {
         // task-owner: `watching` (cancelled on a window change, on willClose and in deinit); event-driven (Observation of the tunable store)
         watching.add(Task { [weak self] in
             for await _ in ObservationStream({ enabled.value(in: store) }) {
-                guard let self else { return }
+                guard !Task.isCancelled, let self else { return }
                 reconcile()
             }
         })
@@ -132,7 +133,8 @@ final class HostPressureIndicatorView: NSView {
         // task-owner: `levels` (cancelled when it stops sampling and in deinit); event-driven (Observation)
         levels.add(Task { [weak self] in
             for await (level, verdict) in ObservationStream({ (service.level, service.verdict) }) {
-                guard let self else { return }
+                // A value queued before leave() cancelled this shows nothing.
+                guard !Task.isCancelled, let self else { return }
                 show(level: level, verdict: verdict)
             }
         })
@@ -159,7 +161,7 @@ final class HostPressureIndicatorView: NSView {
             // The popover opens only above normal, so it is made (lazily) and shown only then.
             if wasLevel != .normal { popover.close() }
         } else {
-            popover.content.update(level: level, verdict: verdict)
+            popover.content.update(level: level, verdict: verdict, canStop: service?.isForced == false)
         }
         if wasHidden != isHidden { onVisibilityChange() }
     }
@@ -174,7 +176,7 @@ final class HostPressureIndicatorView: NSView {
 
     func openPopover() {
         guard level != .normal else { return }
-        popover.content.update(level: level, verdict: service?.verdict)
+        popover.content.update(level: level, verdict: service?.verdict, canStop: service?.isForced == false)
         popover.show(relativeTo: button)
     }
 
