@@ -11,10 +11,16 @@
 //! shell the commit described is gone as well.
 //!
 //! So no request waits for the disk. SQLite's WAL hook runs on the
-//! committing thread right after a commit's frames are written and wakes
-//! this syncer; its thread flushes the WAL file with one F_FULLFSYNC
-//! (fdatasync off macOS) for every commit made since its last flush, outside
-//! every lock. Installing the WAL hook also turns off SQLite's automatic
+//! committing thread right after a commit's frames are written and counts
+//! it. Once a request's reply is out (the server's reply funnel), or a
+//! background journal batch committed, the caller asks this syncer to flush;
+//! its thread flushes the WAL file with one F_FULLFSYNC (fdatasync off
+//! macOS) for every commit made so far, outside every lock. It does not
+//! flush after each commit: an F_FULLFSYNC holds the file, so the next
+//! commit of the same create would wait behind it (measured on a fleet mini:
+//! a create's five commits each waited 2-10 ms, new-tab 20.8 -> 35.5 ms
+//! p50). A commit no reply or batch follows (a startup restore, an exit
+//! receipt) is flushed by the next request's flush or at close. Installing the WAL hook also turns off SQLite's automatic
 //! checkpoint, which ran on whichever request crossed 1000 WAL pages: it
 //! copied the WAL into the database and synced it inside the committing
 //! request (30-60 ms tails on create and close replies). The syncer runs that
@@ -50,6 +56,8 @@ struct SyncState {
     committed: u64,
     /// Commits known to be on disk.
     synced: u64,
+    /// Commits a caller asked to flush ([`WalDurability::request_flush`]).
+    requested: u64,
     /// The database closed: the thread flushes what is owed and ends.
     stopping: bool,
 }
@@ -62,6 +70,9 @@ struct Shared {
     /// `CMUX_TUI_DEBUG_SLOW_DURABLE_COMMIT_MS`: each flush takes this much
     /// longer, as on a busy disk.
     slow_flush: Option<Duration>,
+    /// Flush after every commit (a store with no request funnel), instead
+    /// of only when asked.
+    flush_each_commit: bool,
 }
 
 thread_local! {
@@ -103,17 +114,23 @@ impl Drop for SyncerOwner {
 /// `PRAGMA wal_autocheckpoint` on the connection would replace its WAL hook.
 pub(crate) fn attach_store(connection: &Connection, database_path: &Path) -> WalDurability {
     let delay = super::registry_connection::slow_durable_commit_delay();
-    WalDurability::attach(connection, database_path, delay)
+    WalDurability::attach(connection, database_path, delay, true)
 }
 
 impl WalDurability {
     /// Install the hooks on `connection` (the database at `database_path`,
     /// in WAL mode) and start its syncer thread. The commit hook also keeps
     /// the debug span mark (`debug_spans::traced`), which it replaces.
+    /// `flush_each_commit`: flush after every commit; else only when a
+    /// caller asks ([`Self::request_flush`]), so a request's several commits
+    /// share one flush and none of them waits behind a flush of an earlier
+    /// one (an F_FULLFSYNC holds the file, so a WAL write that lands during
+    /// it waits for it).
     pub(crate) fn attach(
         connection: &Connection,
         database_path: &Path,
         slow_flush: Option<Duration>,
+        flush_each_commit: bool,
     ) -> Self {
         let mut wal_path = database_path.as_os_str().to_owned();
         wal_path.push("-wal");
@@ -123,6 +140,7 @@ impl WalDurability {
             state: Mutex::new(SyncState::default()),
             changed: Condvar::new(),
             slow_flush,
+            flush_each_commit,
         });
         let owner = SyncerOwner(shared.clone());
         let _ = connection.commit_hook(Some(move || {
@@ -152,11 +170,19 @@ impl WalDurability {
     /// Wait until every commit made before this call is on disk.
     #[cfg(test)]
     pub(crate) fn wait_durable(&self) {
+        self.request_flush();
         let mut state = self.shared.state.lock().recover_poison();
         let target = state.committed;
         while state.synced < target && !state.stopping {
             state = self.shared.changed.wait(state).recover_poison();
         }
+    }
+
+    /// Flush every commit made so far, soon, on the syncer thread. Callers
+    /// ask once their request is answered (the server's reply funnel) or
+    /// once a background batch committed (the journal writer).
+    pub(crate) fn request_flush(&self) {
+        request_flush(&self.shared);
     }
 
     /// (committed, synced) commit counts, for `server-stats` `write_path`.
@@ -167,21 +193,35 @@ impl WalDurability {
 }
 
 fn note_commit(shared: &Shared) {
-    shared.state.lock().recover_poison().committed += 1;
-    shared.changed.notify_all();
+    let mut state = shared.state.lock().recover_poison();
+    state.committed += 1;
+    if shared.flush_each_commit {
+        state.requested = state.committed;
+        drop(state);
+        shared.changed.notify_all();
+    }
+}
+
+fn request_flush(shared: &Shared) {
+    let mut state = shared.state.lock().recover_poison();
+    if state.requested < state.committed {
+        state.requested = state.committed;
+        drop(state);
+        shared.changed.notify_all();
+    }
 }
 
 fn run(shared: &Shared) {
     let mut checkpointer: Option<Connection> = None;
     let mut state = shared.state.lock().recover_poison();
     loop {
-        while state.committed == state.synced && !state.stopping {
+        while state.requested <= state.synced && !state.stopping {
             state = shared.changed.wait(state).recover_poison();
         }
-        if state.committed == state.synced {
+        if state.stopping && state.committed <= state.synced {
             return;
         }
-        let target = state.committed;
+        let target = if state.stopping { state.committed } else { state.requested };
         drop(state);
         flush(shared);
         state = shared.state.lock().recover_poison();
@@ -285,11 +325,26 @@ mod tests {
     #[test]
     fn every_commit_is_counted_and_flushed() {
         let (dir, connection) = database("count");
-        let durability = WalDurability::attach(&connection, &dir.join("r.sqlite"), None);
+        let durability = WalDurability::attach(&connection, &dir.join("r.sqlite"), None, false);
         connection.execute("INSERT INTO t VALUES (1)", []).unwrap();
         connection.execute("INSERT INTO t VALUES (2)", []).unwrap();
         durability.wait_durable();
         assert_eq!(durability.counts(), (2, 2));
+        drop(connection);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_requests_commits_share_one_flush_after_it_asks() {
+        let (dir, connection) = database("share");
+        let durability = WalDurability::attach(&connection, &dir.join("r.sqlite"), None, false);
+        for value in 0..5 {
+            connection.execute("INSERT INTO t VALUES (?1)", [value]).unwrap();
+        }
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(durability.counts(), (5, 0), "a commit started a flush nobody asked for");
+        durability.wait_durable();
+        assert_eq!(durability.counts(), (5, 5));
         drop(connection);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -301,6 +356,7 @@ mod tests {
             &connection,
             &dir.join("r.sqlite"),
             Some(Duration::from_millis(300)),
+            false,
         );
         let started = std::time::Instant::now();
         connection.execute("INSERT INTO t VALUES (1)", []).unwrap();
@@ -314,7 +370,7 @@ mod tests {
     #[test]
     fn the_syncer_checkpoints_a_large_wal_and_commits_never_do() {
         let (dir, connection) = database("checkpoint");
-        let durability = WalDurability::attach(&connection, &dir.join("r.sqlite"), None);
+        let durability = WalDurability::attach(&connection, &dir.join("r.sqlite"), None, false);
         let blob = vec![7u8; 64 * 1024];
         for _ in 0..100 {
             connection.execute("INSERT INTO t VALUES (?1)", [&blob]).unwrap();

@@ -167,6 +167,7 @@ impl RegistryConnection {
                 &connection,
                 path,
                 slow_durable_commit_delay(),
+                false,
             )
         });
         Arc::new(Self {
@@ -178,6 +179,14 @@ impl RegistryConnection {
             #[cfg(test)]
             journal_hooks: std::sync::Mutex::default(),
         })
+    }
+
+    /// Flush every registry commit made so far, soon, off this thread
+    /// (`wal_durability`).
+    pub(crate) fn request_flush(&self) {
+        if let Some(durability) = &self.durability {
+            durability.request_flush();
+        }
     }
 
     /// (committed, synced) registry commits for `server-stats` `write_path`.
