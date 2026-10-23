@@ -10,6 +10,7 @@
  */
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 type Rule = { selector: string; body: string; offset: number };
 type Keyframes = { name: string; body: string };
@@ -55,7 +56,7 @@ const OUT_OF_SCOPE: BoundaryAllowance[] = [
   },
 ];
 
-const src = path.resolve(import.meta.dir, "../src");
+const src = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src");
 
 function stylesheets(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
