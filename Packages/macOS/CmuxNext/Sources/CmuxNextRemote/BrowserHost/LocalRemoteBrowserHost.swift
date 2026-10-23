@@ -1,4 +1,4 @@
-public import CmuxNextRemoteView
+public import CmuxNextCompat
 public import Foundation
 import Security
 

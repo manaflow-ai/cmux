@@ -1089,7 +1089,7 @@ let package = Package(
         // CmuxNextRemoteView; session state is the Rust client reducer.
         .target(
             name: "CmuxNextRemoteBrowser",
-            dependencies: ["CmuxNextCompat", "CmuxNextRemoteView", "CmuxNextBrowser", "CmuxNextDesign", "CCmuxAppFFI"],
+            dependencies: ["CmuxNextCompat", "CmuxNextRemote", "CmuxNextRemoteView", "CmuxNextBrowser", "CmuxNextDesign", "CCmuxAppFFI"],
             resources: [
                 .process("Resources"),
             ],
@@ -1175,7 +1175,9 @@ let package = Package(
         ),
         // Machines reached over the user's own OpenSSH: destinations, the
         // `cmux-tui remote connect ssh://` link, probe, reconnect gate, the
-        // pinned cmux-tui install and the remote-to-local deny policy. No UI.
+        // pinned cmux-tui install and the remote-to-local deny policy, plus the
+        // loopback remote browser host process this Mac starts (BrowserHost/:
+        // remote browser tabs and the iPhone's streamed tabs). No UI.
         .target(
             name: "CmuxNextRemote",
             dependencies: ["CmuxNextCompat", "CmuxNextCloud"],
@@ -1649,7 +1651,7 @@ let package = Package(
             name: "CmuxNextMobileHost",
             dependencies: [
                 "CmuxNextAgentPane", "CmuxNextCloud", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService",
-                "CmuxNextDesign", "CmuxNextMobile", "CmuxNextPages", "CmuxNextRemoteBrowser", "CmuxNextSettings",
+                "CmuxNextDesign", "CmuxNextMobile", "CmuxNextPages", "CmuxNextRemote", "CmuxNextSettings",
                 "CmuxNextWakeups",
             ],
             resources: [

@@ -1,4 +1,5 @@
 #if DEBUG
+import CmuxNextCompat
 import CmuxNextRemoteBrowser
 import CmuxNextRemoteView
 public import Foundation

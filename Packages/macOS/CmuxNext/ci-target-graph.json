@@ -1208,7 +1208,7 @@
         "CmuxNextDesign",
         "CmuxNextMobile",
         "CmuxNextPages",
-        "CmuxNextRemoteBrowser",
+        "CmuxNextRemote",
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
@@ -1411,6 +1411,7 @@
         "CmuxNextBrowser",
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextRemote",
         "CmuxNextRemoteView"
       ],
       "packages": []
