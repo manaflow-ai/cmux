@@ -133,6 +133,8 @@ The rule for the rewrite:
 5. **One drop path.** Drop sends the slot to the document (one intent). The card lands on the frame step 4
    gives, the same function, so the landing does not jump. Cancel = slot back to the origin.
 6. **One drop mark: the gap.** There is no line, no outline and no dot over the rows.
+   Done Oct 23 (a588, landed by the owner): `SidebarNestedDropIndicatorView` is gone; a nested drop shows its
+   level by the gap's left edge only.
 7. Group drags reorder top-level blocks only (u9772): a group never drops into another group by drag.
 
 Delete what the rule replaces (`SidebarGroupReorder`'s shift and hysteresis, the group branch of

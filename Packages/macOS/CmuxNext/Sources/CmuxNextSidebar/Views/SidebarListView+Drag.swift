@@ -116,7 +116,6 @@ extension SidebarListViewComponents {
         showDragLayout()
     }
     func finishDrag() {
-        showNestedDrop(nil)
         guard let drag else { return }
         autoscroll.stop()
         if SidebarListPinDrop.finish(self, drag) { return }
@@ -224,7 +223,6 @@ extension SidebarListViewComponents {
             return
         }
         drag.probe = SidebarDropProbe(hit, displayY: displayY, baseY: y)
-        showNestedDrop(nestedDropMark(hit, geometry: geometry, rows: rows))
         // A refused place keeps the last open gap (the drop goes there): the rows do not spring shut and open
         // again at every row the drop cannot take, and the card dims only while no gap shows.
         if hit.target == nil, drag.docTarget != nil, drag.target != nil || drag.blockTarget != nil { return }
@@ -280,7 +278,6 @@ extension SidebarListViewComponents {
     }
 
     func cancelDrag() {
-        showNestedDrop(nil)
         guard let drag else { return }
         autoscroll.stop()
         SidebarListPinDrop.end(self)
@@ -500,13 +497,24 @@ extension SidebarListViewComponents {
         for (key, view) in rowViews where layout.row(for: key) == nil && !suppressed.contains(key) {
             SidebarDragSpring.fade(view, to: 0)
         }
-        // A tile dropped among rows opens the list's slot underlay with the rows.
-        let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) } : nil
+        // A tile dropped among rows opens the list's slot underlay with the rows. The gap is the drop's one mark
+        // (no line over the rows, Lawrence 2026-10-23): it starts at the x its rows take in the group it joins.
+        let stepIn = dropStepIn(layout)
+        let gapFrame = layout.gapHeight > 0 ? layout.gapY.map {
+            NSRect(x: inset + stepIn, y: $0, width: max(0, bounds.width - inset * 2 - stepIn), height: layout.gapHeight)
+        } : nil
         decorations.frame = bounds
         decorations.setGap(gapFrame, animated: true)
         let lines = groupLineViews.update(groupLines(layout), from: groupLines(layout, current: true), in: self, above: decorations, animated: true)
         SidebarDragSpring.move(lines.springs, in: self)
         Motion.sidebar.animate(.move, in: self, { lines.changes() }, completion: { [leaving = lines.leaving] in leaving.forEach { $0.removeFromSuperview() } })
+    }
+
+    /// How far in the held drag's gap starts: the x of the rows of the group its drop joins (`SidebarIndent`).
+    func dropStepIn(_ layout: SidebarLayout) -> CGFloat {
+        guard case let .position(position)? = shownDrag?.target, let group = position.group,
+              let header = layout.row(for: .group(group)) else { return 0 }
+        return indent.offset(level: header.depth + 1, width: indentWidth)
     }
 
     /// An adopting apply's motion: kept rows spring from where they are,

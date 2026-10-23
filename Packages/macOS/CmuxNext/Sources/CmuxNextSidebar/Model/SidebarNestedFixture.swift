@@ -40,15 +40,15 @@ public nonisolated struct SidebarNestedFixture: Sendable {
     /// The old rails (one per group, stopping at its own last member), for ``Scenario/before``.
     public var legacyRails: Bool { scenario == .before }
 
-    /// A drop mark the scenario shows: into a group, or between rows at a level.
+    /// Where the scenario's drag is held: over a group's header, or at a row's bottom edge at a level.
     public enum Drop: Hashable, Sendable {
-        /// A drop into the group: the indicator outlines its block.
+        /// A drop into the group: its header shows the drop fill.
         case into(GroupID)
-        /// A drop right after the workspace row, landing at `level`: the indicator draws a line at that level's x.
+        /// A drop right after the workspace row, landing at `level`: the gap opens at that level's x.
         case after(WorkspaceID, level: Int)
     }
 
-    /// The drop mark of a drag scenario; nil for the others.
+    /// The drop of a drag scenario; nil for the others.
     public var drop: Drop? {
         switch scenario {
         case .dragInto: .into(GroupID("g-builders"))
