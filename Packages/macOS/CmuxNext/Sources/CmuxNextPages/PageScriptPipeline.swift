@@ -17,7 +17,7 @@ final class PageScriptPipeline {
     nonisolated static let inlineBudget = PageScriptBudget(nodes: 512, stringBytes: 16 * 1024)
 
     private enum Item {
-        case envelope(JSONValue)
+        case envelope(JSONValue, @MainActor () -> Void)
         case gate(Gate)
     }
 
@@ -72,13 +72,13 @@ final class PageScriptPipeline {
     private var isIdle: Bool { drain == nil && head == queue.count }
 
     /// Sends `envelope` to the page after everything sent before it.
-    func send(_ envelope: JSONValue) {
+    func send(_ envelope: JSONValue, onDrop: @escaping @MainActor () -> Void = {}) {
         if isIdle, envelope.fits(Self.inlineBudget) {
             // main-actor-ok: bounded by inlineBudget; larger envelopes render off the main actor.
             evaluate(PageRouter.receiveScript(envelope))
             return
         }
-        enqueue(.envelope(envelope))
+        enqueue(.envelope(envelope, onDrop))
     }
 
     /// A gate after everything sent so far, or nil when nothing is queued and `always` is false
@@ -98,7 +98,12 @@ final class PageScriptPipeline {
         head = 0
         drain?.cancel()
         drain = nil
-        for case .gate(let gate) in pending { gate.open() }
+        for item in pending {
+            switch item {
+            case .envelope(_, let onDrop): onDrop()
+            case .gate(let gate): gate.open()
+            }
+        }
     }
 
     private func enqueue(_ item: Item) {
@@ -116,9 +121,9 @@ final class PageScriptPipeline {
             let item = queue[head]
             head += 1
             switch item {
-            case .envelope(let envelope):
+            case .envelope(let envelope, let onDrop):
                 let script = await Self.render(envelope)
-                guard generation == self.generation else { return }
+                guard generation == self.generation else { onDrop(); return }
                 evaluate(script)
             case .gate(let gate):
                 gate.markReached()

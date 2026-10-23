@@ -52,6 +52,6 @@ struct AgentPageProviderBridgeGapBench {
         subscription.cancel()
 
         #expect(received.events.count == Self.eventCount)
-        print("AGENT-PAGE-BENCH events=\(Self.eventCount) publish_main_ms=\(String(format: \"%.3f\", publishMilliseconds)) replay_window_ms=\(String(format: \"%.3f\", replayMilliseconds)) delivered=\(received.events.count)")
+        print("AGENT-PAGE-BENCH events=\(Self.eventCount) publish_main_ms=\(String(format: "%.3f", publishMilliseconds)) replay_window_ms=\(String(format: "%.3f", replayMilliseconds)) delivered=\(received.events.count)")
     }
 }

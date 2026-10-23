@@ -146,4 +146,24 @@ struct AgentPageProviderEventsTests {
         }
         #expect(!provider.publish(Self.command("backpressure")))
     }
+
+    @Test func aPageResetRequeuesAnEnvelopeDroppedByTheScriptPipeline() async throws {
+        let provider = AgentPageProvider { _ in nil }
+        let page = Received()
+        let subscription = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { event in
+            page.append(event)
+        }
+        // PageScriptPipeline.reset reports this exact data before PageRouter cancels the old sub.
+        let dropped = Self.command("reset-dropped")
+        provider.eventDeliveryDropped(stream: AgentPageProvider.hostEvents, data: dropped.data)
+        subscription.cancel()
+
+        let nextPage = Received()
+        let next = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { event in
+            nextPage.append(event)
+        }
+        defer { next.cancel() }
+        await nextPage.waitFor(1)
+        #expect(Self.names(nextPage.events) == ["reset-dropped"])
+    }
 }

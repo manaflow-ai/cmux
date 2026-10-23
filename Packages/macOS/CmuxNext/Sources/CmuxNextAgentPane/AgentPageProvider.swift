@@ -117,6 +117,16 @@ public final class AgentPageProvider: PageProvider {
         self.prepare = prepare
     }
 
+    public var eventsAfterSubscribeReply: Bool { true }
+
+    public func eventDeliveryDropped(stream: String, data: JSONValue) {
+        guard stream == Self.hostEvents,
+              case .string(let kind)? = data["kind"] else { return }
+        let value = data["value"] ?? .null
+        guard bufferedEvents.count < Self.maximumBufferedEvents else { return }
+        bufferedEvents.append(AgentPageEvent(kind: kind, value: value))
+    }
+
     /// Sends `event` to every subscribed page.
     @discardableResult
     public func publish(_ event: AgentPageEvent) -> Bool {
