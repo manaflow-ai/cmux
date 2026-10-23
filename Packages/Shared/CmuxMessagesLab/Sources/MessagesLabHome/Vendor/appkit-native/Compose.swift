@@ -845,10 +845,25 @@ final class ComposeView: UIView {
         // Its one line (a space) does not depend on the width: a live resize's every width
         // typeset it again (cx-3cb resize-drops).
         if text.isEmpty, let e = emptyLinesMemo, e.0 == w || (e.1 == 1 && w >= ComposeView.emptyLineMinWidth) { return e.1 }
-        if let m = linesMemo, m.0 == text, m.1 == w { return m.2 }
-        let n = TextLayout.make(text.isEmpty ? " " : text, runs: [], maxWidth: w, font: ComposeView.font).lines.count
-        if text.isEmpty { emptyLinesMemo = (w, n) } else { linesMemo = (text, w, n) }
-        return n
+        if let m = linesMemo, m.text == text, m.width == w { return m.count }
+        if text.isEmpty {
+            let n = TextLayout.make(" ", runs: [], maxWidth: w, font: ComposeView.font).lines.count
+            emptyLinesMemo = (w, n)
+            return n
+        }
+        // cmux: typing at the end of the draft (each key's case) lays out only from the start of the
+        // memo's second-to-last line: a greedy break before it cannot move when text is appended. The
+        // cost follows the change, not the draft (perf-lead.md issue 5, typing-frame-bench.py).
+        let u = text as NSString
+        var keep = 0, from = 0
+        if let m = linesMemo, m.width == w, m.starts.count >= 2, u.length > (m.text as NSString).length, text.hasPrefix(m.text) {
+            keep = m.starts.count - 2
+            from = m.starts[keep]
+        }
+        let tail = TextLayout.make(u.substring(from: from), runs: [], maxWidth: w, font: ComposeView.font).lines
+        let starts = Array((linesMemo?.starts ?? []).prefix(keep)) + tail.map { $0.range.location + from }
+        linesMemo = (text, w, starts.count, starts)
+        return starts.count
     }
     /// The field's tallest text part. Real Messages (compose-e2e messages, 2026-10-10, 628 pt
     /// wide): the glass stops at the same height in a 940, 740 and 600 pt window (a fixed height,
@@ -866,7 +881,9 @@ final class ComposeView: UIView {
         }
         return min(ComposeView.height(lines: lines(text, windowWidth: width), chips: false), ComposeView.maxHeight) + strip.height
     }
-    private var linesMemo: (String, CGFloat, Int)?
+    /// cmux: the last draft's line count and where each of its lines starts (UTF-16), for the
+    /// incremental layout of the next key.
+    private var linesMemo: (text: String, width: CGFloat, count: Int, starts: [Int])?
     /// The empty draft's one line at any text width from this (a space is about 4 pt wide).
     static let emptyLineMinWidth: CGFloat = 20
     private var emptyLinesMemo: (CGFloat, Int)?

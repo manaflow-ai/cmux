@@ -11,7 +11,7 @@ import GhosttyNextKit
 // and the IME candidate window is positioned from `ghostty_surface_ime_point`
 // (ghostty.h:1571, :1586, :1656).
 extension TerminalSurfaceView {
-    public override func keyDown(with event: NSEvent) {
+    public override func keyDown(with event: NSEvent) { // perf-hot: 1ms terminal-key (every key typed into a terminal)
         if TerminalClipboardRequests.isPasteChord(event), !clipboardRequests.userPasteInProgress {
             return clipboardRequests.asUserPaste { keyDown(with: event) }
         }

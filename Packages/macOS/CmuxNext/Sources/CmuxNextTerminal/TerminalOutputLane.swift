@@ -47,6 +47,10 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
         self.queue = DispatchQueue(label: label, qos: .userInteractive)
     }
 
+    /// Output chunks parsed so far (tests: output is parsed while the main thread is busy).
+    var parsedChunks: Int { parsedChunkCount.load(ordering: .acquiring) }
+    private let parsedChunkCount = Atomic<Int>(0)
+
     /// Bytes queued but not parsed yet.
     var pendingBytes: Int { backlog.withLock { $0.bytes } }
 
@@ -61,6 +65,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
                 ghostty_surface_process_output(surface, base, UInt(buffer.count))
             }
             TypingLatencyProbe.shared.mark(.outputParsed)
+            parsedChunkCount.add(1, ordering: .releasing)
             #if DEBUG
             if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.parsed(lane: ObjectIdentifier(self), data) }
             #endif

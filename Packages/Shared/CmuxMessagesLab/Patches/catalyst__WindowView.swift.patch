@@ -121,11 +121,10 @@
          CATransaction.commit()
      }
  
-@@ -900,6 +963,18 @@
-         // (RowCell.crispEdge). `.sending` and `.sent` (the send itself) keep the crisp edge.
+@@ -901,6 +964,18 @@
          if case let .status(id, st) = action, st != .sending, st != .sent, crispSends.values.contains(id) {
              releaseCrisp { $0 == id }
-+        }
+         }
 +        // cmux: also every crisp send whose message is past sent in the new state (delivered, read or failed), whatever
 +        // the action: Home sends one status per update (HomeDiff.keepNewestStatus: two sends delivered together give
 +        // only the newer one a status) and a rebuild's replaceWindow carries statuses with no status action. Sends are
@@ -137,10 +136,21 @@
 +                switch m.status { case .delivered?, .read?, .failed?: past.insert(m.id); default: break }
 +            }
 +            if !past.isEmpty { releaseCrisp { past.contains($0) } }
-         }
++        }
          // this view's width (several Home tabs), not the process-wide `Metrics.current`.
          if case let .setDraft(text) = action { MorphBubble.prepare(draft: text, width: bounds.width, scale: renderScale) }
-@@ -1036,7 +1111,7 @@
+         // Rows configured in this transaction draw now (RowCell.transitionDepth).
+@@ -1007,7 +1082,8 @@
+         // The same for an action whose rows came out unchanged.
+         let draft: Bool = { if case .setDraft = action { return true }; return false }()
+         if draft || rowsUnchanged, compose.fieldRect == oldField, fieldTop == oldFieldTop {
+-            rebuildThread(state, at: t)
++            // cmux: a draft changes no thread row (an open thread rebuilt every row per key: RowBuilder.rows).
++            if !draft { rebuildThread(state, at: t) }
+             updateThumb()
+             CATransaction.commit()
+             phase("caCommit")
+@@ -1036,7 +1112,7 @@
                  newOffset = pinnedOffset
              } else if target < state.conversation.messages.count, let id = state.conversation.messages[checked: target]?.id { // checked
                  if let i = model.rows.firstIndex(where: { RowBuilder.key($0.spec.key, belongsTo: id) }) {
@@ -149,18 +159,19 @@
                  }
              }
          }
-@@ -1081,8 +1156,9 @@
+@@ -1081,8 +1157,10 @@
          phase("animateRows")
          let fieldEl = send ? Springs.fieldTop : Springs.fieldGrow
          placeMask(animated: oldFieldTop != fieldTop, element: fieldEl, begin: begin, oldTop: oldFieldTop)
--        if send, let m = state.conversation.messages.last, m.senderId == state.me { startMorph(m, from: oldField, begin: begin) }
-+        // cmux: the thread view first, so a reply sent in it flies to its copy there (startMorph).
-         rebuildThread(state, at: t)
-+        if send, let m = state.conversation.messages.last, m.senderId == state.me { startMorph(m, from: oldField, begin: begin) }
++        // cmux: the thread view first, so a reply sent in it flies to its copy there (startMorph). A draft
++        // changes no thread row (the view is centered, not placed on the field): no rebuild per key.
++        if !draft { rebuildThread(state, at: t) }
+         if send, let m = state.conversation.messages.last, m.senderId == state.me { startMorph(m, from: oldField, begin: begin) }
+-        rebuildThread(state, at: t)
          // Paging changes rows far from the viewport: visible cells keep their
          // content and window position, so they need no new configuration.
          phase("morph+thread")
-@@ -1158,6 +1234,8 @@
+@@ -1158,6 +1236,8 @@
          // A stream's rows follow the newest loaded message (which may lose its tail to it); a final message is new.
          case .streamBegin, .streamSet, .streamAppend, .streamEnd: idx.append(max(0, old.conversation.messages.count - 1))
          case let .status(id, _): if let i = index(id) { idx.append(i) }
@@ -169,7 +180,7 @@
          case let .react(ref, _, _):
              guard let i = index(ref.messageId) else { return nil }
              idx.append(i)
-@@ -1511,8 +1589,15 @@
+@@ -1511,8 +1591,15 @@
          for case let cell as RowCell in collection.visibleCells {
              if let b = map[cell.key] { cell.renameRow(to: b) }
          }
@@ -185,7 +196,7 @@
      /// Live container motions: (displacement, spring, begin, end, rows it covered). A row that
      /// shows up while one runs (inserted later, or outside its band) gets the opposite motion,
      /// so it moves as it did with per-row springs.
-@@ -1689,22 +1774,41 @@
+@@ -1689,22 +1776,41 @@
      }
  
      private func startMorph(_ m: Message, from field: CGRect, begin: CFTimeInterval) {
@@ -237,7 +248,7 @@
          let frame = rowFrame.offsetBy(dx: shift.x, dy: shift.y)
          let flying = RowDraw.balloon(rowFrame, row: p, scale: renderScale).offsetBy(dx: shift.x, dy: shift.y)
          let mb = MorphBubble(key: key, in: morphLayer, windowBounds: bounds, from: field, to: flying, textLayout: tl, size: p.size,
-@@ -1714,6 +1818,8 @@
+@@ -1714,6 +1820,8 @@
          if crispSends.count > 64 { releaseCrisp { _ in true } } // statuses that never came (bounded)
          crispSends[key] = m.id
          for case let cell as RowCell in collection.visibleCells where cell.spec?.key == key { cell.crispEdge = true }
@@ -246,7 +257,7 @@
          #if canImport(UIKit) || APPKIT_NATIVE
          // The glass tints the bubble until its bottom leaves the field's top.
          let topNow = Double(compose.fieldRect.minY), topWas = Double(field.minY)
-@@ -1779,6 +1885,8 @@
+@@ -1779,6 +1887,8 @@
                  cell.showNow()
                  for id in holds { cell.contentView.layer.removeAnimation(forKey: "hold.\(id)") }
              }
@@ -255,7 +266,7 @@
              fadingMorphs[k]?.0.remove()
              m.fadeOut(begin: now)
              fadingMorphs[k] = (m, now + MorphBubble.fadeOutTime)
-@@ -1885,7 +1993,7 @@
+@@ -1885,7 +1995,7 @@
              cell.setConnector(top: nil, bottom: 0, mirrored: false)
          }
          step(1)
@@ -264,7 +275,7 @@
          for e in ledger.live(r.spec.key) where !cell.applied.contains(e.id) {
              cell.applied.insert(e.id)
              // The previous receipt text is drawn once, when its fade starts on this cell.
-@@ -1977,22 +2085,14 @@
+@@ -1977,23 +2087,15 @@
      struct WindowGeometry { var viewport: CGFloat; var distanceToTop: CGFloat; var distanceToBottom: CGFloat }
      var windowGeometry: WindowGeometry {
          let y = collection.contentOffset.y
@@ -278,7 +289,7 @@
 +        let top = collection.contentOffset.y + rowsTopInset - MessagesWindowView.cvTop - layout.rowsTop
          let r = model.range(top, top + 1)
          return min(model.count - 1, r.first { model.contentTop($0) + (model.rows[checked: $0]?.spec.height ?? 0) > top } ?? r.lowerBound) // checked
--    }
+     }
 -    /// True when an outgoing row (the model's outgoing flag) shows a link card for
 -    /// `url` in a visible cell: the LinkPresentation fallback runs only then.
 -    func outgoingLinkOnScreen(_ url: String) -> Bool {
@@ -286,10 +297,11 @@
 -            if case let .part(pr)? = cell.spec?.kind, pr.outgoing, case let .link(u, _, _, _, _) = pr.part, u == url { return true }
 -        }
 -        return false
-     }
+-    }
      /// Outgoing link cards on screen with no title yet (a pending or domain card, no image).
      func visibleUntitledOutgoingLinks() -> [String] {
-@@ -2045,7 +2145,7 @@
+         var out: [String] = []
+@@ -2045,7 +2147,7 @@
          let msgs = store.state.conversation.messages
          guard index >= 0, index < msgs.count, let id = msgs[checked: index]?.id else { return } // checked
          guard let i = model.rows.firstIndex(where: { RowBuilder.key($0.spec.key, belongsTo: id) }) else { return }
@@ -298,7 +310,7 @@
          collection.setNeedsLayout(); collection.layoutIfNeeded()
          userScrolled()
      }
-@@ -2109,6 +2209,10 @@
+@@ -2109,6 +2211,10 @@
          // A drill-in or back (the path changed in an open view): the new branch fades in.
          let drilled = wasOpen && s.ui.threadPath != threadShownPath
          threadShownPath = s.ui.threadPath
@@ -309,7 +321,7 @@
          threadSpecs = rows
          threadViews.forEach { $0.removeFromSuperview() }
          threadClosing = 0
-@@ -2121,7 +2225,7 @@
+@@ -2121,7 +2227,7 @@
          let headerHeight = header == nil ? 0 : ThreadHeaderDraw.height
          let total = rows.reduce(0) { $0 + $1.total } + headerHeight
          var y = MessagesWindowView.threadCenterY + (bounds.height - Fixture.windowSize.height) - total / 2
@@ -318,7 +330,7 @@
          y += headerHeight
          threadViews = rows.map { spec in
              let top = y + spec.gap - RowDraw.margin
-@@ -2142,7 +2246,22 @@
+@@ -2142,7 +2248,22 @@
          threadSources = [:]
          for (v, spec) in zip(threadViews, threadSpecs) {
              if let src = sources[spec.key] { threadSources[spec.key] = src }
@@ -341,7 +353,7 @@
              guard !wasOpen else { continue }
              if let src = threadSources[spec.key] {
                  ThreadBackdrop.fly(v.layer, fromY: src.midY, toY: v.frame.midY, tau: MessagesWindowView.threadOpenTau, delay: ThreadBackdrop.openDelay)
-@@ -2150,12 +2269,14 @@
+@@ -2150,12 +2271,14 @@
                  ThreadBackdrop.fade(v.layer, from: 0, to: 1, duration: 0.28, delay: ThreadBackdrop.openDelay)
              }
          }
@@ -357,7 +369,7 @@
          CATransaction.begin()
          CATransaction.setCompletionBlock { [weak self] in
              guard let self, self.threadClosing == token else { return }
-@@ -2168,10 +2289,12 @@
+@@ -2168,10 +2291,12 @@
          }
          if let hv = threadHeaderView {
              hv.layer.opacity = 0
@@ -372,7 +384,7 @@
                  let from = v.frame.midY
                  v.frame.origin.y += src.midY - from
                  ThreadBackdrop.fly(v.layer, fromY: from, toY: v.frame.midY, tau: MessagesWindowView.threadCloseTau)
-@@ -2180,11 +2303,13 @@
+@@ -2180,11 +2305,13 @@
                  ThreadBackdrop.fade(v.layer, from: 1, to: 0, duration: 0.25)
              }
          }
@@ -387,7 +399,7 @@
  
      // MARK: Hit testing
  
-@@ -2236,6 +2361,15 @@
+@@ -2236,6 +2363,15 @@
  
      /// The layer the hit row's soft mask masks (the cell's fill container), for a copy of that mask elsewhere in the
      /// window to draw its image the same way up (MenuHighlight); nil in the thread view or without a visible cell.
@@ -403,7 +415,7 @@
      func softMaskOwner(_ h: Hit) -> CALayer? {
          guard !threadOpen else { return nil }
          for case let cell as RowCell in collection.visibleCells where cell.spec?.key == h.key { return cell.fillContainer }
-@@ -2515,12 +2649,21 @@
+@@ -2515,12 +2651,21 @@
          return l
      }
  
@@ -426,7 +438,7 @@
          let delay = open ? ThreadBackdrop.openDelay : 0
          let t = CABasicAnimation(keyPath: "opacity"); t.fromValue = a0; t.toValue = a1; t.duration = d; t.timingFunction = fn
          // Without a wait, start at the commit as the row flights do (`fly`, `fade`): a begin
-@@ -2727,7 +2870,7 @@
+@@ -2727,7 +2872,7 @@
          let textTop = Fixture.bubblePadY
          if case let .part(p) = spec0.kind, case let .text(t, _) = p.part, p.text == nil {
              let l = LongTextStore.shared.layout(t, width: spec0.width, message: p.ref.messageId, markdown: p.markdownFormat)
