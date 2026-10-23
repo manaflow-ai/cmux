@@ -187,8 +187,8 @@ test("a new chat paints its last effort and its kept start mode on the first fra
   host.replaceChildren();
 
   // acpmux answered, in an earlier ask for another folder, that a new chat on this harness starts
-  // in that chat's mode; a folder it has not answered for yet holds the access chip's place with
-  // that answer, but names no mode (that folder's profile or preset may start it in another).
+  // in that chat's mode; a folder it has not answered for yet names that answer until its own
+  // replaces it (Lucas 2026-10-24: never a bare "Mode" on this Mac).
   const { rememberStartMode } = await import("../src/agent-session/acpmux/startMode");
   rememberStartMode("claude", "/home/dev/other", { modeId: "default", name: "Ask before edits" });
 
@@ -196,7 +196,7 @@ test("a new chat paints its last effort and its kept start mode on the first fra
   await render(undefined);
   expect(host.querySelector(".acpmux-chip-skeleton, .acpmux-chip-skeleton-bar")).toBeNull();
   const first = chips();
-  expect(first).toEqual([earlier[0]!, { kind: "mode", label: "Mode" }]);
+  expect(first).toEqual([earlier[0]!, { kind: "mode", label: "Ask before edits" }]);
 
   // Its session reports the same choices: the chips settle where they were.
   await render(reported("new"));
