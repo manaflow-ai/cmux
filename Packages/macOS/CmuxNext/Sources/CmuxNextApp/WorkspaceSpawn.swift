@@ -205,8 +205,8 @@ struct WorkspaceSpawner {
         // Claimed first, so the reconcile the intent runs places and selects it in this window in this turn;
         // its slot is placed in the turn the daemon's workspace takes the stand-in over.
         BenchSpans.measure("cmdN.claim") {
-            NewWorkspacePlacements.expect(key.rawValue, in: windowID, slot: spawn.slot, byDefault: rule, then: spawn.onListed, windows: windows)
-            windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame)
+            NewWorkspacePlacements.expect(key.rawValue, in: windowID, slot: spawn.slot, byDefault: rule, then: spawn.onListed, windows: self.windows)
+            self.windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame)
         }
         guard let shown = services.agentTabs.showWorkspace(key, name: name, index: nil, cwd: cwd, token: spawn.inputToken,
                                                            on: daemon, repair: repair) else { return nil }

@@ -68,16 +68,24 @@ enum DebugInstantCreateBench {
             chat["added_tabs"] = .array(after.tabs.subtracting(before.tabs).sorted().map(JSON.string))
             chat["workspace_changed"] = .bool(after.workspace != before.workspace)
         }
-        return .object(chat.merging([
+        let visibleValue: JSON = visible.map { JSON.number($0) } ?? .null
+        let confirmedValue: JSON = confirmed.map { JSON.number($0) } ?? .null
+        let framesValue: JSON = visible.map { JSON.number(($0 / refresh).rounded(.up)) } ?? .null
+        let spansTotal: Double = spans.reduce(0.0) { $0 + $1.milliseconds }
+        let spanValues: [JSON] = spans.map { span -> JSON in
+            .object(["name": .string(span.name), "at": .number(span.start), "ms": .number(span.milliseconds)])
+        }
+        let fields: [String: JSON] = [
             "command": .string(command.rawValue),
             "key_ms": .number(keyMilliseconds),
-            "visible_ms": visible.map { .number($0) } ?? .null,
-            "confirmed_ms": confirmed.map { .number($0) } ?? .null,
-            "frames_to_visible": visible.map { .number(($0 / refresh).rounded(.up)) } ?? .null,
-            "main_thread_spans_ms": .number(spans.reduce(0) { $0 + $1.milliseconds }),
-            "spans": .array(spans.map { .object(["name": .string($0.name), "at": .number($0.start), "ms": .number($0.milliseconds)]) }),
+            "visible_ms": visibleValue,
+            "confirmed_ms": confirmedValue,
+            "frames_to_visible": framesValue,
+            "main_thread_spans_ms": .number(spansTotal),
+            "spans": .array(spanValues),
             "frames": stats,
-        ]) { $1 })
+        ]
+        return .object(chat.merging(fields) { $1 })
     }
 
     /// What the window shows, read each frame.
