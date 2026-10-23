@@ -32,7 +32,7 @@ needs `--target machine:vm-…`; without it the run is refused.
 | Move to Cloud / Bring Back Local (agent chat tab) | `cmux cloud move`, `cmux cloud bring-back` |
 | Copy Machine ID / Link / Port | Menu only: the CLI never writes the clipboard |
 | Cloud Diagnostics… | `cmux cloud diagnostics` |
-| Team Picker | `cmux cloud team-picker` |
+| Switch Active Team… (also Settings > Accounts > Active Team) | `cmux cloud team-picker` |
 | Sign In / Sign Out | `cmux cloud sign-in`, `cmux cloud sign-out` |
 | Open Mobile Pairing | `cmux cloud open-mobile-pairing` |
 
