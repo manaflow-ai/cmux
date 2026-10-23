@@ -20,9 +20,8 @@ final class CEFHostedPageView: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        // Layer-hosting view (layer set before wantsLayer): AppKit never
-        // touches the remote layer under it.
-        root.anchorPoint = .zero
+        // Layer-hosting view (layer set before wantsLayer): AppKit sizes
+        // the root with the view and never touches the remote layer under it.
         root.masksToBounds = true
         root.actions = Self.noActions
         layer = root
