@@ -23,19 +23,18 @@ public nonisolated struct AgentPaneUpload: Sendable, Equatable, CustomStringConv
     public var debugDescription: String { description }
     public var customMirror: Mirror { Mirror(self, children: [:]) }
 
-    public static let maximumFiles = 10
     public static let maximumFileBytes = 32 * 1024 * 1024
     public static let maximumTotalBytes = 64 * 1024 * 1024
     /// The most bytes one file for a chat on an ssh peer has (acpmux `file_uploads::MAX_BYTES`): it
     /// crosses the peer link as one WebSocket frame, and an older peer reads at most 16 MiB.
     public static let maximumPeerFileBytes = 10 * 1024 * 1024
 
-    /// The files of `chat.upload`'s params, nil when they break the contract: 1 to
-    /// ``maximumFiles`` files, each with a name a folder holds as one file and base64 bytes, at most
+    /// The files of `chat.upload`'s params, nil when they break the contract: one or more files,
+    /// each with a name a folder holds as one file and base64 bytes, at most
     /// ``maximumFileBytes`` each and ``maximumTotalBytes`` in all.
     static func files(_ params: [String: Any]?) -> [AgentPaneUpload]? {
         guard let params, Set(params.keys) == ["files"], let list = params["files"] as? [[String: Any]],
-              (1...maximumFiles).contains(list.count) else { return nil }
+              !list.isEmpty else { return nil }
         var files: [AgentPaneUpload] = []
         var total = 0
         for item in list {
