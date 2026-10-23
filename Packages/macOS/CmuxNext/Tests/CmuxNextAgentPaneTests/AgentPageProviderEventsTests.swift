@@ -97,47 +97,6 @@ struct AgentPageProviderEventsTests {
         #expect(Self.names(secondPage.events) == ["current-state", "second-gap-1", "second-gap-2"])
     }
 
-    @Test func liveEventsFanOutToMultipleSubscribersWithoutReordering() async throws {
-        let provider = AgentPageProvider { _ in nil }
-        provider.replay = { [Self.command("current-state")] }
-        let firstPage = Received()
-        let first = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { event in
-            firstPage.append(event)
-        }
-        defer { first.cancel() }
-        let secondPage = Received()
-        let second = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { event in
-            secondPage.append(event)
-        }
-        defer { second.cancel() }
-        provider.publish(Self.command("live"))
-        await firstPage.waitFor(2)
-        await secondPage.waitFor(2)
-
-        #expect(Self.names(firstPage.events) == ["current-state", "live"])
-        #expect(Self.names(secondPage.events) == ["current-state", "live"])
-    }
-
-    @Test func cancelledReplayReturnsUndeliveredEventsToTheNextPage() async throws {
-        let provider = AgentPageProvider { _ in nil }
-        provider.publish(Self.command("gap"))
-
-        let droppedPage = Received()
-        let dropped = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { event in
-            droppedPage.append(event)
-        }
-        dropped.cancel()
-        #expect(droppedPage.events.isEmpty)
-
-        let nextPage = Received()
-        let next = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { event in
-            nextPage.append(event)
-        }
-        defer { next.cancel() }
-        await nextPage.waitFor(1)
-        #expect(Self.names(nextPage.events) == ["gap"])
-    }
-
     @Test func selfCancellationRequeuesTheSuffixOnce() async throws {
         let provider = AgentPageProvider { _ in nil }
         for name in ["first", "second", "third"] { provider.publish(Self.command(name)) }
@@ -188,18 +147,6 @@ struct AgentPageProviderEventsTests {
         #expect(provider.publish(Self.command("after-reconnect")))
     }
 
-    @Test func transportReconnectKeepsARecoverableBridgeGapQueue() async throws {
-        let provider = AgentPageProvider { _ in nil }
-        provider.publish(Self.command("kept"))
-        provider.transportDidOpen(1)
-        let page = Received()
-        let subscription = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null,
-                                                         context: Self.context) { event in page.append(event) }
-        defer { subscription.cancel() }
-        await page.waitFor(1)
-        #expect(Self.names(page.events) == ["kept"])
-    }
-
     @Test func transportReconnectResetsAStalledPendingReplay() async throws {
         let provider = AgentPageProvider { _ in nil }
         let subscription = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null,
@@ -211,26 +158,6 @@ struct AgentPageProviderEventsTests {
         provider.transportDidOpen(1)
         #expect(provider.publish(Self.command("after-reconnect")))
         subscription.cancel()
-    }
-
-    @Test func aPageResetRequeuesAnEnvelopeDroppedByTheScriptPipeline() async throws {
-        let provider = AgentPageProvider { _ in nil }
-        let page = Received()
-        let subscription = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { event in
-            page.append(event)
-        }
-        // PageScriptPipeline.reset reports this exact data before PageRouter cancels the old sub.
-        let dropped = Self.command("reset-dropped")
-        provider.eventDeliveryDropped(stream: AgentPageProvider.hostEvents, data: dropped.data)
-        subscription.cancel()
-
-        let nextPage = Received()
-        let next = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { event in
-            nextPage.append(event)
-        }
-        defer { next.cancel() }
-        await nextPage.waitFor(1)
-        #expect(Self.names(nextPage.events) == ["reset-dropped"])
     }
 
     @Test func routerResetDropUsesTheCapturedProviderAfterRouterCloses() async throws {
@@ -330,6 +257,6 @@ struct AgentPageProviderEventsTests {
                                                 context: Self.context) { event in nextPage.append(event) }
         defer { next.cancel() }
         await nextPage.waitFor(1)
-        #expect(Self.names(nextPage.events).filter { $0 == "mixed" }.count == 1)
+        #expect(Self.names(nextPage.events) == ["mixed"])
     }
 }

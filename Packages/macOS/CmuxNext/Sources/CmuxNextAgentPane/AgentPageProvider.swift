@@ -173,12 +173,14 @@ public final class AgentPageProvider: PageProvider {
             }
         }
         let value = data["value"] ?? .null
+        let deliveryID = publicationID ?? nextDeliveryID
+        if publicationID == nil { nextDeliveryID &+= 1 }
         guard bufferedEvents.count < Self.maximumBufferedEvents else {
             bufferedQueueOverflowed = true
             deliveryOverflowed = true
             return
         }
-        bufferedEvents.append(AgentPageEvent(kind: kind, value: value, deliveryID: publicationID))
+        bufferedEvents.append(AgentPageEvent(kind: kind, value: value, deliveryID: deliveryID))
     }
 
     /// Sends `event` to every subscribed page.
@@ -311,7 +313,9 @@ public final class AgentPageProvider: PageProvider {
         guard !events.isEmpty else { return }
         var existingIDs = Set(bufferedEvents.compactMap(\.deliveryID))
         let uniqueEvents = events.filter { event in
-            guard let deliveryID = event.deliveryID else { return true }
+            // Replay snapshots have no publication identity; the next subscription regenerates
+            // current replay, so never requeue an old snapshot after a reset.
+            guard let deliveryID = event.deliveryID else { return false }
             return existingIDs.insert(deliveryID).inserted
         }
         let available = Self.maximumBufferedEvents - bufferedEvents.count
