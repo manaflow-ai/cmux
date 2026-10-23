@@ -426,3 +426,8 @@ the gap, no row left out of place after drop or cancel).
 | [51b858dd146](https://github.com/manaflow-ai/cmux/commit/51b858dd146cb61717d632bada94e97d5f7c959d) | 10-19 13:25 | Leo's agents (Leo) | fix(cmux-next): running spinners draw bare, with no disc or ring behind them (#22047) |
 | [126426d9674](https://github.com/manaflow-ai/cmux/commit/126426d9674468f33ea7b6a0e47748e9a82a2b6a) | 10-19 13:02 | Leo's agents (Leo) | cmux-next sidebar: selected rows read as one selection in every theme (#21940) |
 | [2e9e3125d34](https://github.com/manaflow-ai/cmux/commit/2e9e3125d34ef20dd6eafcd51f118318ef3d4051) | 10-19 12:40 | Leo's agents (Leo) | Now Playing card: level bars and a filled Play/Pause (#21697) |
+
+
+## Codex follow-up
+
+- 2026-10-23: Codex #24513 follow-up keeps the `inside` Chrome corner inset for a parent group whose rows are only nested groups; the regression test covers the previously unmeasured parent rail.

@@ -186,4 +186,25 @@ import Testing
             }
         }
     }
+
+    /// A parent with only nested groups still uses its own Chrome corner inset in `inside`; there is no direct
+    /// member row from which to derive the rail.
+    @Test
+    func anInsideParentWithOnlyNestedGroupsKeepsItsCornerInset() throws {
+        try Self.withLayout(.inside) {
+            let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+            let parent = SidebarGroup(id: GroupID("g-parent-only"), name: "Parent", color: .purple, workspaces: [])
+            let child = SidebarGroup(id: GroupID("g-child-only"), name: "Child", color: .blue,
+                                     workspaces: [SidebarWorkspace(id: WorkspaceID("w-child"), title: "Child member")])
+            child.parent = parent.id
+            let list = SidebarNestedGroupAlignmentTests.list([
+                SidebarSection(kind: .machine(machine), nodes: [.group(parent), .group(child)]),
+            ])
+            let parentRow = try #require(list.displayed.row(for: .group(parent.id)))
+            let line = try #require(list.groupLines(list.displayed).first { $0.group == parent.id })
+            let header = list.frame(for: parentRow)
+            #expect(line.frame.minX == header.minX + SidebarStyle.groupHeaderOverhang,
+                    "a parent rail without direct members stays inside its header corner")
+        }
+    }
 }

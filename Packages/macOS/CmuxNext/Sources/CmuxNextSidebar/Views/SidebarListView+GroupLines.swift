@@ -85,7 +85,9 @@ extension SidebarGroupLine {
             // At the header bar's left edge, which reaches left of the group's own members' x by the rail and its gap
             // (`SidebarListView.railReach(for:)`; not the subtree's last row, which may sit deeper). `inside`, the bar
             // reaches further and the line keeps the rail's x, its first member's less the reach.
-            let x = layout == .inside ? max(head.minX, (first[id].map(frame)?.minX ?? head.minX) - SidebarStyle.groupRailReach)
+            let insideRail = first[id].map(frame).map { $0.minX - SidebarStyle.groupRailReach }
+                ?? head.minX + SidebarStyle.groupHeaderOverhang
+            let x = layout == .inside ? max(head.minX, insideRail)
                 : head.minX
             return SidebarGroupLine(group: id, frame: CGRect(x: x, y: top, width: width, height: bottom - top),
                                     color: colors[id]?.tint ?? .palette(end.groupColor ?? .grey), level: nested ? header.depth : 0)
