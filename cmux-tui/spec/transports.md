@@ -80,10 +80,10 @@ connection, those flags apply to the newly created owner.
 
 One process holds an exclusive cross-platform writer lease for each session
 database. SQLite uses WAL, foreign keys and `synchronous=NORMAL`: an
-acknowledged change survives a crash of the daemon at once. The daemon's WAL
-syncer orders the WAL on the drive after each answered request (macOS
-F_BARRIERFSYNC, off the request path) and flushes the drive cache at close; a
-power loss may lose a tail of changes, never their order. A second daemon for the same state/session fails startup instead
+acknowledged change survives a crash of the daemon at once. The WAL reaches
+the disk at each checkpoint, which the daemon runs off the request path, and
+the drive cache is flushed at close; a power loss may lose a tail of changes,
+never their order (SQLite's WAL guarantee). A second daemon for the same state/session fails startup instead
 of racing. Corruption or an unsupported schema also fails closed; the daemon
 never silently falls back to ephemeral state.
 

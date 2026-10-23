@@ -1,5 +1,5 @@
 //! SQLite durability off the request path: one syncer thread per database
-//! orders the WAL on the drive and runs its checkpoints (PL-daemon).
+//! runs its WAL checkpoints and flushes it at close (PL-daemon).
 //!
 //! The daemon's databases (the workspace registry, the conversation store,
 //! the chief registry) run in WAL mode with `synchronous=NORMAL`: a commit's
@@ -11,13 +11,15 @@
 //! So no request waits for the disk. SQLite's WAL hook runs on the
 //! committing thread right after a commit's frames are written and counts
 //! it. Once a request's reply is out (the server's reply funnel), or a
-//! background journal batch committed, the caller asks this syncer to flush;
-//! its thread issues one F_BARRIERFSYNC of the WAL (see [`flush`]) for every
-//! commit made so far, outside every lock. It does not flush after each
-//! commit, so a create's five commits share one barrier after its reply. A
-//! commit no reply or batch follows (a startup restore, an exit receipt) is
-//! flushed by the next request's flush or at close, where the syncer issues
-//! the one F_FULLFSYNC (drive cache) of the daemon's run.
+//! background journal batch committed, the caller hands the commits to this
+//! syncer. During the run the WAL reaches the disk the way SQLite's
+//! `synchronous=NORMAL` defines it: at its checkpoint (SQLite syncs the WAL
+//! before copying it), which the syncer runs once the WAL is large, and
+//! through the kernel's own write-back; at close the syncer issues one
+//! F_FULLFSYNC. No per-request sync: measured on one fleet mini (40 rounds,
+//! 50 background workspaces), an F_FULLFSYNC after each reply made the next
+//! request wait for it (new browser tab 4.2 -> 22-25 ms p50), and even an
+//! F_BARRIERFSYNC after each reply cost the next request 5-7 ms.
 //!
 //! Installing the WAL hook also turns off SQLite's automatic checkpoint,
 //! which ran on whichever request crossed 1000 WAL pages: it copied the WAL
@@ -54,8 +56,12 @@ struct SyncState {
     committed: u64,
     /// Commits known to be on disk.
     synced: u64,
-    /// Commits a caller asked to flush ([`WalDurability::request_flush`]).
+    /// Commits a caller announced ([`WalDurability::request_flush`]).
     requested: u64,
+    /// Announced commits the syncer has looked at (checkpointed or not).
+    handled: u64,
+    /// Commits a caller must see on disk ([`WalDurability::wait_durable`]).
+    forced: u64,
     /// The database closed: the thread flushes what is owed and ends.
     stopping: bool,
 }
@@ -168,9 +174,10 @@ impl WalDurability {
     /// Wait until every commit made before this call is on disk.
     #[cfg(test)]
     pub(crate) fn wait_durable(&self) {
-        self.request_flush();
         let mut state = self.shared.state.lock().recover_poison();
         let target = state.committed;
+        state.forced = state.forced.max(target);
+        self.shared.changed.notify_all();
         while state.synced < target && !state.stopping {
             state = self.shared.changed.wait(state).recover_poison();
         }
@@ -213,30 +220,39 @@ fn run(shared: &Shared) {
     let mut checkpointer: Option<Connection> = None;
     let mut state = shared.state.lock().recover_poison();
     loop {
-        while state.requested <= state.synced && !state.stopping {
+        while state.requested <= state.handled && state.forced <= state.synced && !state.stopping {
             state = shared.changed.wait(state).recover_poison();
         }
         if state.stopping && state.committed <= state.synced {
             return;
         }
-        let target = if state.stopping { state.committed } else { state.requested };
+        let force = state.stopping || state.forced > state.synced;
+        let target = if force { state.committed } else { state.requested };
+        state.handled = state.handled.max(state.requested);
         drop(state);
-        flush(shared);
+        // A forced flush syncs the WAL; otherwise the WAL reaches the disk
+        // with its checkpoint (SQLite syncs it first), or at close.
+        let synced = if force {
+            flush(shared);
+            true
+        } else {
+            checkpoint_if_large(shared, &mut checkpointer)
+        };
         state = shared.state.lock().recover_poison();
-        state.synced = state.synced.max(target);
-        shared.changed.notify_all();
-        drop(state);
-        checkpoint_if_large(shared, &mut checkpointer);
-        state = shared.state.lock().recover_poison();
+        if synced {
+            state.synced = state.synced.max(target);
+            shared.changed.notify_all();
+        }
     }
 }
 
 /// A PASSIVE checkpoint on the syncer's own connection once the WAL is
 /// large: it copies what it can without waiting for a writer or reader.
-fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>) {
+/// True when a checkpoint ran (it synced the WAL before copying it).
+fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>) -> bool {
     let large = std::fs::metadata(&shared.wal_path).is_ok_and(|meta| meta.len() > CHECKPOINT_BYTES);
     if !large {
-        return;
+        return false;
     }
     if checkpointer.is_none() {
         *checkpointer = super::open_registry_database_with_flags(
@@ -250,10 +266,13 @@ fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>) {
         .map_err(|error| eprintln!("cmux-tui: open the WAL checkpointer failed: {error:#}"))
         .ok();
     }
-    if let Some(connection) = checkpointer.as_ref()
-        && let Err(error) = connection.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(()))
-    {
-        eprintln!("cmux-tui: WAL checkpoint failed: {error}");
+    let Some(connection) = checkpointer.as_ref() else { return false };
+    match connection.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(())) {
+        Ok(()) => true,
+        Err(error) => {
+            eprintln!("cmux-tui: WAL checkpoint failed: {error}");
+            false
+        }
     }
 }
 
@@ -264,18 +283,9 @@ const CHECKPOINTER_PRAGMAS: &str = "PRAGMA fullfsync=OFF; PRAGMA checkpoint_full
 #[cfg(test)]
 const CHECKPOINTER_PRAGMAS: &str = "PRAGMA fullfsync=OFF;";
 
-/// Order the WAL's writes on the drive: F_BARRIERFSYNC (fsync off macOS),
-/// never F_FULLFSYNC while the daemon runs. An F_FULLFSYNC flushes the
-/// drive's whole cache and stalls every other write to it until done, on any
-/// file: with one after each reply, the next request's WAL writes waited for
-/// it (same fleet mini, 40 rounds: registry NORMAL with no full flush answered
-/// a new browser tab in 3.7 ms p50, with a full flush per reply 22-25 ms).
-/// A barrier keeps the WAL's order on the drive, so a power loss loses at
-/// most a tail of commits and never leaves an out-of-order WAL (SQLite's
-/// checksums then stop replay at the first missing frame); the same loss
-/// ends every shell the tail described. The full flush runs once at close
-/// ([`SyncerOwner`]). A missing WAL was checkpointed into the database and
-/// removed, which SQLite syncs itself.
+/// Sync the WAL now (a caller waits for it: [`WalDurability::wait_durable`]).
+/// A missing WAL was checkpointed into the database and removed, which
+/// SQLite syncs itself.
 fn flush(shared: &Shared) {
     if let Some(delay) = shared.slow_flush {
         std::thread::sleep(delay);
@@ -348,14 +358,15 @@ mod tests {
     }
 
     #[test]
-    fn a_requests_commits_share_one_flush_after_it_asks() {
+    fn an_answered_request_syncs_nothing_until_a_checkpoint_or_close() {
         let (dir, connection) = database("share");
         let durability = WalDurability::attach(&connection, &dir.join("r.sqlite"), None, false);
         for value in 0..5 {
             connection.execute("INSERT INTO t VALUES (?1)", [value]).unwrap();
         }
+        durability.request_flush();
         std::thread::sleep(Duration::from_millis(50));
-        assert_eq!(durability.counts(), (5, 0), "a commit started a flush nobody asked for");
+        assert_eq!(durability.counts(), (5, 0), "a small WAL was synced after a reply");
         durability.wait_durable();
         assert_eq!(durability.counts(), (5, 5));
         drop(connection);

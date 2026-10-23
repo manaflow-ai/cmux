@@ -115,14 +115,14 @@ processes and ~2,000 threads fewer.
 
 No daemon reply waits for the disk. Registry commits run `synchronous=NORMAL`: a commit is in the
 WAL, in the kernel's page cache, when it returns, and a crash, kill or update of the daemon keeps
-it. One syncer thread orders the WAL on the drive (F_BARRIERFSYNC) after each answered request,
-off every lock, and flushes the drive cache (F_FULLFSYNC) once at close
-(`workspace_registry/wal_durability.rs`). Trade-off: a power loss or kernel panic can take back
-the tail of replies whose WAL pages the drive had not yet written from its cache (the OS writes
-its cache back within seconds; the barrier keeps the order, so the lost part is always a tail).
+it. One syncer thread runs the WAL checkpoints off every lock (SQLite syncs the WAL before each),
+and flushes the drive cache (F_FULLFSYNC) once at close (`workspace_registry/wal_durability.rs`).
+These are SQLite's own `synchronous=NORMAL` WAL rules, with the checkpoint moved off the request.
+Trade-off: a power loss or kernel panic can take back the tail of replies since the last
+checkpoint that the kernel had not yet written back (a tail, never out of order).
 The same loss ends every shell, host and holder, so the terminals those replies described are gone
-anyway; a workspace rename or layout change made in that tail is lost. A full flush per reply was
-measured and rejected: F_FULLFSYNC stalls every other write to the drive, and the next request's
-WAL writes waited for it (new browser tab 3.7 -> 22-25 ms p50 on the same fleet mini). Before: each commit F_FULLFSYNCed inside the
+anyway; a workspace rename or layout change made in that tail is lost. A sync per reply was
+measured and rejected: the next request's WAL writes waited for it (same fleet mini, new browser
+tab 4.2 ms p50 without, 22-25 ms with F_FULLFSYNC, about 11 ms with F_BARRIERFSYNC). Before: each commit F_FULLFSYNCed inside the
 registry lock (about 4.5 ms on a fleet M4 Pro, 20 ms on a busy Apple SSD), 1-3 per create or close
 reply, and every request that needed the lock waited behind it (60-80 ms p95 on every op).
