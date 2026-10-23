@@ -703,7 +703,19 @@ impl Hub {
                     recorded.insert(id.to_owned());
                 }
                 match e.kind.as_str() {
-                    "queued" => waiting.push(e),
+                    "queued" => {
+                        // A restart's continuation of a cut turn goes ahead of what waited behind
+                        // that turn, also when the daemon stopped before its `queue_order`
+                        // (`restart_resume.rs`); a later reorder still holds.
+                        if e.msg.pointer("/_meta/provenance/reason").and_then(Value::as_str)
+                            == Some("daemon_restart")
+                            && let Some(id) = e.msg.get("promptId")
+                        {
+                            order.retain(|o| o != id);
+                            order.insert(0, id.clone());
+                        }
+                        waiting.push(e);
+                    }
                     "agent_pair_held"
                     | "agent_pair_released"
                     | "agent_pair_dropped"
