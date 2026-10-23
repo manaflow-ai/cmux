@@ -40,7 +40,7 @@ public nonisolated struct ImageClassifier: Sendable {
     ///   - systemImageExists: Whether an image of that name exists in an Apple folder (the default
     ///     looks on disk); tests pass a fixed answer.
     public init(appBundlePath: String?, forbiddenTerms: [String],
-                systemImageExists: @escaping @Sendable (String) -> Bool = ImageClassifier.systemImageOnDisk) {
+                systemImageExists: @escaping @Sendable (String) -> Bool = { ImageClassifier.systemImageOnDisk($0) }) {
         self.appBundlePath = appBundlePath.map { $0.hasSuffix("/") ? $0 : $0 + "/" }
         self.forbiddenTerms = forbiddenTerms.map { $0.lowercased() }.filter { $0.count >= Self.minimumTermLength && !Self.isOwnWord($0) }
         self.systemImageExists = systemImageExists
