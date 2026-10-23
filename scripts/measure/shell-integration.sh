@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# Shell integration costs nothing per prompt (perf-lead row 20), measured where a PID-gap count is
-# valid: alone on an idle Mac. The fork guard (cmux-tui-core shell_integration::fork_count_tests) and
-# the bench (scripts/cmux-next/shell-integration-bench.py) count forks as the gap in the system PID
-# counter, so any other process on the host counts as a shell fork. An isolated step shares its
-# worker with other steps and gives no verdict ("unstable baseline"); this exclusive step does.
+# Shell integration costs nothing per prompt (perf-lead row 20): the fork guard
+# (cmux-tui-core shell_integration::fork_count_tests) and the bench
+# (scripts/cmux-next/shell-integration-bench.py) on one Mac with every shell they need, strict. On
+# macOS both count the shell's own forks through the kernel (kqueue NOTE_FORK), so other processes
+# on the host do not change the fork counts: the guard alone runs in any isolated step
+# (cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --arg test
+# --arg shell_integration:: --ref SHA). This step adds what that one cannot: the bench's
+# first-prompt times (a timing, so alone on an idle worker), bash 5.2, and the strict shell list.
 #   cmux-ci run --class exclusive --measurement --label measure \
 #     --script scripts/measure/shell-integration.sh --ref SHA \
 #     --artifact artifacts/shell-integration/report.tgz [--arg=bash52=0] [--arg=app=1]
@@ -11,13 +14,11 @@
 #   host     host, macOS, arch, load, the shells' versions, the ghostty-next pin.
 #   guard    the fork-count and prompt-redraw tests through scripts/ci/cmux-tui-rust-check.sh, with
 #            CMUX_FORK_COUNT_REQUIRE=zsh,fish,bash5.3 set here (the controller does not pass that
-#            variable to a step), so a missing shell fails instead of skipping. Nothing else of the
-#            step forks during the run: nextest runs the fork counts alone, and the check's PTY
-#            sampler starts no process (pty_watch_start).
+#            variable to a step), so a missing shell fails instead of skipping.
 #   bench    the bench on this checkout, layouts app, daemon, daemon-bare; zsh, fish and Homebrew
 #            bash 5.3 required.
 #   bash52   (default on) the bench on bash 5.2.37 built from the sha256-pinned GNU tarball: the
-#            bash 4.4-5.2 budget (Ghostty's PS0 command substitution, 2 forks per command).
+#            bash 4.4-5.2 budget (Ghostty's PS0 command substitution: 1 fork of the shell per command).
 #   app      (app=1) builds a tagged app at this checkout (reload.sh) and runs the bench on its
 #            bundle (--app), the files the app really ships.
 # Exit: 0 every step passed, 1 a check failed, 2 no verdict and no failure (Homebrew

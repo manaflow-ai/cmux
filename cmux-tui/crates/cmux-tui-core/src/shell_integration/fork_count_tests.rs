@@ -5,17 +5,30 @@
 //! from the spawn to its first prompt (startup), then types commands at the
 //! prompt (half of them `cd` between a plain directory and a git repository,
 //! so cwd- and git-triggered work is counted too) and counts what it forks
-//! for them. Counts come from the PID counter: PIDs are handed out in
-//! sequence, so the PID gap between two probes is the number of processes
-//! forked between them.
+//! for them.
 //!
-//! Other processes on the host only make a gap larger, so each count is the
-//! minimum over reps, and the integrated shell may fork no more than the same
-//! shell without the integration: 0 at startup, and per command 0, except 2
-//! on bash 4.4-5.2, whose only pre-command hook is Ghostty's PS0 command
-//! substitution. A control minimum that only one rep reached is host noise,
-//! not a baseline, and fails the test ("unstable baseline") instead of
-//! hiding forks. bash runs in three homes: no PROMPT_COMMAND, a string one
+//! How forks are counted. On macOS the kernel counts them for the shell
+//! alone (`fork_watch`: a kqueue `NOTE_FORK` knote on the shell's pid), so
+//! no other process on the host, and no other test of the run, changes the
+//! count: the tests run in any fleet step, beside anything. The shell starts
+//! behind a gate (`/bin/sh` waits for a line, then execs the shell), so the
+//! watch is in place before the shell runs. That count is the shell's own
+//! forks: a command substitution whose subshell forks again counts once, and
+//! a count of 0 is exact (every fork of a descendant starts with one of the
+//! shell). Elsewhere (Linux) the count is the gap in the system PID counter
+//! (PIDs are handed out in sequence), which every process forks into; other
+//! processes only make a gap larger, so each count is the minimum over reps,
+//! and nextest runs these tests one at a time with every test thread (group
+//! `fork-count-alone` in `cmux-tui/.config/nextest.toml`).
+//!
+//! The integrated shell may fork no more than the same shell without the
+//! integration: 0 at startup, and per command 0, except on bash 4.4-5.2,
+//! whose only pre-command hook is Ghostty's PS0 command substitution (1 fork
+//! of the shell, whose subshell forks once more for the history read: 1 on
+//! macOS, 2 in the PID gap). A control minimum that only one rep reached is
+//! host noise, not a baseline, and fails the test ("unstable baseline")
+//! instead of hiding forks; the kernel's count does not vary, so on macOS it
+//! never happens. bash runs in three homes: no PROMPT_COMMAND, a string one
 //! and an array one (the integration reads its type at startup).
 //!
 //! It needs ghostty-next 72578da or later: before it, Ghostty's ghostty.bash
@@ -24,32 +37,22 @@
 //! PROMPT_COMMAND)`), on every bash.
 //!
 //! A shell that is not installed skips its test, and so does bash older than
-//! 4.4 (Ghostty uses bash-preexec there). Linux CI has bash 5.2 and no zsh or
-//! fish, so it runs only the bash 4.4-5.2 budget; the bash 5.3, zsh and fish
-//! paths run on a Mac. There, `CMUX_FORK_COUNT_REQUIRE` turns a skip into a
-//! failure: a comma list of `zsh`, `fish`, `bash`, and `bash5.3` (an
-//! integrated bash 5.3 or later must run).
-//!
-//! A PID gap is valid only when nothing else forks in the window. nextest
-//! runs these tests one at a time with every test thread (group
-//! `fork-count-alone` in `cmux-tui/.config/nextest.toml`), so no other test
-//! of the run forks beside them; other processes on the host still do.
-//! Plain `cargo test` runs a binary's tests as threads of one process, so
-//! every other test of `cmux-tui-core` (the pty, daemon and prompt-redraw
-//! tests) forks inside the windows: its counts are valid only with
-//! `cargo test -p cmux-tui-core -- --test-threads 1 fork_count_`. The
-//! Mac verdict therefore comes from `scripts/measure/shell-integration.sh`,
-//! an exclusive fleet step (alone on an idle worker) that sets
-//! `CMUX_FORK_COUNT_REQUIRE=zsh,fish,bash5.3` itself:
+//! 4.4 (Ghostty uses bash-preexec there). A skip prints a `FORK-COUNT-SKIP`
+//! line, which the nextest config keeps in the output of a passing test, so
+//! a step log shows what did not run. Linux CI has bash 5.2 and no zsh or
+//! fish; the AWS Macs have only /bin/zsh (Apple's /bin/bash 3.2 gets no
+//! integration); bash 5.3 and fish need Homebrew. `CMUX_FORK_COUNT_REQUIRE`
+//! turns a skip into a failure: a comma list of `zsh`, `fish`, `bash`, and
+//! `bash5.3` (an integrated bash 5.3 or later must run). On the fleet:
 //!
 //! ```text
-//! cmux-ci run --class exclusive --measurement --label measure \
-//!   --script scripts/measure/shell-integration.sh --ref SHA
+//! cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh \
+//!   --arg test --arg shell_integration:: --ref SHA
 //! ```
 //!
-//! The bench (`scripts/cmux-next/shell-integration-bench.py`, run by the same
-//! step) also counts the app's spawn path (the `Resources/cmux-cli-path`
-//! layer) and an idle window at the prompt.
+//! The bench (`scripts/cmux-next/shell-integration-bench.py`) counts the same
+//! way, and also the app's spawn path (the `Resources/cmux-cli-path` layer),
+//! an idle window at the prompt and the time to the first prompt.
 
 use super::test_pty::TestPty;
 use super::*;
@@ -73,7 +76,7 @@ fn required(what: &str) -> bool {
 /// Skips the test, or fails it when `CMUX_FORK_COUNT_REQUIRE` names `what`.
 fn skip(what: &str, why: &str) {
     assert!(!required(what), "{why}, and CMUX_FORK_COUNT_REQUIRE requires {what}");
-    eprintln!("skipped: {why}");
+    eprintln!("FORK-COUNT-SKIP {what}: {why}");
 }
 
 fn find(candidates: &[&str]) -> Option<PathBuf> {
@@ -91,6 +94,7 @@ fn temp_base(name: &str) -> PathBuf {
 }
 
 /// The PID of a process started now: the system's PID counter at this moment.
+#[cfg(not(target_os = "macos"))]
 fn probe_pid() -> u32 {
     let mut child = std::process::Command::new("true").spawn().unwrap();
     let pid = child.id();
@@ -98,16 +102,54 @@ fn probe_pid() -> u32 {
     pid
 }
 
+/// Forks a reading of the fork count itself adds to the next window: the
+/// kernel's count costs none, a PID probe is one process.
+#[cfg(target_os = "macos")]
+const READ_COST: u32 = 0;
+#[cfg(not(target_os = "macos"))]
+const READ_COST: u32 = 1;
+
+/// Forks per command of Ghostty's PS0 hook on bash 4.4-5.2: its command
+/// substitution, and the history read that subshell forks. The kernel's
+/// count sees only the first (the shell's own fork).
+#[cfg(target_os = "macos")]
+const BASH_PS0_FORKS: u32 = 1;
+#[cfg(not(target_os = "macos"))]
+const BASH_PS0_FORKS: u32 = 2;
+
+/// The gate a shell starts behind on macOS: `/bin/sh` waits for a line and
+/// then becomes the shell (`exec` keeps the pid), so the fork watch is on
+/// the pid before the shell runs.
+#[cfg(target_os = "macos")]
+const GATE: &str = "read -r go && exec \"$@\"";
+
 /// One shell on a pty, driven by what it prints.
 struct Session {
     pty: TestPty,
     output: Vec<u8>,
+    #[cfg(target_os = "macos")]
+    watch: super::fork_watch::ForkWatch,
 }
 
 impl Session {
-    fn start(command: &[String], env: &[(String, String)], cwd: &Path) -> Self {
-        let mut pty_command = cmux_pty::PtyCommand::new(&command[0]);
-        pty_command.args(command[1..].iter().cloned());
+    /// Starts `command`; returns the session and the fork count before the
+    /// shell ran (on Linux the PID counter, so the startup window also
+    /// holds the shell itself, in the control as in the integrated run).
+    fn start(command: &[String], env: &[(String, String)], cwd: &Path) -> (Self, u32) {
+        #[cfg(target_os = "macos")]
+        let mut pty_command = {
+            let mut gated = cmux_pty::PtyCommand::new("/bin/sh");
+            gated.args(
+                ["-c", GATE, "sh"].map(String::from).into_iter().chain(command.iter().cloned()),
+            );
+            gated
+        };
+        #[cfg(not(target_os = "macos"))]
+        let mut pty_command = {
+            let mut direct = cmux_pty::PtyCommand::new(&command[0]);
+            direct.args(command[1..].iter().cloned());
+            direct
+        };
         // Only the test's env: an inherited ENV, ZDOTDIR or PROMPT_COMMAND
         // would change what the shell runs.
         pty_command.env_clear();
@@ -116,7 +158,35 @@ impl Session {
             pty_command.env(key.clone(), value.clone());
         }
         let size = cmux_pty::PtySize { rows: 30, cols: 200, pixel_width: 0, pixel_height: 0 };
-        Self { pty: TestPty::spawn(size, pty_command), output: Vec::new() }
+        #[cfg(not(target_os = "macos"))]
+        let start = probe_pid();
+        let pty = TestPty::spawn(size, pty_command);
+        #[cfg(target_os = "macos")]
+        let (session, start) = {
+            let watch = super::fork_watch::ForkWatch::new(pty.pid());
+            let mut session = Self { pty, output: Vec::new(), watch };
+            // Opens the gate.
+            session.write(b"\n");
+            (session, 0)
+        };
+        #[cfg(not(target_os = "macos"))]
+        let session = Self { pty, output: Vec::new() };
+        (session, start)
+    }
+
+    /// The shell's fork count now, every fork before this call included.
+    #[cfg(target_os = "macos")]
+    fn forks(&self) -> u32 {
+        let counts = self.watch.counts();
+        // The gate's exec into the shell: the watch saw the shell start.
+        assert!(counts.execs >= 1, "the shell started before its fork watch");
+        counts.forks
+    }
+
+    /// The system's PID counter now (every process forks into it).
+    #[cfg(not(target_os = "macos"))]
+    fn forks(&self) -> u32 {
+        probe_pid()
     }
 
     fn wait_for(&mut self, done: impl Fn(&[u8]) -> bool, what: &str) {
@@ -195,23 +265,21 @@ fn count_forks(
     cwd: &Path,
     lines: &[String],
 ) -> Option<Forks> {
-    let spawn = probe_pid();
-    let mut session = Session::start(command, env, cwd);
+    let (mut session, spawn) = Session::start(command, env, cwd);
     session.wait_for(|output| count(output, PROMPT) > 0, "first prompt");
     session.barrier();
-    let before = probe_pid();
+    let before = session.forks();
     for line in lines {
         session.run(line);
     }
     session.barrier();
-    let after = probe_pid();
+    let after = session.forks();
     let output = std::mem::take(&mut session.output);
     drop(session);
-    // Both gaps exclude the closing probe; the startup gap includes the
-    // shell itself, in the control as in the integrated run.
-    (before > spawn && after > before).then(|| Forks {
-        startup: before - spawn - 1,
-        typing: after - before - 1,
+    // Each window excludes the reading that closes it.
+    Some(Forks {
+        startup: before.checked_sub(spawn)?.checked_sub(READ_COST)?,
+        typing: after.checked_sub(before)?.checked_sub(READ_COST)?,
         output,
     })
 }
@@ -364,8 +432,8 @@ fn fork_count_fish_forks_nothing() {
 
 /// bash forks nothing at startup with any PROMPT_COMMAND, and nothing per
 /// command on bash 5.3 (Ghostty's `$(builtin history 1)` before 72578da forks
-/// once); bash 4.4-5.2 forks twice per command (Ghostty's PS0 command
-/// substitution and the history read in it), and no more.
+/// once); bash 4.4-5.2 forks `BASH_PS0_FORKS` per command (Ghostty's PS0
+/// command substitution and the history read in it), and no more.
 #[test]
 fn fork_count_bash_forks_nothing_at_startup_or_per_command_on_bash_5_3() {
     // Apple's /bin/bash gets no integration (see detect_shell).
@@ -391,7 +459,7 @@ fn fork_count_bash_forks_nothing_at_startup_or_per_command_on_bash_5_3() {
             &format!("bash {major}.{minor} is older than 4.4 (Ghostty uses bash-preexec)"),
         );
     }
-    let budget = if bash_5_3 { 0 } else { 2 };
+    let budget = if bash_5_3 { 0 } else { BASH_PS0_FORKS };
     eprintln!("{}: bash {major}.{minor}, budget {budget} per command", bash.display());
     for (home, bashrc_extra) in [
         ("plain", ""),

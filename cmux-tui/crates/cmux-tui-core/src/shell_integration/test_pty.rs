@@ -66,6 +66,12 @@ impl TestPty {
         Ok(chunk)
     }
 
+    /// The shell's pid.
+    #[cfg(target_os = "macos")]
+    pub(super) fn pid(&self) -> u32 {
+        self.spawned.child.process_id().expect("a spawned pty child has a pid")
+    }
+
     /// Types `bytes` into the shell.
     pub(super) fn write(&mut self, bytes: &[u8]) {
         self.writer.write_all(bytes).unwrap();
