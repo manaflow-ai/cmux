@@ -10,7 +10,6 @@ import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { commandFolder } from "./commandFolder";
 import { menuPartRef } from "./menuParts";
-import { BackgroundHint } from "./BackgroundHint";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { Check, ChevronRight, Spinner, TerminalSquare } from "./icons";
@@ -44,8 +43,11 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
   const short = shortCommand(tool.command ?? "", ROW_WIDTH);
   const whole = short === commandFolder(tool.command ?? "").rest.trim();
   const exited = tool.exitCode !== undefined && tool.exitCode !== 0;
-  // "Ran {command}" in the reader's language, the command drawn as code where the string puts it.
-  const [before = "", after = ""] = t("tools.ranCommand", { command: "\u0000" }).split("\u0000");
+  // "Ran {command}" in the reader's language, the command drawn as code where the string puts it;
+  // "Running {command}" until it is done. Its ⌃B hint is the live line's (WorkingFor.tsx, Thinking.tsx).
+  const [before = "", after = ""] = t(foreground ? "tools.runningCommand" : "tools.ranCommand", {
+    command: "\u0000",
+  }).split("\u0000");
   return (
     <>
       <button
@@ -76,7 +78,6 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
           )}
         </span>
         <span className="cv-command__meta">
-          {foreground && <BackgroundHint />}
           {foreground ? (
             <Spinner size={12} />
           ) : tool.background ? (

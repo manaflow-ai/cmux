@@ -1,5 +1,7 @@
 // A settled run of tool calls: one summary line ("Read 6 files, ran 4 commands", and "1 failed"
 // when a call failed) that opens to the calls themselves, in a list that scrolls past nine rows.
+// Scrolled, the list's top fades out under the summary line (useScrollEdges, conversation.css
+// .cv-tool-run).
 import { useFindReveal } from "./chatFind";
 import { useId, useMemo, type ReactNode } from "react";
 import { useT } from "../i18n";
@@ -10,6 +12,7 @@ import { mainToolRunCategory, toolRunSummary, type ToolRunCategory } from "./too
 import { useToolRunLook } from "../toolRunLook";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useFold } from "./fold";
+import { useScrollEdges } from "../summary/scrollEdges";
 
 /// The summary's glyph: its main kind of work's, with searches and reads both as the magnifier.
 function runIcon(category: ToolRunCategory | undefined): ReactNode {
@@ -43,6 +46,7 @@ export function ToolRun({
   useFindReveal(items, () => setOpen(true));
   const fold = useFold(open);
   const list = useId();
+  const edges = useScrollEdges();
   // Read once per run: the row draws again only when its version moves (App.tsx ToolActivityRow),
   // and then only a new list of calls counts again.
   const { summary, main, failures, running } = useMemo(
@@ -80,7 +84,7 @@ export function ToolRun({
       </button>
       {fold.present && (
         <div ref={fold.ref} className="cv-fold">
-          <div className="cv-tool-run" id={list}>
+          <div className="cv-tool-run" id={list} ref={edges}>
             {children}
           </div>
         </div>
