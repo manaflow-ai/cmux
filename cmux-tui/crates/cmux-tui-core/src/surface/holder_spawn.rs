@@ -53,7 +53,7 @@ impl Surface {
             terminal_id: terminal_id.to_hex(),
             incarnation: crate::terminal_host::TerminalId::random()?.to_hex(),
         };
-        let (argv, env, cwd) = holder_command(&spawn.opts);
+        let HolderCommand { spawn_argv, argv, env, cwd } = holder_command(&spawn.opts);
         let request = SpawnRequest {
             id: *terminal_id.as_bytes(),
             cols: spawn.opts.cols,
@@ -61,7 +61,7 @@ impl Surface {
             px_w: spawn.opts.cols.saturating_mul(spawn.cell_pixels.0),
             px_h: spawn.opts.rows.saturating_mul(spawn.cell_pixels.1),
             cwd: cwd.clone().into_bytes(),
-            argv: argv.iter().map(|arg| arg.clone().into_bytes()).collect(),
+            argv: spawn_argv.into_iter().map(String::into_bytes).collect(),
             env,
         };
         let service = HolderService::for_root(&spawn.host_root)?;
@@ -169,29 +169,26 @@ impl Surface {
     ) -> anyhow::Result<Arc<Surface>> {
         let surface = Self::spawn_local(spawn, holder_local_launch(terminal, command, cwd)?)?;
         let weak = Arc::downgrade(&surface);
-        terminal.set_replay(Box::new(move || {
+        terminal.set_replay(Box::new(move |max_bytes| {
             weak.upgrade()
-                .and_then(|surface| surface.as_pty().map(holder_prologue))
+                .and_then(|surface| surface.as_pty().map(|pty| holder_prologue(pty, max_bytes)))
                 .unwrap_or_default()
         }));
         Ok(surface)
     }
 }
 
-/// The largest prologue a new holder keeps: it must fit one ADOPT frame
-/// (1 MiB) with room to spare.
-const PROLOGUE_MAX_BYTES: usize = 768 * 1024;
-
-/// A VT replay of the daemon's parsed screen (screen, history, modes, title,
-/// directory) plus its OSC 9;4 progress, for a new holder after a holder
-/// crash. Empty when it does not fit: a later restart then shows only the
-/// output since.
-fn holder_prologue(pty: &PtySurface) -> Vec<u8> {
+/// A VT replay of the daemon's parsed screen (screen, modes, title,
+/// directory and the newest history that fits in `max_bytes`) plus its
+/// OSC 9;4 progress: a new holder's prologue after a holder crash, or a
+/// snapshot the holder keeps for a restarted daemon. Empty when it does not
+/// fit: a later restart then shows only the output since.
+fn holder_prologue(pty: &PtySurface, max_bytes: usize) -> Vec<u8> {
     let Ok(mut replay) = pty
         .term
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .vt_replay_bounded_bytes(PROLOGUE_MAX_BYTES)
+        .vt_replay_bounded_bytes(max_bytes)
     else {
         return Vec::new();
     };
@@ -204,7 +201,7 @@ fn holder_prologue(pty: &PtySurface) -> Vec<u8> {
     if !progress.is_empty() {
         replay.extend_from_slice(format!("\x1b]9;{progress}\x1b\\").as_bytes());
     }
-    if replay.len() > PROLOGUE_MAX_BYTES { Vec::new() } else { replay }
+    if replay.len() > max_bytes { Vec::new() } else { replay }
 }
 
 fn pty_size(terminal: &HolderTerminal) -> Option<(u16, u16)> {
@@ -226,10 +223,23 @@ fn geometry(opts: &SurfaceOptions, cell_pixels: (u16, u16)) -> PtyGeometry {
     }
 }
 
-/// The argv, full environment (`KEY=VALUE`) and directory of a new holder
-/// shell: what the daemon-local PTY path runs (`construct.rs`), with the
-/// daemon's environment spelled out because the holder passes exactly these.
-fn holder_command(opts: &SurfaceOptions) -> (Vec<String>, Vec<Vec<u8>>, String) {
+/// What a new holder shell runs.
+struct HolderCommand {
+    /// The argv the holder starts: the frontend's shell through login(1)
+    /// on macOS, as the hosted path starts it (`login_shell`).
+    spawn_argv: Vec<String>,
+    /// The launch command the surface records (the shell's own argv).
+    argv: Vec<String>,
+    /// The full environment, `KEY=VALUE`.
+    env: Vec<Vec<u8>>,
+    cwd: String,
+}
+
+/// The argv, full environment and directory of a new holder shell: what
+/// the hosted path runs (`terminal_host_runtime::spawn_host_runtime`), with
+/// the daemon's environment spelled out because the holder passes exactly
+/// these.
+fn holder_command(opts: &SurfaceOptions) -> HolderCommand {
     let launch = match opts.command.clone().filter(|argv| !argv.is_empty()) {
         Some(argv) => {
             crate::shell_integration::ShellLaunch { command: argv, env: opts.extra_env.clone() }
@@ -258,5 +268,47 @@ fn holder_command(opts: &SurfaceOptions) -> (Vec<String>, Vec<Vec<u8>>, String) 
         .collect();
     let cwd =
         opts.cwd.clone().or_else(platform::default_terminal_cwd).unwrap_or_else(|| "/".into());
-    (launch.command, env, cwd)
+    // A frontend's shell starts through login(1) (`login_shell`): a login
+    // shell, a utmpx record, and "Last login" as the first paint. The
+    // holder's CLOSE signals every process group on the PTY, so the shell
+    // under login(1) ends with it.
+    let spawn_argv = crate::login_shell::wrap(&launch.command, &launch.env)
+        .unwrap_or_else(|| launch.command.clone());
+    HolderCommand { spawn_argv, argv: launch.command, env, cwd }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    /// A frontend's shell on the holder starts through login(1), as on the
+    /// hosted path: a login shell whose `$0` starts with `-`, with
+    /// `.zprofile`, a utmpx record and "Last login" as its first paint. The
+    /// surface still records the shell's own argv, and the marker never
+    /// reaches the shell.
+    #[test]
+    fn a_marked_frontend_shell_starts_through_login_as_on_the_hosted_path() {
+        let shell = vec!["/bin/zsh".to_string()];
+        let opts = SurfaceOptions {
+            command: Some(shell.clone()),
+            extra_env: vec![(crate::login_shell::MARKER.to_string(), "1".to_string())],
+            ..SurfaceOptions::default()
+        };
+        let Some(expected) = crate::login_shell::wrap(&shell, &opts.extra_env) else {
+            // An isolated HOME or no /usr/bin/login: the hosted path does
+            // not wrap either.
+            eprintln!("login(1) start not available here; nothing to compare");
+            return;
+        };
+        let command = holder_command(&opts);
+        assert_eq!(command.spawn_argv, expected);
+        assert_eq!(command.spawn_argv[0], "/usr/bin/login");
+        assert_eq!(command.spawn_argv.last(), Some(&"/bin/zsh".to_string()));
+        assert_eq!(command.argv, shell, "the recorded command stays the shell's");
+        let marker = format!("{}=", crate::login_shell::MARKER);
+        assert!(
+            !command.env.iter().any(|entry| entry.starts_with(marker.as_bytes())),
+            "the marker reaches the shell"
+        );
+    }
 }

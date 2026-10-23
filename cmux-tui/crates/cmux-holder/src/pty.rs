@@ -12,6 +12,8 @@ use crate::SpawnRequest;
 pub struct Spawned {
     pub master: OwnedFd,
     pub pid: libc::pid_t,
+    /// The PTY's device number ([`tty_device`]).
+    pub tty: Option<u64>,
 }
 
 /// Open a PTY sized `cols` x `rows` and start `request.argv` on it with
@@ -20,10 +22,12 @@ pub struct Spawned {
 /// in the request's `PATH`, as `Command::new` does on the local path. A
 /// directory or program the child cannot enter or run fails the spawn (the
 /// child reports its errno on a close-on-exec pipe) instead of starting a
-/// shell elsewhere or exiting 127. The holder is single threaded, so `fork`
-/// is safe here; the child only calls async-signal-safe functions before
-/// `execve`.
-pub fn spawn(request: &SpawnRequest) -> io::Result<Spawned> {
+/// shell elsewhere or exiting 127. `open_file_limit` is the soft
+/// `RLIMIT_NOFILE` the child gets back (the one cmux started with, before
+/// the daemon raised its own: programs that use `select(2)` break above
+/// 1024). The holder is single threaded, so `fork` is safe here; the child
+/// only calls async-signal-safe functions before `execve`.
+pub fn spawn(request: &SpawnRequest, open_file_limit: Option<u64>) -> io::Result<Spawned> {
     let argv = c_strings(&request.argv)?;
     if argv.is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "empty argv"));
@@ -62,6 +66,7 @@ pub fn spawn(request: &SpawnRequest) -> io::Result<Spawned> {
     let (master, slave) = unsafe { (OwnedFd::from_raw_fd(master), OwnedFd::from_raw_fd(slave)) };
     set_cloexec(master.as_raw_fd());
     set_cloexec(slave.as_raw_fd());
+    let tty = tty_device(master.as_raw_fd());
     let (error_read, error_write) = cloexec_pipe()?;
 
     // SAFETY: single-threaded process; the child path below calls only
@@ -73,7 +78,13 @@ pub fn spawn(request: &SpawnRequest) -> io::Result<Spawned> {
     if pid == 0 {
         // SAFETY: child side of fork, see above.
         unsafe {
-            child(slave.as_raw_fd(), error_write.as_raw_fd(), &cwd, &program, &argv_ptrs, &env_ptrs)
+            child(
+                (slave.as_raw_fd(), error_write.as_raw_fd()),
+                open_file_limit,
+                &cwd,
+                &program,
+                (&argv_ptrs, &env_ptrs),
+            )
         }
     }
     drop(slave);
@@ -97,7 +108,7 @@ pub fn spawn(request: &SpawnRequest) -> io::Result<Spawned> {
     // daemon holds; the daemon's writer waits for room on its own
     // (holder_runtime::terminal), so non-blocking here is safe for it.
     set_nonblocking(master.as_raw_fd());
-    Ok(Spawned { master, pid })
+    Ok(Spawned { master, pid, tty })
 }
 
 /// The child could not enter its directory.
@@ -106,15 +117,17 @@ const STAGE_CHDIR: u8 = b'C';
 const STAGE_EXEC: u8 = b'E';
 
 /// The child after `fork`: new session, the PTY as controlling terminal and
-/// stdio, default signal dispositions, its directory, then `execve`. A
-/// failure writes `stage u8, errno i32` to `error` and exits 127.
+/// stdio, default signal dispositions, the open-file limit cmux started
+/// with, its directory, then `execve`. Every other descriptor of the holder
+/// is close-on-exec ([`mark_inherited_close_on_exec`] at startup, and each
+/// one it opens later), so the program gets only its PTY. A failure writes
+/// `stage u8, errno i32` to `error` and exits 127.
 unsafe fn child(
-    slave: libc::c_int,
-    error: libc::c_int,
+    (slave, error): (libc::c_int, libc::c_int),
+    open_file_limit: Option<u64>,
     cwd: &CString,
     program: &CString,
-    argv: &[*const libc::c_char],
-    env: &[*const libc::c_char],
+    (argv, env): (&[*const libc::c_char], &[*const libc::c_char]),
 ) -> ! {
     // SAFETY: async-signal-safe calls on descriptors and pointers that stay
     // valid until execve.
@@ -131,6 +144,13 @@ unsafe fn child(
         }
         let empty: libc::sigset_t = std::mem::zeroed();
         libc::sigprocmask(libc::SIG_SETMASK, &empty, std::ptr::null_mut());
+        if let Some(soft) = open_file_limit {
+            let mut limit: libc::rlimit = std::mem::zeroed();
+            if libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) == 0 {
+                limit.rlim_cur = (soft as libc::rlim_t).min(limit.rlim_max);
+                libc::setrlimit(libc::RLIMIT_NOFILE, &limit);
+            }
+        }
         if libc::chdir(cwd.as_ptr()) != 0 {
             report_and_exit(error, STAGE_CHDIR)
         }
@@ -236,6 +256,107 @@ fn c_strings(values: &[Vec<u8>]) -> io::Result<Vec<CString>> {
                 .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "argument has a NUL"))
         })
         .collect()
+}
+
+/// The device number of the PTY whose master is `master` (its slave's
+/// `st_rdev`), which names the terminal's processes in the process table.
+pub fn tty_device(master: libc::c_int) -> Option<u64> {
+    use std::os::unix::fs::MetadataExt;
+    // SAFETY: ptsname returns a pointer to a static buffer (the holder is
+    // single threaded) or null.
+    let name = unsafe { libc::ptsname(master) };
+    if name.is_null() {
+        return None;
+    }
+    // SAFETY: a non-null ptsname result is a NUL-terminated string.
+    let name = unsafe { std::ffi::CStr::from_ptr(name) };
+    std::fs::metadata(OsStr::from_bytes(name.to_bytes())).ok().map(|meta| meta.rdev())
+}
+
+/// Send `signal` to every process group of a terminal: its child's
+/// (`leader`), the PTY's foreground group, and on macOS the group of each
+/// process whose controlling terminal is the PTY (`tty`). A login(1) start
+/// puts the shell and its jobs in groups of their own under login's, so
+/// signalling the child's group alone would leave them running. Never the
+/// holder's own group.
+pub fn signal_terminal(
+    leader: libc::pid_t,
+    master: libc::c_int,
+    tty: Option<u64>,
+    signal: libc::c_int,
+) {
+    let mut groups = vec![leader];
+    // SAFETY: tcgetpgrp on a master this holder keeps open.
+    let foreground = unsafe { libc::tcgetpgrp(master) };
+    if foreground > 0 {
+        groups.push(foreground);
+    }
+    #[cfg(target_vendor = "apple")]
+    if let Some(tty) = tty {
+        for pid in tty_processes(tty) {
+            // SAFETY: getpgid reads the group of a pid; a gone pid fails.
+            let group = unsafe { libc::getpgid(pid) };
+            if group > 0 {
+                groups.push(group);
+            }
+        }
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    let _ = tty;
+    // SAFETY: getpgrp cannot fail.
+    let own = unsafe { libc::getpgrp() };
+    groups.sort_unstable();
+    groups.dedup();
+    for group in groups {
+        if group > 1 && group != own {
+            // SAFETY: signals one process group of this terminal.
+            unsafe { libc::killpg(group, signal) };
+        }
+    }
+}
+
+/// The pids whose controlling terminal is device `tty`.
+#[cfg(target_vendor = "apple")]
+fn tty_processes(tty: u64) -> Vec<libc::pid_t> {
+    /// `PROC_TTY_ONLY` of `<sys/proc_info.h>`; libc does not export it.
+    const PROC_TTY_ONLY: u32 = 3;
+    // dev_t is 32 bits on macOS; a sign-extended one keeps its low half.
+    let tty = tty as u32;
+    // SAFETY: a null buffer asks only for the size the list needs.
+    let bytes = unsafe { libc::proc_listpids(PROC_TTY_ONLY, tty, std::ptr::null_mut(), 0) };
+    let Ok(bytes) = usize::try_from(bytes) else { return Vec::new() };
+    let mut pids: Vec<libc::pid_t> = vec![0; bytes / size_of::<libc::pid_t>() + 16];
+    let room = (pids.len() * size_of::<libc::pid_t>()) as libc::c_int;
+    // SAFETY: fills at most `room` bytes of a live buffer of that size.
+    let filled = unsafe { libc::proc_listpids(PROC_TTY_ONLY, tty, pids.as_mut_ptr().cast(), room) };
+    let Ok(filled) = usize::try_from(filled) else { return Vec::new() };
+    pids.truncate(filled / size_of::<libc::pid_t>());
+    pids.retain(|pid| *pid > 0);
+    pids
+}
+
+/// Mark every descriptor above stderr close-on-exec: the holder starts
+/// with whatever its daemon inherited without close-on-exec (from the app,
+/// a launcher or a test), and `fork` + `execve` would pass each one to
+/// every shell for its whole life. Call once at startup; every descriptor
+/// the holder opens afterwards is close-on-exec already.
+pub fn mark_inherited_close_on_exec() {
+    let listed: Option<Vec<libc::c_int>> = std::fs::read_dir("/dev/fd").ok().map(|entries| {
+        entries
+            .flatten()
+            .filter_map(|entry| entry.file_name().to_str()?.parse::<libc::c_int>().ok())
+            .collect()
+    });
+    let descriptors = listed.unwrap_or_else(|| {
+        // SAFETY: sysconf takes no pointers.
+        let limit = unsafe { libc::sysconf(libc::_SC_OPEN_MAX) };
+        (3..libc::c_int::try_from(limit.clamp(3, 65_536)).unwrap_or(3)).collect()
+    });
+    for fd in descriptors {
+        if fd > 2 {
+            set_cloexec(fd);
+        }
+    }
 }
 
 /// Mark a descriptor close-on-exec.

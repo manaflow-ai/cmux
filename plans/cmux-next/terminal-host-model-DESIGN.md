@@ -60,14 +60,26 @@ processes and ~2,000 threads fewer.
 - Poison pill: a daemon that crashed while parsing would replay the same bytes on restart and
   crash again. No per-chunk disk write guards it; the holder counts, per terminal, daemon links
   that ended without DETACH while it streamed that terminal. A terminal whose stream ended that
-  way twice within 10 s is restored from its last journal snapshot without the ring tail (the
-  screen says output was lost), so one bad stream never loops the daemon.
+  way twice within 10 s is restored from its prologue (the newest snapshot) without the ring
+  tail (the daemon gets a GAP and cancels), so one bad stream never loops the daemon. Built
+  (review 2): `Terminal::strikes` in `cmux-holder/src/holder.rs`; a daemon sends DETACH for
+  each terminal at shutdown, so a clean exit is no strike.
 
 ## 4. Holder (crate `cmux-holder`, std + libc only)
 
 - One process per install (bundle id + tag), started by the daemon on first use; `setsid`,
-  ignores SIGHUP/SIGINT/SIGTERM except from launchd (pty-holder.md 5.6). Identity record and
-  lease as holder-protocol-v1 sections 7-8, one per holder, not per terminal.
+  ignores SIGHUP/SIGINT/SIGTERM except from launchd (pty-holder.md 5.6). Built (review 2): a
+  SIGTERM whose sender is pid 1 (logout, shutdown) ends the holder; a holder with no terminal
+  and no daemon link exits after 30 s and removes its socket, so an idle holder of an old
+  build does not serve new daemons for ever. Still open: identity record and lease as
+  holder-protocol-v1 sections 7-8, and handing a busy old-build holder's terminals to a new
+  build (an ADOPT handoff).
+- Children (review 2): every descriptor the holder inherited is close-on-exec from its first
+  instruction, and each shell gets back the soft `RLIMIT_NOFILE` cmux started with
+  (`CMUX_TUI_HOST_NOFILE_SOFT`, as a spawned terminal host). A frontend's shell starts through
+  login(1) on macOS as on the hosted path; CLOSE and its SIGKILL go to every process group on
+  the PTY (the child's, the foreground group, and on macOS each process whose controlling
+  terminal it is), so a shell in its own group under login(1) ends with its tab.
 - One kqueue: the daemon link socket, every PTY master (EVFILT_READ), every child
   (EVFILT_PROC NOTE_EXIT, then `waitpid` for the status: the holder is the shells' parent). No
   thread per terminal; no timers.
@@ -82,6 +94,14 @@ processes and ~2,000 threads fewer.
 - Input: the daemon writes keystrokes to its own master dup directly (one hop less than today);
   WRITE exists for a daemon that lost its dup. The holder leaves the master non-blocking (the flag
   is shared by every dup), so the daemon's writer waits for POLLOUT on WouldBlock.
+- Link speed and fairness (review 2): each end asks for 512 KiB socket buffers (macOS gives
+  8 KiB); a reader keeps a cursor and compacts once per `recvmsg`; a DATA frame is built
+  straight from the ring. Each pump starts at the next terminal in turn and gives every
+  terminal with output an equal share (at least 16 KiB), and frames up to 4 KiB go ahead of
+  queued bulk output unless their own terminal has bulk queued (one terminal's frames never
+  pass each other), so an echo does not wait behind other terminals' floods.
+- CLOSE of a terminal that already ended but whose EXIT an attached daemon has not got yet
+  only marks it closing: the holder forgets it after it sent the rest of the output and EXIT.
 - Flow control (wire v2, review 1): ACK carries the offset the daemon parsed. The holder sends an
   attached terminal at most 512 KiB past its last ACK and stops reading a master that holds
   256 KiB unsent, so a flood blocks in the PTY as on a direct PTY: no byte is dropped while a
@@ -102,7 +122,16 @@ processes and ~2,000 threads fewer.
   mismatch (G2).
 - Restore after a daemon crash: LIST, then per terminal its last journal VT snapshot at offset N
   and ATTACH from N; GAP resets and replays from the oldest kept byte, then a same-size RESIZE
-  nudges full-screen programs to redraw.
+  nudges full-screen programs to redraw. Built (review 2, wire v3) without the journal: the
+  daemon's reader hands the holder a SNAPSHOT (a VT replay of its parsed screen, at most
+  128 KiB, at the exact offset the parser reached) once a burst of 64 KiB went idle or every
+  2 MiB of a flood; the holder keeps the newest as the terminal's prologue, and a restarted
+  daemon's ATTACH gets it first and the ring from its base. A prologue older than the ring is
+  still sent (modes survive) and the daemon cancels before the tail; a re-attach from a ring
+  that dropped bytes starts with CAN. Still open: the same-size RESIZE nudge.
+- A surface's close (Cmd-W) runs under its runtime lock, so it never connects, starts a holder
+  or re-adopts (review 2): without an open link the CLOSE waits for the next link and the
+  daemon hangs up the shell's groups itself.
 - Holder crash: the daemon still has every master and its parsed state; it starts a new holder
   and ADOPTs every fd. Output written while no holder reads waits in the kernel's PTY buffer (the
   shell blocks, nothing is lost). Exit statuses of shells whose parent died read

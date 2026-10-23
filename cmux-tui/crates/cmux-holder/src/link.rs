@@ -23,9 +23,11 @@ pub trait TerminalSink: Send + Sync {
     fn gap(&self, requested: u64, oldest: u64);
     /// The terminal ended after `end` output bytes.
     fn exit(&self, status: ExitStatus, end: u64);
-    /// A VT replay of the screen as of the next output byte (a holder that
-    /// adopted this terminal after a crash keeps one).
-    fn prologue(&self, _bytes: &[u8]) {}
+    /// A VT replay of the screen at output offset `base` (the newest
+    /// snapshot the holder keeps, or the screen it adopted the terminal
+    /// with). Output from `base` follows; a `base` before the next byte the
+    /// sink expects means the bytes between are gone.
+    fn prologue(&self, _base: u64, _bytes: &[u8]) {}
     /// Whether this sink acknowledges what it consumed itself, with
     /// [`HolderLink::ack`] (a sink that queues bytes for a slower reader).
     /// When false, the link acknowledges each byte as it delivers it.
@@ -59,6 +61,8 @@ pub struct HolderLink {
     state: Mutex<State>,
     /// The holder takes [`Kind::Ack`] (wire version 2).
     credit: bool,
+    /// The wire version the holder settled on.
+    version: u16,
 }
 
 /// How long a spawn waits for the holder's answer.
@@ -80,6 +84,7 @@ impl HolderLink {
             writer: Mutex::new(stream.try_clone()?),
             state: Mutex::new(State { open: true, ..State::default() }),
             credit: version >= 2,
+            version,
         });
         let weak = Arc::downgrade(&link);
         std::thread::Builder::new().name("holder-link".into()).spawn(move || {
@@ -183,6 +188,26 @@ impl HolderLink {
         self.send(Kind::Ack, chan, &Out::default().u64(offset).0, None)
     }
 
+    /// Hand the holder a VT replay of `chan`'s parsed screen at output
+    /// offset `base`, the prologue a restarted daemon gets (wire version 3;
+    /// an older holder is not told).
+    pub fn snapshot(&self, chan: u32, base: u64, replay: &[u8]) -> io::Result<()> {
+        if self.version < 3 {
+            return Ok(());
+        }
+        self.send(Kind::Snapshot, chan, &Out::default().u64(base).bytes(replay).0, None)
+    }
+
+    /// Leave `chan` on purpose (the daemon shuts down and the holder keeps
+    /// the shell): the link's end is then no strike against its stream
+    /// (wire version 3).
+    pub fn detach(&self, chan: u32) -> io::Result<()> {
+        if self.version < 3 {
+            return Ok(());
+        }
+        self.send(Kind::Detach, chan, &[], None)
+    }
+
     pub fn write(&self, chan: u32, bytes: &[u8]) -> io::Result<()> {
         for chunk in bytes.chunks(wire::MAX_PAYLOAD) {
             self.send(Kind::Write, chan, chunk, None)?;
@@ -280,7 +305,7 @@ fn read_loop(
                         && let Some(sink) = link.lock().sinks.get(&chan).cloned()
                     {
                         if frame.flags & wire::FLAG_PROLOGUE != 0 {
-                            sink.prologue(input.rest());
+                            sink.prologue(offset, input.rest());
                         } else {
                             let bytes = input.rest();
                             sink.data(offset, bytes);

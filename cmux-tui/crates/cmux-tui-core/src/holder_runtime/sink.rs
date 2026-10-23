@@ -21,6 +21,8 @@ struct SinkState {
     received: u64,
     /// Offset last acknowledged to the holder.
     acked: u64,
+    /// Offset of the newest screen snapshot handed to the holder.
+    snapshot_base: u64,
     exit: Option<ExitStatus>,
     /// No holder streams this terminal any more (a holder restart failed).
     lost: bool,
@@ -58,7 +60,12 @@ impl HolderSink {
     /// A sink whose next byte has offset `base`.
     pub(crate) fn new(base: u64) -> Arc<Self> {
         Arc::new(Self {
-            state: Mutex::new(SinkState { received: base, acked: base, ..SinkState::default() }),
+            state: Mutex::new(SinkState {
+                received: base,
+                acked: base,
+                snapshot_base: base,
+                ..SinkState::default()
+            }),
             changed: Condvar::new(),
             acker: OnceLock::new(),
         })
@@ -94,6 +101,31 @@ impl HolderSink {
             state.bytes.push_front(*byte);
         }
         state.unnumbered += seed.len();
+    }
+
+    /// The offset to snapshot the screen at now, if one is due: called by
+    /// the terminal's reader before it reads again, when the parser has
+    /// parsed every byte it was handed, so the screen is exactly the screen
+    /// at that offset. Due once the stream went idle with
+    /// [`SNAPSHOT_IDLE_BYTES`] parsed since the last snapshot, or after
+    /// [`SNAPSHOT_EVERY_BYTES`] even while output keeps coming. None while
+    /// unnumbered bytes (a seed, a prologue) wait: the screen is not the
+    /// screen at any offset until they are parsed.
+    pub(super) fn snapshot_due(&self) -> Option<u64> {
+        let state = self.state.lock().recover_poison();
+        if state.unnumbered > 0 || state.detached || state.lost || state.exit.is_some() {
+            return None;
+        }
+        let parsed = state.parsed();
+        let since = parsed.saturating_sub(state.snapshot_base);
+        let idle = state.bytes.is_empty();
+        ((idle && since >= SNAPSHOT_IDLE_BYTES) || since >= SNAPSHOT_EVERY_BYTES).then_some(parsed)
+    }
+
+    /// A snapshot at `base` went to the holder (or could not be made).
+    pub(super) fn snapshot_taken(&self, base: u64) {
+        let mut state = self.state.lock().recover_poison();
+        state.snapshot_base = state.snapshot_base.max(base);
     }
 
     /// Wait (at most `limit`) until the reader took every queued byte.
@@ -176,7 +208,25 @@ impl HolderSink {
 
 /// CAN: ends an escape sequence the parser is inside, so output after a
 /// gap does not continue a sequence (or a UTF-8 character) cut by it.
-const CANCEL: u8 = 0x18;
+pub(super) const CANCEL: u8 = 0x18;
+
+/// A stream that went idle gets a fresh screen snapshot once this much
+/// output was parsed since the last one: a prompt redraw or an echo never
+/// costs a replay, a burst of TUI output does once.
+pub(super) const SNAPSHOT_IDLE_BYTES: u64 = 64 * 1024;
+/// Output parsed between two snapshots while it never goes idle (a flood):
+/// the holder's prologue then is at most this far behind the stream.
+pub(super) const SNAPSHOT_EVERY_BYTES: u64 = 2 * 1024 * 1024;
+
+impl SinkState {
+    /// Queue bytes that take no holder offset behind what is queued.
+    fn push_unnumbered(&mut self, bytes: &[u8]) {
+        if self.unnumbered == self.bytes.len() {
+            self.unnumbered += bytes.len();
+        }
+        self.bytes.extend(bytes);
+    }
+}
 
 impl TerminalSink for HolderSink {
     fn data(&self, offset: u64, bytes: &[u8]) {
@@ -209,12 +259,17 @@ impl TerminalSink for HolderSink {
         }
     }
 
-    fn prologue(&self, bytes: &[u8]) {
+    fn prologue(&self, base: u64, bytes: &[u8]) {
         let mut state = self.state.lock().recover_poison();
-        if state.unnumbered == state.bytes.len() {
-            state.unnumbered += bytes.len();
+        state.push_unnumbered(bytes);
+        if base < state.received {
+            // A snapshot older than the holder's ring: the output between
+            // is gone, and the next byte may be inside a sequence.
+            state.push_unnumbered(&[CANCEL]);
+        } else {
+            state.received = base;
         }
-        state.bytes.extend(bytes);
+        state.snapshot_base = state.snapshot_base.max(base);
         drop(state);
         self.changed.notify_all();
     }
@@ -240,12 +295,35 @@ pub(crate) enum SinkEnd {
     Detached,
 }
 
-/// The terminal reader's view of a [`HolderSink`].
+/// A plain reader's view of a [`HolderSink`] (the tests' parser).
+#[cfg(test)]
 pub(super) struct SinkReader(pub(super) Arc<HolderSink>);
 
+#[cfg(test)]
 impl Read for SinkReader {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         Ok(self.0.read(buf))
+    }
+}
+
+/// [`SinkReader`] for a terminal on the holder: before each read, while
+/// the parser has parsed every byte it was handed, it hands the holder a
+/// due screen snapshot ([`HolderSink::snapshot_due`]), so a restarted
+/// daemon restores modes, alternate screen, title and directory however
+/// much the terminal printed since they were set.
+pub(super) struct SnapshottingReader {
+    pub(super) sink: Arc<HolderSink>,
+    /// Builds and sends the snapshot at an offset (the terminal's replay).
+    pub(super) snapshot: Box<dyn Fn(u64) + Send>,
+}
+
+impl Read for SnapshottingReader {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if let Some(base) = self.sink.snapshot_due() {
+            (self.snapshot)(base);
+            self.sink.snapshot_taken(base);
+        }
+        Ok(self.sink.read(buf))
     }
 }
 
@@ -318,6 +396,43 @@ mod tests {
         SinkReader(sink.clone()).read_to_end(&mut out).unwrap();
         assert_eq!(out, b"\x1b[3\x181mx\x18y");
         assert_eq!(sink.received(), 21);
+    }
+
+    #[test]
+    fn a_snapshot_is_due_after_a_burst_once_the_stream_is_idle() {
+        let sink = HolderSink::new(0);
+        let burst = vec![b'a'; SNAPSHOT_IDLE_BYTES as usize];
+        sink.data(0, &burst);
+        // Queued, not parsed: the screen is not the screen at any offset yet.
+        assert_eq!(sink.snapshot_due(), None);
+        let mut buf = vec![0u8; burst.len()];
+        let mut reader = SinkReader(sink.clone());
+        let mut read = 0;
+        while read < burst.len() {
+            read += reader.read(&mut buf).unwrap();
+        }
+        assert_eq!(sink.snapshot_due(), Some(burst.len() as u64));
+        sink.snapshot_taken(burst.len() as u64);
+        // An echo after it costs no replay.
+        sink.data(burst.len() as u64, b"x");
+        assert_eq!(reader.read(&mut buf).unwrap(), 1);
+        assert_eq!(sink.snapshot_due(), None);
+    }
+
+    #[test]
+    fn a_prologue_older_than_the_ring_is_followed_by_a_cancel() {
+        let sink = HolderSink::new(100);
+        sink.prologue(40, b"<screen>");
+        sink.data(100, b"tail");
+        sink.exit(ExitStatus::Exited(0), 104);
+        let mut out = Vec::new();
+        SinkReader(sink.clone()).read_to_end(&mut out).unwrap();
+        assert_eq!(out, b"<screen>\x18tail");
+        // A current prologue sets where the stream continues.
+        let sink = HolderSink::new(100);
+        sink.prologue(150, b"<screen>");
+        sink.data(150, b"tail");
+        assert_eq!(sink.received(), 154);
     }
 
     #[test]

@@ -42,20 +42,27 @@ impl Ring {
     /// Up to `max` bytes from `from` (clamped to the oldest kept byte), with
     /// the offset they start at.
     pub fn read(&self, from: u64, max: usize) -> (u64, Vec<u8>) {
+        let (from, head, tail) = self.slices(from, max);
+        let mut out = Vec::with_capacity(head.len() + tail.len());
+        out.extend_from_slice(head);
+        out.extend_from_slice(tail);
+        (from, out)
+    }
+
+    /// [`Self::read`] without a copy: the offset and the bytes as at most
+    /// two slices of the ring's buffer, in order.
+    pub fn slices(&self, from: u64, max: usize) -> (u64, &[u8], &[u8]) {
         let from = from.clamp(self.start, self.end());
         let skip = (from - self.start) as usize;
         let take = max.min(self.bytes.len() - skip);
-        let mut out = Vec::with_capacity(take);
         let (head, tail) = self.bytes.as_slices();
         if skip < head.len() {
             let end = (skip + take).min(head.len());
-            out.extend_from_slice(&head[skip..end]);
-            out.extend_from_slice(&tail[..take - (end - skip)]);
+            (from, &head[skip..end], &tail[..take - (end - skip)])
         } else {
             let start = skip - head.len();
-            out.extend_from_slice(&tail[start..start + take]);
+            (from, &tail[start..start + take], &[])
         }
-        (from, out)
     }
 }
 
