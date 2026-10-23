@@ -74,6 +74,9 @@ import PackageDescription
 // a scroll during a restore holds frames, a hidden surface reads as hidden at
 // once, an early draw happens only after a quiet refresh interval, and a
 // fresh frame publishes only in its own size generation (PR 49).
+// Since b42d1690e a reveal (set_occlusion true) arms the host-size present and
+// restarts its deadline, so a terminal resized while hidden shows its frame at
+// its size in the reveal's commit (PR 50).
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -98,8 +101,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-1f98b11be08ba4402a3fb0cf6989ff052e5f26e5-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "1de26072c279cbba6d1c8888f1acfb3c0ac1cde13c7ca8ba20e27dcce9c004b5"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-b42d1690ee4f8ffab0c1688fcc340a749e778f5b-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "69a3e6fef1af1872d5d47327ed76b456a87207e5cb54e5b1c896f6ae20270f3d"
         ),
     ]
 )
