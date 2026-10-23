@@ -1850,17 +1850,11 @@ impl Brain {
             json!({"id": id, "spawn": spawn, "from": "chief", "steered": steered, "queue": queue, "message": self.trace.text(message)}),
         );
         let answer = if steered && queue {
-            format!(
-                "sent to {id}; it reads it between its tool calls, or after its current turn when its agent cannot take it mid-turn; its report answers it as a \"[{id}] ...\" message"
-            )
+            format!("sent to {id}; read between tool calls or after its turn")
         } else if steered {
-            format!(
-                "sent to {id}; it reads it between its tool calls, or, when its agent cannot take it mid-turn, its turn stops now and this is its next prompt; its report answers it as a \"[{id}] ...\" message"
-            )
+            format!("sent to {id}; read between tool calls, else its turn restarts with it")
         } else {
-            format!(
-                "sent to {id}; it reads it after its current step, and its report comes back as a \"[{id}] ...\" message"
-            )
+            format!("sent to {id}; read after its current step")
         };
         Ok(answer)
     }
