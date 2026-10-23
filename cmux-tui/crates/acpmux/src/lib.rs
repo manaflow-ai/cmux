@@ -40,11 +40,11 @@ pub mod forum;
 pub mod forum_mcp;
 pub mod git_state;
 pub mod hand;
-pub mod host_pressure;
 pub mod harness_admin;
 pub mod harness_config;
 pub mod harness_health;
 pub mod harness_limits;
+pub mod host_pressure;
 pub mod hub;
 #[cfg(windows)]
 mod job;
