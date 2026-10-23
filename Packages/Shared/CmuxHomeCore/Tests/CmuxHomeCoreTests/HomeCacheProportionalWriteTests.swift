@@ -100,7 +100,7 @@ import Testing
         try FileManager.default.createDirectory(at: cache.url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try JSONEncoder().encode(snapshot).write(to: cache.url)
         #expect(cache.load()?.windows[Self.austin]?.count == 4)
-        #expect(await cache.write(HomeCacheState(snapshot), sequence: 1))
+        #expect(await cache.write(HomeCacheState(snapshot), sequence: 1, writer: Self.writer))
         #expect(FileManager.default.fileExists(atPath: Self.windowFile(cache, Self.austin).path))
         #expect(cache.load()?.windows[Self.austin]?.count == 4)
     }
