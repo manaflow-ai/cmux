@@ -1,9 +1,8 @@
-import CmuxNextAgentPane
-import CmuxNextCompat
-import CmuxNextHomeEngine
-import CmuxNextWakeups
-import Foundation
-import os
+package import CmuxNextAgentPane
+package import CmuxNextCompat
+package import CmuxNextWakeups
+package import Foundation
+package import os
 
 /// Gives the local model relay (cmux-tui crate cmux-coderouter, started by
 /// the acpmux daemon) the signed-in account's bearer for the hosted cmux
@@ -11,7 +10,7 @@ import os
 /// cx-dna4.4). The relay holds the bearer in memory only; agents reach the
 /// router through the relay with its own per-session keys, never with this
 /// token. The lease renews shortly before the token expires.
-@MainActor final class ModelRouterLease {
+@MainActor package final class ModelRouterLease {
     private let tokens: any CloudLeaseTokens
     private let apiBaseURL: URL
     private let router: LocalRouterClient
@@ -22,11 +21,11 @@ import os
     private var routerPID: Int?
 
     /// Renew this long before the token's `exp`.
-    nonisolated static let renewMargin: TimeInterval = 90
+    package nonisolated static let renewMargin: TimeInterval = 90
     /// Waits after a failure (the daemon and its relay may still be starting), doubling to the last.
-    nonisolated static let retryDelays: [Duration] = [.seconds(2), .seconds(5), .seconds(15), .seconds(30), .seconds(60), .seconds(120)]
+    package nonisolated static let retryDelays: [Duration] = [.seconds(2), .seconds(5), .seconds(15), .seconds(30), .seconds(60), .seconds(120)]
 
-    init(tokens: any CloudLeaseTokens, apiBaseURL: URL, acpmuxHome: URL, clock: any Clock<Duration> = ContinuousClock(),
+    package init(tokens: any CloudLeaseTokens, apiBaseURL: URL, acpmuxHome: URL, clock: any Clock<Duration> = ContinuousClock(),
          logger: Logger) {
         self.tokens = tokens
         self.apiBaseURL = apiBaseURL
@@ -36,7 +35,7 @@ import os
     }
 
     /// The signed-in account changed (nil: signed out). Restarts the lease loop.
-    func accountChanged(_ userID: String?) {
+    package func accountChanged(_ userID: String?) {
         loop?.cancel()
         let router = router
         guard userID != nil else {
@@ -48,7 +47,7 @@ import os
         loop = Task { [weak self] in await self?.run() }
     }
 
-    func stop() {
+    package func stop() {
         loop?.cancel()
         loop = nil
     }

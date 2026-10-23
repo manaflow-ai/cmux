@@ -1,4 +1,4 @@
-import Darwin
+package import Darwin
 
 /// A caught signal returns to its default action in every program the
 /// process execs; an ignored one stays ignored there.
@@ -19,11 +19,11 @@ private let caughtAndDropped: @convention(c) (Int32) -> Void = { _ in }
 /// TERM, INT and HUP inherited as ignored from the launcher (nohup, some
 /// CI runners) go back to the default, so children and the app's own quit
 /// handling see them; `QuitSignal` installs the app's handlers later.
-enum ChildSignalDefaults {
-    static let restoredSignals: [Int32] = [SIGTERM, SIGINT, SIGHUP]
+package enum ChildSignalDefaults {
+    package static let restoredSignals: [Int32] = [SIGTERM, SIGINT, SIGHUP]
 
     /// Call once at launch, before any socket or pipe exists.
-    static func installAppSignalPolicy() {
+    package static func installAppSignalPolicy() {
         var action = sigaction()
         action.__sigaction_u.__sa_handler = caughtAndDropped
         action.sa_flags = SA_RESTART

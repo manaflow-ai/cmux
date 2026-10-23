@@ -1264,6 +1264,7 @@ let package = Package(
         .target(
             name: "CmuxNextTerminal",
             dependencies: [
+                "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
                 "CmuxNextProcessEnvironment",
