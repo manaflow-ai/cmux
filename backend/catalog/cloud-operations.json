@@ -16118,6 +16118,276 @@
         }
       }
     },
+    "chief.delete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "chief",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "chief": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ChiefId"
+            }
+          },
+          "expected_rev": {
+            "required": true,
+            "type": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HomeChief"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "chief_is_default",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "destructive",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chief delete",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "home"
+      },
+      "docs": "Delete a chief (not the default; active or archived) for good: it stops waking, its tokens and sandboxes end, and only a tombstone keeps its id. No restore.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "chief": {
+            "$ref": "#/$defs/ChiefId"
+          },
+          "expected_rev": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        },
+        "required": [
+          "chief",
+          "expected_rev"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ChiefId": {
+            "type": "string",
+            "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/HomeChief",
+        "$defs": {
+          "ChiefId": {
+            "type": "string",
+            "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "ChiefBrainPlace": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "$ref": "#/$defs/HostId"
+              },
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              }
+            },
+            "required": [
+              "host",
+              "install"
+            ],
+            "additionalProperties": true
+          },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
+          "Timestamp": {
+            "type": "string",
+            "description": "RFC 3339 UTC with milliseconds."
+          },
+          "HomeChief": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/ChiefId"
+              },
+              "owner_user": {
+                "type": "string"
+              },
+              "display_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "is_default": {
+                "type": "boolean"
+              },
+              "brain": {
+                "type": "string",
+                "enum": [
+                  "cloud"
+                ]
+              },
+              "brain_place": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ChiefBrainPlace"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "main_conversation": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "harness": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "rev": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "created_at": {
+                "$ref": "#/$defs/Timestamp"
+              },
+              "updated_at": {
+                "$ref": "#/$defs/Timestamp"
+              },
+              "archived_at": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Timestamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "owner_user",
+              "display_name",
+              "is_default",
+              "brain",
+              "main_conversation",
+              "harness",
+              "rev",
+              "created_at",
+              "updated_at",
+              "archived_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
     "chief.list": {
       "class": "read",
       "idempotency": "forbidden",
