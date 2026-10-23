@@ -13,9 +13,14 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
     var geometry: () -> RemoteViewGeometry? = { nil }
     /// Called when focus or the mode changes so the pane can update chrome.
     var onFocusChange: ((Bool) -> Void)?
+    /// A mouse button went down on the surface (before it is sent).
+    var onMouseDown: (() -> Void)?
     var controlMode = false {
         didSet { updateActive() }
     }
+    /// False: clicks and scrolls pass through to what is under the surface
+    /// (a state card over the picture), never to the host.
+    var acceptsPointer = true
 
     private var isFirstResponder = false
     private var markedText = NSAttributedString()
@@ -25,6 +30,7 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
     nonisolated override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { acceptsPointer ? super.hitTest(point) : nil }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -136,8 +142,9 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
     }
 
     private func press(_ event: NSEvent, down: Bool) {
+        if down { onMouseDown?() }
         if down, window?.firstResponder !== self { window?.makeFirstResponder(self) }
-        guard let geometry = geometry(), let button = RemoteMouseButton(appKitButtonNumber: event.buttonNumber) else { return }
+        guard let geometry = geometry(), let button = RemoteMouseButton(event: event) else { return }
         let point = convert(event.locationInWindow, from: nil)
         if down {
             guard let pixel = geometry.streamPixel(at: point) else { return }
