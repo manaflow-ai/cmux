@@ -58,6 +58,7 @@ jobs:
       part: ${{ steps.plan.outputs.part }}
       args: ${{ steps.plan.outputs.args }}
       artifact: ${{ steps.plan.outputs.artifact }}
+      run_seconds: ${{ steps.plan.outputs.run_seconds }}
     steps:
       # The branch tip with the trees of its recent commits (the cmux-tui tree key of each candidate)
       # and no blobs beyond the scripts.
@@ -97,8 +98,8 @@ jobs:
     runs-on: ${{ vars.CI_PERF_CRON_GATEWAY || vars.CI_COMPILE_CHECK_GATEWAY }}
     permissions:
       contents: read
-    # One part: up to 5 minutes in the queue and 15 running, plus the checks and the artifact.
-    timeout-minutes: 30
+    # One part: up to 5 minutes in the queue and 15 running (STRESS 25), plus the checks and the artifact.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -114,6 +115,7 @@ jobs:
           PART: ${{ needs.plan.outputs.part }}
           PART_ARGS: ${{ needs.plan.outputs.args }}
           PART_ARTIFACT: ${{ needs.plan.outputs.artifact }}
+          RUN_SECONDS: ${{ needs.plan.outputs.run_seconds || '900' }}
         run: |
           set -uo pipefail
           out="$RUNNER_TEMP/perf-cron-part"
@@ -128,7 +130,7 @@ jobs:
           { echo "### perf cron fleet check"; echo; sed -n 's/^perf-cron fleet: //p' "$RUNNER_TEMP/fleet.log"; } >> "$GITHUB_STEP_SUMMARY"
           grep -qx 'ok=true' "$RUNNER_TEMP/fleet.out" || exit 0
           python3 -I scripts/cmux-next/perf-cron.py run-part --client "$client" --sha "$SHA" --args "$PART_ARGS" \
-            --artifact "$PART_ARTIFACT" --key "perf-cron-${SHA:0:12}-${PART}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --artifact "$PART_ARTIFACT" --run-seconds "$RUN_SECONDS" --key "perf-cron-${SHA:0:12}-${PART}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             --out "$out" | tee "$RUNNER_TEMP/part.log"
           { echo "### perf cron part $PART at ${SHA:0:12}"; echo; sed -n 's/^perf-cron part: //p' "$RUNNER_TEMP/part.log"; } >> "$GITHUB_STEP_SUMMARY"
 

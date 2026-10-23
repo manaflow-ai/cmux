@@ -48,8 +48,11 @@ DEV_DAILY_TITLE = "cmux NEXT DEV daily"
 # One part = one fleet step through the allowlisted scripts/measure/split-spring.sh (each builds the app at
 # the measured commit, then runs one suite). `needs`: a capability the measured commit must have.
 PARTS = [
-    {"name": "stress", "args": ["--suite=pane-perf", "--layouts=stress", "--rounds=2", "--actions=split,close,column,zoom"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "panes", "needs": "stress"},
+    # STRESS: 1 round. The fleet check (cmux7s, 9e875493c37e, 2026-10-23) took 25 min with 2 rounds: tagged build
+    # 620 s cold, session build and the rounds ~900 s. Its own cap; run-part still cancels it the moment another
+    # job queues for the bench host, so the longer cap never makes a nightly or dev build wait.
+    {"name": "stress", "args": ["--suite=pane-perf", "--layouts=stress", "--rounds=1", "--actions=split,close,column,zoom"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "panes", "needs": "stress", "run_seconds": 1500},
     {"name": "motion", "args": ["--suite=budgets", "--only=panes,new_surfaces"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     {"name": "switch", "args": ["--suite=budgets", "--only=tab_switch,palette"],
@@ -651,6 +654,7 @@ def cmd_plan(o):
         p = PART_BY_NAME[d["part"]]
         out["args"] = json.dumps(p["args"])
         out["artifact"] = p["artifact"]
+        out["run_seconds"] = p.get("run_seconds", PART_RUN_SECONDS)
     print(f"perf-cron plan: {json.dumps(out)}")
     write_outputs(o.output, out)
 
@@ -680,7 +684,7 @@ def cmd_run_part(o):
     os.makedirs(o.out, exist_ok=True)
     argv = [o.client, "run", "--class", "exclusive", "--background", "--measurement", "--label", "bench", "--label", "measure",
             "--target-worker", o.worker, "--no-supersede", "--script", "scripts/measure/split-spring.sh", "--ref", o.sha, "--key", o.key,
-            "--artifact", o.artifact, "--timeout", str(PART_RUN_SECONDS), "--queue-timeout", str(PART_QUEUE_SECONDS),
+            "--artifact", o.artifact, "--timeout", str(o.run_seconds), "--queue-timeout", str(PART_QUEUE_SECONDS),
             *[f"--arg={a}" for a in json.loads(o.args)]]
     print("perf-cron: " + " ".join(argv), flush=True)
     log_path = os.path.join(o.out, "step.log")
@@ -868,6 +872,7 @@ def main(argv=None):
     s.add_argument("--args", required=True, help="JSON list of split-spring.sh args")
     s.add_argument("--artifact", required=True)
     s.add_argument("--key", required=True)
+    s.add_argument("--run-seconds", type=int, default=PART_RUN_SECONDS)
     s.add_argument("--out", required=True)
     s.add_argument("--worker", default=BENCH_WORKER)
     s.add_argument("--client", default=os.path.expanduser("~/.local/bin/cmux-ci"))
