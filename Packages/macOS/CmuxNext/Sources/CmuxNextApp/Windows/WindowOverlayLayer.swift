@@ -265,7 +265,11 @@ final class WindowOverlayLayer {
         }
         dividerAreas = areas
         if let sidebarResizeArea { areas.append(sidebarResizeArea) }
-        if areas != catcherAreas {
+        // A spring moves the dividers on every display frame until it lands: the catcher panels
+        // (one window move each, a new panel for a new divider) follow once, at the landing,
+        // which the root reports even when no rect changes then (`isInLayoutMotion`).
+        let springing = planes.contains { ($0.home as? LayoutRootView)?.isInLayoutMotion == true }
+        if areas != catcherAreas, !springing {
             catcherAreas = areas
             syncCatchers()
         }
