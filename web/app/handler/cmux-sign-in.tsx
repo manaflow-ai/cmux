@@ -133,7 +133,7 @@ export function CmuxSignIn({ mode, messages }: { mode: Mode; messages: CmuxSignI
 
   // Always in this slot (null when signed out), so the screen next to it
   // keeps its state when a switch signs the browser in.
-  const remember = user ? <RememberThisAccount user={user} /> : null;
+  const remember = user ? <RememberThisAccount user={user} returningFromOAuth={isReturningFromOAuth(params)} /> : null;
 
   if (switching || (entry === "choose-account" && !inlineSignIn)) {
     return (
@@ -567,21 +567,27 @@ function AccountLabel({ account }: { account: AccountView }) {
  * Adds the signed-in account to this browser's list (an external store, not
  * React state) and keeps its session, so a later switch away and back needs
  * no new sign-in. Its sign-in method is looked up afterwards so the redirect
- * never waits on it.
+ * never waits on it; back from a provider, that provider is the method.
  */
-function RememberThisAccount({ user }: { user: CurrentUser }) {
+function RememberThisAccount({ user, returningFromOAuth }: { user: CurrentUser; returningFromOAuth: boolean }) {
   const { id, primaryEmail: email, displayName, profileImageUrl, isRestricted } = user;
   useEffect(() => {
     // An account still finishing onboarding has no session worth keeping.
     if (!isRestricted) void saveCurrentSession();
   }, [id, isRestricted]);
   useEffect(() => {
-    writeStored(ACCOUNT_HISTORY_KEY, JSON.stringify(rememberAccount(readHistory(), { id, email, displayName, profileImageUrl, hasPassword: user.hasPassword })));
+    const usedProvider = returningFromOAuth ? readLastUsedProvider() : null;
+    const startedAt = Date.now();
+    writeStored(ACCOUNT_HISTORY_KEY, JSON.stringify(rememberAccount(readHistory(), { id, email, displayName, profileImageUrl, signInMethod: returningFromOAuth ? usedProvider : null, hasPassword: user.hasPassword }, startedAt)));
     writePendingOAuth(null);
     let cancelled = false;
     user.listOAuthProviders().then((linked) => {
       if (cancelled) return;
-      const signInMethod = rememberedMethodFor({ hasPassword: user.hasPassword, linked, preference: PROVIDER_PREFERENCE });
+      // Another tab can finish this account while this lookup is pending. Do
+      // not let this stale result overwrite its newer provider choice.
+      const current = readHistory().find((entry) => entry.id === id);
+      if (!current || current.lastSeenAt !== startedAt) return;
+      const signInMethod = rememberedMethodFor({ linked, preference: PROVIDER_PREFERENCE, usedProvider });
       writeStored(ACCOUNT_HISTORY_KEY, JSON.stringify(rememberAccount(readHistory(), { id, email, displayName, profileImageUrl, signInMethod, hasPassword: user.hasPassword })));
     }).catch(() => {
       // Without the method the account still lists; picking it opens the form.
@@ -589,7 +595,7 @@ function RememberThisAccount({ user }: { user: CurrentUser }) {
     return () => {
       cancelled = true;
     };
-  }, [user, id, email, displayName, profileImageUrl]);
+  }, [user, id, email, displayName, profileImageUrl, returningFromOAuth]);
   return null;
 }
 
@@ -768,7 +774,9 @@ function useInIframe(): boolean {
 
 function readLastUsedProvider(): string | null {
   try {
-    return window.localStorage.getItem(LAST_USED_KEY);
+    // OAuth returns to the tab that started it; keep this marker tab-local so
+    // another tab cannot overwrite the provider for this callback.
+    return window.sessionStorage.getItem(LAST_USED_KEY);
   } catch {
     return null;
   }
@@ -906,7 +914,9 @@ function OAuthProviderButton({ provider, disabled, messages, lastUsedOverride, l
  */
 function startOAuth(app: ReturnType<typeof useHexclaveApp>, provider: string, loginHint: string | null = null): Promise<void> {
   try {
-    window.localStorage.setItem(LAST_USED_KEY, provider);
+    // The callback reads this marker after returning to this tab. A shared
+    // localStorage key lets another OAuth tab win the race.
+    window.sessionStorage.setItem(LAST_USED_KEY, provider);
   } catch {
     // The "last used" hint is a convenience only.
   }

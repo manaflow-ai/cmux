@@ -271,17 +271,20 @@ const RETURN_PARAMS = ["after_auth_return_to", "web_return_to", "native_app_retu
 
 /**
  * The provider a remembered account goes straight to, or null for the form.
- * An account with a password always gets the form (it may also have a
- * provider linked that does not sign it in); an account with no password
- * goes to its linked provider, like Gmail's account list.
+ * Any linked provider that signs it in wins, even when the account also has
+ * a password (a Google account that later set one still signs in with
+ * Google), like Gmail's account list. The provider this sign-in came back
+ * from comes first; only an account with no such provider gets the form.
  */
 export function rememberedMethodFor(input: {
-  hasPassword: boolean;
   linked: readonly { type: string; allowSignIn: boolean }[];
   preference: readonly string[];
+  /** The provider this sign-in just returned from, if it was one. */
+  usedProvider?: string | null;
 }): string | null {
-  if (input.hasPassword) return null;
-  return preferredSignInMethod(input.linked, input.preference);
+  const { linked, preference, usedProvider } = input;
+  if (usedProvider && linked.some((provider) => provider.type === usedProvider && provider.allowSignIn)) return usedProvider;
+  return preferredSignInMethod(linked, preference);
 }
 
 /**
