@@ -6,7 +6,7 @@ import QuartzCore
 /// search), the composer chips' rule: no pill at rest, the theme's soft hover pill under the
 /// pointer, the pressed fill and a tiny shrink while held. The glyph is the theme's secondary
 /// text; a toggle that is on draws its filled glyph in the theme's accent, never the system blue.
-final class HomeHeaderButton: NSButton {
+final class HomeHeaderButton: ClickableButton {
     /// The pressed scale (the composer chip presses to 0.975; a 28 pt button needs a little more to show).
     static let pressScale: CGFloat = 0.94
 
