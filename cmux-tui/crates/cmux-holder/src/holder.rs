@@ -244,7 +244,8 @@ impl Holder {
     /// Handle one frame from the daemon. False closes the link.
     fn handle(&mut self, frame: Frame) -> bool {
         let authed = self.link.as_ref().is_some_and(|link| link.authed);
-        let kind = Kind::from_u16(frame.kind);
+        let (raw_kind, chan) = (frame.kind, frame.chan);
+        let kind = Kind::from_u16(raw_kind);
         if kind != Some(Kind::Hello) && !authed {
             return false;
         }
@@ -266,8 +267,8 @@ impl Holder {
             _ => Err((error_code::UNKNOWN_KIND, "unknown kind".to_string())),
         };
         if let Err((code, message)) = result {
-            let payload = Out::default().u16(frame.kind).u16(code).bytes(message.as_bytes()).0;
-            self.queue(Kind::Error, frame.chan, &payload, None);
+            let payload = Out::default().u16(raw_kind).u16(code).bytes(message.as_bytes()).0;
+            self.queue(Kind::Error, chan, &payload, None);
         }
         true
     }
@@ -613,7 +614,7 @@ fn peer_uid(fd: RawFd) -> Option<libc::uid_t> {
 fn peer_uid(fd: RawFd) -> Option<libc::uid_t> {
     // SAFETY: zeroed ucred is a valid out-buffer.
     let mut cred: libc::ucred = unsafe { std::mem::zeroed() };
-    let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+    let mut len = size_of::<libc::ucred>() as libc::socklen_t;
     // SAFETY: SO_PEERCRED fills one ucred.
     let ok = unsafe {
         libc::getsockopt(

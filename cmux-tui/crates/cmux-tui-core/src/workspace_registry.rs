@@ -57,7 +57,7 @@ mod public_fold;
 mod public_projection_store;
 mod receipt_env;
 pub(crate) mod registry_connection;
-mod wal_durability;
+pub(crate) mod wal_durability;
 pub(crate) use registry_connection::RegistryConnection;
 mod registry_intent;
 pub(crate) use registry_intent::{

@@ -180,7 +180,7 @@ pub fn send_with_fds(fd: RawFd, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize
         0
     } else {
         // SAFETY: CMSG_SPACE computes a size from a length.
-        unsafe { libc::CMSG_SPACE(std::mem::size_of_val(fds) as u32) as usize }
+        unsafe { libc::CMSG_SPACE(size_of_val(fds) as u32) as usize }
     };
     let mut control = vec![0u8; space];
     // SAFETY: zeroed msghdr is a valid empty header.
@@ -195,7 +195,7 @@ pub fn send_with_fds(fd: RawFd, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize
             let cmsg = libc::CMSG_FIRSTHDR(&msg);
             (*cmsg).cmsg_level = libc::SOL_SOCKET;
             (*cmsg).cmsg_type = libc::SCM_RIGHTS;
-            (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of_val(fds) as u32) as _;
+            (*cmsg).cmsg_len = libc::CMSG_LEN(size_of_val(fds) as u32) as _;
             std::ptr::copy_nonoverlapping(
                 fds.as_ptr(),
                 libc::CMSG_DATA(cmsg).cast::<RawFd>(),
@@ -231,7 +231,7 @@ fn recv_with_fds(fd: RawFd, buf: &mut [u8]) -> io::Result<(usize, Vec<OwnedFd>)>
     let mut iov = libc::iovec { iov_base: buf.as_mut_ptr().cast(), iov_len: buf.len() };
     // Room for 16 descriptors per read.
     // SAFETY: CMSG_SPACE computes a size from a length.
-    let space = unsafe { libc::CMSG_SPACE((16 * std::mem::size_of::<RawFd>()) as u32) as usize };
+    let space = unsafe { libc::CMSG_SPACE((16 * size_of::<RawFd>()) as u32) as usize };
     let mut control = vec![0u8; space];
     // SAFETY: zeroed msghdr is a valid empty header.
     let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
@@ -258,7 +258,7 @@ fn recv_with_fds(fd: RawFd, buf: &mut [u8]) -> io::Result<(usize, Vec<OwnedFd>)>
             if (*cmsg).cmsg_level == libc::SOL_SOCKET && (*cmsg).cmsg_type == libc::SCM_RIGHTS {
                 let data = libc::CMSG_DATA(cmsg).cast::<RawFd>();
                 let header = libc::CMSG_LEN(0) as usize;
-                let count = ((*cmsg).cmsg_len as usize - header) / std::mem::size_of::<RawFd>();
+                let count = ((*cmsg).cmsg_len as usize - header) / size_of::<RawFd>();
                 for index in 0..count {
                     let raw = std::ptr::read_unaligned(data.add(index));
                     libc::fcntl(raw, libc::F_SETFD, libc::FD_CLOEXEC);
