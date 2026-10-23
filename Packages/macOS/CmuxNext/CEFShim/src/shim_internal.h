@@ -112,6 +112,7 @@ struct Host {
   cmux_shim_event_fn event = nullptr;
   cmux_shim_key_fn key = nullptr;
   cmux_shim_key_fn devtools_key = nullptr;
+  cmux_shim_key_fn unhandled_key = nullptr;
   cmux_shim_window_request_fn window_request = nullptr;
   cmux_shim_focus_request_fn focus_request = nullptr;
 };

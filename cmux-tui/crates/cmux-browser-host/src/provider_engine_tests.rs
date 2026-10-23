@@ -352,13 +352,12 @@ fn sessions_list_their_engine_tabs_and_webkit_calls_go_to_the_app() {
 }
 
 #[test]
-fn a_refused_tab_never_opens_a_relay() {
+fn an_unreported_cef_tab_is_driven_and_a_missing_tab_is_not_found() {
     let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
     let cef = engine(&provider, "cef");
-    // No tab.access report yet: refused, and the app saw no cdp.attach.
-    let error = cef.call("tab.info", &json!({"targetId": "C"})).unwrap_err();
-    assert_eq!(error.error_name.as_deref(), Some("extension_host_access"), "{error}");
-    assert_eq!(app.attaches("C"), 0);
+    // No tab.access report: the extension rule is no gate (#24413).
+    cef.call("tab.info", &json!({"targetId": "C"})).expect("an agent may drive the tab");
+    assert!(app.attaches("C") >= 1);
     let missing = cef.call("tab.info", &json!({"targetId": "X"})).unwrap_err();
     assert_eq!(missing.code, crate::protocol::ErrorCode::NotFound, "{missing}");
 }

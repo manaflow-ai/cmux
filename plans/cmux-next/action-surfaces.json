@@ -23708,6 +23708,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "cloud setup-github",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudSetupGitHub",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Up GitHub on This Machine",
+      "title_key" : "action.cloudSetupGitHub",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "cloud files-list",
       "context_menu" : "offered",
       "context_menus" : [
@@ -36687,14 +36715,10 @@
           }
         },
         {
-          "kind" : "separator",
-          "order" : 3
-        },
-        {
           "enabled_when" : "can_perform",
-          "id" : "cloudRenameMachine",
+          "id" : "cloudSetupGitHub",
           "kind" : "action",
-          "order" : 4,
+          "order" : 3,
           "visible_when" : {
             "debug_only" : false,
             "feature" : "cloud",
@@ -36705,7 +36729,24 @@
         },
         {
           "kind" : "separator",
-          "order" : 5
+          "order" : 4
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "cloudRenameMachine",
+          "kind" : "action",
+          "order" : 5,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : "cloud",
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 6
         },
         {
           "children" : [
@@ -36872,14 +36913,14 @@
           ],
           "folder" : "connection",
           "kind" : "folder",
-          "order" : 6,
+          "order" : 7,
           "title" : "Connection",
           "title_key" : "menu.folder.connection",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 7
+          "order" : 8
         },
         {
           "children" : [
@@ -36925,7 +36966,7 @@
           ],
           "folder" : "copy",
           "kind" : "folder",
-          "order" : 8,
+          "order" : 9,
           "title" : "Copy",
           "title_key" : "menu.folder.copy",
           "title_table" : "Localizable"
@@ -37147,20 +37188,20 @@
           ],
           "folder" : "tools",
           "kind" : "folder",
-          "order" : 9,
+          "order" : 10,
           "title" : "Tools",
           "title_key" : "menu.folder.tools",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 10
+          "order" : 11
         },
         {
           "enabled_when" : "can_perform",
           "id" : "cloudKillMachine",
           "kind" : "action",
-          "order" : 11,
+          "order" : 12,
           "visible_when" : {
             "debug_only" : false,
             "feature" : "cloud",

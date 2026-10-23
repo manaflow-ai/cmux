@@ -108,6 +108,8 @@ pub(crate) mod sidebar_doc_order;
 pub(crate) mod sidebar_doc_store;
 pub(crate) mod sidebar_doc_sync;
 #[cfg(test)]
+mod tab_attention_tests;
+#[cfg(test)]
 mod tab_changed_pin_tests;
 pub(crate) use cmux_layout_reducer::sidebar_layout;
 pub(crate) mod sidebar_layout_ops;

@@ -14,6 +14,7 @@ import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot } from "./model";
 import type { SpeedSection } from "./EffortPicker";
 import { type SpeedTiers, useSpeedToggle } from "./FastToggle";
+import { pendingSpeed } from "./pendingSpeed";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
@@ -25,7 +26,7 @@ import { defaultModel } from "./harnessSwitch";
 import { catalogRow } from "./catalogRow";
 import { harnessProfiles } from "./harnessProfiles";
 import { HELD_EFFORT_ID, HELD_FAST_ID, HELD_FAST_ON, isEffortOption, isFastModeOption } from "./heldOptions";
-import { useStartMode } from "./startMode";
+import { type KeptStartMode, useStartMode } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
 import { useModelCatalogState } from "./modelCatalogHost";
 import { focusWithRing } from "../../ui/focusWithRing";
@@ -44,7 +45,14 @@ import { usePopupHost } from "../../ui/UiProvider";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { isMousePress } from "../../ui/pressRelease";
 import { focusAfterEscape } from "../../ui/escapeFocus";
-import { type ModeIconName, RECOMMENDED_BADGE, type ShownMode, harnessModeMenu, shownModes } from "./harnessModes";
+import {
+  type ModeIconName,
+  RECOMMENDED_BADGE,
+  type ShownMode,
+  harnessModeMenu,
+  highestMode,
+  shownModes,
+} from "./harnessModes";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -361,7 +369,7 @@ export function ComposerPickers({
           onPick: (value) => onEffort(effort?.id ?? "effort", value === "on" ? "ultracode" : "xhigh"),
         }
       : undefined;
-  const fastOption = snapshot.summary?.configOptions?.find(isFastModeOption);
+  const fastOption = snapshot.summary?.configOptions?.find(isFastModeOption) ?? pendingSpeed(snapshot);
   const fastOn =
     fastOption?.options.find((option) => /^(on|true|enabled)$/i.test(option.value)) ?? fastOption?.options[1];
   const fastOff =
@@ -392,6 +400,7 @@ export function ComposerPickers({
           current: fastOption.currentValue,
           off: fastMode.offValue,
           tiers: fastOption.options.map((option) => option.value).filter((value) => value !== fastMode.offValue),
+          names: Object.fromEntries(fastOption.options.map((option) => [option.value, option.name ?? option.value])),
           onPick: fastMode.onPick,
         }
       : undefined;
@@ -669,7 +678,24 @@ export function ComposerPickers({
   // never the mode this harness's last chat showed; nothing when it sets none. A chat on another
   // machine (a peer, the cloud) starts in what that machine decides: none until it reports.
   const local = fresh && snapshot.origin !== "remote" && snapshot.origin !== "peer";
-  const startMode = useStartMode(chipHarness, folder ?? summary?.cwd, awaiting && local && modes.length === 0);
+  const asksStart = awaiting && local && modes.length === 0;
+  const startAnswer = useStartMode(chipHarness, folder ?? summary?.cwd, asksStart);
+  // Before acpmux has ever answered for this harness here (a first New Tab), the chip names the
+  // harness's highest permission level, the level acpmux starts a chat in when the person chose
+  // none (hub/start_mode.rs); acpmux's answer, which carries a saved choice, then replaces it.
+  const highest =
+    asksStart && startAnswer === undefined
+      ? highestMode(summary?.family ?? snapshot.catalog.find((entry) => entry.id === chipHarness)?.family, chipHarness)
+      : undefined;
+  // The access chip holds its place from the first frame of a chat that has not reported its modes
+  // (Leo 2026-10-23, the New Tab: "why is this thing still not showing on the very beginning ... It
+  // keeps switching around"): with no mode to name (acpmux sets none, has not answered, or the
+  // chat is another machine's) it is the inert "Mode" chip, which the session's own replaces in
+  // place, so nothing in the row moves when the harness, its model or its modes arrive.
+  const startMode: KeptStartMode | undefined =
+    startAnswer ??
+    (highest ? { modeId: highest.id, name: highest.name } : undefined) ??
+    (awaiting && modes.length === 0 ? MODE_PLACEHOLDER : undefined);
   // Another folder's answer (acpmux has not answered for this one yet) only holds the chip's
   // place: this folder's profile or preset may start the chat in another mode, so it names none.
   // The harness's own menu names the start mode as it names the mode once the chat reports it.
@@ -901,6 +927,9 @@ export function ComposerPickers({
   );
   return chips;
 }
+
+/// No start mode to name: the access chip holds its place as "Mode" (a borrowed answer's face).
+const MODE_PLACEHOLDER: KeptStartMode = { modeId: "", borrowed: true };
 
 /// The mode a chat will start in, before it reports its modes: the access chip's face (AccessMenu),
 /// inert until the session's own replaces it in place. `modeId` is read from storage: only a

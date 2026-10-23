@@ -103,12 +103,14 @@ extension PaneController {
     func newTerminalTab(cwd: String? = nil, typing text: String? = nil, typingAhead page: String? = nil, keep: Bool? = nil,
                         fromSelectedTab: Bool = false, daemonResolvesCwd: Bool = false,
                         then: (@MainActor (SurfaceID) -> Void)? = nil) {
+        // Nothing opens in Home's dock: without a placement of the caller's, the tab moves beside it.
+        let then = then ?? HomeDockOpens.placing(pane, services: services, focus: true, then: nil)
         let handle = pane.handle
         // From an agent tab, the agent's cwd (#16620), asked when the tab is made.
         let agent = cwd == nil && fromSelectedTab && !daemonResolvesCwd ? selectedAgentView : nil
         // A selected agent chat's exact folder at once (NewTerminalStart.folder); the page's own
         // answer above still wins when it comes.
-        let cwd = daemonResolvesCwd ? cwd : cwd ?? (fromSelectedTab ? NewTerminalStart.folder(of: selectedTab, services: services) : nil) ?? selectedTab?.cwd
+        let cwd = daemonResolvesCwd ? cwd : cwd ?? (fromSelectedTab ? NewTerminalStart.inherited(besides: selectedTab, in: pane, services: services) : nil) ?? selectedTab?.cwd
         // From another machine's terminal (an SSH tab in a mixed pane), a terminal on that machine (cx-2s5t).
         if fromSelectedTab, text == nil, page == nil,
            services.remoteTerminals.openTerminal(besides: selectedTab, in: pane, home: daemon, cwd: cwd) { return }

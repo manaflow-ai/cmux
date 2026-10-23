@@ -29,6 +29,7 @@ import { CMUX_TUI_SESSION, cmuxTuiRunCommand } from "../../services/vms/drivers/
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
 import { DEVBOX_INSTANCE_ID_COMMAND, devboxIdleWakeupCheckCommand, devboxWaitForDaemonCommand } from "../devbox-image-common";
 import { GUEST_DIR, TEAM_FILES_ROOT, teamVmDirsCommand, TMP_LEFTOVERS } from "./bake";
+import { CREDENTIAL_FILES_CHECK, devTreeCredentialCheckCommand, devTreeUserPaths } from "./dev-tree";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, sleep, type Vm } from "./guest";
 import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
@@ -59,13 +60,16 @@ export const SECRET_PATTERNS: ReadonlyArray<{ kind: string; regex: string }> = [
   { kind: "aws-access-key", regex: "AKIA[0-9A-Z]{16}" },
   { kind: "npm-auth", regex: "_authToken=" },
 ];
-const SCAN_ROOTS = "/etc /home /root /var/lib/cmux /usr/local/etc /opt/cmux/profiles";
+const SCAN_ROOTS = "/etc /root /var/lib/cmux /usr/local/etc /opt/cmux/profiles";
 /** Per-clone material the supervisor mints after resume; not image content. */
 const SCAN_EXCLUDES = ["/etc/ssh/ssh_host_", `${DEVBOX_WORK_HOME}/.local/state/`];
 
-export function secretScanCommand(): string {
+/** `skip`: directories under /home left out with their contents (the dev tree, which devTreeCredentialCheckCommand checks instead). */
+export function secretScanCommand(skip: readonly string[] = []): string {
+  const prune = skip.length > 0 ? `\\( ${skip.map((p) => `-path ${sq(p)}`).join(" -o ")} \\) -prune -o ` : "";
+  const homes = (regex: string) => `find /home -mindepth 1 ${prune}-type f -print0 2>/dev/null | xargs -0 -r grep -IlE -e ${sq(regex)} 2>/dev/null`;
   const lines = SECRET_PATTERNS.map(
-    ({ kind, regex }) => `grep -rIlE --exclude-dir=proc -e ${sq(regex)} ${SCAN_ROOTS} 2>/dev/null | sed 's#^#${kind} #'`,
+    ({ kind, regex }) => `{ grep -rIlE --exclude-dir=proc -e ${sq(regex)} ${SCAN_ROOTS} 2>/dev/null; ${homes(regex)}; } | sed 's#^#${kind} #'`,
   );
   const files = "for f in /root/.git-credentials /root/.netrc /root/.npmrc /home/*/.git-credentials /home/*/.netrc /home/*/.npmrc; do [ -s \"$f\" ] && echo \"credential-file $f\"; done";
   const keys = "for f in /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys; do [ -s \"$f\" ] && echo \"authorized-keys $f\"; done";
@@ -174,7 +178,7 @@ function check(report: Report, name: string, ok: boolean, detail: string): void 
   console.log(`${ok ? "PASS" : "FAIL"} ${name}: ${detail.split("\n").slice(0, 6).join(" | ")}`);
 }
 
-async function measureClone(fs: ReturnType<typeof freestyleClient>, ledger: Ledger, name: string, snapshotId: string): Promise<{ clone: Clone; row: Record<string, number | string> }> {
+export async function measureClone(fs: ReturnType<typeof freestyleClient>, ledger: Ledger, name: string, snapshotId: string): Promise<{ clone: Clone; row: Record<string, number | string> }> {
   const { vm, vmId, createMs, t0 } = await createVm(fs, ledger, { name, snapshotId });
   const clone = { vm, vmId, name };
   const firstExecMs = await firstExec(vm, t0);
@@ -208,8 +212,12 @@ async function functionalChecks(vm: Vm, lock: InputsLock, report: Report): Promi
   const tmp = await run(vm, `${TMP_LEFTOVERS} ! -newer /etc/cmux/daemon-instance-id | head -20; echo "runtime: $(${TMP_LEFTOVERS} -newer /etc/cmux/daemon-instance-id | tr '\\n' ' ')"`);
   const leftovers = tmp.stdout.trim().split("\n").filter((line) => line && !line.startsWith("runtime:"));
   check(report, "tmp-empty", leftovers.length === 0, tmp.stdout.trim());
-  const secrets = await run(vm, secretScanCommand(), 240_000);
+  // The scan skips the tree's directories only on an image that has the tree; its credential check runs instead.
+  const tree = lock.devTree && (await run(vm, `test -d ${sq(lock.devTree.dir)}`)).code === 0 ? lock.devTree : undefined;
+  const secrets = await run(vm, secretScanCommand(tree ? devTreeUserPaths(tree) : []), 240_000);
   check(report, "no-secrets", secrets.stdout.trim() === "", secrets.stdout.trim() || "no pattern matched");
+  const credentials = await run(vm, tree ? devTreeCredentialCheckCommand(tree) : `${CREDENTIAL_FILES_CHECK} && echo no-credential-files`);
+  check(report, tree ? "dev-tree-no-credentials" : "no-credential-files", credentials.code === 0, credentials.stdout.trim() || credentials.stderr.slice(-300));
   const programs = await run(vm, programChecksCommand(lock), 240_000);
   const problems = programProblems(lock, programs.stdout);
   const ran = programs.stdout.trim().split("\n");

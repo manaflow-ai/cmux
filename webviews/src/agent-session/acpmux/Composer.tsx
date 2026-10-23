@@ -45,7 +45,16 @@ import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
 import { commandArgs, type CmuxCommand } from "./cmuxCommands";
 import { cliOnlyCommand } from "./cliOnlyCommands";
-import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
+import {
+  applyCommand,
+  fastModeState,
+  isFastCommand,
+  matchCommands,
+  slashQuery,
+  type SlashCommand,
+  type SlashMatch,
+} from "./slashCommands";
+import { BoltIcon } from "./BoltIcon";
 import {
   flushPendingDraftWrites,
   hasPendingDraftWrite,
@@ -1566,6 +1575,7 @@ export function Composer({
                 matches={matches}
                 active={selected}
                 empty={!commands?.length ? t(COMPOSER_LABELS.noCommands) : t(COMPOSER_LABELS.noMatchingCommands)}
+                fast={fastModeState(snapshot.summary?.configOptions)}
                 onHover={setActive}
                 onPick={pick}
               />
@@ -1765,12 +1775,15 @@ function SlashMenu({
   matches,
   active,
   empty,
+  fast,
   onHover,
   onPick,
 }: {
   matches: SlashMatch[];
   active: number;
   empty: string;
+  /// The chat's fast mode, which the `/fast` row's sentence follows (undefined: not reported).
+  fast?: "on" | "off";
   onHover(index: number): void;
   onPick(command: SlashCommand): void;
 }) {
@@ -1811,41 +1824,76 @@ function SlashMenu({
       aria-label={t(COMPOSER_LABELS.commands)}
     >
       {/* Virtual focus: the prompt keeps focus and names the row through aria-activedescendant. */}
-      {matches.map((match, index) => (
-        <div
-          key={match.command.name}
-          id={`acpmux-slash-${index}`}
-          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-          role="option"
-          tabIndex={-1}
-          aria-selected={index === active}
-          className={index === active ? "acpmux-slash-row acpmux-slash-active" : "acpmux-slash-row"}
-          onMouseMove={() => {
-            if (index !== active) onHover(index);
-          }}
-          onMouseDown={(event) => {
-            event.preventDefault();
-            onPick(match.command);
-          }}
-        >
-          <span className="acpmux-slash-name">
-            /<Highlighted name={match.command.name} ranges={match.ranges} />
-          </span>
-          {match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
-          {match.command.source && match.command.source !== "agent" && (
-            <span className="acpmux-slash-source">
-              {match.command.source === "skill"
-                ? t("composer.slashSkill")
-                : match.command.source === "prompt"
-                  ? t("composer.slashPrompt")
-                  : "cmux"}
+      {matches.map((match, index) => {
+        // The harness's `/fast` reads as ChatGPT's Fast row (Leo 2026-10-22): the bolt, the plain
+        // name, and what picking it does now. Picking it still writes `/fast ` (applyCommand).
+        const fastRow = isFastCommand(match.command);
+        const fastName = t("picker.tierFast");
+        return (
+          <div
+            key={match.command.name}
+            id={`acpmux-slash-${index}`}
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+            role="option"
+            tabIndex={-1}
+            aria-selected={index === active}
+            className={
+              (index === active ? "acpmux-slash-row acpmux-slash-active" : "acpmux-slash-row") +
+              (fastRow ? " acpmux-slash-fast" : "")
+            }
+            onMouseMove={() => {
+              if (index !== active) onHover(index);
+            }}
+            onMouseDown={(event) => {
+              event.preventDefault();
+              onPick(match.command);
+            }}
+          >
+            {fastRow && (
+              <span className="acpmux-slash-icon">
+                <BoltIcon size={14} />
+              </span>
+            )}
+            <span className="acpmux-slash-name">
+              {fastRow ? (
+                // The typed letters stay bold where the shown name spells the command (English).
+                fastName.toLowerCase() === match.command.name.toLowerCase() ? (
+                  <Highlighted name={fastName} ranges={match.ranges} />
+                ) : (
+                  fastName
+                )
+              ) : (
+                <>
+                  /<Highlighted name={match.command.name} ranges={match.ranges} />
+                </>
+              )}
             </span>
-          )}
-          <span className="acpmux-slash-description">
-            {match.command.descriptionKey ? t(match.command.descriptionKey) : match.command.description}
-          </span>
-        </div>
-      ))}
+            {!fastRow && match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
+            {match.command.source && match.command.source !== "agent" && (
+              <span className="acpmux-slash-source">
+                {match.command.source === "skill"
+                  ? t("composer.slashSkill")
+                  : match.command.source === "prompt"
+                    ? t("composer.slashPrompt")
+                    : "cmux"}
+              </span>
+            )}
+            <span className="acpmux-slash-description">
+              {fastRow
+                ? t(
+                    fast === "on"
+                      ? "composer.slashFastOff"
+                      : fast === "off"
+                        ? "composer.slashFastOn"
+                        : "composer.slashFastToggle",
+                  )
+                : match.command.descriptionKey
+                  ? t(match.command.descriptionKey)
+                  : match.command.description}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

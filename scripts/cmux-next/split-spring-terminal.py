@@ -50,6 +50,47 @@ if "--suite=sidebar-churn" in sys.argv:
 if "--suite=anim-perf" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "anim-perf-terminal.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=anim-perf"])
+# `--suite=perf-gate`: the perf counter gate, scripts/cmux-next/perf-gate.py, which the perf cron
+# (scripts/cmux-next/perf-cron.py) runs on a fleet GUI host since it left the push and pull request CI
+# (2026-10-23). perf-gate.py takes no --tag or --json: it reads the tag from the app and writes <out>/perf-gate.json.
+# The step passes whenever that report was written (a broken counter budget is in the report, and a fleet step
+# returns its artifact only when it passes); it fails only when the gate wrote no report.
+if "--suite=perf-gate" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-gate.py")
+    rest, skip, out = [], False, None
+    for i, a in enumerate(sys.argv[1:], 1):
+        if skip:
+            skip = False
+        elif a in ("--tag", "--json"):
+            skip = True
+        elif a != "--suite=perf-gate" and not a.startswith(("--tag=", "--json=")):
+            rest.append(a)
+            if a == "--out" and i + 1 < len(sys.argv):
+                out = sys.argv[i + 1]
+    code = subprocess.call([sys.executable, suite] + rest)
+    report_path = os.path.join(out or "/tmp/cmux-next-perf-gate", "perf-gate.json")
+    print(f"split-spring --suite=perf-gate: perf-gate.py exited {code}; report {report_path}"
+          f"{'' if os.path.exists(report_path) else ' (missing)'}", flush=True)
+    sys.exit(0 if os.path.exists(report_path) else (code or 1))
+# `--suite=launch`: launch time, scripts/cmux-next/bench-startup.py (the launch-time budget that left the pull request
+# CI, 2026-10-23). bench-startup.py takes the app's tag from --app, so --tag and --out are dropped; --json stays.
+# The step passes whenever the JSON was written (an over-budget launch is in it).
+if "--suite=launch" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-startup.py")
+    rest, skip, report_path = [], False, None
+    for i, a in enumerate(sys.argv[1:], 1):
+        if skip:
+            skip = False
+        elif a in ("--tag", "--out"):
+            skip = True
+        elif a != "--suite=launch" and not a.startswith(("--tag=", "--out=")):
+            rest.append(a)
+            if a == "--json" and i + 1 < len(sys.argv):
+                report_path = sys.argv[i + 1]
+    code = subprocess.call([sys.executable, suite] + rest)
+    ok = bool(report_path) and os.path.exists(report_path)
+    print(f"split-spring --suite=launch: bench-startup.py exited {code}; report {report_path}{'' if ok else ' (missing)'}", flush=True)
+    sys.exit(0 if ok else (code or 1))
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)

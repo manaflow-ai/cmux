@@ -75,6 +75,9 @@ extension AppControl {
         let compat = machines.compatibility(of: session.daemon)
         return [
             "id": .string(session.machineID),
+            // The id its daemon has in the machine catalog (`machine list --catalog`),
+            // so `cmux machine list` lists a connected machine once.
+            "machine_id": session.daemon.identity?.machineResourceID.map { .string($0.rawValue) } ?? .null,
             "title": .string(session.machine.title),
             // The record's status, except a connected daemon is running (cx-lu8f).
             "status": .string(session.effectiveStatus.rawValue),

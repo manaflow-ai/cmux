@@ -69,13 +69,13 @@ const DOCS_MAX_LIMIT: usize = 30;
 /// Further matching names a docs answer lists without schemas.
 const DOCS_MORE_NAMES: usize = 60;
 
-pub(super) const INSTRUCTIONS: &str = "cmux tools run in code mode. cmux_docs searches every \
-    cmux tool (workspaces, screens, panes, tabs, terminals, browser, git, agents, \
-    notifications, keybindings, app actions) and returns its input schema. cmux_exec runs a \
-    JavaScript script that calls them: `await cmux.pane_split({...})`; put related steps in \
+pub(super) const INSTRUCTIONS: &str = "cmux tools run in code mode, through cmux_exec. In a \
+    script, `cmux.docs(query)` searches every cmux tool (workspaces, screens, panes, tabs, \
+    terminals, browser, git, agents, notifications, keybindings, app actions) and returns its \
+    input schema, and the script calls them: `await cmux.pane_split({...})`; put related steps in \
     one script and return what you need. Tools of the chat's other cmux servers (cua_*, \
     secrets_*, sessions_*, subsessions_*, forum_*) come with their rules in `servers` of a \
-    cmux_docs answer: follow them. Objects have public ids (ws_…, pane_…, tab_…, term_…) \
+    cmux.docs answer: follow them. Objects have public ids (ws_…, pane_…, tab_…, term_…) \
     from the *_list tools; a unique prefix or <session>:<id> works. A change takes \
     idempotency_key: on in_progress, retry with the key from the error; another server's \
     call that fails in_progress has no key and may have run, so check its effect first. Tools \
@@ -86,72 +86,44 @@ pub(super) const INSTRUCTIONS: &str = "cmux tools run in code mode. cmux_docs se
     it when they ask to go there. In a chat reply, show UI: ![alt](/abs/path.png) or an image \
     path or https address draws as a thumbnail.";
 
-/// The two tools `serve` lists. `tools` is the full list, for the family
-/// summary in the docs tool's description.
+/// The one tool `serve` lists in code mode, `cmux_exec` (Lawrence 2026-10-23:
+/// an agent sees no other cmux tool name; a script searches with
+/// `cmux.docs`, and `cmux_docs` stays callable for older prompts). `tools`
+/// is the full list, for the family summary in its description.
 pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
     let families = families(tools)
         .iter()
         .map(|(family, names)| format!("{family} ({})", names.len()))
         .collect::<Vec<_>>()
         .join(", ");
-    vec![
-        json!({
-            "name": DOCS,
-            "title": "Search cmux tools",
-            "description": format!(
-                "Find the cmux tools a cmux_exec script can call, with their input schemas. \
-                 Pass query (words such as \"pane split\" or \"browser screenshot\"), or names \
-                 for exact tools, or nothing for every tool name by family. A query about a \
-                 task, such as \"show the user\", also returns guides that name its tools. \
-                 Families: \
-                 {families}."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                    "query": {"type": "string", "description": "Words that every result matches"},
-                    "names": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Exact tool names to describe",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "minimum": 1,
-                        "maximum": DOCS_MAX_LIMIT,
-                        "description": "Tools with schemas to return (default 8)",
-                    },
+    vec![json!({
+        "name": EXEC,
+        "title": "Run a cmux script",
+        "description": format!(
+            "Run JavaScript that calls cmux tools and return its result. The script is \
+             an async function body: use await and return a JSON value. \
+             `cmux.docs(query)` finds tools with their input schemas (words such as \
+             \"pane split\", or nothing for every name by family); \
+             `cmux.call(name, args)` or `cmux.<tool_name>(args)` calls one and returns its \
+             result; a failed call throws an Error whose `cmux` field has the error, its \
+             state and its idempotency key. console.log output comes back in logs. There \
+             is no file system, network or timer access. A failed script reports the calls \
+             that already ran. Families: {families}."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "script": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "JavaScript, an async function body",
                 },
             },
-            "annotations": {"readOnlyHint": true, "openWorldHint": false},
-        }),
-        json!({
-            "name": EXEC,
-            "title": "Run a cmux script",
-            "description": "Run JavaScript that calls cmux tools and return its result. The \
-                script is an async function body: use await and return a JSON value. \
-                `cmux.call(name, args)` or `cmux.<tool_name>(args)` calls a tool from cmux_docs \
-                and returns its result; a failed call throws an Error whose `cmux` field has \
-                the error, its state and its idempotency key. `cmux.docs(query)` searches tools \
-                from inside the script. console.log output comes back in logs. There is no \
-                file system, network or timer access. A failed script reports the calls that \
-                already ran.",
-            "inputSchema": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                    "script": {
-                        "type": "string",
-                        "minLength": 1,
-                        "description": "JavaScript, an async function body",
-                    },
-                },
-                "required": ["script"],
-            },
-            "annotations": {"destructiveHint": true, "openWorldHint": false},
-        }),
-    ]
+            "required": ["script"],
+        },
+        "annotations": {"destructiveHint": true, "openWorldHint": false},
+    })]
 }
 
 /// Tool names grouped by their first word (`pane_split` is `pane`).

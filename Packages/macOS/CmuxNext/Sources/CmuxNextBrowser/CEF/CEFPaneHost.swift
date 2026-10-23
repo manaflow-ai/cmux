@@ -202,6 +202,12 @@ final class CEFPaneHost {
                 tab.creationFailed()
                 return
             }
+            // A browser profile's own proxy (#24432), also before the first
+            // request: a page the shim cannot proxy never opens (fail closed).
+            if tab.machineStore == nil, !key.offTheRecord, key.machineKey == nil, !runtime.applyProfileProxy(key.profile) {
+                tab.creationFailed()
+                return
+            }
             tab.isCreationPending = true
             windowTab = tab
             window = .creating(request: request)

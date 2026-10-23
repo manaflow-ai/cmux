@@ -86,7 +86,12 @@ pub(super) const GUIDES: &[Guide] = &[
         status on a workspace's sidebar row: workspace_status_set {workspace, key, text, state, \
         progress, ttl_ms} (CLI `cmux workspace WS status set KEY TEXT`), workspace_progress_set \
         and workspace_log_append; clear them when the work is done. Ask for attention: \
-        notification_create {title, body} (desktop: false shows no banner). The focus tools \
+        notification_create {title, body} (desktop: false shows no banner). When the user must \
+        act in a tab (confirm, log in, approve, pick), mark it: tab_update {tab, attention: \
+        \"one-line reason\"} (CLI `cmux attention request --tab TAB --reason TEXT`); it never \
+        moves focus, and tab_update {tab, attention: null} (`cmux attention clear --tab TAB`) \
+        drops it. Tell the user the workspace and tab by their titles, never a ws_ or tab_ id. \
+        The focus tools \
         (tab_focus, pane_focus, screen_focus, workspace_focus, agents_tab_select) and focus: true \
         move the user's focus: use them only when the user asked. The selector `current` is what \
         the user looks at, not your own workspace.",

@@ -5,7 +5,7 @@
 //! names one by `targetId` in every call. Tab lifecycle calls (`tabs.open`,
 //! `tabs.close`, `tabs.activate`) go to the source, which owns tabs. Every
 //! call that names a tab passes the source's refusal rules first (browser
-//! pages, the interim extension rule). The ownership rules live here, once
+//! pages). The ownership rules live here, once
 //! for every source: created tabs close at the session's end unless kept,
 //! automation leases, the session's request filter, its events.
 

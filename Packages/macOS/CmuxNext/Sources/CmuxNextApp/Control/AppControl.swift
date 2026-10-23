@@ -328,6 +328,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarNestedFixture.show(call.params, services: services))
             },
+            .mainActor("debug.sidebar_group_drag") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugSidebarGroupDrag.run(call.params, services: services))
+            },
             .mainActor("debug.sidebar_wheel") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarWheel.post(call.params, services: services))

@@ -463,8 +463,24 @@ export default componentEntry<Props>({
   load: async () => GalleryInspector,
   variants: {
     full: {
-      note: "A chat on this Mac with every section: its environment with Save and Remote Control, 47% of the context window, one connector to reconnect, eight pull requests across three repositories (five shown, then Show more), a dev server on :5173, three running subagents and two running chats named one per line with the 40 done · 1 failed row under them, background tasks (one only the transcript knows, without Stop) with four finished, and its outputs.",
+      note: "A chat on this Mac with every section, shipped layout (glance): no section is a box. Where it runs: the machine with Save, folder, repository, branch and Remote Control, then Context (47%) and Connectors (1 to reconnect) as one row each. A hairline, then what it made: eight pull requests across three repositories (five shown, then Show more) and its outputs. A hairline, then what it runs: three running subagents and two running chats with the 40 done · 1 failed row, and Background tasks, the dev server on :5173 first, then the commands (one only the transcript knows, without Stop) and four finished.",
       props: full,
+    },
+    "layout-glance": {
+      note: "Chosen (Leo, 2026-10-22: \"this session rail is tmi and too many boxes?\"). Eight cards became three blocks with a hairline between them and no box: the Environment's rows with no title, Context and Connectors one row each; Changes and Outputs; Subagents and Background tasks, the Servers card's row now heading Background tasks. Least ink of the three while every section and click stays; the rows line up under the panel's title.",
+      props: full,
+    },
+    "layout-glance-open": {
+      note: "The shipped layout with Context and Connectors opened in place: each row opens into its token counts or its servers, still with no box.",
+      props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
+    },
+    "layout-rules": {
+      note: "Alternative (not shipped): no boxes, every section keeps its title (Environment's too) with a hairline between each. Clear, but seven titles and seven rules still read as a stack of parts.",
+      props: { ...full, layout: "rules" },
+    },
+    "layout-groups": {
+      note: "Alternative (not shipped): the same three blocks as the shipped layout, each one hairline card (three boxes in place of eight). Groups well, but it is still boxes in a box.",
+      props: { ...full, layout: "groups" },
     },
     "environment-folders": {
       note: "Environment for a chat in ~/Projects/cmux that worked across six projects: the machine with Save, its folder with its parent, each other project it touched (each opens in Files), the repository and the branch (each links to GitHub).",
@@ -521,7 +537,7 @@ export default componentEntry<Props>({
       },
     },
     "row-hover": {
-      note: "The pointer on a pull request's row: a faint tint of the text inside the card's padding, with the card's radius less that padding, never a solid fill and never past the card's edge. Every row in the panel hovers the same way.",
+      note: "The pointer on a pull request's row: a faint tint of the text inside the body's padding, with the row radius, never a solid fill and never past the panel's edge. Every row in the panel hovers the same way.",
       props: full,
       play: async (ctx) => {
         await ctx.waitFor(() => /already on base/.test(text(ctx)));
@@ -630,7 +646,7 @@ export default componentEntry<Props>({
       },
     },
     "glass-over-transcript": {
-      note: "The panel over a busy transcript: liquid glass, never opaque, so the prompts, replies and code under it frost through; its cards are hairline borders with no fill. Under Reduce Transparency the panel is the opaque theme surface.",
+      note: "The panel over a busy transcript: liquid glass, never opaque, so the prompts, replies and code under it frost through; no section is a box, only a hairline between its three blocks. Under Reduce Transparency the panel is the opaque theme surface.",
       props: { ...full, transcript: true },
     },
   },

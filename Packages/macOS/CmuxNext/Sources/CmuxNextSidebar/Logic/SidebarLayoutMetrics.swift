@@ -9,8 +9,16 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     public var bottomPadding: CGFloat
     public var sectionHeaderHeight: CGFloat
     public var sectionSpacing: CGFloat
-    /// A group or folder header: always the one-line workspace row height, never a number of its own.
-    public var groupHeaderHeight: CGFloat { rowHeight }
+    /// A group or folder header: always the density's workspace row height (`rowStep`), never a
+    /// number of its own (Lawrence 2026-10-19 and 2026-10-22: a header is exactly as tall as a
+    /// workspace row at every density).
+    public var groupHeaderHeight: CGFloat { rowStep }
+    /// Expanded density (`sidebar.density` expanded, not Minimal Mode): every workspace row has a
+    /// second line, so rows and group headers take two lines (`expanded`).
+    public var twoLineRows = false
+    /// The one height a group header and a workspace row with the density's usual lines share:
+    /// one line, or two in Expanded. A row with more lines (a meta line, a status block) grows from it.
+    public var rowStep: CGFloat { twoLineRows ? rowHeightWithSubtitle : rowHeight }
     /// Workspace row with one line.
     public var rowHeight: CGFloat
     /// Workspace row with a secondary detail line.
@@ -55,10 +63,26 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         return m
     }
 
-    /// One line, two, or three (an expanded row's meta line adds one more line's height).
+    /// Expanded density's metrics: rows and group headers are two lines tall (`rowStep`).
+    public var expanded: SidebarLayoutMetrics {
+        var m = self
+        m.twoLineRows = true
+        return m
+    }
+
+    /// The metrics a layout under `o` uses: Minimal Mode's shorter rows, or Expanded's two-line
+    /// rows (not with workspaces as tabs, whose rows are one line at any density). Every place
+    /// that sizes list rows reads this, so a header and a row cannot take different steps.
+    public func resolved(for o: SidebarLayoutOptions) -> SidebarLayoutMetrics {
+        if o.minimal { return minimal }
+        return o.expanded && !o.workspacesAsTabs ? expanded : self
+    }
+
+    /// One line, two, or three (an expanded row's meta line adds one more line's height), never
+    /// shorter than `rowStep`: in Expanded a row without a preview line keeps the two-line height.
     func height(for content: WorkspaceRowContent) -> CGFloat {
         let lines = (content.detail == nil ? 0 : 1) + (content.meta == nil ? 0 : 1)
-        return rowHeight + CGFloat(lines) * (rowHeightWithSubtitle - rowHeight) + statusHeight(content)
+        return max(rowStep, rowHeight + CGFloat(lines) * (rowHeightWithSubtitle - rowHeight)) + statusHeight(content)
     }
 
     /// The status block under the title lines: its text lines, the bar's
