@@ -151,6 +151,19 @@ def error_of(reply):
 DESTRUCTIVE = set()  # ids action.list marks destructive: a socket caller passes confirm (ControlRouter+ActionRun)
 
 
+def hang_summary(hangs):
+    """debug.hangs: stall count, the longest stall, and the longest stall's main-thread stack (the cause)."""
+    records = [r for r in (hangs.get("records") or []) if r.get("kind", "stall") == "stall"] if isinstance(hangs, dict) else []
+    longest = max(records, key=lambda r: r.get("duration_ms") or 0, default=None)
+    out = {"count": hangs.get("count") if isinstance(hangs, dict) else None,
+           "max_ms": round((hangs.get("max_ms") if isinstance(hangs, dict) else 0) or 0, 2)}
+    if longest:
+        out["stack"] = {"ms": round(longest.get("duration_ms") or 0, 2), "cpu_ms": round(longest.get("cpu_ms") or 0, 2),
+                        "top": (longest.get("frames") or [])[:6],
+                        "app": [f for f in longest.get("frames") or [] if "cmux" in f.lower()][:14]}
+    return out
+
+
 def act(ident, target=None, args=None, timeout=30, **params):
     """action.run of `ident`; a destructive action gets the script caller's confirm."""
     args = dict(args or {})
@@ -637,7 +650,7 @@ class Sweep:
         time.sleep(settle)  # test script: the animation the action started runs out inside the frame window
         t_end = uptime()
         frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
-        hangs = rpc("debug.hangs", {"limit": 3}) or {}
+        hangs = rpc("debug.hangs", {"limit": 8}) or {}
         runs = SIGNPOSTS.runs(t_send, t_end)
         mine = next((r for r in runs if r["id"] == action_id), None)
         first = mine or (runs[0] if runs else None)
@@ -656,8 +669,7 @@ class Sweep:
                          "main_over_8_3": frames.get("main_over_8_3_ms"),
                          "first_main_ms": round(busy[0], 2) if busy else None,
                          "first_interval_ms": round(intervals[0], 2) if intervals else None}
-        row["hangs"] = {"count": hangs.get("count", hangs.get("total")),
-                        "max_ms": max([h.get("ms") or h.get("duration_ms") or 0 for h in (hangs.get("hangs") or hangs.get("items") or [])] or [0])}
+        row["hangs"] = hang_summary(hangs)
         return row
 
     # One action.
@@ -750,6 +762,9 @@ class Sweep:
                          "main_max_ms": max([s["frames"]["main_max_ms"] for s in samples] or [0])}
         row["hangs"] = {"count": sum((s["hangs"]["count"] or 0) for s in samples),
                         "max_ms": max([s["hangs"]["max_ms"] or 0 for s in samples] or [0])}
+        stacks = [s["hangs"]["stack"] for s in samples if s["hangs"].get("stack")]
+        if stacks:
+            row["hangs"]["stack"] = max(stacks, key=lambda x: x["ms"])
         row["entries"] = sorted({s["entry"] for s in samples})
         row["key_routed"] = all(s.get("key_routed", True) for s in samples) if plan["key"] else None
         row["key_reply"] = next((s.get("key_reply") for s in samples if s.get("key_reply")), None)
@@ -804,13 +819,13 @@ class Sweep:
         wall = (uptime() - t0) * 1000
         time.sleep(settle)  # test script: trailing frames of the gesture
         frames = rpc("debug.frames", {"action": "stop"}) or {}
-        hangs = rpc("debug.hangs", {"limit": 3}) or {}
+        hangs = rpc("debug.hangs", {"limit": 8}) or {}
         return {"wall_ms": round(wall, 1), "frames": {"refresh_ms": round(frames.get("refresh_ms") or 0, 2), "count": frames.get("frames"),
                                                        "missed": frames.get("missed"), "p95_ms": round(frames.get("p95_ms") or 0, 2),
                                                        "max_ms": round(frames.get("max_ms") or 0, 2),
                                                        "main_p95_ms": round(frames.get("main_p95_ms") or 0, 2),
                                                        "main_max_ms": round(frames.get("main_max_ms") or 0, 2)},
-                "hangs": {"count": hangs.get("count", hangs.get("total"))}, **extra}
+                "hangs": hang_summary(hangs), **extra}
 
     def pane_chrome(self):
         reply = rpc("debug.pane_chrome") or {}
