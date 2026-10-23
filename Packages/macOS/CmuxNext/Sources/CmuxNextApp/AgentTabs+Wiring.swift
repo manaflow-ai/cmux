@@ -51,7 +51,7 @@ extension AgentTabStore {
             return response.surface
         }
         seeds[key] = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd))
-        let made = firstPage(cwd: cwd, token: firstPageTokens[workspace])
+        let made = firstPage(cwd: cwd, token: firstPageTokens[workspace], workspace: daemon.store.workspace(handle: workspace)?.id)
         // The tree listed the tab first and its view already shows the page (with this
         // workspace's token): it keeps that page, since a new one remounts the screen and drops
         // what was typed (cx-kql5h); only the actions take this folder.
@@ -80,9 +80,10 @@ extension AgentTabStore {
     /// built then takes it (``firstChatSeed(of:in:)``).
     func seedFirstChat(_ seed: AgentPaneSeed, in workspace: WorkspaceHandle) { firstChats[workspace] = AgentPaneSeedSource(seed) }
 
-    /// A new workspace's first New Tab page, carrying that workspace's key-hold token.
-    func firstPage(cwd: String?, token: String?) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)? {
-        guard var made = firstPageNewTab?(cwd, nil) else { return nil }
+    /// A new workspace's first New Tab page, carrying that workspace's key-hold token; `workspace`
+    /// is the id of the workspace it shows in (nil: the active window's).
+    func firstPage(cwd: String?, token: String?, workspace: String?) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)? {
+        guard var made = firstPageNewTab?(cwd, nil, workspace) else { return nil }
         if let token {
             made.page.inputToken = token
             onFirstPageToken?(token)
@@ -90,11 +91,10 @@ extension AgentTabStore {
         return made
     }
 
-    /// The key-hold token of the new workspace holding tab `key` (kept until its create returns).
-    func firstPageToken(of key: String, in store: DaemonStore) -> String? {
-        guard !firstPageTokens.isEmpty, let tab = store.tab(id: key), let pane = store.pane(containing: tab.surface),
-              let workspace = store.workspace(containing: pane.handle) else { return nil }
-        return firstPageTokens[workspace.handle]
+    /// The workspace holding tab `key` in `store`.
+    func workspace(holding key: String, in store: DaemonStore) -> WorkspaceModel? {
+        guard let tab = store.tab(id: key), let pane = store.pane(containing: tab.surface) else { return nil }
+        return store.workspace(containing: pane.handle)
     }
 
     /// The held seed of the new workspace holding tab `key`, taken once.
@@ -131,15 +131,15 @@ extension AgentTabStore {
                 NewTabPage.replace(key, with: request, cwd: request.cwd ?? cwd, in: controller, keep: tabs?.sessions[key] != nil)
             }
         }
-        tabs.firstPageNewTab = { [weak services] cwd, beside in
+        tabs.firstPageNewTab = { [weak services] cwd, beside, workspace in
             guard let services else { return nil }
             // A page beside a chat of another machine shows that machine's folders (cx-k21v).
             // (A chat of this Mac keeps the plain page, as before.)
             let tab = beside.flatMap { services.locateTab($0)?.0 }.flatMap { services.machines.daemon(forTab: $0).isLocal ? nil : $0 }
-            var page = NewTabPage.page(services, selected: tab)
+            var page = NewTabPage.page(services, selected: tab, current: workspace)
             page.cwd = cwd ?? page.cwd
             // Keys typed since Cmd-N wait for this page's field (NewTabInputCoordinator, cx-kql5h);
-            // the token comes per workspace (``firstPage(cwd:token:)``).
+            // the token comes per workspace (``firstPage(cwd:token:workspace:)``).
             let input = services.keyRouter.newTabInputCoordinator
             var handler = NewTabPage.handler(services, cwd: cwd) { [weak services] key, request in
                 guard let services, let (tab, pane) = services.locateTab(key), let controller = services.paneController(for: pane) else { return }

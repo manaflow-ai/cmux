@@ -46,7 +46,10 @@ extension AgentTabStore {
         // workspace, and its window draws it, page included, in this same turn (the membership
         // reconcile the intent runs shows a claimed workspace at once).
         seeds[tabKey] = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd))
-        newTabPages[tabKey] = BenchSpans.measure("cmdN.page") { firstPage(cwd: cwd, token: token) }
+        // Built before the intent lists the workspace, so the window still shows the one the
+        // person is leaving: the page is built as seen from the new workspace, which lists that
+        // one under the bar's other workspaces.
+        newTabPages[tabKey] = BenchSpans.measure("cmdN.page") { firstPage(cwd: cwd, token: token, workspace: key.rawValue) }
         BenchSpans.measure("cmdN.adopt") {
             if let spare = takeSpare?(), let page = newTabPages[tabKey]?.page { adoptSpare(spare, key: tabKey, page: page) }
         }

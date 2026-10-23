@@ -64,8 +64,9 @@ enum NewTabPage {
     /// bounded head of each history: the 40 newest pages (``InMemoryBrowserHistory/recent(_:)``,
     /// no sort of every visit), their icons through one scan of the open tabs, the 40 newest
     /// commands, and icons encoded once per image (``TabFaviconStore/dataURL(_:)``).
-    static func omnibar(_ services: AppServices, excluding selectedID: String?) -> AgentPaneOmnibar {
-        let (tabs, workspaces, folders) = places(services, excluding: selectedID)
+    /// `current` is the workspace the page shows in (``places(_:excluding:current:)``).
+    static func omnibar(_ services: AppServices, excluding selectedID: String?, current: String? = nil) -> AgentPaneOmnibar {
+        let (tabs, workspaces, folders) = places(services, excluding: selectedID, current: current)
         let openTabIcons = services.openTabFaviconsByOrigin()
         let history = services.cache.history(for: .default).recent(AgentPaneOmnibar.maximumEntries).map {
             AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title,
@@ -178,13 +179,16 @@ enum NewTabPage {
     /// the location bar's suggestions, with the field empty.
     /// `window` is where the page shows (the active one when nil; a panel counts as the window
     /// that owns it): its dots' last pick comes first, then the saved `tabs.newTabTemplate` (cx-l1jv).
+    /// `current` is the workspace the page shows in when the window does not show it yet (a new
+    /// workspace's first page, built before the store lists it): the bar lists the workspace the
+    /// window shows now under "other workspaces", as it will once the new one is selected.
     static func page(_ services: AppServices, selected: TabModel?, window: NSWindow? = nil,
-                     pane: PaneController? = nil) -> AgentPaneNewTab {
+                     pane: PaneController? = nil, current: String? = nil) -> AgentPaneNewTab {
         let selectedID = selected?.id
         let hotkeys = newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) }
         // An SSH or Cloud tab's page shows that machine's folder, never this Mac's home (cx-gaq9).
         let machine = NewTabPageMachine(services, selected: selected, pane: pane)
-        var bar = omnibar(services, excluding: selectedID)
+        var bar = omnibar(services, excluding: selectedID, current: current)
         // A page on another machine offers that machine's folders only (cx-k21v).
         if let remote = machine.remoteFolders { (bar.folders, bar.projects) = (remote, remote) }
         return AgentPaneNewTab(
