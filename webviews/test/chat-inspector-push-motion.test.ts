@@ -201,7 +201,9 @@ await requireBrowserLane("chat-inspector-push-motion.test.ts", async () => {
   for (const name of browsers.keys())
     test(`${name}: floating Session Info leaves the header tools anchored`, async () => {
       current = browsers.get(name)!;
-      const page = await pane!.open({ width: 1700, height: 600 });
+      // 1200px leaves a floating card close enough to the transcript column for the handoff shift;
+      // at 1700px the shift is zero and the old stage selector would pass this assertion too.
+      const page = await pane!.open({ width: 1200, height: 600 });
       try {
         const toggle = await ready(page);
         const before = await page.evaluate(
