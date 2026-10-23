@@ -396,3 +396,48 @@ async fn a_restart_continuation_keeps_its_images_its_trust_gate_and_its_place() 
     let ids: Vec<&str> = queue.iter().filter_map(|q| q["promptId"].as_str()).collect();
     assert_eq!(ids, ["cut-1~resume-1", "q-1"], "the continuation lost its place: {attached:#}");
 }
+
+/// A Unix client's turn that a Web steer made a Web turn (`turn_control`, `web_control.rs`)
+/// goes on as a Web turn, through the folder-trust gate, though it started as a local one.
+#[tokio::test]
+async fn a_restart_continuation_of_a_turn_a_web_steer_raised_is_web_and_gated() {
+    let mut daemon = Daemon::with_env("rrweb", "approve-all", &[("ACPMUX_AGENT_HOSTS", "0")]);
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("gate: {} <the cut task>", gate.display())}], "_meta": {"acpmux": {"promptId": "cut-1"}}}),
+        )
+        .await;
+    daemon.wait_event(&session, "before-gate chunk", |e| chunk(e, "before-gate"));
+    let started = daemon.wait_event(&session, "turn_started", |e| {
+        e["kind"] == "turn_started" && e["msg"]["promptId"] == "cut-1"
+    });
+    assert_eq!(started["msg"]["control"], "local", "{started:#}");
+    daemon.sigkill();
+    drop(client);
+
+    // What a Web steer into that turn logs (`check_steer`).
+    let events = daemon.home.join("sessions").join(&session).join("events");
+    let mut files: Vec<_> =
+        std::fs::read_dir(&events).unwrap().filter_map(|e| e.ok().map(|e| e.path())).collect();
+    files.sort();
+    let last = files.last().expect("an event log").clone();
+    let seq = daemon.events(&session).iter().filter_map(|e| e["seq"].as_u64()).max().unwrap();
+    let raised = json!({"seq": seq + 1, "at": 0, "dir": "mux", "kind": "turn_control", "msg": {"turnId": started["msg"]["turnId"], "control": "web"}});
+    let mut log = std::fs::OpenOptions::new().append(true).open(&last).unwrap();
+    std::io::Write::write_all(&mut log, format!("{raised}\n").as_bytes()).unwrap();
+    drop(log);
+
+    hold_startup(&daemon);
+    daemon.start();
+    let continuation = daemon.wait_event(&session, "the continuation's queued record", |e| {
+        e["kind"] == "queued" && e["msg"]["promptId"] == "cut-1~resume-1"
+    });
+    let msg = &continuation["msg"];
+    assert_eq!(msg["control"], "web", "a Web-steered turn went on as a local one: {msg:#}");
+    assert_eq!(msg["trustGate"], true, "a Web turn's continuation skips the trust gate: {msg:#}");
+}
