@@ -194,7 +194,9 @@ final class UIInspectorController {
         ].joined(separator: "\n")
         Task { @MainActor [weak self, weak page] in
             guard let self, let page, self.selectionGeneration == generation else { return }
-            _ = try? await page.callPageScript("globalThis.__cmuxUiPointer?.hide?.(); return true;")
+            // Freeze the page-side mouse listener before taking the snapshot so a pointer move
+            // during the await cannot paint the inspector outline back into the crop.
+            page.setUiPointerInspector(false)
             let image = await page.pageSnapshot()
             guard self.selectionGeneration == generation else { return }
             let png = image.flatMap { Self.cropWeb($0, value: object) }
