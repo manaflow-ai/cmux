@@ -132,7 +132,6 @@ jobs:
               'CMUX_SOCKET_PATH': os.environ['CMUX_SOCKET_PATH'],
               'CMUX_DEBUG_LOG': os.environ['ARTIFACTS'] + '/mac.log',
               'CMUX_BUNDLED_CLI_PATH': str(app / 'Contents/Resources/bin/cmux'),
-              'CMUX_SHELL_INTEGRATION_DIR': str(app / 'Contents/Resources/shell-integration'),
           })
           path.write_bytes(plistlib.dumps(data))
           PY

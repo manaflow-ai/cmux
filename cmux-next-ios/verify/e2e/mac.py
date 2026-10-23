@@ -201,7 +201,6 @@ class Mac:
         config, credentials and pairing seed, and paths into this copy."""
         res = os.path.join(self.app, "Contents/Resources")
         return {
-            "CMUX_SHELL_INTEGRATION_DIR": f"{res}/shell-integration",
             "CMUX_BUNDLED_CLI_PATH": f"{res}/bin/cmux",
             "CMUXD_UNIX_PATH": f"{os.path.expanduser('~')}/Library/Application Support/cmux/cmuxd-dev-{self.tag}.sock",
             "CMUX_NEXT_CONFIG_FILE": self.config,

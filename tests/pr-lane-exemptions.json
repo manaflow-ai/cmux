@@ -37,6 +37,13 @@
       ]
     },
     {
+      "reason": "A classic-app shell integration regression (Resources/shell-integration). cmux-next does not ship or source that tree (its shells run Ghostty's integration under Resources/cmux-cli-path, measured by scripts/cmux-next/shell-integration-bench.py), so no feat-cmux-next pull request runs it; it runs on main's lanes.",
+      "tests": [
+        "tests/test_shell_claude_rereports_pwd.py",
+        "tests/test_zsh_git_head_watch_no_fork.py"
+      ]
+    },
+    {
       "reason": "Registry lane `legacy` (migration inventory): no automatic lane runs it on either branch yet. Place it in a lane first.",
       "tests": [
         "tests/test_cloud_display_catalog.py",
