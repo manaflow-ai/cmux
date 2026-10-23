@@ -90,6 +90,9 @@ async function drawnStyle(state: Parameters<typeof import("../src/diff-viewer/st
 
 test("auto draws unified in a narrow viewer and split in a wide one", async () => {
   expect(await drawnStyle((await renderPill(520, "auto")).state)).toBe("unified");
+  // 900 px still cuts long lines on both sides: split starts at 1000 px.
+  expect(await drawnStyle((await renderPill(900, "auto")).state)).toBe("unified");
+  expect(await drawnStyle((await renderPill(1000, "auto")).state)).toBe("split");
   expect(await drawnStyle((await renderPill(1200, "auto")).state)).toBe("split");
   // An unmeasured viewer counts as wide.
   expect(await drawnStyle((await renderPill(0, "auto")).state)).toBe("split");

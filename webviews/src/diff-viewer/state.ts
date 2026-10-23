@@ -497,10 +497,11 @@ function parseDiffViewerLayout(value: unknown): DiffViewerLayout | null {
   return value === "split" || value === "unified" || value === "auto" ? value : null;
 }
 
-/// The viewer width two readable split sides need. The auto layout draws split at this width and
-/// up, unified below it (cx-7tsus: split in a narrow pane wrapped or clipped every line), and
-/// changes as the pane is resized. An explicit split or unified layout is drawn at every width.
-export const SPLIT_MIN_WIDTH = 760;
+/// The viewer width two readable split sides need (at 760 px both sides cut long lines). The auto
+/// layout draws split at this width and up, unified below it (cx-7tsus: split in a narrow pane
+/// wrapped or clipped every line), and changes as the pane is resized. An explicit split or
+/// unified layout is drawn at every width.
+export const SPLIT_MIN_WIDTH = 1000;
 
 /** Whether a split diff fits the viewer; an unmeasured viewer counts as wide. */
 export function splitFits(viewerWidth: number): boolean {
