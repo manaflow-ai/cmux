@@ -143,6 +143,7 @@
         "Smoke launch signed app": {"nightly_only": "launches the Developer ID signed Release app on a Mac and scans for crash reports; needs the signed Release app"},
         "Smoke bundled CLI against the signed app": {"nightly_only": "drives the bundled CLI against the running signed Release app; nightly-next-canary.yml runs the --canary mode against the published app on pull requests that change it"},
         "Visual smoke the signed app": {"pr": "nightly-next-canary.yml:canary:Visual smoke", "note": "the same visual-smoke/gate.sh, on the published app, for pull requests that change it"},
+        "Record visual smoke advisory failure": {"plumbing": true},
         "Resolve the canary mode": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next canary mode and its one-week flip"},
         "Canary the signed app": {"pr": "nightly-next-canary.yml:canary:Run the canary"},
         "Stop the daemons the smokes left": {"plumbing": true}},
