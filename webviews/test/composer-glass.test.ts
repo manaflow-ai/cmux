@@ -206,6 +206,36 @@ await requireBrowserLane("composer-glass.test.ts", async () => {
     await page.close();
   });
 
+  // The plain top strip draws the strip as bare text in either look: Codex's tray rule
+  // (composerLook.css) loads after the plain strip's and once painted its tray over it, a solid one
+  // on an opaque window.
+  for (const window of windows)
+    test(`${window.name}: the plain top strip in Codex's look is bare text, as in Claude's`, async () => {
+      for (const colorScheme of ["light", "dark"] as const) {
+        const page = await open(colorScheme, { ...window.attributes, "data-top-strip": "plain" });
+        const codex = await page.evaluate(() => {
+          const style = getComputedStyle(document.getElementById("codex-strip")!);
+          return { fill: style.backgroundColor, edge: style.boxShadow, backdrop: style.backdropFilter };
+        });
+        expect(parse(codex.fill)[3], `${colorScheme}: Codex plain strip fill`).toBe(0);
+        expect(codex.edge, `${colorScheme}: Codex plain strip edge`).toBe("none");
+        expect(codex.backdrop, `${colorScheme}: Codex plain strip frost`).toBe("none");
+        await page.close();
+      }
+    });
+
+  test("under Reduce Transparency the plain top strip looks the same in Codex's look as in Claude's", async () => {
+    const page = await open("light", { "data-top-strip": "plain", "data-reduce-transparency": "" });
+    const [claude, codex] = await page.evaluate(() =>
+      ["strip", "codex-strip"].map((id) => {
+        const style = getComputedStyle(document.getElementById(id)!);
+        return { fill: style.backgroundColor, edge: style.boxShadow, backdrop: style.backdropFilter };
+      }),
+    );
+    expect(codex).toEqual(claude!);
+    await page.close();
+  });
+
   test("the plain top strip, bare text with no fill, frosts nothing under it", async () => {
     const page = await open("light", { "data-top-strip": "plain" });
     const strip = await look(page, "strip");
