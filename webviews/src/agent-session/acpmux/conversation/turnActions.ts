@@ -5,6 +5,7 @@ import { createContext } from "react";
 import type { HunkReview } from "../changes/hunkReview";
 import type { HarnessHealth } from "../HarnessHealthNotice";
 import type { AcpmuxSnapshot } from "../model";
+import type { Subagent } from "../subagents/subagentFold";
 import type { MessageBranch } from "./branches";
 import type { RetryModel } from "./retryModelSections";
 
@@ -50,6 +51,9 @@ export type TurnActions = {
   /// Continue a turn the reader stopped (the last turn's footer, when `resumable`): sends
   /// `CONTINUE_PROMPT` through the composer's send path, so it queues and shows as a prompt.
   resume?: () => Promise<void>;
+  /// Restart on a subagent's end line (subagents/restart.ts): asks the chat to run it again with
+  /// its prompt.
+  restartSubagent?: (agent: Subagent) => void;
   /// Re-run the current harness's declared login command after an authentication failure.
   reauthenticate?: () => void;
   /// Who serves this chat's turns, for failure copy (cx-w10a): the harness profile's display name and id.
