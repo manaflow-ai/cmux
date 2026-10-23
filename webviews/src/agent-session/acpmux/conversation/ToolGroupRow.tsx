@@ -15,6 +15,8 @@ import { useT } from "../i18n";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useFold } from "./fold";
 import { WriteLabel, writeCall } from "./WriteLabel";
+import { toolFailure } from "./toolFailure";
+import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 
 function groupIcon(kind: ToolGroupKind): ReactNode {
   switch (kind) {
@@ -97,6 +99,8 @@ export function ToolGroupRow({
   const deletions = counted.reduce((sum, file) => sum + file.deletions, 0);
   // A lone Write reads as what it wrote, "Wrote notes.md +18", not as an edit (WriteLabel.tsx).
   const write = kind === "edits" && tools.length === 1 ? writeCall(tools[0]!) : undefined;
+  // A group of one call says why it failed as a lone call does (toolFailure.ts); several say how many.
+  const failure = useMemo(() => (tools.length === 1 ? toolFailure(tools[0]!) : undefined), [tools]);
   return (
     <>
       <button
@@ -129,9 +133,10 @@ export function ToolGroupRow({
           {failures > 0 && (
             <span className="cv-tool__failed">
               {" "}
-              {write ? t("tools.failed") : t("tools.failedCount", { n: failures })}
+              {failure ? failureWord(t, failure) : t("tools.failedCount", { n: failures })}
             </span>
           )}
+          <InlineFailureCause failure={failure} />
         </span>
         <ChevronRight
           size={14}
@@ -139,6 +144,7 @@ export function ToolGroupRow({
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
       </button>
+      <ToolFailureCause failure={failure} />
       {fold.present && (
         <div ref={fold.ref} className="cv-fold">
           <div className={kind === "edits" ? "cv-tool-group" : "cv-tool-group is-flat"} id={detailsId}>
