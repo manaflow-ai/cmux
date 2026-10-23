@@ -1792,7 +1792,7 @@ export function VirtualTranscript({
   needsYou,
   dock,
   queueWithdrawn,
-  queue,
+  queueIds,
   focusComposer,
   openAt,
   onAnchor,
@@ -1824,9 +1824,9 @@ export function VirtualTranscript({
   /// Prompts withdrawn from the queue (snapshot `queueWithdrawn`): no row comes for one whose card
   /// leaves the stack, so the view keeps no room for it.
   queueWithdrawn?: readonly string[];
-  /// The queue the stack's cards draw (snapshot `queue`): each change notes the queued prompts again
-  /// (`noteQueue`), whether or not it changes the stack's size.
-  queue?: readonly unknown[];
+  /// IDs from the queue snapshot: a folded prompt has no card in the DOM, but remains queued and
+  /// must not be recorded as withdrawn when the fold changes.
+  queueIds?: readonly string[];
   /// Where a keyboard Jump to latest leaves focus, since the button hides (inert) once there.
   focusComposer?: () => void;
   onToggleActivity: (id: string) => void;
@@ -1942,6 +1942,7 @@ export function VirtualTranscript({
       ...[...(dock?.querySelectorAll<HTMLElement>("[data-folded-ids]") ?? [])].flatMap((list) =>
         (list.dataset.foldedIds ?? "").split(" "),
       ),
+      ...(queueIds ?? []),
     ]);
     // Another chat's queue, or another stack, starts over: the last one's prompts never left this
     // one, and no room is held for them (#24182: switched to a chat with its own queue, the last
@@ -1961,7 +1962,7 @@ export function VirtualTranscript({
     queueLeft.current = true;
     // Only the size change of this frame is the card leaving.
     requestAnimationFrame(() => requestAnimationFrame(() => (queueLeft.current = false)));
-  }, []);
+  }, [queueIds]);
   useLayoutEffect(() => {
     if (!dock) {
       setDockSpace(0);
@@ -2001,7 +2002,7 @@ export function VirtualTranscript({
   // size as it was (a prompt the fold hides, or one an opened list's cap cuts off, run by another
   // client) runs neither observer: still noted as queued, the next resize took it for a card that
   // left then, and kept room above the stack for FLOOR_HOLD_MS that then glided away (#24182).
-  useLayoutEffect(() => noteQueue(), [queue, noteQueue]);
+  useLayoutEffect(() => noteQueue(), [queueIds, noteQueue]);
   const [width, setWidth] = useState(() => lastTranscriptBox.width);
   // The column's cap (layout.json `chatWidth`): a new one measures every row again.
   const chatWidth = useChatWidth();
@@ -7586,7 +7587,7 @@ function AcpmuxPane() {
                                                   // Quick Chat's panel stacks its composer below the transcript.
                                                   dock={quick ? undefined : dock}
                                                   queueWithdrawn={snapshot.queueWithdrawn}
-                                                  queue={quick ? undefined : snapshot.queue}
+                                                  queueIds={quick ? undefined : snapshot.queue.map((entry) => entry.id)}
                                                   find={quick ? undefined : find}
                                                   sessionId={
                                                     childRows
