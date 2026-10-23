@@ -67,6 +67,7 @@ nonisolated enum SidebarSectionSettingsSchema {
             SidebarSectionsSetting.densityDescriptor(group: sidebar),
             SidebarSectionsSetting.detailedStatusIconsDescriptor(group: sidebar),
             SidebarSectionsSetting.showTimestampsDescriptor(group: sidebar),
+            SidebarSectionsSetting.showColorsDescriptor(group: sidebar),
             SidebarSectionsSetting.showLocalMachineDescriptor(group: sidebar),
             SidebarSectionsSetting.groupHeaderMemberCountDescriptor(group: sidebar),
             SidebarSectionsSetting.groupHeaderUnreadCountDescriptor(group: sidebar),

@@ -7,8 +7,8 @@ extension SidebarDocStore {
     /// drop or reorder, Pin and Unpin (the old "pin group" is plain Pin: the
     /// group moves into Pinned). A group's collapse is client view state.
     /// False: not a move (the older path handles it). `undoable` false (a new workspace placed
-    /// at its slot) puts no undo step, and a reorder of a workspace the document cannot name yet
-    /// is left to the older path.
+    /// at its slot) puts no undo step and leaves to the older path a placement whose workspace
+    /// or anchor the document cannot name yet.
     public func handle(_ intent: SidebarIntent, model: SidebarModel, drag: SidebarDocDrag, pinTitle: String, unpinTitle: String,
                        undoable: Bool = true) -> Bool {
         let title = Self.moveTitle
@@ -48,6 +48,10 @@ extension SidebarDocStore {
             // queued by `items`) makes the section, then they move to the slot (a219's gap, pinning-DESIGN.md).
             guard let anchored = drag.anchoredTarget(position, moving: moving, model: model)
                 ?? drag.unplacedTarget(position, moving: ids).map({ (target: $0, adopt: [[String: String]]()) }) else { return false }
+            // A placement (a new workspace at its slot) next to a row the document shows no item for yet is left to the
+            // older path: the daemon may hold that row's item where this client does not see it, and refuses the move
+            // (`invalid_target`), which left each workspace a classic import made at the top, in reverse order.
+            if !undoable, !anchored.adopt.isEmpty { return false }
             // An anchor this client has no item for is adopted in the same `sidebar.apply`, before the move.
             adopt += anchored.adopt.map { ref -> [String: Any] in ["op": "adopt", "refs": [ref]] }
             move(moving, to: anchored.target, title: title)

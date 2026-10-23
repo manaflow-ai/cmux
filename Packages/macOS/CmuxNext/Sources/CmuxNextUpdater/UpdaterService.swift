@@ -52,6 +52,7 @@ public final class UpdaterService {
     /// injected clock (no `asyncAfter`).
     @ObservationIgnored var expiringCard: UpdateCard?
     @ObservationIgnored let cardTimer: DemandTimer
+    @ObservationIgnored let stagedRefresh: StagedUpdateRefresh
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
     /// Opens the changelog page for the releases after `from` up to `to`
@@ -188,6 +189,7 @@ public final class UpdaterService {
         self.now = now
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
         snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)
+        stagedRefresh = StagedUpdateRefresh(clock: clock)
         self.identity = identity
         self.policy = policy
         self.prober = prober
@@ -293,14 +295,14 @@ public final class UpdaterService {
             log.append("check suppressed (managed policy)")
             return nil
         case nil:
-            guard let controller else { return nil }
             syncFlowPhase()
             if case .ready = flow.phase {
-                // Sparkle ignores a check while an update waits; the staged
-                // update card answers instead (``readyCard``).
+                // Sparkle ignores a check while an update waits: the card answers, and a newer ring build replaces it.
                 log.append("check while an update waits: showing the staged update")
+                if stagedRefresh.run(reason: "check", updater: self) == nil { flow.askAnswered() }
                 return nil
             }
+            guard let controller else { return nil }
             if userCheckRunning, case .checking = flow.phase {
                 // Sparkle would queue a second check after this one, which only delays the answer.
                 log.append("check while the person's check runs: joined")
@@ -448,28 +450,6 @@ public final class UpdaterService {
 
     private func bool(_ key: String, fallback: Bool) -> Bool {
         (defaults.object(forKey: key) as? Bool) ?? (Bundle.main.object(forInfoDictionaryKey: key) as? Bool) ?? fallback
-    }
-}
-
-extension UpdaterService: UpdateActionDelegate {
-    public func updaterRequestsRetryCheckForUpdates() {
-        checkForUpdates()
-    }
-
-    /// Nothing to save: terminals and layout live in the cmux-tui daemon and
-    /// survive the relaunch. Sparkle's terminate goes through the normal
-    /// `applicationShouldTerminate` path.
-    public func updaterWillRelaunchApplication() {
-        log.append("relaunching for update")
-        #if DEBUG
-        UpdateHarness.mark("will_relaunch")
-        #endif
-        willRelaunch?()
-    }
-
-    /// Reads the executable's live blocker provider before Sparkle relaunches.
-    public func updaterRelaunchBlockers() -> UpdateRelaunchBlockers {
-        relaunchBlockers()
     }
 }
 
