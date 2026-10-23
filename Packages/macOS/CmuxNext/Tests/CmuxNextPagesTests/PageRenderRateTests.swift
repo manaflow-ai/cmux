@@ -11,7 +11,10 @@ import WebKit
 /// (Settings, History, Cloud, Keybindings, the channels Home, Passwords, and every pooled spare)
 /// ran its main-thread rendering (scroll handlers, rAF, rows a virtual list mounts, JS-driven
 /// fades) every other refresh. These read the live WebKit preference of the web view a page is
-/// made with.
+/// made with. The preference is not the cadence: on cmux20 (macOS 27, 120 Hz) a shown page whose
+/// preference was written to near60 later still rendered at 120 fps. A test here that changes Low
+/// Power Mode on a live page says only that the preference was written; the cadence is
+/// `scripts/cmux-next/bench-page-cadence.py --live`.
 @MainActor @Suite(.serialized)
 struct PageRenderRateTests {
     private let root: URL
@@ -37,12 +40,18 @@ struct PageRenderRateTests {
                                  lowPowerMode: lowPowerMode))
     }
 
-    /// The pool's spare recipe, served from this test's root. The closure is a typed local first:
-    /// written inline inside `#require`, Xcode 26.6's macro expansion fails to type-check it
-    /// ("failed to produce diagnostic for expression") and the whole target stops compiling.
-    private func spareRecipe(_ pool: PageHostPool) throws -> PooledHostRecipe {
+    /// A pool whose spare's pages are served from this test's root, not a process-wide
+    /// registration. The closure is a typed local first: written inline inside an expression
+    /// Xcode 26.6's type checker gave up on similar closures ("failed to produce diagnostic").
+    private func makePool(_ lowPowerMode: LowPowerMode, policy: PageHostPool.Policy = PageHostPool.Policy()) -> PageHostPool {
         let served: (PageDescriptor) -> URL? = { [root] _ in root }
-        return try #require(pool.spareRecipe(servedRoot: served))
+        return PageHostPool(policy: policy, lowPowerMode: lowPowerMode, activity: { 0 }, isTrackingMenu: { false },
+                            servedRoot: served)
+    }
+
+    /// The pool's spare recipe (its options, Low Power Mode and served root).
+    private func spareRecipe(_ pool: PageHostPool) throws -> PooledHostRecipe {
+        try #require(pool.spareRecipe())
     }
 
     @Test func aPageMadeWithTheStandardOptionsRendersAtTheDisplaysFullRate() throws {
@@ -57,19 +66,20 @@ struct PageRenderRateTests {
     /// this test's root, not a process-wide registration.
     @Test func thePoolsSpareRendersAtTheDisplaysFullRate() throws {
         defer { try? FileManager.default.removeItem(at: root) }
-        let pool = PageHostPool(lowPowerMode: LowPowerMode(enabled: false), activity: { 0 }, isTrackingMenu: { false })
+        let pool = makePool(LowPowerMode(enabled: false))
         let recipe = try spareRecipe(pool)
         let spare = PageWebView(recipe: recipe)
         defer { spare.close() }
         #expect(try rendersNear60(spare) == false)
     }
 
-    /// A spare made while Low Power Mode is on renders near 60 and goes to full rate when it turns
-    /// off, as the pages it serves do.
-    @Test func thePoolsSpareFollowsLowPowerMode() throws {
+    /// A spare made while Low Power Mode is on has the near-60 preference, and the preference is
+    /// written to full rate when it turns off. Only the preference: whether a live page's cadence
+    /// follows it is not shown (the pool drops such a spare and makes a new one anyway).
+    @Test func thePoolsSpareWritesTheRatePreferenceWhenLowPowerModeChanges() throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let lowPowerMode = LowPowerMode(enabled: true)
-        let pool = PageHostPool(lowPowerMode: lowPowerMode, activity: { 0 }, isTrackingMenu: { false })
+        let pool = makePool(lowPowerMode)
         let recipe = try spareRecipe(pool)
         let spare = PageWebView(recipe: recipe)
         defer { spare.close() }
@@ -84,7 +94,7 @@ struct PageRenderRateTests {
     @Test func aLowPowerModeChangeDropsTheSpare() throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let lowPowerMode = LowPowerMode(enabled: false)
-        let pool = PageHostPool(lowPowerMode: lowPowerMode, activity: { 0 }, isTrackingMenu: { false })
+        let pool = makePool(lowPowerMode)
         defer { pool.dropSpare() }
         pool.spare = PageWebView(recipe: try spareRecipe(pool))
         pool.spareReady = true
@@ -101,7 +111,7 @@ struct PageRenderRateTests {
         let window = PageHostPoolLaunchWindowTests.shownWindow()
         defer { window.close() }
         let lowPowerMode = LowPowerMode(enabled: false)
-        let pool = PageHostPool(lowPowerMode: lowPowerMode, activity: { 0 }, isTrackingMenu: { false })
+        let pool = makePool(lowPowerMode)
         defer { pool.dropSpare() }
         pool.follow(window)
         let host = PageWebView(recipe: try spareRecipe(pool))
@@ -112,9 +122,52 @@ struct PageRenderRateTests {
                 "returned host back in the spare slot: \(pool.spare === host), Low Power Mode changed: \(lowPowerModeChanged)")
     }
 
-    /// A page follows Low Power Mode as a browser tab does: near 60 while it is on, full rate again
-    /// when it turns off, without being made again.
-    @Test func aPageFollowsLowPowerMode() throws {
+    /// A Low Power Mode change while a build has parked its spare (during a turn after the park or
+    /// during the load) drops that spare, and lowPowerModeChanged cannot schedule a build while
+    /// this one runs. The build must then schedule the next spare itself on its way out; it did so
+    /// only for a change before the park, so the pool was left with no spare and no build and the
+    /// next Settings, History or Cloud open loaded cold.
+    @Test func aChangeAfterTheBuildParkedItsSpareStartsTheNextBuild() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let window = PageHostPoolLaunchWindowTests.shownWindow()
+        defer { window.close() }
+        let lowPowerMode = LowPowerMode(enabled: false)
+        var policy = PageHostPool.Policy()
+        policy.idleInput = .milliseconds(5)
+        let pool = makePool(lowPowerMode, policy: policy)
+        defer { pool.dropSpare() }
+        var changed = false
+        let started = await PageTestWait.value("the next build after the change", seconds: 10) { (done: @escaping (Bool) -> Void) in
+            pool.onSpan = { name, _ in
+                switch name {
+                case "pool.makeSpare.park" where !changed:
+                    changed = true
+                    // The change lands in the turn the build awaits after the park, as a real one
+                    // can (never inside the synchronous park itself).
+                    RunLoop.main.perform(inModes: [.common]) {
+                        MainActor.assumeIsolated { lowPowerMode.override = true }
+                    }
+                case "pool.makeSpare.configure" where changed:
+                    done(true)
+                default:
+                    break
+                }
+            }
+            pool.follow(window)
+            pool.noteLikely()
+        }
+        #expect(changed, "the first build never parked its spare")
+        #expect(started == true, "after a change during the build, the pool made no new spare")
+        // The next build stops at its park guard instead of loading into a closed window.
+        pool.onSpan = nil
+        pool.isLikely = false
+    }
+
+    /// A page writes its rate preference as Low Power Mode changes, as a browser tab does: near 60
+    /// while it is on, full rate again when it turns off. Only the preference: on macOS 27 a shown
+    /// page's cadence did not follow a live write to near60, and the other direction is unmeasured
+    /// (perf-lead row 23, open for shown pages and tabs).
+    @Test func aPageWritesTheRatePreferenceWhenLowPowerModeChanges() throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let lowPowerMode = LowPowerMode(enabled: false)
         let view = try page(lowPowerMode: lowPowerMode)
