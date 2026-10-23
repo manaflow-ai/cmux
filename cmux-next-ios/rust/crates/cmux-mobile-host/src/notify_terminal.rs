@@ -52,6 +52,11 @@ pub const TERMINAL_SURFACE_GAP: Duration = Duration::from_secs(10);
 /// At most this many terminal pushes a minute from this Mac.
 pub const TERMINAL_PER_MINUTE: usize = 10;
 
+/// A question with no tool use id this soon after the same questions were pushed on the
+/// same tab is that ask told again (Claude Code's PermissionRequest hook carries no
+/// `tool_use_id`).
+pub const QUESTION_REPEAT_WINDOW: Duration = Duration::from_secs(30);
+
 /// Turns daemon `notification` events into `terminal` pushes.
 #[derive(Debug, Default)]
 pub struct TerminalClassifier {
@@ -65,6 +70,8 @@ pub struct TerminalClassifier {
     /// Code fires two hooks for one AskUserQuestion, and the daemon posts each (bounded).
     asked: HashSet<String>,
     asked_order: VecDeque<String>,
+    /// Per surface: the last pushed question's text (all its prompts) and when.
+    last_question: HashMap<u64, (String, Instant)>,
 }
 
 const SEEN_LIMIT: usize = 512;
@@ -190,6 +197,18 @@ impl TerminalClassifier {
                 Some(tool) => crate::notify::event_id("q", &[tool]),
                 None => format!("n-{id}"),
             };
+            let prompts: String = questions.iter().map(|q| q.question.as_str()).collect::<Vec<_>>().join("\u{0}");
+            if tool.is_none()
+                && let Some(surface) = surface
+                && self.last_question.get(&surface).is_some_and(|(text, at)| {
+                    *text == prompts && now.saturating_duration_since(*at) < QUESTION_REPEAT_WINDOW
+                })
+            {
+                return None;
+            }
+            if let Some(surface) = surface {
+                self.last_question.insert(surface, (prompts, now));
+            }
             if tool.is_some() {
                 if !self.asked.insert(event_id.clone()) {
                     return None;
