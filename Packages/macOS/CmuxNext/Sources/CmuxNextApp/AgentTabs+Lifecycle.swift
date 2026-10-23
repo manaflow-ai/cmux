@@ -157,14 +157,15 @@ extension AgentTabStore {
         // The selection follows the provisional tab to the created one (`moveSelection`).
         if select { pane.selectWhenReported(surface: pending.surface) }
         if hidden {
-            pane.pendingDock.insert(pending.key)
+            pane.pendingDock[pending.key] = pending.key
             pane.apply(pane.snapshot())
         }
         pane.services.registry.track(Task {
             do {
                 let created = try await pending.value()
                 content?.expectFocus(on: created.surface, generation: intent)
-                if hidden { pane.pendingDock.insert(created.key) }
+                // The store's id hides the same chat, until the dock (or its failure) ends both.
+                if hidden, pane.pendingDock[pending.key] != nil { pane.pendingDock[created.key] = pending.key }
                 // A remote store can answer before its tree lists the provisional tab, so the
                 // provisional selection never took: the store's tab is selected now (cx-k21v).
                 if select, !hidden, !daemon.isLocal, pane.stripModel.selectedID?.rawValue != created.key {

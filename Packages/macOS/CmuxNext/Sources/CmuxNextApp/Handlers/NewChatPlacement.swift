@@ -105,14 +105,18 @@ extension PaneController {
     /// the store replaced it with, from the store's first snapshot on.
     var dockBound: Set<String> {
         let aliases = services.agentTabs.aliases
-        return pendingDock.union(pendingDock.compactMap { aliases[$0] })
+        return Set(pendingDock.keys).union(pendingDock.keys.compactMap { aliases[$0] })
     }
 
-    /// Chat `key` reached its dock (or the move failed): the strip may list
-    /// it again. Other chats still on their way stay hidden.
+    /// Chat `key` (its provisional id or the store's) reached its dock, or the move failed: the
+    /// strip may list it again and Cmd-I opens chats again (``DockedAgentChat``). Both of its ids
+    /// go, by the chat each entry names. Matching through `aliases` kept the provisional id: its
+    /// alias is pruned once the store's tab replaced it, before the move answers, so the pane
+    /// kept a chat "on its way" forever and every later Cmd-I in it did nothing once the dock
+    /// closed. Other chats still on their way stay hidden.
     func dockFinished(_ key: String) {
-        let aliases = services.agentTabs.aliases
-        pendingDock = pendingDock.filter { $0 != key && aliases[$0] != key }
+        let chat = pendingDock[key] ?? key
+        pendingDock = pendingDock.filter { $0.value != chat }
         apply(snapshot())
     }
 }
