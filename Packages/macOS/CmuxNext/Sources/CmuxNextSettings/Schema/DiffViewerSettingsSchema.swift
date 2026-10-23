@@ -21,7 +21,7 @@ nonisolated enum DiffViewerSettingsSchema {
                     SettingChoice("unified", SettingsText.keyed("settings.choice.diffUnified", "Unified")),
                     SettingChoice("auto", SettingsText.keyed("settings.choice.diffAutoLayout", "Automatic")),
                 ]),
-                default: .string("unified"), keywords: ["diff", "split", "unified", "side by side", "auto", "automatic"]
+                default: .string("auto"), keywords: ["diff", "split", "unified", "side by side", "auto", "automatic"]
             ),
             SettingDescriptor(
                 ["diff", "diffIndicators"], section: .appearance, group: group,

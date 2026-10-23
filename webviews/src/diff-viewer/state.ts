@@ -490,7 +490,7 @@ function initialDiffViewerLayout(payload: Record<string, any>): DiffViewerLayout
   // The CLI bakes the globally persisted layout into the payload at generation
   // time; local storage only matters for pages opened outside cmux. The
   // viewerPrefs bridge re-syncs the live value right after boot.
-  return readLocalViewerPrefs().layout ?? payloadLayout ?? "unified";
+  return readLocalViewerPrefs().layout ?? payloadLayout ?? "auto";
 }
 
 function parseDiffViewerLayout(value: unknown): DiffViewerLayout | null {
