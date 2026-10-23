@@ -228,6 +228,59 @@ class CrashReportWaitTests(unittest.TestCase):
         self.assertEqual(found, [path])
         self.assertLess(waited, self.WAIT, "the wait slept to its deadline after the report's body was written")
 
+    def test_the_wait_reads_the_folders_only_at_its_start_and_after_each_change_and_never_sleeps(self):
+        """The wait is driven by the folder and file events, not by a period (fix review of deep-fleet-gui, finding 8's
+        sleep-poll): a pass that reads the folders follows its start or a change, and nothing in the wait sleeps. A
+        deadline check alone (`waited < WAIT`) passes a 0.5 s or 5 s sleep-poll, so this counts the reads instead.
+        Red on the sleep-poll at 464dd10a87f: it calls time.sleep(0.5) and reads the folders every 0.5 s while the
+        report's body is not written (about five reads for two changes)."""
+        home = os.path.join(self.folder, "home")
+        mine = os.path.join(home, "Library/Logs/DiagnosticReports")
+        os.makedirs(mine)
+        path = os.path.join(mine, "cmux DEV-2026-10-23-120002.ips")
+        body = json.dumps({"app_name": "cmux DEV"}) + "\n" + json.dumps({"procPath": self.app.binary})
+        changes = 2  # the report file appears empty, then its body lands (as in the test above, further apart)
+        create = threading.Timer(0.3, lambda: open(path, "w").close())
+        fill = threading.Timer(1.6, lambda: open(path, "a").write(body))
+        # account_home is patched too so the same test drives the sleep-poll at 464dd10a87f, which had no
+        # crash_report_folders (create=True); there it reads this home's folder and the system one.
+        with mock.patch.object(bl, "account_home", return_value=home), \
+                mock.patch.object(bl, "crash_report_folders", create=True,
+                                  return_value=(mine, os.path.join(self.folder, "none"))), \
+                mock.patch.object(bl, "crash_reports", wraps=bl.crash_reports) as reads, \
+                mock.patch.object(bl.time, "sleep", wraps=time.sleep) as sleeps:
+            create.start()
+            fill.start()
+            try:
+                found = self.app.wait_for_crash_report(exit_code=-6, wait=self.WAIT)
+            finally:
+                create.join()
+                fill.join()
+        self.assertEqual(found, [path])
+        self.assertEqual(sleeps.call_count, 0, f"the wait slept: {sleeps.call_args_list}")
+        self.assertLessEqual(reads.call_count, 1 + changes,
+                             f"the wait read the folders {reads.call_count} times for {changes} changes: a pass "
+                             "that no change woke")
+
+    def test_a_later_launchs_report_carries_no_earlier_crash_report_wait(self):
+        """`crash_report_wait` describes this launch's wait or is absent (fix review of deep-fleet-gui): one BenchApp
+        launches again (holder-dogfood keeps one), and a launch that exits with a code or goes silent after an earlier
+        launch's signal exit reported the folders that earlier wait watched as its own."""
+        blocker = os.path.join(self.folder, "a-file")
+        open(blocker, "w").close()  # folders below a file: the earlier wait has nothing to watch and ends at once
+        folders = (os.path.join(blocker, "DiagnosticReports"), os.path.join(blocker, "system"))
+        with mock.patch.object(bl, "crash_report_folders", return_value=folders):
+            self.app.wait_for_crash_report(exit_code=-11, wait=self.WAIT)  # launch 1 ended on a signal
+            self.assertIsNotNone(self.app.crash_report_wait)
+            # Launch 2 of the same object exits 1 before its socket answers.
+            self.app.read_session = lambda: OK_SESSION
+            self.app.process = subprocess.Popen([sys.executable, "-c", "raise SystemExit(1)"])
+            self.app.process.wait()
+            reason, report = self.app.diagnose(None, 5)
+        self.assertEqual(reason, "exited")
+        self.assertNotIn("crash_report_wait", report, "launch 2's report carries launch 1's crash-report wait")
+        self.assertIsNone(self.app.crash_report_wait)
+
     def test_a_wait_with_no_folder_it_can_watch_says_so(self):
         blocker = os.path.join(self.folder, "a-file")
         open(blocker, "w").close()  # a folder below a regular file can be neither made nor opened
