@@ -101,6 +101,17 @@ def tag_of(app):
     return re.sub(r"[^a-z0-9]+", "-", match.group(1).lower()).strip("-")
 
 
+def bundle_id(app):
+    """The app's own bundle id (Info.plist): `scripts/reload.sh --tag split-spring` makes
+    `com.cmuxterm.app.debug.split.spring`, not `...debug.split-spring`, so a script never builds it from the tag."""
+    import plistlib
+    try:
+        with open(os.path.join(os.path.realpath(app), "Contents/Info.plist"), "rb") as f:
+            return plistlib.load(f).get("CFBundleIdentifier")
+    except (OSError, ValueError):
+        return None
+
+
 def socket_candidates(tag):
     """Where a tagged DEV build's control socket can be, most likely first (ControlSocketPath.swift)."""
     name = f"cmux-debug-{tag}.sock"
@@ -520,6 +531,17 @@ class BenchApp:
         finally:
             if self.teardown:
                 self.teardown.end()
+
+
+def launch_app(app, env, log_path, timeout=120, on_start=None, ready="debug.windows"):
+    """For a script that keeps its own env, log and cleanup: launches `app` through ``BenchApp`` (the bench defaults
+    under `env`, no window frame or screen of its own, no teardown) and returns (process, socket path). Raises
+    ``LaunchError`` with the reason printed; `on_start(process)` runs at the spawn, so a failed launch is still the
+    caller's to clean up."""
+    bench = BenchApp(app, out=os.path.dirname(os.path.abspath(log_path)), env=env, window=None, screen=None,
+                     log_name=os.path.basename(log_path), teardown=False)
+    bench.launch(timeout=timeout, ready=ready, on_start=on_start)
+    return bench.process, bench.socket
 
 
 def main(argv=None):

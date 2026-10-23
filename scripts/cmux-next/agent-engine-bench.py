@@ -20,6 +20,7 @@ import argparse, glob, json, os, signal, socket, statistics, subprocess, sys, te
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory  # noqa: E402
+from bench_launch import LaunchError, launch_app, bundle_id  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -38,6 +39,7 @@ parser.add_argument("--shots", help="a folder: light and dark screen captures of
 opts = parser.parse_args()
 # LaunchServices reports the real path (/private/tmp for /tmp), so match processes by it.
 TAG, APP = opts.tag, os.path.realpath(opts.app.rstrip("/"))
+BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
@@ -159,7 +161,7 @@ def screen_shots(mode):
 def focus_probe():
     if not opts.activate:
         return None
-    subprocess.run(["osascript", "-e", f'tell application id "com.cmuxterm.app.debug.{TAG}" to activate'], capture_output=True, timeout=30)
+    subprocess.run(["osascript", "-e", f'tell application id "{BUNDLE_ID}" to activate'], capture_output=True, timeout=30)
     time.sleep(1)  # test harness: activation settles
     focused = pane("focus_composer").get("focused")
     time.sleep(0.5)  # test harness: focus settles
@@ -182,7 +184,7 @@ class Launched:
 
 
 def launch(mode, scratch):
-    global app
+    global app, SOCKET
     config = os.path.join(scratch, "cmux.json")
     json.dump({"browser": {"defaultEngine": "chromium"}}, open(config, "w"))
     tunables = os.path.join(scratch, "debug-tunables.json")
@@ -212,8 +214,18 @@ def launch(mode, scratch):
             return None
         app = Launched(pid)
     else:
-        log = open(log_path, "a")
-        app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+        if opts.activate:
+            env["CMUX_NEXT_NO_ACTIVATE"] = None  # bench_launch: not its default no-activate launch
+
+        def started(process):
+            global app
+            app = process
+        # One launch path (bench_launch.py): socket in the state folder, bench env, the reason when it does not come up.
+        try:
+            app, SOCKET = launch_app(APP, env, log_path, timeout=120, on_start=started)
+        except LaunchError:
+            return False
+        return True
     return wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120)
 
 

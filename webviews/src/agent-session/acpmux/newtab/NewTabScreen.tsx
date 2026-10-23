@@ -1152,7 +1152,7 @@ export function NewTabScreen(props: Props) {
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
         {/* Above the box: the project strip (Cards draws it under the field). */}
         {!pill && <div className="nt-above">{folderStrip}</div>}
-        <div ref={setBox} className="nt-box">
+        <div ref={setBox} className="ui-glass ui-glass-floats nt-box">
           {commandsOpen && (
             <SlashMenu
               matches={commandMatches}
