@@ -36,7 +36,11 @@ public final class MadeAheadOpenPanel {
     /// The panel made ahead when it is free (no sheet or window shows it), else a new one (it
     /// shows on another window). Either comes as a new panel would: one file, no folders, every
     /// type, the system's prompt and no message; the caller sets what it needs.
-    public func panel() -> NSOpenPanel { store.panel() }
+    ///
+    /// - Returns: nil when the new panel came back dead (no prompt: its view service never
+    ///   answered, no GUI session). The caller shows no picker: a dead panel's sheet may never
+    ///   call its handler, and a caller that waits on it would wait forever.
+    public func panel() -> NSOpenPanel? { store.panel() }
 
     /// Makes the panel once the person has paused (no input for a second), so its cost never
     /// lands on a keystroke or the click itself. Bounded: after ten busy checks it waits for the

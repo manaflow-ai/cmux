@@ -83,13 +83,13 @@ struct MadeAheadPanelStoreTests {
         _ = await runs.next()
         #expect(!store.isMade)
 
-        let clicked = store.panel()
+        let clicked = try #require(store.panel(), "a working panel made on the click was not handed out")
         #expect(factory.made.count == 2, "the click did not make a new panel")
         #expect(clicked === factory.made.last)
         #expect(store.isMade, "a working panel made on the click was not kept")
         // Once a working panel is kept, a free one is reused with a new panel's choices and its own texts.
         clicked.setOpenPanelTexts(prompt: "Attach", message: "Choose files")
-        let again = store.panel()
+        let again = try #require(store.panel())
         #expect(again === clicked && factory.made.count == 2)
         #expect(again.resets == 1 && again.openPanelPrompt == "Open" && again.openPanelMessage == "")
     }

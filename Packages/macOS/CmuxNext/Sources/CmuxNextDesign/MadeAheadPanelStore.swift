@@ -55,14 +55,19 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
     nonisolated deinit {}
 
     /// The panel made ahead when it is free, with a new panel's choices and texts, else a new one (kept when
-    /// none is).
-    func panel() -> Panel {
+    /// none is). Nil when the new one came back dead (no prompt): it is neither kept nor handed out, since a dead
+    /// panel's sheet may never call its handler and a caller waiting on it would hang.
+    func panel() -> Panel? {
         if let kept = made, kept.panel.isFreeForReuse {
             kept.panel.resetChoices()
             kept.defaults.apply(to: kept.panel)
             return kept.panel
         }
         let panel = makePanel()
+        guard OpenPanelDefaults(of: panel) != nil else {
+            dropDead(onClick: true)
+            return nil
+        }
         if made == nil { keep(panel) }
         return panel
     }
@@ -78,7 +83,7 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
     /// gives up and the next click makes a new panel.
     private func keep(_ panel: Panel) {
         guard let defaults = OpenPanelDefaults(of: panel) else {
-            dropDead()
+            dropDead(onClick: false)
             return
         }
         made = (panel, defaults)
@@ -86,12 +91,13 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
     }
 
     /// Records a dead panel: no warm-up runs until a click makes a working one, and a notice says so.
-    private func dropDead() {
+    private func dropDead(onClick: Bool) {
         warmGaveUp = true
         droppedPanels += 1
         let dropped = droppedPanels
+        let source = onClick ? "click (no picker shown)" : "warm-up"
         logger.notice(
-            "made-ahead open panel dropped (no prompt, its view service never answered): \(dropped, privacy: .public) so far; no warm-up until a click makes a working panel"
+            "made-ahead open panel dropped from a \(source, privacy: .public) (no prompt, its view service never answered): \(dropped, privacy: .public) so far; no warm-up until a click makes a working panel"
         )
     }
 
