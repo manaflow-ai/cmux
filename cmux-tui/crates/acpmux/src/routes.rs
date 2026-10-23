@@ -2,9 +2,10 @@
 //! including base url etc. profiles … switch from proxy A to proxy B without
 //! quit/restarting"). A route is how a harness reaches its model provider:
 //! data in `<cmux config>/routes/<id>.toml`, never code, secrets only as
-//! references (`keychain:ITEM`, `env:VAR`, `file:/PATH`). acpmux owns the store; the CLI
-//! (`cmux route …`) and the daemon RPC (`_acpmux/route/*`, server/routes.rs)
-//! share this file.
+//! references (`keychain:ITEM`, `env:VAR`, `file:/PATH`). acpmux owns the store; the daemon
+//! RPC (`_acpmux/route/*`, server/routes.rs) reads and writes it. There is no
+//! `cmux route` command (Leo, 2026-10-21: "literally nobody but us is using
+//! cmux "route" so just removing it is fine").
 //!
 //! Which route a session uses: its chat binding, else its workspace's, else
 //! its family's default, else the global default (bindings live in
@@ -259,7 +260,7 @@ impl Route {
         }
     }
 
-    /// The JSON the RPC and `cmux route list --json` show. Never a secret: the
+    /// The JSON `_acpmux/route/list` and `show` answer. Never a secret: the
     /// reference only.
     pub fn view(&self) -> Value {
         json!({
