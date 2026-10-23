@@ -382,6 +382,12 @@ impl TerminalSink for HolderSink {
         true
     }
 
+    fn refused(&self, message: &str) {
+        // No holder streams it: the reader drains and the wait ends lost.
+        eprintln!("cmux-tui: the terminal holder refused a terminal's stream: {message}");
+        self.lose();
+    }
+
     fn exit(&self, status: ExitStatus, _end: u64) {
         self.state.lock().recover_poison().exit = Some(status);
         self.changed.notify_all();

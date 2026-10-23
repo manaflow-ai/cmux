@@ -30,9 +30,11 @@ pub trait TerminalSink: Send + Sync {
     /// sink expects means the bytes between are gone.
     fn prologue(&self, _base: u64, _bytes: &[u8]) {}
     /// The holder refused to stream this terminal: it does not run the
-    /// channel an ATTACH named, or it could not take an ADOPT over. No
-    /// event comes for it any more.
-    fn refused(&self, _message: &str) {}
+    /// channel an ATTACH named, it could not take an ADOPT over, or the
+    /// child of a terminal this sink attached while it started could not
+    /// start. The link stopped routing the channel; no event comes for it
+    /// any more, so the terminal ends as lost (or its owner recovers it).
+    fn refused(&self, message: &str);
     /// Whether this sink acknowledges what it consumed itself, with
     /// [`HolderLink::ack`] (a sink that queues bytes for a slower reader).
     /// When false, the link acknowledges each byte as it delivers it.
@@ -326,16 +328,36 @@ fn read_loop(
                     let code = In(rest).u16().unwrap_or_default();
                     let message =
                         String::from_utf8_lossy(rest.get(2..).unwrap_or_default()).into_owned();
+                    let refused = Kind::from_u16(request);
                     if chan == 0
-                        && request == Kind::Hello as u16
+                        && refused == Some(Kind::Hello)
                         && code == crate::holder::error_code::SUPERSEDED
                     {
                         ending = LinkEnd::Superseded;
-                    }
-                    if request == Kind::Spawn as u16
-                        && let Some(waiter) = link.lock().spawns.remove(&chan)
+                    } else if chan != 0
+                        && matches!(refused, Some(Kind::Spawn | Kind::Attach | Kind::Adopt))
                     {
-                        let _ = waiter.try_send(Err(io::Error::other(message)));
+                        // The holder will not start or stream this terminal:
+                        // the spawn waiting for it fails, else the sink
+                        // waiting for its stream ends (errors of other
+                        // requests leave the stream as it is).
+                        let (waiter, sink) = {
+                            let mut state = link.lock();
+                            let waiter = if refused == Some(Kind::Spawn) {
+                                state.spawns.remove(&chan)
+                            } else {
+                                None
+                            };
+                            let sink =
+                                if waiter.is_none() { state.sinks.remove(&chan) } else { None };
+                            (waiter, sink)
+                        };
+                        if let Some(waiter) = waiter {
+                            let _ = waiter.try_send(Err(io::Error::other(message)));
+                        } else if let Some(sink) = sink {
+                            acked.remove(&chan);
+                            sink.refused(&message);
+                        }
                     }
                 }
                 Some(Kind::Data) => {
