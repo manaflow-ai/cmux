@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { SUBAGENTS, SubagentFold, stopReasonOf, subagentStops } from "./subagentFold";
+import { translate } from "../i18n";
+import { SUBAGENTS, SubagentFold, stopReasonOf, subagentName, subagentStops } from "./subagentFold";
 
 // session/update records as acpmux sends them: a subagent's own updates carry its id in
 // `_meta.acpmux.subagent`, spawns and state changes in `_meta.acpmux.subagents`.
@@ -210,4 +211,95 @@ test("the agentId is the last one a result names, after a report that mentions a
     "a39e817af38ddf5e7",
   );
   expect(agentIdIn("no id here")).toBeUndefined();
+});
+
+describe("a subagent's name in its rows", () => {
+  const RAW = "01a15779-206b-72b0-96af-bdbe4868e19c/toolu_01H9Jk66ek2xu2m2SaOS09M1";
+
+  test("one nothing named reads by its kind, else as Subagent, never by any part of its id", () => {
+    const fold = new SubagentFold();
+    feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: RAW, parent: null }] });
+    feed(
+      fold,
+      { sessionUpdate: "subagent_spawned" },
+      { subagents: [{ id: "s/toolu_X", parent: null, kind: "Explore" }] },
+    );
+    const [plain, typed] = fold.all();
+    expect(plain).toMatchObject({ name: "", unnamed: true });
+    expect(subagentName(plain!, translate)).toBe("Subagent");
+    expect(subagentName(typed!, translate)).toBe("Explore");
+  });
+
+  test("a later name, or its Agent call's description, names one nothing named", () => {
+    const fold = new SubagentFold();
+    feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "s/t1", parent: null, toolCallId: "t1" }] });
+    feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "s/t2", parent: null }] });
+    // Claude's Agent call carries the description in its input.
+    feed(fold, {
+      sessionUpdate: "tool_call_update",
+      toolCallId: "t1",
+      rawInput: { description: "Fix sr2 privacy gateway", prompt: "…" },
+    });
+    feed(
+      fold,
+      { sessionUpdate: "subagent_state_update" },
+      { subagents: [{ id: "s/t2", name: "Audit", state: "completed" }] },
+    );
+    expect(fold.all().map((agent) => [agent.name, agent.unnamed])).toEqual([
+      ["Fix sr2 privacy gateway", undefined],
+      ["Audit", undefined],
+    ]);
+  });
+
+  test("a named one keeps its name: a nameless update or a task does not replace it", () => {
+    const fold = new SubagentFold();
+    feed(
+      fold,
+      { sessionUpdate: "subagent_spawned" },
+      { subagents: [{ id: "s/t3", parent: null, name: "Read docs", toolCallId: "t3" }] },
+    );
+    feed(fold, { sessionUpdate: "tool_call_update", toolCallId: "t3", rawInput: { description: "Other" } });
+    feed(fold, { sessionUpdate: "subagent_progress" }, { subagents: [{ id: "s/t3", task: "Another task" }] });
+    expect(fold.all()[0]!.name).toBe("Read docs");
+  });
+});
+
+test("a subagent nothing named gives a message no recipient name (the card shows its short id)", async () => {
+  const { agentNames, recipientName } = await import("../conversation/agentNames");
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "s/t8", parent: null, toolCallId: "t8" }] });
+  feed(fold, {
+    sessionUpdate: "tool_call_update",
+    toolCallId: "t8",
+    status: "completed",
+    content: [{ type: "content", content: { type: "text", text: "agentId: a39e817af38ddf5e7" } }],
+  });
+  const names = agentNames(fold.all());
+  expect(names.size).toBe(0);
+  expect(recipientName("a39e817af38ddf5e7", names)).toBeUndefined();
+});
+
+test('a subagent\'s "Subagent of" pill names a parent nothing named as its rows do, never the chat', async () => {
+  const { childView, SUBAGENT_OF } = await import("./subagentRows");
+  const row = (agents: object[]) =>
+    ({ id: `${SUBAGENTS}-1`, version: 1, at: 0, kind: SUBAGENTS, subagents: agents }) as never;
+  const parent = { id: "s/toolu_P1", parent: null, name: "", unnamed: true, state: "running", startedAt: 0 };
+  const child = { id: "s/toolu_C1", parent: "s/toolu_P1", name: "Read docs", state: "running", startedAt: 1 };
+  const pill = (agents: object[]) =>
+    childView("s/toolu_C1", [row(agents)], {}, new Set(), "My chat", translate)?.find((r) => r.kind === SUBAGENT_OF);
+  expect(pill([parent, child])?.text).toBe("Subagent");
+  expect(pill([{ ...parent, kind: "Explore" }, child])?.text).toBe("Explore");
+  expect(pill([{ ...child, parent: null }])?.text).toBe("My chat");
+});
+
+test("a nested subagent nothing named takes its Agent call's description too", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Lead" }] });
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a/t5", parent: "a", toolCallId: "t5" }] });
+  feed(
+    fold,
+    { sessionUpdate: "tool_call_update", toolCallId: "t5", rawInput: { description: "Check the docs" } },
+    { subagent: "a" },
+  );
+  expect(fold.all().find((agent) => agent.id === "a/t5")).toMatchObject({ name: "Check the docs" });
 });
