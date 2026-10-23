@@ -204,12 +204,15 @@ deleted with the chat (`_acpmux/kill` with purge) and once older than `uploadsMa
 (default 30; 0 keeps them), checked at the daemon's start and daily.
 
 A chat whose harness never titles it (Claude Code's `-p` stream-json has no title
-event) gets a 3-6 word title once, after its first completed turn, logged as `titled`.
-`titles.command` (an argv reading the request on stdin and printing the title; env
-`ACPMUX_TITLE_COMMAND` wins) makes it; unset, the chat's own Claude Code profile runs
-`-p --model haiku` (`titles.model`) with no tools, MCP or session file. A harness title
-always wins, a chat titled before this (or adopted) keeps its title, and
-`titles.generate: false` turns it off.
+event) gets an instant first-message placeholder, then a 3-6 word model title, logged
+as `titled`. A thin first message may get one refresh after its first completed turn;
+later turns never retitle it. `titles.command` (an argv reading the request on stdin
+and printing the title; env `ACPMUX_TITLE_COMMAND` wins) makes it; unset, `_acpmux/complete`
+uses the harness's cheap model (Haiku for Claude, a small Codex model where available)
+with no tools, MCP or session file. A harness or manual title always wins, a chat titled
+before this (or adopted) keeps its title, and `titles.generate: false` turns it off.
+The daemon logs the title model, elapsed time, and estimated input/output token cost for
+each generated title.
 
 ## TUI
 

@@ -426,6 +426,10 @@ impl Hub {
         }
         self.set_status(session, SessionStatus::Running);
         self.watch_silent_turn(session, &turn_id).await;
+        // The first-message title request starts after the fallback prompt line is published and
+        // the agent is ready, so the tab/workspace show an instant placeholder while the cheap
+        // model runs and a harness title can win before any completion is spent.
+        self.title_after_prompt(session);
         let mut result = super::steer_end::agent_prompt(
             session,
             &child,
