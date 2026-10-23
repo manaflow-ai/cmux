@@ -94,7 +94,7 @@ impl TargetArgs {
 
 /// Who `wait --from` waits for.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(super) enum From {
+pub(super) enum Author {
     /// The chat's Chief.
     #[default]
     Chief,
@@ -127,7 +127,7 @@ pub(super) struct Request {
     pub part: u32,
     pub remove: bool,
     pub after: Option<u64>,
-    pub from: From,
+    pub from: Author,
     pub contains: Option<String>,
     pub idle: bool,
     pub tail: Option<usize>,
@@ -181,10 +181,10 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
             "--after" => request.after = Some(number(flag, &value()?)?),
             "--from" => {
                 request.from = match value()?.as_str() {
-                    "chief" => From::Chief,
-                    "me" => From::Me,
-                    "any" | "anyone" => From::Anyone,
-                    id => From::Id(id.to_owned()),
+                    "chief" => Author::Chief,
+                    "me" => Author::Me,
+                    "any" | "anyone" => Author::Anyone,
+                    id => Author::Id(id.to_owned()),
                 }
             }
             "--text" => request.contains = Some(value()?),
@@ -253,7 +253,7 @@ pub(super) fn script_message(message: &Value) -> Value {
 pub(super) fn wait_matches(
     message: &Value,
     after: u64,
-    from: &From,
+    from: &Author,
     chief: &str,
     contains: Option<&str>,
 ) -> bool {
@@ -261,10 +261,10 @@ pub(super) fn wait_matches(
     let author = message.get("author").and_then(Value::as_str).unwrap_or("");
     let person = author == "user_local" || author.starts_with("user_");
     let by = match from {
-        From::Chief => author == chief,
-        From::Me => person,
-        From::Anyone => !person,
-        From::Id(id) => author == id,
+        Author::Chief => author == chief,
+        Author::Me => person,
+        Author::Anyone => !person,
+        Author::Id(id) => author == id,
     };
     let text = super::render::message_text(message);
     seq > after && by && contains.is_none_or(|needle| text.contains(needle))
@@ -688,7 +688,6 @@ fn wait(session: &mut Session, request: &Request, json: bool) -> Outcome {
     let deadline = request.timeout_secs.map(|s| Instant::now() + Duration::from_secs(s));
     session.reopen(WAIT_TAIL).map_err(|e| session.failed(e))?;
     let mut after = request.after;
-    let mut chief_typing = false;
     let found = loop {
         let Some(input) = next_input(session, deadline) else {
             let secs = request.timeout_secs.unwrap_or_default().to_string();
@@ -697,7 +696,7 @@ fn wait(session: &mut Session, request: &Request, json: bool) -> Outcome {
         let Some(event) = stream_event(session, input)? else { continue };
         let candidates: Vec<Value> = match &event {
             UiEvent::Snapshot { summary, messages, typing } => {
-                chief_typing = typing.iter().any(|p| *p == session.chief);
+                let chief_typing = typing.contains(&session.chief);
                 // Without --after, wait for what comes after the chat's last message now.
                 let after = *after.get_or_insert_with(|| {
                     summary
@@ -712,7 +711,6 @@ fn wait(session: &mut Session, request: &Request, json: bool) -> Outcome {
             }
             UiEvent::Message(message) => vec![message.clone()],
             UiEvent::Typing { participant, on } if *participant == session.chief => {
-                chief_typing = *on;
                 if request.idle && !on {
                     break json!({"conversation": session.conversation, "idle": true,
                                  "after": after.unwrap_or(0)});

@@ -280,7 +280,7 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
 
 /// Which chat a `cmux chief` command opens, and on which owner.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(super) struct ChatTarget {
+struct ChatTarget {
     /// `--chat ID`: that conversation; none: the Chief conversation (local)
     /// or the newest chat with a Chief (cloud).
     pub chat: Option<String>,
@@ -304,7 +304,7 @@ struct Session {
     tx: Sender<Input>,
     rx: Receiver<Input>,
     /// Ends the current event stream when replaced or dropped.
-    events: Option<link::EventsHandle>,
+    _events: Option<link::EventsHandle>,
 }
 
 impl Session {
@@ -359,7 +359,7 @@ impl Session {
             derived,
             tx,
             rx,
-            events: None,
+            _events: None,
         })
     }
 
@@ -388,7 +388,7 @@ impl Session {
     /// stream, ending the stream of the chat open before.
     fn open_chat(&mut self, chat: Option<&str>, tail: usize) -> Result<(), (i32, String)> {
         self.select(chat)?;
-        self.events = None;
+        self._events = None;
         self.reopen(tail).map_err(|e| self.failed(e))
     }
 
@@ -409,7 +409,7 @@ impl Session {
         let link = Link::connect(&self.socket, self.derived)
             .map_err(|e| LinkError::Transport(e.to_string()))?;
         let client = backend::ChatClient { link, owner: self.client.owner };
-        self.events = Some(client.into_events(&self.conversation, tail, self.tx.clone())?);
+        self._events = Some(client.into_events(&self.conversation, tail, self.tx.clone())?);
         Ok(())
     }
 
@@ -455,11 +455,7 @@ impl Session {
 /// The chat `chat` names among `chats` (an id, or a unique title), or the
 /// default chat: the Chief conversation (local), the newest chat with an
 /// agent (cloud).
-pub(super) fn pick_chat(
-    chats: &[Value],
-    chat: Option<&str>,
-    owner: backend::Owner,
-) -> Result<Value, String> {
+fn pick_chat(chats: &[Value], chat: Option<&str>, owner: backend::Owner) -> Result<Value, String> {
     let t = script_text::text();
     let text = |c: &Value, key: &str| c.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
     if let Some(wanted) = chat {

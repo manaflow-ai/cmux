@@ -122,7 +122,7 @@ impl TurnWatch {
             }
             UiEvent::Snapshot { summary, messages, typing } => {
                 let chief = self.chief().to_owned();
-                self.typing = typing.iter().any(|p| *p == chief);
+                self.typing = typing.contains(&chief);
                 // A reopened stream after a gap: the state it missed.
                 let cursor = summary
                     .get("read_cursors")
@@ -134,7 +134,7 @@ impl TurnWatch {
                 for message in messages {
                     self.keep_reply(message);
                 }
-                if self.read && typing.iter().any(|p| *p == chief) {
+                if self.read && typing.contains(&chief) {
                     self.working = true;
                 } else if self.answered {
                     self.answered_turn_ended();

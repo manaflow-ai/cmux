@@ -246,7 +246,7 @@ fn home_command(
         }
         "open" => {
             let wanted = match rest.parse::<usize>() {
-                Ok(n) if n >= 1 && n <= chat.listed.len() => chat.listed[n - 1].clone(),
+                Ok(n) if (1..=chat.listed.len()).contains(&n) => chat.listed[n - 1].clone(),
                 _ => rest.to_owned(),
             };
             let wanted = (!wanted.is_empty()).then_some(wanted);

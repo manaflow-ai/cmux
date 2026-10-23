@@ -561,7 +561,7 @@ fn reactions_are_tapbacks_by_name_and_emoji_otherwise() {
 
 #[test]
 fn script_verbs_parse_their_flags_and_the_chat_target() {
-    use super::script::{From, parse};
+    use super::script::{Author, parse};
     let request = parse(&strings(&[
         "send",
         "hello",
@@ -590,11 +590,11 @@ fn script_verbs_parse_their_flags_and_the_chat_target() {
         parse(&strings(&["wait", "--after", "7", "--from", "me", "--text", "ok"])).unwrap();
     assert_eq!(
         (waiting.after, waiting.from, waiting.contains.as_deref()),
-        (Some(7), From::Me, Some("ok"))
+        (Some(7), Author::Me, Some("ok"))
     );
     assert_eq!(
         parse(&strings(&["wait", "--from", "agent_x"])).unwrap().from,
-        From::Id("agent_x".into())
+        Author::Id("agent_x".into())
     );
     assert!(parse(&strings(&["read", "--last", "many"])).is_err());
     assert!(parse(&strings(&["read", "--bogus"])).is_err());
@@ -672,17 +672,17 @@ fn a_chats_chief_is_agent_mux_else_its_agent_participant() {
 
 #[test]
 fn wait_matches_the_author_seq_and_text() {
-    use super::script::{From, wait_matches};
+    use super::script::{Author, wait_matches};
     let reply = message(5, "agent_01OTHER", "done: 3 files", "k5");
     let mine = message(6, "user_local", "thanks", "k6");
-    assert!(wait_matches(&reply, 4, &From::Chief, "agent_01OTHER", None));
-    assert!(!wait_matches(&reply, 5, &From::Chief, "agent_01OTHER", None), "seq must be after");
-    assert!(!wait_matches(&reply, 4, &From::Chief, "agent_mux", None), "another Chief");
-    assert!(wait_matches(&reply, 4, &From::Anyone, "agent_mux", Some("3 files")));
-    assert!(!wait_matches(&reply, 4, &From::Anyone, "agent_mux", Some("4 files")));
-    assert!(wait_matches(&mine, 4, &From::Me, "agent_mux", None));
-    assert!(!wait_matches(&mine, 4, &From::Anyone, "agent_mux", None));
-    assert!(wait_matches(&mine, 4, &From::Id("user_local".into()), "agent_mux", None));
+    assert!(wait_matches(&reply, 4, &Author::Chief, "agent_01OTHER", None));
+    assert!(!wait_matches(&reply, 5, &Author::Chief, "agent_01OTHER", None), "seq must be after");
+    assert!(!wait_matches(&reply, 4, &Author::Chief, "agent_mux", None), "another Chief");
+    assert!(wait_matches(&reply, 4, &Author::Anyone, "agent_mux", Some("3 files")));
+    assert!(!wait_matches(&reply, 4, &Author::Anyone, "agent_mux", Some("4 files")));
+    assert!(wait_matches(&mine, 4, &Author::Me, "agent_mux", None));
+    assert!(!wait_matches(&mine, 4, &Author::Anyone, "agent_mux", None));
+    assert!(wait_matches(&mine, 4, &Author::Id("user_local".into()), "agent_mux", None));
 }
 
 #[test]
