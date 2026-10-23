@@ -1,7 +1,7 @@
 name: nightly-next canary
 
 # The post-publication canary of cmux NEXT (docs/ci/nightly-next-canary.md).
-# Every 15 minutes it reads the cmux NEXT feed and, for a build it has not
+# Every 5 minutes it reads the cmux NEXT feed and, for a build it has not
 # checked yet, downloads that exact DMG from the feed, checks Gatekeeper and
 # the notary tickets, and runs the canary on the app inside it on a CI Mac:
 # a visible window, a New Tab, an agent session that answers a prompt, and no
@@ -20,7 +20,11 @@ name: nightly-next canary
 # the newest feed build with the pull request's own harness and pulls nothing.
 on:
   schedule:
-    - cron: "3,18,33,48 * * * *"
+    # Every 5 minutes, off the hour: a build reaches Nightly only after a
+    # scheduled pass, so the tick adds to every Nightly's age
+    # (tests/test_nightly_next_canary_cadence.py). A tick with no new build
+    # stops in the Linux pick job.
+    - cron: "3,8,13,18,23,28,33,38,43,48,53,58 * * * *"
   workflow_dispatch:
     inputs:
       build:
