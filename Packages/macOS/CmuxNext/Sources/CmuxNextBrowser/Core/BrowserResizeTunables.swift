@@ -29,10 +29,13 @@ public nonisolated struct BrowserResizeTunables {
     /// While a page is layer hosted (`layerHosting`), how long a resize of
     /// its pane may hold the window's frame for Chromium's frame at the new
     /// size (fork API 27), so the page resizes in the same frame as the pane.
+    /// An upper bound: the wait never passes half a frame of the window's
+    /// display (`CEFResizeSyncDeadline`: 8 ms at 60 Hz, 4 ms at 120 Hz). A
+    /// change applies at the page's next show or screen change.
     /// 0: never wait (the page shows its last frame until the new one comes).
     public static let syncDeadline = Tunable<Double>.number(
         "browserResize.syncDeadline", section, "Hosted page resize wait",
-        help: "How long a pane resize waits for a layer-hosted Chromium page to draw at the new size, so the page and the pane change in the same frame. 0 never waits.",
+        help: "How long a pane resize waits for a layer-hosted Chromium page to draw at the new size, so the page and the pane change in the same frame. Never more than half a display frame (4 ms at 120 Hz). Applies at the page's next show. 0 never waits.",
         default: 0.008, range: 0...0.1, step: 0.001, unit: .seconds, code: "BrowserResizeTunables.syncDeadline")
 
     public static var all: [TunableDescriptor] { [pageBackdrop.descriptor, layerHosting.descriptor, syncDeadline.descriptor] }
