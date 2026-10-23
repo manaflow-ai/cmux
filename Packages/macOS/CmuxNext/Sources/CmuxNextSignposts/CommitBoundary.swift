@@ -5,8 +5,9 @@ public import CoreFoundation
 /// Core Animation commits the main thread's implicit transaction from a main run-loop observer
 /// (`CA::Transaction::observer_callback`, before waiting and on exit) at order 2,000,000. A
 /// one-shot observer at the next order runs after that commit: a real signal, no sleep, no
-/// timer, nothing installed between calls. `SignpostsTests` reads the main run loop's observers
-/// and checks that order on whichever macOS runs it.
+/// timer, nothing installed between calls. ``CommitBoundaryAudit`` reads the main run loop's
+/// display, layout and commit observers (Core Animation's and AppKit's) and flags any that run
+/// after this one, on whichever macOS runs it (tests, and the App's `debug.commit_boundary`).
 ///
 /// What it measures: the end of the commit of what changed *synchronously* up to that turn's
 /// commit. Work deferred to a later turn (a `Task` awaiting the daemon, Chromium's
