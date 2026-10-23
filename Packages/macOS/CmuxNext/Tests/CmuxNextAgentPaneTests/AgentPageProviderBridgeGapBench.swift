@@ -4,8 +4,6 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// Fixed-size bridge-gap measurement for the PR receipt. The focused fleet filter runs it only
-/// when a receipt is requested; the same source runs on the parent and fixed final heads.
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS"] == "901"))
 @MainActor
 struct AgentPageProviderBridgeGapBench {

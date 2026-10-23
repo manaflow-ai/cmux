@@ -4,9 +4,6 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// Host pushes must survive the shared page host's subscription gap. A WebView reload cancels
-/// the old subscription before the new document installs its bridge; transport events in between
-/// still reach the replacement page in their original order.
 @Suite(.serialized)
 @MainActor
 struct AgentPageProviderEventsTests {
@@ -78,8 +75,6 @@ struct AgentPageProviderEventsTests {
         let first = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { event in
             firstPage.append(event)
         }
-        // This event lands after the subscribe reply is built but before the replay task runs.
-        // It must queue behind the two events received during the gap.
         provider.publish(Self.command("after-subscribe"))
         await firstPage.waitFor(4)
         #expect(Self.names(firstPage.events) == ["current-state", "gap-1", "gap-2", "after-subscribe"])
@@ -239,9 +234,6 @@ struct AgentPageProviderEventsTests {
         provider.publish(Self.command("live"))
         await livePage.waitFor(1)
 
-        // Keep the second subscriber's handoff pending while the live subscriber receives the
-        // same publication. Reset reports the live copy first; cancellation then requeues the
-        // pending suffix, which must coalesce by publication identity.
         provider.replay = { Array(repeating: Self.command("prior"), count: 129) }
         let pending = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null,
                                                    context: Self.context) { _ in }
