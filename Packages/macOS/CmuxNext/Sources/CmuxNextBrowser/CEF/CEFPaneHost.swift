@@ -151,6 +151,7 @@ final class CEFPaneHost {
             tabSwitchMark("activate")
             _ = runtime.shim?.tabActivate(browser)
             tabSwitchMark("activated")
+            hostView.updateLayerHosting(browser: browser, shim: runtime.shim, forkAPIVersion: runtime.forkAPIVersion)
             hostView.postGeometryChange()
             // A window-wide side panel stays open across tabs: no event.
             tab.sidePanel.scheduleRefresh()
@@ -199,6 +200,12 @@ final class CEFPaneHost {
             if let store = tab.machineStore,
                shim.setContextProxy(contextKey, Int32(store.proxyPort)) != 1
                 || shim.contextProxyState(contextKey) < 0 {
+                tab.creationFailed()
+                return
+            }
+            // A browser profile's own proxy (#24432), also before the first
+            // request: a page the shim cannot proxy never opens (fail closed).
+            if tab.machineStore == nil, !key.offTheRecord, key.machineKey == nil, !runtime.applyProfileProxy(key.profile) {
                 tab.creationFailed()
                 return
             }
@@ -257,6 +264,7 @@ final class CEFPaneHost {
         window = .live(window: windowID)
         lastActivated = browser
         runtime.register(tab, browser: browser)
+        hostView.updateLayerHosting(browser: browser, shim: runtime.shim, forkAPIVersion: runtime.forkAPIVersion)
         // Tabs shown or created while the window was being built.
         for waiting in tabs where waiting !== tab && waiting.browserID == nil && waiting.isCreationPending {
             waiting.isCreationPending = false

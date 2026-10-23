@@ -208,6 +208,13 @@ function textWidth(tooltip: HTMLElement): number {
 
 export interface EscapeOptions {
   side: "bottom" | "top";
+  /**
+   * A tooltip whose lines wrap by design at its own max width (a hover card, `.ui-card`): only its
+   * height can leave it no room. Measured as one line, a card with a long line in it (a subagent's
+   * shell command) read wider than the pane and went to the native panel, flattened to one row and
+   * re-placed on every change of its text (Leo 2026-10-22: "this flashes sometimes").
+   */
+  wraps?: boolean;
   align: "start" | "end";
   gap: number;
   kind?: PopupKind;
@@ -241,7 +248,18 @@ export function useEscapingPopup(
   host: PopupHost | null,
   element: HTMLElement | null,
   anchor: () => AnchorBox | null,
-  { side, align, gap, kind = "menu", flip = true, shell: hide, active, pick = "mousedown", onDismiss }: EscapeOptions,
+  {
+    side,
+    align,
+    gap,
+    kind = "menu",
+    flip = true,
+    shell: hide,
+    active,
+    pick = "mousedown",
+    onDismiss,
+    wraps = false,
+  }: EscapeOptions,
 ) {
   const anchorRef = useRef(anchor);
   anchorRef.current = anchor;
@@ -302,7 +320,7 @@ export function useEscapingPopup(
       const fits =
         !room ||
         (fitsInPage(room, naturalHeight(element), gap, innerHeight, flip ? undefined : side) &&
-          (kind !== "tooltip" || textWidth(element) <= innerWidth - 2 * EDGE));
+          (kind !== "tooltip" || wraps || textWidth(element) <= innerWidth - 2 * EDGE));
       if (!flat || items.length === 0 || fits) return;
       const first = model();
       if (!first) return;
@@ -376,7 +394,7 @@ export function useEscapingPopup(
       cancelAnimationFrame(frame);
       restore();
     };
-  }, [host, element, side, align, gap, kind, flip, hide, active, pick]);
+  }, [host, element, side, align, gap, kind, flip, hide, active, pick, wraps]);
 }
 
 /**

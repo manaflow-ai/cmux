@@ -103,8 +103,11 @@ public actor HostPressureMonitor {
     /// The newest verdict (the popover's numbers).
     public var verdict: HostBudgetVerdict? { tracker.verdict }
 
-    /// Starts the source and the timer (idempotent); the first read runs now.
-    public func start(onChange: @escaping Change) {
+    /// Starts the source and the timer (idempotent); the first read runs now. `isCurrent` is
+    /// checked on the actor before anything starts: a caller whose stop overtook this start
+    /// returns false, and nothing starts.
+    public func start(while isCurrent: @Sendable () -> Bool = { true }, onChange: @escaping Change) {
+        guard isCurrent() else { return }
         self.onChange = onChange
         guard !running else { return }
         running = true

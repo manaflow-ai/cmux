@@ -1070,18 +1070,21 @@
 .acpmux-location-worktrees[data-open] > .acpmux-icon:last-child { transform: rotate(90deg); }
 .acpmux-location-worktrees + .acpmux-location-check { margin-left: 0; }
 
-/* Codex's speed bolt (FastToggle.tsx; Leo 2026-10-21: "KEEP it for Codex"), just left of the mic and
-   drawn as the mic is: an icon pill with no bezel and no disc, a plain 16 px outline glyph in muted
-   ink, the soft pill only on hover or keyboard focus. On, the glyph takes the theme accent; nothing
-   fills. It never leaves a row (Codex has no menu row for it): the prompt gives way, as for the mic. */
+/* Codex's speed bolt (FastToggle.tsx; Leo 2026-10-21: "KEEP it for Codex"), just left of the mic:
+   a text pill (the composer pill's height, sides and gap) with no bezel and no disc, a plain 16 px
+   outline glyph and the tier's name in muted ink, the soft pill only on hover or keyboard focus, and
+   the tier menu's chevron beside it (#24488). On, the glyph takes the theme accent; nothing fills.
+   It never leaves a row (Codex has no menu row for it): the prompt gives way, as for the mic. */
 .acpmux-fast {
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
   border: 0;
   background: none;
   color: var(--agent-muted);
   cursor: default;
 }
+.acpmux-speed { display: inline-flex; flex: none; align-items: center; font-size: var(--text-detail); }
+.acpmux-speed-choices { min-width: 16px; width: 16px; height: 28px; border: 0; border-radius: 6px; padding: 0; background: none; color: var(--agent-muted); font: inherit; }
 .acpmux-fast .acpmux-icon { width: 16px; height: 16px; }
 .acpmux-fast:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
 @media (hover: hover) and (pointer: fine) {
@@ -1212,6 +1215,34 @@
   padding: var(--acpmux-field-pad-block)
     max(0px, calc(var(--acpmux-box-inset) - var(--cmux-scroller-size, 8px)))
     var(--acpmux-field-pad-block) var(--acpmux-box-inset);
+}
+/* The draft's scrollbar runs down the box's own right edge, as the chat's runs down the pane's (Leo
+   2026-10-22: "shouldn't the styling wrt composer vs the chat/window (these should be one and hte
+   same) be more cohesive? ... claude indeed has it on the inside"), and as Claude desktop draws it:
+   the prompt spans the actions' column too, its thin thumb in the box's last 8 px, the track clear of
+   the box's rounded top corner and stopping above Send. The text keeps its width and stays clear of
+   the actions: the right padding gives their column back (--acpmux-actions-width, measured by
+   composerScrollLane.ts), and the actions draw and take the pointer over the prompt's empty corner.
+   Other placements (the lane beside the text, outside the box as Codex, the box's full height) are
+   the gallery's agent-pane.composer-scrollbar variants. New Tab's box is its own textarea
+   (.nt-field, newtab/screen.css) with the system scroller and keeps its placement. */
+.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-composer-field-menu > .acpmux-md-field {
+  grid-column: 2 / -1;
+  /* The lane sits just inside the box's hairline rim, never on it. */
+  margin-right: calc(2px * var(--cmux-interface-scale, 1));
+  padding-right: calc(
+    var(--acpmux-actions-width, 64px) + 8px + max(0px, calc(8px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)))
+  );
+  /* Send's 28 px row, the 8 px under it and a 4 px gap: the thumb ends above Send (the minimal
+     scroller's end inset, scrollers.ts). */
+  --cmux-minimal-scroller-inset-end: calc(40px * var(--cmux-interface-scale, 1));
+}
+.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-composer-field-menu > .acpmux-md-field .acpmux-md-placeholder {
+  right: calc(var(--acpmux-actions-width, 64px) + 8px + 8px * var(--cmux-interface-scale, 1));
+}
+.acpmux-composer-inner > .acpmux-composer-actions {
+  position: relative;
+  z-index: var(--layer-raised);
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-md-placeholder {
   left: var(--acpmux-box-inset);

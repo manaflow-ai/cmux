@@ -165,7 +165,7 @@ async function render(container: HTMLElement, snapshot: AcpmuxSnapshot, opened: 
 }
 
 const toggle = (container: HTMLElement) =>
-  container.querySelector<HTMLButtonElement>('.acpmux-header-tools button[aria-label="Inspector"]');
+  container.querySelector<HTMLButtonElement>('.acpmux-header-tools button[aria-label="Session Info"]');
 const panel = (container: HTMLElement) => container.querySelector<HTMLElement>("aside.acpmux-chat-inspector");
 const section = (container: HTMLElement, id: string) =>
   container.querySelector<HTMLElement>(`section.acpmux-chat-inspector-section[data-section="${id}"]`);
@@ -723,7 +723,8 @@ test("with only started chats Subagents is still drawn, and the running line's c
     root = createRoot(container);
     root.render(<Pane snapshot={localChat} onOpenOutput={noop} sessions={sessions} />);
   });
-  expect(sectionIds(container)).toEqual(["environment", "context", "subagents", "outputs"]);
+  // What it made (Outputs) comes before what it runs (Subagents): ChatInspector.tsx RAIL_LAYOUT.
+  expect(sectionIds(container)).toEqual(["environment", "context", "outputs", "subagents"]);
   expect(meta(section(container, "subagents"))).toBe("1 running · 1 done");
   // Closed, with Subagents folded: the running line's "2 subagents" opens it at Subagents.
   await click(head(section(container, "subagents")!));

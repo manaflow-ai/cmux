@@ -255,7 +255,10 @@ mod tests {
                 {"optionId": "no", "name": "No", "kind": "reject_once"},
             ],
         });
-        super::super::questions::normalize(&mut request);
+        super::super::questions::normalize(
+            &mut request,
+            super::super::questions::PreviewFormat::Monospace,
+        );
         let (reply, rx) = oneshot::channel();
         let id = uuid::Uuid::now_v7().to_string();
         let entry = PendingPermission {

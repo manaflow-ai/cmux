@@ -34,6 +34,10 @@ final class CEFRuntime {
     /// Profiles Chromium opened in this process (their files stay open
     /// until shutdown, so a deleted one's directory waits for the next launch).
     var usedProfiles: Set<BrowserProfileID> = []
+    /// Each proxied browser profile's proxy (#24432); a profile not here is direct.
+    var profileProxies: [BrowserProfileID: BrowserProfileProxy] = [:]
+    /// Profiles whose proxy changed since the shim last took it (a clear included).
+    var unappliedProfileProxies: Set<BrowserProfileID> = []
     /// create_window tokens waiting for OnAfterCreated.
     var pendingWindows: [Int32: CEFPaneHost] = [:]
     /// The tab inside a synchronous cmux_tab_add call.
@@ -424,6 +428,7 @@ final class CEFRuntime {
             throw .initialize
         }
         shim.devToolsSetKeyHandler(cefDevToolsKeyCallback)
+        shim.setUnhandledKeyHandler(cefUnhandledKeyCallback)
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { _ in

@@ -508,10 +508,16 @@ impl TurnFold {
         self.run
             .tool_update(&id, &tool.name, update, &result_text(update), at);
         if !tool.done && matches!(status, "completed" | "failed") {
-            log_tool(tool, out);
+            let failed = status == "failed";
+            // A stop that worked logs nothing (`unlogged`); a failed one does.
+            let quiet = !failed && unlogged(&tool.name);
+            if failed {
+                log_tool_always(tool, out);
+            } else {
+                log_tool(tool, out);
+            }
             tool.done = true;
             let text = result_text(update);
-            let failed = status == "failed";
             self.tools_done += 1;
             self.tools_failed += usize::from(failed);
             self.traces.push(ToolTrace {
@@ -535,10 +541,12 @@ impl TurnFold {
             } else {
                 text
             };
-            out.push(Entry {
-                kind: Kind::Echo,
-                text,
-            });
+            if !quiet {
+                out.push(Entry {
+                    kind: Kind::Echo,
+                    text,
+                });
+            }
         }
     }
 }
@@ -558,7 +566,21 @@ pub fn is_cancelled(error: Option<&str>) -> bool {
     error == stop_error("cancelled").as_deref()
 }
 
+/// Tools whose call and echo the log leaves out when they work: `stop` only
+/// ends the turn, so its two entries told the memory nothing (710 of the
+/// Chief's 11,530 logged messages by 2026-10-23).
+fn unlogged(name: &str) -> bool {
+    matches!(name, "mcp__optchat__stop" | "stop")
+}
+
 fn log_tool(tool: &mut Tool, out: &mut Vec<Entry>) {
+    if unlogged(&tool.name) {
+        return;
+    }
+    log_tool_always(tool, out);
+}
+
+fn log_tool_always(tool: &mut Tool, out: &mut Vec<Entry>) {
     if tool.logged {
         return;
     }

@@ -94,6 +94,18 @@ public struct ControlMethod: Sendable {
         return nil
     }
 
+    /// This method with its async body run through `wrap`, keeping its
+    /// deadline, limit and progress claim; a method on another lane is
+    /// returned as it is.
+    func wrappingAsync(_ wrap: @escaping @Sendable (ControlCall, @escaping @Sendable (ControlCall) async throws -> JSONValue) async throws -> JSONValue) -> ControlMethod {
+        guard case .async(let inner) = body else { return self }
+        var method = ControlMethod(name: name, body: .async { call in try await wrap(call, inner) })
+        method.deadline = deadline
+        method.claimsProgress = claimsProgress
+        method.limitOverride = limitOverride
+        return method
+    }
+
     public var lane: Lane {
         switch body {
         case .snapshot: .snapshot

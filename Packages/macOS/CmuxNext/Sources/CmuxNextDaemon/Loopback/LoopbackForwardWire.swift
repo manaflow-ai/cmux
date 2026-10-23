@@ -7,7 +7,7 @@ import Foundation
 struct LoopbackOpenRequest: DaemonRequest {
     typealias Response = LoopbackOpenResponse
     static let command = "loopback-open"
-    static let requiredCapability: String? = DaemonCapabilities.shared.loopbackForward
+    static let requiredCapability: String? = DaemonCapabilities.loopbackForward
     var stream: UInt64
     var host: String
     var port: UInt16

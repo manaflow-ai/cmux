@@ -27,9 +27,13 @@ pub const MACHINE_SECTION_PREFIX: &str = "sec_m_";
 /// A key longer than this renumbers its siblings.
 pub const MAX_ORDER_KEY_CHARS: usize = 32;
 pub const MAX_TITLE_CHARS: usize = 80;
-/// The most levels of groups one tree may have (host > project > branch,
-/// remote-groups-DESIGN.md R1): a top-level group is level 1.
-pub const MAX_GROUP_DEPTH: usize = 3;
+/// The most levels of groups one tree may have: a top-level group is level 1.
+/// Deep enough that nesting reads as unlimited (Lawrence 2026-10-23: "i want
+/// to see deeply nested groups"; it was 3, host > project > branch,
+/// remote-groups-DESIGN.md R1), and still a bound, so a corrupt document's
+/// walks stay finite and the view's `u8` depth never overflows. The sidebar
+/// stops indenting after a few levels (`SidebarIndent`); nesting goes on.
+pub const MAX_GROUP_DEPTH: usize = 16;
 pub const MAX_SECTIONS: usize = 64;
 pub const MAX_ITEMS: usize = 20_000;
 /// The space between a section's rows or tiles, in points (as the old

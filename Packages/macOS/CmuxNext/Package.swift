@@ -17,7 +17,9 @@ import PackageDescription
 //     macOS 14 floor: Mutex, Atomic; any module may import it; plans/cmux-next/macos-floor.md)
 //   CmuxNextWakeups -> system frameworks only (the only sanctioned wakeup primitives:
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger; plans/cmux-next/idle-wakeups.md)
-//   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix), Icons (OverflowButton's glyph); CmuxNextActions -> system frameworks only; CmuxNextDaemon -> Wakeups
+//   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix), Icons (OverflowButton's glyph); CmuxNextActions -> Signposts; CmuxNextDaemon -> Wakeups
+//   CmuxNextSignposts -> Compat, system frameworks (always-on os_signpost intervals, the one name catalog, CommitBoundary,
+//     the opt-in MetricKit mirror for hang reports)
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
@@ -110,6 +112,9 @@ import PackageDescription
 //     path bar, Quick Look, drag in and out)
 //   CmuxNextCrashReporting -> CmuxSentryReporting, Sentry (crash and exception reports to Sentry:
 //     consent, channel environment, release, scrubbing; no UI, no daemon; cx-urd.58)
+//   CmuxNextHangReports -> Compat, system frameworks, MetricKit (opt-in hang reports for NIGHTLY:
+//     MetricKit and watchdog inputs, allow-list redaction, leak scan, rotating install id, outbox,
+//     upload; no UI, no daemon; plans/cmux-next/hang-reports-DESIGN.md)
 
 /// Settings shared by every UI target: Swift 6 mode, main-actor by default.
 let uiSwiftSettings: [SwiftSetting] = [
@@ -212,6 +217,8 @@ let package = Package(
                 "CmuxNextMallocZone",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextCrashReporting",
+                "CmuxNextHangReports",
+                "CmuxNextSignposts",
                 "CmuxNextErrorJournal",
                 "CmuxNextDiff",
                 "CmuxNextHome",
@@ -258,6 +265,7 @@ let package = Package(
                 "CmuxNextControl",
                 "CmuxNextSettings",
                 "CmuxNextSettingsWindow",
+                "CmuxNextSignposts",
                 "CmuxNextCloud",
                 "CmuxNextRemote",
                 "CmuxNextMobile",
@@ -1129,6 +1137,11 @@ let package = Package(
             dependencies: [.product(name: "Atomics", package: "swift-atomics")],
             swiftSettings: daemonSwiftSettings
         ),
+        .testTarget(
+            name: "CmuxNextCompatTests",
+            dependencies: ["CmuxNextCompat"],
+            swiftSettings: uiSwiftSettings
+        ),
         // The error journal (`cmux errors`): one bounded, deduplicated NDJSON log of the
         // app's warnings, errors, faults and crashes, written off the main actor.
         .target(
@@ -1140,6 +1153,19 @@ let package = Package(
             name: "CmuxNextErrorJournalTests",
             dependencies: ["CmuxNextErrorJournal"],
             swiftSettings: daemonSwiftSettings
+        ),
+        // Always-on signpost intervals, one name catalog for Debug and Release benches
+        // (plans/cmux-next/architecture-refactor-DESIGN.md section 7).
+        .target(
+            name: "CmuxNextSignposts",
+            // Compat's Atomic and Mutex: the MetricKit mirror's switch and logs (SignpostMetricKitMirror.swift).
+            dependencies: ["CmuxNextCompat"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextSignpostsTests",
+            dependencies: ["CmuxNextSignposts"],
+            swiftSettings: uiSwiftSettings
         ),
         .target(
             name: "CmuxNextWakeups",
@@ -1157,6 +1183,18 @@ let package = Package(
         .target(
             name: "CmuxNextProcessEnvironment",
             dependencies: ["CmuxNextCompat"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // Opt-in hang reports from NIGHTLY (plans/cmux-next/hang-reports-DESIGN.md):
+        // MetricKit and watchdog inputs, redaction by allow-list, leak scan, upload.
+        .target(
+            name: "CmuxNextHangReports",
+            dependencies: ["CmuxNextCompat"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextHangReportsTests",
+            dependencies: ["CmuxNextCompat", "CmuxNextHangReports"],
             swiftSettings: daemonSwiftSettings
         ),
         // Crash and exception reports to Sentry (cx-urd.58): consent, channel
@@ -1210,6 +1248,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextActions",
+            dependencies: ["CmuxNextSignposts"],
             resources: [
                 .process("AccountsActions.xcstrings"),
                 .process("ActionCatalog.xcstrings"),
@@ -1221,6 +1260,7 @@ let package = Package(
                 .process("Extensions.xcstrings"),
                 .process("HibernationActions.xcstrings"),
                 .process("HistoryActions.xcstrings"),
+                .process("HangReportsActions.xcstrings"),
                 .process("ImportActions.xcstrings"),
                 .process("MusicActions.xcstrings"),
                 .process("LayoutActions.xcstrings"),
@@ -1270,6 +1310,14 @@ let package = Package(
                 .process("Resources"),
             ],
             swiftSettings: uiSwiftSettings
+        ),
+        // Terminal tests that need only TerminalSession (the TextBox composer), without the
+        // whole App build. libghostty needs libc++, as in CmuxNextAppTests.
+        .testTarget(
+            name: "CmuxNextTerminalTests",
+            dependencies: ["CmuxNextTerminal"],
+            swiftSettings: uiSwiftSettings,
+            linkerSettings: [.linkedLibrary("c++")]
         ),
         // Pure grid-geometry policy for terminal surfaces (which grid a
         // mirror renders, which grid it reports). No GhosttyKit, so it has
@@ -1473,6 +1521,7 @@ let package = Package(
                 "CmuxNextRemote",
                 "CmuxNextRemoteLocalhostService",
                 "CmuxNextScreenshots",
+                "CmuxNextSignposts",
                 "CmuxNextStash",
                 "CmuxNextTabs",
                 "CmuxNextTasks",
