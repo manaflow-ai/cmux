@@ -5,8 +5,9 @@ name: cmux-next web
 # gh-merge-green's base-aware excusal had no base verdict to compare a PR's web
 # red with. Every push runs them here as the `web` job, under the same
 # `web / ...` names as on a pull request. ci-web routes its subareas from
-# everything the push brought (event.before..sha), so a push that touches no web
-# path runs only the scope job and the status job, two small Linux jobs. Linux only.
+# everything the push brought (event.before..sha). The workflow-level filter below
+# uses the same input families as scripts/ci/web_subareas.py, so a native-only
+# push does not spend even the scope/status jobs on an inherited web red.
 #
 # Lawrence took the push trigger off on 2026-10-10 (cx-g34i: push CI is the Swift
 # build only). Without it, direct pushes brought web reds nobody saw until a pull
@@ -16,6 +17,57 @@ name: cmux-next web
 on:
   push:
     branches: [feat-cmux-next]
+    paths:
+      # Keep this list aligned with web_subareas.py's DB, instant, production,
+      # React, typecheck, unit-test and diff-sidecar inputs.
+      - .github/workflows/ci-web.yml
+      - .github/workflows/cmux-next-web.yml
+      - .npmrc
+      - .vercelignore
+      - CHANGELOG.md
+      - bun.lock
+      - bunfig.toml
+      - config/iroh/managed-relay-catalog.json
+      - config/vite-plus/**
+      - package.json
+      - vercel.json
+      - Resources/markdown-viewer/**
+      - web/**
+      - webviews/**
+      - workers/presence/src/generated/managedRelayCatalog.ts
+      - Native/DiffSidecar/**
+      - cmux-tui/crates/cmux-git/**
+      - scripts/benchmark-diff-viewer.sh
+      - scripts/build-diff-sidecar.sh
+      - scripts/build-webviews-app.sh
+      - scripts/check-webviews-bun-version.sh
+      - scripts/check-webviews-react-compiler.mjs
+      - scripts/ci/fast_gate_webviews_checks.py
+      - scripts/ci/guards_new_reds.py
+      - scripts/ci/run-webviews-tests.sh
+      - scripts/ci/web_subareas.py
+      - scripts/ci/webviews-tests-new-reds.sh
+      - scripts/ci/webviews_test_results.py
+      - scripts/web-lint.sh
+      - scripts/web_lint_prepush.py
+      - scripts/generate-diff-sidecar-types.sh
+      - scripts/install-git-hooks.sh
+      - scripts/install-rust-ci.sh
+      - scripts/run-diff-sidecar-cargo.sh
+      - scripts/tests/test_pr_scoped_webviews_checks.py
+      - tests/test_install_git_hooks.py
+      - tests/test_web_lint_prepush.py
+      - Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html
+      - Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/pane.js
+      - Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js
+      - Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/index.html
+      - scripts/cmux-next/build-agent-pane-web.sh
+      - scripts/cmux-next/build-agent-activity-web.sh
+      - scripts/cmux-next/build-palette-ranker.sh
+      - scripts/cmux-next/build-web-bundles.sh
+      - scripts/cmux-next/regenerate-web-bundles.sh
+      - scripts/cmux-next/web-bundle-key.py
+      - .gitattributes
   workflow_dispatch:
 permissions:
   contents: read
