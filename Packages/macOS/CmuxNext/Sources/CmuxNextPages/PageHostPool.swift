@@ -28,6 +28,8 @@ public final class PageHostPool {
     /// The Low Power Mode every spare renders by and follows.
     let lowPowerMode: LowPowerMode
     let activity: () -> UInt64
+    /// Where the spare's pages are served from (tests pass a temporary root).
+    let servedRoot: (PageDescriptor) -> URL?
     let isTrackingMenu: () -> Bool
     let timer: DemandTimer
     let parking = PageHostParking()
@@ -65,15 +67,18 @@ public final class PageHostPool {
 
     /// `lowPowerMode` is the Low Power Mode every spare renders by: the app passes
     /// `LowPowerMode.system`, tests their own. When it changes, the pool drops its spare and makes
-    /// a new one at the new rate (``rateGeneration``).
+    /// a new one at the new rate (``rateGeneration``). `servedRoot` is where the spare's pages are
+    /// served from: nil serves the bundled pages, tests pass a temporary root.
     public init(policy: Policy = Policy(), options: PageEngineOptions = .standard, lowPowerMode: LowPowerMode,
                 clock: any Clock<Duration> = ContinuousClock(),
                 activity: @escaping () -> UInt64 = { ExpectedActivity.shared.total },
-                isTrackingMenu: @escaping () -> Bool = { RunLoop.main.currentMode == .eventTracking }) {
+                isTrackingMenu: @escaping () -> Bool = { RunLoop.main.currentMode == .eventTracking },
+                servedRoot: ((PageDescriptor) -> URL?)? = nil) {
         self.policy = policy
         self.options = options
         self.lowPowerMode = lowPowerMode
         self.activity = activity
+        self.servedRoot = servedRoot ?? { PageWebView.servedRoot(for: $0) }
         self.isTrackingMenu = isTrackingMenu
         timer = DemandTimer(owner: "PageHostPool.build", clock: clock)
         if options.renderRate == .display {

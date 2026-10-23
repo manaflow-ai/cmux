@@ -67,9 +67,9 @@ extension PageHostPool {
         onSpareReady?(host)
     }
 
-    /// The configuration the pool's next spare is made from: its options and Low Power Mode.
-    /// `servedRoot` is where the spare's pages are served from (tests pass a temporary one).
-    func spareRecipe(servedRoot: @escaping (PageDescriptor) -> URL? = { PageWebView.servedRoot(for: $0) }) -> PooledHostRecipe? {
+    /// The configuration the pool's next spare is made from: its options, Low Power Mode and
+    /// served root.
+    func spareRecipe() -> PooledHostRecipe? {
         PageWebView.pooledHostRecipe(.settings, options: options, lowPowerMode: lowPowerMode, servedRoot: servedRoot)
     }
 
