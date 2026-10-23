@@ -8,8 +8,9 @@
 // - Connectors: the MCP servers its harness loaded, with how many need reconnecting.
 // - Changes: the pull requests it opened, touched or named, in any repository (ChangesSection).
 // - Servers: the dev servers it runs in the background (ServersSection).
-// - Subagents: an avatar row with live counts that opens into the list: the harness's subagents and
-//   the chats its agent started, a Cloud VM's or another machine's included (SubagentsSection).
+// - Subagents: each running subagent and started chat on its own line, the ended ones folded into
+//   one row: the harness's subagents and the chats its agent started, a Cloud VM's or another
+//   machine's included (SubagentsSection).
 // - Background tasks: its other background commands, the ones only the transcript knows included,
 //   and its wakeups (TasksSection).
 // - Outputs: the files, artifacts and links it produced (OutputsSection).
@@ -27,6 +28,8 @@
 // and hold in every chat tab (inspectorState.ts). Debug Settings `agent.inspector` (on by default)
 // turns it off, which brings back the summary card it replaces (summary/SummaryCard.tsx). It reads
 // only acpmux's common snapshot and the App's header state, never one harness's own fields.
+// While the pane shows a subagent's own view, it lists that subagent's things alone, under
+// "Subagent · <name>" with a back button (subagentScope.ts, SubagentScopeHeader.tsx).
 import {
   useCallback,
   useEffect,
@@ -44,7 +47,7 @@ import { chatColumnOf, useChatWidth, type ChatColumn } from "../chatWidth";
 import { PanelToggle } from "../header/PanelToggle";
 import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
-import { useT } from "../i18n";
+import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { registerPicker } from "../pickerOpeners";
@@ -62,6 +65,8 @@ import { ChangesSection, headerStatus, visibleChanges, type InspectorPullRequest
 import { ContextSection } from "./ContextSection";
 import { EnvironmentSection } from "./EnvironmentSection";
 import { InspectorSection } from "./InspectorSection";
+import { SUBAGENT_HEADER, SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
+import { subagentProcesses, subagentSummary, withChatEnds, type SubagentScope } from "./subagentScope";
 import {
   INSPECTOR_WIDTH,
   setInspectorOpen,
@@ -78,6 +83,7 @@ import { ServersSection } from "./ServersSection";
 import { SubagentsSection, subagentCounts } from "./SubagentsSection";
 import { TasksSection } from "./TasksSection";
 import type { Subagent } from "../subagents/subagentFold";
+import { subagentProgress } from "../subagents/subagentProgress";
 import "./inspector.css";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
@@ -176,6 +182,7 @@ export function useChatInspector({
   onOpenFolder,
   onSaveEnvironment,
   onShowCall,
+  subagent,
   covered = false,
   onUncover,
   beside,
@@ -226,6 +233,8 @@ export function useChatInspector({
   onSaveEnvironment?: () => Promise<unknown>;
   /// Shows the Bash call that started a background command in the transcript (App.tsx `showToolRow`).
   onShowCall?: (toolCallId: string) => boolean;
+  /// The subagent whose own view the pane shows: the Inspector lists its things, not the chat's.
+  subagent?: SubagentScope;
 }): {
   on: boolean;
   button?: ReactNode;
@@ -339,6 +348,7 @@ export function useChatInspector({
         onSaveEnvironment={onSaveEnvironment}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
+        scope={subagent}
       />
     ),
   };
@@ -375,6 +385,7 @@ function InspectorPresence({
   onSaveEnvironment,
   onOpenDocument,
   onShowCall,
+  scope,
 }: {
   shown: boolean;
   snapshot: AcpmuxSnapshot;
@@ -409,6 +420,8 @@ function InspectorPresence({
   onSaveEnvironment?: () => Promise<unknown>;
   onOpenDocument?: (artifact: Artifact) => void;
   onShowCall?: (toolCallId: string) => boolean;
+  /// The subagent it lists, while the pane shows one's own view.
+  scope?: SubagentScope;
 }) {
   const { width, sections } = useInspectorState();
   const display = useChatDisplay();
@@ -422,14 +435,34 @@ function InspectorPresence({
   const { width: paneWidth, side } = usePaneRoom(shell, drawn, beside);
   const push = pushes(wide ? "push" : display.inspector, paneWidth, width, column);
   const tabRowHeight = useTabRow().height;
-  const rows = snapshot.rows;
+  // A subagent's panel reads its own rows only: its replies, thoughts and tool calls.
+  const rows = scope?.rows ?? snapshot.rows;
   const made = useMemo(() => (drawn ? sessionSummary(rows, repository ?? null) : undefined), [drawn, rows, repository]);
   const links = useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]);
   const artifacts = useMemo(() => (drawn ? chatGallery(rows).length : 0), [drawn, rows]);
   const documents = useMemo(() => (drawn ? outputArtifacts(rows) : []), [drawn, rows]);
   const views = subagents?.views;
   const asks = subagents?.asks;
-  const agents = useMemo(() => (drawn ? [...subagentsIn(rows, views).values()] : []), [drawn, rows, views]);
+  const scopedAgents = scope?.agents;
+  const agents = useMemo(
+    () => (drawn ? (scopedAgents ?? [...subagentsIn(rows, views).values()]) : []),
+    [drawn, scopedAgents, rows, views],
+  );
+  const scopedAgent = scope?.agent;
+  const summary = useMemo(
+    () => (drawn && scopedAgent ? subagentSummary(snapshot.summary, scopedAgent, rows) : snapshot.summary),
+    [drawn, scopedAgent, snapshot.summary, rows],
+  );
+  const chatRows = snapshot.rows;
+  const transcriptTasks = useMemo(
+    () => (scope && made ? withChatEnds(made.backgroundTasks, chatRows) : made?.backgroundTasks),
+    [scope, made, chatRows],
+  );
+  const allProcesses = registry?.processes;
+  const processes = useMemo(
+    () => (drawn && scope && allProcesses ? subagentProcesses(allProcesses, rows) : allProcesses),
+    [drawn, scope, allProcesses, rows],
+  );
   const waiting = useMemo(
     () => (drawn && asks ? waitingSubagents(asks, views) : new Set<string>()),
     [drawn, asks, views],
@@ -447,6 +480,7 @@ function InspectorPresence({
   if (!drawn) return null;
   return (
     <InspectorPanel
+      title={scope && SUBAGENT_HEADER === "title" ? <SubagentTitle scope={scope} /> : undefined}
       width={push ? pushedWidth(paneWidth, width) : width}
       placement={push ? "push" : "overlay"}
       // Floating or pushing, it starts under the chat header (styles.css --acpmux-header-height; in the
@@ -458,8 +492,12 @@ function InspectorPresence({
     >
       {/* Another chat's sections start drawn with what that chat has: none of its rows drops in. */}
       <ChatInspector
-        key={snapshot.sessionId}
-        summary={snapshot.summary}
+        key={scope ? `${snapshot.sessionId}:subagent:${scope.agent.id}` : snapshot.sessionId}
+        banner={
+          scope && SUBAGENT_HEADER !== "title" ? <SubagentBanner scope={scope} variant={SUBAGENT_HEADER} /> : undefined
+        }
+        agent={scope?.agent}
+        summary={summary}
         machineName={machineName}
         peerKinds={snapshot.peerKinds}
         repository={repository}
@@ -472,10 +510,11 @@ function InspectorPresence({
         waiting={waiting}
         onOpenSubagent={subagents?.onOpen}
         statuses={statuses}
-        processes={registry?.processes}
+        processes={processes}
         listed={registry?.listed}
-        transcriptTasks={made?.backgroundTasks}
-        sessions={sessions?.list}
+        transcriptTasks={transcriptTasks}
+        // The chats the chat's agent started are the chat's.
+        sessions={scope ? undefined : sessions?.list}
         onOpenSession={sessions?.onOpen}
         revealed={revealed}
         onRevealed={onRevealed}
@@ -486,7 +525,8 @@ function InspectorPresence({
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
         onOpenFolder={onOpenFolder}
-        onSaveEnvironment={onSaveEnvironment}
+        // Save keeps the chat's machine and folder, not a subagent's.
+        onSaveEnvironment={scope ? undefined : onSaveEnvironment}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
       />
@@ -505,6 +545,7 @@ export function InspectorPanel({
   side = 0,
   presence,
   onClose,
+  title,
   children,
 }: {
   width: number;
@@ -517,6 +558,8 @@ export function InspectorPanel({
   /// Its own close button, at its top right: over a diff in place the chat header, with the toggle,
   /// is out of reach.
   onClose?: () => void;
+  /// Its head's title in place of "Inspector": a subagent's panel names the subagent (SubagentTitle).
+  title?: ReactNode;
   children: ReactNode;
 }) {
   const t = useT();
@@ -568,7 +611,7 @@ export function InspectorPanel({
       />
       {onClose && (
         <div className="acpmux-chat-inspector__head">
-          <span className="acpmux-chat-inspector__title">{t("chatInspector.title")}</span>
+          {title ?? <span className="acpmux-chat-inspector__title">{t("chatInspector.title")}</span>}
           <button
             type="button"
             className="acpmux-chat-inspector-icon-button acpmux-chat-inspector__close"
@@ -618,6 +661,8 @@ export function ChatInspector({
   onSaveEnvironment,
   onOpenFolder,
   onShowCall,
+  banner,
+  agent,
 }: {
   summary?: Summary;
   machineName?: string;
@@ -667,8 +712,13 @@ export function ChatInspector({
   /// Shows the Bash call that started a background command in the transcript: what its row opens
   /// in a chat whose terminal cannot open here (TasksSection).
   onShowCall?: (toolCallId: string) => boolean;
+  /// The body's first line: whose panel it is (a subagent's, SubagentBanner).
+  banner?: ReactNode;
+  /// The subagent it lists: its Context is the tokens and tool uses the harness reports for it.
+  agent?: Subagent;
 }) {
   const t = useT();
+  const language = usePaneLanguage();
   const stored = useInspectorState().sections;
   const state = sections ?? stored;
   const fold = (id: InspectorSectionId) => (next: boolean) => (onSection ?? setInspectorSection)(id, next);
@@ -719,9 +769,11 @@ export function ChatInspector({
   const mcp = summary?.mcpServers ?? [];
   const reconnect = mcp.filter((server) => server.status === "failed").length;
   const runningTasks = commands.filter((command) => command.state === "running").length;
+  const progress = !known && agent ? subagentProgress(t, language, agent) : [];
   const value = (text: string) => <span className="acpmux-chat-inspector-section__value">{text}</span>;
   return (
     <div ref={body} className="acpmux-chat-inspector__body">
+      {banner}
       <InspectorSection
         id="environment"
         title={t("rail.environment")}
@@ -756,6 +808,9 @@ export function ChatInspector({
         >
           <ContextSection usage={usage} percent={percent} breakdown={summary?.contextBreakdown} />
         </InspectorSection>
+      )}
+      {progress.length > 0 && (
+        <InspectorSection id="context" title={t("rail.context")} open meta={value(progress.join(" · "))} />
       )}
       {mcp.length > 0 && (
         <InspectorSection
