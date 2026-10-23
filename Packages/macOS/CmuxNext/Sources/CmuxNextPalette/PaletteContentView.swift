@@ -69,6 +69,7 @@ final class PaletteContentView: NSView {
         addSubview(stage)
         wire()
         observe()
+        observeHover()
     }
 
     @available(*, unavailable)
@@ -121,13 +122,25 @@ final class PaletteContentView: NSView {
         }
     }
 
+    /// Hover has its own tracking, apart from `render()`: a scroll slides rows under a resting
+    /// pointer and `PaletteListView` re-hit-tests on every scroll tick, so the hovered row changes
+    /// about once per row of travel, nearly every frame of a fling. A hover change touches the two
+    /// row views it moves between; it never re-renders the search bar, footer, menus or layout.
+    private func observeHover() {
+        withObservationTracking {
+            list.setHover(model.hoveredRowID)
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.observeHover() }
+        }
+    }
+
+    /// Everything but hover (`observeHover()`), from the model.
     private func render() {
         renderCount += 1
         // Read every tracked input up front so tracking sees all of them.
         let resultsVersion = model.resultsVersion
         let sections = model.sections
         let selection = model.selectedRowID
-        let hover = model.hoveredRowID
         let scroll = model.scrollRequest
         let pageToken = model.pageToken
         let menuState = model.actionsMenu
@@ -139,7 +152,6 @@ final class PaletteContentView: NSView {
             list.setSections(sections)
         }
         list.setSelection(selection)
-        list.setHover(hover)
         if scroll != appliedScroll {
             appliedScroll = scroll
             list.scrollToSelection()
