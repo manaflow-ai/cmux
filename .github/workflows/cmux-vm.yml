@@ -498,7 +498,7 @@ jobs:
 
   deploy-production:
     # Production (cx-b4h.5): dispatch only, from feat-cmux-next, in the same run as and after the green
-    # staging deploy and smoke of this exact SHA. The cmux-vm-production environment admits only
+    # staging deploy of this exact SHA. The cmux-vm-production environment admits only
     # feat-cmux-next. cmux-old never calls vm.cmux.dev; the schema is applied by the release rails first.
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production' && github.ref == 'refs/heads/feat-cmux-next'
     needs: smoke-staging

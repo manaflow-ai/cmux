@@ -1,10 +1,10 @@
-# cmux NEXT nightly: canary and rollback
+# cmux NEXT nightly: artifact verification and rollback
 
 cmux NEXT installs update themselves from one Sparkle feed,
 `https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml`. A bad
 nightly reaches every install within one update check. This page covers the
-canary that keeps a bad build off that feed and the command that takes one
-off it.
+advisory static verifier and the manual command that takes a bad build off
+that feed.
 
 ## Pull a bad build
 
@@ -66,7 +66,7 @@ pulled build updates to the newer build.
 ## Artifact verification
 
 The scheduled verifier is static and post-publication. It downloads the exact
-DMG named by the feed and checks the feed length, SHA-256, stapler tickets,
+DMG named by the feed, records its SHA-256 receipt, and checks the feed length, stapler tickets,
 Gatekeeper policy, and build number. It does not launch the app, invoke the
 bundled CLI, or mutate the feed. Runtime behavior belongs to the path-routed
 daemon/app integration tests.
