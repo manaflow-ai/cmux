@@ -321,7 +321,7 @@ final class ScreenContentView: NSView {
         reconcileCanvasStacking()
         // The scroll follows in `syncScroll`, which the root calls with the
         // focus after every update (ColumnScrollState.reduce).
-        applyPresentation()
+        applyPresentation(force: true)
         let moving = animate && hasMotion
         if !moving { releaseCovered() }
         if !(moving && holdsGrids) { holdsGrids = false }
