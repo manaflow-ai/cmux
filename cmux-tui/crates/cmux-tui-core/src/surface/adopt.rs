@@ -188,7 +188,7 @@ impl Surface {
         let mut mouse_encoders = MouseEncoders::new()?;
         mouse_encoders.sync_from_terminal(&term);
         let render_state = RenderState::new()?;
-        let frame_requests = frame_producer::FrameRequests::new();
+        let (frame_requests, frame_rx) = sync_channel(1);
         #[cfg(test)]
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
         let command = opts
@@ -310,7 +310,7 @@ impl Surface {
             }),
             viewport: Mutex::new(TerminalViewportState::default()),
         }));
-        spawn_frame_producer(&surface)?;
+        spawn_frame_producer(&surface, frame_rx)?;
         Ok(surface)
     }
 }

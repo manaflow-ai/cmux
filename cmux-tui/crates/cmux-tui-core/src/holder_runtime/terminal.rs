@@ -10,7 +10,7 @@ use cmux_pty::ChildKiller;
 
 use super::sink::SinkReader;
 use super::{HolderService, HolderSink};
-use crate::surface::LocalLaunch;
+use crate::surface::spawn::LocalLaunch;
 use crate::terminal_end::TerminalEnd;
 use crate::terminal_host_protocol::{TerminalExit, TerminalExitOutcome};
 

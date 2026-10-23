@@ -122,7 +122,7 @@ impl Surface {
         let mut mouse_encoders = MouseEncoders::new()?;
         mouse_encoders.sync_from_terminal(&term);
         let render_state = RenderState::new()?;
-        let frame_requests = frame_producer::FrameRequests::new();
+        let (frame_requests, frame_rx) = sync_channel(1);
         #[cfg(test)]
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
         let surface = Arc::new(Surface::Pty(PtySurface {
@@ -250,7 +250,7 @@ impl Surface {
             surface.kill();
             return Err(error);
         }
-        spawn_frame_producer(&surface)?;
+        spawn_frame_producer(&surface, frame_rx)?;
 
         // PTY reader: pty bytes -> terminal state -> SurfaceOutput events.
         let reader_thread =

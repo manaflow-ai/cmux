@@ -734,7 +734,7 @@ impl Surface {
             platform::snapshot_cwd_to_local_path(cwd, Some(attachment.record.owner_token.as_str()))
         });
         let render_state = RenderState::new()?;
-        let frame_requests = frame_producer::FrameRequests::new();
+        let (frame_requests, frame_rx) = sync_channel(1);
         #[cfg(test)]
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
         let surface = Arc::new(Surface::Pty(PtySurface {
@@ -855,7 +855,7 @@ impl Surface {
         }));
         Self::install_deferred_cell_pixel_handler(&surface, &control_responses);
         Self::install_clipboard_read_handler(&surface);
-        spawn_frame_producer(&surface)?;
+        spawn_frame_producer(&surface, frame_rx)?;
 
         // Keep exact-child rollback ownership armed through the final thread
         // spawn. If Builder::spawn fails, dropping the closure clone and
