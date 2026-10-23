@@ -18,14 +18,23 @@ ln -s "$ROOT/ghostty-next" "$src/ghostty-next"
 for path in Resources/ghostty Resources/cmux-themes Resources/terminfo-overlay Resources/shell-integration Resources/cmux-cli-path; do
   if [[ -e "$ROOT/$path" ]]; then mkdir -p "$src/$(dirname "$path")"; ln -s "$ROOT/$path" "$src/$path"; fi
 done
-env -i PATH=/usr/bin:/bin TARGET_BUILD_DIR="$TMP/build" UNLOCALIZED_RESOURCES_FOLDER_PATH=app.app/Contents/Resources \
-  SRCROOT="$src" bash "$ROOT/scripts/cmux-next/bundle-ghostty-resources.sh" >"$TMP/log" 2>&1 \
-  || { cat "$TMP/log" >&2; echo "FAIL: the phase failed" >&2; exit 1; }
+# An app bundle built before the classic tree stopped shipping: the phase removes it.
+mkdir -p "$TMP/build/app.app/Contents/Resources/shell-integration/fish"
+echo stale >"$TMP/build/app.app/Contents/Resources/shell-integration/fish/config.fish"
+# Twice, as an incremental build runs it.
+for run in 1 2; do
+  env -i PATH=/usr/bin:/bin TARGET_BUILD_DIR="$TMP/build" UNLOCALIZED_RESOURCES_FOLDER_PATH=app.app/Contents/Resources \
+    SRCROOT="$src" bash "$ROOT/scripts/cmux-next/bundle-ghostty-resources.sh" >"$TMP/log" 2>&1 \
+    || { cat "$TMP/log" >&2; echo "FAIL: the phase failed (run $run)" >&2; exit 1; }
+done
 bundled="$TMP/build/app.app/Contents/Resources/ghostty/shell-integration"
 [[ -d "$bundled" ]] || { cat "$TMP/log" >&2; echo "FAIL: no bundled shell integration" >&2; exit 1; }
-# cmux's own scripts (Resources/shell-integration) go to a separate
-# <Resources>/shell-integration, so this tree is Ghostty's alone.
+# This tree is Ghostty's alone, and the classic app's scripts
+# (Resources/shell-integration), which no cmux-next shell sources, are not
+# shipped at all.
 fail=0
+[[ ! -e "$TMP/build/app.app/Contents/Resources/shell-integration" ]] \
+  || { echo "FAIL: the classic Resources/shell-integration is bundled (or an old copy stayed)" >&2; fail=1; }
 diff -r "$source_tree" "$bundled" >"$TMP/diff" 2>&1 || { cat "$TMP/diff" >&2; echo "FAIL: bundled shell integration differs from ghostty-next" >&2; fail=1; }
 # The layers that keep the bundled `cmux` first on PATH (BundledCLIEnvironment).
 diff -r "$ROOT/Resources/cmux-cli-path" "$TMP/build/app.app/Contents/Resources/cmux-cli-path" >"$TMP/diff2" 2>&1 \
