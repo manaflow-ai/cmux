@@ -270,7 +270,7 @@ test("Codex: with a tier past Fast, the bolt steps Fast, Ultrafast, then back to
   expect(sent).toEqual(["fast-mode=fast", "fast-mode=ultrafast", "fast-mode=standard"]);
 });
 
-test("Codex exposes Fast and Ultrafast as direct choices", async () => {
+test("Codex exposes Fast and Ultrafast from the model-adjacent bolt", async () => {
   sent.length = 0;
   await render(snapshot({ options: threeTier, current: "standard" }, codex));
   expect(bolt()?.textContent).not.toContain("Fast");
