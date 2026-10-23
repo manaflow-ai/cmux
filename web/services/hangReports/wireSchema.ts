@@ -25,10 +25,14 @@ export const UUID_PATTERN = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A
 export const IMAGE_NAME_PATTERN = /^[A-Za-z0-9 ._+()-]{1,64}$/;
 export const OTHER_IMAGE = "other";
 const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-// "0.70.0", "0.70.0-nightly.2123456789012".
-const APP_VERSION_PATTERN = /^\d{1,6}(?:\.\d{1,6}){0,2}(?:-[a-z]{1,16}(?:\.\d{1,20})?)?$/;
-const APP_BUILD_PATTERN = /^\d{1,20}(?:\.\d{1,6}){0,2}$/;
-const OS_VERSION_PATTERN = /^\d{1,3}\.\d{1,3}(?:\.\d{1,3})?$/;
+// The Swift client sends `^[0-9]{1,6}(\.[0-9]{1,6}){0,3}$` (or "0") for the
+// app version, app build and macOS version. The version also accepts the
+// release pipeline's "0.70.0-nightly.<run>" form, and the build a long numeric
+// run id ("2123456789012"), in case the client forwards them unchanged.
+const CLIENT_VERSION = String.raw`[0-9]{1,6}(?:\.[0-9]{1,6}){0,3}`;
+const APP_VERSION_PATTERN = new RegExp(`^(?:${CLIENT_VERSION}|\\d{1,6}(?:\\.\\d{1,6}){0,2}-[a-z]{1,16}(?:\\.\\d{1,20})?)$`);
+const APP_BUILD_PATTERN = new RegExp(`^(?:${CLIENT_VERSION}|\\d{1,20}(?:\\.\\d{1,6}){0,2})$`);
+const OS_VERSION_PATTERN = new RegExp(`^${CLIENT_VERSION}$`);
 const CHIP_PATTERN = /^[A-Za-z0-9 ()._+-]{1,48}$/;
 const INTERVAL_NAME_PATTERN = /^[a-z0-9_.-]{1,48}$/;
 
@@ -112,7 +116,7 @@ export const HangReportSchema = Schema.Struct({
   }),
   os: Schema.Struct({ version: Schema.String.pipe(Schema.pattern(OS_VERSION_PATTERN)) }),
   hardware: Schema.Struct({
-    arch: Schema.Literal("arm64", "x86_64"),
+    arch: Schema.Literal("arm64", "x86_64", "other"),
     chip: Schema.String.pipe(Schema.pattern(CHIP_PATTERN)),
     cores: Schema.Number.pipe(Schema.int(), Schema.between(1, 1024)),
     memoryGB: Schema.Number.pipe(Schema.int(), Schema.between(1, 16_384)),

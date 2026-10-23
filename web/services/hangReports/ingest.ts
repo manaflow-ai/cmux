@@ -24,7 +24,14 @@ export function validateHangReport(body: unknown, now: Date): Effect.Effect<Hang
     if (!dayWithinWindow(report.day, now)) {
       return yield* Effect.fail(new HangReportInvalid({ reason: "day_out_of_range" }));
     }
-    const leak = scanForLeaks(report);
+    // The version fields are already digits and dots only. A four-part
+    // version ("1.2.3.4") is legal and would read as an IPv4 shape, so the
+    // scan sees them as "0"; every other string is scanned as sent.
+    const leak = scanForLeaks({
+      ...report,
+      app: { ...report.app, version: "0", build: "0" },
+      os: { version: "0" },
+    });
     if (leak) return yield* Effect.fail(new HangReportInvalid({ reason: LEAK_REASONS[leak] }));
     return report;
   });

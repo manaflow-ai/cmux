@@ -120,6 +120,46 @@ describe("POST /api/hang-reports", () => {
     expect(row?.payload.intervals).toEqual([]);
   });
 
+  test("accepts the Swift client's version, build and macOS forms, and arch other", async () => {
+    const cases = [
+      { version: "0.70.0", build: "70123", os: "15.7.4", arch: "arm64" },
+      { version: "0", build: "0", os: "0", arch: "other" },
+      { version: "1.2.3.4", build: "1.2.3.4", os: "26.0.1.2", arch: "x86_64" },
+    ];
+    for (const value of cases) {
+      const report = { ...realisticReport(), reportId: crypto.randomUUID() };
+      report.app = { ...report.app, version: value.version, build: value.build };
+      report.os = { version: value.os };
+      report.hardware = { ...report.hardware, arch: value.arch, chip: "Intel" };
+      expect((await POST(reportRequest(report))).status).toBe(204);
+    }
+    for (const bad of [{ version: "0.70.0.1.2" }, { build: "70123a" }, { os: "15.7.4-beta" }, { arch: "arm64e" }]) {
+      const report = { ...realisticReport(), reportId: crypto.randomUUID() };
+      if (bad.version) report.app = { ...report.app, version: bad.version };
+      if (bad.build) report.app = { ...report.app, build: bad.build };
+      if (bad.os) report.os = { version: bad.os };
+      if (bad.arch) report.hardware = { ...report.hardware, arch: bad.arch };
+      expect((await POST(reportRequest(report))).status).toBe(400);
+    }
+  });
+
+  test("accepts a report with only metrics, and one with every section empty", async () => {
+    const base = realisticReport();
+    const metricsOnly = {
+      ...base,
+      reportId: crypto.randomUUID(),
+      hangs: [],
+      cpuExceptions: [],
+      intervals: [],
+      stallHistogram: [],
+    };
+    expect((await POST(reportRequest(metricsOnly))).status).toBe(204);
+    const empty: Record<string, unknown> = { ...base, reportId: crypto.randomUUID() };
+    for (const key of ["hangs", "cpuExceptions", "intervals", "stallHistogram", "metrics"]) delete empty[key];
+    expect((await POST(reportRequest(empty))).status).toBe(204);
+    expect(repository.rows.size).toBe(2);
+  });
+
   test("rejects an unknown key at any depth", async () => {
     const top = { ...realisticReport(), extra: true };
     expect((await POST(reportRequest(top))).status).toBe(400);
