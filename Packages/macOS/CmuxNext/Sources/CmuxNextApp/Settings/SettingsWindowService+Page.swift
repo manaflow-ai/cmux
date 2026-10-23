@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextImportCards
 import CmuxNextSettings
+import CmuxNextServer
 import CmuxNextSettingsWindow
 import CmuxNextWebUpdates
 
@@ -18,6 +19,8 @@ extension SettingsWindowService {
         return [
             "rooms": rooms.map { .array($0.map(Self.listRow)) } ?? .null,
             "machines": .array(machines.map(Self.machineRow)),
+            // Settings > Devices (plans/cmux-next/add-device-DESIGN.md 2.4): every device, one remove.
+            "devices": (try? JSONValue.parse(services.devices.pageData(phones: services.iphone.devicePhones))) ?? .null,
             "browser_profiles": .array(browserProfiles.map { profile in
                 [
                     "id": .string(profile.id), "name": .string(profile.name),

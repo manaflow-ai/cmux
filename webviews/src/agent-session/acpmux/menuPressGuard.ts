@@ -10,12 +10,20 @@ import { useEffect } from "react";
 // the pressed element. So the guard lets each event reach that element, then stops it there, before the
 // page's own handlers (React's, on the root) see it; and it cancels the press's default, so no
 // focus or caret moves, and the click's.
+//
+// A queued prompt's controls act on that one press as well (Leo on nightly 331e2e9, 2026-10-21: "WHY
+// CAN'T I CLICK THESE BUTTONS"): Steer, the trash can, ⋯, the prompt's text and the queue's fold and
+// Resume. Each is a deliberate action on a prompt waiting above the bar, not a stray press near the
+// menu, and swallowing it left the first press only closing the chip. The menu still closes on that
+// press; the mic and the field still take nothing.
 
 /** A composer chip whose menu is open: the chat composer's bar and strip, and the New Tab card's. */
 const OPEN_CHIP =
   ':is(.acpmux-composer, .nt-composer) :is([aria-haspopup][aria-expanded="true"], [aria-haspopup][data-popup-open])';
-/** What a press may still reach: the open menu itself, and any menu button (it switches menus). */
-const PASSES = ".ui-positioner, .ui-popup, [aria-haspopup]";
+/** What a press may still reach: the open menu itself, any menu button (it switches menus), and a
+ *  queued prompt's controls (ComposerQueue.tsx). */
+const PASSES =
+  ".ui-positioner, .ui-popup, [aria-haspopup], .acpmux-composer-queue button, .acpmux-queue-foldbar button";
 const SWALLOWED = ["pointerdown", "mousedown", "pointerup", "mouseup", "click"] as const;
 
 let installed: { doc: Document; count: number; remove(): void } | null = null;
