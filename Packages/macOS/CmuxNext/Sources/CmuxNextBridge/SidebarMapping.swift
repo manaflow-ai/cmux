@@ -181,7 +181,9 @@ public struct SidebarMapping {
         row.lastMessage = lastMessage(front, tabs)
         if showsUnread { row.notificationText = newestUnread(tabs).flatMap(notificationText) }
         row.reported = Self.reported(workspace.status, asset: iconAsset)
-        if tabs.contains(where: { $0.agentSession?.session.map(AgentBypassSessions.shared.contains) == true }) {
+        if tabs.contains(where: { tab in
+            tab.agentSession.flatMap { ref in ref.session.map { AgentBypassSessions.shared.contains($0, host: ref.host) } } == true
+        }) {
             let reported = row.reported ?? SidebarWorkspaceStatus()
             row.reported = SidebarWorkspaceStatus(entries: [.bypass] + reported.entries, log: reported.log, progressLabel: reported.progressLabel)
         }

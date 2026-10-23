@@ -23,20 +23,27 @@ extension DaemonService {
         // task-owner: one watch per connection, cancelled by the next connect; it ends with the stream
         agentModeReads = Task { @MainActor [logger] in
             var read: Set<BoundChat> = []
+            var epoch: Int?
             // While the link is down nothing is read, and every chat is read again once it is back: a
             // transport that reconnects in place never connects the service again, and a chat may have
-            // changed its mode meanwhile.
-            for await watched in ObservationStream({ ModeWatch(live: Self.isConnected(store), bound: Self.boundChats(in: store)) }) {
-                read = Self.stillRead(read, watched)
+            // changed its mode meanwhile. The store's connection epoch moves at every connect and drop,
+            // so a drop and reconnect between two looks (both `live`) still counts.
+            for await watched in ObservationStream({
+                ModeWatch(live: Self.isConnected(store), epoch: store.connectionEpoch, bound: Self.boundChats(in: store))
+            }) {
+                read = Self.stillRead(read, since: epoch, watched)
+                epoch = watched.epoch
                 guard watched.live else { continue }
                 for chat in watched.bound.subtracting(read) {
                     read.insert(chat)
                     do {
                         let answer = try await AgentSessionAttachClient.readMode(surface: chat.surface, endpoint: endpoint)
                         // A read of an earlier connection (cancelled by the next connect or the
-                        // shutdown) never overwrites what the current one says.
+                        // shutdown) never overwrites what the current one says, and neither does one
+                        // the link dropped and reconnected under: the next look reads it again.
                         if Task.isCancelled { return }
-                        if let answer { AgentBypassSessions.note(.answer, of: answer) }
+                        if store.connectionEpoch != watched.epoch { break }
+                        if let answer { AgentBypassSessions.note(.answer, of: answer, host: chat.host) }
                     } catch {
                         logger.info("agent mode read of surface \(chat.surface, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                     }
@@ -48,19 +55,24 @@ extension DaemonService {
 
     struct BoundChat: Hashable, Sendable {
         let surface: UInt64
+        /// The tab's host (`registry:<id>`), with `session` the key of its bypass facts.
+        let host: String
         let session: String
     }
 
-    /// What the reads follow: whether the link is up, and the bound chats.
+    /// What the reads follow: whether the link is up, the store's connection epoch, and the bound
+    /// chats.
     struct ModeWatch: Equatable, Sendable {
         let live: Bool
+        let epoch: Int
         let bound: Set<BoundChat>
     }
 
-    /// The chats whose mode stays read at `watched`: none while the link is down, so each is read
-    /// again once it is back.
-    static func stillRead(_ read: Set<BoundChat>, _ watched: ModeWatch) -> Set<BoundChat> {
-        watched.live ? read : []
+    /// The chats whose mode stays read at `watched`, after reads made at connection epoch `since`:
+    /// none while the link is down or once it connected again since (the epoch moved), so each is
+    /// read again on the link that is up now.
+    static func stillRead(_ read: Set<BoundChat>, since: Int?, _ watched: ModeWatch) -> Set<BoundChat> {
+        watched.live && watched.epoch == since ? read : []
     }
 
     /// Whether `store`'s link is up now.
@@ -77,7 +89,7 @@ extension DaemonService {
                 for pane in screen.panes {
                     for tab in pane.tabs {
                         guard let ref = tab.agentSession, ref.host.hasPrefix("registry:"), let session = ref.session else { continue }
-                        chats.insert(BoundChat(surface: tab.surface.rawValue, session: session))
+                        chats.insert(BoundChat(surface: tab.surface.rawValue, host: ref.host, session: session))
                     }
                 }
             }
