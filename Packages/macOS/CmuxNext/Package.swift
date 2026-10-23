@@ -29,7 +29,8 @@ import PackageDescription
 //   CmuxNextControl -> Actions, Settings, Daemon (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui)
 //   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime (Stack auth, /api/vm REST,
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
-//   CmuxNextRemote -> CmuxNextCloud (SSH machines: ssh argv, probe, install, relay policy; no UI, no daemon)
+//   CmuxNextRemote -> Compat, CmuxNextCloud (SSH machines: ssh argv, probe, install, relay policy; the loopback
+//     remote browser host process; no UI, no daemon)
 //   CmuxNextMobile -> Daemon, CMUXMobileCore, CmuxIrxTransport (phone host; no UI)
 //   CmuxNextUpdater -> Design, Icons, CmuxUpdater, Sparkle (update checks, appcast probe, update sheet; no daemon)
 //   CmuxNextMallocZone -> libSystem only (C: the delegating default malloc zone that lets the
@@ -1174,7 +1175,9 @@ let package = Package(
         ),
         // Machines reached over the user's own OpenSSH: destinations, the
         // `cmux-tui remote connect ssh://` link, probe, reconnect gate, the
-        // pinned cmux-tui install and the remote-to-local deny policy. No UI.
+        // pinned cmux-tui install and the remote-to-local deny policy, plus the
+        // loopback remote browser host process this Mac starts (BrowserHost/:
+        // remote browser tabs and the iPhone's streamed tabs). No UI.
         .target(
             name: "CmuxNextRemote",
             dependencies: ["CmuxNextCompat", "CmuxNextCloud"],
@@ -1649,7 +1652,7 @@ let package = Package(
             name: "CmuxNextMobileHost",
             dependencies: [
                 "CmuxNextAgentPane", "CmuxNextCloud", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService",
-                "CmuxNextDesign", "CmuxNextMobile", "CmuxNextPages", "CmuxNextRemoteBrowser", "CmuxNextSettings",
+                "CmuxNextDesign", "CmuxNextMobile", "CmuxNextPages", "CmuxNextRemote", "CmuxNextSettings",
                 "CmuxNextWakeups",
             ],
             resources: [

@@ -1,4 +1,4 @@
-public import CmuxNextRemoteView
+public import CmuxNextCompat
 public import Foundation
 import Security
 
@@ -17,16 +17,8 @@ import Security
 /// stderr log stays next to it (`logURL`) for diagnosis.
 @MainActor
 public final class LocalRemoteBrowserHost {
-    /// Why a host did not start.
-    public enum Failure: Error, Equatable {
-        /// The executable could not be launched.
-        case launch(String)
-        /// The host exited (or closed stdout) before it listened; `log` is
-        /// its stderr log.
-        case exitedBeforeListening(log: URL)
-        /// The host did not listen within `seconds`; it was stopped.
-        case timedOut(seconds: Int, log: URL)
-    }
+    /// Why a host did not start (a core value: the remote tab's strings say it).
+    public typealias Failure = LocalRemoteBrowserHostFailure
 
     /// Where the host listens (always 127.0.0.1).
     public let endpoint: RemoteRdLoopbackEndpoint
