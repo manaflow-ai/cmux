@@ -33,6 +33,10 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     public var onMessage: ((String, Any) -> Void)?
     /// Called once, when the first trusted message arrives: the page reached the host.
     public var onFirstMessage: (() -> Void)?
+    /// Called before a script or a reply goes into the page: the page host thaws a page the
+    /// hibernation froze (it runs no script), so no script waits on a frozen renderer and none
+    /// queue up here while it is hidden.
+    public var willSend: (() -> Void)?
     private var reachedHost = false
     private var scripts: [String] = []
     private var draining = false
@@ -77,6 +81,7 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     }
 
     public func evaluate(_ script: String) {
+        willSend?()
         scripts.append(script)
         guard !draining else { return }
         draining = true
@@ -163,6 +168,7 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         let reply = await handler(request)
         guard self.handler != nil else { return }
         let expression = ChromiumPageHostWire.resolveExpression(seq: seq, reply: reply)
+        willSend?()
         _ = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "contextId": context, "silent": true])
         answered += 1
     }
