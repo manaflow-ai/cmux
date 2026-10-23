@@ -107,3 +107,15 @@ for (const grouped of [false, true])
     for (const query of ["error: could not compile", "31m"])
       expect([query, count(painted, query)]).toEqual([query, count(indexed(item, grouped), query)]);
   });
+
+for (const grouped of [false, true])
+  test(`a shell that ended in the background is drawn and counted alike (${grouped ? "command row" : "lone call"})`, async () => {
+    const item = command(`e${grouped}`, "Exit code 1\nport in use", {
+      status: "completed",
+      exitCode: 1,
+      background: { state: "failed", endedAt: 0 },
+    });
+    const painted = await paintedText(item, grouped);
+    for (const query of ["Exit code 1", "port in use"])
+      expect([query, count(painted, query)]).toEqual([query, count(indexed(item, grouped), query)]);
+  });

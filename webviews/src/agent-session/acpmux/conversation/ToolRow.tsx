@@ -17,17 +17,16 @@ import { CopyButton } from "./CopyButton";
 import { experimentArm } from "../../../experiments/experiment";
 import { hoverActions } from "../../../ui/hoverActions.experiment";
 import { menuPartRef } from "./menuParts";
-import { BackgroundHint } from "./BackgroundHint";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
-import { isFailed, toolDuration } from "./toolGroups";
+import { toolDuration } from "./toolGroups";
 import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
 import { useBlockWrap } from "./blockWrap";
 import { Lines, lineCount, PreviewMore, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
 import { cleanText } from "./mcpCalls";
 import { useFold } from "./fold";
 import { WriteLabel, writeCall } from "./WriteLabel";
-import { toolFailure } from "./toolFailure";
+import { rowFailed, toolFailure } from "./toolFailure";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
@@ -79,14 +78,13 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   const label = toolLabel(
     tool,
     item.text,
-    (command) => t("tools.ranCommand", { command }),
+    // "Running …" until it is done, "Ran …" after; its ⌃B hint is the live line's (Thinking.tsx).
+    (command) => t(foreground ? "tools.runningCommand" : "tools.ranCommand", { command }),
     cwd,
     t(foreground ? "tools.runningUnnamed" : "tools.ranUnnamed"),
   );
-  // Failed by its status or a nonzero exit, as a command row reads it (toolGroups.ts isFailed). A
-  // shell that went on in the background fails only by its status: its exit code is how it ended
-  // there, which its background mark says.
-  const failed = tool.background ? tool.status === "failed" : isFailed(tool);
+  // Failed by its status or a nonzero exit; in the background, by its status (toolFailure.ts rowFailed).
+  const failed = rowFailed(tool);
   // Why it failed, in a word on the row and one line under it (toolFailure.ts); read only once it failed.
   const failure = useMemo(() => (failed ? toolFailure(tool) : undefined), [failed, tool]);
   // A Write reads as an edit does: "Writing notes.md", then "Wrote notes.md +18" (WriteLabel.tsx).
@@ -150,7 +148,6 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
             strokeWidth={1.2}
             className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
           />
-          {foreground && shell && <BackgroundHint />}
         </button>
       ) : (
         <div className={`cv-tool${running ? " is-live" : " is-strong"}`}>{content}</div>

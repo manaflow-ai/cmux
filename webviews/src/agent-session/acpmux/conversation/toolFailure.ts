@@ -149,9 +149,14 @@ function drawn(raw: string, shell: boolean): string {
   return (shell ? text : cleanText(text)).replace(/^(?:[ \t]*\n)+/, "");
 }
 
+/// Whether a row draws `tool` as failed: by its status or a nonzero exit (toolGroups.ts isFailed),
+/// as a command row reads it. A shell that went on in the background fails only by its status: its
+/// exit code is how it ended there, which its background mark says.
+export const rowFailed = (tool: Tool) => (tool.background ? tool.status === "failed" : isFailed(tool));
+
 /// Why `tool` failed, or undefined when it did not.
 export function toolFailure(tool: Tool): ToolFailure | undefined {
-  if (!isFailed(tool)) return undefined;
+  if (!rowFailed(tool)) return undefined;
   const shell = tool.kind === "execute" && Boolean(tool.command);
   const full = drawn(tool.output ?? "", shell);
   let exitCode = tool.exitCode;

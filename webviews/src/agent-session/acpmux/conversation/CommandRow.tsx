@@ -10,15 +10,14 @@ import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { commandFolder } from "./commandFolder";
 import { menuPartRef } from "./menuParts";
-import { BackgroundHint } from "./BackgroundHint";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { Check, ChevronRight, Spinner, TerminalSquare } from "./icons";
-import { isFailed, isRunning, toolDuration } from "./toolGroups";
+import { isRunning, toolDuration } from "./toolGroups";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { useFold } from "./fold";
-import { toolFailure } from "./toolFailure";
+import { rowFailed, toolFailure } from "./toolFailure";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 
 export function CommandRow({ item }: { item: AcpmuxActivity }) {
@@ -39,7 +38,8 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
   // Running in the foreground; a call that went on in the background shows BackgroundMark instead.
   const foreground = isRunning(tool);
   const running = foreground || tool.background?.state === "running";
-  const failed = isFailed(tool);
+  // Failed by its status or a nonzero exit; in the background, by its status (toolFailure.ts rowFailed).
+  const failed = rowFailed(tool);
   // Why it failed, in a word at the row's edge and one line under it (toolFailure.ts).
   const failure = useMemo(() => (failed ? toolFailure(tool) : undefined), [failed, tool]);
   // Claude Code says its exit code only in the output ("Exit code 1"): the Shell block says it once.
@@ -49,8 +49,11 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
   // skipped; opened, the Shell block draws it.
   const short = shortCommand(tool.command ?? "", ROW_WIDTH);
   const whole = short === commandFolder(tool.command ?? "").rest.trim();
-  // "Ran {command}" in the reader's language, the command drawn as code where the string puts it.
-  const [before = "", after = ""] = t("tools.ranCommand", { command: "\u0000" }).split("\u0000");
+  // "Ran {command}" in the reader's language, the command drawn as code where the string puts it;
+  // "Running {command}" until it is done. Its ⌃B hint is the live line's (WorkingFor.tsx, Thinking.tsx).
+  const [before = "", after = ""] = t(foreground ? "tools.runningCommand" : "tools.ranCommand", {
+    command: "\u0000",
+  }).split("\u0000");
   return (
     <>
       <button
@@ -82,7 +85,6 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
           {!tool.background && <InlineFailureCause failure={failure} />}
         </span>
         <span className="cv-command__meta">
-          {foreground && <BackgroundHint />}
           {foreground ? (
             <Spinner size={12} />
           ) : tool.background ? (
