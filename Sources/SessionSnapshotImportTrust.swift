@@ -99,7 +99,13 @@ enum SessionSnapshotImportTrust {
         source: ControlSessionImportSource
     ) -> (snapshot: AppSessionSnapshot, report: SessionSnapshotImportTrustReport) {
         var report = SessionSnapshotImportTrustReport()
-        let bounded = boundedSnapshotStructure(snapshot, report: &report)
+        // Drop crash-diagnostic and phantom windows before spending the
+        // window cap, as startup restore does; otherwise twelve of them can
+        // use the whole cap and push the real windows out.
+        var pruned = snapshot
+        pruned.windows = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
+            .snapshot?.windows ?? []
+        let bounded = boundedSnapshotStructure(pruned, report: &report)
         guard !source.isTrusted else {
             return (bounded, report)
         }
@@ -189,12 +195,12 @@ enum SessionSnapshotImportTrust {
         remainingBudget: inout Int,
         report: inout SessionSnapshotImportTrustReport
     ) -> [SessionPanelSnapshot] {
-        // Preserve the existing report contract: per-workspace caps are a
-        // local safety limit, while `droppedPanelCount` reports the global
-        // fan-out budget that discarded already-eligible panels.
+        // Count every panel that won't restore, whether the per-workspace cap
+        // or the global budget cut it, so a trimmed restore always leaves a
+        // `session.restore.bounded` breadcrumb.
         let locallyEligible = Array(panels.prefix(SessionPersistencePolicy.maxPanelsPerWorkspace))
         let keptCount = min(locallyEligible.count, remainingBudget)
-        report.droppedPanelCount += locallyEligible.count - keptCount
+        report.droppedPanelCount += panels.count - keptCount
         remainingBudget -= keptCount
         return Array(locallyEligible.prefix(keptCount))
     }
@@ -329,29 +335,15 @@ enum SessionSnapshotImportTrust {
         var report = SessionSnapshotImportTrustReport()
         var sanitized = snapshot
         let builtIns = builtInRegistrationsByID
-        var remainingPanelBudget = SessionPersistencePolicy.maxPanelsPerSnapshot
+        // Structure is already bounded by `snapshotForRestore`; this pass only
+        // removes what an untrusted file must not run or reach.
         func sanitize(_ panels: [SessionPanelSnapshot]) -> [SessionPanelSnapshot] {
-            let keptCount = min(panels.count, remainingPanelBudget)
-            report.droppedPanelCount += panels.count - keptCount
-            remainingPanelBudget -= keptCount
-            return panels.prefix(keptCount).map {
+            panels.map {
                 sanitizedPanel($0, builtIns: builtIns, isExistingDirectory: isExistingDirectory, report: &report)
             }
         }
-        // File imports are untrusted input. Apply the same structural limits
-        // used when writing snapshots before constructing any restore models;
-        // otherwise a valid but huge file can create an unbounded number of
-        // terminal/bootstrap surfaces before runtime pacing takes effect.
-        let keptWindowCount = min(sanitized.windows.count, SessionPersistencePolicy.maxWindowsPerSnapshot)
-        report.droppedWindowCount += sanitized.windows.count - keptWindowCount
-        sanitized.windows = Array(sanitized.windows.prefix(keptWindowCount))
         for windowIndex in sanitized.windows.indices {
             var window = sanitized.windows[windowIndex]
-            let originalWorkspaceCount = window.tabManager.workspaces.count
-            window.tabManager.workspaces = Array(
-                window.tabManager.workspaces.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
-            )
-            report.droppedWorkspaceCount += originalWorkspaceCount - window.tabManager.workspaces.count
             for workspaceIndex in window.tabManager.workspaces.indices {
                 var workspace = window.tabManager.workspaces[workspaceIndex]
                 if workspace.remote != nil || workspace.cloudVM != nil
@@ -365,21 +357,15 @@ enum SessionSnapshotImportTrust {
                 workspace.environment = nil
                 workspace.surfaceProjections = nil
                 workspace.cloudMachineTeams = nil
-                workspace.panels = sanitize(
-                    Array(workspace.panels.prefix(SessionPersistencePolicy.maxPanelsPerWorkspace))
-                )
+                workspace.panels = sanitize(workspace.panels)
                 if var dock = workspace.dock {
-                    dock.panels = sanitize(
-                        Array(dock.panels.prefix(SessionPersistencePolicy.maxPanelsPerWorkspace))
-                    )
+                    dock.panels = sanitize(dock.panels)
                     workspace.dock = dock
                 }
                 window.tabManager.workspaces[workspaceIndex] = workspace
             }
             if var dock = window.dock {
-                dock.panels = sanitize(
-                    Array(dock.panels.prefix(SessionPersistencePolicy.maxPanelsPerWorkspace))
-                )
+                dock.panels = sanitize(dock.panels)
                 window.dock = dock
             }
             sanitized.windows[windowIndex] = window
@@ -452,15 +438,17 @@ enum SessionSnapshotImportTrust {
         }
 
         if let scrollback = terminal.scrollback {
-            let stripped = strippingTerminalControlStrings(scrollback)
-            if stripped != scrollback {
-                report.sanitizedScrollbackCount += 1
-            }
-            let bounded = SessionPersistencePolicy.truncatedScrollback(stripped)
-            if bounded != stripped {
+            // Truncate first: stripping copies the whole string into a scalar
+            // array, and an imported string is bounded only by the file size.
+            let bounded = SessionPersistencePolicy.truncatedScrollback(scrollback)
+            if let bounded, bounded != scrollback {
                 report.truncatedScrollbackCount += 1
             }
-            terminal.scrollback = bounded
+            let stripped = bounded.map(strippingTerminalControlStrings)
+            if let stripped, stripped != bounded {
+                report.sanitizedScrollbackCount += 1
+            }
+            terminal.scrollback = stripped.flatMap { $0.isEmpty ? nil : $0 }
         }
 
         if let draft = terminal.textBoxDraft {
