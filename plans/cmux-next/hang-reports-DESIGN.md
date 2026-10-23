@@ -182,4 +182,22 @@ Web: `web/app/api/hang-reports/`, `web/services/hangReports/`, `web/db/schema.ts
 
 ## 8. Results
 
-Filled in as slices land (sha ranges, test runs, idle cost on a fleet GUI host).
+- App (feat-cmux-next): CmuxNextHangReports target, Settings row, View Hang Report action,
+  sidebar ask, WatchdogReporting, the Signposter MetricKit mirror (PL-arch agreed). Fleet:
+  `cmux-ci compile-check --app` passed at d8b5cec67b2 (job 4db2acbad28f). Unit suites
+  HangReportPrivacyTests, PrivacyLeakScannerTests, HangReportCollectorTests,
+  HangReportServiceTests, HangReportWireFormatTests: see the landing commit.
+- Web (main, PR #24541): route, Effect services, retention cron, top-frames script; 32 bun
+  tests pass, 3 Postgres behavior tests pass on local Postgres 17.
+- Schema: `hang_reports` on PlanetScale `cmux-prod` `staging` (drizzle journal id 219, hash
+  df1ee749...) and on `main` (production) as the same additive DDL, 2026-10-23, before the web
+  merge. Production's table owner is `postgres` (pscale admin cannot SET ROLE to the app role);
+  the app role `pscale_api_ms5ogh99zqn1` has SELECT, INSERT, UPDATE, DELETE. main's migrator
+  replays the file as a no-op (`IF NOT EXISTS`). A later ALTER of this table must run as admin.
+- Independent review (claude-reviewer): BLOCK at 1f722ecf / 56225de9 (interval categories,
+  reentrancy after off, query params in error reports, and more), then SHIP at 8f715450 and
+  d8b5cec6 after the fixes.
+- Idle cost: off, the watchdog sink and every Signposter interval add one relaxed atomic load;
+  no timer, no polling, no object built on Release/RC/DEV. The on/off idle bench
+  (`bench-idle.sh --setting diagnostics.hangReports=true --env CMUX_NEXT_DEV_HANG_REPORTS=1`)
+  could not run: the GUI host refused `--app-from-fleet` ("the host did not answer").
