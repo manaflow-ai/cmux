@@ -108,10 +108,10 @@ struct PaneBrowserTabOpener {
             let controller = controller, model = controller.pane
             // Home's pinned dock takes dragged tabs (`allow_tabs`, Leo 2026-10-21) but opens nothing in
             // itself (HomeDockOpens): a new browser tab aimed at it (History, Bookmarks, a URL from another
-            // app, Split Browser) is made there and moves to a column on its right, as the daemon reroutes
-            // it for a dock closed to tabs. A caller's `then` places it itself (LinkOpener,
-            // AgentBesidePlacement, a script's HomeDockOpens.placing).
-            let beside = child == nil && then == nil && controller.isOpenPinnedDockPane
+            // app, Split Browser, Duplicate Tab, a popup) is made there and moves to a column on its right,
+            // as the daemon reroutes it for a dock closed to tabs. A caller's `then` places it itself
+            // (LinkOpener, AgentBesidePlacement, a script's HomeDockOpens.placing).
+            let beside = then == nil && controller.isOpenPinnedDockPane
             let linkOpener = services.linkOpener
             let intent = background || beside ? nil : controller.workspace?.beginFocusIntent()
             services.registry.track(Task {

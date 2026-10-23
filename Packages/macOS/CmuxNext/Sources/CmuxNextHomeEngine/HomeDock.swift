@@ -198,7 +198,11 @@ public final class HomeDock {
             defaults.set(true, forKey: Self.dockTakesTabsKey)
             return nil
         }
-        guard let screen = placed.screen.resourceID, let pane = placed.pane.resourceID else { return nil }
+        guard let screen = placed.screen.resourceID, let pane = placed.pane.resourceID else {
+            // The key stays unset, so the next connect tries again.
+            logger.error("home dock allow_tabs: the tree has no resource id for the dock's screen or pane yet")
+            return "home dock allow_tabs waits for resource ids"
+        }
         try await connection.setColumnAllowsTabs(true, screen: screen, pane: pane)
         defaults.set(true, forKey: Self.dockTakesTabsKey)
         return "home dock takes tabs"
