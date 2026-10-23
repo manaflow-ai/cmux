@@ -100,9 +100,11 @@ public nonisolated struct HostCandidate: Equatable, Sendable, Identifiable, Deco
     public var peerDaemonPort: Int? { peerSSHTarget?.daemonPort }
 
     /// Whether picking it can add it: online, not in the app yet, and ssh not known to be off. An
-    /// agent peer's probe is not the answer: the probe dials its MagicDNS name on port 22, and the
-    /// peer's own URL already reaches it.
-    public var isPickable: Bool { online && !inApp && (alreadyPeer || sshOK != false) }
+    /// agent peer must have a validated ssh URL; its probe is not the answer because the probe dials
+    /// its MagicDNS name on port 22 while the peer's own URL reaches its daemon.
+    public var isPickable: Bool {
+        online && !inApp && (alreadyPeer ? peerSSHTarget != nil : sshOK != false)
+    }
 
     /// The candidates of `host candidates --json` (`{"tailnet":…,"candidates":[…]}`), or a bare
     /// array; throws when the output is neither.
