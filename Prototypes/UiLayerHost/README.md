@@ -11,6 +11,16 @@ Run from the repository root with:
 
     Prototypes/UiLayerHost/launch.sh --snapshot /tmp/cmux-ui-layer.json --watch
 
+On a developer Mac with a Debug or DEV cmux build, the same launcher is
+available as one command:
+
+    cmux dev ui-host --snapshot /tmp/cmux-ui-layer.json --watch
+
+This route is explicit and off by default. It only runs from a cmux checkout
+(or an absolute path in `CMUX_UI_LAYER_REPO`), refuses release builds and
+non-macOS hosts, and does not discover a daemon socket. Pass a projection with
+`--snapshot`; the launcher never sends commands to cmuxd or mutates its state.
+
 The checked-in Resources/cmux-ui-layer.example.json is a safe fixture. The optional --watch flag uses event-based fswatch to restart the host after source saves and emits elapsed timing when CMUX_UI_LAYER_TRACE=1; when fswatch is unavailable it refuses clearly instead of polling. A
 future exporter can map a read-only workspace.list response into this small
 schema without making the host depend on the full app target. The prototype
