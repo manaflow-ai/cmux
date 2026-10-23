@@ -132,10 +132,20 @@ the gap, no row left out of place after drop or cancel).
 
 ## Open work (Oct 23)
 
+- Base red, not ours: `SidebarPinnedRowWidthTests` fails on feat-cmux-next before these changes (36 issues: the group
+  header sits 4 pt off the pinned rows since the a579 height commits). Next for the owner.
+- a593 (multi-window routing, 5dceeca..ef02482): behavior only in SidebarBridge+Sections/PinnedItems and
+  SidebarNavigation; a row, pinned or Cmd-1..9 pick acts in the clicked window. No look change.
 - Sidebar owner: the Oct 21 look (took over a585's X revert 31ad64e4dc4 and red tests 2b40f979ca2) and the
   group drag rewrite (took over a588's blue-line fix 41c8c60c5a5 and red test 42a1811bb6b).
 - a587: Home unread badge becomes the blue dot.
 - a576: terminal lag while the sidebar rearranges.
+
+## Owner landings
+
+| Range | Change |
+| --- | --- |
+| this push | Row close back to the trailing x (takes back #23783's dog-ear); a row without an icon starts its title at the inset (takes back c779988d57d's empty slot); look gallery test |
 
 ## Every sidebar package commit, Oct 19-23
 
