@@ -4,7 +4,6 @@
 // person's gesture, copies them to the chat's machine, and answers where each went there.
 import { base64 } from "./attachments";
 
-export const MAX_UPLOAD_FILES = 10;
 export const MAX_UPLOAD_FILE_BYTES = 32 * 1024 * 1024;
 export const MAX_UPLOAD_TOTAL_BYTES = 64 * 1024 * 1024;
 
@@ -20,7 +19,7 @@ export async function uploadToMachine(
   call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
 ): Promise<UploadResult> {
   const total = files.reduce((sum, file) => sum + file.size, 0);
-  if (files.length === 0 || files.length > MAX_UPLOAD_FILES || total > MAX_UPLOAD_TOTAL_BYTES) return undefined;
+  if (files.length === 0 || total > MAX_UPLOAD_TOTAL_BYTES) return undefined;
   if (files.some((file) => file.size > MAX_UPLOAD_FILE_BYTES || !file.name)) return undefined;
   let payload: { name: string; data: string }[];
   try {
