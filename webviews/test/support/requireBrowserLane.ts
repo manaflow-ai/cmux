@@ -53,6 +53,41 @@ export function engineUnavailable(
   report(`${name}: skipping, ${engine} did not launch here (${reason}); run \`bunx playwright install ${engine}\` if it is missing`);
 }
 
+/** What a browser file's engine probe launches: an engine's `launch`, the Browser it gives closed after. */
+type Launch = () => Promise<{ close(): Promise<void> }>;
+
+/**
+ * A browser file's own engine probe (its first launch, inside requireBrowserLane's callback). It
+ * resolves true when `launch` gives a browser (closed again). When it fails, where the lane is
+ * required (browserLaneRequired) it rejects, naming the launch error, so the file fails rather
+ * than reporting tests that never ran (#24458 review); elsewhere it reports why, registers the
+ * file's skip and resolves false, and the file registers nothing more. A file probes through
+ * this, never with its own describe.skip (test/browser-lane-required.test.ts checks the files).
+ */
+export async function probeEngineOrSkip(
+  name: string,
+  engine: string,
+  launch: Launch,
+  {
+    env = process.env,
+    report = console.warn,
+    skip = (suite) => describe.skip(suite, () => test(engine, () => {})),
+  }: {
+    env?: Record<string, string | undefined>;
+    report?: (message: string) => void;
+    skip?: (name: string) => void;
+  } = {},
+): Promise<boolean> {
+  try {
+    await (await launch()).close();
+    return true;
+  } catch (error) {
+    engineUnavailable(name, engine, error, { env, report });
+    skip(name);
+    return false;
+  }
+}
+
 /**
  * Keep module-level engine probes and hooks inside the callback as well as tests.
  *
