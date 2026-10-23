@@ -20,7 +20,7 @@ enum SidebarLocalLanes {
     }
 }
 
-public extension AgentLaneStore {
+extension AgentLaneStore {
     /// Whether a workspace still has a live local acpmux session. A purged
     /// session can leave its conversation tab in the daemon tree for a short
     /// time; it must not keep a sidebar row alive. While the watch is down,
