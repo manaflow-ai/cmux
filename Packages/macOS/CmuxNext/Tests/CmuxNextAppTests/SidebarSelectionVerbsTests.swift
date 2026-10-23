@@ -34,6 +34,17 @@ import Testing
         #expect(model.selection == [WorkspaceID("c")])
     }
 
+    @Test func deselectingTheActiveWorkspaceKeepsTheRemainingSelection() {
+        let model = Self.loose(["a", "b", "c"])
+        model.activeWorkspaceID = WorkspaceID("a")
+        model.selection = [WorkspaceID("a"), WorkspaceID("b"), WorkspaceID("c")]
+        model.onIntent = { model.apply($0) }
+
+        model.toggleSelection(WorkspaceID("a"))
+        #expect(model.activeWorkspaceID == WorkspaceID("b"))
+        #expect(model.selection == [WorkspaceID("b"), WorkspaceID("c")])
+    }
+
     @Test func aSelectedRowsVerbTargetsTheWholeSelectionInRowOrder() {
         let model = Self.loose(["a", "b", "c", "d"])
         model.selection = [WorkspaceID("c"), WorkspaceID("a")]
