@@ -321,7 +321,7 @@ class BenchApp:
     """
 
     def __init__(self, app, out=None, env=None, config=None, window=(40, 40, 1440, 900), screen="0",
-                 log_name=None, teardown=True):
+                 log_name=None, teardown=True, nofile=None):
         self.app = os.path.realpath(app).rstrip("/")
         self.tag = tag_of(self.app)
         self.out = os.path.abspath(out or tempfile.mkdtemp(prefix=f"bench-launch-{self.tag}-"))
@@ -330,6 +330,7 @@ class BenchApp:
         self.extra_env = dict(env or {})
         self.config = {"appearance": {"backgroundOpacity": 1}} if config is None else config
         self.window, self.screen = window, screen
+        self.nofile = nofile  # the soft RLIMIT_NOFILE the app starts with (256: launchd's), None: this script's
         self.log_path = os.path.join(self.out, log_name or f"app-{self.tag}.log")
         self.process = None
         self.socket = socket_candidates(self.tag)[0]
@@ -416,8 +417,13 @@ class BenchApp:
             self.teardown.install()
         log = open(self.log_path, "a")
         self.launched_at = time.time()
+        limit = None
+        if self.nofile:
+            import resource
+            hard = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
+            limit = lambda: resource.setrlimit(resource.RLIMIT_NOFILE, (self.nofile, hard))  # noqa: E731
         self.process = subprocess.Popen([self.binary], env=self.environment(), stdout=log, stderr=log,
-                                        stdin=subprocess.DEVNULL)
+                                        stdin=subprocess.DEVNULL, preexec_fn=limit)
         note(f"bench-launch: {self.tag} pid {self.process.pid}")
         if on_start:
             on_start(self.process)
