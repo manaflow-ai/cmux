@@ -117,10 +117,10 @@ extension HomeChiefSettingsView {
         fill(speed, [("fast", HomeEngineStrings.speedFast)], current: snapshot.speed == "default" ? nil : snapshot.speed,
              defaultTitle: HomeEngineStrings.defaultValue)
         if let row = speed.superview, row.isHidden == shown.offersFast { row.isHidden = !shown.offersFast }
-        stats.stringValue = snapshot.turns.first.map(HomeEngineStrings.lastTurn) ?? HomeEngineStrings.noTurn
-        // Which engine answered each recent reply (the trace's turn.end).
+        lastTurn.show(snapshot.turns.first, models: snapshot.models)
+        // Which engine answered each recent reply (the trace's turn.end), by name.
         replies.stringValue = snapshot.turns.isEmpty ? ""
-            : HomeEngineStrings.answeredBy + "\n" + snapshot.turns.map(HomeEngineStrings.reply).joined(separator: "\n")
+            : HomeEngineStrings.answeredBy + "\n" + snapshot.turns.map { HomeEngineStrings.reply($0, models: snapshot.models) }.joined(separator: "\n")
         replies.isHidden = snapshot.turns.isEmpty
         // A hosted cloud Chief whose brain is off answers no message: say so, never a silent Chief.
         if snapshot.brainOff, !changeFailed {
@@ -142,6 +142,8 @@ extension HomeChiefSettingsView {
         for item in all {
             button.addItem(withTitle: item.title)
             button.lastItem?.representedObject = item.value
+            // A value shown by a name keeps its id where a person can still find it.
+            button.lastItem?.toolTip = item.title == item.value ? nil : item.value
         }
         if let current, let index = all.firstIndex(where: { $0.value == current }) {
             button.selectItem(at: index + 1)

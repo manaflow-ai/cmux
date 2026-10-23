@@ -44,11 +44,12 @@ import Testing
 
     @Test func aReplyWithNoTextHasNoEmptyQuotes() throws {
         let empty = try #require(HomeEngineTurn(line: #"{"ev":"turn.end","harness":"claude","ms":1300,"reply":{"prefix":""}}"#))
-        #expect(HomeEngineStrings.reply(empty) == "claude")
+        #expect(HomeEngineStrings.reply(empty) == ChiefBackend.claude.title)
         let none = try #require(HomeEngineTurn(line: #"{"ev":"turn.end","harness":"claude","model":"opus","ms":1300}"#))
-        #expect(HomeEngineStrings.reply(none) == "claude, opus")
+        // By name, never by id (#89).
+        #expect(HomeEngineStrings.reply(none) == "\(ChiefBackend.claude.title) \u{00B7} Opus")
         let text = try #require(HomeEngineTurn(line: #"{"ev":"turn.end","harness":"claude","ms":1300,"reply":{"prefix":"Done."}}"#))
-        #expect(HomeEngineStrings.reply(text) == "\u{201C}Done.\u{201D} claude")
+        #expect(HomeEngineStrings.reply(text) == "\u{201C}Done.\u{201D} \(ChiefBackend.claude.title)")
     }
 
     /// The popover is the quick version (Leo 2026-10-20): its All Chief Settings link opens the
@@ -77,10 +78,10 @@ import Testing
         view.frame.size = view.fittingSize
         view.layoutSubtreeIfNeeded()
         #expect(view.fittingSize.width == HomeChiefSettingsView.width)
-        // The name field runs from beside the avatar to the card's trailing inset.
+        // The name field runs from beside the avatar to the Identity card's trailing padding.
         let box = try #require(fields.first?.superview)
         let trailing = view.convert(box.bounds, from: box).maxX
-        #expect(abs(trailing - (HomeChiefSettingsView.width - HomeChiefSettingsView.inset)) < 1)
+        #expect(abs(trailing - (HomeChiefSettingsView.width - HomeChiefSettingsView.inset - HomeChiefSettingsCard.padding)) < 1)
     }
 
     @Test func leavingAnUnchangedNameRenamesNothing() async {
@@ -132,6 +133,15 @@ import Testing
         if let field = view as? NSTextField, field.isEditable { found.append(field) }
         for subview in view.subviews { found += editableFields(in: subview) }
         return found
+    }
+
+    /// The cards can be taller than the screen's room under the pill (the pet rows, an open
+    /// Diagnostics): the popover scrolls them, so none is cut off.
+    @Test func thePopoverScrollsCardsTallerThanTheScreen() {
+        let home = FileManager.default.temporaryDirectory
+        let view = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), connection: { nil }))
+        let popover = HomeChiefSettingsPopover(content: view)
+        #expect(popover.content.enclosingScrollView?.documentView === view)
     }
 }
 

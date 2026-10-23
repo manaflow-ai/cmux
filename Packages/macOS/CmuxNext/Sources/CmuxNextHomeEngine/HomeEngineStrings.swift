@@ -1,3 +1,4 @@
+import CmuxNextDaemon
 import Foundation
 
 public nonisolated enum HomeEngineStrings {
@@ -61,7 +62,6 @@ public nonisolated enum HomeEngineStrings {
     static var errorRefusedFormat: String {
         String(localized: "home.engine.error.refused", defaultValue: "The change failed: %@", table: "Home", bundle: .module)
     }
-    static var harness: String { String(localized: "home.engine.harness", defaultValue: "Harness", table: "Home", bundle: .module) }
     static var model: String { String(localized: "home.engine.model", defaultValue: "Model", table: "Home", bundle: .module) }
     static var effort: String { String(localized: "home.engine.effort", defaultValue: "Effort", table: "Home", bundle: .module) }
     static var speed: String { String(localized: "home.engine.speed", defaultValue: "Speed", table: "Home", bundle: .module) }
@@ -105,10 +105,6 @@ public nonisolated enum HomeEngineStrings {
     /// A picker's "Default" item naming what it runs: "Default (claude)", "Default (Opus 5.5)".
     static var defaultNamedFormat: String {
         String(localized: "home.engine.defaultNamed", defaultValue: "Default (%@)", table: "Home", bundle: .module)
-    }
-    static var agentSection: String { String(localized: "home.engine.section.agent", defaultValue: "Agent", table: "Home", bundle: .module) }
-    static var appearanceSection: String {
-        String(localized: "home.engine.section.appearance", defaultValue: "Appearance", table: "Home", bundle: .module)
     }
     static var diagnostics: String { String(localized: "home.engine.section.diagnostics", defaultValue: "Diagnostics", table: "Home", bundle: .module) }
     /// Under the name, for a Chief whose brain runs here.
@@ -176,19 +172,21 @@ public nonisolated enum HomeEngineStrings {
     }
     static var answeredBy: String { String(localized: "home.engine.answeredBy", defaultValue: "Recent replies, answered by:", table: "Home", bundle: .module) }
 
-    /// "“Both subagents are done…” claude-sr, claude-opus-5-5", or the engine
-    /// alone for a turn whose reply the trace kept no text of (no empty quotes).
-    static func reply(_ turn: HomeEngineTurn) -> String {
-        let engine = [turn.harness, turn.model].compactMap { $0 }.joined(separator: ", ")
+    /// "“Both subagents are done…” Claude (Subrouter) · Opus 5.5", or the engine alone for a
+    /// turn whose reply the trace kept no text of (no empty quotes). Names, never ids
+    /// (``HomeChiefTurnSummary/engine(_:models:)``).
+    static func reply(_ turn: HomeEngineTurn, models: [ChiefEngineReport.Model] = []) -> String {
+        let engine = HomeChiefTurnSummary.engine(turn, models: models)
         let text = turn.reply?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return text.isEmpty ? engine : "\u{201C}\(text)\u{201D} \(engine)"
     }
 
     static var noTurn: String { String(localized: "home.engine.noTurn", defaultValue: "No turn yet", table: "Home", bundle: .module) }
 
-    /// "Last turn: claude-sr, claude-opus-5-5, 7.8 s, 1 tool call, 50% cached, $0.144".
-    static func lastTurn(_ turn: HomeEngineTurn) -> String {
-        let engine = [turn.harness, turn.model].compactMap { $0 }.joined(separator: ", ")
+    /// "Last turn: Claude (Subrouter) · Opus 5.5, 7.8 s, 1 tool call, 50% cached, $0.144": the
+    /// Diagnostics card's last turn as one sentence (its VoiceOver label).
+    static func lastTurn(_ turn: HomeEngineTurn, models: [ChiefEngineReport.Model] = []) -> String {
+        let engine = HomeChiefTurnSummary.engine(turn, models: models)
         // Numbers in the reader's own format (decimal mark, percent sign, currency).
         let hit = turn.hitRate.map { $0.formatted(.percent.precision(.fractionLength(0)).rounded(rule: .toNearestOrAwayFromZero)) } ?? "-"
         let cost = turn.cost.map { $0.formatted(.currency(code: "USD").precision(.fractionLength(3))) } ?? "-"

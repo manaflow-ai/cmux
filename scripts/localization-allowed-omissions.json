@@ -6643,6 +6643,29 @@
       "fr": "Terminal is the standard French UI word for a terminal (macOS names the app Terminal), spelled as in English."
     }
   },
+  "home.engine.card.backend": {
+    "source": "Backend",
+    "identityLocales": {
+      "da": "Backend is the standard technical noun for a backend in this language, spelled as in English; the translated entry is still required.",
+      "de": "Backend is the standard technical noun for a backend in this language, spelled as in English; the translated entry is still required.",
+      "es": "Backend is the standard technical noun for a backend in this language, spelled as in English; the translated entry is still required.",
+      "fr": "Backend is the standard technical noun for a backend in this language, spelled as in English; the translated entry is still required.",
+      "it": "Backend is the standard technical noun for a backend in this language, spelled as in English; the translated entry is still required.",
+      "nb": "Backend is the standard technical noun for a backend in this language, spelled as in English; the translated entry is still required.",
+      "pl": "Backend is the standard technical noun for a backend in this language, spelled as in English; the translated entry is still required.",
+      "vi": "Backend is the standard technical noun for a backend in this language, spelled as in English; the translated entry is still required."
+    }
+  },
+  "home.engine.card.tokens": {
+    "source": "Tokens",
+    "identityLocales": {
+      "da": "Tokens is the standard noun for model tokens in this language, spelled as in English; the translated entry is still required.",
+      "de": "Tokens is the standard noun for model tokens in this language, spelled as in English; the translated entry is still required.",
+      "es": "Tokens is the standard noun for model tokens in this language, spelled as in English; the translated entry is still required.",
+      "nb": "Tokens is the standard noun for model tokens in this language, spelled as in English; the translated entry is still required.",
+      "pt-BR": "Tokens is the standard noun for model tokens in this language, spelled as in English; the translated entry is still required."
+    }
+  },
   "updater.channels.ring.nightly": {
     "source": "Nightly",
     "identityLocales": {

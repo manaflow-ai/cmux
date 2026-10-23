@@ -10,7 +10,8 @@
      "optional": "debug.appearance is DEBUG only"},
     {"title": "Chief settings under the name pill", "cmux": ["action", "run", "home.toggleChiefSettings"], "wait": 3,
      "optional": "the settings open only over a Chief conversation"},
-    {"title": "Closed again", "cmux": ["action", "run", "home.toggleChiefSettings"], "wait": 1,
-     "optional": "the settings open only over a Chief conversation"}
+    {"title": "The Brain and Diagnostics cards with a brain's answer: names, not ids; the last turn's measures",
+     "rpc": {"method": "debug.chief_settings", "params": {"fixture": "last-turn", "details": false}}, "wait": 2,
+     "optional": "debug.chief_settings is DEBUG only, and needs the settings open"}
   ]
 }

@@ -3,7 +3,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import Foundation
 
-/// The settings card's sections and rows (`HomeChiefSettingsView`).
+/// The settings page's cards and their rows (`HomeChiefSettingsView`).
 extension HomeChiefSettingsView {
     // MARK: Layout
 
@@ -55,31 +55,44 @@ extension HomeChiefSettingsView {
         return row
     }
 
-    /// A section's title: secondary ink, the header weight.
-    static func sectionHeader(_ title: String) -> NSView {
-        let label = ThemedLabel(labelWithString: title)
-        label.font = Typography.header
-        label.ink = .secondary
-        return label
+    /// The Brain card: Backend (UniiChat's sign-in note under it), Model, Effort and Speed, each
+    /// with the line that says what it changes, then when a change applies.
+    func buildBrainCard() {
+        let rows = [(harness, HomeChiefCardStrings.backend, HomeChiefCardStrings.backendHelp),
+                    (model, HomeEngineStrings.model, HomeChiefCardStrings.modelHelp),
+                    (effort, HomeEngineStrings.effort, HomeChiefCardStrings.effortHelp),
+                    (speed, HomeEngineStrings.speed, HomeChiefCardStrings.speedHelp)]
+        for (button, label, help) in rows {
+            button.target = self
+            button.action = #selector(picked(_:))
+            button.font = Typography.body
+            button.setAccessibilityLabel(label)
+            brainCard.add(HomeChiefSettingsRow(label, control: button, help: help, wrapWidth: Self.innerWidth))
+            if button === harness {
+                harnessHint.font = Typography.caption
+                harnessHint.ink = .secondary
+                harnessHint.isHidden = true
+                harnessHint.setAccessibilityIdentifier("cmux.home.chief.harnessHint")
+                harnessHint.preferredMaxLayoutWidth = Self.innerWidth
+                brainCard.add(harnessHint)
+            }
+        }
+        speed.superview?.isHidden = true
+        let note = Self.footnote(HomeEngineStrings.nextTurn)
+        note.preferredMaxLayoutWidth = Self.innerWidth
+        brainCard.add(note)
     }
 
-    /// One settings row: the label at the leading edge, the control at the trailing edge.
-    static func row(_ title: String, _ control: NSView) -> NSView {
-        let label = ThemedLabel(labelWithString: title)
-        label.font = Typography.body
-        label.lineBreakMode = .byTruncatingTail
-        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        control.translatesAutoresizingMaskIntoConstraints = false
-        if control is NSPopUpButton {
-            control.widthAnchor.constraint(equalToConstant: pickerWidth).isActive = true
-        }
-        let spacer = NSView()
-        spacer.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
-        let row = NSStackView(views: [label, spacer, control])
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = Metrics.space2
-        return row
+    /// The Memory card (this Mac's brain): what the Chief remembers, and Show Memory (the
+    /// built-in Memory Inspector, every build).
+    func buildMemoryCard() {
+        let help = Self.footnote(HomeChiefCardStrings.memoryHelp)
+        help.ink = .secondary
+        help.preferredMaxLayoutWidth = Self.innerWidth
+        memoryCard.add(help)
+        let show = HomeChiefLinkButton(title: HomeEngineStrings.showMemory, target: self, action: #selector(showMemory))
+        show.setAccessibilityIdentifier("cmux.home.chief.showMemory")
+        memoryCard.add(show, fills: false)
     }
 
     static func footnote(_ text: String) -> ThemedLabel {
@@ -89,15 +102,10 @@ extension HomeChiefSettingsView {
         return label
     }
 
-    /// Adds a row to the Appearance section (the Chief's bubble style, its pet):
-    /// a title at the leading edge and `control` at the trailing edge.
+    /// Adds a row to the Identity card (the Chief's pet, its character): a title at the
+    /// leading edge and `control` at the trailing edge.
     public func addAppearanceRow(_ title: String, control: NSView) {
-        let row = Self.row(title, control)
-        row.translatesAutoresizingMaskIntoConstraints = false
-        appearanceRows.addArrangedSubview(row)
-        row.widthAnchor.constraint(equalTo: appearanceRows.widthAnchor).isActive = true
-        appearanceHeader.isHidden = false
-        appearanceRows.isHidden = false
+        identityCard.add(HomeChiefSettingsRow(title, control: control, wrapWidth: Self.innerWidth))
         onResize()
     }
 
@@ -125,29 +133,32 @@ extension HomeChiefSettingsView {
         return row
     }
 
+    /// The Diagnostics card: the last turn and Show Traces, then the closed disclosure's recent
+    /// replies and where the brain runs.
     func buildDiagnostics() {
+        diagnosticsCard.add(lastTurn)
         diagnostics.orientation = .vertical
         diagnostics.alignment = .leading
         diagnostics.spacing = Metrics.space2
         diagnostics.isHidden = true
-        for label in [stats, replies, brain] {
+        for label in [replies, brain] {
             label.font = Typography.caption
             label.ink = .secondary
-            label.preferredMaxLayoutWidth = Self.width - 2 * Self.inset
+            label.preferredMaxLayoutWidth = Self.innerWidth
             label.translatesAutoresizingMaskIntoConstraints = false
             diagnostics.addArrangedSubview(label)
             label.widthAnchor.constraint(equalTo: diagnostics.widthAnchor).isActive = true
         }
-        failure.preferredMaxLayoutWidth = Self.width - 2 * Self.inset
+        replies.isHidden = true
         brain.stringValue = String(format: HomeEngineStrings.brainFormat, muxHome.path)
-        // Show Traces and Show Memory (the built-in Memory Inspector, every build): plain links.
+        diagnosticsCard.add(diagnostics)
         let traces = HomeChiefLinkButton(title: HomeEngineStrings.openTraces, target: self, action: #selector(openTraces))
+        traces.setAccessibilityIdentifier("cmux.home.chief.openTraces")
         links.addArrangedSubview(traces)
-        links.addArrangedSubview(HomeChiefLinkButton(title: HomeEngineStrings.showMemory, target: self, action: #selector(showMemory)))
         links.orientation = .horizontal
         links.spacing = Metrics.space4
-        diagnostics.addArrangedSubview(links)
-        localViews = [brain, links]
+        diagnosticsCard.add(links)
+        localViews = [brain, links, memoryCard]
     }
 
     @objc func clickDiagnosticsTitle() {

@@ -346,6 +346,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DebugBrowserExternal.register(on: control.service?.router, services: services)
                 DebugCloudMove.register(on: control.service?.router, services: services)
                 DebugTerminalLinks.register(on: control.service?.router, services: services)
+                DebugChiefSettings.register(on: control.service?.router)
                 if let router = control.service?.router {
                     // The passkey hand-off: an agent's request waits for the person's banner click.
                     let passkeys = BrowserPasskeyRequests(host: AppBrowserPasskeyHost(services: services))

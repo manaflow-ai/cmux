@@ -18,13 +18,18 @@ public final class HomeChiefSettingsPopover {
 
     public init(content: HomeChiefSettingsView) {
         self.content = content
-        let body = NSView()
-        body.addSubview(content)
+        // Cards the screen cannot fit (the pet rows, an open Diagnostics) scroll: the popup
+        // caps the panel at the room on screen.
+        let scroll = NSScrollView()
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        SystemScrollers.follow(scroll)
+        scroll.documentView = content
         NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: body.leadingAnchor),
-            content.topAnchor.constraint(equalTo: body.topAnchor),
+            content.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+            content.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
         ])
-        card = Glass.makeOverlayPanel(content: body, cornerRadius: PopupStyle.standard.cornerRadius)
+        card = Glass.makeOverlayPanel(content: scroll, cornerRadius: PopupStyle.standard.cornerRadius)
         popup.panel.adoptPopupStyle(card: card)
         popup.onDismiss = { [weak self] in
             self?.content.commitEditing()

@@ -9,18 +9,21 @@ import UniformTypeIdentifiers
 
 /// The Chief's settings: the content of the popover the header's "Chief >"
 /// name pill opens (`HomeChiefSettingsPopover`; Lawrence, 2026-10-05:
-/// per-Chief configuration opens only from the pill). Leo 2026-10-19 ("kinda
-/// yikes"): it was a right sidebar with no surface of its own that ran under
-/// the header, a raw avatar text field, stacked pickers that all read
-/// "Default", and the trace stats in the body. Now it is one settings card:
+/// per-Chief configuration opens only from the pill). Leo 2026-10-21 (#89: cramped pickers,
+/// raw ids, Diagnostics as a text dump): a settings page of grouped glass cards
+/// (``HomeChiefSettingsCard``), each only where it has something real to show:
 ///
-/// - Identity: the avatar, a menu to change it, and the name beside it.
-/// - Agent: Harness, Model, Effort and (where the harness has a fast tier) Speed rows; "Default"
-///   names what it runs. The Model menu groups by family (``HomeChiefModelMenu``) and Effort offers
-///   only the levels the shown model takes.
-/// - Appearance: rows other features add (`addAppearanceRow`), hidden while empty.
-/// - Diagnostics: the last turns, where the brain runs, traces and memory,
-///   behind a closed disclosure.
+/// - Identity: the avatar, a menu to change it, the name beside it, where the Chief runs (shown,
+///   never picked here), and the rows other features add (`addAppearanceRow`: the pet).
+/// - Brain: Backend, Model, Effort and (where the harness has a fast tier) Speed, each with a line
+///   that says what it changes; "Default" names what it runs, every value by its name
+///   (``Swift/String/chiefModelName``, ``Swift/String/chiefHarnessName``), never a raw id. The Model menu groups by family (``HomeChiefModelMenu``)
+///   and Effort offers only the levels the shown model takes.
+/// - Memory (this Mac's brain): what the Chief remembers, and Show Memory.
+/// - Diagnostics: the last turn's engine, time, cost or tokens, cache share and tool calls
+///   (``HomeChiefLastTurnView``), Show Traces, and the recent replies behind a closed disclosure.
+///
+/// Behavior, Permissions and Notifications have no per-Chief setting yet, so they have no card.
 ///
 /// The pickers read and write the engine of the brain that answers this
 /// Chief (`HomeChiefEngineSource`): this Mac's `<mux home>/optchat/engine.json`,
@@ -29,11 +32,12 @@ import UniformTypeIdentifiers
 /// so a change applies from the next turn.
 @MainActor
 public final class HomeChiefSettingsView: NSView {
-    /// The card's width; its height follows its content (`fittingSize`).
-    public static let width: CGFloat = 320
+    /// The popover's width; its height follows its content (`fittingSize`).
+    public static let width: CGFloat = 380
     static let inset: CGFloat = 16
     static let avatarSize: CGFloat = 52
-    static let pickerWidth: CGFloat = 188
+    /// The width inside a card, where its rows and wrapped lines run.
+    static var innerWidth: CGFloat { width - 2 * inset - 2 * HomeChiefSettingsCard.padding }
     /// The shown Chief's mux home (its avatar, traces, the brain line); `use` moves it.
     var muxHome: URL
     let avatarButton = HomeChiefAvatarButton(size: avatarSize)
@@ -59,16 +63,24 @@ public final class HomeChiefSettingsView: NSView {
     let harnessHint = ThemedLabel(wrappingLabelWithString: "")
     /// Why the engine could not be read or set, or a picture could not be used.
     let failure = ThemedLabel(wrappingLabelWithString: "")
-    let appearanceHeader = ThemedLabel(labelWithString: HomeEngineStrings.appearanceSection)
-    let appearanceRows = NSStackView()
+    let identityCard = HomeChiefSettingsCard(title: HomeChiefCardStrings.identity, symbol: "person.crop.circle",
+                                             identifier: "cmux.home.chief.card.identity")
+    let brainCard = HomeChiefSettingsCard(title: HomeChiefCardStrings.brain, symbol: "brain", identifier: "cmux.home.chief.card.brain")
+    let memoryCard = HomeChiefSettingsCard(title: HomeChiefCardStrings.memory, symbol: "books.vertical",
+                                           identifier: "cmux.home.chief.card.memory")
+    /// Diagnostics' card; its header is the disclosure over the recent replies (`diagnosticsRow`).
+    lazy var diagnosticsCard = HomeChiefSettingsCard(title: nil, symbol: "waveform.path.ecg", identifier: "cmux.home.chief.card.diagnostics",
+                                                     titleView: diagnosticsRow())
     let diagnosticsToggle = NSButton()
+    /// The last turn's engine and measures, always shown in the Diagnostics card.
+    let lastTurn = HomeChiefLastTurnView(wrapWidth: HomeChiefSettingsView.innerWidth)
+    /// What the disclosure shows: the recent replies and where the brain runs.
     let diagnostics = NSStackView()
-    let stats = ThemedLabel(wrappingLabelWithString: "")
     let replies = ThemedLabel(wrappingLabelWithString: "")
     /// The full mux home path and the brain's tools (this Mac's brain only).
     let brain = ThemedLabel(wrappingLabelWithString: "")
     let links = NSStackView()
-    /// This Mac's brain only (its mux home, traces, memory): hidden for a
+    /// This Mac's brain only (its mux home, traces, the Memory card): hidden for a
     /// Chief whose brain runs on a paired server.
     var localViews: [NSView] = []
     let stack = NSStackView()
@@ -132,7 +144,7 @@ public final class HomeChiefSettingsView: NSView {
         setAccessibilityLabel(HomeEngineStrings.title)
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = Metrics.space2
+        stack.spacing = Metrics.space3
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         NSLayoutConstraint.activate([
@@ -142,53 +154,23 @@ public final class HomeChiefSettingsView: NSView {
             stack.topAnchor.constraint(equalTo: topAnchor, constant: Self.inset),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Self.inset),
         ])
-        addFullWidth(identityRow())
-        stack.setCustomSpacing(Metrics.space4, after: stack.arrangedSubviews[0])
+        identityCard.add(identityRow())
+        addFullWidth(identityCard)
         failure.font = Typography.caption
         failure.ink = .danger
         failure.isHidden = true
+        failure.preferredMaxLayoutWidth = Self.width - 2 * Self.inset
         addFullWidth(failure)
-        addFullWidth(Self.sectionHeader(HomeEngineStrings.agentSection))
-        for (button, label) in [(harness, HomeEngineStrings.harness), (model, HomeEngineStrings.model), (effort, HomeEngineStrings.effort),
-                                (speed, HomeEngineStrings.speed)] {
-            button.target = self
-            button.action = #selector(picked(_:))
-            button.font = Typography.body
-            button.setAccessibilityLabel(label)
-            addFullWidth(Self.row(label, button))
-            if button === harness {
-                harnessHint.font = Typography.caption
-                harnessHint.ink = .secondary
-                harnessHint.isHidden = true
-                harnessHint.setAccessibilityIdentifier("cmux.home.chief.harnessHint")
-                harnessHint.preferredMaxLayoutWidth = Self.width - 2 * Self.inset
-                addFullWidth(harnessHint)
-            }
-        }
-        speed.superview?.isHidden = true
-        let note = Self.footnote(HomeEngineStrings.nextTurn)
-        note.preferredMaxLayoutWidth = Self.width - 2 * Self.inset
-        addFullWidth(note)
-        stack.setCustomSpacing(Metrics.space4, after: note)
-        // Appearance: rows other features add; the section shows once it has one.
-        appearanceHeader.font = Typography.header
-        appearanceHeader.ink = .secondary
-        appearanceRows.orientation = .vertical
-        appearanceRows.alignment = .leading
-        appearanceRows.spacing = Metrics.space2
-        addFullWidth(appearanceHeader)
-        addFullWidth(appearanceRows)
-        stack.setCustomSpacing(Metrics.space4, after: appearanceRows)
-        appearanceHeader.isHidden = true
-        appearanceRows.isHidden = true
-        // The rest of the Chief's settings (the pet, the chat's look, every Chief) live in Settings.
+        buildBrainCard()
+        addFullWidth(brainCard)
+        buildMemoryCard()
+        addFullWidth(memoryCard)
+        buildDiagnostics()
+        addFullWidth(diagnosticsCard)
+        // The rest of the Chief's settings (the chat's look, every Chief) live in Settings.
         let allSettings = HomeChiefLinkButton(title: HomeEngineStrings.allChiefSettings, target: self, action: #selector(openAllSettings))
         allSettings.setAccessibilityIdentifier("cmux.home.chief.allSettings")
         stack.addArrangedSubview(allSettings)
-        stack.setCustomSpacing(Metrics.space4, after: allSettings)
-        addFullWidth(diagnosticsRow())
-        buildDiagnostics()
-        addFullWidth(diagnostics)
         showHarnessRow()
         refresh()
     }
