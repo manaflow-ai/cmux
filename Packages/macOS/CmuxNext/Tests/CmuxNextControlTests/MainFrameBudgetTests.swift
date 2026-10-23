@@ -8,7 +8,7 @@ import Testing
 /// class order, per-frame budgets, the yield to pending input, nesting, the watchdog's board.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct MainFrameBudgetTests {
     @Test func theFirstTaskOfAFrameRunsAndTheRestWaitForTheNextFrame() {
-        let clock = ManualUptime()
+        let clock = BudgetClock()
         let budget = MainFrameBudget(uptimeNanos: clock.read)
         budget.beginFrame(timestamp: 1, refreshInterval: 1.0 / 60)
         #expect(budget.mayRun(.visible))
@@ -27,7 +27,7 @@ import Testing
     }
 
     @Test func aSecondCallForTheSameVsyncKeepsTheWindow() {
-        let clock = ManualUptime()
+        let clock = BudgetClock()
         let budget = MainFrameBudget(uptimeNanos: clock.read)
         budget.beginFrame(timestamp: 5, refreshInterval: 1.0 / 60)
         budget.run(.visible, owner: "store") { clock.advance(ms: 3) }
@@ -37,7 +37,7 @@ import Testing
     }
 
     @Test func aTaskOutsideAnyTickStartsAFreshWindowAfterAFrame() {
-        let clock = ManualUptime()
+        let clock = BudgetClock()
         let budget = MainFrameBudget(uptimeNanos: clock.read)
         budget.beginFrame(timestamp: 1, refreshInterval: 1.0 / 60)
         budget.run(.automation, owner: "control") { clock.advance(ms: 2) }
@@ -47,7 +47,7 @@ import Testing
     }
 
     @Test func budgetedClassesYieldToPendingInputButNotTwoFramesInARow() {
-        let clock = ManualUptime()
+        let clock = BudgetClock()
         let input = FakeInputPending()
         let budget = MainFrameBudget(input: input, uptimeNanos: clock.read)
         budget.beginFrame(timestamp: 1, refreshInterval: 1.0 / 60)
@@ -66,7 +66,7 @@ import Testing
     }
 
     @Test func injectedInputQueuedOffMainMakesBatchesYield() {
-        let clock = ManualUptime()
+        let clock = BudgetClock()
         let budget = MainFrameBudget(uptimeNanos: clock.read)
         budget.beginFrame(timestamp: 1, refreshInterval: 1.0 / 60)
         budget.board.inputQueued()
@@ -78,7 +78,7 @@ import Testing
     }
 
     @Test func aNestedTaskIsPublishedAndChargedAsItself() {
-        let clock = ManualUptime()
+        let clock = BudgetClock()
         let budget = MainFrameBudget(uptimeNanos: clock.read)
         budget.beginFrame(timestamp: 1, refreshInterval: 1.0 / 60)
         var inner: MainTaskBoard.Task?
@@ -103,7 +103,7 @@ import Testing
     }
 
     @Test func mayRunInsideATaskCountsItsTimeSoFar() {
-        let clock = ManualUptime()
+        let clock = BudgetClock()
         let budget = MainFrameBudget(uptimeNanos: clock.read)
         budget.beginFrame(timestamp: 1, refreshInterval: 1.0 / 60)
         var allowed: [Bool] = []
@@ -118,7 +118,7 @@ import Testing
     }
 
     @Test func anOverBudgetTaskReachesTheBoardsSink() {
-        let clock = ManualUptime()
+        let clock = BudgetClock()
         let budget = MainFrameBudget(uptimeNanos: clock.read)
         let reported = Box<[(String, UInt64)]>([])
         budget.board.setOverBudgetSink { task, nanos in reported.withLock { $0.append((task.owner, nanos)) } }
@@ -134,7 +134,7 @@ import Testing
     // MARK: FrameScheduler
 
     @Test func theSchedulerRunsFrameClientsThenVisibleThenAutomationAndHoldsBatchesForInput() {
-        let clock = ManualUptime()
+        let clock = BudgetClock()
         let input = FakeInputPending()
         let budget = MainFrameBudget(input: input, uptimeNanos: clock.read)
         let scheduler = FrameScheduler.testing(budget: budget) { _ in FakeFrameLink() }
@@ -230,7 +230,7 @@ import Testing
 
 /// A clock the test moves (`CLOCK_UPTIME_RAW` nanoseconds).
 @MainActor
-private final class ManualUptime {
+private final class BudgetClock {
     private var now: UInt64 = 1_000_000_000
     var read: () -> UInt64 { { [unowned self] in self.now } }
     func advance(ms: Double) { now += UInt64(ms * 1_000_000) }
