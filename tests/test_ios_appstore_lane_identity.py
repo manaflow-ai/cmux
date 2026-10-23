@@ -1219,7 +1219,7 @@ def test_upload_appstore_rejects_unmarked_reused_archive(tmp: Path, fakebin: Pat
     )
     _check(result.returncode != 0, "App Store rejects a reused archive without the VPN-free build marker")
     _check(
-        "CMUX_APPSTORE_BUILD=YES" in result.stderr,
+        "CMUXAppStoreBuild=YES" in result.stderr,
         "unmarked App Store archive error names the required build marker",
     )
 

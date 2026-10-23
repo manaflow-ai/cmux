@@ -114,6 +114,7 @@ class AppStoreEntitlementTests(unittest.TestCase):
         filtered, removed = module.remove_network_extension_entitlement(source)
 
         self.assertNotIn("com.apple.developer.networking.networkextension", filtered)
+        self.assertNotIn("com.apple.developer.networking.vpn.api", filtered)
         self.assertEqual(
             removed,
             [
