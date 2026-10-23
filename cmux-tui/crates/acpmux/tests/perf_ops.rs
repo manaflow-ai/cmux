@@ -406,6 +406,35 @@ async fn prompt(c: &mut Client, s: &str, text: &str, id: &str) -> oneshot::Recei
     .await
 }
 
+/// Where the daemon spends a session list's time: macOS `sample` of the daemon for 2 s while
+/// one connection asks for `_acpmux/sessions` back to back. Prints the heaviest frames of the
+/// samples (top of stack) as `ACPMUX-PROFILE` lines; a diagnostic, not a budget.
+async fn profile_sessions_list(daemon: &Daemon, c: &mut Client) {
+    let out = std::env::temp_dir().join(format!("amx-sample-{}.txt", std::process::id()));
+    let Ok(mut sample) = std::process::Command::new("/usr/bin/sample")
+        .args([&daemon.pid().to_string(), "2", "-mayDie", "-file"])
+        .arg(&out)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        eprintln!("ACPMUX-PROFILE sample did not start");
+        return;
+    };
+    let mut lists = 0;
+    while sample.try_wait().ok().flatten().is_none() {
+        c.call("_acpmux/sessions", json!({})).await;
+        lists += 1;
+    }
+    let text = std::fs::read_to_string(&out).unwrap_or_default();
+    let _ = std::fs::remove_file(&out);
+    eprintln!("ACPMUX-PROFILE sessions lists during the sample: {lists}");
+    let top = text.split("Sort by top of stack").nth(1).unwrap_or("");
+    for line in top.lines().filter(|l| !l.trim().is_empty()).take(40) {
+        eprintln!("ACPMUX-PROFILE {}", line.trim());
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn acpmux_ops_and_streaming_meet_the_daemon_budgets_light_and_stress() {
     let dir = scratch();
@@ -526,6 +555,7 @@ async fn acpmux_ops_and_streaming_meet_the_daemon_budgets_light_and_stress() {
         t.await.unwrap();
     }
     report.latency("many.token_to_client", app.take_tokens(), Some(OP_P95));
+    profile_sessions_list(&daemon, &mut ops).await;
 
     report.write();
     assert!(report.over.is_empty(), "over the daemon budgets: {:#?}", report.over);
