@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextCompat
+import CmuxNextSidebar
 
 /// Workspace names, colors, notifications, identifiers, and Finder reveal.
 /// Colors go through the sidebar bridge (optimistic row update, then
@@ -49,6 +50,9 @@ enum WorkspaceMetadataHandlers {
             return PinCommands(context: context).isWorkspaceOnTopRows(workspace.id) ? PinStrings.removeFromTop : PinStrings.addToTop
         }
         registry.bind("palette.resetWorkspaceColor", requires: DaemonCapabilities.shared.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in try setColor(nil, invocation, context) })
+        registry.bind("workspace.removeAllColors", requires: DaemonCapabilities.shared.workspaceMetadata, daemon: context.services.activeDaemon, run: { _ in
+            try removeAllColors(context)
+        })
         for id: ActionID in ["palette.markWorkspaceRead", "clearWorkspaceNotifications"] {
             registry.bind(id, requires: DaemonCapabilities.shared.notificationAck, daemon: context.services.activeDaemon, run: { invocation in
                 try acknowledge([try context.workspace(invocation).model], context)
@@ -82,6 +86,17 @@ enum WorkspaceMetadataHandlers {
             let daemon = context.services.activeDaemon, resource = daemon.store.stateResourceID(workspace: key)
             daemon.send("set-workspace-metadata") { try await $0.state.setWorkspaceIdentity(key, resource: resource, color: update) }
         }
+    }
+
+    /// Remove All Workspace Colors (Lawrence 2026-10-22: "need to be able to remove all workspace
+    /// colors"): every workspace on every machine loses its color, and every group the window lists
+    /// takes no color (`none`), each through the same path as its own menu's No Color swatch.
+    private static func removeAllColors(_ context: AppActionContext) throws {
+        try context.require(DaemonCapabilities.shared.workspaceMetadata)
+        let sidebar = try context.sidebar()
+        let colored = context.services.machines.daemons.flatMap { daemon in daemon.store.workspaces.filter { $0.color != nil }.map(\.id) }
+        if !colored.isEmpty { sidebar.handle(.setColor(colored.map(SidebarWorkspaceID.init), nil)) }
+        for group in sidebar.model.coloredGroups { sidebar.handle(.setGroupColor(group, GroupTint.none)) }
     }
 
     /// Acknowledges every unread tab of `workspaces` (all tabs when the

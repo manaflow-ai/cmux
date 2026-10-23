@@ -72,6 +72,22 @@ struct WorkspaceNoColorTests {
         #expect(descriptor.surfaces.contains(.palette))
     }
 
+    /// Remove All Workspace Colors sets every listed group that draws a color to no color, once each.
+    @Test func removeAllFindsEveryColoredGroupOnce() {
+        var plain = CmuxNextSidebar.SidebarGroup(id: GroupID("plain"), name: "plain", workspaces: [])
+        plain.tint = GroupTint.none
+        let sections = [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [
+            .group(CmuxNextSidebar.SidebarGroup(id: GroupID("red"), name: "red", color: .red, workspaces: [])),
+            .group(CmuxNextSidebar.SidebarGroup(id: GroupID("grey"), name: "grey", color: .grey, workspaces: [])),
+            .group(CmuxNextSidebar.SidebarGroup(id: GroupID("custom"), name: "custom", custom: "#336699", workspaces: [])),
+            .group(plain),
+        ])]
+        let model = SidebarModel(sections: sections)
+        #expect(model.coloredGroups == [GroupID("red"), GroupID("grey"), GroupID("custom")])
+        for id in model.coloredGroups { model.send(.setGroupColor(id, GroupTint.none)) }
+        #expect(model.coloredGroups.isEmpty, "after the edits no listed group draws a color")
+    }
+
     @Test func theShowColorsSettingIsListedAndOnByDefault() throws {
         let row = try #require(SettingsSchema.descriptor(for: ["sidebar", "showColors"]))
         #expect(row.defaultValue == .bool(true))
