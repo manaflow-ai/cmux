@@ -136,13 +136,14 @@ state_phase=""
 state_pid=""
 state_helper=""
 state_index_url=""
+state_index_token=""
 state_gallery_url=""
 state_log=""
 state_started=""
 
 read_state() {
   state_repo=""; state_sha=""; state_branch=""; state_dirty=""; state_phase=""
-  state_pid=""; state_helper=""; state_index_url=""; state_gallery_url=""
+  state_pid=""; state_helper=""; state_index_url=""; state_index_token=""; state_gallery_url=""
   state_log=""; state_started=""
   [[ -f "$state_file" ]] || return 1
   local key value
@@ -156,6 +157,7 @@ read_state() {
       pid) state_pid="$value" ;;
       helper) state_helper="$value" ;;
       index_url) state_index_url="$value" ;;
+      index_token) state_index_token="$value" ;;
       gallery_url) state_gallery_url="$value" ;;
       log) state_log="$value" ;;
       started) state_started="$value" ;;
@@ -176,6 +178,7 @@ write_state() {
     printf 'pid\t%s\n' "$state_pid"
     printf 'helper\t%s\n' "$state_helper"
     printf 'index_url\t%s\n' "$state_index_url"
+    printf 'index_token\t%s\n' "$state_index_token"
     printf 'gallery_url\t%s\n' "$state_gallery_url"
     printf 'log\t%s\n' "$state_log"
     printf 'started\t%s\n' "$state_started"
@@ -282,6 +285,12 @@ http_ready() {
   curl -fsS --max-time 2 "$url" >/dev/null 2>&1
 }
 
+http_owned() {
+  local url="$1" token="$2"
+  [[ -n "$token" ]] || return 1
+  curl -fsS --max-time 2 "$url" | grep -Fq "$token"
+}
+
 published_gallery_url() {
   local log="$1" candidate
   candidate="$(sed -n 's/^GALLERY_URL=//p' "$log" | tail -1 || true)"
@@ -301,7 +310,7 @@ start_web() {
   local log="$state_root/web-$stamp-$$.log"
   state_repo="$repo_root"; state_sha="$sha"; state_branch="$branch"; state_dirty="$dirty"
   state_phase="starting"; state_pid=""; state_helper="$helper"; state_index_url=""
-  state_gallery_url=""; state_log="$log"; state_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  state_index_token=""; state_gallery_url=""; state_log="$log"; state_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   # Start from the repository root so web-dev's own relative paths resolve.
   (
     cd "$repo_root"
@@ -310,10 +319,11 @@ start_web() {
   state_pid="$!"
   write_state
 
-  local index_url="" i
+  local index_url="" index_token="" i
   for i in $(seq 1 $((timeout * 10))); do
     index_url="$(sed -n 's/^INDEX_URL=//p' "$log" | tail -1 || true)"
-    if [[ -n "$index_url" ]] && http_ready "$index_url"; then break; fi
+    index_token="$(sed -n 's/^INDEX_TOKEN=//p' "$log" | tail -1 || true)"
+    if [[ -n "$index_url" && -n "$index_token" ]] && http_owned "$index_url" "$index_token"; then break; fi
     if ! kill -0 "$state_pid" 2>/dev/null; then
       local tail_log
       tail_log="$(tail -30 "$log" 2>/dev/null || true)"
@@ -322,14 +332,14 @@ start_web() {
     fi
     sleep 0.1
   done
-  [[ -n "$index_url" ]] && http_ready "$index_url" \
-    || fail "web helper did not publish a reachable INDEX_URL within ${timeout}s (log: $log)" 1
+  [[ -n "$index_url" && -n "$index_token" ]] && http_owned "$index_url" "$index_token" \
+    || fail "web helper did not publish an owned INDEX_URL within ${timeout}s (log: $log)" 1
 
   # A server on the configured port may belong to another checkout. Only the
   # managed helper's readiness output can associate a gallery with this preview.
   local gallery_url
   gallery_url="$(published_gallery_url "$log")"
-  state_phase="ready"; state_index_url="$index_url"; state_gallery_url="$gallery_url"
+  state_phase="ready"; state_index_url="$index_url"; state_index_token="$index_token"; state_gallery_url="$gallery_url"
   write_state
   index_result_url="$index_url"
   gallery_result_url="$gallery_url"
@@ -353,7 +363,7 @@ ensure_web() {
   if ((have_state)); then
     if [[ "$state_sha" == "$sha" && "$state_phase" == ready ]] \
       && is_managed_pid "$state_pid" "$state_helper" \
-      && http_ready "$state_index_url"; then
+      && http_owned "$state_index_url" "$state_index_token"; then
       index_result_url="$state_index_url"; gallery_result_url="$state_gallery_url"
       pid_result="$state_pid"; log_result="$state_log"; reused_result="true"; phase_result="ready"
       # A gallery can disappear independently. Re-read the helper's published URL
@@ -427,8 +437,8 @@ if [[ "$command" == status ]]; then
     status_error="preview is ${state_phase:-starting}; inspect $state_log"
   elif ! is_managed_pid "$state_pid" "$state_helper"; then
     status_error="preview process $state_pid is not running; inspect $state_log"
-  elif ! http_ready "$state_index_url"; then
-    status_error="preview index is unreachable at $state_index_url; inspect $state_log"
+  elif ! http_owned "$state_index_url" "$state_index_token"; then
+    status_error="preview index is not owned or reachable at $state_index_url; inspect $state_log"
   else
     status_running=true
   fi

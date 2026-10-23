@@ -34,6 +34,7 @@ settings_origin="http://127.0.0.1:$settings_port"
 gallery_origin="http://127.0.0.1:$gallery_port"
 pages_origin="http://127.0.0.1:$pages_port"
 index_origin="http://127.0.0.1:$index_port"
+index_token="$(openssl rand -hex 16 2>/dev/null || python3 -c 'import secrets; print(secrets.token_hex(16))')"
 
 server_pids=()
 daemon_pid=""
@@ -250,6 +251,7 @@ cat >"$index_dir/index.html" <<EOF
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="cmux-preview-token" content="$index_token">
 <title>cmux-next web dev</title>
 <style>body{font:15px system-ui,sans-serif;line-height:1.6;margin:2rem;max-width:60rem}li{margin:.35rem 0}code{font-size:.9em}</style>
 <h1>cmux-next web dev</h1>
@@ -275,6 +277,7 @@ echo
 echo "cmux-next web dev ready"
 if [[ "$gallery_enabled" -eq 1 ]]; then echo "GALLERY_URL=$gallery_origin/gallery/"; fi
 echo "INDEX_URL=$index_origin/"
+echo "INDEX_TOKEN=$index_token"
 echo "app hot reload: CMUX_NEXT_PAGES_DEV_URL=$pages_origin/ CMUX_NEXT_AGENT_PANE_DEV_URL=$agent_origin/"
 echo "timing: React edit -> Vite HMR update $hmr_seconds (visible change is normally about 1 s)"
 echo "timing: acpmux fleet build + fetch $fleet_seconds; daemon restart/readiness $daemon_seconds"

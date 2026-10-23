@@ -57,13 +57,22 @@ cat > "$TMP/fake-web.sh" <<'FAKE'
 #!/usr/bin/env bash
 set -euo pipefail
 port_file="${TMP_FAKE_WEB_PORT_FILE:?}"
-python3 - "$port_file" <<'PY' &
+token="${TMP_FAKE_WEB_INDEX_TOKEN:-fake-preview-token}"
+python3 - "$port_file" "$token" <<'PY' &
 import http.server
 import pathlib
 import sys
 
 path = pathlib.Path(sys.argv[1])
-server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), http.server.SimpleHTTPRequestHandler)
+token = sys.argv[2]
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(f"<meta name=cmux-preview-token content={token}>".encode())
+    def log_message(self, *args):
+        pass
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
 path.write_text(str(server.server_port))
 server.serve_forever()
 PY
@@ -74,6 +83,7 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 port=$(cat "$port_file")
+echo "INDEX_TOKEN=$token"
 if [[ "${TMP_FAKE_WEB_PUBLISH_GALLERY:-0}" == 1 ]]; then echo "GALLERY_URL=http://127.0.0.1:$port/"; fi
 echo "INDEX_URL=http://127.0.0.1:$port/"
 wait "$server_pid"
@@ -81,9 +91,9 @@ FAKE
 chmod +x "$TMP/fake-web.sh"
 export TMP_FAKE_WEB_PORT_FILE="$TMP/port"
 first_json=$(CMUX_PREVIEW_STATE_DIR="$state" CMUX_PREVIEW_WEB_DEV_SCRIPT="$TMP/fake-web.sh" \
-  CMUX_PREVIEW_START_TIMEOUT=10 "$ROOT/scripts/cmux-next/preview.sh" web --json)
+  TMP_FAKE_WEB_INDEX_TOKEN=first-preview-token CMUX_PREVIEW_START_TIMEOUT=10 "$ROOT/scripts/cmux-next/preview.sh" web --json)
 second_json=$(CMUX_PREVIEW_STATE_DIR="$state" CMUX_PREVIEW_WEB_DEV_SCRIPT="$TMP/fake-web.sh" \
-  CMUX_PREVIEW_START_TIMEOUT=10 "$ROOT/scripts/cmux-next/preview.sh" web --json)
+  TMP_FAKE_WEB_INDEX_TOKEN=first-preview-token CMUX_PREVIEW_START_TIMEOUT=10 "$ROOT/scripts/cmux-next/preview.sh" web --json)
 python3 - "$first_json" "$second_json" "$sha" <<'PY'
 import json
 import sys
@@ -185,7 +195,7 @@ PY
 # A helper-published gallery is accepted even while the configured port belongs
 # to that other server. The URL must come from the managed helper's readiness.
 published_json=$(CMUX_PREVIEW_STATE_DIR="$TMP/published-state" CMUX_PREVIEW_WEB_DEV_SCRIPT="$TMP/fake-web.sh" \
-  TMP_FAKE_WEB_PORT_FILE="$TMP/published-port" TMP_FAKE_WEB_PUBLISH_GALLERY=1 \
+  TMP_FAKE_WEB_PORT_FILE="$TMP/published-port" TMP_FAKE_WEB_INDEX_TOKEN=published-preview-token TMP_FAKE_WEB_PUBLISH_GALLERY=1 \
   CMUX_WEB_DEV_GALLERY_PORT="$foreign_gallery_port" CMUX_PREVIEW_START_TIMEOUT=10 \
   "$ROOT/scripts/cmux-next/preview.sh" gallery --json)
 python3 - "$published_json" "$foreign_gallery_port" <<'PY'
