@@ -66,9 +66,9 @@ token usage, and `total_cost_usd` as the process's running total (0.25 more
 per cost-probe turn, from 0 at each start). "cost-restore X" first restores
 the running total X, as a resumed Claude Code does; "cost-zero" reports a
 zeroed total, as a crashed one's last result can.
-"limits-probe" sends two rate_limit_event lines as Claude Code 2.1.307 does
+"rate-limits-probe" sends two rate_limit_event lines as Claude Code 2.1.307 does
 (`utilization` a 0-1 fraction): the session and weekly windows, then the
-session window alone, moved.
+session window alone, moved. FAKE_CLAUDE_LIMITS=1 sends them on every prompt.
 """
 import json
 import os
@@ -712,8 +712,8 @@ while True:
         if said.strip() == "compact-probe":
             send({"type": "system", "subtype": "compact_boundary",
                   "compact_metadata": {"trigger": "manual", "pre_tokens": 4500}})
-        # "limits-probe": the account's plan usage limits, then a later event for one window.
-        if said.strip() == "limits-probe":
+        # "rate-limits-probe": the account's plan usage limits, then a later event for one window.
+        if said.strip() == "rate-limits-probe" or os.environ.get("FAKE_CLAUDE_LIMITS") == "1":
             send({"type": "rate_limit_event", "uuid": "rl-1", "session_id": SESSION, "rate_limit_info": {
                 "status": "allowed", "isUsingOverage": False, "unifiedWindows": {
                     "five_hour": {"utilization": 0.12, "resetsAt": 1790000000},

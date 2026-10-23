@@ -14,7 +14,8 @@ async fn a_claude_chat_keeps_its_accounts_usage_limits() {
     let id = s["sessionId"].as_str().unwrap().to_owned();
     let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
     assert!(info["usageLimits"].is_null(), "{info}");
-    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "limits-probe"}]});
+    let prompt =
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "rate-limits-probe"}]});
     c.request(method::SESSION_PROMPT, prompt).await.unwrap();
 
     // The later event moved the session window only; the weekly one stays.
