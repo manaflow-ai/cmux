@@ -45,9 +45,11 @@ extension AgentPaneModel {
               let value = reply["value"] as? [String: Any], let saved = value["uploads"] as? [[String: Any]],
               saved.count == recordings.count else { return nil }
         for ((index, _), file) in zip(recordings, saved) {
-            guard let path = file["path"] as? String, path.hasPrefix("/") else { return nil }
+            guard let path = file["path"] as? String, path.hasPrefix("/"),
+                  (path as NSString).lastPathComponent == items[index].url.lastPathComponent else { return nil }
             urls[index] = URL(fileURLWithPath: path)
         }
+        droppedPaths.retain(recordings.map { urls[$0.offset].path })
         return urls
     }
 

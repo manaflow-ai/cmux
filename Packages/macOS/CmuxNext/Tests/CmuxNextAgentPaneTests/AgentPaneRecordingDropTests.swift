@@ -27,7 +27,6 @@ struct AgentPaneRecordingDropTests {
             let clock = clock
             model.droppedPaths = AgentPaneDroppedPaths(now: { clock.now })
             model.onLocalPaths = { true }
-            model.workspaceRoots = { [saved.path] }
             model.replyLinks.mouseHeld = { true }
             model.replyLinks.startDrag = { [weak self] in self?.dragged.append($0); return true }
             model.onUpload = { [weak self] in
@@ -100,6 +99,12 @@ struct AgentPaneRecordingDropTests {
         let exported = saved.appendingPathComponent("Desktop export.mov")
         try FileManager.default.copyItem(at: try #require(rig.dragged.first), to: exported)
         #expect(try Data(contentsOf: exported) == data)
+        // Retaining one recording does not grant access to other files beside its copy.
+        let other = kept.deletingLastPathComponent().appendingPathComponent("not-dropped.mov")
+        try Data("private".utf8).write(to: other)
+        let refused = await rig.model.respond(to: AgentPaneRequest(body: ["method": "file.drag", "params": ["path": other.path]]))
+        #expect(refused["ok"] as? Bool == false)
+        #expect(rig.dragged.count == 1)
     }
 
     @Test func expiredOrMismatchedRecordsNeverSaveARecording() async throws {

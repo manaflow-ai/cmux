@@ -38,6 +38,9 @@ public final class AgentPaneDroppedPaths {
 
     private var held: [Kind: Record] = [:]
     private let now: @MainActor () -> TimeInterval
+    /// Exact copies of the person's recording drops, never their parent folders. These remain
+    /// usable by this pane's existing file open/drag actions after the preview path disappears.
+    private(set) var retainedPaths: [String] = []
 
     public init(now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
         self.now = now
@@ -94,6 +97,16 @@ public final class AgentPaneDroppedPaths {
             picked.append(left.remove(at: index))
         }
         return picked
+    }
+
+    /// Remembers only the trusted local upload owner's returned files, bounded to this pane's
+    /// newest hundred copies. No parent directory becomes an allowed root.
+    func retain(_ paths: [String]) {
+        for path in paths {
+            retainedPaths.removeAll { $0 == path }
+            retainedPaths.append(path)
+        }
+        if retainedPaths.count > 100 { retainedPaths.removeFirst(retainedPaths.count - 100) }
     }
 
     /// Whether WebKit names the file at `url` `name`. String equality is canonical: a name WebKit

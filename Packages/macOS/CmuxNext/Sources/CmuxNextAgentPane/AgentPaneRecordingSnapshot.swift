@@ -12,7 +12,7 @@ nonisolated struct AgentPaneRecordingSnapshot: Sendable {
     /// Whether this is a movie in macOS's temporary floating-preview folder. Ordinary files keep
     /// their own paths. Comparing the two `/var` spellings needs no file-system work at drag time.
     static func needsSnapshot(_ url: URL) -> Bool {
-        guard ["mov", "mp4", "m4v", "webm"].contains(url.pathExtension.lowercased()) else { return false }
+        guard url.isFileURL, ["mov", "mp4", "m4v", "webm"].contains(url.pathExtension.lowercased()) else { return false }
         func spelling(_ path: String) -> String { path.hasPrefix("/private/var/") ? String(path.dropFirst(8)) : path }
         let root = spelling(FileManager.default.temporaryDirectory.appendingPathComponent("TemporaryItems", isDirectory: true).path)
         let path = spelling(url.standardizedFileURL.path)
