@@ -6,11 +6,13 @@
 Covered: a rise opens the issue with the row, the packages that rose, the first sha seen higher and the commits in
 the range; the same rise updates it; a fall closes it; a new rise reopens it; the history is capped; a missing ratchet
 file prints a note; a run that cannot judge every row (a renamed row, another method version) never closes the
-issue; an older commit or a bisect step after a newer point changes nothing; a shallow, sparse, blobless clone whose
-HEAD is not the measured commit is counted with a few fetches, not one per blob; errors (also the count script's
-own exit) never fail and never change the state; the in-process run_report() changes only its own keys.
+issue; an older commit or a bisect step after a newer point changes nothing; a rewritten branch (the last point
+diverged, or its commit is gone) restarts the trend and says so; a shallow, sparse, blobless clone whose HEAD is not
+the measured commit (made by git clone, and the way actions/checkout makes it) is counted with a few fetches, not
+one per blob; the report ends by its deadline; errors (also the count script's own exit) never fail and never
+change the state; the in-process run_report() changes only its own keys.
 Run: python3 -I scripts/cmux-next/tests/test_perf_cron_arch_report.py (not a CI job)."""
-import contextlib, copy, importlib.util, io, json, os, subprocess, tempfile, unittest
+import contextlib, copy, importlib.util, io, json, os, subprocess, tempfile, time, unittest, urllib.error
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -76,6 +78,11 @@ class FakeGitHub:
     def __call__(self, path, method="GET", body=None, timeout=30):
         self.calls.append((method, path))
         prefix = f"/repos/{REPO}/issues"
+        if path.startswith(f"/repos/{REPO}/compare/"):
+            # Only asked when git cannot answer: in these tests, when the old point's commit no longer exists.
+            raise urllib.error.HTTPError(path, 404, "Not Found", None, None)
+        if path.startswith(f"/repos/{REPO}/commits/"):
+            return {"sha": path.rsplit("/", 1)[1]}
         if path.startswith("/search/issues"):
             items = sorted(self.issues.values(), key=lambda i: -i["number"])
             return {"items": [dict(i) for i in items if i["title"] == report.ISSUE_TITLE]}
@@ -258,7 +265,7 @@ class ArchReportTests(unittest.TestCase):
         before, issues = self.state_text(), copy.deepcopy(self.gh.issues)
         self.gh.calls.clear()
         out = self.run_report(a)
-        self.assertIn("not a descendant of the last point", out)
+        self.assertIn("is older than the last point", out)
         self.assertEqual(self.state_text(), before, "an older tip adds no point after a newer one")
         self.assertEqual(self.gh.issues, issues)
         self.assertEqual(self.gh.writes(), [])
@@ -267,21 +274,39 @@ class ArchReportTests(unittest.TestCase):
         self.assertEqual(self.state_text(), before)
         self.assertEqual(self.gh.calls, [], "a bisect step is not looked at at all")
 
-    def test_a_shallow_sparse_blobless_clone_is_counted_with_a_few_fetches(self):
+    def partial_clone(self, way):
+        """A depth-1, blobless, sparse checkout of the branch tip like the report job's, made by `git clone`
+        ("clone") or the way actions/checkout makes it ("checkout": init, remote add, fetch --filter, checkout),
+        which marks the promisor remote with remote.origin.promisor, not extensions.partialClone."""
+        git(self.repo, "config", "uploadpack.allowFilter", "true")
+        git(self.repo, "config", "uploadpack.allowAnySHA1InWant", "true")
+        clone = os.path.join(self.tmp.name, f"clone-{way}")
+        url = f"file://{self.repo}"
+        if way == "clone":
+            subprocess.run(["git", "clone", "-q", "--depth", "1", "--filter=blob:none", "--sparse", "--branch",
+                            "feat-cmux-next", url, clone], check=True, capture_output=True)
+            git(clone, "sparse-checkout", "set", "--no-cone", "scripts/cmux-next/perf-cron.py")
+        else:
+            subprocess.run(["git", "init", "-q", clone], check=True)
+            git(clone, "remote", "add", "origin", url)
+            git(clone, "config", "--local", "gc.auto", "0")
+            git(clone, "-c", "protocol.version=2", "fetch", "-q", "--no-tags", "--prune", "--no-recurse-submodules",
+                "--filter=blob:none", "--depth=1", "origin",
+                "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next")
+            git(clone, "sparse-checkout", "set", "--no-cone", "scripts/cmux-next/perf-cron.py")
+            git(clone, "checkout", "-q", "--force", "-B", "feat-cmux-next", "refs/remotes/origin/feat-cmux-next")
+        self.assertEqual(git(clone, "rev-parse", "--is-shallow-repository"), "true")
+        return clone
+
+    def assert_partial_clone_counted_with_a_few_fetches(self, way):
         for i in range(200):
             self.write(f"{SOURCES}/CmuxNextBrowser/File{i}.swift", f"struct File{i} {{}}\n")
         measured = self.commit("baseline", counts(5, 2))
         self.commit("later 1")
         self.commit("later 2", counts(5, 1))
-        git(self.repo, "config", "uploadpack.allowFilter", "true")
-        git(self.repo, "config", "uploadpack.allowAnySHA1InWant", "true")
-        clone = os.path.join(self.tmp.name, "clone")
-        subprocess.run(["git", "clone", "-q", "--depth", "1", "--filter=blob:none", "--sparse", "--branch",
-                        "feat-cmux-next", f"file://{self.repo}", clone], check=True, capture_output=True)
-        git(clone, "sparse-checkout", "set", "--no-cone", "scripts/cmux-next/perf-cron.py")
-        self.assertEqual(git(clone, "rev-parse", "--is-shallow-repository"), "true")
+        clone = self.partial_clone(way)
         self.assertNotEqual(git(clone, "rev-parse", "HEAD"), measured, "the measured sha is HEAD~2, not in the clone")
-        trace = os.path.join(self.tmp.name, "trace")
+        trace = os.path.join(self.tmp.name, f"trace-{way}")
         with mock.patch.dict(os.environ, {"GIT_TRACE": trace}):
             out = self.run_report(measured, root=clone)
         self.assertNotIn("error", out)
@@ -290,6 +315,62 @@ class ArchReportTests(unittest.TestCase):
         with open(trace) as f:
             fetches = [line for line in f if "built-in: git fetch" in line]
         self.assertLessEqual(len(fetches), 3, f"{len(fetches)} fetch processes: the blobs were fetched one by one")
+
+    def test_a_shallow_sparse_blobless_clone_is_counted_with_a_few_fetches(self):
+        self.assert_partial_clone_counted_with_a_few_fetches("clone")
+
+    def test_an_actions_checkout_style_partial_clone_is_counted_with_a_few_fetches(self):
+        self.assert_partial_clone_counted_with_a_few_fetches("checkout")
+
+    def test_a_rewritten_branch_restarts_the_trend_and_says_so(self):
+        a, b, c = self.rise()
+        self.run_report(c)
+        self.assertEqual([p["sha"] for p in self.load_state()[report.STATE_KEY]], [a, c])
+        git(self.repo, "reset", "-q", "--hard", b)  # feat-cmux-next rewritten: c is no longer on it
+        d = self.commit("feat: the rewritten singleton", counts(6, 3))
+        out = self.run_report(d)
+        self.assertIn("the trend restarts at", out)
+        self.assertEqual([p["sha"] for p in self.load_state()[report.STATE_KEY]], [a, d],
+                         "the point that is not an ancestor is dropped, the next tip adds its point")
+        body = self.own_issues()[0]["body"]
+        self.assertIn(f"Trend: the trend restarts at {d[:12]}", body)
+        self.assertIn(f"{a[:12]}..{d[:12]}", body)
+        self.assertIn("feat: the rewritten singleton", body)
+        self.assertNotIn("feat: add a browser singleton", body, "the rewritten-away commit is not in the range")
+        e = self.commit("docs: later")
+        out = self.run_report(e)
+        self.assertNotIn("restarts", out)
+        self.assertEqual([p["sha"] for p in self.load_state()[report.STATE_KEY]], [a, d, e])
+
+    def test_a_last_point_whose_commit_is_gone_restarts_the_trend(self):
+        a = self.commit("baseline", counts(5, 2))
+        gone = "f" * 40
+        state = self.load_state()
+        state[report.STATE_KEY] = [{"sha": gone, "at": "2026-10-22T00:00:00Z", "method_version": 1,
+                                    "totals": {"stateful_singletons": 4}, "packages": {}}]
+        with open(self.state, "w") as f:
+            json.dump(state, f)
+        out = self.run_report(a)
+        self.assertIn(f"the last point {gone[:12]} is gone", out)
+        self.assertEqual([p["sha"] for p in self.load_state()[report.STATE_KEY]], [a])
+
+    def test_the_report_ends_by_its_deadline_and_leaves_the_state(self):
+        self.write("scripts/cmux-next/arch_counts.py", "import time\ntime.sleep(60)\n")
+        sha = self.commit("a slow counter", counts(5, 2))
+        state = self.load_state()
+        frozen = copy.deepcopy(state)
+        started = time.monotonic()
+        out = io.StringIO()
+        with mock.patch.object(report, "gh_request", self.gh), contextlib.redirect_stdout(out):
+            changed = report.run_report(state, sha, "tip", root=self.repo, repo=REPO, issue=True,
+                                        deadline=report.Deadline(3))
+        self.assertFalse(changed)
+        self.assertLess(time.monotonic() - started, 30, "the count is stopped at the deadline, not after its sleep")
+        self.assertIn("deadline", out.getvalue())
+        self.assertEqual(state, frozen)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertFalse(report.run_report(state, sha, "tip", root=self.repo, deadline=report.Deadline(0)))
+        self.assertEqual(state, frozen, "a deadline that has passed stops the report before it changes anything")
 
     def test_a_persons_issue_with_the_same_title_is_never_touched(self):
         self.gh.add(7, report.ISSUE_TITLE, f"{report.ISSUE_MARK} copied", user={"login": "someone"})

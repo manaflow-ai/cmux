@@ -8,20 +8,30 @@ the hook is below). The command line does the same for one state file, for a man
 
 1. Counts every architecture row at SHA with that commit's own scripts/cmux-next/arch_counts.py, always in a
    subprocess (code of the measured commit never runs in this process, and its environment has no token). The
-   contract, owned by the ratchet-file slice: `arch_counts.py --repo ROOT --rev SHA --json` prints one JSON object
-   of the plans/cmux-next/arch-ratchet.json shape (`method` "arch_counts", `method_version`, `measured_sha`,
-   `rows` {id: {title, ratchet}}, `totals` {id: n}, `packages` {package: {id: n}}). It reads the commit from git
-   objects and parses Package.swift itself, so the report runner needs no swift and no working tree. Any other
-   output is an error (nothing is kept, the issue is left as it is).
+   contract, owned by the ratchet-file slice: arch_counts.py is one self-contained file (standard library imports
+   only; it is the only script exported from the commit, and it runs under `python3 -I`), and
+   `arch_counts.py --repo ROOT --rev SHA --json` prints one JSON object of the plans/cmux-next/arch-ratchet.json
+   shape (`method` "arch_counts", `method_version`, `measured_sha`, `rows` {id: {title, ratchet}}, `totals`
+   {id: n}, `packages` {package: {id: n}}). It reads the commit from git objects and parses Package.swift itself,
+   so the report runner needs no swift and no working tree. Any other output is an error (nothing is kept, the
+   issue is left as it is).
 2. The report checkout is shallow (depth 1), sparse and blobless, and SHA need not be its HEAD: before counting,
    this fetches SHA's commit when it is missing (one fetch, depth 1, no blobs) and then every blob the count reads
-   (PREFETCH_PATHS) in ONE fetch, so git never fetches the blobs one by one.
+   (PREFETCH_PATHS) in ONE fetch from the promisor remote, so git never fetches the blobs one by one. The promisor
+   remote is the one with `remote.<name>.promisor` true (what a current git and actions/checkout's init + fetch
+   --filter write), else `extensions.partialClone` (an older git).
    The 'is it there' probes use GIT_NO_LAZY_FETCH (git 2.44+); with an older git, nothing is probed in a
    partial clone and both fetches run unconditionally.
-3. Reads plans/cmux-next/arch-ratchet.json at SHA (the ratchet: a ratcheted row's total only goes down).
+3. Reads plans/cmux-next/arch-ratchet.json at SHA (the ratchet: a ratcheted row's total only goes down). The limit
+   of a row is the file's total; the cron does not apply `exceptions` allowances. A push that an exception entry
+   let raise a row leaves the tip over the file's total until someone runs `arch-ratchet.py --update`: the issue
+   lists the row's exception entries and says to run --update when one of them accepted the rise.
 4. Keeps the last HISTORY_POINTS points under the state's key `arch_history` (the other keys are left as they
-   are). Only a tip measurement (`kind` "tip") that is SHA's last point or descends from it adds a point: a bisect
-   step, an older commit or a commit whose order cannot be told adds nothing and changes nothing.
+   are). Only a tip measurement (`kind` "tip") adds a point. A tip older than the last point (GitHub compare
+   "behind") adds nothing and changes nothing; so does a run that cannot tell the order this time (no token, a
+   network error). A tip that is neither (feat-cmux-next was rewritten: "diverged", or the last point's commit is
+   gone) starts a new trend: the kept points that are not its ancestors are dropped, and the log and the issue
+   body say so.
 5. Prints one trend table: row, ratchet value, the last TREND_VALUES values, now, and an arrow.
 6. With --issue: when a ratcheted row is over its ratchet value, opens or updates the one issue ISSUE_TITLE
    (ISSUE_MARK in its body, opened by the workflow's bot); it names each row, the packages that rose, the first
@@ -30,24 +40,36 @@ the hook is below). The command line does the same for one state file, for a man
    the counts, no row in common, a method version that differs from the ratchet file's, a ratchet file of another
    shape) names the rows it could not judge, puts them in an open issue's body and never closes it.
 
-It never fails the job: run_report() catches every error (also SystemExit; not KeyboardInterrupt), prints it and
-leaves the state as it was; the command line exits 0. --dry-run prints the table and the issue action and writes
-nothing (no state, no GitHub). Tests: scripts/cmux-next/tests/test_perf_cron_arch_report.py (GitHub faked, git
-real in temporary repositories, also a shallow, sparse, blobless clone; run them yourself, no CI job runs them).
+The whole report has one deadline (REPORT_SECONDS): every git subprocess, the count and every GitHub request get
+the time that is left, and the report stops when it runs out. run_report() catches every error (also SystemExit
+and the deadline; not KeyboardInterrupt), prints it and leaves the state as it was; the command line exits 0.
+--dry-run prints the table and the issue action and writes nothing (no state, no GitHub). Tests:
+scripts/cmux-next/tests/test_perf_cron_arch_report.py (GitHub faked, git real in temporary repositories, also a
+shallow, sparse, blobless clone made both by git clone and the way actions/checkout makes it; run them yourself, no
+CI job runs them).
 
-Hook (perf-cron.py, PL-perf-cron; send to session cmux-b6 after this file is on feat-cmux-next):
+Hook (PL-perf-cron's files; send to session cmux-b6 after this file and the ratchet-file slice, which adds
+arch_counts.py and arch-ratchet.json, are on feat-cmux-next). Three edits, not one line:
 - .github/workflows/cmux-next-perf-budgets.yml, job `report`, the checkout's sparse-checkout list: add
   `scripts/cmux-next/perf-cron-arch-report.py`.
-- perf-cron.py cmd_report, inside `if cur and not cur["parts_todo"] and (changed or o.finish):`, right after
-  `event = finish_measurement(...)` (so before the `json.dump(state, ...)` of state.json and before
-  write_outputs):
-      changed = load_sibling("perf-cron-arch-report.py").run_report(
-          state, cur["sha"], cur["kind"], root=ROOT, repo=o.repo, run_url=o.run_url, issue=o.issues) or changed
-  (load_sibling: importlib.util.spec_from_file_location on os.path.join(HERE, name), as load_budgets_module).
-  run_report changes only state["arch_history"] and state["arch_issue"], returns True when it changed them, and
-  never raises, so perf-cron's own state dump stores the arch point and outputs.changed uploads it.
+- perf-cron.py: a helper next to load_budgets_module:
+      def load_sibling(name):
+          spec = importlib.util.spec_from_file_location(name.replace("-", "_")[:-3], os.path.join(HERE, name))
+          mod = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(mod)
+          return mod
+- perf-cron.py cmd_report: inside `if cur and not cur["parts_todo"] and (changed or o.finish):` (where `changed`
+  is already set True), keep `finished = cur`; after the existing `json.dump(state, ...)` of state.json AND after
+  write_outputs (so the perf state and outputs.changed=true are written before the report starts, and a kill
+  during the report loses nothing of perf-cron's own work), add:
+      if finished and load_sibling("perf-cron-arch-report.py").run_report(
+              state, finished["sha"], finished["kind"], root=ROOT, repo=o.repo, run_url=o.run_url, issue=o.issues):
+          json.dump(state, open(os.path.join(o.dir, "state.json"), "w"), indent=1)
+  (`finished = None` before the `if`.) run_report changes only state["arch_history"] and state["arch_issue"],
+  returns True only when it changed them, never raises, and ends within REPORT_SECONDS (well inside the job's
+  `timeout-minutes: 10`), so the second dump stores the arch point and "Save the state" uploads it.
 """
-import argparse, datetime, functools, json, os, re, subprocess, sys, tempfile, time, traceback
+import argparse, datetime, json, os, re, subprocess, sys, tempfile, time, traceback
 import urllib.error, urllib.parse, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -57,12 +79,12 @@ COUNTS_DIR = "scripts/cmux-next"
 COUNTS_SCRIPT = f"{COUNTS_DIR}/arch_counts.py"
 COUNTS_METHOD = "arch_counts"
 # What the count reads at SHA (arch_counts.py: the CmuxNext sources, Package.swift, the layer map) plus what this
-# script reads (the ratchet file, the counting scripts). All their blobs are fetched in one go before the count.
+# script reads (the ratchet file, the count script). All their blobs are fetched in one go before the count.
 # (path, suffix, recursive); suffix None: exactly this file.
 PREFETCH_PATHS = (("Packages/macOS/CmuxNext/Sources", ".swift", True),
                   ("Packages/macOS/CmuxNext/Package.swift", None, False),
                   ("plans/cmux-next", ".json", False),
-                  (COUNTS_DIR, ".py", False))
+                  (COUNTS_SCRIPT, None, False))
 STATE_KEY = "arch_history"
 ISSUE_KEY = "arch_issue"
 HISTORY_POINTS = 20
@@ -76,6 +98,9 @@ ISSUE_AUTHOR = "github-actions[bot]"
 RANGE_COMMITS_SHOWN = 40
 DEEPEN_STEP = 500
 DEEPEN_ROUNDS = 4
+# One deadline for the whole report: under a third of the report job's `timeout-minutes: 10`, so perf-cron's own
+# steps keep the rest. A full run on the real tree (shallow, blobless checkout) took 11 s.
+REPORT_SECONDS = 180
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 # The count runs code of the measured commit: it gets no credential of the job.
 SECRET_ENV = re.compile(r"TOKEN|SECRET|PASSWORD|^ACTIONS_RUNTIME|^ACTIONS_ID_TOKEN|^ACTIONS_CACHE")
@@ -93,11 +118,35 @@ class CountError(Exception):
     """The counts at SHA could not be taken or do not follow the arch_counts contract."""
 
 
+class ReportTimeout(TimeoutError):
+    """The report's deadline ran out (an OSError, like a timed-out request, so every step that already treats a
+    failed request or fetch as 'not this run' does so here too)."""
+
+
+class Deadline:
+    """One deadline for the whole report. Every subprocess and request takes its timeout from left(), so the report
+    as a whole ends by the deadline; left() raises ReportTimeout once it has passed."""
+
+    def __init__(self, seconds, clock=time.monotonic):
+        self.clock = clock
+        self.end = clock() + seconds
+
+    def left(self):
+        remaining = self.end - self.clock()
+        if remaining <= 0:
+            raise ReportTimeout(f"the report's deadline ({REPORT_SECONDS} s by default) ran out")
+        return remaining
+
+
 # ---------- git ----------
 
-def git(root, *args, check=True, timeout=120, env=None):
-    return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, check=check, timeout=timeout,
-                          env=env).stdout.strip()
+def run(dl, args, **kw):
+    """subprocess.run with the time left as its timeout (TimeoutExpired when the deadline passes during it)."""
+    return subprocess.run(args, timeout=dl.left(), **kw)
+
+
+def git(dl, root, *args, check=True, env=None):
+    return run(dl, ["git", "-C", root, *args], capture_output=True, text=True, check=check, env=env).stdout.strip()
 
 
 def no_lazy_env():
@@ -105,49 +154,54 @@ def no_lazy_env():
     return {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
 
 
-@functools.lru_cache(maxsize=1)
-def probes_never_fetch():
+def probes_never_fetch(dl):
     """True when this git honors GIT_NO_LAZY_FETCH (2.44 and later). An older git fetches a missing object while
     it is only asked whether it has it (a missing commit: its whole history), so then nothing is probed in a
     partial clone: the fetches below run unconditionally (cheap when the objects are already there)."""
-    found = re.search(r"(\d+)\.(\d+)", subprocess.run(["git", "--version"], capture_output=True, text=True).stdout)
+    found = re.search(r"(\d+)\.(\d+)", run(dl, ["git", "--version"], capture_output=True, text=True).stdout)
     return bool(found) and (int(found.group(1)), int(found.group(2))) >= (2, 44)
 
 
-def can_probe(root):
-    return not promisor_remote(root) or probes_never_fetch()
+def can_probe(dl, root):
+    return not promisor_remote(dl, root) or probes_never_fetch(dl)
 
 
-def have_object(root, spec):
-    return subprocess.run(["git", "-C", root, "cat-file", "-e", spec], capture_output=True, timeout=60,
-                          env=no_lazy_env()).returncode == 0
+def have_object(dl, root, spec):
+    return run(dl, ["git", "-C", root, "cat-file", "-e", spec], capture_output=True, env=no_lazy_env()).returncode == 0
 
 
-def is_shallow(root):
-    return git(root, "rev-parse", "--is-shallow-repository", check=False) == "true"
+def is_shallow(dl, root):
+    return git(dl, root, "rev-parse", "--is-shallow-repository", check=False) == "true"
 
 
-def promisor_remote(root):
-    """The partial clone's promisor remote (actions/checkout with sparse-checkout: origin, blob:none), or None."""
-    return git(root, "config", "--get", "extensions.partialClone", check=False) or None
+def promisor_remote(dl, root):
+    """The partial clone's promisor remote, or None. A current git, and the `git fetch --filter=blob:none` that
+    actions/checkout runs in a fresh `git init`, mark it with `remote.<name>.promisor` true; an older git wrote
+    `extensions.partialClone` instead."""
+    marked = git(dl, root, "config", "--type=bool", "--get-regexp", r"^remote\..*\.promisor$", check=False)
+    for line in marked.splitlines():
+        key, _, value = line.partition(" ")
+        if value == "true" and key.startswith("remote.") and key.endswith(".promisor"):
+            return key[len("remote."):-len(".promisor")]
+    return git(dl, root, "config", "--get", "extensions.partialClone", check=False) or None
 
 
-def ensure_commit(root, sha):
+def ensure_commit(dl, root, sha):
     """Fetch SHA's commit and trees (no blobs) when the clone lacks it: the report checkout has only its own HEAD."""
-    if not SHA_RE.match(sha) or (can_probe(root) and have_object(root, f"{sha}^{{commit}}")):
+    if not SHA_RE.match(sha) or (can_probe(dl, root) and have_object(dl, root, f"{sha}^{{commit}}")):
         return
-    remote = promisor_remote(root) or "origin"
+    promisor = promisor_remote(dl, root)
     args = ["fetch", "--no-tags", "--no-write-fetch-head"]
-    if is_shallow(root):
+    if is_shallow(dl, root):
         args.append("--depth=1")
-    if promisor_remote(root):
+    if promisor:
         args.append("--filter=blob:none")
     log(f"fetching {sha[:12]} (not in the checkout)")
-    git(root, *args, remote, sha, timeout=300)
+    git(dl, root, *args, promisor or "origin", sha)
 
 
-def resolve_sha(root, sha):
-    full = git(root, "rev-parse", "--verify", "--end-of-options", f"{sha}^{{commit}}", env=no_lazy_env())
+def resolve_sha(dl, root, sha):
+    full = git(dl, root, "rev-parse", "--verify", "--end-of-options", f"{sha}^{{commit}}", env=no_lazy_env())
     if not SHA_RE.match(full):
         raise ValueError(f"{sha!r} is not a commit")
     return full
@@ -165,10 +219,10 @@ def wanted(path):
     return False
 
 
-def list_blobs(root, sha):
+def list_blobs(dl, root, sha):
     """[(oid, path)] of the PREFETCH_PATHS blobs at sha (trees only: no blob is read)."""
-    listing = subprocess.run(["git", "-C", root, "ls-tree", "-r", "-z", sha, "--", *(p for p, _, _ in PREFETCH_PATHS)],
-                             capture_output=True, check=True, timeout=120, env=no_lazy_env()).stdout
+    listing = run(dl, ["git", "-C", root, "ls-tree", "-r", "-z", sha, "--", *(p for p, _, _ in PREFETCH_PATHS)],
+                  capture_output=True, check=True, env=no_lazy_env()).stdout
     files = []
     for entry in listing.split(b"\0"):
         if not entry:
@@ -181,104 +235,147 @@ def list_blobs(root, sha):
     return files
 
 
-def prefetch_blobs(root, files):
+def prefetch_blobs(dl, root, files):
     """In a partial clone, fetch every listed blob in ONE fetch (the command git itself runs for a lazy fetch, with
     all the oids at once). Without this, each blob the count reads is a fetch of its own: thousands of round trips.
     Returns the number of oids asked for (0: not a partial clone, nothing to do)."""
-    remote = promisor_remote(root)
+    remote = promisor_remote(dl, root)
     if not remote or not files:
         return 0
     oids = sorted({oid for oid, _ in files})
-    if probes_never_fetch():
-        check = subprocess.run(["git", "-C", root, "cat-file", "--batch-check=%(objectname) %(objecttype)"],
-                               input="".join(f"{oid}\n" for oid in oids), capture_output=True, text=True,
-                               check=True, timeout=120, env=no_lazy_env()).stdout
+    if probes_never_fetch(dl):
+        check = run(dl, ["git", "-C", root, "cat-file", "--batch-check=%(objectname) %(objecttype)"],
+                    input="".join(f"{oid}\n" for oid in oids), capture_output=True, text=True, check=True,
+                    env=no_lazy_env()).stdout
         oids = sorted({line.split()[0] for line in check.splitlines() if line.endswith(" missing")})
     if not oids:
         return 0
     started = time.monotonic()
-    subprocess.run(["git", "-C", root, "-c", "fetch.negotiationAlgorithm=noop", "fetch", remote, "--no-tags",
-                    "--no-write-fetch-head", "--recurse-submodules=no", "--filter=blob:none", "--stdin"],
-                   input="".join(f"{oid}\n" for oid in oids), capture_output=True, text=True, check=True, timeout=300)
+    run(dl, ["git", "-C", root, "-c", "fetch.negotiationAlgorithm=noop", "fetch", remote, "--no-tags",
+             "--no-write-fetch-head", "--recurse-submodules=no", "--filter=blob:none", "--stdin"],
+        input="".join(f"{oid}\n" for oid in oids), capture_output=True, text=True, check=True)
     log(f"fetched {len(oids)} blob(s) in one fetch, {time.monotonic() - started:.1f} s")
     return len(oids)
 
 
-def export_files(root, files, dest):
-    """Write the listed blobs into dest (one cat-file --batch)."""
-    if not files:
-        return
-    blobs = subprocess.run(["git", "-C", root, "cat-file", "--batch"], input="".join(f"{o}\n" for o, _ in files).encode(),
-                           capture_output=True, check=True, timeout=120).stdout
-    at = 0
-    for oid, name in files:
-        header_end = blobs.index(b"\n", at)
-        header = blobs[at:header_end].split()
-        if len(header) != 3 or header[0].decode() != oid:
-            raise CountError(f"cannot read {name}: {blobs[at:header_end][:200]!r}")
-        size = int(header[2])
-        body = blobs[header_end + 1:header_end + 1 + size]
-        at = header_end + 1 + size + 1
-        target = os.path.join(dest, name)
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        with open(target, "wb") as f:
-            f.write(body)
+def export_file(dl, root, oid, name, dest):
+    """Write one blob into dest/name."""
+    blob = run(dl, ["git", "-C", root, "cat-file", "blob", oid], capture_output=True, check=True).stdout
+    target = os.path.join(dest, name)
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    with open(target, "wb") as f:
+        f.write(blob)
 
 
-def file_at(root, sha, path):
+def file_at(dl, root, sha, path):
     """The text of path at sha, or None when the commit has no such file."""
-    proc = subprocess.run(["git", "-C", root, "show", f"{sha}:{path}"], capture_output=True, text=True, timeout=60)
+    proc = run(dl, ["git", "-C", root, "show", f"{sha}:{path}"], capture_output=True, text=True)
     return proc.stdout if proc.returncode == 0 else None
 
 
-def is_ancestor(root, good, bad):
+def ancestor_code(dl, root, old, new):
+    """git merge-base --is-ancestor old new: 0 yes, 1 no, other: cannot tell (an object is missing)."""
+    return run(dl, ["git", "-C", root, "merge-base", "--is-ancestor", "--end-of-options", old, new],
+               capture_output=True, env=no_lazy_env()).returncode
+
+
+def is_ancestor(dl, root, good, bad):
     """True: good is an ancestor of bad. False: not known in this (shallow) clone yet. None: complete and not."""
-    proc = subprocess.run(["git", "-C", root, "merge-base", "--is-ancestor", "--end-of-options", good, bad],
-                          capture_output=True, text=True, timeout=60, env=no_lazy_env())
-    if proc.returncode == 0:
+    if ancestor_code(dl, root, good, bad) == 0:
         return True
-    return False if is_shallow(root) else None
+    return False if is_shallow(dl, root) else None
 
 
-def range_commits(root, good, bad):
+def range_commits(dl, root, good, bad):
     """[(sha, subject)] of the first-parent commits in good..bad (bad included), oldest first, or None (printed)
     when the range cannot be listed. The report's checkout is shallow: it is deepened first when needed."""
-    for rounds in range(DEEPEN_ROUNDS + 1):
-        have = is_ancestor(root, good, bad)
-        if have:
-            break
-        if have is None or rounds == DEEPEN_ROUNDS:
-            log(f"cannot list {good[:12]}..{bad[:12]}: {good[:12]} is not a known ancestor of {bad[:12]}")
-            return None
-        try:
-            git(root, "fetch", "--no-tags", "--filter=blob:none", f"--deepen={DEEPEN_STEP}", "origin", BRANCH,
-                timeout=300)
-        except (subprocess.SubprocessError, OSError) as error:
-            log(f"cannot deepen the checkout for {good[:12]}..{bad[:12]}: {error}")
-            return None
-    out = git(root, "log", "--first-parent", "--reverse", "--format=%H%x09%s", f"{good}..{bad}")
+    try:
+        for rounds in range(DEEPEN_ROUNDS + 1):
+            have = is_ancestor(dl, root, good, bad)
+            if have:
+                break
+            if have is None or rounds == DEEPEN_ROUNDS:
+                log(f"cannot list {good[:12]}..{bad[:12]}: {good[:12]} is not a known ancestor of {bad[:12]}")
+                return None
+            git(dl, root, "fetch", "--no-tags", "--filter=blob:none", f"--deepen={DEEPEN_STEP}", "origin", BRANCH)
+        out = git(dl, root, "log", "--first-parent", "--reverse", "--format=%H%x09%s", f"{good}..{bad}")
+    except (subprocess.SubprocessError, OSError) as error:
+        log(f"cannot list {good[:12]}..{bad[:12]}: {error}")
+        return None
     return [tuple(line.split("\t", 1)) if "\t" in line else (line, "") for line in out.splitlines() if line]
 
 
-def descends(root, repo, old, new):
-    """True: new is old or a descendant (a later tip); False: it is not (older, or another line); None: unknown.
-    A complete clone answers with git; a shallow one cannot say 'not' (and lacks old), so it asks the GitHub
-    compare API (one call, no deepening)."""
+AHEAD, BEHIND, DIVERGED, GONE = "ahead", "behind", "diverged", "gone"
+
+
+def order(dl, root, repo, old, new):
+    """How the tip new stands to the kept point old: AHEAD (new is old or descends from it), BEHIND (new is an
+    ancestor of old: an older commit), DIVERGED (neither: the branch was rewritten), GONE (old no longer exists)
+    or None (cannot tell this run). A complete clone that has old answers with git; otherwise (a shallow clone
+    cannot say 'not', and lacks old) it asks the GitHub compare API."""
     if old == new:
-        return True
-    shallow = is_shallow(root)
-    if not shallow and can_probe(root):
-        code = subprocess.run(["git", "-C", root, "merge-base", "--is-ancestor", "--end-of-options", old, new],
-                              capture_output=True, timeout=60, env=no_lazy_env()).returncode
-        return True if code == 0 else False if code == 1 else None
+        return AHEAD
+    if not is_shallow(dl, root) and can_probe(dl, root) and have_object(dl, root, f"{old}^{{commit}}"):
+        if ancestor_code(dl, root, old, new) == 0:
+            return AHEAD
+        return BEHIND if ancestor_code(dl, root, new, old) == 0 else DIVERGED
     if not repo or not os.environ.get("GH_TOKEN"):
+        log(f"cannot order {new[:12]} against {old[:12]}: no repository or GH_TOKEN for the GitHub compare API")
         return None
     try:
-        status = gh_request(f"/repos/{repo}/compare/{old}...{new}").get("status")
+        status = gh_request(f"/repos/{repo}/compare/{old}...{new}", timeout=dl.left()).get("status")
+    except urllib.error.HTTPError as error:
+        if error.code != 404:
+            log(f"cannot compare {old[:12]}...{new[:12]} on GitHub: {error}")
+            return None
+        # 404: one side is unknown. new is the tip just measured, so when GitHub has it, old is the one gone.
+        try:
+            gh_request(f"/repos/{repo}/commits/{new}", timeout=dl.left())
+        except (urllib.error.URLError, OSError, ValueError, KeyError) as again:
+            log(f"cannot compare {old[:12]}...{new[:12]} on GitHub ({error}), and {new[:12]} is not found: {again}")
+            return None
+        return GONE
     except (urllib.error.URLError, OSError, ValueError, KeyError) as error:
         log(f"cannot compare {old[:12]}...{new[:12]} on GitHub: {error}")
         return None
-    return {"ahead": True, "identical": True, "behind": False, "diverged": False}.get(status)
+    return {"ahead": AHEAD, "identical": AHEAD, "behind": BEHIND, "diverged": DIVERGED}.get(status)
+
+
+def trend_base(dl, root, repo, history, sha):
+    """(the kept points the point for sha extends, a note when the trend restarts), or (None, None): sha adds no
+    point this run (older than the last point, or the order cannot be told now). When feat-cmux-next was
+    rewritten (the last point DIVERGED from sha or is GONE), the trend restarts at the newest kept point that is
+    an ancestor of sha: the points after it are dropped. The kept points are a tip-ordered chain (each one
+    descends from the one before), so every point before that one is an ancestor of sha too."""
+    if not history or history[-1]["sha"] == sha:
+        return history, None
+    last = history[-1]["sha"]
+    first = order(dl, root, repo, last, sha)
+    if first == AHEAD:
+        return history, None
+    if first == BEHIND:
+        log(f"{sha[:12]} is older than the last point {last[:12]}: no point, the issue is left as it is")
+        return None, None
+    if first is None:
+        log(f"the order of {sha[:12]} against the last point {last[:12]} is not known this run: no point, the "
+            "issue is left as it is")
+        return None, None
+    keep = 0
+    for i in range(len(history) - 2, -1, -1):
+        rel = order(dl, root, repo, history[i]["sha"], sha)
+        if rel is None:
+            log(f"the order of {sha[:12]} against the kept point {history[i]['sha'][:12]} is not known this run: "
+                "no point, the issue is left as it is")
+            return None, None
+        if rel == AHEAD:
+            keep = i + 1
+            break
+    dropped = history[keep:]
+    why = "is gone" if first == GONE else "is not an ancestor of it"
+    note = (f"the trend restarts at {sha[:12]} (feat-cmux-next was rewritten): the last point {last[:12]} {why}, so "
+            f"{len(dropped)} point(s) from {dropped[0]['sha'][:12]} on are dropped and {keep} kept")
+    log(note)
+    return history[:keep], note
 
 
 # ---------- the counts contract ----------
@@ -336,23 +433,23 @@ def count_env():
     return {k: v for k, v in os.environ.items() if not SECRET_ENV.search(k)}
 
 
-def counts_at(root, sha):
+def counts_at(dl, root, sha):
     """The checked counts record at sha, from sha's own arch_counts.py run in a subprocess."""
-    files = list_blobs(root, sha)
-    prefetch_blobs(root, files)
-    scripts = [(oid, name) for oid, name in files if name.startswith(COUNTS_DIR + "/")]
-    if not any(name == COUNTS_SCRIPT for _, name in scripts):
+    files = list_blobs(dl, root, sha)
+    prefetch_blobs(dl, root, files)
+    script = next((oid for oid, name in files if name == COUNTS_SCRIPT), None)
+    if script is None:
         raise CountError(f"{COUNTS_SCRIPT} is not in the commit (the ratchet-file slice has not landed there)")
     with tempfile.TemporaryDirectory(prefix="arch-report-") as tree:
-        export_files(root, scripts, tree)
-        # -E -s, not -I: the script's own directory stays on sys.path (a sibling import works), while PYTHON* and
-        # the user site are ignored.
+        export_file(dl, root, script, COUNTS_SCRIPT, tree)
+        # -I: the contract makes arch_counts.py self-contained (standard library only), so neither its directory
+        # nor PYTHON* nor the user site is on the path.
         try:
-            proc = subprocess.run([sys.executable, "-E", "-s", os.path.join(tree, COUNTS_SCRIPT), "--repo", root,
-                                   "--rev", sha, "--json"], cwd=tree, capture_output=True, text=True, timeout=300,
-                                  env=count_env())
+            proc = run(dl, [sys.executable, "-I", os.path.join(tree, COUNTS_SCRIPT), "--repo", root, "--rev", sha,
+                            "--json"], cwd=tree, capture_output=True, text=True, env=count_env())
         except subprocess.TimeoutExpired as error:
-            raise CountError(f"{COUNTS_SCRIPT} at {sha[:12]} took over {error.timeout} s") from None
+            raise CountError(f"{COUNTS_SCRIPT} at {sha[:12]} ran past the report's deadline ({error.timeout:.0f} s "
+                             "left when it started)") from None
     value = last_json_object(proc.stdout)
     if proc.returncode != 0 or value is None:
         raise CountError(f"{COUNTS_SCRIPT} --json at {sha[:12]} gave no counts (exit {proc.returncode}): "
@@ -363,9 +460,9 @@ def counts_at(root, sha):
     return record
 
 
-def ratchet_at(root, sha):
+def ratchet_at(dl, root, sha):
     """(record, None), (None, why it cannot judge) or (None, None) when the commit has no ratchet file."""
-    raw = file_at(root, sha, RATCHET_PATH)
+    raw = file_at(dl, root, sha, RATCHET_PATH)
     if raw is None:
         return None, None
     try:
@@ -510,18 +607,23 @@ def over_rows(history, limits, ratchet):
     return out
 
 
-def issue_body(regs, sha, notes, ranges, run_url, repo):
+def issue_body(regs, sha, notes, ranges, run_url, repo, trend_note=None):
     def link(s):
         return f"[`{s[:12]}`](https://github.com/{repo}/commit/{s})" if repo else f"`{s[:12]}`"
     lines = [ISSUE_MARK, ""]
     if regs:
-        lines += [f"An architecture count is over its ratchet value in `{RATCHET_PATH}` at {link(sha)}. A count only "
-                  "goes down: move the new code to the pattern the rule asks for (inject from the composition root, a "
-                  "seam adapter, a targeted observer, the domain package) or explain the rise in the ratchet file. "
-                  "Renaming a pattern to dodge the count is the same debt.", ""]
+        lines += [f"An architecture count is over its ratchet value in `{RATCHET_PATH}` at {link(sha)}. The limit is "
+                  "the file's total: this report does not apply `exceptions` allowances. A count only goes down: move "
+                  "the new code to the pattern the rule asks for (inject from the composition root, a seam adapter, a "
+                  "targeted observer, the domain package). Renaming a pattern to dodge the count is the same debt. "
+                  "When a dated `exceptions` entry accepted the rise (a row's entries are listed below), run "
+                  "`scripts/cmux-next/arch-ratchet.py --update` so the file records the new total; the issue closes "
+                  "on the first tip after that lands.", ""]
     else:
         lines += [f"No judged row is over its ratchet value at {link(sha)}, but the run could not judge every row, so "
                   "this issue stays open until a run judges them all.", ""]
+    if trend_note:
+        lines += [f"Trend: {trend_note}.", ""]
     for note in notes:
         lines += [f"Not judged: {note}", ""]
     if regs:
@@ -532,8 +634,17 @@ def issue_body(regs, sha, notes, ranges, run_url, repo):
         lines.append(f"| {r['row']} | {r['packages']} | {r['ratchet']} | {r['now']} | {link(r['first_sha'])} "
                      f"({r['first_value']}, {r.get('first_at') or '?'}) | {good} |")
     for r in regs:
-        for e in r["exceptions"]:
-            lines.append(f"\n`{r['row']}` has a ratchet-file exception: {json.dumps(e, sort_keys=True)}")
+        if not r["exceptions"]:
+            continue
+        entries = "; ".join(json.dumps(e, sort_keys=True) for e in r["exceptions"])
+        allowed = sum(e["allow"] for e in r["exceptions"] if is_count(e.get("allow")))
+        rise = r["now"] - r["ratchet"]
+        if allowed >= rise:
+            lines.append(f"\n`{r['row']}`: the rise (+{rise}) is within its exception entries (+{allowed}): {entries}. "
+                         "If they accepted it, run `scripts/cmux-next/arch-ratchet.py --update` to record it.")
+        else:
+            lines.append(f"\n`{r['row']}`: its exception entries allow +{allowed}, less than the rise (+{rise}): "
+                         f"{entries}. The rest needs the fix (or a new dated entry).")
     for key in sorted({(r["good_sha"], r["first_sha"]) for r in regs}, key=lambda k: [x or "" for x in k]):
         good, first = key
         rows = ", ".join(r["row"] for r in regs if (r["good_sha"], r["first_sha"]) == key)
@@ -577,24 +688,26 @@ def own_issue(issue):
             and (issue.get("user") or {}).get("login") == ISSUE_AUTHOR and ISSUE_MARK in (issue.get("body") or ""))
 
 
-def find_issue(repo, number=None):
+def find_issue(gh, repo, number=None):
     if isinstance(number, int) and number > 0:
         try:
-            issue = gh_request(f"/repos/{repo}/issues/{number}")
+            issue = gh(f"/repos/{repo}/issues/{number}")
             if own_issue(issue):
                 return issue
         except urllib.error.HTTPError:
             pass
     q = urllib.parse.quote(f'repo:{repo} is:issue in:title "{ISSUE_TITLE}" author:app/github-actions')
-    items = gh_request(f"/search/issues?q={q}&sort=created&order=desc&per_page=10").get("items", [])
+    items = gh(f"/search/issues?q={q}&sort=created&order=desc&per_page=10").get("items", [])
     items = [i for i in items if own_issue(i)]
     return items[0] if items else None
 
 
-def keep_issue(repo, state, regs, all_judged, body, summary, run_url, dry_run):
+def keep_issue(dl, repo, state, regs, all_judged, body, summary, run_url, dry_run):
     """Open, update, reopen or close the one issue (state[ISSUE_KEY] holds its number). Returns a line for the log.
-    It closes only when every ratcheted row was judged and none is over."""
-    issue = find_issue(repo, state.get(ISSUE_KEY))
+    It closes only when every ratcheted row was judged and none is over. Every request gets the time left."""
+    def gh(path, method="GET", body=None):
+        return gh_request(path, method, body, timeout=dl.left())
+    issue = find_issue(gh, repo, state.get(ISSUE_KEY))
     number = issue["number"] if issue else None
     is_open = bool(issue) and issue.get("state") == "open"
     suffix = f" ([run]({run_url}))." if run_url else "."
@@ -604,50 +717,45 @@ def keep_issue(repo, state, regs, all_judged, body, summary, run_url, dry_run):
         if dry_run:
             return f"would leave issue #{number} open and note the rows not judged"
         state[ISSUE_KEY] = number
-        gh_request(f"/repos/{repo}/issues/{number}", "PATCH", {"body": body})
+        gh(f"/repos/{repo}/issues/{number}", "PATCH", {"body": body})
         return f"left issue #{number} open: not every row could be judged"
     if not regs:
         if not is_open:
             return "no issue needed"
         if dry_run:
             return f"would close issue #{number}"
-        gh_request(f"/repos/{repo}/issues/{number}/comments", "POST",
+        gh(f"/repos/{repo}/issues/{number}/comments", "POST",
                    {"body": f"Recovered: every architecture row is at or under its ratchet value. {summary}{suffix}"})
-        gh_request(f"/repos/{repo}/issues/{number}", "PATCH", {"state": "closed", "state_reason": "completed"})
+        gh(f"/repos/{repo}/issues/{number}", "PATCH", {"state": "closed", "state_reason": "completed"})
         return f"closed issue #{number}"
     if dry_run:
         return f"would {'open an issue' if not issue else ('update' if is_open else 'reopen') + f' issue #{number}'}"
     if not issue:
-        created = gh_request(f"/repos/{repo}/issues", "POST", {"title": ISSUE_TITLE, "body": body})
+        created = gh(f"/repos/{repo}/issues", "POST", {"title": ISSUE_TITLE, "body": body})
         state[ISSUE_KEY] = created["number"]
         return f"opened issue #{created['number']}"
     state[ISSUE_KEY] = number
-    gh_request(f"/repos/{repo}/issues/{number}", "PATCH", {"body": body, **({} if is_open else {"state": "open"})})
+    gh(f"/repos/{repo}/issues/{number}", "PATCH", {"body": body, **({} if is_open else {"state": "open"})})
     if not is_open:
-        gh_request(f"/repos/{repo}/issues/{number}/comments", "POST", {"body": f"Regressed again: {summary}{suffix}"})
+        gh(f"/repos/{repo}/issues/{number}/comments", "POST", {"body": f"Regressed again: {summary}{suffix}"})
     return f"{'updated' if is_open else 'reopened'} issue #{number}"
 
 
 # ---------- the report ----------
 
-def _report(state, sha, kind, root, repo, run_url, issue, dry_run):
+def _report(dl, state, sha, kind, root, repo, run_url, issue, dry_run):
     """The report on a copy of the two keys it owns: ({STATE_KEY: ..., ISSUE_KEY: ...} to store, or None)."""
     started = time.monotonic()
     if kind != TIP_KIND:
         log(f"{kind} measurement of {str(sha)[:12]}: not a tip, no architecture point (the trend follows the tip)")
         return None
-    ensure_commit(root, sha)
-    sha = resolve_sha(root, sha)
-    history = history_of(state)
-    if history and history[-1]["sha"] != sha:
-        last = history[-1]["sha"]
-        order = descends(root, repo, last, sha)
-        if order is not True:
-            log(f"{sha[:12]} is {'not a descendant of' if order is False else 'of unknown order against'} the last "
-                f"point {last[:12]}: no point, the issue is left as it is")
-            return None
-    counts = counts_at(root, sha)
-    ratchet, ratchet_problem = ratchet_at(root, sha)
+    ensure_commit(dl, root, sha)
+    sha = resolve_sha(dl, root, sha)
+    history, trend_note = trend_base(dl, root, repo, history_of(state), sha)
+    if history is None:
+        return None
+    counts = counts_at(dl, root, sha)
+    ratchet, ratchet_problem = ratchet_at(dl, root, sha)
     if ratchet is None and ratchet_problem is None:
         log(f"no {RATCHET_PATH} at {sha[:12]}: trend only, no regression check, the issue is left as it is")
     judged = judgement(counts, ratchet, ratchet_problem)
@@ -678,24 +786,27 @@ def _report(state, sha, kind, root, repo, run_url, issue, dry_run):
             for r in regs:
                 key = (r["good_sha"], r["first_sha"])
                 if r["good_sha"] and key not in ranges:
-                    ranges[key] = range_commits(root, *key)
-            body = issue_body(regs, sha, notes, ranges, run_url, repo)
+                    ranges[key] = range_commits(dl, root, *key)
+            body = issue_body(regs, sha, notes, ranges, run_url, repo, trend_note)
             try:
-                log(keep_issue(repo, owned, regs, all_judged, body, summary, run_url, dry_run))
+                log(keep_issue(dl, repo, owned, regs, all_judged, body, summary, run_url, dry_run))
             except (urllib.error.URLError, OSError, ValueError, KeyError) as error:
+                # A ReportTimeout is an OSError too: the point is kept, the issue is kept by the next run.
                 log(f"cannot keep the issue: {error}")
     log(f"done in {time.monotonic() - started:.1f} s")
     return {STATE_KEY: history, ISSUE_KEY: owned[ISSUE_KEY]}
 
 
-def run_report(state, sha, kind, *, root=ROOT, repo="", run_url="", issue=False, dry_run=False):
+def run_report(state, sha, kind, *, root=ROOT, repo="", run_url="", issue=False, dry_run=False, deadline=None):
     """Count the architecture rows at sha and keep the trend and the issue in state (perf-cron's state dict).
 
     Changes only state[STATE_KEY] and state[ISSUE_KEY], and only when the whole report ran (not with dry_run).
-    Returns True when it changed them. Never raises (also not for a SystemExit from the measured commit's code),
-    except KeyboardInterrupt: an error is printed and the state is left as it was."""
+    Returns True when it changed them. Ends by deadline (a Deadline; default REPORT_SECONDS from now). Never raises
+    (also not for a SystemExit from the measured commit's code, or the deadline), except KeyboardInterrupt: an
+    error is printed and the state is left as it was."""
     try:
-        owned = _report(state, sha, kind, root, repo, run_url, issue, dry_run)
+        dl = deadline or Deadline(REPORT_SECONDS)
+        owned = _report(dl, state, sha, kind, root, repo, run_url, issue, dry_run)
     except KeyboardInterrupt:
         raise
     except BaseException as error:  # the perf cron's job never fails on this report
