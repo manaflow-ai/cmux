@@ -175,10 +175,16 @@ impl Conn {
     /// again is preceded by `_acpmux/lagged {dropped}`, and the client reads again from its
     /// last record. Other connections never wait for this one.
     fn send(&self, msg: &Message) {
-        let Some(line) = self.line(msg) else {
-            self.dropped.fetch_add(1, Ordering::SeqCst);
-            return;
-        };
+        match self.line(msg) {
+            Some(line) => self.send_line(line),
+            None => {
+                self.dropped.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    }
+
+    /// [`Conn::send`] of a line already made (one shared by every raw-text connection).
+    fn send_line(&self, line: String) {
         let dropped = self.dropped.swap(0, Ordering::SeqCst);
         if dropped > 0 {
             let lagged =
@@ -986,13 +992,24 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 && let Some(m) = rec.msg.get("method").and_then(Value::as_str)
                 && m == method::SESSION_UPDATE
             {
-                let mut params = rec.msg.get("params").cloned().unwrap_or(json!({}));
-                params.set("sessionId", Value::String(ev.session_id.clone()));
-                crate::hub::merge_mux_meta(
-                    &mut params,
-                    json!({"seq": rec.seq, "at": rec.at, "kind": rec.kind}),
-                );
-                conn.send(&Message::notification(method::SESSION_UPDATE, params));
+                let update = || {
+                    let mut params = rec.msg.get("params").cloned().unwrap_or(json!({}));
+                    params.set("sessionId", Value::String(ev.session_id.clone()));
+                    crate::hub::merge_mux_meta(
+                        &mut params,
+                        json!({"seq": rec.seq, "at": rec.at, "kind": rec.kind}),
+                    );
+                    Message::notification(method::SESSION_UPDATE, params)
+                };
+                if conn.raw_text {
+                    // The same line for every raw-text connection: made once per record.
+                    match ev.update_line.get_or_init(|| update().bounded_line().ok()) {
+                        Some(line) => conn.send_line(line.clone()),
+                        None => conn.send(&update()),
+                    }
+                } else {
+                    conn.send(&update());
+                }
             }
             if rec.dir == "mux" {
                 conn.send(&Message::notification(
