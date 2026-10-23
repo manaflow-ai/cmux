@@ -178,12 +178,7 @@ fn content(form: &Form, answers: &Value) -> Option<Value> {
             },
             Kind::Text => Some(json!(answer)),
             Kind::Number { integer: true } => answer.parse::<i64>().ok().map(Value::from),
-            Kind::Number { integer: false } => answer
-                .parse::<f64>()
-                .ok()
-                .filter(|v| v.is_finite())
-                .and_then(serde_json::Number::from_f64)
-                .map(Value::Number),
+            Kind::Number { integer: false } => exact_number(answer),
         };
         out.insert(field.key.clone(), value?);
     }
@@ -203,6 +198,44 @@ fn chosen(choices: &[(String, Value)], answer: &str, optional: bool) -> Option<V
             seen.insert(label).then(|| value.clone())
         })
         .collect()
+}
+
+/// A typed number as JSON, only when it is carried exactly: an integer as
+/// itself, a plain decimal (no exponent) only when the nearest double reads
+/// back as the same decimal. One that would be rounded (9007199254740993,
+/// 0.10000000000000000001) is refused, never sent as another number.
+fn exact_number(answer: &str) -> Option<Value> {
+    if let Ok(integer) = answer.parse::<i64>() {
+        return Some(Value::from(integer));
+    }
+    let digits = |s: &str| s.bytes().all(|b| b.is_ascii_digit());
+    let unsigned = answer.strip_prefix('-').unwrap_or(answer);
+    let (whole, fraction) = unsigned.split_once('.').unwrap_or((unsigned, ""));
+    if whole.is_empty() || !digits(whole) || !digits(fraction) {
+        return None;
+    }
+    let value = answer.parse::<f64>().ok().filter(|v| v.is_finite())?;
+    // Rust prints a double as the shortest plain decimal that reads back as it.
+    (decimal(answer) == decimal(&value.to_string()))
+        .then(|| serde_json::Number::from_f64(value).map(Value::Number))
+        .flatten()
+}
+
+/// A plain decimal written one way: no leading zeros, no trailing fraction
+/// zeros, no sign on zero.
+fn decimal(text: &str) -> String {
+    let (negative, unsigned) = match text.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, text),
+    };
+    let (whole, fraction) = unsigned.split_once('.').unwrap_or((unsigned, ""));
+    let whole = match whole.trim_start_matches('0') {
+        "" => "0",
+        w => w,
+    };
+    let fraction = fraction.trim_end_matches('0');
+    let body = if fraction.is_empty() { whole.to_owned() } else { format!("{whole}.{fraction}") };
+    if negative && body != "0" { format!("-{body}") } else { body }
 }
 
 fn text(value: &Value) -> Option<String> {

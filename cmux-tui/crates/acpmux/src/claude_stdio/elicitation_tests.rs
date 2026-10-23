@@ -215,6 +215,39 @@ async fn no_answer_is_offered_only_where_it_cannot_be_typed_text() {
     assert_eq!(t.take_stdin_replies().await[0]["response"]["subtype"], "error");
 }
 
+/// A number reaches the server exactly as typed, or not at all: one a double
+/// would round is refused (the form cancels), never sent as another number.
+#[tokio::test]
+async fn a_number_is_carried_exactly_or_refused() {
+    let submit = |kind: &'static str, typed: &'static str| async move {
+        let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+        let line = ask(json!({"mcp_server_name": "s", "message": "m", "requested_schema": {
+            "type": "object", "required": ["x"], "properties": {"x": {"type": kind}}}}));
+        let (id, _) = asked(&t, &line).await.expect("a question");
+        let outcome = json!({"outcome": "selected", "optionId": "allow_once",
+            "_meta": {"updatedInput": {"answers": {"m": typed}}}});
+        answer(&t, id, outcome).await["response"]["response"].clone()
+    };
+    for (kind, typed, sent) in [
+        ("number", "9007199254740993", "9007199254740993"),
+        ("integer", "9007199254740993", "9007199254740993"),
+        ("number", "0.1", "0.1"),
+        ("number", "-0.50", "-0.5"),
+    ] {
+        let response = submit(kind, typed).await;
+        assert_eq!(response["action"], "accept", "{kind} {typed}");
+        assert_eq!(response["content"]["x"].to_string(), sent, "{kind} {typed}");
+    }
+    for (kind, typed) in [
+        ("number", "9007199254740993.0"),
+        ("number", "0.10000000000000000001"),
+        ("number", "1e3"),
+        ("integer", "99999999999999999999"),
+    ] {
+        assert_eq!(submit(kind, typed).await, json!({"action": "cancel"}), "{kind} {typed}");
+    }
+}
+
 /// Answers are keyed by prompt: a repeated prompt gets its field's key, and a
 /// form where even that repeats is not asked (it could never be submitted).
 #[tokio::test]
