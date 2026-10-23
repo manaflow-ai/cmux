@@ -3,7 +3,9 @@
 Status: living plan (started 2026-10-23). Owner: the Performance Lead (Lawrence msg 11552:
 "fix all cmux performance issues, including chromium performance, fix all dumb things, big
 refactor"). Every row moves only with a measured number from a real build on the fleet (never
-Lawrence's Mac) and a perf test or perf-gate/budget row that is red before and green after.
+Lawrence's Mac) and a perf test or bench that is red before and green after. Lawrence
+(2026-10-23): no new gates or tests in CI; each agent runs its tests and benches itself on the
+fleet and records the numbers here and in the commit message.
 
 Related references (not repeated here): [speed-of-sound-DESIGN.md](speed-of-sound-DESIGN.md)
 (floors and idle/memory rows), [instant-new-surfaces.md](instant-new-surfaces.md),
@@ -107,7 +109,10 @@ push), and writes its before/after table into this file's section 5.
   for panes that moved, layer-driven motion, content resize at landing. Files:
   `ScreenContentView+Motion.swift`, `LayoutRootView*.swift`, `PaneHostView.swift`.
 - **PL-switch**: issues 4, 7, 12 (then 8). Workspace/tab/space switch < 16 ms with Chromium
-  pages.
+  pages (Lawrence 2026-10-23: switching is slow when Chromium is involved; top priority).
+- **PL-cef-layer**: study of hosting the Chromium page's layer in the cmux window's own layer tree
+  (no child page windows), plus the interim fix inside the child-window design. Output:
+  `cef-layer-hosting-DESIGN.md`.
 - **PL-typing**: issue 5 and the terminal key-to-frame baseline; sidebar-caused lag goes to a576
   / a590.
 
