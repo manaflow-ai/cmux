@@ -176,6 +176,10 @@ pub(crate) fn harness_command(
     }
     cmd.args(crate::harness_limits::launch_args(program, args, session.map(|_| (cwd, &env))))
         .envs(env.iter());
+    // The profile's PATH first, never instead of the login PATH (login_env::with_agent_path).
+    if !remote_environment && let Some(own) = env.get("PATH").filter(|p| !p.is_empty()) {
+        cmd.env("PATH", crate::login_env::with_agent_path(own));
+    }
     if opencode_ask {
         ask_opencode(&mut cmd, name, !remote_environment);
     }
