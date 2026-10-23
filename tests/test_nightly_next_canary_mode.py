@@ -126,7 +126,7 @@ class WiringTests(unittest.TestCase):
         self.assertNotIn("smoke-signed-app-cli.sh", block)
         self.assertNotIn("smoke-launch-macos-app.sh", block)
         self.assertNotIn("issues: read", block)
-        self.assertIn("--static-only", block)
+        self.assertIn("verify-diff-sidecar-artifact.sh", block)
 
 
 if __name__ == "__main__":
