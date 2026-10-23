@@ -7,7 +7,7 @@ import os
 /// minimized, and not fully occluded (hidden app, another Space, covered).
 /// Everything else (toggle off, hidden, minimized, occluded, closed) means no
 /// subscription, so no service, no monitor, no 15 s timer and no reads.
-struct HostPressureSampling: Equatable {
+@MainActor struct HostPressureSampling: Equatable {
     var enabled: Bool
     var windowVisible: Bool
 
@@ -61,4 +61,23 @@ nonisolated final class HostPressureSubscription: Sendable {
         // task-owner: one hop that ends a subscription released without cancel(); it ends after the call
         Task { @MainActor in service.unsubscribe() }
     }
+}
+
+/// Tasks cancelled together from any thread (a view's nonisolated deinit included).
+nonisolated final class HostPressureTasks: Sendable {
+    private let tasks = OSAllocatedUnfairLock<[Task<Void, Never>]>(initialState: [])
+
+    func add(_ task: Task<Void, Never>) {
+        tasks.withLock { $0.append(task) }
+    }
+
+    func cancelAll() {
+        let all = tasks.withLock { tasks in
+            defer { tasks = [] }
+            return tasks
+        }
+        all.forEach { $0.cancel() }
+    }
+
+    deinit { cancelAll() }
 }

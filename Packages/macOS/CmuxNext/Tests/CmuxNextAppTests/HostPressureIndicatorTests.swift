@@ -1,3 +1,4 @@
+import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextHostPressure
@@ -19,9 +20,11 @@ import Testing
     /// Whether the test's window can be seen (it stands in for occlusion and minimizing).
     private final class Visibility { var visible = true }
 
-    private static func indicator(store: TunableStore, visibility: Visibility, made: @escaping (HostPressureService) -> Void = { _ in })
+    private static func indicator(store: TunableStore, visibility: Visibility, notifications: NotificationCenter = NotificationCenter(),
+                                  made: @escaping (HostPressureService) -> Void = { _ in })
         -> HostPressureIndicatorView {
         HostPressureIndicatorView(services: AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SHOWCASE": "1"])), store: store,
+                                  notifications: notifications,
                                   windowVisible: { _ in visibility.visible },
                                   service: {
                                       let service = HostPressureService(acpmux: nil, store: store)
@@ -68,6 +71,41 @@ import Testing
         #expect(!indicator.isSampling)
         #expect(service?.isMonitoring == false)
         #expect(indicator.isHidden)
+        service?.stop()
+    }
+
+    /// The real notification path: the window's occlusion change, the app's unhide and the
+    /// window's close each reconcile the indicator in a window.
+    @Test func windowAndAppNotificationsStartAndStopSampling() async {
+        let store = Self.store(forcing: nil, enabled: true)
+        let visibility = Visibility()
+        var service: HostPressureService?
+        let center = NotificationCenter()
+        let indicator = Self.indicator(store: store, visibility: visibility, notifications: center) { service = $0 }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(indicator)
+        #expect(indicator.isSampling)
+        // Let the notification tasks start listening before anything is posted.
+        for _ in 0 ..< 20 { await Task.yield() }
+
+        visibility.visible = false
+        center.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
+        for _ in 0 ..< 50 where indicator.isSampling { await Task.yield() }
+        #expect(!indicator.isSampling)
+        #expect(service?.isMonitoring == false)
+
+        visibility.visible = true
+        center.post(name: NSApplication.didUnhideNotification, object: NSApplication.shared)
+        for _ in 0 ..< 50 where !indicator.isSampling { await Task.yield() }
+        #expect(indicator.isSampling)
+
+        center.post(name: NSWindow.willCloseNotification, object: window)
+        for _ in 0 ..< 50 where indicator.isSampling { await Task.yield() }
+        #expect(!indicator.isSampling)
+        #expect(service?.subscriberCount == 0)
+        indicator.removeFromSuperview()
         service?.stop()
     }
 
