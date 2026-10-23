@@ -8,14 +8,21 @@ import Testing
 /// (`WebKitEngine.fileInput`, in the app the made-ahead `MadeAheadOpenPanel`), as an agent composer page's does
 /// (`PageOpenPanel`). The tab had its own copy of the handler that called `NSOpenPanel()` itself (deep review of
 /// fleet-gui, finding 2): no panel made ahead (a cold 160 to 830 ms panel per click), and no dead-panel guard, so
-/// with no view service the main thread blocked about 40 s and the page's file input could wait forever on a sheet
-/// handler that never came.
+/// with no view service the page's file input could wait forever on a sheet handler that never came. The shared path
+/// removes that wait-forever (a dead panel ends the input as a cancel) and reuses a panel made ahead; it does not
+/// remove the main-thread block of a click that has to make its panel (up to about 40 s with a hung or absent panel
+/// service: `MadeAheadOpenPanel+WebFileInputAnswering`).
 ///
 /// The test drives the real entrypoint: a page script clicks a file input (`callAsyncJavaScript` runs with a user
 /// gesture), WebKit calls the tab's `webView(_:runOpenPanelWith:initiatedByFrame:completionHandler:)`, and the page
-/// reads back the files it was given. The answerer stands in for the panel, which a test host cannot show. On a
-/// handler that makes its own panel the answerer is never asked and the page never gets its `change` event, so the
-/// test fails at its time limit.
+/// reads back the files it was given. The answerer stands in for the panel, which a test host cannot show.
+///
+/// The red, on a handler that makes its own panel, depends on the host and has not been observed yet: the answerer
+/// is never asked, and the handler's `NSOpenPanel()` either shows a sheet that never ends (a console-user host: the
+/// test fails at its time limit) or, with no view service, blocks the main thread on ViewBridge and may end the test
+/// process (`OpenPanelWarmGate`), which then fails the whole CmuxNextBrowserTests run instead of this test. Unverified
+/// premises of the green, to be recorded per macOS major on the fleet: that the script's user gesture lets
+/// `input.click()` reach `runOpenPanelWith`, and that WebKit asks for a web view in a window never ordered on screen.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct WebKitTabFileInputTests {
     @MainActor private final class Answerer: WebFileInputAnswering {
         struct Ask {
