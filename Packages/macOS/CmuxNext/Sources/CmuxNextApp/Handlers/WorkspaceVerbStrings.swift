@@ -22,7 +22,7 @@ nonisolated enum WorkspaceVerbStrings {
     static var unpinGroup: String { text("workspaceVerbs.unpinGroup", "Unpin Group") }
     /// A group header's Collapse/Expand row, titled as the change it makes.
     static var collapseGroup: String { text("workspaceVerbs.collapseGroup", "Collapse Group") }
-    static var subgroupTooDeep: String { text("workspaceVerbs.refusal.subgroupTooDeep", "groups nest at most 3 levels deep") }
+    static var subgroupTooDeep: String { text("workspaceVerbs.refusal.subgroupTooDeep", "groups nest at most 16 levels deep") }
     static var subgroupNeedsDocument: String { text("workspaceVerbs.refusal.subgroupNeedsDocument", "this sidebar cannot nest groups yet") }
     static var expandGroup: String { text("workspaceVerbs.expandGroup", "Expand Group") }
 

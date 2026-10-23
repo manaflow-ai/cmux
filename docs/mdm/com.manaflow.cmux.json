@@ -49,12 +49,12 @@
     },
     "agentPane.display.inspector.placement" : {
       "default" : "overlay",
-      "description" : "Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
+      "description" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
       "enum" : [
         "push",
         "overlay"
       ],
-      "title" : "Inspector",
+      "title" : "Session Info",
       "type" : "string"
     },
     "agentPane.display.width" : {

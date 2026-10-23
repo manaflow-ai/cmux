@@ -190,6 +190,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     // Remote localhost (plans/cmux-next/remote-localhost.md).
     let setContextProxy: @convention(c) (UnsafePointer<CChar>?, Int32) -> Int32
     let contextProxyState: @convention(c) (UnsafePointer<CChar>?) -> Int32
+    let setContextProxyServer: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     let releaseContext: @convention(c) (UnsafePointer<CChar>?) -> Void
     let setNavigationGuard: @convention(c) (Int32, Int32) -> Void
     /// A sign-in tab's callback: scheme, https host, https path (all empty clears).
@@ -381,6 +382,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         rendererClientIDs = try r("cmux_shim_renderer_client_ids")
         setContextProxy = try r("cmux_shim_set_context_proxy")
         contextProxyState = try r("cmux_shim_context_proxy_state")
+        setContextProxyServer = try r("cmux_shim_set_context_proxy_server")
         releaseContext = try r("cmux_shim_release_context")
         setNavigationGuard = try r("cmux_shim_set_navigation_guard")
         setAuthCallback = try r("cmux_shim_set_auth_callback")
