@@ -260,7 +260,7 @@ final class UIInspectorController {
         let scaleX = Double(cg.width) / viewportWidth.doubleValue
         let scaleY = Double(cg.height) / viewportHeight.doubleValue
         let rect = CGRect(x: x.doubleValue * scaleX,
-                          y: (viewportHeight.doubleValue - y.doubleValue - height.doubleValue) * scaleY,
+                          y: y.doubleValue * scaleY,
                           width: width.doubleValue * scaleX, height: height.doubleValue * scaleY).integral
             .intersection(CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
         guard let cut = cg.cropping(to: rect), !rect.isEmpty else { return nil }
