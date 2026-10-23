@@ -318,7 +318,7 @@ def main():
                 check(comp, "no composer")
                 sim.tap_el(comp)
                 time.sleep(0.4)
-                sim.softtype(f"# {marker}\n")
+                sim.softtype(f"{marker}\n")
                 t_type = time.time()
                 seen = False
                 while time.time() - t_type < 20:
@@ -327,7 +327,7 @@ def main():
                         break
                     time.sleep(0.3)
                 rec = {"n": n, "t": utc(t_type), "mac": rig.host, "reached": seen, "echo_s": round(time.time() - t_type, 2)}
-            except (Fail, RuntimeError, IndexError) as error:
+            except Exception as error:  # an echo that fails is a result, not the end of the soak
                 rec = {"n": n, "t": utc(), "mac": rig.host, "reached": False, "error": str(error)[:200]}
             echoes.append(rec)
             log(f"echo {rec}")
