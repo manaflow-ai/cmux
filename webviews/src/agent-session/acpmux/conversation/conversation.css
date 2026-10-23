@@ -67,6 +67,7 @@
   --cv-actions-in-delay: 100ms;
   --cv-actions-out: var(--cmux-motion-quick, 80ms);
   --cv-actions-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --cv-action-gap: 4px;
 }
 /* A wider column on a wide pane (Debug Settings agent.chatWidth, chatWidth.ts, cx-ncc.107): `wide` caps
    everything at 960px; `wideBlocks` gives code, diffs, tables, tool output and cards 1120px while
@@ -928,25 +929,28 @@
 }
 
 /* The table may be wider than the column; it scrolls instead of widening the row. */
-/* A reply's table (TableBlock.tsx): as wide as the table, with Open and Copy just right of its
-   header row, shown on hover or keyboard focus like the message rows'. The block leaves their 48px
-   free at the column's edge (a wider table scrolls), so they never cover text and never depend on
-   the margin above the table. */
+/* A reply's table (TableBlock.tsx): as wide as the table, with Open and Copy at its top-right
+   corner, shown on hover or keyboard focus like the message rows'. The pair shares the compact
+   control height and icon rhythm with the rest of the agent pane. */
 .cv-table-block {
   position: relative;
   width: fit-content;
-  max-width: calc(100% - 48px);
+  max-width: 100%;
   margin: var(--cv-table-before, 6.5px) 0 14px;
 }
 .cv-table-tools {
   position: absolute;
   z-index: var(--layer-raised);
-  top: 6px;
-  left: 100%;
+  top: 0;
+  right: 0;
   display: flex;
-  gap: 2px;
-  padding-left: 6px;
+  align-items: center;
+  gap: var(--cv-action-gap, 4px);
   opacity: 0;
+}
+.cv-table-tools .cv-iconbtn--compact {
+  width: var(--cmux-control-height, 24px);
+  height: var(--cmux-control-height, 24px);
 }
 @media (prefers-reduced-motion: no-preference) {
   .cv-table-tools {
@@ -1019,7 +1023,7 @@
 .cv-codeblock__actions {
   margin-left: auto;
   display: flex;
-  gap: 4px;
+  gap: var(--cv-action-gap);
   color: var(--cv-codeblock-actions);
 }
 .cv-codeblock__action {
