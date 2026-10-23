@@ -111,7 +111,10 @@ extension AgentTabStore {
         tabs.launchImages = services.environment.launchFiles.map { AgentPaneLaunchImages(frames: $0.agentPageImages) }
             ?? AgentPaneLaunchImages(directory: nil)
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
-        tabs.unsentDrafts = AgentUnsentDrafts(directory: state)
+        // Read off the main thread since `main` (LaunchFiles); here only taken.
+        let draftsFile = AgentUnsentDrafts.file(in: state)
+        tabs.unsentDrafts = AgentUnsentDrafts(file: draftsFile, drafts: services.environment.launchFiles?.unsentDrafts.take()
+            ?? AgentUnsentDrafts.read(draftsFile))
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The composer chips and shell commands chat pages held at the last quit (every relaunch's quit).
         tabs.relaunchWake = AgentPaneRelaunchWake(directory: state)

@@ -27,7 +27,7 @@ on waitpid for the app, and on kqueue NOTE_EXIT for the tag's daemon.
 
   scripts/cmux-next/bench-startup.py --tag nxboot [--tag other] [--runs 5]
       [--mode cold --mode warm --mode kept] [--profile empty|realistic] [--json out.json]
-      [--launch-guard]
+      [--launch-guard [--max-launch-stall MS]]
   scripts/cmux-next/bench-startup.py --app "/path/cmux DEV launch-1.app" ...
 
 --app runs a fleet artifact staged anywhere (its tag comes from the
@@ -41,15 +41,18 @@ an agent pane. Its runs wait for the agent pane's handshake as well as the
 first terminal frame.
 
 --launch-guard (the regression guard of #17587, a script, not a CI gate)
-exits 1 when a launch restores hidden work eagerly or reads what its first
-window draws on the main thread: in kept mode a terminal of a workspace no
-visible window shows runs again after the launch (`--max-hidden-started`,
-default 0), and in any run the app marked `launch_read_on_main.<file>`:
-the launch snapshot, the saved sidebars, the terminals' last frames or the
-agent pages' last images were read and decoded on the main thread (each
-read marks it when it runs there) instead of off it, begun in `main`. Use
-it with --budget for the time targets, for example
-`--budget first_window_frame_committed=150`.
+exits 1 when a launch restores hidden work eagerly or blocks its main thread
+before the first live terminal frame: in kept mode a terminal of a workspace
+no visible window shows runs again after the launch (`--max-hidden-started`,
+default 0); in any run the app marked `launch_read_on_main.<file>` (the
+launch snapshot, the saved sidebars, the terminals' last frames, the agent
+pages' last images or the new chats' unsent drafts were read, or waited for,
+on the main thread instead of off it, begun in `main`); and, measured rather
+than self-reported, any main-thread stall over `--max-launch-stall` ms
+(default 50, recorded with stacks through debug.hangs) catches a main-thread
+read or decode no mark covers. Use it with --budget for the time targets:
+`--mode warm --mode kept --profile realistic --launch-guard
+--budget first_window_frame_committed=150`.
 
 Several tags run interleaved (A run 1, B run 1, A run 2, ...), so machine
 load affects them alike. Prints the load average and, per tag and mode, one
@@ -104,6 +107,7 @@ MARKS = [
     ("launch_read_on_main.sidebar_snapshot", "MAIN THREAD: saved sidebars read"),
     ("launch_read_on_main.terminal_frames", "MAIN THREAD: terminals' last frames read"),
     ("launch_read_on_main.agent_page_images", "MAIN THREAD: agent pages' last images read"),
+    ("launch_read_on_main.unsent_drafts", "MAIN THREAD: new chats' unsent drafts read"),
     ("launch_snapshot_applied", "cached layout read (launch snapshot)"),
     ("dfl.daemon_cloud_updater", "dfl: daemon, cloud, updater"),
     ("dfl.first_window_hooks", "dfl: first window hooks"),
@@ -699,12 +703,16 @@ def main():
     parser.add_argument("--settle", type=float, default=KEPT_SETTLE_S,
                         help="kept mode: seconds after the first live terminal frame before the terminals are counted")
     parser.add_argument("--launch-guard", action="store_true",
-                        help="exit 1 when a launch starts hidden terminals (kept mode) or reads its launch snapshot "
-                             "on the main thread (#17587)")
+                        help="exit 1 when a launch starts hidden terminals (kept mode), reads or waits for a launch "
+                             "file on the main thread (launch snapshot, saved sidebars, terminal frames, agent page "
+                             "images, unsent drafts), or stalls its main thread over --max-launch-stall (#17587)")
+    parser.add_argument("--max-launch-stall", type=float, default=50.0, metavar="MS",
+                        help="with --launch-guard: the longest main-thread stall a launch may have (debug.hangs)")
     parser.add_argument("--max-hidden-started", type=int, default=0, metavar="N",
                         help="with --launch-guard: kept mode's limit of running terminals in workspaces no visible window shows")
     args = parser.parse_args()
-    HANG_THRESHOLD_MS = args.hangs
+    # The guard measures main-thread stalls too, so a main-thread read no mark reports still fails it.
+    HANG_THRESHOLD_MS = args.hangs or (int(args.max_launch_stall) if args.launch_guard else None)
     KEPT_SETTLE_S = args.settle
     SEED_FOCUS = args.focus
     SEED_CHAT_PANE = args.chat_pane
@@ -761,7 +769,7 @@ def main():
     orders = args.order + (LAUNCH_ORDER if args.budget else [])
     over = check_budgets(results, args.budget) + check_orders(results, orders)
     if args.launch_guard:
-        guard = check_launch_guard(results, args.max_hidden_started)
+        guard = check_launch_guard(results, args.max_hidden_started, args.max_launch_stall)
         print(f"launch guard: {'FAIL' if guard else 'pass'}"
               + "".join(f"\n  {line}" for line in guard), file=sys.stderr if guard else sys.stdout)
         over += guard
@@ -786,13 +794,15 @@ def check_budgets(results, budgets):
     return over
 
 
-def check_launch_guard(results, max_hidden_started):
+def check_launch_guard(results, max_hidden_started, max_launch_stall):
     """#17587's regression guard: nothing hidden is restored eagerly, and the
-    files the first window draws are read off the main thread. Every
-    kept-mode run counts at most `max_hidden_started` running terminals
-    outside the shown workspaces (and at least one running in them: the
-    shown workspace is live), and no run marked a launch read on the main
-    thread (`launch_read_on_main.<file>`)."""
+    files the launch reads are read off the main thread. Every kept-mode run
+    counts at most `max_hidden_started` running terminals outside the shown
+    workspaces (and at least one running in them: the shown workspace is
+    live), no run marked a launch read on the main thread
+    (`launch_read_on_main.<file>`), and no run recorded a main-thread stall
+    over `max_launch_stall` ms (measured, so it also catches a read no mark
+    covers)."""
     out = []
     for tag, modes in results.items():
         for mode, runs in modes.items():
@@ -810,6 +820,12 @@ def check_launch_guard(results, max_hidden_started):
                 for mark in sorted(name for name in run if name.startswith(MAIN_THREAD_READ)):
                     out.append(f"{where}: {mark.removeprefix(MAIN_THREAD_READ)} read on the main thread at "
                                f"{run[mark]:.0f} ms (it holds the first window frame)")
+                if "stalls" not in run:
+                    out.append(f"{where}: no main-thread stall record (debug.hangs did not answer)")
+                for stall in run.get("stalls", []):
+                    if stall["ms"] > max_launch_stall:
+                        out.append(f"{where}: main thread stalled {stall['ms']:.0f} ms (limit {max_launch_stall:.0f}): "
+                                   + " < ".join(stall["frames"][:4]))
     return out
 
 

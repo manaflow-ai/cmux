@@ -1,10 +1,12 @@
+import CmuxNextAgentPane
 import CmuxNextLaunch
 import CmuxNextTerminal
 import Foundation
 
 /// The saved files this app reads before its first window frame, besides the daemon's launch
-/// snapshot (`DaemonPrestart.launchSnapshot`): the saved sidebars, the terminals' last frames and
-/// the agent pages' last images. `main` starts reading and decoding all of them on background
+/// snapshot (`DaemonPrestart.launchSnapshot`): the saved sidebars, the terminals' last frames, the
+/// agent pages' last images and the new chats' unsent drafts (read when the agent tab store is made
+/// in `applicationDidFinishLaunching`). `main` starts reading and decoding all of them on background
 /// threads before AppKit starts, so none is read on the main thread while the first window is built
 /// (#17587: the sidebar's JSON decode alone held the main thread for up to 100 ms, and each shown
 /// pane decoded its JPEG there). A read that has not finished when the app takes it is waited for
@@ -17,6 +19,8 @@ nonisolated struct LaunchFiles: Sendable {
     let terminalFrames: SavedFrameDirectory
     /// The agent pages' last images (`AgentPaneLaunchImages`).
     let agentPageImages: SavedFrameDirectory
+    /// The new chats' unsent drafts (`AgentUnsentDrafts`), by tab.
+    let unsentDrafts: LaunchRead<[String: String]>
 
     /// Starts every read now. `sidebarFile` names the build's state directory, where the frames
     /// and images are saved beside it.
@@ -30,6 +34,8 @@ nonisolated struct LaunchFiles: Sendable {
         agentPageImages = SavedFrameDirectory(url: AgentPaneLaunchImages.directory(beside: state),
                                               maximumBytes: AgentPaneLaunchImages.maximumBytes,
                                               name: "agent_page_images", readOnMain: mark)
+        let draftsFile = AgentUnsentDrafts.file(in: state)
+        unsentDrafts = LaunchRead("unsent_drafts", readOnMain: mark) { AgentUnsentDrafts.read(draftsFile) }
     }
 
     /// Decodes the frames and images of `tabKeys` (the tabs the first windows show, front window
