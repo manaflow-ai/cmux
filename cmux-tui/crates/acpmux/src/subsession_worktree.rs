@@ -22,7 +22,8 @@
 //! and only over the file, git, http, https and ssh transports.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
+use std::time::Instant;
 
 /// A worktree [`make_worktree`] made.
 #[derive(Clone)]
@@ -59,8 +60,14 @@ fn hardened(dir: &Path) -> Command {
     cmd
 }
 
-fn run(mut cmd: Command, args: &[&str]) -> Result<String, String> {
-    let out = cmd.args(args).output().map_err(|e| format!("git did not run: {e}"))?;
+fn run(cmd: Command, args: &[&str]) -> Result<String, String> {
+    run_by(cmd, args, None)
+}
+
+/// [`run`], its process group killed at `by` (`hub/worktree_care/revive.rs`).
+fn run_by(mut cmd: Command, args: &[&str], by: Option<Instant>) -> Result<String, String> {
+    cmd.args(args);
+    let out = output_by(cmd, None, by)?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
         return Err(format!("git {} failed: {}", args.join(" "), err.trim()));
@@ -72,6 +79,143 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     run(hardened(dir), args)
 }
 
+/// Git that runs nothing from the repository at `dir` ([`hardened`]), ended at `by`.
+pub(crate) fn git_by(dir: &Path, args: &[&str], by: Instant) -> Result<String, String> {
+    run_by(hardened(dir), args, Some(by))
+}
+
+/// `cmd`'s output, `input` on its stdin. With `by`, it runs in a process group of its own,
+/// killed whole at `by` (a filter or helper it started that hangs goes with it).
+fn output_by(
+    mut cmd: Command,
+    input: Option<Vec<u8>>,
+    by: Option<Instant>,
+) -> Result<Output, String> {
+    use std::io::{Read, Write};
+    if by.is_some_and(|by| Instant::now() >= by) {
+        return Err("git did not finish in time".into());
+    }
+    #[cfg(unix)]
+    if by.is_some() {
+        std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
+    }
+    cmd.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() });
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("git did not run: {e}"))?;
+    // Written from a thread: git may answer before it reads it all.
+    let stdin = child
+        .stdin
+        .take()
+        .zip(input)
+        .map(|(mut stdin, input)| std::thread::spawn(move || stdin.write_all(&input)));
+    let Some(by) = by else {
+        let out = child.wait_with_output().map_err(|e| format!("git did not run: {e}"));
+        if let Some(Err(e)) = stdin.and_then(|w| w.join().ok()) {
+            return Err(e.to_string());
+        }
+        return out;
+    };
+    let (tx, rx) = std::sync::mpsc::channel();
+    for (is_stdout, pipe) in [
+        (true, child.stdout.take().map(|p| Box::new(p) as Box<dyn Read + Send>)),
+        (false, child.stderr.take().map(|p| Box::new(p) as Box<dyn Read + Send>)),
+    ] {
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            let mut got = Vec::new();
+            if let Some(mut pipe) = pipe {
+                let _ = pipe.read_to_end(&mut got);
+            }
+            let _ = tx.send((is_stdout, got));
+        });
+    }
+    drop(tx);
+    let stop = |child: &mut std::process::Child| {
+        #[cfg(unix)]
+        unsafe {
+            libc::killpg(child.id() as i32, libc::SIGKILL);
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+    };
+    let status = match wait_timeout::ChildExt::wait_timeout(
+        &mut child,
+        by.saturating_duration_since(Instant::now()),
+    ) {
+        Ok(Some(status)) => status,
+        result => {
+            stop(&mut child);
+            return Err(format!("git did not finish in time: {result:?}"));
+        }
+    };
+    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+    for _ in 0..2 {
+        match rx.recv_timeout(by.saturating_duration_since(Instant::now())) {
+            Ok((true, bytes)) => stdout = bytes,
+            Ok((false, bytes)) => stderr = bytes,
+            Err(_) => {
+                stop(&mut child);
+                return Err("git output did not close in time".into());
+            }
+        }
+    }
+
+    Ok(Output { status, stdout, stderr })
+}
+
+/// Adds a worktree of the repository whose common git directory is `common` at `root` (`add`:
+/// `git worktree add --no-checkout`'s arguments) and writes `commit`'s files into it as
+/// [`make_worktree`] does: no config of the repository's runs (no filter, hook or helper).
+/// Each git call ends at `by`. Removed again when its files cannot be written.
+pub(crate) fn add_without_config(
+    common: &Path,
+    add: &[&str],
+    root: &Path,
+    commit: &str,
+    by: Instant,
+) -> Result<(), String> {
+    let git = |args: &[&str]| git_by(common, args, by);
+    let path = ["rev-parse", "--path-format=absolute", "--git-path", "objects"];
+    let objects = PathBuf::from(git(&path)?);
+    let format = git(&["rev-parse", "--show-object-format"])?;
+    // Fill a sibling first: timeout or failed checkout must never expose a partial cwd.
+    let staged = root.with_file_name(format!(".acpmux-revive-{}", uuid::Uuid::now_v7()));
+    let (destination, stage) = (root.to_string_lossy(), staged.to_string_lossy());
+    let args: Vec<&str> = ["worktree", "add", "--no-checkout"]
+        .into_iter()
+        .chain(add.iter().map(|arg| if *arg == destination { stage.as_ref() } else { *arg }))
+        .collect();
+    git(&args)?;
+    let filled = git_by(&staged, &["rev-parse", "HEAD"], by)
+        .and_then(|actual| {
+            (actual == commit).then_some(()).ok_or_else(|| "branch advanced during recovery".into())
+        })
+        .and_then(|()| check_out_without_config(&objects, &format, &staged, commit, Some(by)))
+        .and_then(|()| git_by(&staged, &["read-tree", commit], by).map(drop))
+        .and_then(|()| git(&["worktree", "move", &stage, &destination]).map(drop))
+        .and_then(|()| {
+            if root.join(staged.file_name().unwrap_or_default()).exists()
+                || !root.join(".git").is_file()
+            {
+                Err("worktree destination changed during recovery".into())
+            } else {
+                Ok(())
+            }
+        });
+    if filled.is_err() {
+        let cleanup_by = Instant::now() + std::time::Duration::from_secs(5);
+        let nested = root.join(staged.file_name().unwrap_or_default());
+        for path in [&staged, &nested] {
+            let _ = git_by(
+                common,
+                &["worktree", "remove", "--force", &path.to_string_lossy()],
+                cleanup_by,
+            );
+        }
+    }
+    filled
+}
+
 /// Writes `commit`'s files into `root` with a throwaway git directory next
 /// to nothing of the repository's but its objects (`objects`): no config of
 /// the repository's, the user's or the system's is read.
@@ -80,6 +224,7 @@ fn check_out_without_config(
     format: &str,
     root: &Path,
     commit: &str,
+    by: Option<Instant>,
 ) -> Result<(), String> {
     let scratch = std::env::temp_dir().join(format!("acpmux-wt-{}", uuid::Uuid::now_v7()));
     let result: Result<(), String> = (|| {
@@ -98,7 +243,7 @@ fn check_out_without_config(
         std::fs::write(scratch.join("config"), config).map_err(|e| e.to_string())?;
         std::fs::write(info.join("alternates"), format!("{}\n", objects.display()))
             .map_err(|e| e.to_string())?;
-        fetch_missing(objects, &scratch, root, commit)?;
+        fetch_missing(objects, &scratch, root, commit, by)?;
         let isolated = || {
             let mut cmd = hardened(root);
             cmd.env("GIT_DIR", &scratch)
@@ -107,8 +252,8 @@ fn check_out_without_config(
                 .env("GIT_CONFIG_GLOBAL", "/dev/null");
             cmd
         };
-        run(isolated(), &["read-tree", commit])?;
-        run(isolated(), &["checkout-index", "--all", "--force"])?;
+        run_by(isolated(), &["read-tree", commit], by)?;
+        run_by(isolated(), &["checkout-index", "--all", "--force"], by)?;
         Ok(())
     })();
     let _ = std::fs::remove_dir_all(&scratch);
@@ -117,18 +262,24 @@ fn check_out_without_config(
 
 /// The objects of `commit`'s tree that the repository's object store
 /// (`objects`) lacks, as a partial clone can.
-fn missing_objects(scratch: &Path, root: &Path, commit: &str) -> Result<Vec<String>, String> {
+fn missing_objects(
+    scratch: &Path,
+    root: &Path,
+    commit: &str,
+    by: Option<Instant>,
+) -> Result<Vec<String>, String> {
     let mut cmd = hardened(root);
     cmd.env("GIT_DIR", scratch).env("GIT_CONFIG_GLOBAL", "/dev/null");
     let tree = format!("{commit}^{{tree}}");
     let listed =
-        run(cmd, &["rev-list", "--objects", "--missing=print", "--no-object-names", &tree])?;
+        run_by(cmd, &["rev-list", "--objects", "--missing=print", "--no-object-names", &tree], by)?;
     Ok(listed.lines().filter_map(|l| l.strip_prefix('?')).map(str::to_owned).collect())
 }
 
 /// The URL of the promisor remote of the partial clone whose worktree
 /// `root` is, as its config names it (read, never run).
-fn promisor_url(root: &Path) -> Option<String> {
+fn promisor_url(root: &Path, by: Option<Instant>) -> Option<String> {
+    let git = |dir: &Path, args: &[&str]| run_by(hardened(dir), args, by);
     let listed =
         git(root, &["config", "--get-regexp", r"^remote\..*\.promisor$"]).unwrap_or_default();
     let named = listed.lines().find_map(|l| {
@@ -147,13 +298,18 @@ fn promisor_url(root: &Path) -> Option<String> {
 /// transports, helpers, `insteadOf`, upload-pack) is not read, the user's
 /// and the system's are (their credential helpers), and only the file, git,
 /// http, https and ssh transports may run. Nothing missing, nothing fetched.
-fn fetch_missing(objects: &Path, scratch: &Path, root: &Path, commit: &str) -> Result<(), String> {
-    use std::io::Write;
-    let missing = missing_objects(scratch, root, commit)?;
+fn fetch_missing(
+    objects: &Path,
+    scratch: &Path,
+    root: &Path,
+    commit: &str,
+    by: Option<Instant>,
+) -> Result<(), String> {
+    let missing = missing_objects(scratch, root, commit, by)?;
     if missing.is_empty() {
         return Ok(());
     }
-    let url = promisor_url(root).ok_or_else(|| {
+    let url = promisor_url(root, by).ok_or_else(|| {
         format!(
             "{} of the commit's objects are missing and no promisor remote has them",
             missing.len()
@@ -173,15 +329,8 @@ fn fetch_missing(objects: &Path, scratch: &Path, root: &Path, commit: &str) -> R
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_NO_LAZY_FETCH", "1")
         .env("GIT_ALLOW_PROTOCOL", "file:git:http:https:ssh")
-        .env("LC_ALL", "C")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped());
-    let mut child = cmd.spawn().map_err(|e| format!("git did not run: {e}"))?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(missing.join("\n").as_bytes()).map_err(|e| e.to_string())?;
-    }
-    let out = child.wait_with_output().map_err(|e| format!("git did not run: {e}"))?;
+        .env("LC_ALL", "C");
+    let out = output_by(cmd, Some(missing.join("\n").into_bytes()), by)?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
         return Err(format!("fetching the partial clone's missing files failed: {}", err.trim()));
@@ -280,7 +429,7 @@ fn fill(
     // Its files without the repository's config; then its index, which
     // `read-tree` (no `-u`) writes from the objects alone.
     let root = made.root.clone();
-    let filled = check_out_without_config(&layout.objects, &layout.format, &root, commit)
+    let filled = check_out_without_config(&layout.objects, &layout.format, &root, commit, None)
         .and_then(|()| git(&root, &["read-tree", commit]).map(drop))
         .and_then(|()| {
             git(folder, &["config", &format!("branch.{}.cmuxBase", made.branch), &made.base])
@@ -490,6 +639,17 @@ fn listed_worktree(folder: &Path, root: &Path) -> Option<Option<String>> {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    #[test]
+    fn git_output_deadline_covers_a_descendant_holding_the_pipe() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "sleep 10 & exit 0"]);
+        let by = Instant::now() + std::time::Duration::from_millis(200);
+        let result = output_by(command, None, Some(by));
+        assert!(result.is_err(), "a still-open output must time out: {result:?}");
+        assert!(by.elapsed() < std::time::Duration::from_secs(5));
+    }
+
     #[test]
     fn slug_matches_the_worktree_names() {
         assert_eq!(slug("Fix the flaky upload test!"), "fix-the-flaky-upload-test");
@@ -536,6 +696,26 @@ mod tests {
         sh(&repo, &["commit", "-q", "-am", "second"]);
         sh(&repo, &["checkout", "-q", "main"]);
         (Scratch(top), repo, home)
+    }
+
+    #[test]
+    fn recovery_does_not_nest_a_worktree_in_a_reappeared_destination() {
+        let (_scratch, repo, home) = repo();
+        let root = home.join("reappeared");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("keep"), "user data").unwrap();
+        let at = sh(&repo, &["rev-parse", "HEAD"]);
+        let by = Instant::now() + std::time::Duration::from_secs(10);
+        let result = add_without_config(
+            &repo.join(".git"),
+            &["--detach", root.to_str().unwrap(), &at],
+            &root,
+            &at,
+            by,
+        );
+        assert!(result.is_err(), "destination appeared meanwhile: {result:?}");
+        assert_eq!(std::fs::read_to_string(root.join("keep")).unwrap(), "user data");
+        assert_eq!(std::fs::read_dir(root).unwrap().count(), 1, "no nested recovery tree");
     }
 
     #[test]
