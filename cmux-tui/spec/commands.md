@@ -9331,10 +9331,7 @@ a "bypass" badge; the daemon changes no mode. The bind records the harness
 acpmux lists for the session (a profile by its last part), else its family.
 Starts and adopts share the per-daemon and per-tab limit
 (`agent_session.limit`). Trust is the attach verbs': trusted local (Unix)
-connections only. The daemon does not advertise `agent-session-adopt-v1` in
-`identify` yet: it does once the mode reads the app relies on with it
-(`agent-session-mode`, the attach reply's `agentMode`, `mode_events`) are
-served too.
+connections only.
 
 The same capability makes the mode readable afterwards, so the badge follows
 the chat and never rests on what one app remembers:
