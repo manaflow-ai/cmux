@@ -535,7 +535,12 @@ public final class LayoutRootView: NSView {
             self.eventMonitor = nil
         }
         driver.detach()
-        if !live { for view in screenViews.values { view.settleMotion() } }
+        if !live {
+            for view in screenViews.values { view.settleMotion() }
+            // Settled springs are no motion: observers (the window's catcher panels) must not wait
+            // for a landing that a parked root never steps to.
+            setLayoutInMotion(false)
+        }
         if !live, let planeHost {
             planeHost.releasePlane(overlayPlane)
             self.planeHost = nil

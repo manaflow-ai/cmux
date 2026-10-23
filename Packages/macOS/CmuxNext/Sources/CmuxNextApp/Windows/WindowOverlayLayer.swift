@@ -52,6 +52,8 @@ final class WindowOverlayLayer {
     private(set) var sidebarResizeArea: LayoutMouseArea?
     /// What the catcher panels cover: the divider areas, the sidebar's resize band last.
     private(set) var catcherAreas: [LayoutMouseArea] = []
+    /// Each root's divider areas the catchers cover: its areas at its last report at rest.
+    private var catcherAreasAtRest: [ObjectIdentifier: [LayoutMouseArea]] = [:]
     static let sidebarResizeAreaID = "sidebar.resize"
     let catchers: DividerMouseCatchers
     private var observers: [any NSObjectProtocol] = []
@@ -253,23 +255,31 @@ final class WindowOverlayLayer {
 
     private func updateInteractiveRects() {
         var rects: [CGRect] = []
+        var dividers: [LayoutMouseArea] = []
         var areas: [LayoutMouseArea] = []
+        var held: [ObjectIdentifier: [LayoutMouseArea]] = [:]
         for plane in planes {
             guard let root = plane.home as? LayoutRootView, root.window === window else { continue }
             rects += root.interactiveOverlayRects.map { root.convert($0, to: nil) }
-            areas += root.dividerMouseAreas.map { area in
+            let live = root.dividerMouseAreas.map { area in
                 var area = area
                 area.rect = root.convert(area.rect, to: nil)
                 return area
             }
+            dividers += live
+            // A spring moves this root's dividers on every display frame until it lands: its catcher
+            // panels (one window move each, a new panel for a new divider) keep their rest places and
+            // follow once, at the landing, which the root reports even when no rect changes then
+            // (`isInLayoutMotion`). A parked root is never in motion. Other roots follow at once.
+            let id = ObjectIdentifier(root)
+            let frozen = root.isLive && root.isInLayoutMotion ? catcherAreasAtRest[id] : nil
+            held[id] = frozen ?? live
+            areas += frozen ?? live
         }
-        dividerAreas = areas
+        catcherAreasAtRest = held
+        dividerAreas = dividers
         if let sidebarResizeArea { areas.append(sidebarResizeArea) }
-        // A spring moves the dividers on every display frame until it lands: the catcher panels
-        // (one window move each, a new panel for a new divider) follow once, at the landing,
-        // which the root reports even when no rect changes then (`isInLayoutMotion`).
-        let springing = planes.contains { ($0.home as? LayoutRootView)?.isInLayoutMotion == true }
-        if areas != catcherAreas, !springing {
+        if areas != catcherAreas {
             catcherAreas = areas
             syncCatchers()
         }
