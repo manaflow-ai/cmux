@@ -215,7 +215,7 @@ fn a_new_terminals_first_text_waits_for_at_most_one_discovery_file_sync() {
         SLOW_DISCOVERY_SYNC_MS.to_string(),
     )]);
     assert!(
-        first_text_ms < 2 * SLOW_DISCOVERY_SYNC_MS,
+        first_text_ms < 1,
         "the first text came {first_text_ms} ms after the request: it waited for several discovery-file syncs ({SLOW_DISCOVERY_SYNC_MS} ms each)"
     );
 }

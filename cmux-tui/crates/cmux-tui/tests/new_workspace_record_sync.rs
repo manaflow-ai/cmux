@@ -136,7 +136,7 @@ fn a_new_workspace_answers_after_at_most_one_discovery_file_sync() {
         "a tab move answered after {move_ms} ms: it waited for its host record's rewrite ({SLOW_SYNC_MS} ms per sync)"
     );
     assert!(
-        slowest < 2 * SLOW_SYNC_MS,
+        slowest < 1,
         "a new workspace answered after {slowest} ms: it waited for more than one discovery-file sync ({SLOW_SYNC_MS} ms each)"
     );
 }
