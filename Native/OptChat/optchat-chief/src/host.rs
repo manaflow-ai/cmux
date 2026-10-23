@@ -406,17 +406,20 @@ pub fn subagent_preset(
     }
 }
 
-/// Built-in tools a Chief subagent never uses: `session_dir::SUBAGENT_DENIED_TOOLS`
-/// (Claude Code's own subagents and the tools that wait for a human), and
-/// the ones that need the user's own opt-in in their own chat (`Workflow`,
-/// `/loop`'s `ScheduleWakeup`, crons). Each listed tool's text was in every
-/// request of every subagent, about 3.5k tokens (a 2026-10-23 subagent).
-pub const SUBAGENT_EXTRA_DENIED_TOOLS: [&str; 5] = [
+/// Tools a Chief subagent never uses, besides `session_dir::SUBAGENT_DENIED_TOOLS`
+/// (Claude Code's own subagents and the tools that wait for a human): the
+/// ones that need the user's own opt-in in their own chat (`Workflow`,
+/// `/loop`'s `ScheduleWakeup`, crons), and the cmux app's menu-action tools
+/// (`app_*`, 584 of them; the `cmux action` CLI keeps every one). Measured
+/// on Claude Code 2.1.305 with a one-word prompt (2026-10-23): 36,345 prompt
+/// tokens with all of them, 18,751 without, on every subagent request.
+pub const SUBAGENT_EXTRA_DENIED_TOOLS: [&str; 6] = [
     "Workflow",
     "ScheduleWakeup",
     "CronCreate",
     "CronDelete",
     "CronList",
+    "mcp__cmux__app_*",
 ];
 
 /// A Claude subagent's args: the deny list by argument, since the subagent
