@@ -29,6 +29,11 @@ import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
 
 # `--suite=pane-perf` (through the allowlisted fleet entry scripts/measure/split-spring.sh): the whole pane
 # motion suite instead, scripts/cmux-next/pane-perf-terminal.py, with the same --tag/--app/--out/--json.
+# `--suite=pl-scrolling` (test harness, scratch ref only): row 23's page cadence and palette fling, light and STRESS,
+# scripts/cmux-next/pl-scrolling-verify.py, with the same --tag/--app/--out/--json.
+if "--suite=pl-scrolling" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pl-scrolling-verify.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=pl-scrolling"])
 # `--suite=budgets`: every perf budget row, scripts/cmux-next/perf-budgets.py (one table, one gate).
 if "--suite=budgets" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-budgets.py")
