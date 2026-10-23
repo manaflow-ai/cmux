@@ -925,6 +925,9 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSView get:firstBaselineOffsetFromTop/0": {
+   "27.0.1": true
+  },
   "NSView get:mouseDownCanMoveWindow/0": {
    "26.5.2": true,
    "26.7": true,

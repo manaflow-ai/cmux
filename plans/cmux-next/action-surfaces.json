@@ -24778,10 +24778,38 @@
     },
     {
       "cli" : "offered",
-      "cli_name" : "machine add",
+      "cli_name" : "device add",
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "device.add",
+      "main_menu" : "file",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "Add Device…",
+      "title_key" : "action.device.add",
+      "title_table" : "RemoteActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "machine add",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
       ],
       "default_aliases" : [
 
@@ -39556,7 +39584,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "machine.add",
+              "id" : "device.add",
               "kind" : "action",
               "order" : 10,
               "visible_when" : {
