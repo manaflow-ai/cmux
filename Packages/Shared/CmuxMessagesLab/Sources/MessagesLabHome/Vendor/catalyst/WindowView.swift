@@ -1083,7 +1083,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         let draft: Bool = { if case .setDraft = action { return true }; return false }()
         if draft || rowsUnchanged, compose.fieldRect == oldField, fieldTop == oldFieldTop {
             // cmux: a draft changes no thread row (an open thread rebuilt every row per key: RowBuilder.rows).
-            if !draft { rebuildThread(state, at: t) }
+            rebuildThread(state, at: t)
             updateThumb()
             CATransaction.commit()
             phase("caCommit")
@@ -1159,7 +1159,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         placeMask(animated: oldFieldTop != fieldTop, element: fieldEl, begin: begin, oldTop: oldFieldTop)
         // cmux: the thread view first, so a reply sent in it flies to its copy there (startMorph). A draft
         // changes no thread row (the view is centered, not placed on the field): no rebuild per key.
-        if !draft { rebuildThread(state, at: t) }
+        rebuildThread(state, at: t)
         if send, let m = state.conversation.messages.last, m.senderId == state.me { startMorph(m, from: oldField, begin: begin) }
         // Paging changes rows far from the viewport: visible cells keep their
         // content and window position, so they need no new configuration.

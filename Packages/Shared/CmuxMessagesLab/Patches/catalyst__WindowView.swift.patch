@@ -72,11 +72,10 @@
      private func widthRows(_ st: AppState, now: Date, near: Range<Int>?) -> [RowSpec] {
          let msgs = st.conversation.messages
          let day = Format.dayInterval(now), strings = ObjectIdentifier(MessagesLabLocalization.bundle)
-@@ -682,7 +711,30 @@
-            let rows = RowBuilder.rewidth(d.rows, messages: st.ui.streams.isEmpty ? msgs : msgs + st.ui.streams.map(\.message),
+@@ -683,6 +712,29 @@
                                           width: bounds.width, exact: near, scale: renderScale) {
              return rows
-+        }
+         }
 +        // cmux: while a reply streams, each chunk changes `streams` and nothing else. The rows of every
 +        // other message stay: they are re-measured, and only the newest message's rows and the trailing rows
 +        // (the stream, typing, notice) are derived again. Deriving every loaded message per chunk made each
@@ -98,7 +97,7 @@
 +                widthDerived = (msgs, st.me, st.atNewest, st.ui.typing, st.ui.notice, st.ui.streams, day, strings, rows)
 +                return rows
 +            }
-         }
++        }
 +        MessagesWindowView.widthRowsDerived += 1  // cmux
          let rows = RowBuilder.rows(st, messages: msgs, now: now, width: bounds.width, exact: near, scale: renderScale)
          widthDerived = (msgs, st.me, st.atNewest, st.ui.typing, st.ui.notice, st.ui.streams, day, strings, rows)
@@ -140,16 +139,14 @@
          }
          // this view's width (several Home tabs), not the process-wide `Metrics.current`.
          if case let .setDraft(text) = action { MorphBubble.prepare(draft: text, width: bounds.width, scale: renderScale) }
-@@ -1007,7 +1082,8 @@
+@@ -1007,6 +1082,7 @@
          // The same for an action whose rows came out unchanged.
          let draft: Bool = { if case .setDraft = action { return true }; return false }()
          if draft || rowsUnchanged, compose.fieldRect == oldField, fieldTop == oldFieldTop {
--            rebuildThread(state, at: t)
 +            // cmux: a draft changes no thread row (an open thread rebuilt every row per key: RowBuilder.rows).
-+            if !draft { rebuildThread(state, at: t) }
+             rebuildThread(state, at: t)
              updateThumb()
              CATransaction.commit()
-             phase("caCommit")
 @@ -1036,7 +1112,7 @@
                  newOffset = pinnedOffset
              } else if target < state.conversation.messages.count, let id = state.conversation.messages[checked: target]?.id { // checked
@@ -163,11 +160,11 @@
          phase("animateRows")
          let fieldEl = send ? Springs.fieldTop : Springs.fieldGrow
          placeMask(animated: oldFieldTop != fieldTop, element: fieldEl, begin: begin, oldTop: oldFieldTop)
+-        if send, let m = state.conversation.messages.last, m.senderId == state.me { startMorph(m, from: oldField, begin: begin) }
 +        // cmux: the thread view first, so a reply sent in it flies to its copy there (startMorph). A draft
 +        // changes no thread row (the view is centered, not placed on the field): no rebuild per key.
-+        if !draft { rebuildThread(state, at: t) }
-         if send, let m = state.conversation.messages.last, m.senderId == state.me { startMorph(m, from: oldField, begin: begin) }
--        rebuildThread(state, at: t)
+         rebuildThread(state, at: t)
++        if send, let m = state.conversation.messages.last, m.senderId == state.me { startMorph(m, from: oldField, begin: begin) }
          // Paging changes rows far from the viewport: visible cells keep their
          // content and window position, so they need no new configuration.
          phase("morph+thread")
@@ -180,22 +177,21 @@
          case let .react(ref, _, _):
              guard let i = index(ref.messageId) else { return nil }
              idx.append(i)
-@@ -1511,8 +1591,15 @@
+@@ -1511,7 +1591,14 @@
          for case let cell as RowCell in collection.visibleCells {
              if let b = map[cell.key] { cell.renameRow(to: b) }
          }
 +        onRowsRenamed(map)
      }
- 
++
 +    /// cmux: rows renamed in place (a stream's final message took its rows), old key -> new key; the
 +    /// transcript selection follows (TranscriptSelection.renameRows).
 +    var onRowsRenamed: ([String: String]) -> Void = { _ in }
 +    /// cmux: a cell was configured for a row (decorate); the transcript selection draws its part in it.
 +    var onCellDecorated: (RowCell) -> Void = { _ in }
-+
+ 
      /// Live container motions: (displacement, spring, begin, end, rows it covered). A row that
      /// shows up while one runs (inserted later, or outside its band) gets the opposite motion,
-     /// so it moves as it did with per-row springs.
 @@ -1689,22 +1776,41 @@
      }
  
