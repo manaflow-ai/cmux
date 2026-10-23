@@ -21,7 +21,7 @@
 import { useEffect, useId, useRef, useSyncExternalStore } from "react";
 import { CARD_SCROLL_ATTRIBUTE, installScrollEdges } from "../../scrollers";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
-import { distinctSummary, readableUpdateItems } from "./model";
+import { distinctSummary, readableUpdate } from "./model";
 import type { Strings } from "../shared/i18n";
 import type { ReleaseNotes } from "./types";
 import type { UpdateHighlightMedia, UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
@@ -68,9 +68,7 @@ export function UpdatedCard({
   actions: UpdateSurfaceActions;
 }) {
   const titleId = useId();
-  const summary = span
-    ? summarizeUpdate(span, strings.language)
-    : summarizeHighlights({ ...data, items: readableUpdateItems(data.items) });
+  const summary = span ? summarizeUpdate(span, strings.language) : summarizeHighlights(readableUpdate(data));
   const empty = strings.t(span ? "changelog.page.maintenance" : "updates.card.whatsNewInBuild");
   return (
     <section className="ui-glass wn-card" aria-labelledby={titleId}>
@@ -125,8 +123,9 @@ export function UpdateReadyHighlights({
 }) {
   const titleId = useId();
   const scroller = useRef<HTMLElement>(null);
-  const items = readableUpdateItems(data.items);
-  const rest = data.rest ?? null;
+  const readable = readableUpdate(data);
+  const items = readable.items;
+  const rest = readable.rest ?? null;
   useEffect(() => (scroller.current ? installScrollEdges(scroller.current) : undefined), [data]);
   return (
     <section className="wn-pop" aria-labelledby={titleId} ref={scroller} {...{ [CARD_SCROLL_ATTRIBUTE]: "" }}>

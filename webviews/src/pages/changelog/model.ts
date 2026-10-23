@@ -12,7 +12,7 @@ import type {
   WhatsNewEntry,
 } from "./types";
 import { subjectArea, type AreaKey } from "./areas";
-import type { UpdateHighlightItem } from "./updateHighlights";
+import type { UpdateHighlightItem, UpdateHighlights } from "./updateHighlights";
 import { readableChange, revertedSubject, shortTitle, tidyTitle, titleTail } from "./readableChange";
 
 export const CATEGORY_ORDER: readonly WhatsNewCategory[] = ["new", "improved", "fixed", "security"];
@@ -195,6 +195,17 @@ export function readableUpdateItems(items: UpdateHighlightItem[]): UpdateHighlig
     seen.add(key);
     return [{ ...item, title: readable.title, summary: readable.summary || null }];
   });
+}
+
+/** The whole update as the card and popover read it: `items` and every change after them (`rest`)
+    through the same rules, so no internal or cut line reaches the popover's list or the card's
+    summary (review of #22099). A change in `rest` that repeats one shown above drops; `moreCount`
+    keeps counting the changes the host did not send. */
+export function readableUpdate(data: UpdateHighlights): UpdateHighlights {
+  const items = readableUpdateItems(data.items);
+  if (!data.rest) return { ...data, items };
+  const rest = readableUpdateItems([...data.items, ...data.rest]).slice(items.length);
+  return { ...data, items, rest, moreCount: Math.max(0, data.moreCount - (data.rest.length - rest.length)) };
 }
 
 function stemOf(text: string): string {
