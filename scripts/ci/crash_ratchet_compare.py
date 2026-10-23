@@ -85,8 +85,10 @@ def main(argv=None):
     for key, n in sorted(head.items()):
         print(f"  {label(key)}: head {n}, base {base_count(key)}")
     if base_state == "green":
-        print("::error::this change turns the crash ratchet red (the base is green). Fix the new crash-class hits or "
-              "add a reviewed `// crash-allow: <reason>`; never raise the baseline.")
+        print("::error::this change turns the crash ratchet red (the base is green). Fix the new crash-class hits. "
+              "A reviewed `// crash-allow: <reason>` still counts, as a waived hit (`<class>.waived`): it needs the "
+              "module's waived count raised in the baseline, in the diff for the reviewer; never raise a counted "
+              "number.")
         return 1
     worse = sorted(k for k, n in head.items() if n > base.get(k, -1))
     if worse:
