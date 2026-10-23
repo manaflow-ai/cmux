@@ -63,7 +63,15 @@ public nonisolated struct HomeChiefDirectMessages: Sendable {
 
     /// Each Chief record's id and display name, in the owner's order, from a `chief.profile.list` result.
     static func records(_ listed: JSONValue) -> [(id: String, name: String)] {
-        []
+        guard case .object(let reply) = listed else { return [] }
+        var object = reply
+        if case .object(let value)? = reply["value"] { object = value }
+        guard case .array(let chiefs)? = object["chiefs"] else { return [] }
+        return chiefs.compactMap { chief in
+            guard case .object(let record) = chief, case .string(let id)? = record["id"], !id.isEmpty else { return nil }
+            guard case .string(let name)? = record["display_name"], !name.isEmpty else { return (id, id) }
+            return (id, name)
+        }
     }
 
     /// Opens the direct message of each of the owner's Chiefs that `listed` (the Chiefs in a local
@@ -72,6 +80,13 @@ public nonisolated struct HomeChiefDirectMessages: Sendable {
     /// - Parameter listed: The participant ids of the Chiefs that already have a conversation here.
     /// - Returns: Each opened direct message by Chief id; a Chief whose open failed is left out.
     public func open(missingFrom listed: Set<String>) async -> [String: ConversationID] {
-        [:]
+        guard let all = try? await list() else { return [:] }
+        var opened: [String: ConversationID] = [:]
+        for record in Self.records(all) where record.id != HomeChiefName.muxID && !listed.contains(record.id) {
+            if let id = try? await open(Self.request(me: me, chief: record.id, name: record.name)) {
+                opened[record.id] = ConversationID(id)
+            }
+        }
+        return opened
     }
 }
