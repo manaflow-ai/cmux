@@ -287,7 +287,7 @@ struct SidebarRowsMoveOnRenderServerTests {
         list.reload(animated: true)
         let inserted = CACurrentMediaTime()
         let view = try #require(list.rowViews[key])
-        let until = try #require(list.openingRows[key])
+        let until = try #require(list.openingRows[key]?.until)
         let open = Motion.sidebar.spring(SidebarInsertMotion.nudge.token).settlingTime()
         #expect(abs(until - inserted - open) < 0.02, "the open lasts \(until - inserted) s, its spring settles in \(open) s")
         #expect(open < Motion.sidebar.spring(.move).settlingTime())
@@ -302,6 +302,130 @@ struct SidebarRowsMoveOnRenderServerTests {
         #expect(Self.sizeSprings(view) <= sizing, "the settled row opened its slot again")
     }
 
+    /// Sets the new row motion and its nudge for one test (`SidebarInsertMotion`); the returned closure resets both.
+    private static func insertMotion(_ motion: SidebarInsertMotion, nudge: CGFloat? = nil) -> () -> Void {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        TunableStore.shared.set(SidebarInsertMotion.tunable.key, .choice(motion.rawValue))
+        if let nudge { TunableStore.shared.set(SidebarInsertMotion.nudgeDistance.key, .number(Double(nudge))) }
+        return {
+            TunableStore.shared.set(SidebarInsertMotion.tunable.key, nil)
+            TunableStore.shared.set(SidebarInsertMotion.nudgeDistance.key, nil)
+        }
+    }
+
+    /// The shown workspace rows, top to bottom, each with its slot and where it is drawn at media time `time`.
+    private static func drawnRows(_ list: SidebarListView, at time: CFTimeInterval) -> [(key: SidebarRowKey, slot: CGRect, drawn: CGRect)] {
+        list.rowViews.compactMap { key, view -> (key: SidebarRowKey, slot: CGRect, drawn: CGRect)? in
+            guard case .workspace = key, let layer = view.layer, let drawn = drawn(view, at: time) else { return nil }
+            return (key, layer.frame, drawn)
+        }.sorted { $0.slot.minY < $1.slot.minY }
+    }
+
+    /// Codex review of #24374 at 618df18: a nudge set past the new row's height (40 pt over a 28 pt row) started a row
+    /// below that an earlier insert still moved 40 pt up, above the new row's top, so it crossed the new row as it
+    /// opened. The travel now stops at the new rows' height. Two inserts 30 ms apart, the second below rows the first
+    /// still moves: in no frame for 300 ms does a workspace row overlap the next one.
+    @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func aNudgePastTheRowHeightNeverCrossesTheNewRow() throws {
+        let (model, list, _, restore) = try Self.sidebar(count: 30)
+        defer { restore() }
+        let reset = Self.insertMotion(.nudge, nudge: 40)
+        defer { reset() }
+        try #require(SidebarInsertMotion.nudgeDistance.value == 40)
+
+        model.noteUserIntent()
+        model.sections = Self.sections([1, 0] + Array(2...30))
+        list.reload(animated: true)
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.03))
+        model.noteUserIntent()
+        model.sections = Self.sections([1, 0, 2, 999] + Array(3...30))
+        list.reload(animated: true)
+        let now = CACurrentMediaTime()
+
+        try #require(Self.drawnRows(list, at: now).count > 5)
+        for step in 0...72 {
+            let rows = Self.drawnRows(list, at: now + Double(step) / 240)
+            for (above, below) in zip(rows, rows.dropFirst()) {
+                #expect(above.drawn.maxY <= below.drawn.minY + 0.5,
+                        "\(below.key) is drawn \(above.drawn.maxY - below.drawn.minY) pt over \(above.key) \(step * 1000 / 240) ms on")
+            }
+        }
+    }
+
+    /// The same nudge past the row's height on one insert: the rows below and the new row move as one, so no gap opens
+    /// between any two workspace rows (each pair stays as far apart as their slots) and none overlaps, in every frame.
+    @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func aNudgePastTheRowHeightOpensWithNoGapAndNoOverlap() throws {
+        let (model, list, _, restore) = try Self.sidebar(count: 30)
+        defer { restore() }
+        let reset = Self.insertMotion(.nudge, nudge: 40)
+        defer { reset() }
+        try #require(SidebarInsertMotion.nudgeDistance.value == 40)
+
+        model.noteUserIntent()
+        model.sections = Self.sections([1, 0] + Array(2...30))
+        list.reload(animated: true)
+        let now = CACurrentMediaTime()
+
+        try #require(Self.drawnRows(list, at: now).count > 5)
+        for step in 0...72 {
+            let rows = Self.drawnRows(list, at: now + Double(step) / 240)
+            for (above, below) in zip(rows, rows.dropFirst()) {
+                let gap = below.drawn.minY - above.drawn.maxY, slotGap = below.slot.minY - above.slot.maxY
+                #expect(abs(gap - slotGap) <= 0.5, "\(above.key) and \(below.key) are \(gap) pt apart (slots \(slotGap)) \(step * 1000 / 240) ms on")
+            }
+        }
+    }
+
+    /// Codex review of #24374 at 618df18: a new row an insert made outside the realized rows opened, once a scroll
+    /// brought it in, from zero height on `.move` whatever the new row motion. Snap and a zero nudge open nothing (the
+    /// row shows at its slot), and quick opens on its own spring.
+    @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func aNewRowAScrollBringsInOpensByTheChosenMotion() throws {
+        for (motion, nudge) in [(SidebarInsertMotion.snap, nil), (.nudge, CGFloat(0)), (.quick, nil)] as [(SidebarInsertMotion, CGFloat?)] {
+            let (model, list, _, restore) = try Self.sidebar(count: 60)
+            defer { restore() }
+            let reset = Self.insertMotion(motion, nudge: nudge)
+            defer { reset() }
+            let key = SidebarRowKey.workspace(try #require(Self.sections([0]).first?.workspaces.first?.id))
+
+            model.noteUserIntent()
+            model.sections = Self.sections(Array(1...54) + [0] + Array(55...60))
+            list.reload(animated: true)
+            try #require(list.rowViews[key] == nil, "\(motion): the new row was realized at the insert")
+            let opening = list.openingRows[key]
+            let slot = try #require(list.displayed.row(for: key).map(list.frame(for:)))
+            let clip = try #require(list.enclosingScrollView?.contentView)
+            clip.scroll(to: NSPoint(x: 0, y: max(0, slot.minY - 100)))
+            list.enclosingScrollView?.reflectScrolledClipView(clip)
+            list.realizeVisibleRows()
+            let view = try #require(list.rowViews[key], "\(motion): the scroll did not realize the new row")
+
+            if motion == .quick {
+                #expect(opening?.motion == .quick, "\(motion): the row is not opening by the quick motion")
+                let quick = Motion.sidebar.springAnimation(.tabOpen, "bounds.size", from: 0, to: 0).duration
+                let springs = (view.layer?.animationKeys() ?? []).compactMap { view.layer?.animation(forKey: $0) as? CASpringAnimation }
+                    .filter { $0.isAdditive && $0.keyPath == "bounds.size" }
+                #expect(!springs.isEmpty, "\(motion): the row showed whole instead of opening")
+                for spring in springs {
+                    #expect(abs(spring.duration - quick) < 0.001, "\(motion): the row opens for \(spring.duration) s, .tabOpen is \(quick) s")
+                    #expect(abs(((spring.fromValue as? NSValue)?.sizeValue.height ?? 0) + slot.height) < 0.5, "\(motion): not from zero height")
+                }
+            } else {
+                #expect(opening == nil, "\(motion) nudge \(nudge ?? -1): the row was marked as opening")
+                #expect(view.frame == slot && view.alphaValue == 1, "\(motion): the row is at \(view.frame) alpha \(view.alphaValue), slot \(slot)")
+                #expect(Self.sizeSprings(view) + Self.positionSprings(view) == 0, "\(motion): the row moved")
+            }
+        }
+    }
+
     /// A second insert while the first one's rows still move: each row keeps the first spring and adds one
     /// from where it is now, so nothing on screen jumps back to the first move's end. Under the full spring
     /// (`sidebar.insertMotion` spring); the nudge instead caps what is drawn (`twoQuickNewRowsNeverMoveARowPastTheNudgeOrOverlap`).
@@ -311,10 +435,8 @@ struct SidebarRowsMoveOnRenderServerTests {
     func aSecondInsertStacksOnTheFirstMove() throws {
         let (model, list, _, restore) = try Self.sidebar(count: 30)
         defer { restore() }
-        TunableStore.shared.activate(file: nil)
-        TunableStore.shared.register(SidebarTunables.all)
-        TunableStore.shared.set(SidebarInsertMotion.tunable.key, .choice(SidebarInsertMotion.spring.rawValue))
-        defer { TunableStore.shared.set(SidebarInsertMotion.tunable.key, nil) }
+        let reset = Self.insertMotion(.spring)
+        defer { reset() }
         try #require(SidebarInsertMotion.tunable.value == .spring)
         let key = SidebarRowKey.workspace(try #require(Self.sections([1]).first?.workspaces.first?.id))
         let view = try #require(list.rowViews[key])

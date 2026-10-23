@@ -59,6 +59,32 @@ struct SidebarInsertMotionTests {
         #expect(line == CGRect(x: 4, y: 40, width: 2, height: 102))
     }
 
+    /// Codex review of #24374 at 618df18: a nudge past the new row's height (40 pt over 28) let a row below that was
+    /// drawn farther up (an earlier move in flight) start 40 pt up, above the new row's top. The travel stops at the
+    /// new rows' height: the row below starts no higher than the new row's bottom, which opens from zero height.
+    @Test func aNudgePastTheRowsHeightTravelsOnlyTheRowsHeight() throws {
+        let travel = try #require(SidebarInsertMotion.travel(SidebarInsertMotion.nudge.travel(nudge: 40), within: 28))
+        #expect(travel == 28)
+        let opening = CGRect(x: 8, y: 8, width: 220, height: 0)
+        let open = SidebarInsertMotion.nudge.openFrame(opening, target: Self.newRow, nudge: travel)
+        #expect(open == opening)
+        let drawnFartherUp = Self.below.now.offsetBy(dx: 0, dy: -40)
+        let start = SidebarInsertMotion.cap(drawnFartherUp, toward: Self.below.now, travel: travel)
+        #expect(start.minY == open.maxY, "the row below starts at \(start.minY), the new row's bottom is at \(open.maxY)")
+        #expect(SidebarInsertMotion.cap(drawnFartherUp, toward: Self.below.now, travel: 40).minY < open.minY,
+                "unclamped, the row below would start above the new row")
+        #expect(SidebarInsertMotion.travel(nil, within: 28) == nil, "quick and the full spring keep the whole distance")
+        #expect(SidebarInsertMotion.travel(6, within: 28) == 6)
+    }
+
+    /// The shortest run of new rows: a workspace with its tab row is one run (50 pt), a lone row another (28 pt).
+    @Test func theShortestRunBoundsTheTravel() {
+        let tops: [String: CGFloat] = ["ws": 8, "tab": 8, "lone": 100]
+        let bottoms: [String: CGFloat] = ["ws": 36, "tab": 58, "lone": 128]
+        #expect(SidebarInsertMotion.shortestRun(tops) { bottoms[$0] } == 28)
+        #expect(SidebarInsertMotion.shortestRun([String: CGFloat]()) { bottoms[$0] } == .infinity)
+    }
+
     @Test func snapMovesNothingAndTheNewRowFadesInAtItsSlot() {
         #expect(SidebarInsertMotion.snap.travel(nudge: 6) == 0)
         #expect(SidebarInsertMotion.cap(Self.below.was, toward: Self.below.now, travel: 0) == Self.below.now)

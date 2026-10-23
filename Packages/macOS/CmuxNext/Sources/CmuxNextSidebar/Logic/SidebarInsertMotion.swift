@@ -37,7 +37,7 @@ public nonisolated enum SidebarInsertMotion: String, Sendable, CaseIterable, Has
 
     public static let nudgeDistance = Tunable<CGFloat>.number(
         "sidebar.insertMotion.nudge", .sidebar, "New row nudge distance",
-        help: "Under the Nudge motion, the farthest a row below a new workspace travels to make room, and how much the new row grows.",
+        help: "Under the Nudge motion, the farthest a row below a new workspace travels to make room, and how much the new row grows. Never more than the new row's height.",
         default: 6, range: 0...40, step: 1, unit: .points, code: "SidebarInsertMotion.nudgeDistance")
 
     /// The spring the rows' frames and the new row's fade ride.
@@ -50,6 +50,24 @@ public nonisolated enum SidebarInsertMotion: String, Sendable, CaseIterable, Has
         case .snap: 0
         case .quick, .spring: nil
         }
+    }
+
+    /// `travel` (`travel(nudge:)`) no farther than `runHeight`, the height of the shortest run of new rows: a row below
+    /// then never starts above the new rows' top, so it never crosses them or the row above them, however far it is
+    /// drawn from its slot (a nudge set past a row's height, or an earlier move still in flight).
+    public static func travel(_ travel: CGFloat?, within runHeight: CGFloat) -> CGFloat? {
+        travel.map { min($0, max(0, runHeight)) }
+    }
+
+    /// The height of the shortest run of new rows: `runTops` maps each new row to the top of its run
+    /// (`SidebarRowTransition.runTops`), `bottom` gives a row's bottom. Infinite when there is none.
+    public static func shortestRun<Key: Hashable>(_ runTops: [Key: CGFloat], bottom: (Key) -> CGFloat?) -> CGFloat {
+        var bottoms: [CGFloat: CGFloat] = [:]
+        for (key, top) in runTops {
+            guard let rowBottom = bottom(key) else { continue }
+            bottoms[top] = max(bottoms[top] ?? top, rowBottom)
+        }
+        return bottoms.map { $0.value - $0.key }.min() ?? .infinity
     }
 
     /// `start` with each edge moved to within `travel` points of the same edge of `end`: a row below an insert

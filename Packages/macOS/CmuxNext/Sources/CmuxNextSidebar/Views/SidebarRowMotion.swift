@@ -18,6 +18,8 @@ struct RowMotion {
     /// How the rows make room for a new workspace row (`sidebar.insertMotion`); nil for any other change, which
     /// moves on `.move` over the whole distance.
     var insert: SidebarInsertMotion?
+    /// How far the rows' edges travel under `insert` (`SidebarInsertMotion.travel`); nil is the whole distance.
+    var travel: CGFloat?
 
     func run(in list: SidebarListView, from old: SidebarLayout, to layout: SidebarLayout, animated: Bool) {
         let moves = {
@@ -74,7 +76,7 @@ struct RowMotion {
         }
         Self.animate(frames: targets + appearing + leaving, companions: lines.springs + companions,
                      fades: Self.fades(targets: targets, appearing: appearing, leaving: leaving), lines: lines.changes, in: list, ended: ended,
-                     insert: insert)
+                     insert: insert, travel: travel)
     }
 
     /// The views whose opacity this move changes and to what: an opening row and a target still fading in to 1,
@@ -97,11 +99,11 @@ struct RowMotion {
     /// `companions`: the group lines and chat history blocks, on the same springs in the same transaction, so the
     /// springs' leg (and the display's sleep) waits for them too, even when no row moves (a line growing offscreen).
     /// `insert`: a new workspace row's motion (`SidebarInsertMotion`): its spring for the frames and the fades, and how far
-    /// the rows travel. Snap first takes off the springs an earlier move left, so nothing slides at all.
+    /// the rows travel (`travel`). Snap first takes off the springs an earlier move left, so nothing slides at all.
     private static func animate(frames: [(SidebarRowView, NSRect)], companions: [(NSView, NSRect)], fades: [(NSView, CGFloat)],
-                                lines: () -> Void, in list: SidebarListView, ended: RowMotionEnd, insert: SidebarInsertMotion? = nil) {
+                                lines: () -> Void, in list: SidebarListView, ended: RowMotionEnd, insert: SidebarInsertMotion? = nil,
+                                travel: CGFloat? = nil) {
         let token = insert?.token ?? .move
-        let travel = insert?.travel(nudge: SidebarInsertMotion.nudgeDistance.value)
         if travel == 0 { SidebarDragSpring.stop(frames.map { $0.0 as NSView } + companions.map(\.0)) }
         let settle = Self.settle(list)
         // Nothing draws while the display sleeps: the rows, group lines and history blocks show their places now, the
@@ -180,17 +182,19 @@ struct RowMotion {
     }
 
     /// Places a row that scrolled into view. One still opening (the viewport
-    /// held still for an insert above it, then scrolled to it) opens from zero
-    /// height at its slot instead of showing whole over the rows still making
-    /// room (cx-ai79).
-    static func place(_ view: SidebarRowView, at target: NSRect, opening: Bool, hidden: Bool, in list: SidebarListView) {
-        guard opening, !hidden, Motion.sidebar.animatesMovement else {
+    /// held still for an insert above it, then scrolled to it) opens at its slot
+    /// as the insert opened it (`SidebarRowOpening`: from zero height on `.move`,
+    /// or the new row motion's start and spring) instead of showing whole over
+    /// the rows still making room (cx-ai79).
+    static func place(_ view: SidebarRowView, at target: NSRect, opening: SidebarRowOpening?, hidden: Bool, in list: SidebarListView) {
+        guard let opening, !hidden, Motion.sidebar.animatesMovement else {
             view.frame = target
             view.alphaValue = hidden ? 0 : 1
             return
         }
+        let closed = NSRect(x: target.minX, y: target.minY, width: target.width, height: 0)
         Motion.withoutAnimation {
-            view.frame = NSRect(x: target.minX, y: target.minY, width: target.width, height: 0)
+            view.frame = opening.motion?.openFrame(closed, target: target, nudge: opening.travel ?? 0) ?? closed
             view.alphaValue = 0
             view.clipsToBounds = true
         }
@@ -202,7 +206,8 @@ struct RowMotion {
             if view.opens == open { view.clipsToBounds = false }
             if let list, list.rowMoves == move { Self.land(list) }
         }
-        animate(frames: [(view, target)], companions: [], fades: [(view, 1)], lines: {}, in: list, ended: ended)
+        animate(frames: [(view, target)], companions: [], fades: [(view, 1)], lines: {}, in: list, ended: ended,
+                insert: opening.motion, travel: opening.travel)
     }
 
     /// When the display sleeps mid-move (no frame draws, so the move never ends), the rows
