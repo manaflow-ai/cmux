@@ -484,8 +484,9 @@
 /* A pill pressed or open holds the hover's pill with no edge: no brighter tone and no ring flash on
    a click (Leo 2026-10-19). Opening a picker moves focus into its popup before the browser paints
    the held frame, which clears :active, so data-press-active (popoverTrigger.ts) keeps that first
-   frame on the same pill. */
-:is(.acpmux-composer-bar, .nt-pickers) .acpmux-pill:is(:active, [data-press-active]):not(:disabled) {
+   frame on the same pill. The context ring draws no pill in any state (its card is the feedback,
+   #23785), so it is left out here and under keyboard focus below. */
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-pill:not(.acpmux-context-ring):is(:active, [data-press-active]):not(:disabled) {
   background: var(--acpmux-row-hover);
   box-shadow: none;
 }
@@ -498,8 +499,8 @@
   }
 }
 /* Keyboard focus draws the same pill on any pill, beside its focus outline (below). A lit mic
-   (a running dictation, dictation.css) keeps its accent square. */
-:is(.acpmux-composer-bar, .nt-pickers) .acpmux-pill:not([data-state="starting"]):not([data-state="listening"]):not([data-state="finalizing"]):focus-visible {
+   (a running dictation, dictation.css) keeps its accent square; the context ring keeps only the outline. */
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-pill:not(.acpmux-context-ring):not([data-state="starting"]):not([data-state="listening"]):not([data-state="finalizing"]):focus-visible {
   background: var(--acpmux-row-hover);
   box-shadow: none;
 }
