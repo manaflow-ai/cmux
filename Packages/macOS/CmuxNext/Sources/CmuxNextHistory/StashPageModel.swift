@@ -1,25 +1,16 @@
 public import AppKit
+public import CmuxNextCompat
 import CmuxNextDesign
 public import Observation
-
-/// What the Stashed page needs from the App: the daemon's stashes and the
-/// ops on them. Each call names a stash and its pages by their stable ids.
-public protocol StashPageSource: AnyObject {
-    /// Every stash, newest first.
-    func stashes() async throws -> [StashedGroup]
-    /// Reopens `tabs` of `group`, where they were or in one new workspace, and shows them.
-    func restore(_ group: StashedGroup, tabs: [StashedGroup.Tab], inNewWorkspace: Bool) async throws
-    /// Deletes `tabs` of `group` (the whole group for nil) for good.
-    func delete(_ group: StashedGroup, tabs: [StashedGroup.Tab]?) async throws
-    /// Imports OneTab groups as stashes; returns the pages imported and skipped.
-    func importGroups(_ groups: [OneTabExport.Group]) async throws -> (imported: Int, skipped: Int)
-}
 
 /// The Stashed page's state (a native OneTab): the groups, newest first. One
 /// model per app; every page view and the New Tab page's link read it. Ops
 /// run one at a time (the page is disabled while one is in flight) and
 /// reload the groups after them. A delete hides its pages at once and goes
-/// to the daemon when its Undo toast ends without Undo.
+/// to the daemon when its Undo toast ends without Undo. Its source on this
+/// Mac's daemon (CmuxNextStash's `StashService`) sets itself and has it read
+/// the stashes again after each stash change (``StashPageClient``). It also
+/// keeps each Stashed page's own search and OneTab paste box (``draft(for:)``).
 @Observable
 public final class StashPageModel {
     /// The Stashed page's title, for its top page and tab.
@@ -39,12 +30,25 @@ public final class StashPageModel {
     @ObservationIgnored public weak var source: (any StashPageSource)?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var tail: Task<Void, Never>?
+    /// Each Stashed page's own search and OneTab paste box, by page key.
+    @ObservationIgnored private var drafts: [String: StashImportDraft] = [:]
     /// The newest `stash.list` read: an older read that lost to it waits for it.
     @ObservationIgnored private var latestRead: Task<Void, Never>?
 
     public init(source: (any StashPageSource)? = nil) {
         self.source = source
     }
+
+    /// The search and OneTab paste box of the Stashed page `key`, made on first use.
+    package func draft(for key: String) -> StashImportDraft {
+        if let draft = drafts[key] { return draft }
+        let draft = StashImportDraft()
+        drafts[key] = draft
+        return draft
+    }
+
+    /// Forgets the paste box of the Stashed page `key` once its tab closed.
+    package func dropDraft(_ key: String) { drafts[key] = nil }
 
     /// The groups, without pages whose delete waits on its Undo toast.
     public var groups: [StashedGroup] {
@@ -184,29 +188,4 @@ public final class StashPageModel {
     }
 }
 
-/// One Stashed page's own state: its search text, and its OneTab paste box (Import from
-/// OneTab…), inline, never a sheet, its own per window. The box closes when its page closes.
-@Observable
-public final class StashImportDraft {
-    public var isOpen = false
-    public var text = ""
-    /// The page's search text (``StashPageModel/groups(matching:)``).
-    public var query = ""
-
-    public init() {}
-
-    public func open() { isOpen = true }
-
-    public func close() {
-        isOpen = false
-        text = ""
-    }
-}
-
-extension URL {
-    /// The Stashed Tabs page's address, `cmux://stashed` (with or without a trailing slash, query
-    /// or fragment): typed in the address bar or opened as a link, it shows the page.
-    public nonisolated var isStashedPage: Bool {
-        scheme?.lowercased() == "cmux" && host()?.lowercased() == "stashed"
-    }
-}
+extension StashPageModel: StashPageClient {}

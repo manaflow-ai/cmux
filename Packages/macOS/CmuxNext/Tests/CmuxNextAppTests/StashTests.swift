@@ -20,7 +20,7 @@ struct StashTests {
     /// change makes the model list again.
     @Test func theModelFollowsTheDaemonsStashChanges() async throws {
         try await PinnedPageTests.withApp { services, connection in
-            let model = services.historyPage.stash.model
+            let model = services.historyPage.stash.page
             try await PinnedPageTests.until({ services.daemon.store.session.stashChanges > 0 })
             let url = "https://stash-\(UUID().uuidString.prefix(6).lowercased()).example/"
             _ = try await connection.state.importOneTab([.init(name: nil, pages: [.init(url: url, title: "Other client")])], engine: "webkit")
@@ -35,7 +35,7 @@ struct StashTests {
 
     @Test func thePageRestoresAndDeletesTabsAndGroups() async throws {
         try await PinnedPageTests.withApp { services, _ in
-            let model = services.historyPage.stash.model
+            let model = services.historyPage.stash.page
             let store = services.daemon.store
             let urls = (0..<3).map { "https://stash-\(UUID().uuidString.prefix(6).lowercased()).example/\($0)" }
             let draft = StashImportDraft()
@@ -74,7 +74,7 @@ struct StashTests {
 
     @Test func pastedOneTabTextImportsOneGroupPerBlankLineSeparatedBlock() async throws {
         try await PinnedPageTests.withApp { services, _ in
-            let model = services.historyPage.stash.model
+            let model = services.historyPage.stash.page
             let draft = StashImportDraft()
             draft.open()
             draft.text = """
@@ -112,7 +112,7 @@ struct StashTests {
     /// tab menu, the palette and `cmux tab stash` run it.
     @Test func saveAndCloseTabStashesTheBrowserPage() async throws {
         try await PinnedPageTests.withApp { services, connection in
-            let model = services.historyPage.stash.model
+            let model = services.historyPage.stash.page
             let store = services.daemon.store
             let pane = try #require(store.workspaces.first?.screens.first?.panes.first?.handle)
             let url = "https://stash-\(UUID().uuidString.prefix(6).lowercased()).example/tab"
@@ -177,7 +177,7 @@ struct StashTests {
                                             report: { "a page outside the selection is still open" })
             #expect(Self.tab(url: urls[1], store) != nil, "a selected page was saved and closed")
             #expect(Self.tab(url: urls[2], store) != nil, "a selected page was saved and closed")
-            let model = services.historyPage.stash.model
+            let model = services.historyPage.stash.page
             await model.reload()
             let stashed = model.groups.first { $0.tabs.contains { $0.url == urls[0] } }.map { Set($0.tabs.map(\.url)) }
             #expect(stashed == [urls[0], urls[3]], "the stash holds \(String(describing: stashed))")
@@ -189,7 +189,7 @@ struct StashTests {
     @Test func saveAndCloseWorkspaceStashesItWhole() async throws {
         try await PinnedPageTests.withApp { services, connection in
             try #require(services.daemon.supports(DaemonCapabilities.stashWorkspaces), "the same-tree daemon stashes whole workspaces")
-            let model = services.historyPage.stash.model
+            let model = services.historyPage.stash.page
             let store = services.daemon.store
             let name = "stash-ws-\(UUID().uuidString.prefix(6).lowercased())"
             let created = try await connection.state.createWorkspace(name: name, ephemeral: false, terminal: true, focus: false)
@@ -206,7 +206,7 @@ struct StashTests {
             #expect(group.tabs.first?.isWorkspace == true)
             #expect(model.groups(matching: name).map(\.id) == [group.id], "search finds the workspace by its name")
 
-            try await services.historyPage.stash.restoreAll(group.id, workspaces: true)
+            try await services.historyPage.stash.service.restoreAll(group.id, workspaces: true)
             try await PinnedPageTests.until({ store.workspaces.contains { $0.name == name } }, report: { "the workspace did not come back" })
             #expect(!model.groups.contains { $0.id == group.id })
         }
@@ -218,7 +218,7 @@ struct StashTests {
     @Test func saveAndCloseWorkspaceLetsGoOfItsRemoteTerminalTabs() async throws {
         try await PinnedPageTests.withApp { services, connection in
             try #require(services.daemon.supports(DaemonCapabilities.stashWorkspaces), "the same-tree daemon stashes whole workspaces")
-            let model = services.historyPage.stash.model
+            let model = services.historyPage.stash.page
             let store = services.daemon.store
             let name = "stash-remote-\(UUID().uuidString.prefix(6).lowercased())"
             let created = try await connection.state.createWorkspace(name: name, ephemeral: false, terminal: true, focus: false)
@@ -246,7 +246,7 @@ struct StashTests {
 
             await model.reload()
             let group = try #require(model.groups.first { $0.tabs.first?.title == name }, "groups: \(model.groups)")
-            try await services.historyPage.stash.restoreAll(group.id, workspaces: true)
+            try await services.historyPage.stash.service.restoreAll(group.id, workspaces: true)
             try await PinnedPageTests.until({
                 store.workspaces.first { $0.name == name }?.screens.flatMap(\.panes).flatMap(\.tabs).contains { $0.remote == ref } == true
             }, report: { "the workspace did not come back with its remote-terminal tab" })
@@ -284,15 +284,16 @@ struct StashTests {
         try await PinnedPageTests.withApp { services, connection in
             let url = "https://stash-\(UUID().uuidString.prefix(6).lowercased()).example/undo"
             _ = try await connection.state.importOneTab([.init(name: nil, pages: [.init(url: url, title: "Undo")])], engine: "webkit")
-            let service = StashService(host: VanishingStashHost(services))
+            let model = StashPageModel()
+            let service = StashService(host: VanishingStashHost(services), page: model)
             // The list reads through the app's own service, which outlives the vanishing host.
-            service.model.source = services.historyPage.stash
-            await service.model.reload()
-            let group = try #require(service.model.groups.first { $0.tabs.map(\.url) == [url] }, "groups: \(service.model.groups)")
+            model.source = services.historyPage.stash.service
+            await model.reload()
+            let group = try #require(model.groups.first { $0.tabs.map(\.url) == [url] }, "groups: \(model.groups)")
 
             try await service.restoreAll(group.id, workspaces: false)
             try await PinnedPageTests.until({ Self.tab(url: url, services.daemon.store) != nil }, report: { "the page did not come back" })
-            #expect(!service.model.groups.contains { $0.id == group.id }, "the page still lists the restored stash")
+            #expect(!model.groups.contains { $0.id == group.id }, "the page still lists the restored stash")
         }
     }
 
@@ -324,7 +325,7 @@ struct StashTests {
     /// Search keeps a group whose name matches whole, else only the members that match.
     @Test func searchFiltersGroupsAndMembers() async throws {
         try await PinnedPageTests.withApp { services, _ in
-            let model = services.historyPage.stash.model
+            let model = services.historyPage.stash.page
             let tag = UUID().uuidString.prefix(6).lowercased()
             let draft = StashImportDraft()
             draft.text = "https://alpha-\(tag).example/ | Alpha \(tag)\nhttps://beta-\(tag).example/ | Beta"
