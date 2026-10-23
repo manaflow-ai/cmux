@@ -629,6 +629,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .map_err(|_| anyhow!("acpmux deliver must run from an attached agent session"))?;
             let id = id.unwrap_or_else(|| format!("report-{}", uuid::Uuid::now_v7()));
             let client = connect(true).await?;
+            // The daemon only accepts a sender identity that is bound to this
+            // connection. `deliver` is a session-local CLI, so attach before
+            // the quiet write; this does not wake the session or notify it.
+            client.request(method::MUX_ATTACH, json!({"sessionId": sender, "limit": 0})).await?;
             let value = client
                 .request(
                     method::MUX_MAIL_SEND,
