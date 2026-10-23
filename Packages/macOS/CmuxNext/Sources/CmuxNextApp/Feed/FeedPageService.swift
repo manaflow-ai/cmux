@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextFeed
 import CmuxNextIcons
+import Foundation
 
 extension InternalPageID {
     /// The wide inbox view of the one feed model.
@@ -39,10 +40,15 @@ final class FeedPageService: InternalPageProvider {
         FeedGitHubActions.install(on: feed.model, services: services)
         let layout: FeedLayout = FeedTunables.reportsBasket.value ? .reportsBasket : .inbox
         return FeedHostView(model: feed.model, layoutOverride: layout) { reportID, reply in
-            // The first dogfood surface keeps the reply seam explicit. The
-            // mailbox-v2 transport is the owner of the actual no-wake delivery;
-            // the app wires this callback to it in the follow-up integration.
-            _ = (reportID, reply)
+            // A report poster's authenticated identity is its ACP session. A
+            // human reply intentionally wakes that session, unlike delivery
+            // into the reports basket. The feed owner remains the source of
+            // report rows; the command is a bounded local adapter for Labs.
+            guard !reportID.isEmpty else { return }
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["acpmux", "send", reportID, reply, "--no-wait", "--no-steer"]
+            try? process.run()
         }
     }
 }

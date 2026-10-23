@@ -65,7 +65,7 @@ struct ReportsBasketView: View {
                 ReportsBasketDetail(item: report, draft: $draft, onSend: {
                     let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !text.isEmpty else { return }
-                    onReply?(report.id, text)
+                    onReply?(report.poster.identity ?? report.id, text)
                     draft = ""
                 })
             } else {
