@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextPages
 import os
 import WebKit
 
