@@ -63,10 +63,10 @@ extension PaneController {
             let url = page.state.url
             // A page has no cwd: the folder of the terminal or chat focused last, else the pane's
             // last terminal tab's, in strip order.
-            let cwd = cwd ?? pane.tabs.last { $0.kind == .pty && $0.cwd != nil }?.cwd
+            let pageCwd = cwd ?? pane.tabs.last { $0.kind == .pty && $0.cwd != nil }?.cwd
             return AgentPaneSeedSource { [weak page] in
                 let selection = try? await page?.evaluate(AgentTabSeed.selectionScript, world: .isolated).stringValue
-                return AgentPaneSeed(cwd: cwd, draft: AgentTabSeed.browserDraft(title: title, url: url, selection: selection), harness: harness)
+                return AgentPaneSeed(cwd: pageCwd, draft: AgentTabSeed.browserDraft(title: title, url: url, selection: selection), harness: harness)
             }
         case .agent, .page, .placeholder, .notice, .conversation, nil:
             guard cwd != nil || harness != nil else { return nil }

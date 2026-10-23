@@ -50,9 +50,14 @@ struct WorkContextTrail: Equatable {
     func resolve<Value>(current: Entry?, workspace: String?, window: String?, workspaceHasWork: Bool,
                         kinds: Set<Kind> = [.terminal, .chat], value: (Entry) -> Value?) -> Value? {
         if let current, kinds.contains(current.kind), let found = value(current) { return found }
-        let eligible = entries.lazy.filter { kinds.contains($0.kind) && $0.tab != current?.tab }
-        if let workspace, let found = eligible.filter({ $0.workspace == workspace }).compactMap(value).first { return found }
+        func first(where matches: (Entry) -> Bool) -> Value? {
+            for entry in entries where kinds.contains(entry.kind) && entry.tab != current?.tab && matches(entry) {
+                if let found = value(entry) { return found }
+            }
+            return nil
+        }
+        if let workspace, let found = first(where: { $0.workspace == workspace }) { return found }
         guard !workspaceHasWork, let window else { return nil }
-        return eligible.filter { $0.window == window }.compactMap(value).first
+        return first { $0.window == window }
     }
 }

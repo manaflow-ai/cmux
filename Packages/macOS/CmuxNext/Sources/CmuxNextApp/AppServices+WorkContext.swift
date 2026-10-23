@@ -38,13 +38,13 @@ extension AppServices {
     /// chats are this Mac's. `value` reads one candidate tab (nil skips it).
     func inheritedWork<Value>(besides tab: TabModel?, in pane: PaneModel?, kinds: Set<WorkContextTrail.Kind>,
                               value: (TabModel) -> Value?) -> Value? {
-        let daemon = pane.map(daemon(for:)) ?? self.daemon
-        guard daemon === self.daemon else { return nil }
-        let workspace = pane.flatMap { daemon.store.workspace(containing: $0.handle) }
+        let target = pane.map { self.daemon(for: $0) } ?? self.daemon
+        guard target === self.daemon else { return nil }
+        let workspace = pane.flatMap { target.store.workspace(containing: $0.handle) }
         let window = windows.active?.state.id
         let current = tab.flatMap { tab in workEntry(tab.id, workspace: workspace?.id ?? "", window: window ?? "") }
         return workContext.resolve(current: current, workspace: workspace?.id, window: window,
-                                   workspaceHasWork: workspace.map(holdsWork) ?? true, kinds: kinds) { entry in
+                                   workspaceHasWork: workspace.map { holdsWork($0) } ?? true, kinds: kinds) { entry in
             guard let (tab, pane) = locateTab(entry.tab), self.daemon(for: pane) === self.daemon else { return nil }
             return value(tab)
         }
