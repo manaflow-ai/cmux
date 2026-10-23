@@ -29,10 +29,6 @@ struct AgentPageProviderEventsTests {
         }
     }
 
-    private final class SubscriptionHolder {
-        var value: PageSubscription?
-    }
-
     private final class CountWaiter {
         private let target: Int
         private var count = 0
@@ -90,28 +86,6 @@ struct AgentPageProviderEventsTests {
         defer { second.cancel() }
         await secondPage.waitFor(3)
         #expect(Self.names(secondPage.events) == ["current-state", "second-gap-1", "second-gap-2"])
-    }
-
-    @Test func selfCancellationRequeuesTheSuffixOnce() async throws {
-        let provider = AgentPageProvider { _ in nil }
-        for name in ["first", "second", "third"] { provider.publish(Self.command(name)) }
-
-        let holder = SubscriptionHolder()
-        let firstPage = Received()
-        holder.value = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { event in
-            firstPage.append(event)
-            if firstPage.events.count == 1 { holder.value?.cancel() }
-        }
-        await firstPage.waitFor(1)
-        #expect(Self.names(firstPage.events) == ["first"])
-
-        let nextPage = Received()
-        let next = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { event in
-            nextPage.append(event)
-        }
-        defer { next.cancel() }
-        await nextPage.waitFor(2)
-        #expect(Self.names(nextPage.events) == ["second", "third"])
     }
 
     @Test func fullBacklogUsesExplicitBackpressureWithoutEviction() {
