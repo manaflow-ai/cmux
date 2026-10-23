@@ -50,8 +50,11 @@ export function forwardWheel(scroller: HTMLElement, event: WheelEvent): void {
     altKey: event.altKey,
     wheelDeltaY: (event as WheelEvent & { wheelDeltaY?: number }).wheelDeltaY,
   } as WheelEventInit);
-  if (!scroller.dispatchEvent(copy)) return;
-  if (event.metaKey || event.shiftKey || event.altKey) return;
+  // A modified wheel's copy asks for no scroll: its listeners still hear it (a glide in flight ends),
+  // and WebKit, which scrolls for a dispatched wheel event, leaves the transcript where it is.
+  const modified = event.metaKey || event.shiftKey || event.altKey;
+  if (modified) copy.preventDefault();
+  if (!scroller.dispatchEvent(copy) || modified) return;
   scroller.scrollTop += wheelPixels(event, scroller.clientHeight);
 }
 

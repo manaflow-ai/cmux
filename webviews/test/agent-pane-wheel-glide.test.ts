@@ -169,14 +169,17 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
       [deltas, gapFrames] as const,
     );
 
-  /// A glide: the page took the notch, and the view covered the whole distance through at least two
-  /// positions on the way, taking at least 100 ms from its first move to its rest (the glide runs
-  /// 180 ms, the motion scale's standard step; the engine's own wheel step lands in one frame in Chromium and two or three in WPE).
+  /// A glide: the page took the notch, and the view covered the whole distance over two or more
+  /// frames with no frame taking most of it, from its first move to its rest in at least 100 ms (the
+  /// glide runs 180 ms, the motion scale's standard step; the engine's own wheel step lands in one
+  /// frame in Chromium and two or three in WPE). A loaded host paints few of the glide's frames, so
+  /// the count of frames alone does not tell a glide from a jump.
   function expectGlide(result: Motion, distance: number) {
     expect(result.prevented.length).toBeGreaterThan(0);
     expect(result.prevented.every(Boolean)).toBe(true);
     expect(Math.abs(result.moved - distance)).toBeLessThan(2);
-    expect(result.frames).toBeGreaterThanOrEqual(3);
+    expect(result.frames).toBeGreaterThanOrEqual(2);
+    expect(result.maxStep).toBeLessThanOrEqual(0.8 * Math.abs(distance));
     expect(result.glideMs).toBeGreaterThanOrEqual(100);
   }
 
