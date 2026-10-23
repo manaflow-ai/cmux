@@ -22,15 +22,18 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_launch import BenchApp  # noqa: E402
 
-parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-parser.add_argument("--app", required=True)
-parser.add_argument("--out", required=True)
-parser.add_argument("--json")
-parser.add_argument("--tag")  # split-spring passes it; the app's name carries the tag
-parser.add_argument("--sessions", default="light,stress")
-parser.add_argument("--rounds", type=int, default=5)
-parser.add_argument("--modes", default="made,fresh,window")
-opts, _unknown = parser.parse_known_args()
+
+def parse(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--app", required=True)
+    parser.add_argument("--out", required=True)
+    parser.add_argument("--json")
+    parser.add_argument("--tag")  # split-spring passes it; the app's name carries the tag
+    parser.add_argument("--sessions", default="light,stress")
+    parser.add_argument("--rounds", type=int, default=5)
+    parser.add_argument("--modes", default="made,fresh,window")
+    opts, _unknown = parser.parse_known_args(argv)
+    return opts
 
 
 def load_stress():
@@ -52,7 +55,7 @@ def summary(runs, key):
     return {"p50": pct(values, 0.5), "p95": pct(values, 0.95), "max": pct(values, 1.0)}
 
 
-def measure(app, session, report):
+def measure(app, session, report, opts):
     for mode in opts.modes.split(","):
         runs = []
         for index in range(opts.rounds):
@@ -72,7 +75,8 @@ def measure(app, session, report):
         print("OPEN-PANEL " + json.dumps(row), flush=True)
 
 
-def main():
+def main(argv=None):
+    opts = parse(argv)
     os.makedirs(opts.out, exist_ok=True)
     report = {"runs": [], "summary": []}
     app = BenchApp(opts.app, out=opts.out, window=(40, 40, 1600, 1000))
@@ -84,7 +88,7 @@ def main():
             if session == "stress":
                 built = load_stress().Stress(lambda m, p=None, timeout=60: app.rpc(m, p, timeout)).build()
                 report["stress_session"] = built
-            measure(app, session, report)
+            measure(app, session, report, opts)
     finally:
         app.stop()
         if opts.json:
