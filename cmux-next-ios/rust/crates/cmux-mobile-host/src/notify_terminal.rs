@@ -117,7 +117,9 @@ impl TerminalClassifier {
                     && last != source
                     && matches!((last.as_str(), source), ("agent", "terminal") | ("terminal", "agent"))
             });
-            if echo {
+            // A question is never an echo: the terminal's own alert ("asks a question", an
+            // OSC program status) often comes first and carries no options.
+            if echo && !ask {
                 return None;
             }
             if !ask
