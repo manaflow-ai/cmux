@@ -15,7 +15,10 @@ import enum CmuxNextLayout.NewChatPlacement
 enum TabLifecycle {
     /// `asTab`: a tab in the focused pane whatever `newTerminal.opensWorkspace` and
     /// `layout.newPanePlacement` say (Cmd-T with `tabs.terminalFirst`, #23021).
-    static func newTerminal(_ ctx: AppActionContext, _ invocation: ActionInvocation, slot: NewTabSlot.Target? = nil, asTab: Bool = false) {
+    /// `staysInPane`: a person's new tab from a pane whose strip takes tabs stays in that pane rather
+    /// than going to the strip column beside a chat dock (`ChatColumnPlacement.newTabStays`).
+    static func newTerminal(_ ctx: AppActionContext, _ invocation: ActionInvocation, slot: NewTabSlot.Target? = nil,
+                            asTab: Bool = false, staysInPane: Bool = false) {
         #if DEBUG
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.markAction() } // `debug.new_terminal_trace`
         #endif
@@ -50,17 +53,22 @@ enum TabLifecycle {
         let tabCwd = cwd ?? NewTerminalStart.uninherited(.tab, services: ctx.services, daemon: ctx.services.daemon(for: pane),
                                                           besides: ctx.services.paneController(for: pane)?.selectedTab)
         if let controller = ctx.services.paneController(for: pane) {
-            // From the docked agent chat, a tab in the strip (ChatColumnPlacement). Its
-            // cwd is the explicit one, else the chat's, else nil for the daemon's resolver (NEW-TERMINAL-INHERITS-CWD).
-            // The chat's folder here, not the daemon's: its resolver skips chats (the strip, the dock's respawn).
+            // From an agent chat, a tab on its right (ChatColumnPlacement), except one `staysInPane`
+            // keeps. Its cwd is the explicit one, else the chat's, else nil for the daemon's resolver
+            // (NEW-TERMINAL-INHERITS-CWD). The chat's folder here, not the daemon's: its resolver skips
+            // chats (the strip, the dock's respawn).
             let chatStart = tabCwd ?? NewTerminalStart.folder(of: controller.selectedTab, services: ctx.services)
             var target: PaneController? = controller
-            if invocation.origin == .user {
+            if invocation.origin == .user, !staysInPane {
                 let spawn = SpawnOptions(cwd: chatStart, workspace: ctx.services.workspaceKey(of: pane), keep: keep)
                 target = ChatColumnPlacement.route(from: controller, respawn: .terminal(spawn), services: ctx.services)
             }
-            target?.newTerminalTab(cwd: target === controller ? tabCwd : chatStart, keep: keep, fromSelectedTab: true, daemonResolvesCwd: target !== controller,
-                                   then: NewTabSlot.placing(slot, services: ctx.services, then: nil))
+            guard let target else { return }
+            // Routed to another pane: the slot is that pane's (after its selected tab), not the chat's.
+            let placed = target === controller ? slot : NewTabSlot.rebased(slot, onto: target)
+            target.newTerminalTab(cwd: target === controller ? tabCwd : chatStart, keep: keep, fromSelectedTab: true,
+                                  daemonResolvesCwd: target !== controller,
+                                  then: NewTabSlot.placing(placed, services: ctx.services, then: nil))
             return
         }
         let handle = pane.handle
@@ -122,6 +130,9 @@ enum TabLifecycle {
             ?? (pane.tabs.indices.contains(pane.defaultTabIndex) ? pane.tabs[pane.defaultTabIndex].id : nil)
         let tab = pane.tabs.first { $0.id == selectedID }
         let user = invocation.origin == .user
+        // Cmd-T, the strip's + and Option-+ add to the pane they were pressed in, except from an agent
+        // chat, whose tab opens on its right unless `layout.linkPlacement` is `same-pane` (newTabStays).
+        let stays = user && controller.map { ChatColumnPlacement.newTabStays(in: $0, services: ctx.services) } == true
         // Agent tabs and pages count as a kind for the user only: a script's
         // `tab new` always gets a terminal or browser it can drive.
         let onAgentTab = user && controller != nil && selectedID.map(ctx.services.agentTabs.isAgentTab) == true
@@ -144,18 +155,28 @@ enum TabLifecycle {
         if kind == .agent || kind == .page, !(controller.map { ctx.services.agentTabs.canHost(on: $0.daemon) } ?? false) { kind = .terminal }
         switch kind {
         case .terminal:
-            newTerminal(ctx, invocation, slot: slot, asTab: terminalFirst)
+            newTerminal(ctx, invocation, slot: slot, asTab: terminalFirst, staysInPane: stays)
         case .browser(let engine):
             var invocation = invocation
             invocation.arguments["cwd"] = nil
             if let engine { invocation.arguments["engine"] = .string(engine) }
-            newBrowser(ctx, invocation, slot: slot)
+            newBrowser(ctx, invocation, slot: slot, staysInPane: stays)
         case .agent, .page:
-            // The docked agent chat gets no tabs: a New Tab page in the strip (ChatColumnPlacement).
-            if user, let controller {
+            // From an agent chat, the page opens on its right unless `stays` keeps it here.
+            if user, let controller, !stays {
+                // A lone chat has no pane on its right: the page opens in a new split there; the chat stays.
+                if kind == .page, ChatColumnPlacement.resolve(from: controller, services: ctx.services) == .dockChat {
+                    NewTabPage.split(controller, edge: .right)
+                    return
+                }
                 // Nil: Home's pinned dock alone opened the page in a new column beside it.
                 guard let strip = ChatColumnPlacement.route(from: controller, respawn: nil, services: ctx.services) else { return }
-                if strip !== controller { return strip.newTabPage() }
+                if strip !== controller {
+                    // In the strip pane's slot (after its selected tab), not the chat's.
+                    let placed = NewTabSlot.placing(NewTabSlot.rebased(slot, onto: strip), services: ctx.services,
+                                                    then: nil as (@MainActor (String) -> Void)?)
+                    return strip.newTabPage(then: placed)
+                }
             }
             let docks = kind == .agent && controller.map { NewChatPlacement.resolve(from: $0) != .here } ?? false // bound for the chat dock: not moved
             let placed = NewTabSlot.placing(docks ? nil : slot, services: ctx.services, then: nil as (@MainActor (String) -> Void)?)
@@ -195,8 +216,9 @@ enum TabLifecycle {
 
     /// `openBrowser` (`engine` optional: `browser.defaultEngine` when
     /// absent, see `BrowserEngineResolver`). An explicit Chromium request
-    /// never silently becomes WebKit.
-    static func newBrowser(_ ctx: AppActionContext, _ invocation: ActionInvocation, slot: NewTabSlot.Target? = nil) {
+    /// never silently becomes WebKit. `staysInPane`: as `newTerminal`'s.
+    static func newBrowser(_ ctx: AppActionContext, _ invocation: ActionInvocation, slot: NewTabSlot.Target? = nil,
+                           staysInPane: Bool = false) {
         let plan: BrowserOpenPlan
         switch BrowserOpenPlan.make(url: invocation["url"]?.stringValue, engine: invocation["engine"]?.stringValue,
                                     origin: invocation.origin) {
@@ -221,15 +243,20 @@ enum TabLifecycle {
         let engine = plan.engine
         // From the docked agent chat, a tab in the strip (ChatColumnPlacement)
         // that opens what the chat works on, not the strip's selected tab. The
-        // chat header's Preview is placed beside the chat as an agent's is.
+        // chat header's Preview is placed beside the chat as an agent's is. A new tab `staysInPane`
+        // keeps stays in its pane.
         let pane: PaneModel
         var context: PaneController?
         var docked = false
-        if invocation.origin == .user, !invocation.besideCaller, let chat = ctx.services.paneController(for: invoked) {
+        var slot = slot
+        if invocation.origin == .user, !invocation.besideCaller, !staysInPane, let chat = ctx.services.paneController(for: invoked) {
             let respawn = chatRespawn(ctx, url: url, engine: engine, profile: profileRequest)
             if let target = ChatColumnPlacement.route(from: chat, respawn: respawn, services: ctx.services) {
                 pane = target.pane
-                if target !== chat { context = chat }
+                if target !== chat {
+                    context = chat
+                    slot = NewTabSlot.rebased(slot, onto: target) // the strip pane's slot, not the chat's
+                }
             } else {
                 // A lone chat docked and left the browser in its pane.
                 pane = invoked
