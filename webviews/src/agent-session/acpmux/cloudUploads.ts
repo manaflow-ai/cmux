@@ -7,6 +7,7 @@ export type UploadResult = { paths: string[] } | { error: string } | undefined;
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 const NOT_TAKEN = new Set(["unsupported", "native.invalid_request"]);
 const CHUNK_BYTES = 512 * 1024;
+const LEGACY_FRAME_SAFE_BYTES = 24 * 1024 * 1024;
 
 function notTaken(error: unknown): boolean {
   return NOT_TAKEN.has((error as { code?: string } | null)?.code ?? "");
@@ -42,7 +43,13 @@ export async function uploadToMachine(files: File[], call: Call): Promise<Upload
         ...(batchToken ? { batchToken } : {}),
       });
     } catch (error) {
-      if (!paths.length && notTaken(error)) return legacyUpload(files, call);
+      if (!paths.length && notTaken(error)) {
+        // An old host can only accept one complete JSON frame. Refuse oversized files
+        // explicitly instead of rebuilding the removed composer cap as a connection reset.
+        if (files.some((entry) => entry.size > LEGACY_FRAME_SAFE_BYTES))
+          return { error: "This host cannot stream an attachment this large." };
+        return legacyUpload(files, call);
+      }
       return { error: error instanceof Error ? error.message : String(error) };
     }
     const begin = object(started);
