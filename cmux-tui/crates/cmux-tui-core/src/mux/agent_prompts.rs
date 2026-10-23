@@ -71,7 +71,12 @@ impl Mux {
     /// `terminal`'s last prompt whole (markdown, up to `LIVE_MESSAGE_CHARS`), for the phone
     /// Feed's quote of the turn a notification ends.
     pub(crate) fn agent_feed_prompt(&self, terminal: &TerminalPublicId) -> Option<Arc<str>> {
-        self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner).prompts.get(terminal).cloned()
+        self.agent_prompts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .prompts
+            .get(terminal)
+            .cloned()
     }
 
     pub(super) fn forget_agent_prompt(&self, terminal: &TerminalPublicId) {

@@ -67,13 +67,20 @@ public nonisolated struct RemoteViewTabRecord: Sendable, Hashable {
     /// The mode the tab asks for when it connects. Control still needs the
     /// host's authorization and only sends input while the pane is focused.
     public var mode: RemoteControlMode
+    /// Set for an RFB (VNC) compatibility host: its TCP port
+    /// (`via=vnc&port=<n>`, section 12). Nil for a `cmux.rd/1` host.
+    public var vncPort: UInt16?
 
-    /// Nil when `host` is not a valid machine name.
-    public init?(host: String, target: Target = .display(1), mode: RemoteControlMode = .view) {
-        guard Self.isValidHost(host) else { return nil }
+    /// The default VNC port.
+    public static let defaultVNCPort: UInt16 = 5900
+
+    /// Nil when `host` is not a valid machine name or `vncPort` is 0.
+    public init?(host: String, target: Target = .display(1), mode: RemoteControlMode = .view, vncPort: UInt16? = nil) {
+        guard Self.isValidHost(host), vncPort != 0 else { return nil }
         self.host = host
         self.target = target
         self.mode = mode
+        self.vncPort = vncPort
     }
 
     /// Parses a record URL; nil for any other URL, an invalid field, or a
@@ -86,7 +93,7 @@ public nonisolated struct RemoteViewTabRecord: Sendable, Hashable {
               components.user == nil, components.password == nil, components.port == nil,
               components.path.isEmpty, components.fragment == nil else { return nil }
         var fields: [String: String] = [:]
-        for item in components.queryItems ?? [] where ["host", "target", "mode"].contains(item.name) {
+        for item in components.queryItems ?? [] where ["host", "target", "mode", "via", "port"].contains(item.name) {
             guard fields[item.name] == nil, let value = item.value else { return nil }
             fields[item.name] = value
         }
@@ -105,7 +112,22 @@ public nonisolated struct RemoteViewTabRecord: Sendable, Hashable {
         } else {
             mode = .view
         }
-        self.init(host: host, target: target, mode: mode)
+        var vncPort: UInt16?
+        switch fields["via"] {
+        case nil, "rd":
+            guard fields["port"] == nil else { return nil }
+        case "vnc":
+            if let raw = fields["port"] {
+                guard (1...5).contains(raw.count), raw.utf8.allSatisfy({ (0x30...0x39).contains($0) }),
+                      let port = UInt16(raw), port > 0 else { return nil }
+                vncPort = port
+            } else {
+                vncPort = Self.defaultVNCPort
+            }
+        default:
+            return nil
+        }
+        self.init(host: host, target: target, mode: mode, vncPort: vncPort)
     }
 
     /// The record URL, fields in a fixed order.
@@ -118,6 +140,10 @@ public nonisolated struct RemoteViewTabRecord: Sendable, Hashable {
             URLQueryItem(name: "target", value: target.rawValue),
             URLQueryItem(name: "mode", value: mode.rawValue),
         ]
+        if let vncPort {
+            components.queryItems?.append(URLQueryItem(name: "via", value: "vnc"))
+            components.queryItems?.append(URLQueryItem(name: "port", value: String(vncPort)))
+        }
         // A scheme, a host, no path and query items always form a URL; /dev/null stands in otherwise.
         return components.url ?? URL(fileURLWithPath: "/dev/null")
     }

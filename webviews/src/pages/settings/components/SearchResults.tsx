@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { categories } from "../categories";
+import { shownCategories } from "../categories";
 import { useSettingsState } from "../context";
 import { filterRows } from "../search";
 import { valueOf } from "../store";
@@ -18,6 +18,7 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
     changedOnly,
     valueOf: (key) => valueOf(state, key),
     isChanged: (key) => state.rows.get(key)?.customized ?? false,
+    devBuild: state.host?.dev_build === true,
   });
   const shown = new Set(matches.flatMap((match) => match.rows.map((row) => row.key)));
   const empty = shown.size === 0;
@@ -33,7 +34,7 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
           {changedOnly && !query.trim() ? t("settingsPage.noChanged") : t("settingsPage.noResults")}
         </span>
       </p>
-      {categories.map((category) => {
+      {shownCategories(state.host?.dev_build === true).map((category) => {
         const open = category.groups.some((group) => group.rows.some((row) => shown.has(row.key)));
         return (
           <section
