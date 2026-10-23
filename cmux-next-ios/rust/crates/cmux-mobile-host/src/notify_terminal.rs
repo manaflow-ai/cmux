@@ -517,6 +517,30 @@ mod tests {
         assert!(!w.allows("failed", t0 + WANTS_TTL));
     }
 
+    /// Claude Code reports its own "asks a question" program status (an OSC the terminal
+    /// posts) before its hook's notification arrives with the question. The question is not
+    /// that OSC's echo: it still pushes, with its options (found live on the termq rig: the
+    /// phone only ever got "claude-code asks a question").
+    #[test]
+    fn a_question_after_the_terminals_own_alert_still_pushes() {
+        let mut c = TerminalClassifier::default();
+        let t0 = Instant::now();
+        let mut osc = event(60, Some(7), "terminal");
+        osc["title"] = json!("claude-code asks a question");
+        osc["level"] = json!("warning");
+        assert!(c.handle_at(&osc, &places(), t0).is_some());
+        let mut hook = event(61, Some(7), "agent");
+        hook["title"] = json!("Claude asked a question");
+        hook["question"] = json!({"harness":"claude","questions":[
+            {"question":"Which branch?","header":"Branch","multiSelect":false,
+             "options":[{"label":"main"},{"label":"dev"},{"label":"release"}]}]});
+        let e = c.handle_at(&hook, &places(), t0 + Duration::from_secs(1)).expect("the question pushes");
+        assert_eq!(e.kind, "question");
+        assert_eq!(e.questions[0].options.len(), 3);
+        // A hook without a question is still that OSC's echo.
+        assert!(c.handle_at(&hook_n(62), &places(), t0 + Duration::from_secs(2)).is_none());
+    }
+
     /// A terminal agent's AskUserQuestion (the daemon's `question`, cmux-tui
     /// `agent_hook_question.rs`) pushes as a question with its options, so the phone gets
     /// option buttons and the long-press rows; its tab opens on a tap.
