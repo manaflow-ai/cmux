@@ -281,7 +281,11 @@ final class WindowOverlayLayer {
             let id = ObjectIdentifier(root)
             let frozen = root.isLive && root.isInLayoutMotion ? catcherAreasAtRest[id] : nil
             held[id] = frozen ?? live
-            if let frozen { passThrough.formUnion(frozen.map(\.id)) }
+            // Only a held catcher whose divider moved away (or went) passes the mouse; a still one keeps it.
+            if let frozen {
+                let now = Dictionary(live.map { ($0.id, $0.rect) }, uniquingKeysWith: { first, _ in first })
+                passThrough.formUnion(frozen.filter { now[$0.id] != $0.rect }.map(\.id))
+            }
             areas += frozen ?? live
         }
         catcherAreasAtRest = held

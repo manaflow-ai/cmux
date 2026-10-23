@@ -53,8 +53,11 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // app's Core Animation commit (its CATransactionCoordinator pre-commit handler, on our main
         // thread) until it has a frame at the new size, or for up to 500 ms: each frame of a split
         // or close that resized a page waited for that page's relayout and raster. AsyncLiveResize
-        // skips the wait in NativeWidgetNSWindowBridge::UpdateWindowGeometry; a page window is never
-        // in a live resize of its own, so the async live-resize path it also turns on never runs.
+        // skips the wait in NativeWidgetNSWindowBridge::UpdateWindowGeometry (the feature exists in
+        // Chromium 154, ui_base_features.cc). Its other path, an async window live resize
+        // (views_nswindow_delegate.mm, windowWillResize under inLiveResize), runs only for a Chromium
+        // window the user resizes itself: cmux shows none (page and DevTools windows are borderless
+        // children of cmux windows and panels; ChromiumWindowGuard hides Chromium's own windows).
         // An API 26 fork (layer hosting without resize sync) gets the switch too: its hosted pages
         // then show their last frame through a resize instead of holding our commit up to 500 ms.
         // From fork API 27 the fork's own default is no wait, and a layer-hosted page waits up to

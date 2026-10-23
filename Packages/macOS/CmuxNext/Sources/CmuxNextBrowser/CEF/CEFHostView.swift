@@ -62,6 +62,9 @@ final class CEFHostView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        // A page that follows the appearance (prefers-color-scheme) changes its background with
+        // it: the resize gap's color is read again (review 2 of PL-motion-cef batch 1).
+        liveResizeWillStart?()
         updateBackground()
     }
 
