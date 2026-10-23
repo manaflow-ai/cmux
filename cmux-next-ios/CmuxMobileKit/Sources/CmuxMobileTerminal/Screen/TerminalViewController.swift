@@ -2169,6 +2169,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     // MARK: Keyboard
 
     @objc private func tuiTapped(_ tap: UITapGestureRecognizer) {
+        // A tap makes this phone the active device (Prefer the active device).
+        model.session.noteInteraction()
         // A tap that ends a selection only ends it, as in the shell.
         if selection.selection == nil, tuiSelection.selection == nil, model.isTUI, surface.superview === tuiHost {
             surface.click(at: tap.location(in: surface))
@@ -2177,6 +2179,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     @objc private func terminalTapped() {
+        model.session.noteInteraction()
         // A tap outside the menu ends a selection, like iOS text.
         if selection.selection != nil || tuiSelection.selection != nil {
             selection.clear()

@@ -146,6 +146,10 @@ public protocol TerminalSession: AnyObject {
     /// Mac releases its size when told false and claims it again on true).
     /// Driven by ``TerminalSizeClaimer``. Sessions without a Mac ignore it.
     func setClaimsSize(_ claims: Bool)
+    /// The person tapped or typed in the terminal: on a Mac terminal this
+    /// view becomes the active device for the Mac's sizing policy (sessions
+    /// rate-limit it themselves). Sessions without a Mac ignore it.
+    func noteInteraction()
 }
 
 extension TerminalSession {
@@ -162,6 +166,8 @@ extension TerminalSession {
     public func setOutputPaused(_ paused: Bool) {}
 
     public func setClaimsSize(_ claims: Bool) {}
+
+    public func noteInteraction() {}
 }
 
 /// Follows DEC private modes 47, 1047 and 1049 in a byte stream, across chunk
