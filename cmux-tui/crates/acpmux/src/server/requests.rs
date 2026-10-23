@@ -189,11 +189,6 @@ async fn dispatch_brief(
         .or_else(|| params.get("idempotency_key"))
         .and_then(Value::as_str)
         .filter(|key| !key.is_empty());
-    if let Some(existing) = hub.briefs.claim(&id, idempotency) {
-        return Ok(
-            json!({"brief":existing,"event":crate::hub::dispatch::event("dispatch", &existing),"replayed":true}),
-        );
-    }
     let selected = params
         .get("host")
         .or_else(|| params.get("target"))
@@ -213,6 +208,11 @@ async fn dispatch_brief(
         }
         Some(selected.clone())
     };
+    if let Some(existing) = hub.briefs.claim(&id, idempotency) {
+        return Ok(
+            json!({"brief":existing,"event":crate::hub::dispatch::event("dispatch", &existing),"replayed":true}),
+        );
+    }
     if let Some(peer_name) = host {
         let peer = hub.peer_by_name(&peer_name).ok_or_else(|| {
             RpcError::not_found(format!(
@@ -227,6 +227,7 @@ async fn dispatch_brief(
         let original = params.clone();
         params["forwarded"] = json!(true);
         params["host"] = json!(peer_name);
+        params["briefId"] = json!(id);
         params["_meta"]["acpmux"]["dispatchSource"] = json!({
             "from": conn.caller().map(|id| hub.session_name(id)).unwrap_or_else(|| conn.label()),
             "host": crate::host_pressure::host_name(),
