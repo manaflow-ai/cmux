@@ -76,13 +76,13 @@ cat "$ROOT/webviews/src/ui/ghost.css" >> "$WORK/styles.css"
 cat "$ROOT/webviews/src/ui/findPill.css" >> "$WORK/styles.css"
 # The import suggestion cards in New Tab's notice slot (ui/ImportCards.tsx).
 cat "$ROOT/webviews/src/ui/importCards.css" >> "$WORK/styles.css"
-cat "$ROOT/webviews/src/theme/messages.css" "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/chips/chips.css" "$SRC/acpmux/previewCard/previewCard.css" "$SRC/acpmux/contextCard.css" >> "$WORK/styles.css"
+cat "$ROOT/webviews/src/theme/messages.css" "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/chips/chips.css" "$SRC/acpmux/chips/linkCard.css" "$SRC/acpmux/previewCard/previewCard.css" "$SRC/acpmux/contextCard.css" >> "$WORK/styles.css"
 # changes.css @imports git.css; an @import never loads here (mid-sheet, and the CSP loads no
 # style file), so inline it where the import stood.
 cat "$SRC/acpmux/changes/git.css" >> "$WORK/styles.css"
 grep -v '^@import ' "$SRC/acpmux/changes/changes.css" >> "$WORK/styles.css"
 cat "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/composerLocation.css" "$SRC/acpmux/composerLook.css" "$SRC/acpmux/savedEnvironments.css" "$SRC/acpmux/bottomStack.css" "$SRC/acpmux/composerAttachments.css" "$SRC/acpmux/composer/dropOverlay.css" "$SRC/acpmux/markdownField.css" \
-  "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/subagents/subagents.css" "$SRC/acpmux/header/header.css" "$SRC/acpmux/needsYou/needsYou.css" "$SRC/acpmux/newtab/screen.css" "$SRC/acpmux/newtab/history.css" "$SRC/acpmux/threadMinimap/threadMinimap.css" >> "$WORK/styles.css"
+  "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/subagents/subagents.css" "$SRC/acpmux/header/header.css" "$SRC/acpmux/needsYou/needsYou.css" "$SRC/acpmux/newtab/screen.css" "$SRC/acpmux/newtab/history.css" "$SRC/acpmux/newtab/noEntry.css" "$SRC/acpmux/threadMinimap/threadMinimap.css" >> "$WORK/styles.css"
 cat "$SRC/acpmux/turnChanges/turnChanges.css" "$SRC/acpmux/Inspector.css" "$SRC/acpmux/inspector/inspector.css" "$SRC/acpmux/inspector/ContextSection.css" "$SRC/acpmux/dictation.css" >> "$WORK/styles.css"
 cat "$SRC/acpmux/addProject.css" "$SRC/acpmux/harnesses/harnesses.css" "$SRC/acpmux/replay/replay.css" "$SRC/acpmux/offer/suggestedTasks.css" "$SRC/acpmux/started/startedSessions.css" "$SRC/acpmux/started/sessionHover.css" "$SRC/acpmux/conversation/SubsessionCallCard.css" "$SRC/acpmux/conversation/AgentMessageRow.css" "$ROOT/webviews/src/markdown-task-checkbox.css" >> "$WORK/styles.css"
 # Every sheet the pane imports ships: a missing one renders its component unstyled in the app
