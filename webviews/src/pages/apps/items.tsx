@@ -217,11 +217,17 @@ export function ScreenshotStrip({ screenshots, strings }: { screenshots: readonl
   );
 }
 
-const CONTRIBUTION_KEYS: Record<string, string> = {
-  section: "store.contribution.section",
-  command: "store.contribution.command",
-  statusItem: "store.contribution.statusItem",
-};
+// A Map, not an object literal: a kind such as "__proto__" or "constructor" must not resolve.
+const CONTRIBUTION_KEYS = new Map<string, string>([
+  ["section", "store.contribution.section"],
+  ["command", "store.contribution.command"],
+  ["statusItem", "store.contribution.statusItem"],
+]);
+
+function kindLabel(kind: string, strings: Strings): string {
+  const key = CONTRIBUTION_KEYS.get(kind);
+  return key ? strings.t(key) : kind;
+}
 
 /** "What it adds": the places the app puts something in cmux, each with its kind. */
 export function AddsList({ contributes, strings }: { contributes?: readonly AppContribution[]; strings: Strings }) {
@@ -233,7 +239,7 @@ export function AddsList({ contributes, strings }: { contributes?: readonly AppC
         {contributes.map((item, index) => (
           <li key={`${index}\u0000${item.kind}\u0000${item.title}`} className="apps-add">
             <span className="apps-add-title">{item.title}</span>
-            <Badge text={CONTRIBUTION_KEYS[item.kind] ? t(CONTRIBUTION_KEYS[item.kind]!) : item.kind} />
+            <Badge text={kindLabel(item.kind, strings)} />
           </li>
         ))}
       </ul>

@@ -192,6 +192,17 @@ test("What it adds lists each contribution with its kind, and is absent when the
     />,
   );
   expect(twice.match(/Stay Awake/g)?.length).toBe(2);
+  const inherited = renderToStaticMarkup(
+    <AddsList
+      contributes={[
+        { kind: "__proto__", title: "Odd" },
+        { kind: "constructor", title: "Odder" },
+      ]}
+      strings={strings}
+    />,
+  );
+  expect(inherited).toContain(">__proto__<");
+  expect(inherited).toContain(">constructor<");
 });
 
 test("settings show only once installed, with Enabled as the app's switch", () => {
