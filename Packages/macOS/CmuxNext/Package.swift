@@ -1148,6 +1148,11 @@ let package = Package(
             name: "CmuxNextSignposts",
             swiftSettings: daemonSwiftSettings
         ),
+        .testTarget(
+            name: "CmuxNextSignpostsTests",
+            dependencies: ["CmuxNextSignposts"],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextWakeups",
             dependencies: ["CmuxNextCompat"],
@@ -1554,7 +1559,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextActionsTests",
-            dependencies: ["CmuxNextActions", "CmuxNextSignposts"],
+            dependencies: ["CmuxNextActions"],
             swiftSettings: uiSwiftSettings
         ),
     ] + [appFFI]

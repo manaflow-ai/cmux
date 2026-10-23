@@ -68,6 +68,12 @@ public final class ActionRegistry {
     /// True while AppKit dispatches a key-down (a menu key equivalent), not
     /// a click in an open menu. Replaceable in tests.
     @ObservationIgnored public var isDispatchingKeyDown: @MainActor () -> Bool = { NSApp.currentEvent?.type == .keyDown }
+    /// The OS input event AppKit is dispatching now (inside `NSApplication.sendEvent`), nil
+    /// between dispatches. The App installs it (`CmuxApplication.dispatchingEvent`); the action
+    /// signposts read it for a `user` run's `input_age_ms`. Nil (the default) records -1.
+    @ObservationIgnored public var dispatchingInputEvent: @MainActor () -> NSEvent? = { nil }
+    /// Times each run that does work (``ActionRunTiming``; `action.perform` / `action.commit`).
+    let runTiming: any ActionRunTiming
 
     /// Collects missing required arguments (the palette installs itself
     /// here) and then calls `perform(_:invocation:)` again. When nil, the
@@ -132,11 +138,19 @@ public final class ActionRegistry {
     @ObservationIgnored var shortcutIndex: ShortcutIndex?
 
     /// An empty registry with no catalog.
-    public init() {}
+    public convenience init() {
+        self.init(catalog: [], runTiming: SignpostActionRunTiming())
+    }
 
     /// A registry seeded with `catalog`.
-    public init(catalog: [ActionDescriptor], aliases: [ActionID: ActionID] = [:]) {
+    public convenience init(catalog: [ActionDescriptor], aliases: [ActionID: ActionID] = [:]) {
+        self.init(catalog: catalog, aliases: aliases, runTiming: SignpostActionRunTiming())
+    }
+
+    /// A registry seeded with `catalog` whose runs are timed by `runTiming` (tests pass a recorder).
+    init(catalog: [ActionDescriptor], aliases: [ActionID: ActionID] = [:], runTiming: any ActionRunTiming) {
         self.aliases = aliases
+        self.runTiming = runTiming
         seed(catalog)
     }
 
@@ -326,7 +340,10 @@ public final class ActionRegistry {
 
     private func performNow(_ id: ActionID, invocation: ActionInvocation) -> Bool {
         if disabledFeature(for: id) != nil { return false }
-        if let route = keyWindowRoute?(canonicalID(for: id), invocation) { return route.perform { refuse($0) } }
+        if let route = keyWindowRoute?(canonicalID(for: id), invocation) {
+            guard case .run = route else { return route.perform { refuse($0) } }
+            return signposted(id, invocation) { route.perform { refuse($0) } }
+        }
         guard let action = action(for: id), isAvailable(id, for: invocation), action.isEnabled() else { return false }
         if ActionTargetReasons.refuses(action, invocation, in: self) { return false }
         let missing = descriptor(for: id).map { descriptor in
@@ -335,7 +352,7 @@ public final class ActionRegistry {
         if missing, let argumentCollector {
             // A menu item or shortcut for an argument-taking action: let the
             // palette ask for the rest, then run with the full invocation.
-            argumentCollector(id, invocation)
+            signposted(id, invocation) { argumentCollector(id, invocation) }
             return true
         }
         if needsConfirmation(id, invocation) { return gateDestructive(id, invocation) }

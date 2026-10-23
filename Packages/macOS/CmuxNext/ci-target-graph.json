@@ -52,8 +52,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests",
       "targets": [
-        "CmuxNextActions",
-        "CmuxNextSignposts"
+        "CmuxNextActions"
       ],
       "packages": [],
       "reads": [
@@ -1493,6 +1492,15 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSignposts",
       "targets": [],
       "packages": []
+    },
+    "CmuxNextSignpostsTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextSignpostsTests",
+      "targets": [
+        "CmuxNextSignposts"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextStash": {
       "kind": "regular",
