@@ -9,19 +9,11 @@ import { JSDOM } from "jsdom";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", { url: "http://localhost/", pretendToBeVisual: true });
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "HTMLElement", "Element", "Node", "IS_REACT_ACT_ENVIRONMENT"] as const;
-const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
-beforeAll(() => {
-  Object.assign(scope, {
-    window: dom.window,
-    document: dom.window.document,
-    navigator: dom.window.navigator,
-    HTMLElement: dom.window.HTMLElement,
-    Element: dom.window.Element,
-    Node: dom.window.Node,
-    IS_REACT_ACT_ENVIRONMENT: true,
-  });
-});
+const { window } = dom;
+const globals = { window, document: window.document, navigator: window.navigator, IS_REACT_ACT_ENVIRONMENT: true };
+Object.assign(globals, { HTMLElement: window.HTMLElement, Element: window.Element, Node: window.Node });
+const saved = Object.keys(globals).map((key) => [key, key in scope, scope[key]] as const);
+beforeAll(() => Object.assign(scope, globals));
 afterAll(() => {
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
@@ -137,12 +129,15 @@ async function setup() {
   };
 }
 
-describe("media while the chat's locality is pending", () => {
-  beforeEach(async () => {
-    const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
-    applyHostEvent({ kind: "locality", value: { locality: "unknown" } });
-  });
+// Each test has its own web addresses: a clicked image and a granted video stay for the page's life.
+const webImage = (name: string) => `https://images.example.com/${name}.png`;
+const webVideo = (name: string) => `https://videos.example.com/${name}.mp4`;
+beforeEach(async () => {
+  const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
+  applyHostEvent({ kind: "locality", value: { locality: "unknown" } });
+});
 
+describe("media while the chat's locality is pending", () => {
   test("a pending image, video and tool image wait, then load once the chat is local", async () => {
     const page = await setup();
     await page.render("![Shot](/tmp/delayed/shot.png)\n\n![Clip](/tmp/delayed/clip.mp4)", ["/tmp/delayed/tool.png"]);
@@ -198,18 +193,6 @@ describe("media while the chat's locality is pending", () => {
     await page.unmount();
   });
 
-  test("a pending answer that arrives after the locality event is asked again", async () => {
-    const page = await setup();
-    page.host.late = { method: "image.load", reply: { pending: true } };
-    await page.render("![Late](/tmp/delayed-race/late.png)");
-    page.host.locality = "local";
-    await page.locality({ locality: "local" });
-    await page.release();
-    expect(page.host.count("image.load")).toBe(2);
-    expect(page.container.querySelector(`img[src="${IMAGE}"]`)).not.toBeNull();
-    await page.unmount();
-  });
-
   test("a malformed or repeated locality event asks nothing again", async () => {
     const page = await setup();
     await page.render("![Shot](/tmp/delayed-noise/shot.png)");
@@ -259,51 +242,14 @@ describe("media while the chat's locality is pending", () => {
     expect(inspected).toBe(2);
     await page.unmount();
   });
-});
 
-describe("review fixes (#24346)", () => {
-  const LATE = "data:image/png;base64,TEFURQ==";
-  const LATE_MEDIA = "cmux-agent://pane/__media/late";
-  // Each test has its own web addresses: a clicked image and a granted video stay for the page's life.
-  const webImage = (name: string) => `https://images.example.com/${name}.png`;
-  const webVideo = (name: string) => `https://videos.example.com/${name}.mp4`;
-  beforeEach(async () => {
-    const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
-    applyHostEvent({ kind: "locality", value: { locality: "unknown" } });
-  });
-
-  test("a clicked web image answered after the locality changed is dropped and asked again", async () => {
+  test.each([
+    ["a pending answer", { pending: true }],
+    ["a refusal", {}],
+  ])("%s that arrives after the locality event is asked again", async (_name, reply) => {
     const page = await setup();
-    page.host.late = { method: "image.load", reply: { src: LATE } };
-    await page.render(`![Web](${webImage("t0")})`);
-    await page.click(".cv-image-placeholder__load");
-    page.host.locality = "local";
-    await page.locality({ locality: "local" });
-    await page.release();
-    expect(page.host.count("image.load")).toBe(2);
-    expect(page.container.querySelector(`img[src="${LATE}"]`)).toBeNull();
-    expect(page.container.querySelector(`img[src="${IMAGE}"]`)).not.toBeNull();
-    await page.unmount();
-  });
-
-  test("a web video answered after the locality changed is dropped and asked again", async () => {
-    const page = await setup();
-    page.host.late = { method: "media.load", reply: { src: LATE_MEDIA } };
-    await page.render(`![Clip](${webVideo("t1")})`);
-    await page.click(".cv-media.is-remote .cv-image-placeholder__load");
-    page.host.locality = "local";
-    await page.locality({ locality: "local" });
-    await page.release();
-    expect(page.host.count("media.load")).toBe(2);
-    expect(page.container.querySelector(`video[src="${LATE_MEDIA}"]`)).toBeNull();
-    expect(page.container.querySelector(`video[src="${MEDIA}"]`)).not.toBeNull();
-    await page.unmount();
-  });
-
-  test("a refusal answered after the locality changed is asked again, not a failure", async () => {
-    const page = await setup();
-    page.host.late = { method: "image.load", reply: {} };
-    await page.render("![Late](/tmp/stale-refusal/late.png)");
+    page.host.late = { method: "image.load", reply };
+    await page.render(`![Late](/tmp/stale-${Object.keys(reply).length}/late.png)`);
     page.host.locality = "local";
     await page.locality({ locality: "local" });
     await page.release();
@@ -312,6 +258,33 @@ describe("review fixes (#24346)", () => {
     expect(page.container.querySelector(`img[src="${IMAGE}"]`)).not.toBeNull();
     await page.unmount();
   });
+
+  test.each([
+    ["image", "image.load", `![Web](${webImage("t0")})`, ".cv-image-placeholder__load", "img", IMAGE],
+    [
+      "video",
+      "media.load",
+      `![Clip](${webVideo("t1")})`,
+      ".cv-media.is-remote .cv-image-placeholder__load",
+      "video",
+      MEDIA,
+    ],
+  ] as const)(
+    "a clicked web %s answered after the locality changed is dropped and asked again",
+    async (_kind, method, markdown, button, element, src) => {
+      const page = await setup();
+      page.host.late = { method, reply: { src: "late" } };
+      await page.render(markdown);
+      await page.click(button);
+      page.host.locality = "local";
+      await page.locality({ locality: "local" });
+      await page.release();
+      expect(page.host.count(method)).toBe(2);
+      expect(page.container.querySelector(`${element}[src="late"]`)).toBeNull();
+      expect(page.container.querySelector(`${element}[src="${src}"]`)).not.toBeNull();
+      await page.unmount();
+    },
+  );
 
   test("a link.inspect answer from before the locality changed keeps no paths, sites or policy", async () => {
     const page = await setup();
@@ -443,6 +416,37 @@ describe("review fixes (#24346)", () => {
     expect(inspects.map((call) => call.params.paths)).toEqual(inspects.map(() => []));
     // "never": the web image draws as its link, with no Load button.
     expect(page.container.querySelector(".cv-image-placeholder__load")).toBeNull();
+    await page.unmount();
+  });
+
+  test("one request per source and locality, however many images or players show it", async () => {
+    const page = await setup();
+    const markdown = ["A", "B"]
+      .map((alt) => `![${alt}](/tmp/dup/shot.png)\n\n![${alt}](/tmp/dup/clip.mp4)`)
+      .join("\n\n");
+    await page.render(markdown);
+    await page.render(`${markdown}\n\nMore.`);
+    const counts = () => [page.host.count("image.load"), page.host.count("media.load")];
+    expect(counts()).toEqual([1, 1]);
+    page.host.locality = "local";
+    await page.locality({ locality: "local" });
+    expect(counts()).toEqual([2, 2]);
+    expect(page.container.querySelectorAll(`img[src="${IMAGE}"]`).length).toBe(2);
+    expect(page.container.querySelectorAll(`video[src="${MEDIA}"]`).length).toBe(2);
+    await page.unmount();
+  });
+
+  test("a path answered under another locality is asked again, whichever it was", async () => {
+    const page = await setup();
+    const path = "/tmp/stale-path/shot.png";
+    page.host.locality = "remote";
+    await page.locality({ locality: "remote", machine: "big-red" });
+    await page.render(`![Shot](${path})`);
+    expect(page.host.count("image.load")).toBe(0);
+    page.host.locality = "local";
+    await page.locality({ locality: "local" });
+    expect(page.host.count("link.inspect", (params) => (params.paths as string[]).includes(path))).toBe(2);
+    expect(page.container.querySelector(`img[src="${IMAGE}"]`)).not.toBeNull();
     await page.unmount();
   });
 });
