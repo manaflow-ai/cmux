@@ -193,7 +193,9 @@ final class NotificationCenterService {
     func noteTyping(in window: NSWindow?) {
         guard let tab = focusedTab(in: window) else { return }
         lastKeystroke[tab] = .now
-        if isTerminalFocused(in: window) { clearUnreadMark(ofTab: tab) }
+        // Workspace Mark as Unread is this Mac's: typing in another machine's terminal clears none
+        // (its tab may share an id with one here).
+        if isTerminalFocused(in: window), content(of: window)?.daemon.isLocal != false { clearUnreadMark(ofTab: tab) }
         interacted(.keystroke, tabID: tab, in: window)
     }
 
@@ -289,12 +291,16 @@ final class NotificationCenterService {
     /// share an id). A window that shows no workspace reads this Mac's tab, as does a tab outside
     /// a local workspace; a tab outside a remote one reads nothing rather than a guess.
     func interacted(_ trigger: NotificationTrigger, tabID: String, in window: NSWindow?) {
-        let host = window.map { CmuxApplication.accessibilityWindow(for: $0) ?? $0 }
-        guard let host, let content = services?.windows.controllers.first(where: { $0.window === host })?.content else {
-            return interacted(trigger, tabID: tabID)
-        }
+        guard let content = content(of: window) else { return interacted(trigger, tabID: tabID) }
         let local = content.daemon.isLocal
         if !interacted(trigger, tabID: tabID, in: content.workspace, local: local), local { interacted(trigger, tabID: tabID) }
+    }
+
+    /// The workspace content `window` shows (a Chromium page window resolves to its cmux window);
+    /// nil for a window that shows none.
+    private func content(of window: NSWindow?) -> WorkspaceContentController? {
+        guard let host = window.map({ CmuxApplication.accessibilityWindow(for: $0) ?? $0 }) else { return nil }
+        return services?.windows.controllers.first(where: { $0.window === host })?.content
     }
 
     /// Tab `tabID` of `workspace` (held by this Mac's daemon when `local`); false when the
