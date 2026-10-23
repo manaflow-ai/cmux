@@ -414,7 +414,9 @@
 /* Full width like Discover and Installed, on the toolbar's edges, so moving between them never
    moves the content's left edge. */
 .apps-detail-body {
-  padding: 20px var(--page-edge) 32px;
+  padding: 20px 20px 32px;
+  padding-left: var(--page-edge);
+  padding-right: var(--page-edge);
   display: flex;
   flex-direction: column;
   gap: 18px;
