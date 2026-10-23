@@ -200,7 +200,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         case .devices: DevicesPage(store: store, directory: directory, list: deviceList)
         case .terminal: TerminalPage(settings: settings)
         case .composer: ComposerPage(settings: settings)
-        case .notifications: NotificationsPage(settings: settings)
+        case .notifications: NotificationsPage(settings: settings, macs: store.notificationMacs)
         case .acknowledgements: AcknowledgementsPage()
         }
     }

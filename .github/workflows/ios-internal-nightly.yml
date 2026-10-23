@@ -334,6 +334,9 @@ jobs:
         id: upload
         env:
           CMUX_MOBILE_CI_ASC: "1"
+          # The notification content extension's App Store profile that lists
+          # CI's certificate (downloaded with the release key; verify/rich-push.md).
+          CMUX_MOBILE_CONTENT_EXTENSION_PROFILE_NAME: cmux Internal Distribution CI Notification Content
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/archive"
