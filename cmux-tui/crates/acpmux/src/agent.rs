@@ -10,7 +10,7 @@ use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
@@ -39,12 +39,13 @@ pub enum Inbound {
         method: String,
         params: Option<Value>,
     },
-    /// `pid` is the agent process it came from, as in `Exited`: the hub drops what a process
-    /// already replaced still had in flight where it would stand for the new one.
+    /// `agent` is the [`ChildAgent::generation`] it came from: the hub drops what an agent
+    /// already replaced still had in flight where it would stand for the new one (a hosted
+    /// agent has no pid of its own, so the pid cannot tell two of them apart).
     Notification {
         method: String,
         params: Option<Value>,
-        pid: Option<u32>,
+        agent: u64,
     },
     /// One stderr line; `host_seq` names the agent host entry it came from.
     Stderr(String, Option<u64>),
@@ -139,6 +140,9 @@ struct Pending {
 
 const ORPHAN_ANSWERS: usize = 64;
 
+/// The next [`ChildAgent::generation`]: one per agent this daemon starts or adopts.
+static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
+
 fn key(id: &Id) -> String {
     id.to_string()
 }
@@ -151,6 +155,9 @@ pub struct ChildAgent {
     pending: Arc<Mutex<Pending>>,
     tap: Tap,
     pub pid: Option<u32>,
+    /// This agent among every one the daemon ran, never reused: what its notifications carry
+    /// (`Inbound::Notification`), so the hub knows one from an agent it already replaced.
+    pub generation: u64,
     /// Present when the child speaks Claude's stream-json instead of ACP
     /// and runs directly under acpmux (a host owns its own translator).
     pub translator: Option<Arc<crate::claude_stdio::Translator>>,
@@ -268,6 +275,7 @@ impl ChildAgent {
             hosted: None,
             all_tools: std::sync::atomic::AtomicBool::new(false),
             retired: std::sync::atomic::AtomicBool::new(false),
+            generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
             preview_format,
             #[cfg(windows)]
             job,
@@ -454,7 +462,7 @@ impl ChildAgent {
                                     .send(Inbound::Notification {
                                         method,
                                         params,
-                                        pid: agent_for_exit.pid,
+                                        agent: agent_for_exit.generation,
                                     })
                                     .await;
                             }
@@ -470,7 +478,7 @@ impl ChildAgent {
                                 .send(Inbound::Notification {
                                     method,
                                     params,
-                                    pid: agent_for_exit.pid,
+                                    agent: agent_for_exit.generation,
                                 })
                                 .await;
                         }
@@ -731,7 +739,7 @@ impl ChildAgent {
                 Message::Notification { method, params } => {
                     let _ = cx
                         .inbound
-                        .send(Inbound::Notification { method, params, pid: self.pid })
+                        .send(Inbound::Notification { method, params, agent: self.generation })
                         .await;
                 }
             }
@@ -1004,6 +1012,7 @@ impl ChildAgent {
             }),
             all_tools: std::sync::atomic::AtomicBool::new(false),
             retired: std::sync::atomic::AtomicBool::new(false),
+            generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
             preview_format: None,
             #[cfg(windows)]
             job: None,
@@ -1103,7 +1112,7 @@ impl ChildAgent {
                     }
                     Message::Notification { method, params } => {
                         let _ = inbound
-                            .send(Inbound::Notification { method, params, pid: self.pid })
+                            .send(Inbound::Notification { method, params, agent: self.generation })
                             .await;
                     }
                 }

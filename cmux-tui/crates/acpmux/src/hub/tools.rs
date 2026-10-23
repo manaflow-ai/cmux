@@ -246,6 +246,13 @@ impl Hub {
                 return Err(RpcError::internal("Claude Code did not answer mcp_reconnect in time"));
             }
         }
+        // The agent that answered must still be the chat's: one a failover or restart replaced
+        // while it reconnected says nothing of the new one's servers (its start connects them).
+        // The child lock is held over the write, as a replacement takes it to detach the old.
+        let current = session.child.lock().await;
+        if !current.as_ref().is_some_and(|c| Arc::ptr_eq(c, &child)) {
+            return Ok(json!({}));
+        }
         let changed = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             match m.tools.rows.iter_mut().find(|r| r.id == id) {
@@ -256,6 +263,7 @@ impl Hub {
                 _ => false,
             }
         };
+        drop(current);
         // Watchers hear it as `_acpmux/session_changed` kind `tools` (`mcpServers`).
         if changed {
             self.append(session, "mux", "tools", json!({"reconnected": server}));
