@@ -148,7 +148,8 @@ SECTIONS = [
         "source": "schemas/settings/source/now-playing.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+NowPlaying.generated.swift",
         "type": "NowPlayingSettingsSchema",
-        "lists": {"nowPlaying": ("descriptors", "NowPlayingSettings"), "newTab": ("newTabDescriptors", "NowPlayingSettings")},
+        "lists": {"nowPlaying": ("descriptors", "NowPlayingSettings"), "newTab": ("newTabDescriptors", "NowPlayingSettings"),
+                  "pictureInPicture": ("pictureInPictureDescriptors", "NowPlayingSettings")},
         "enums": {},
     },
     {
