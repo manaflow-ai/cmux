@@ -15,3 +15,8 @@ extension SidebarBridge {
         }
     }
 }
+
+extension SidebarBridge {
+    /// The item menu rows an item `id` does not offer while its add waits for the daemon.
+    static func pendingEdits(_ id: LayoutItemID) -> Set<ActionID> { [] }
+}
