@@ -3,7 +3,8 @@
 // 2026-10-21: "i dont like the non glassness here :("). In a light and a dark theme (applied as the
 // host does), on an opaque window and over art under Plain and Lens glass:
 // - the popover is the chat menus' glass: the same fill and blur as a `.ui-popup.ui-glass` menu, a
-//   translucent fill (never opaque) under a backdrop blur;
+//   translucent fill (never opaque) under a backdrop blur, and in a see-through Chromium page the
+//   same theme surface underlay a menu floats on (`.ui-glass-floats`, ui/glass/glass.css);
 // - its muted ink (counts, a section title, a row's meta, the close button) keeps 3:1 over the theme's
 //   own page (white under a light theme, black under a dark one);
 // - under Plain glass its title keeps 3:1 even over the other extreme (a dark theme's light ink over
@@ -177,6 +178,8 @@ await requireBrowserLane("summary-glass.test.ts", async () => {
         backdrop: style("popover").backdropFilter,
         menuFill: style("menu").backgroundColor,
         menuBackdrop: style("menu").backdropFilter,
+        image: style("popover").backgroundImage,
+        menuImage: style("menu").backgroundImage,
         shadow: style("popover").boxShadow,
         menuShadow: style("menu").boxShadow,
         title: style("title").color,
@@ -222,6 +225,9 @@ await requireBrowserLane("summary-glass.test.ts", async () => {
         expect(backdrop, "the popover blurs what is under it").toContain("blur(");
         expect(look.fill, "the popover's fill is a chat menu's").toEqual(look.menuFill);
         expect(backdrop, "the popover blurs as a chat menu does").toBe(look.menuBackdrop);
+        // A see-through Chromium page lays floating glass on the theme surface (ui/glass/glass.css):
+        // the popover floats as a menu does, so it takes the same layers.
+        expect(look.image, "the popover's layers are a chat menu's").toBe(look.menuImage);
         // One rim: the glass's own, over the menus' drop; no second hairline from --ui-popup-shadow.
         const layers = shadowLayers(look.shadow);
         expect(rings(layers), `one hairline ring in ${look.shadow}`).toHaveLength(1);
