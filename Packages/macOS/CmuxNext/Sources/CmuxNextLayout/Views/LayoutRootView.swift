@@ -392,13 +392,18 @@ public final class LayoutRootView: NSView {
 
         updateVisibility()
         overlayIsStale = true
+        if needsFrames || snapshot.gestureActive { driver.start() }
+        // A change that starts springs (a split, a close, New Column / New Row) is in motion from
+        // the frame it lands in, and so is a gesture while it lasts: the observers hear it before
+        // this turn's overlay sync, so the motion's start geometry never reads as rest geometry
+        // (a full Chromium resize on the key's frame). The same order as `advanceFrame`.
+        if (needsFrames || snapshot.gestureActive) && driver.isRunning { setLayoutInMotion(true) }
         flushOverlaySync()
         // Pane padding or corners changed: pages drawn as child windows
         // re-read their clip shape (their frames may not have moved).
         if let previous, previous.style != snapshot.style { planeHost?.paneShapesDidChange(overlayPlane) }
-        if needsFrames || snapshot.gestureActive { driver.start() }
-        // A change that starts springs (a split, a close) is in motion from the frame it lands in.
-        if needsFrames && driver.isRunning { setLayoutInMotion(true) }
+        // A gesture that ended with nothing left to spring lands here, with no frame to end it.
+        if !snapshot.gestureActive && !driver.isRunning { setLayoutInMotion(false) }
     }
 
     // MARK: Frames
@@ -421,7 +426,9 @@ public final class LayoutRootView: NSView {
         // The frame that lands still syncs as part of the motion; observers hear it ended after it.
         if moving { setLayoutInMotion(true) }
         flushOverlaySync()
-        if !moving { setLayoutInMotion(false) }
+        // A gesture stays in motion while it lasts, also on a frame where the pointer was still:
+        // the flag no longer flips off and on with each pointer frame of a divider drag.
+        if !moving && !model.isGestureActive { setLayoutInMotion(false) }
         // A gesture requests frames on each pointer change; an active
         // gesture with a still pointer needs none.
         return moving
