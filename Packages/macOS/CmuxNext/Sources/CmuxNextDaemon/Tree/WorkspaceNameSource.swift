@@ -6,4 +6,7 @@ public enum WorkspaceNameSource: String, Codable, Sendable, Hashable {
     case user
     /// An automatic agent naming pass supplied the name.
     case auto
+
+    /// The automatic source exposed to public default arguments across package targets.
+    public static let automatic: Self = .auto
 }
