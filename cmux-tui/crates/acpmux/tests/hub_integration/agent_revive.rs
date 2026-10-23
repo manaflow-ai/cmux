@@ -135,7 +135,7 @@ async fn repeated_agent_deaths_exhaust_the_cap_and_keep_the_queue_held() {
         [json!("p-die"), json!("p-die~resume-1"), json!("p-die~resume-2")]
     );
     assert_eq!(status(&hub, &id), "disconnected");
-    assert!(hub.resolve(&id).unwrap().queue().iter().any(|q| q.held));
+    assert_eq!(hub.session_summary(&hub.resolve(&id).unwrap())["queue"][0]["held"], true);
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
