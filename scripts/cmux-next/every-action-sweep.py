@@ -430,7 +430,11 @@ class Sweep:
         made = getattr(self.builder, "made_kinds", {})
         kinds = {"terminal": [t["id"] for t in tabs if t.get("kind") == "terminal"],
                  "browser": [t["id"] for t in tabs if t.get("kind") == "browser"],
-                 "chat": [t["id"] for t in tabs if t.get("kind") in ("conversation", "page")]}
+                 "chat": [t["id"] for t in tabs if t.get("kind") == "conversation"]}
+        if not kinds["chat"]:
+            every = [t for s in ws.get("screens") or [] for p in s.get("panes") or [] for t in p.get("tabs") or []]
+            kinds["chat"] = [t["id"] for t in every if t.get("kind") == "conversation"] or \
+                [t["id"] for t in tabs if t.get("kind") == "page"]
         selected = next((t["id"] for t in tabs if t.get("selected")), pane_info.get("selected_tab"))
         other = next((w["id"] for w in topo.get("workspaces") or [] if w.get("id") != workspace), None)
         self.base = {"workspace": workspace, "pane": pane_info.get("id"), "tab": selected, "kinds": kinds, "made": made,
@@ -892,12 +896,13 @@ class Sweep:
             reply = rpc("debug.sidebar_rows") or {}
             rows = ((reply.get("windows") or [{}])[0].get("rows") or []) if isinstance(reply, dict) else []
             key = next((w.get("key") for w in topology().get("workspaces") or [] if w.get("id") == base["other_workspace"]), None)
-            row = next((r for r in rows if str(r.get("key", "")) == f"workspace({key})" and r.get("frame")), None) \
-                or next((r for r in rows if str(r.get("key", "")).startswith("workspace(") and r.get("frame")
+            row = next((r for r in rows if str(r.get("key", "")) == f"workspace({key})" and r.get("window_frame")), None) \
+                or next((r for r in rows if str(r.get("key", "")).startswith("workspace(") and r.get("window_frame")
                          and str(r.get("key")) != f"workspace({next((w.get('key') for w in topology().get('workspaces') or [] if w.get('id') == base['workspace']), '')})"), None)
             if not row:
                 return {"skipped": "no sidebar row geometry (debug.sidebar_rows)"}
-            x, y, w, h = row["frame"]
+            f = row["window_frame"]  # window points, top-left origin, as debug.mouse
+            x, y, w, h = f["x"], f["y"], f["width"], f["height"]
             rpc("debug.workspace_switch", {"action": "start"})
             out = self.frames_during(lambda: rpc("debug.mouse", {"action": "click", "x": x + w / 2, "y": y + h / 2}) and None, settle=0.6)
             timer = rpc("debug.workspace_switch", {"action": "stop"}) or {}
@@ -1041,13 +1046,34 @@ class Sweep:
         return self
 
     def check_validity(self):
+        """Chromium really runs (PL-engine): no unavailable reason, no WebKit fallback, Chromium the default engine,
+        no dev-server web-dev.json, and the shown Chromium tabs are CEF tabs (debug.cef devtools: one per shown CEF tab)."""
         cef = rpc("debug.cef") or {}
-        text = json.dumps(cef).lower()
-        bad = [word for word in ("unavailable", "fallback", "downloading", "failed") if word in text]
+        bad = []
+        if not isinstance(cef, dict) or error_of(cef):
+            bad.append(f"debug.cef: {error_of(cef)}")
+            cef = {}
+        if cef.get("unavailable"):
+            bad.append(f"unavailable {cef['unavailable']}")
+        if cef.get("fallback"):
+            bad.append(f"fallback {cef['fallback']}")
+        if cef.get("default_engine") != "chromium":
+            bad.append(f"default engine {cef.get('default_engine')}")
+        if cef.get("ready_after_launch_s") is None:
+            bad.append(f"Chromium not ready (state {cef.get('state')})")
         web_dev = os.path.exists(os.path.expanduser("~/.config/cmux/web-dev.json"))
-        validity = {"chromium_ok": not bad and bool(cef) and not error_of(cef), "cef_flags": bad, "web_dev_json": web_dev,
-                    "cef": {k: cef.get(k) for k in list(cef)[:12]} if isinstance(cef, dict) else cef}
+        if web_dev:
+            bad.append("~/.config/cmux/web-dev.json")
+        shown = None
+        if self.show("chromium"):
+            shown = len((rpc("debug.cef") or {}).get("devtools") or [])
+            if not shown:
+                bad.append("the base pane's Chromium tab is not a CEF tab")
+        validity = {"chromium_ok": not bad, "cef_flags": bad, "web_dev_json": web_dev, "shown_cef_tabs": shown,
+                    "cef": {k: cef.get(k) for k in ("state", "default_engine", "unavailable", "fallback", "ready_after_launch_s",
+                                                    "initialize_ms", "footprint_mb")}}
         note(f"every-action: {self.session} validity {json.dumps(validity)[:400]}")
+        self.home()
         return validity
 
 
@@ -1166,13 +1192,16 @@ def misses(row):
         why.append(f"turn p95 {turn} ms")
     frames = row.get("frames") or {}
     if frames.get("missed"):
-        why.append(f"{frames['missed']} missed frames at {frames.get('refresh_ms')} ms")
+        main = frames.get("main_max_ms") or 0
+        cause = f"main thread {main} ms" if main > (frames.get("refresh_ms") or 16.67) else "main thread under a frame"
+        why.append(f"{frames['missed']} missed frames at {frames.get('refresh_ms')} ms ({cause})")
     for key in ("key_to_frame_ms",):
         p95 = (row.get(key) or {}).get("p95")
         if isinstance(p95, (int, float)) and p95 > TARGET_COMMIT_MS:
             why.append(f"key to frame p95 {p95} ms")
-    if row.get("errors"):
-        why.append("error: " + "; ".join(row["errors"])[:160])
+    errors = [e for e in row.get("errors") or [] if not refusal(e)]
+    if errors:
+        why.append("error: " + "; ".join(errors)[:160])
     if row.get("error"):
         why.append("error: " + str(row["error"])[:160])
     if row.get("check") == "wrong":
@@ -1180,11 +1209,16 @@ def misses(row):
     return why
 
 
+def refusal(error):
+    """A refusal the sweep's own context or missing arguments caused (the action says what it needs), not an app error."""
+    return error.startswith("unavailable:") or "unavailable" in error.split(":")[0]
+
+
 def score(row):
     values = [(row.get(k) or {}).get("p95") for k in ("commit_ms", "result_ms", "key_to_frame_ms")
               if isinstance(row.get(k), dict)]
     values = [v for v in values if isinstance(v, (int, float))]
-    return (max(values) if values else 0) + 50 * ((row.get("frames") or {}).get("missed") or 0) + (500 if row.get("errors") or row.get("error") else 0)
+    return (max(values) if values else 0) + 50 * ((row.get("frames") or {}).get("missed") or 0) + (500 if [e for e in row.get("errors") or [] if not refusal(e)] or row.get("error") else 0)
 
 
 def markdown(report):
@@ -1206,6 +1240,11 @@ def markdown(report):
                          f"{(row.get('commit_ms') or {}).get('p95')} | {(row.get('turn_ms') or {}).get('p95')} | "
                          f"{(row.get('wait_ms') or {}).get('p95')} | {(row.get('frames') or {}).get('missed')} | "
                          f"{'; '.join(row.get('errors') or [])[:80]} {row.get('check', '')} | {'; '.join(misses(row))[:160]} |")
+        refused = [r for r in session["rows"] if r.get("errors") and all(refusal(e) for e in r["errors"])]
+        if refused:
+            lines += ["", f"Refused in the sweep's context ({len(refused)}; timed, not counted as errors):", ""]
+            for row in refused:
+                lines.append(f"- {row['id']}: {row['errors'][0][:160]}")
         skipped = {}
         for row in session["rows"]:
             if row.get("skipped"):
