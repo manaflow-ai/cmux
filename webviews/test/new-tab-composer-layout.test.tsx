@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { manySessions, noChat } from "../src/gallery/fixtures/acpmux";
+import type { AcpmuxDirectClient as DirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 
 const scope = globalThis as Record<string, unknown>;
@@ -183,8 +184,7 @@ test("a deferred chat's later command publication reaches New Tab and a supersed
 test("deferred command reads request the newest publication", async () => {
   const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
   const calls: Record<string, unknown>[] = [];
-  type Client = InstanceType<typeof AcpmuxDirectClient>;
-  const client = Object.create(AcpmuxDirectClient.prototype) as Client & {
+  const client = Object.create(AcpmuxDirectClient.prototype) as Pick<DirectClient, "sessionCommands"> & {
     typed(method: string, params: Record<string, unknown>): Promise<unknown>;
   };
   client.typed = async (_method, params) => {
