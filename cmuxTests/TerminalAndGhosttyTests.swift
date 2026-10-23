@@ -4450,6 +4450,98 @@ final class WindowTerminalHostViewTests: XCTestCase {
             message: "Once the pointer moves past the reduced terminal-side overlap, terminal content should win hit-testing"
         )
     }
+
+    /// A 400pt window split at x=200 (1pt divider), with one terminal surface
+    /// filling `hostedRange` and the other pane left to a non-terminal (browser).
+    private func makeTerminalBesideBrowserFixture(
+        hostedRange: ClosedRange<CGFloat>,
+        includeSplit: Bool = true
+    ) -> (window: NSWindow, host: WindowTerminalHostView, delegate: BonsplitMockSplitDelegate)? {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return nil
+        }
+        let splitDelegate = BonsplitMockSplitDelegate()
+        if includeSplit {
+            let splitView = NSSplitView(frame: contentView.bounds)
+            splitView.isVertical = true
+            splitView.dividerStyle = .thin
+            splitView.delegate = splitDelegate
+            splitView.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 200, height: contentView.bounds.height)))
+            splitView.addSubview(NSView(frame: NSRect(x: 201, y: 0, width: 199, height: contentView.bounds.height)))
+            contentView.addSubview(splitView)
+            splitView.setPosition(200, ofDividerAt: 0)
+            splitView.adjustSubviews()
+        }
+
+        let host = WindowTerminalHostView(frame: contentView.bounds)
+        host.addSubview(makeHostedTerminalView(frame: NSRect(
+            x: hostedRange.lowerBound,
+            y: 0,
+            width: hostedRange.upperBound - hostedRange.lowerBound,
+            height: host.bounds.height
+        )))
+        contentView.addSubview(host)
+        contentView.layoutSubtreeIfNeeded()
+        return (window, host, splitDelegate)
+    }
+
+    /// Asserts each x (host coordinates, mid-height) belongs to the split: the
+    /// sidebar resizer does not claim it and a mouse down passes through the portal.
+    private func assertSplitDividerBandPassesThrough(
+        _ host: WindowTerminalHostView,
+        window: NSWindow,
+        xs: [CGFloat],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        for x in xs {
+            let point = NSPoint(x: x, y: 90)
+            XCTAssertFalse(
+                host.shouldPassThroughToSidebarResizer(at: point),
+                "x=\(x) is on the split divider band and must show the split resize cursor",
+                file: file,
+                line: line
+            )
+            let event = makeMouseDownEvent(at: host.convert(point, to: nil), window: window)
+            XCTAssertNil(
+                host.performHitTest(at: point, currentEvent: event),
+                "x=\(x) must pass through the terminal portal to the split divider",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    /// The terminal's right edge is the split divider, which the Dock-edge
+    /// guess used to read as the trailing sidebar edge.
+    func testTerminalLeftOfBrowserKeepsSplitDividerBandFromTrailingSidebarGuess() {
+        guard let fixture = makeTerminalBesideBrowserFixture(hostedRange: 0...200) else { return }
+        defer { fixture.window.orderOut(nil) }
+        assertSplitDividerBandPassesThrough(fixture.host, window: fixture.window, xs: [197, 200.5, 203])
+    }
+
+    /// The terminal's left edge is the split divider, which the leading
+    /// sidebar guess used to read as the sidebar edge.
+    func testTerminalRightOfBrowserKeepsSplitDividerBandFromLeadingSidebarGuess() {
+        guard let fixture = makeTerminalBesideBrowserFixture(hostedRange: 201...400) else { return }
+        defer { fixture.window.orderOut(nil) }
+        assertSplitDividerBandPassesThrough(fixture.host, window: fixture.window, xs: [197, 200.5, 204])
+    }
+
+    /// Control: with no split under the point, a terminal that starts away
+    /// from the leading edge still yields its leading edge to the sidebar.
+    func testLeadingSidebarGuessStillAppliesWithoutASplitDivider() {
+        guard let fixture = makeTerminalBesideBrowserFixture(hostedRange: 201...400, includeSplit: false) else { return }
+        defer { fixture.window.orderOut(nil) }
+        XCTAssertTrue(fixture.host.shouldPassThroughToSidebarResizer(at: NSPoint(x: 200.5, y: 90)))
+    }
 }
 
 

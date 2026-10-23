@@ -11,6 +11,7 @@ import Testing
 import CMUXMobileCore
 import CmuxBrowser
 import CmuxCore
+import CmuxAppKitSupportUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -1808,6 +1809,165 @@ final class WindowBrowserHostViewTests: XCTestCase {
         let contentPointInWindow = splitView.convert(contentPointInSplit, to: nil)
         let contentPointInHost = host.convert(contentPointInWindow, from: nil)
         XCTAssertTrue(host.hitTest(contentPointInHost) === child)
+    }
+
+    private struct InContentSplitFixture {
+        let window: NSWindow
+        let splitView: NSSplitView
+        let host: WindowBrowserHostView
+        let slotContents: [NSView]
+        let splitDelegate: BonsplitMockSplitDelegate
+    }
+
+    /// Mounts the portal the way the app does: inside a
+    /// `WindowContentOverlayBrowserHostView` overlaid on the content view,
+    /// rather than beside the content view in the theme frame.
+    private func installInContentSplitFixture(slotRanges: [ClosedRange<CGFloat>]) -> InContentSplitFixture? {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return nil
+        }
+
+        let splitView = NSSplitView(frame: contentView.bounds)
+        splitView.isVertical = true
+        splitView.dividerStyle = .thin
+        let splitDelegate = BonsplitMockSplitDelegate()
+        splitView.delegate = splitDelegate
+        splitView.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 200, height: contentView.bounds.height)))
+        splitView.addSubview(NSView(frame: NSRect(x: 201, y: 0, width: 199, height: contentView.bounds.height)))
+        contentView.addSubview(splitView)
+        splitView.setPosition(200, ofDividerAt: 0)
+        splitView.adjustSubviews()
+
+        let overlayHost = WindowContentOverlayBrowserHostView(frame: contentView.bounds)
+        // SwiftUI sizes it in the app; here nothing constrains it, so keep the frame.
+        overlayHost.translatesAutoresizingMaskIntoConstraints = true
+        contentView.addSubview(overlayHost, positioned: .above, relativeTo: splitView)
+        let host = WindowBrowserHostView(frame: overlayHost.bounds)
+        overlayHost.addSubview(host)
+
+        var slotContents: [NSView] = []
+        for range in slotRanges {
+            let slot = WindowBrowserSlotView(
+                frame: NSRect(x: range.lowerBound, y: 0, width: range.upperBound - range.lowerBound, height: host.bounds.height)
+            )
+            let content = CapturingView(frame: slot.bounds)
+            slot.addSubview(content)
+            host.addSubview(slot)
+            slotContents.append(content)
+        }
+        contentView.layoutSubtreeIfNeeded()
+        XCTAssertEqual(splitView.arrangedSubviews[0].frame.maxX, 200, accuracy: 0.5)
+        return InContentSplitFixture(
+            window: window,
+            splitView: splitView,
+            host: host,
+            slotContents: slotContents,
+            splitDelegate: splitDelegate
+        )
+    }
+
+    /// Converts an x offset in the split view, at its vertical middle, to host coordinates.
+    private func inContentHostPoint(_ fixture: InContentSplitFixture, xInSplit: CGFloat) -> NSPoint {
+        let pointInWindow = fixture.splitView.convert(
+            NSPoint(x: xInSplit, y: fixture.splitView.bounds.midY),
+            to: nil
+        )
+        return fixture.host.convert(pointInWindow, from: nil)
+    }
+
+    /// Hit-tests the host with a left mouse down at an x offset in the split view.
+    private func inContentHit(_ fixture: InContentSplitFixture, xInSplit: CGFloat) -> NSView? {
+        let pointInWindow = fixture.splitView.convert(
+            NSPoint(x: xInSplit, y: fixture.splitView.bounds.midY),
+            to: nil
+        )
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        return fixture.host.performHitTest(
+            at: fixture.host.convert(pointInWindow, from: nil),
+            currentEvent: makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: fixture.window),
+            dragPasteboard: pasteboard
+        )
+    }
+
+    /// A terminal on the left, a browser on the right. The browser portal's
+    /// parent holds only portals, so the divider search must reach the
+    /// content view to see the split at all.
+    func testInContentHostPassesThroughSplitDividerBandBesideATerminal() {
+        guard let fixture = installInContentSplitFixture(slotRanges: [201...400]) else { return }
+        defer { fixture.window.orderOut(nil) }
+
+        // 6pt into the browser: inside the divider grab band, and outside the
+        // sidebar-edge guess that used to pass the points nearer the divider.
+        XCTAssertNil(
+            inContentHit(fixture, xInSplit: 207),
+            "The browser side of a terminal/browser divider must pass through to the split view"
+        )
+        XCTAssertTrue(
+            inContentHit(fixture, xInSplit: 300) === fixture.slotContents[0],
+            "Browser content away from the divider must stay interactive"
+        )
+        // The browser slot's left edge is the split divider, which the
+        // leading-sidebar guess used to claim, clearing the resize cursor.
+        for x: CGFloat in [197, 200.5, 204] {
+            XCTAssertFalse(
+                fixture.host.shouldPassThroughToSidebarResizer(at: inContentHostPoint(fixture, xInSplit: x)),
+                "x=\(x) is on the split divider band and must show the split resize cursor"
+            )
+        }
+    }
+
+    /// A browser on the left, a terminal on the right: the browser slot's
+    /// right edge is the split divider, not the Dock edge.
+    func testInContentHostKeepsSplitDividerBandFromTrailingSidebarGuessBesideATerminal() {
+        guard let fixture = installInContentSplitFixture(slotRanges: [0...200]) else { return }
+        defer { fixture.window.orderOut(nil) }
+
+        XCTAssertNil(inContentHit(fixture, xInSplit: 194))
+        for x: CGFloat in [197, 200.5, 203] {
+            XCTAssertFalse(
+                fixture.host.shouldPassThroughToSidebarResizer(at: inContentHostPoint(fixture, xInSplit: x)),
+                "x=\(x) is on the split divider band and must show the split resize cursor"
+            )
+        }
+    }
+
+    /// Two browsers side by side: both sides of the divider band pass through
+    /// to the split, and content away from it stays interactive.
+    func testInContentHostPassesThroughSplitDividerBandBetweenBrowsers() {
+        guard let fixture = installInContentSplitFixture(slotRanges: [0...200, 201...400]) else { return }
+        defer { fixture.window.orderOut(nil) }
+
+        XCTAssertNil(
+            inContentHit(fixture, xInSplit: 196),
+            "The left browser's side of a browser/browser divider must pass through to the split view"
+        )
+        XCTAssertNil(
+            inContentHit(fixture, xInSplit: 206),
+            "The right browser's side of a browser/browser divider must pass through to the split view"
+        )
+        for x: CGFloat in [196, 200.5, 206] {
+            XCTAssertFalse(
+                fixture.host.shouldPassThroughToSidebarResizer(at: inContentHostPoint(fixture, xInSplit: x)),
+                "x=\(x) is on the split divider band and must show the split resize cursor"
+            )
+        }
+        XCTAssertTrue(
+            inContentHit(fixture, xInSplit: 100) === fixture.slotContents[0],
+            "Browser content away from the divider must stay interactive"
+        )
+        XCTAssertTrue(
+            inContentHit(fixture, xInSplit: 300) === fixture.slotContents[1],
+            "Browser content away from the divider must stay interactive"
+        )
     }
 
     func testHostViewPassesThroughDockDividerWhenBrowserSlotsShareTheTrailingEdge() throws {

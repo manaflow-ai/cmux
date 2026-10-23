@@ -731,7 +731,11 @@ final class WindowBrowserHostView: NSView {
         return decision.result
     }
 
-    private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
+    /// Whether `point` belongs to the SwiftUI sidebar resizer rather than to
+    /// this portal or a split divider under it. Internal for tests: a split
+    /// pass-through and a sidebar pass-through both return nil from `hitTest`,
+    /// so only this tells them apart.
+    func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
         let dividerHit = splitDividerHit(at: point)
         let hostedInspectorHit = dividerHit == nil ? hostedInspectorDividerHit(at: point) : nil
         return shouldPassThroughToSidebarResizer(
@@ -764,6 +768,14 @@ final class WindowBrowserHostView: NSView {
         // AppKit sidebar path is active, independent of portal geometry timing.
         if shouldPassThroughToLiveSidebarDivider(at: point) {
             return true
+        }
+
+        // The checks below guess the sidebar edge from browser slot frames
+        // alone, so a slot that starts or ends at a split divider (a terminal
+        // beside a browser) reads as a sidebar edge. A split divider actually
+        // under the point is better evidence than that guess.
+        if dividerHit != nil {
+            return false
         }
 
         // Browser portal host sits above SwiftUI content. Allow pointer/mouse events
@@ -836,33 +848,44 @@ final class WindowBrowserHostView: NSView {
         return SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: dividerX).contains(point.x)
     }
 
+    /// Whether a live `SidebarDividerTrackingView` painted beneath the portal
+    /// is under `point`, searching up to `dividerSearchRootView()`.
     private func shouldPassThroughToLiveSidebarDivider(at point: NSPoint) -> Bool {
         guard let rootView = dividerSearchRootView(),
-              let hostIndex = rootView.subviews.firstIndex(where: { $0 === self }),
               let window else {
             return false
         }
 
+        // The views painted beneath the portal are, at every level between the
+        // portal and the root, the siblings ordered before the branch holding
+        // it. When the portal sits in the theme frame that is one level; when
+        // it is mounted inside the SwiftUI content it is several.
         let windowPoint = convert(point, to: nil)
-        for sibling in rootView.subviews[..<hostIndex].reversed() {
-            guard sibling.window === window,
-                  !sibling.isHidden,
-                  sibling.alphaValue > 0 else {
-                continue
-            }
-            let pointInSibling = sibling.convert(windowPoint, from: nil)
-            guard sibling.bounds.contains(pointInSibling),
-                  let hitView = sibling.cmuxHitTest(windowPoint: windowPoint) else {
-                continue
-            }
-
-            var current: NSView? = hitView
-            while let view = current {
-                if view is SidebarDividerTrackingView {
-                    return true
+        var branch: NSView = self
+        while let parent = branch.superview {
+            guard let branchIndex = parent.subviews.firstIndex(where: { $0 === branch }) else { break }
+            for sibling in parent.subviews[..<branchIndex].reversed() {
+                guard sibling.window === window,
+                      !sibling.isHidden,
+                      sibling.alphaValue > 0 else {
+                    continue
                 }
-                current = view.superview
+                let pointInSibling = sibling.convert(windowPoint, from: nil)
+                guard sibling.bounds.contains(pointInSibling),
+                      let hitView = sibling.cmuxHitTest(windowPoint: windowPoint) else {
+                    continue
+                }
+
+                var current: NSView? = hitView
+                while let view = current {
+                    if view is SidebarDividerTrackingView {
+                        return true
+                    }
+                    current = view.superview
+                }
             }
+            if parent === rootView { break }
+            branch = parent
         }
         return false
     }
@@ -931,7 +954,15 @@ final class WindowBrowserHostView: NSView {
         return Self.dividerHit(at: windowPoint, in: splitDividerRegions(), checkLiveness: false)
     }
 
+    /// The view whose subtree holds the window's split layout. The portal is
+    /// normally mounted inside `WindowContentOverlayBrowserHostView` within the
+    /// content view, whose only children are portals, so searching `superview`
+    /// there finds no split dividers at all. Beside the content view (the
+    /// theme-frame fallback) `superview` already contains it.
     private func dividerSearchRootView() -> NSView? {
+        if let contentView = window?.contentView, isDescendant(of: contentView) {
+            return contentView
+        }
         if let container = superview {
             return container
         }
