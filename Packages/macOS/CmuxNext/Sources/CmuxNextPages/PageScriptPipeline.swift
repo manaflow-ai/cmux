@@ -4,7 +4,8 @@ import Foundation
 /// Delivers the router's envelopes to one page in send order, and renders large ones off the main
 /// actor (architecture.md 5a: the main thread does no unbounded work).
 ///
-/// A small envelope with nothing queued ahead of it is rendered and evaluated at once, as before.
+/// Each ``send(_:)`` is one script (the events a hidden page waited for go in one).
+/// A small send with nothing queued ahead of it is rendered and evaluated at once, as before.
 /// Anything else waits in a FIFO that one drain task works through: it renders each script in a
 /// `@concurrent` function and evaluates it on the main actor, one at a time, so events never
 /// reorder. A ``Gate`` holds the FIFO at a point: the page's reply to a message it posted must
@@ -17,7 +18,7 @@ final class PageScriptPipeline {
     nonisolated static let inlineBudget = PageScriptBudget(nodes: 512, stringBytes: 16 * 1024)
 
     private enum Item {
-        case envelope(JSONValue)
+        case envelopes([JSONValue])
         case gate(Gate)
     }
 
@@ -71,14 +72,20 @@ final class PageScriptPipeline {
     /// True when nothing is queued or running, so a script may be evaluated at once.
     private var isIdle: Bool { drain == nil && head == queue.count }
 
-    /// Sends `envelope` to the page after everything sent before it.
-    func send(_ envelope: JSONValue) {
-        if isIdle, envelope.fits(Self.inlineBudget) {
-            // main-actor-ok: bounded by inlineBudget; larger envelopes render off the main actor.
-            evaluate(PageRouter.receiveScript(envelope))
+    /// Sends `envelopes` to the page, in one script, after everything sent before them.
+    func send(_ envelopes: [JSONValue]) {
+        guard !envelopes.isEmpty else { return }
+        if isIdle, Self.fit(envelopes) {
+            // main-actor-ok: bounded by inlineBudget; larger sends render off the main actor.
+            evaluate(PageRouter.receiveScript(envelopes))
             return
         }
-        enqueue(.envelope(envelope))
+        enqueue(.envelopes(envelopes))
+    }
+
+    /// Whether `envelopes` together are within ``inlineBudget``.
+    private static func fit(_ envelopes: [JSONValue]) -> Bool {
+        envelopes.count == 1 ? envelopes[0].fits(inlineBudget) : JSONValue.array(envelopes).fits(inlineBudget)
     }
 
     /// A gate after everything sent so far, or nil when nothing is queued and `always` is false
@@ -116,8 +123,8 @@ final class PageScriptPipeline {
             let item = queue[head]
             head += 1
             switch item {
-            case .envelope(let envelope):
-                let script = await Self.render(envelope)
+            case .envelopes(let envelopes):
+                let script = await Self.render(envelopes)
                 guard generation == self.generation else { return }
                 evaluate(script)
             case .gate(let gate):
@@ -138,8 +145,8 @@ final class PageScriptPipeline {
         if generation == self.generation { drain = nil }
     }
 
-    @concurrent nonisolated static func render(_ envelope: JSONValue) async -> String {
-        PageRouter.receiveScript(envelope)
+    @concurrent nonisolated static func render(_ envelopes: [JSONValue]) async -> String {
+        PageRouter.receiveScript(envelopes)
     }
 }
 

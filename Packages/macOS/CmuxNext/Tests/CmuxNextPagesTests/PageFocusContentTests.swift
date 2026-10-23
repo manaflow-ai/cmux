@@ -21,7 +21,7 @@ struct PageFocusContentTests {
         }
         let router = PageRouter(descriptor: descriptor, routes: [])
         var sent: [JSONValue] = []
-        router.send = { sent.append($0) }
+        router.send = { sent.append(contentsOf: $0) }
         let reply = await router.handle(["t": "sub", "id": 1, "stream": .string(PageNativeOp.pageCommand)])
         #expect(reply["t"]?.stringValue == "ok")
         #expect(router.publishCommand(PageNativeOp.focusContent))

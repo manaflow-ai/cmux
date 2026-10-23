@@ -24,7 +24,7 @@ extension PageWebView {
         paintedUptime = nil
         repaintsAtNextLayout = false
         let scripts = scripts
-        router.send = { envelope in scripts.send(envelope) }
+        router.send = { envelopes in scripts.send(envelopes) }
     }
 
     /// The document finished loading (either engine).

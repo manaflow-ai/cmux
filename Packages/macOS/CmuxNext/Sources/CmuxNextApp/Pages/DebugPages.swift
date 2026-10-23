@@ -16,7 +16,8 @@ import WebKit
 // - `state` (default): page id, URL fragment, language, visible text, control count, computed
 //   html/body backgrounds (the one-backdrop check), `render_rate` (WebKit's live preference:
 //   `full`, `near60`, or `unknown` when this WebKit has no such feature, the case where pages stay
-//   near 60; `chromium` names the engine only, its rate is not read) and `display_fps`, `painted` (the document's first frame, with
+//   near 60; `chromium` names the engine only, its rate is not read) and `display_fps`, `events_held`
+//   and `events_waiting` (a page nobody can see gets no events until it shows), `painted` (the document's first frame, with
 //   `painted_uptime` in host systemUptime seconds and `painted_ms` on the page clock), `instance`,
 //   `parked`, `window_number` and `claim` (how a pooled host took its last claim: `path`
 //   acknowledged / refused / timedOut / loaded, `ms`) and `in_flight` (the page's calls still
@@ -73,6 +74,9 @@ enum DebugPages {
                 members.merge(identity(page)) { _, new in new }
                 members["subscriptions"] = .number(Double(page.router.subscriptionCount))
                 members["in_flight"] = .array(page.router.inFlightCalls())
+                // A page nobody can see gets no events until it shows (PageRouter.isPageHidden).
+                members["events_held"] = .bool(page.router.isPageHidden)
+                members["events_waiting"] = .number(Double(page.router.heldCount))
                 // The first frame of this document (preflights wait on it with a deadline).
                 members["painted"] = .bool(page.hasPainted)
                 members["painted_uptime"] = page.paintedUptime.map { .number($0) } ?? .null
