@@ -5,6 +5,9 @@
 // plus the page's gap below the page's top padding; removing the greeting must not lift it, and
 // turning the headline on (any look, with or without a project) must not move it either.
 //
+// Someone who had turned the greeting off (`"greeting": false` saved in cmux.json, sent as
+// `headlineOff`) had the composer at the page's top padding; it stays there for them.
+//
 // Also: the headline gallery entry's Compare arms (agent-pane.new-tab-headline) starts from every
 // variant, each arm reaching its first step, so the comparison view has a picker to drive.
 //
@@ -100,6 +103,22 @@ await requireBrowserLane("new-tab-headline-place.test.ts", async () => {
       }
     }
     console.log("new-tab-headline-place", JSON.stringify(seen));
+  });
+
+  test("a greeting set to false keeps the composer where it sat with the greeting off", async () => {
+    const page = await open("agent-pane.new-tab", { variant: "minimal-headline-off" });
+    try {
+      expect(await page.evaluate(() => document.documentElement.dataset.galleryReady)).toBe("1");
+      const measured = await place(page);
+      console.log("new-tab-headline-place headline-off", JSON.stringify(measured));
+      expect(measured.minimal).toBe(true);
+      expect(measured.headline).toBeNull();
+      expect(await page.locator(".nt-headline-slot").count()).toBe(0);
+      // With the greeting off the composer was the page's first row, at its top padding.
+      expect(Math.abs(measured.offset)).toBeLessThan(0.5);
+    } finally {
+      await page.close();
+    }
   });
 
   test("Compare arms starts from every headline variant and runs its first step in every arm", async () => {

@@ -81,6 +81,7 @@ const MORNING = new Date(2026, 9, 20, 9, 30).getTime();
 type RenderOptions = {
   projects?: { cwd: string; label: string }[];
   onAsk?: (...args: unknown[]) => void;
+  headlineOff?: boolean;
 };
 
 async function render(
@@ -107,6 +108,7 @@ async function render(
         onOpenChat={noop}
         onCreate={noop}
         onAsk={options.onAsk ?? noop}
+        {...(options.headlineOff ? { headlineOff: true } : {})}
         onOpen={noop}
         onSearch={noop}
         onShell={noop}
@@ -212,6 +214,29 @@ test("a project picked in the headline is the folder the composer starts its cha
     expect(asked[0]![2]).toBe("/Users/you/src/manaflow");
   } finally {
     await act(async () => root.unmount());
+  }
+});
+
+test("Minimal keeps the old greeting's room over the composer, except for a greeting set to false", async () => {
+  // The host sends `headlineOff` only for `"greeting": false` saved in cmux.json.
+  expect(newTabHost({ newTab: { headlineOff: true } })?.headlineOff).toBe(true);
+  expect(newTabHost({ newTab: { headlineOff: false } })?.headlineOff).toBeUndefined();
+  expect(newTabHost({ newTab: {} })?.headlineOff).toBeUndefined();
+  const slots = () => host.querySelectorAll(".nt-headline-slot").length;
+  for (const [widgets, headlineOff, expected] of [
+    [undefined, false, 1],
+    [[], false, 1],
+    [[], true, 0],
+    [["greeting"], false, 1],
+    // Turned on again in place (edit mode) before the host's next context: the headline has its room.
+    [["greeting"], true, 1],
+  ] as const) {
+    const root = await render("minimal", widgets, undefined, { headlineOff });
+    try {
+      expect({ widgets, headlineOff, slots: slots() }).toEqual({ widgets, headlineOff, slots: expected });
+    } finally {
+      await act(async () => root.unmount());
+    }
   }
 });
 

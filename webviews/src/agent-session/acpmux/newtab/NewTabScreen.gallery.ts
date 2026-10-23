@@ -312,6 +312,15 @@ export default agentPaneEntry({
         if (dots !== 3) throw new Error(`the minimal page shows ${dots} dots, not the three`);
       },
     },
+    // A user who had turned the greeting off before it went (`"greeting": false` in cmux.json, which
+    // the host sends as `headlineOff`): the composer stays where it sat for them, at the page's top
+    // padding, with no room kept for the headline.
+    "minimal-headline-off": {
+      note: "Minimal for someone who had turned the greeting off (greeting: false in cmux.json): the composer alone, where it sat for them before, with no room kept over it for the headline.",
+      ready: newTab({ template: undefined, pageWidgets: [], headlineOff: true }),
+      snapshot: noChat(manySessions(12)),
+      play: (ctx: PlayContext) => ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null),
+    },
     "minimal-widgets": {
       note: "Minimal with the project card, quick actions, recent chats and the template dots turned on in Settings: Default's stage around the same composer.",
       ready: newTab({
