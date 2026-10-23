@@ -213,7 +213,7 @@ test("a reveal scrolls to its section once; the palette or another pane reopenin
   // Closed (another pane's toggle), then opened from the palette: the Inspector mounts again.
   await act(async () => setInspectorOpen(false));
   expect(container.querySelector("aside.acpmux-chat-inspector")).toBeNull();
-  await act(async () => void openPicker("Inspector"));
+  await act(async () => void openPicker("Session Info"));
   expect(container.querySelector("aside.acpmux-chat-inspector")).not.toBeNull();
   // Opened again by another pane's change.
   await act(async () => setInspectorOpen(false));

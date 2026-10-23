@@ -178,7 +178,7 @@ test("its toggle over a covered chat closes that view and opens the Inspector ov
 test("the palette and a running line's count close the covering view before they open it", async () => {
   const container = await mount(true);
   await act(async () => setInspectorOpen(false));
-  await act(async () => void openPicker("Inspector"));
+  await act(async () => void openPicker("Session Info"));
   expect(uncovered).toBe(1);
   expect(panel(container)).not.toBeNull();
   await act(async () => cover!(true));

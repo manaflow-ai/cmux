@@ -31,13 +31,13 @@ const inspector = (ctx: PlayContext) => ctx.document.querySelector(".acpmux-chat
 
 const close: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-inspector[data-presence=shown]"), { capMs: 3000 });
-  await ctx.click({ role: "button", name: "Inspector" });
+  await ctx.click({ role: "button", name: "Session Info" });
   await ctx.waitFor(() => !inspector(ctx), { capMs: 3000 });
 };
 
 const closeThenOpen: Play = async (ctx) => {
   await close(ctx);
-  await ctx.click({ role: "button", name: "Inspector" });
+  await ctx.click({ role: "button", name: "Session Info" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-inspector[data-presence=shown]"), { capMs: 3000 });
 };
 
