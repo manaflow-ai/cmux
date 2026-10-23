@@ -38,8 +38,8 @@ final class CloudSidebarRenameFixture {
 
     var resourceID: SurfaceResourceID { SurfaceResourceID(machine: machine, kind: .terminal, key: "term_main") }
 
-    func state(revision: UInt64 = 1, generation: String = "fixture", name: String? = nil, workspaceName: String = "Fixture workspace", nameSource: String = "user") throws -> CloudVMState {
-        let document: [String: Any] = [
+    func state(revision: UInt64 = 1, generation: String = "fixture", name: String? = nil, workspaceName: String = "Fixture workspace", nameSource: String = "user", includeMainTab: Bool = true) throws -> CloudVMState {
+        var document: [String: Any] = [
             "cursor": ["generation": generation, "revision": String(revision)],
             "workspaces": [["id": "ws_main", "name": workspaceName, "index": 0]],
             "screens": [["id": "screen_main", "workspace_id": "ws_main", "layout": [
@@ -55,6 +55,21 @@ final class CloudSidebarRenameFixture {
                           ["id": "term_other", "title": "terminal", "lifecycle": "running"]],
             "browsers": [], "agents": []
         ]
+        if !includeMainTab, var tabs = document["tabs"] as? [[String: Any]] {
+            tabs.removeAll { ($0["id"] as? String) == "tab_main" }
+            document["tabs"] = tabs
+        }
+        if !includeMainTab,
+           var screens = document["screens"] as? [[String: Any]],
+           var screen = screens.first,
+           var layout = screen["layout"] as? [String: Any],
+           var layoutTabIDs = layout["tab_ids"] as? [String] {
+            layoutTabIDs.removeAll { $0 == "tab_main" }
+            layout["tab_ids"] = layoutTabIDs
+            screen["layout"] = layout
+            screens[0] = screen
+            document["screens"] = screens
+        }
         return try #require(CmuxTuiSnapshotParser.state(fromSnapshot: document, machine: machine))
     }
 
