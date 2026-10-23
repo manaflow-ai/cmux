@@ -79,7 +79,8 @@ final class BusyDialer: MacLinkDialer, @unchecked Sendable {
         #expect(controller.phase.isConnected, "\(controller.phase)")
         #expect(dialer.dials == 1)
         #expect(dialer.first?.isClosed == false)
-        // The adopt's own probe, the foreground's and the presence change's all ran.
-        #expect((dialer.first?.probeCount ?? 0) >= 3)
+        // The foreground's and the presence change's probes both ran (the adopt's
+        // own foreground comes before the link counts as connected, so it probes nothing).
+        #expect((dialer.first?.probeCount ?? 0) >= 2)
     }
 }
