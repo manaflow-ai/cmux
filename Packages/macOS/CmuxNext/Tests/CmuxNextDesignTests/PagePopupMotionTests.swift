@@ -45,18 +45,14 @@ import Testing
         return try #require(WebPopupHost.Model(params))
     }
 
-    /// Leo 2026-10-22, the New Tab: "we should basically have no entry animations a lot of the time,
-    /// esp here all over the new tab area... exit animations are ok tho." A New Tab menu with no room
-    /// in a short pane shows here, and the page asks for no entrance (`instant: true`, popupHost.ts);
-    /// a request without the flag keeps the open's motion.
+    /// Leo 2026-10-22, no entry animations on the New Tab: its menus ask for none (`instant: true`).
     @Test func theInstantFlagIsReadFromThePageRequest() throws {
         #expect(try Self.menu(["a"], instant: true).instant)
         #expect(try !Self.menu(["a"]).instant)
         #expect(try !Self.menu(["a"], instant: false).instant)
     }
 
-    /// The page asked for no entrance: the card is on screen at its size and full opacity in the
-    /// frame it shows, with no fade or grow running, while its close still fades.
+    /// No entrance asked: the card shows whole in one frame, and its close still fades.
     @Test(.enabled("needs an awake display and animations on, or every popup snaps anyway") { await GUIAnimationTestSupport.animatesHere() })
     func anInstantPageMenuOpensInOneFrameAndStillFadesOut() async throws {
         let (window, page) = try Self.page()

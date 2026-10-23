@@ -1,14 +1,9 @@
-// What a New Tab opens appears in the frame it lands in (Leo 2026-10-22: "we should basically have
-// no entry animations a lot of the time, esp here all over the new tab area... exit animations
-// are ok tho."). The page's menus, popovers, composer pickers, tooltips, hover cards and dialogs
-// portal outside it, so newtab/noEntry.css stops their opens under the root's `data-new-tab` mark
-// (newtab/noEntryMotion.ts). This draws each surface in its open state on the pane's real
-// stylesheet, in the order the bundle ships it (scripts/cmux-next/build-agent-pane-web.sh), and
-// reads what Chromium animates: nothing on the way in under the mark, in either motion
-// preference, while each exit still fades. Without the mark the same probe sees today's opens,
-// so it is not blind. new-tab-no-entry-motion.test.ts reads the sources in every lane.
-//
-// Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
+// What a New Tab opens appears in the frame it lands in (Leo 2026-10-22: no entry animations on the
+// New Tab; exits are fine). Its menus, popovers, tooltips, hover cards and dialogs portal outside
+// the page, so newtab/noEntry.css stops their opens under the root's `data-new-tab` mark. This draws
+// each surface open on the pane's real stylesheet and reads what Chromium animates: nothing on the
+// way in under the mark, while exits still fade, and without the mark the probe sees the opens.
+// Skipped where Chromium is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";

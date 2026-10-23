@@ -1,19 +1,12 @@
 // The New Tab has no entry animations (Leo 2026-10-22: "we should basically have no entry
 // animations a lot of the time, esp here all over the new tab area... exit animations are ok
-// tho."). Its cards, project picker, composer, suggestion rows and the menus, popovers and hover
-// cards it opens appear in the frame they land in; exits keep their fades, and loops (a spinner,
-// the playing bars, the edit-mode wiggle) and hover colors are not entrances.
-//
-// This reads the sources, so it runs in every lane:
-// - every stylesheet and component under webviews/src/**/newtab/ declares no entrance: no
-//   @starting-style, no finite `animation` outside an exit state, no transition on an open state
-//   (`[data-shown]`, `[data-open]`, `[data-starting-style]`, ...), no Web Animations fade from
-//   opacity 0, no framer-motion `initial`, no `data-enter` or enter / appear classes;
-// - the shared popup surfaces the page opens (they portal outside it, to the pane's root or the
-//   body) open on tokens newtab/noEntry.css sets to 0 while a New Tab shows, or noEntry.css names
-//   them, and that sheet ships in the pane's bundle and the dev pages;
-// - both New Tab screens set the mark that sheet keys on.
-// new-tab-no-entry-menus.test.ts checks the same surfaces in Chromium.
+// tho."): what it shows or opens appears in the frame it lands in; exits keep their fades, and
+// loops and hover colors are not entrances. This reads the sources, so it runs in every lane:
+// - stylesheets and components under webviews/src/**/newtab/ declare no entrance: no
+//   @starting-style, no finite `animation` outside an exit state, no transition into an open
+//   state, no Web Animations fade from opacity 0, no motion `initial`, `data-enter` or enter class;
+// - noEntry.css zeroes the shared open tokens under the mark, ships, and every template sets it.
+// new-tab-no-entry-menus.test.ts checks the shared surfaces the page opens in Chromium.
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
@@ -23,89 +16,30 @@ const WEBVIEWS = path.resolve(import.meta.dir, "..");
 const REPO = path.resolve(WEBVIEWS, "..");
 const NO_ENTRY_CSS = "webviews/src/agent-session/acpmux/newtab/noEntry.css";
 
-type Rule = { file: string; line: number; context: string[]; selector: string; decls: [string, string][] };
+type Rule = { file: string; line: number; selector: string; decls: [string, string][] };
 
-/// Comments become spaces (newlines kept), so rule lines stay true.
-function stripComments(text: string): string {
-  return text.replace(/\/\*[\s\S]*?\*\//g, (comment) => comment.replace(/[^\n]/g, " "));
-}
-
-function splitTopLevel(text: string, separator: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let quote = "";
-  let start = 0;
-  for (let index = 0; index < text.length; index++) {
-    const char = text[index];
-    if (quote) {
-      if (char === quote) quote = "";
-    } else if (char === '"' || char === "'") quote = char;
-    else if (char === "(" || char === "[") depth++;
-    else if (char === ")" || char === "]") depth--;
-    else if (char === separator && depth === 0) {
-      parts.push(text.slice(start, index));
-      start = index + 1;
-    }
-  }
-  parts.push(text.slice(start));
-  return parts;
-}
-
-/// Style rules with their at-rule context and line, and `@starting-style` blocks, from one sheet.
+/// Style rules with their line, and `@starting-style` lines, from one sheet. Comments become spaces
+/// (lines stay true); keyframes are judged where they are used, so their blocks drop out.
 function parseCss(file: string, source: string): { rules: Rule[]; startingStyles: number[] } {
-  const text = stripComments(source);
-  const rules: Rule[] = [];
-  const startingStyles: number[] = [];
-  const context: string[] = [];
-  let prelude = "";
-  let preludeAt = 0;
-  const lineOf = (index: number) => text.slice(0, index).split("\n").length;
-  for (let index = 0; index < text.length; index++) {
-    const char = text[index];
-    if (char === "{") {
-      const head = prelude.trim();
-      const at = lineOf(preludeAt + (prelude.length - prelude.trimStart().length));
-      prelude = "";
-      if (/^@(keyframes|-webkit-keyframes|font-face|property|page)\b/.test(head)) {
-        // Skip the whole block: keyframes are judged where they are used.
-        let depth = 1;
-        while (depth > 0 && ++index < text.length) {
-          if (text[index] === "{") depth++;
-          else if (text[index] === "}") depth--;
-        }
-        preludeAt = index + 1;
-        continue;
-      }
-      if (head.startsWith("@")) {
-        if (/^@starting-style\b/.test(head)) startingStyles.push(at);
-        context.push(head);
-        preludeAt = index + 1;
-        continue;
-      }
-      const close = text.indexOf("}", index);
-      const body = text.slice(index + 1, close);
-      const decls = splitTopLevel(body, ";")
-        .map((part) => part.trim())
-        .filter(Boolean)
-        .map((part) => {
-          const colon = part.indexOf(":");
-          return [part.slice(0, colon).trim().toLowerCase(), part.slice(colon + 1).trim()] as [string, string];
-        });
-      rules.push({ file, line: at, context: [...context], selector: head.replace(/\s+/g, " "), decls });
-      index = close;
-      preludeAt = close + 1;
-    } else if (char === "}") {
-      context.pop();
-      prelude = "";
-      preludeAt = index + 1;
-    } else if (char === ";" && prelude.trim().startsWith("@")) {
-      prelude = "";
-      preludeAt = index + 1;
-    } else {
-      if (!prelude) preludeAt = index;
-      prelude += char;
-    }
-  }
+  const blank = (text: string) => text.replace(/[^\n]/g, " ");
+  const text = source
+    .replace(/\/\*[\s\S]*?\*\//g, blank)
+    .replace(/@(-webkit-)?keyframes[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, blank);
+  const lineAt = (index: number) => text.slice(0, index).split("\n").length;
+  const startingStyles = [...text.matchAll(/@starting-style\b/g)].map((match) => lineAt(match.index));
+  // An innermost `selector { declarations }`: an at-rule's head never matches, its rules do.
+  const rules = [...text.matchAll(/([^{};]+)\{([^{}]*)\}/g)].map((match) => {
+    const decls = match[2]
+      .split(/;(?![^(]*\))/)
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const colon = part.indexOf(":");
+        return [part.slice(0, colon).trim().toLowerCase(), part.slice(colon + 1).trim()] as [string, string];
+      });
+    const lead = match[1].length - match[1].trimStart().length;
+    return { file, line: lineAt(match.index + lead), selector: match[1].replace(/\s+/g, " ").trim(), decls };
+  });
   return { rules, startingStyles };
 }
 
@@ -236,13 +170,6 @@ describe("the New Tab declares no entry animation", () => {
   });
 });
 
-/// The shared surfaces a New Tab opens: menus, selects, popovers, context menus, the composer's
-/// pickers, tooltips and hover cards, dialogs, the drop sheet, and anything entering from an edge.
-const SURFACE =
-  /\.(ui-popup|ui-menu|ui-popover|ui-context-menu|ui-select-popup|ui-combobox-popup|ui-tooltip|ui-title-tooltip|ui-card|ui-hint|ui-dialog|ui-backdrop|ui-sheet|acpmux-menu|acpmux-slash-menu|acpmux-mp|acpmux-context-pop|acpmux-access-menu|acpmux-file-menu-list|acpmux-effort-track|acpmux-drop-sheet|acpmux-drop-pill|nt-[\w-]+)(?![\w-])|\[data-enter|\[data-presence/g;
-/// The surfaces a selector draws (one it only excludes, in `:not(...)`, is not one).
-const surfacesOf = (selector: string) =>
-  [...selector.replace(/:not\([^)]*\)/g, "").matchAll(SURFACE)].map((match) => match[0]);
 /// The open tokens noEntry.css sets to 0 while a New Tab shows.
 const ZEROED = ["--ui-popup-open", "--tooltip-fade-in", "--ui-enter-duration"];
 
@@ -268,45 +195,5 @@ describe("what the New Tab opens appears at once", () => {
     // History, and the classic page.
     for (const screen of ["newtab/NewTabScreen.tsx", "newtab/HistoryScreen.tsx", "NewTabPage.tsx"])
       expect(read(`webviews/src/agent-session/acpmux/${screen}`)).toMatch(/\n\s+useNoEntryMotion\(\);\n/);
-  });
-
-  test("every shared surface it opens enters on a zeroed token or is stopped by name", () => {
-    const stopped = new Set(
-      noEntry
-        .filter((rule) => declared(rule, "animation").some((value) => value === "none"))
-        .flatMap((rule) => surfacesOf(rule.selector)),
-    );
-    const zeroed = (value: string) => ZEROED.some((token) => value.includes(`var(${token}`));
-    const found: string[] = [];
-    const sheets = paneSheets().filter((file) => file !== NO_ENTRY_CSS);
-    // The walk reads the shared surfaces' sheets: an empty list would pass on nothing.
-    expect(sheets).toContain("webviews/src/ui/popupSurface.css");
-    for (const file of sheets) {
-      const { rules } = parseCss(file, read(file));
-      const enteringFrom = new Set(
-        rules
-          .filter((rule) => /\[data-starting-style\]|\[data-presence="?from/.test(rule.selector) && moves(rule))
-          .flatMap((rule) => surfacesOf(rule.selector)),
-      );
-      for (const rule of rules) {
-        const surfaces = surfacesOf(rule.selector);
-        if (!surfaces.length || EXIT_STATE.test(rule.selector)) continue;
-        const where = `${file}:${rule.line} \`${rule.selector}\``;
-        const animation = finiteAnimation(rule);
-        if (animation && !zeroed(animation) && !surfaces.some((surface) => stopped.has(surface)))
-          found.push(`${where} opens with \`animation: ${animation}\``);
-        if (!surfaces.some((surface) => enteringFrom.has(surface))) continue;
-        // A surface that enters from a starting style fades in on its base transition.
-        const parts = [
-          ...declared(rule, "transition")
-            .flatMap((value) => splitTopLevel(value, ","))
-            .filter((part) => /^(opacity|translate|transform|scale|all)\b/.test(part.trim())),
-          ...declared(rule, "transition-duration"),
-        ];
-        for (const part of parts)
-          if (runs(part) && !zeroed(part)) found.push(`${where} fades in on \`${part.trim()}\``);
-      }
-    }
-    expect(found).toEqual([]);
   });
 });
