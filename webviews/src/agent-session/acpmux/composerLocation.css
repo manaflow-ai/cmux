@@ -1191,8 +1191,12 @@
    and the prompt's first line is centred in a pill's height, so on one line + is that same inset
    from the box's top too (Lawrence: "left/top/bottom padding"). + leads --acpmux-box-lead from the
    left; the text starts one inset after it. */
+/* The shell field's line is its own (composerStates.css, 22 px monospace against the prompt's
+   20 px title line), so it centres with its own padding: both fields make the same one-line box
+   (test/composer-shell-box-height.test.ts). */
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) {
   --acpmux-field-pad-block: calc(var(--acpmux-box-inset) + (var(--acpmux-pill-icon) - var(--text-title--line-height, 20px)) / 2);
+  --acpmux-shell-pad-block: calc(var(--acpmux-box-inset) + (var(--acpmux-pill-icon) - var(--acpmux-shell-line-height, 22px)) / 2);
 }
 .acpmux-composer-inner > :not(.acpmux-composer-actions) {
   grid-column: 1;
@@ -1217,11 +1221,11 @@
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-shell-field {
   min-height: calc(var(--acpmux-pill-icon) + 2 * var(--acpmux-box-inset));
-  padding: var(--acpmux-field-pad-block) var(--acpmux-box-inset) var(--acpmux-field-pad-block) calc(var(--acpmux-box-inset) + 16px);
+  padding: var(--acpmux-shell-pad-block) var(--acpmux-box-inset) var(--acpmux-shell-pad-block) calc(var(--acpmux-box-inset) + 16px);
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-shell-glyph {
   left: var(--acpmux-box-inset);
-  top: var(--acpmux-field-pad-block);
+  top: var(--acpmux-shell-pad-block);
 }
 /* Under the attachments' band the prompt starts one gap down, as in the other look
    (composerAttachments.css), at this look's specificity. */
