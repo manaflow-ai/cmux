@@ -9,6 +9,9 @@
 export type VideoPoster = { poster: string; duration?: number };
 
 const VIDEO_NAME = /\.(mov|mp4|m4v|webm)$/i;
+/// How long a batch's chips wait for their posters before they show without them; a poster drawn
+/// later is added to its chip then (intakeFiles.ts `late`).
+export const POSTER_WAIT_MS = 1000;
 /// The longest side the poster keeps: twice the chip's 64 px tile at its widest, for Retina.
 const POSTER_SIDE = 256;
 /// A file the engine cannot read in this long keeps its file chip.
@@ -20,9 +23,9 @@ export function isVideoFile(file: File): boolean {
 }
 
 /// The poster of `file`, or undefined when the engine cannot decode it (another codec, a broken
-/// file, no blob URLs, past the timeout). A detached <video> loads only its metadata, seeks to
-/// min(0.1 s, half its length) and draws that frame on a canvas. Cleanup, whatever the outcome:
-/// the timer is cleared, the three listeners are removed, the video lets go of its source (`src`
+/// file, no blob URLs, past the timeout). A detached <video> reads the file, seeks to min(0.1 s,
+/// half its length) and draws that frame on a canvas once it is decoded. Cleanup, whatever the outcome:
+/// the timer is cleared, the four listeners are removed, the video lets go of its source (`src`
 /// removed and `load()`, which stops its fetch and decoder), the object URL is revoked, and the
 /// canvas is shrunk to 0×0 so its pixels go at once.
 export function videoPoster(file: Blob, timeoutMs = POSTER_TIMEOUT_MS): Promise<VideoPoster | undefined> {
@@ -36,7 +39,8 @@ export function videoPoster(file: Blob, timeoutMs = POSTER_TIMEOUT_MS): Promise<
   const video = document.createElement("video");
   video.muted = true;
   video.playsInline = true;
-  video.preload = "metadata";
+  // A local blob costs nothing to read ahead, and WebKit decodes no frame on "metadata" alone.
+  video.preload = "auto";
   return new Promise((resolve) => {
     let done = false;
     const timer = setTimeout(fail, timeoutMs);
@@ -46,6 +50,7 @@ export function videoPoster(file: Blob, timeoutMs = POSTER_TIMEOUT_MS): Promise<
       clearTimeout(timer);
       video.removeEventListener("loadedmetadata", seek);
       video.removeEventListener("seeked", draw);
+      video.removeEventListener("loadeddata", draw);
       video.removeEventListener("error", fail);
       video.removeAttribute("src");
       video.load();
@@ -60,6 +65,8 @@ export function videoPoster(file: Blob, timeoutMs = POSTER_TIMEOUT_MS): Promise<
       video.currentTime = Number.isFinite(length) && length > 0 ? Math.min(0.1, length / 2) : 0;
     }
     function draw() {
+      // Seeked before the frame is decoded (WebKit): its `loadeddata` draws it.
+      if (video.readyState < 2 || video.seeking) return;
       const { videoWidth: width, videoHeight: height } = video;
       if (!width || !height) return fail();
       const scale = Math.min(1, POSTER_SIDE / Math.max(width, height));
@@ -68,8 +75,12 @@ export function videoPoster(file: Blob, timeoutMs = POSTER_TIMEOUT_MS): Promise<
       canvas.height = Math.max(1, Math.round(height * scale));
       let poster: string | undefined;
       try {
-        canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
-        poster = canvas.toDataURL("image/jpeg", 0.8);
+        const context = canvas.getContext("2d");
+        context?.drawImage(video, 0, 0, canvas.width, canvas.height);
+        // An engine that cannot decode the video draws nothing: no pixel is opaque, and a black
+        // JPEG of it would read as the recording's frame.
+        if (context && drewSomething(context.getImageData(0, 0, canvas.width, canvas.height).data))
+          poster = canvas.toDataURL("image/jpeg", 0.8);
       } catch {
         poster = undefined;
       }
@@ -84,7 +95,14 @@ export function videoPoster(file: Blob, timeoutMs = POSTER_TIMEOUT_MS): Promise<
     }
     video.addEventListener("loadedmetadata", seek);
     video.addEventListener("seeked", draw);
+    video.addEventListener("loadeddata", draw);
     video.addEventListener("error", fail);
     video.src = url;
   });
+}
+
+/// Whether any pixel of an RGBA buffer has alpha, i.e. the engine drew the frame at all.
+function drewSomething(pixels: Uint8ClampedArray): boolean {
+  for (let alpha = 3; alpha < pixels.length; alpha += 4) if (pixels[alpha]) return true;
+  return false;
 }

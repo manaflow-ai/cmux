@@ -17,7 +17,7 @@ import {
   type RefusedFile,
 } from "../attachments";
 import { MAX_UPLOAD_FILE_BYTES, MAX_UPLOAD_TOTAL_BYTES, type UploadResult } from "../cloudUploads";
-import { isVideoFile, videoPoster, type VideoPoster } from "./videoPoster";
+import { isVideoFile, POSTER_WAIT_MS, videoPoster, type VideoPoster } from "./videoPoster";
 
 /// The refusals a link stands in for.
 const LINKABLE = new Set<AttachmentError["reason"]>(["unsupported", "tooLarge", "imagesUnsupported"]);
@@ -38,7 +38,12 @@ export type IntakeOptions = {
 export async function intakeFiles(
   files: File[],
   options: IntakeOptions,
-): Promise<{ attachments: ComposerAttachment[]; error?: AttachmentError | { text: string } }> {
+): Promise<{
+  attachments: ComposerAttachment[];
+  error?: AttachmentError | { text: string };
+  /// Video chips whose poster was not drawn within POSTER_WAIT_MS: the caller adds it when it is.
+  late?: LatePoster[];
+}> {
   // Asked before the files are read (decoding and scaling photos can take seconds): the host's
   // record of the drop or paste lasts only a few.
   const paths = options.localPaths?.(files).catch(() => undefined);
@@ -51,11 +56,15 @@ export async function intakeFiles(
   const room = MAX_ATTACHMENTS - options.held - read.attachments.length - local.linked.size;
   const sendable = options.upload ? savable(errors, room) : [];
   const sent = sendable.length > 0 ? await options.upload?.(sendable.map((refused) => refused.file)) : undefined;
+  const late: LatePoster[] = [];
+  const shown = <T>(value: T) => (late.length ? { ...value, late } : value);
   const linked = await withPosters(
     [...local.linked].map(([refused, link]) => [refused.file, link] as const),
     posters,
+    late,
   );
-  if (sent && "error" in sent) return { attachments: [...read.attachments, ...linked], error: { text: sent.error } };
+  if (sent && "error" in sent)
+    return shown({ attachments: [...read.attachments, ...linked], error: { text: sent.error } });
   const saved = await withPosters(
     sent
       ? sent.paths.map((path, index) => {
@@ -64,28 +73,53 @@ export async function intakeFiles(
         })
       : [],
     posters,
+    late,
   );
   // What the host did not link or save keeps its refusal; one it would have linked or saved but for
   // the composer's chip limit is refused for that limit.
   const full = sent !== undefined && saved.length >= room;
   const [first] = errors.filter((refused) => !sent || !sendable.includes(refused));
   const attachments = [...read.attachments, ...linked, ...saved];
-  if (!first) return { attachments };
+  if (!first) return shown({ attachments });
   const overLimit = (local.full && links(first)) || (full && saves(first));
-  return { attachments, error: { name: first.name, reason: overLimit ? "tooMany" : first.reason } };
+  return shown({ attachments, error: { name: first.name, reason: overLimit ? "tooMany" : first.reason } });
 }
 
-/// Each link chip with its file's video poster, when the file is a video the engine could draw.
+/// A video chip shown before its poster was drawn, and the poster still being drawn.
+export type LatePoster = { id: string; poster: Promise<VideoPoster | undefined> };
+
+/// Each link chip with its file's video poster, when the file is a video the engine could draw. A
+/// poster still being drawn after POSTER_WAIT_MS goes to `late`, so the batch is not held up.
 async function withPosters(
   links: ReadonlyArray<readonly [File | undefined, ComposerAttachment]>,
   posters: Map<File, Promise<VideoPoster | undefined>>,
+  late: LatePoster[],
 ): Promise<ComposerAttachment[]> {
-  return Promise.all(
-    links.map(async ([file, link]) => {
-      const made = file && (await posters.get(file));
-      return made ? { ...link, ...made } : link;
-    }),
-  );
+  const waiting = links.flatMap(([file, link]) => {
+    const poster = file && posters.get(file);
+    return poster ? [{ link, poster }] : [];
+  });
+  if (waiting.length === 0) return links.map(([, link]) => link);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<"late">((resolve) => {
+    timer = setTimeout(() => resolve("late"), POSTER_WAIT_MS);
+  });
+  try {
+    const made = new Map<ComposerAttachment, VideoPoster | undefined>();
+    await Promise.all(
+      waiting.map(async ({ link, poster }) => {
+        const drawn = await Promise.race([poster, deadline]);
+        if (drawn === "late") late.push({ id: link.id, poster });
+        else made.set(link, drawn);
+      }),
+    );
+    return links.map(([, link]) => {
+      const drawn = made.get(link);
+      return drawn ? { ...link, ...drawn } : link;
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /// The refused files of the batch that go as links to where they are on this Mac, by the host's

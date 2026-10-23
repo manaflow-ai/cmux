@@ -191,8 +191,13 @@ try {
         Object.defineProperty(element, key, { value, configurable: true });
     };
     const drawn: number[][] = [];
+    /// The alpha the next frame draws with: 0 is an engine that drew nothing.
+    let alpha = 255;
     const context = spyOn(canvas, "getContext").mockImplementation(function (this: HTMLCanvasElement) {
-      return { drawImage: (_: unknown, ...box: number[]) => drawn.push(box) } as never;
+      return {
+        drawImage: (_: unknown, ...box: number[]) => drawn.push(box),
+        getImageData: () => ({ data: new Uint8ClampedArray([0, 0, 0, alpha]) }),
+      } as never;
     });
     const encoded = spyOn(canvas, "toDataURL").mockImplementation(() => POSTER);
     const make = spyOn(dom.window.document, "createElement");
@@ -203,9 +208,9 @@ try {
       element = make.mock.results.find((result) => result.value instanceof dom.window.HTMLVideoElement)
         ?.value as HTMLVideoElement;
       expect(element.getAttribute("src")).toBe("blob:http://localhost/poster");
-      expect(element.preload).toBe("metadata");
+      expect(element.preload).toBe("auto");
       expect(element.muted).toBe(true);
-      props(element, { duration: 3.04, videoWidth: 1920, videoHeight: 1080 });
+      props(element, { duration: 3.04, videoWidth: 1920, videoHeight: 1080, readyState: 1, seeking: false });
       Object.defineProperty(element, "currentTime", {
         configurable: true,
         set: (time: number) => {
@@ -214,8 +219,12 @@ try {
         },
       });
       element.dispatchEvent(new dom.window.Event("loadedmetadata"));
-      expect(await posting).toEqual({ poster: POSTER, duration: 3.04 });
+      // Seeked before a frame is decoded (WebKit): nothing is drawn until the frame is there.
       expect(seeks).toEqual([0.1]);
+      expect(drawn).toEqual([]);
+      props(element, { readyState: 2 });
+      element.dispatchEvent(new dom.window.Event("loadeddata"));
+      expect(await posting).toEqual({ poster: POSTER, duration: 3.04 });
       // Scaled to 256 px on its longest side.
       expect(drawn).toEqual([[0, 0, 256, 144]]);
       expect(created).toHaveBeenCalledTimes(1);
@@ -223,7 +232,7 @@ try {
       expect(element.hasAttribute("src")).toBe(false);
       expect(load).toHaveBeenCalledTimes(1);
       expect(removed.sort()).toEqual(added.sort());
-      expect(added.sort()).toEqual(["error", "loadedmetadata", "seeked"]);
+      expect(added.sort()).toEqual(["error", "loadeddata", "loadedmetadata", "seeked"]);
 
       // A file the engine cannot decode: no poster, and the same cleanup.
       const failing = videoPoster(new Blob([new Uint8Array(4)]));
@@ -233,9 +242,18 @@ try {
       expect(revoked).toHaveBeenCalledTimes(2);
       expect(broken.hasAttribute("src")).toBe(false);
 
+      // An engine that seeks but draws nothing (no codec): no black poster.
+      alpha = 0;
+      const blank = videoPoster(new Blob([new Uint8Array(4)]));
+      const silent = make.mock.results.at(-1)?.value as HTMLVideoElement;
+      props(silent, { duration: 3, videoWidth: 192, videoHeight: 108, readyState: 4, seeking: false });
+      silent.dispatchEvent(new dom.window.Event("seeked"));
+      expect(await blank).toBeUndefined();
+      expect(revoked).toHaveBeenCalledTimes(3);
+
       // One that never answers gives up at the timeout.
       expect(await videoPoster(new Blob([new Uint8Array(4)]), 10)).toBeUndefined();
-      expect(revoked).toHaveBeenCalledTimes(3);
+      expect(revoked).toHaveBeenCalledTimes(4);
       expect(removed.length).toBe(added.length);
     } finally {
       for (const spy of [created, revoked, add, remove, load, context, encoded, make]) spy.mockRestore();

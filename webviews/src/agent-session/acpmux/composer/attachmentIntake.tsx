@@ -194,6 +194,16 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       return;
     }
     setAttachments((staged) => appendAttachments(staged, taken.attachments));
+    // A poster drawn after the chips showed: its chip gets it, if it is still in this strip.
+    for (const { id, poster } of taken.late ?? [])
+      void poster.then((made) => {
+        if (made)
+          setAttachments((staged) =>
+            staged.some((chip) => chip.id === id)
+              ? staged.map((chip) => (chip.id === id ? { ...chip, ...made } : chip))
+              : staged,
+          );
+      });
     const error = taken.error;
     setAttachError(error && ("text" in error ? error.text : attachmentErrorText(error, translate)));
   });
