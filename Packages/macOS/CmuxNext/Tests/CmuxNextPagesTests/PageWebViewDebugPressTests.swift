@@ -12,6 +12,8 @@ import Testing
 struct PageWebViewDebugPressTests {
     private let root: URL
     private let descriptor = PageDescriptor(id: "test.press-page", resource: "press-page", namespaces: [])
+    /// A page makes its Chromium page once it shows (``PageChromiumCostTests``).
+    private let stage = PageTestWindow()
 
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("page-press-\(UUID().uuidString)", isDirectory: true)
@@ -22,7 +24,7 @@ struct PageWebViewDebugPressTests {
     @Test func pressSendsADevToolsPressAndReleaseAtThePoint() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting))
+        let view = stage.show(try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting)))
         view.chromiumClock = PageTestClock.never
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)

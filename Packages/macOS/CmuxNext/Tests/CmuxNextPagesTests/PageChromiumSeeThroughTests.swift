@@ -11,6 +11,8 @@ import Testing
 struct PageChromiumSeeThroughTests {
     private let root: URL
     private let descriptor = PageDescriptor(id: "test.see-through", resource: "see-through", namespaces: [])
+    /// A page makes its Chromium page once it shows (``PageChromiumCostTests``).
+    private let stage = PageTestWindow()
 
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("page-see-through-\(UUID().uuidString)", isDirectory: true)
@@ -21,7 +23,7 @@ struct PageChromiumSeeThroughTests {
     @Test func aChromiumPageIsSeeThroughBeforeItsFirstDocument() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
+        let view = stage.show(try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting)))
         view.chromiumClock = PageTestClock.never
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
