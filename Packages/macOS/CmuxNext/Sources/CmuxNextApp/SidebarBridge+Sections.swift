@@ -192,9 +192,12 @@ extension SidebarBridge {
 
     /// The right-click menu of a layout item: Hide only on app items.
     func layoutItemMenu(_ id: LayoutItemID) -> NSMenu? {
-        let item = model.layout.item(id) ?? model.listedItem(id)
+        let tile = model.layout.item(id), item = tile ?? model.listedItem(id)
         let menus = ContextMenuCatalog.shared
-        let entries = menus.entries(for: .sidebarItem, removing: ChiefSidebar.menuRemovals(isApp: item?.owningAppID != nil, isChief: item?.ref == .builtIn(.chief)))
+        var removing = ChiefSidebar.menuRemovals(isApp: item?.owningAppID != nil, isChief: item?.ref == .builtIn(.chief))
+        // Archive is for list rows (archiving-DESIGN.md): a band tile (Pinned, custom and app sections) draws no dimmed look.
+        if tile != nil { removing.insert("sidebar.item.toggleArchive") }
+        let entries = menus.entries(for: .sidebarItem, removing: removing)
         return services.registry.makeContextMenu(for: .sidebarItem, target: ActionTargetRef(kind: .sidebarItem, id: id.rawValue),
                                                  entries: entries)
     }
