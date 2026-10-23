@@ -10,7 +10,7 @@ extension ChiefSidebar.Host {
         return .init(conversation: chief, chiefHost: { services.agentTabs.chiefHost },
                      tab: { services.agentTabs.tab(showing: $0, host: $1) }, reveal: { services.revealTab($0) },
                      openWorkspace: { try AgentSessionWorkspace.open(session: $0, name: nil, cwd: nil, host: $1, services: services) },
-                     unread: { unread(chief: chief(), in: services.home.groupMuting) })
+                     unread: { chief().map { id in services.home.homeStore.rows.contains { $0.id.rawValue == id && $0.unread > 0 } } ?? false })
     }
 
     /// Whether Home's list dots the Chief's conversation `chief`: one of Home's unread conversations, as `home`
