@@ -245,6 +245,37 @@ fn a_parent_swapped_for_a_symlink_out_of_the_root_is_refused() {
     never_outside(opened.and_then(|o| read_all(&o)), &mp4(1, 64));
 }
 
+/// Race: once `out` is open it is moved out of the root, so the file opened in it was never
+/// below the root: its `..` chain no longer reaches the root.
+#[test]
+fn a_folder_moved_out_of_the_root_during_the_walk_is_refused() {
+    let s = Scratch::new("moved");
+    let e = s
+        .open("out/clip.mp4", &mut |step| {
+            if step == Step::Dir(0) {
+                std::fs::rename(s.root().join("out"), s.at("away")).unwrap();
+            }
+        })
+        .err()
+        .unwrap();
+    assert_eq!(reason(&e), "media.outside", "{}", e.message);
+}
+
+/// The file is rewritten in place at the same size and its mtime set back: ctime still moves,
+/// so the next range is refused.
+#[test]
+fn a_rewrite_with_its_mtime_set_back_is_refused() {
+    let s = Scratch::new("mtime");
+    let clip = s.root().join("out/clip.mp4");
+    let opened = s.open("out/clip.mp4", &mut |_| {}).unwrap();
+    let mtime = std::fs::metadata(&clip).unwrap().modified().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    std::fs::write(&clip, mp4(5, 64)).unwrap();
+    std::fs::File::options().write(true).open(&clip).unwrap().set_modified(mtime).unwrap();
+    let e = read_range(&opened.file, &opened.identity, 0, 32).err().unwrap();
+    assert_eq!(reason(&e), "media.changed", "{}", e.message);
+}
+
 /// Race: the file is replaced by another inode between the open and the first range, and between
 /// two ranges: the reads keep the opened file's bytes, or are refused.
 #[test]

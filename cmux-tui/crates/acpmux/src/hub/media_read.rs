@@ -9,12 +9,15 @@
 //!
 //! - each root is resolved once (`realpath`): a root that is itself a link (`/tmp` on macOS, a
 //!   folder the person linked) means the person chose its target. That resolved folder is opened
-//!   with `O_DIRECTORY | O_NOFOLLOW` and must be the folder that was resolved (same device and
-//!   inode), so nothing swapped in after the resolve is followed;
+//!   from `/` one component at a time with `O_DIRECTORY | O_NOFOLLOW` and must be the folder that
+//!   was resolved (same device and inode), so no link swapped in after the resolve, at the root
+//!   or above it, is followed;
 //! - every component below it is opened with `openat` and `O_NOFOLLOW`, so no component inside
 //!   the root can be a link, and each must be on the root's mount (its device, and on Linux its
 //!   mount id, since a bind mount of a folder on the same filesystem keeps the device), so no
 //!   mount point or firmlink below the root is crossed;
+//! - after the file is open, its folder's `..` chain must reach the opened root in as many steps
+//!   as the walk went down, so a folder renamed out of the root during the walk is refused;
 //! - the opened descriptor must be a regular file with one link, its own path (`F_GETPATH`,
 //!   `/proc/self/fd`) inside the root's, and no part of it below the root a dot name, nor a key
 //!   file, nor under `~/Library`;
@@ -22,7 +25,7 @@
 //!   mp4, mov, m4v or webm up to [`MAX_VIDEO_BYTES`]. SVG and PDF are never read.
 //!
 //! Every range is read from the opened descriptor after and before comparing `(dev, ino, size,
-//! mtime)` with the open's, so a file changed since the open is refused, and a file replaced at
+//! mtime, ctime)` with the open's (ctime, since an owner can set mtime back but not ctime), so a file changed since the open is refused, and a file replaced at
 //! its path keeps serving the bytes that were opened. A range is at most [`MAX_RANGE`] bytes:
 //! 8 MiB of base64, under the RPC cap (`rpc.rs`) and an older peer's 16 MiB frame.
 
@@ -66,6 +69,7 @@ pub struct Identity {
     ino: u64,
     pub size: u64,
     mtime: (i64, i64),
+    ctime: (i64, i64),
 }
 
 impl Identity {
@@ -89,6 +93,8 @@ impl Identity {
         fields.iter().for_each(|f| hash.update(f.to_le_bytes()));
         hash.update(self.mtime.0.to_le_bytes());
         hash.update(self.mtime.1.to_le_bytes());
+        hash.update(self.ctime.0.to_le_bytes());
+        hash.update(self.ctime.1.to_le_bytes());
         hash.finalize().iter().take(16).map(|b| format!("{b:02x}")).collect()
     }
 }
@@ -230,6 +236,13 @@ pub fn open_in(
         at(Step::Dir(index));
     }
     let file = sys::open_below(&dir, name, false).ok_or_else(unreadable)?;
+    let mut up = dir;
+    for _ in folders {
+        up = sys::open_below(&up, std::ffi::OsStr::new(".."), true).ok_or_else(unreadable)?;
+    }
+    if sys::dev_ino(&up.metadata().map_err(|_| unreadable())?) != root.id {
+        return Err(outside());
+    }
     if sys::mount(&file).ok_or_else(unreadable)? != device {
         return Err(mount());
     }
@@ -316,6 +329,7 @@ mod sys {
             ino: meta.ino(),
             size: meta.size(),
             mtime: (meta.mtime(), meta.mtime_nsec()),
+            ctime: (meta.ctime(), meta.ctime_nsec()),
         }
     }
 
@@ -351,11 +365,21 @@ mod sys {
         Some(0)
     }
 
-    /// The resolved root folder, never through a link put in its place.
+    /// The resolved root folder, opened from `/` a component at a time, so no link put in its
+    /// place or above it is followed.
     pub fn open_root(root: &Path) -> Option<File> {
+        use std::path::Component;
         let mut options = std::fs::OpenOptions::new();
-        options.read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC);
-        options.open(root).ok().filter(|dir| dir.metadata().is_ok_and(|m| m.is_dir()))
+        options.read(true).custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC);
+        let mut dir = options.open("/").ok()?;
+        for component in root.components() {
+            match component {
+                Component::RootDir => {}
+                Component::Normal(name) => dir = open_below(&dir, name, true)?,
+                _ => return None,
+            }
+        }
+        Some(dir)
     }
 
     /// `name` in the open folder `dir`, never through a link: a folder when `folder`, else the
@@ -409,7 +433,7 @@ mod sys {
     use std::path::{Path, PathBuf};
 
     pub fn identity(meta: &Metadata) -> super::Identity {
-        super::Identity { dev: 0, ino: 0, size: meta.len(), mtime: (0, 0) }
+        super::Identity { dev: 0, ino: 0, size: meta.len(), mtime: (0, 0), ctime: (0, 0) }
     }
 
     pub fn links(_: &Metadata) -> u64 {
