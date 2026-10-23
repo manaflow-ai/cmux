@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 
 /// Waits, once, for a closing menu's window to give up the keys: its `didResignKey` or `willClose`
 /// notification, whichever AppKit posts first, then runs the chosen row (``ThemedMenuRowView``).
@@ -6,7 +7,7 @@ import AppKit
 final class ThemedMenuKeyWaiter {
     private let window: NSWindow
     private var then: (@MainActor () -> Void)?
-    private var observers: [any NSObjectProtocol] = []
+    private var observers: [MainActorObservation] = []
 
     init(window: NSWindow, then: @escaping @MainActor () -> Void) {
         self.window = window
@@ -16,18 +17,15 @@ final class ThemedMenuKeyWaiter {
     /// Starts waiting; `finished` runs after the row's run.
     func start(finished: @escaping @MainActor () -> Void) {
         for name in [NSWindow.didResignKeyNotification, NSWindow.willCloseNotification] {
-            observers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                    self?.fire()
-                    finished()
-                }
+            observers.append(MainActorObservation(name, object: window) { [weak self] in
+                self?.fire()
+                finished()
             })
         }
     }
 
     private func fire() {
-        observers.forEach(NotificationCenter.default.removeObserver)
-        observers = []
+        observers.removeAll()
         let body = then
         then = nil
         body?()

@@ -1,6 +1,7 @@
 //! claude stdout → ACP: stream-json lines become session updates and replies.
 
 use super::*;
+use crate::no_panic::JsonExt;
 
 impl Translator {
     /// Translate one line from claude's stdout into ACP messages for the hub.
@@ -132,7 +133,7 @@ impl Translator {
                                 if let Some(id) =
                                     self.message_ids.lock().await.get(parent.unwrap_or(""))
                                 {
-                                    chunk["messageId"] = json!(id);
+                                    chunk.set("messageId", json!(id));
                                 }
                                 out.push(upd(chunk));
                             }
@@ -205,7 +206,7 @@ impl Translator {
                         }
                         let mut chunk = json!({"sessionUpdate": kind, "content": {"type": "text", "text": text}});
                         if let (Some(id), "agent_message_chunk") = (id, kind) {
-                            chunk["messageId"] = json!(id);
+                            chunk.set("messageId", json!(id));
                         }
                         out.push(upd(chunk));
                     }
@@ -255,9 +256,9 @@ impl Translator {
                             self.background_shells.lock().await.insert(id.to_owned(), shell);
                         }
                         let mut call = tool_call_fields(name, &input);
-                        call["sessionUpdate"] = json!("tool_call");
-                        call["toolCallId"] = c.get("id").cloned().unwrap_or(Value::Null);
-                        call["status"] = json!("in_progress");
+                        call.set("sessionUpdate", json!("tool_call"));
+                        call.set("toolCallId", c.get("id").cloned().unwrap_or(Value::Null));
+                        call.set("status", json!("in_progress"));
                         if let (Some(diffs), Some(id)) =
                             (call.get("content"), c.get("id").and_then(Value::as_str))
                         {
@@ -267,7 +268,7 @@ impl Translator {
                         if let Some(id) = c.get("id").and_then(Value::as_str)
                             && self.take_announced(id).await
                         {
-                            call["sessionUpdate"] = json!("tool_call_update");
+                            call.set("sessionUpdate", json!("tool_call_update"));
                         }
                         out.push(upd(call));
                     }
@@ -354,7 +355,7 @@ impl Translator {
                                 shell.output = Some(file);
                                 if shell.announced && shell.background {
                                     let mut update = background_task_update(tool, shell, "running");
-                                    update["origin"] = json!(origin(shell));
+                                    update.set("origin", json!(origin(shell)));
                                     out.push(shell_update(shell, update));
                                 }
                             }
@@ -794,11 +795,11 @@ impl Translator {
         };
         let mut update = background_task_update(&tool, &shell, state);
         if let Some(task) = task {
-            update["taskId"] = json!(task);
+            update.set("taskId", json!(task));
         }
         for key in ["reason", "summary"] {
             if let Some(value) = text(key) {
-                update[key] = json!(value);
+                update.set(key, json!(value));
             }
         }
         Some(shell_update(&shell, update))
@@ -912,7 +913,7 @@ impl Translator {
         });
         // It outlives a stopped turn: a client keeps it running past one.
         if background {
-            update["background"] = json!(true);
+            update.set("background", json!(true));
         }
         update
     }
@@ -956,7 +957,7 @@ fn compaction_update(state: &str, line: &Value) -> Value {
         ("post_tokens", "postTokens"),
     ] {
         if let Some(v) = field(from) {
-            update[to] = v;
+            update.set(to, v);
         }
     }
     // Why it failed, in Claude Code's words (2.1.305 `compact_error`).
@@ -964,7 +965,7 @@ fn compaction_update(state: &str, line: &Value) -> Value {
         && let Some(error) = line.get("compact_error").and_then(Value::as_str)
         && !error.trim().is_empty()
     {
-        update["error"] = json!(error.trim());
+        update.set("error", json!(error.trim()));
     }
     update
 }
@@ -995,7 +996,7 @@ fn compaction_summary_text(line: &Value) -> Option<String> {
 /// being written to: PATH"), as Claude Code words it; None for any other text.
 fn launch_output_file(text: &str) -> Option<String> {
     const MARK: &str = "Output is being written to: ";
-    let rest = &text[text.find(MARK)? + MARK.len()..];
+    let (_, rest) = text.split_once(MARK)?;
     let path = rest.lines().next()?.trim();
     (path.starts_with('/') && path.ends_with(".output")).then(|| path.to_owned())
 }
@@ -1021,7 +1022,7 @@ fn running(tool: &str, shell: &mut BackgroundShell) -> Option<Message> {
     }
     shell.announced = true;
     let mut update = background_task_update(tool, shell, "running");
-    update["origin"] = json!(origin(shell));
+    update.set("origin", json!(origin(shell)));
     Some(shell_update(shell, update))
 }
 
@@ -1043,7 +1044,7 @@ fn origin(shell: &BackgroundShell) -> &'static str {
 fn shell_update(shell: &BackgroundShell, update: Value) -> Message {
     let mut params = json!({"sessionId": shell.sid, "update": update});
     if let Some(output) = &shell.output {
-        params["_meta"] = json!({"acpmux": {"outputFile": output}});
+        params.set("_meta", json!({"acpmux": {"outputFile": output}}));
     }
     Message::notification(method::SESSION_UPDATE, params)
 }

@@ -63,6 +63,13 @@ holds it. The scenario's sizes and settle times are in `budgets.json`; the idle 
 `--arg=idle=` (60 s). `xbench.py gate` skips the `budget-*` rows: budgets.json gates them. The
 nightly runs it with the other browsers (about 11 minutes a round on cmux20).
 
+Overhead rows (plans/cmux-next/speed-of-sound-DESIGN.md, floor 0 at idle): disk writes KB/s,
+Mach messages/s, syscalls/s and context switches/s over the idle windows, process and thread
+counts, and a `/usr/bin/sample` call tree of the hidden app's main thread (logged as `hidden main:`
+lines and kept in results.json), so a Release build's idle wakeups get a named owner. The heavy
+scenario, `--arg=budgets=scripts/perf-bench/budgets-heavy.json`, adds 150 workspaces and 20 hidden
+terminals and Chromium tabs, and the `budget-memory-per-workspace` row.
+
 ## Tab switch in a real window
 
 By default the step also builds a tagged Debug app and runs

@@ -55,7 +55,8 @@ impl TcpStack {
     pub(crate) fn abort_conns(&mut self, mut doomed: impl FnMut(&Conn) -> bool) {
         let mut index = 0;
         while index < self.conns.len() {
-            if !doomed(&self.conns[index]) {
+            let Some(conn) = self.conns.get(index) else { break };
+            if !doomed(conn) {
                 index += 1;
                 continue;
             }
@@ -72,16 +73,18 @@ impl TcpStack {
     pub(crate) fn process_listeners(&mut self) {
         let mut index = 0;
         while index < self.listeners.len() {
-            if self.listeners[index].accept.is_closed() {
-                for handle in std::mem::take(&mut self.listeners[index].handles) {
+            let Some(listener) = self.listeners.get_mut(index) else { break };
+            if listener.accept.is_closed() {
+                for handle in std::mem::take(&mut listener.handles) {
                     self.sockets.get_mut::<tcp::Socket>(handle).abort();
                     self.sockets.remove(handle);
                 }
                 self.listeners.swap_remove(index);
                 continue;
             }
-            let port = self.listeners[index].port;
-            let handles = std::mem::take(&mut self.listeners[index].handles);
+            let port = listener.port;
+            let accept = listener.accept.clone();
+            let handles = std::mem::take(&mut listener.handles);
             let mut still_listening = Vec::with_capacity(handles.len());
             let mut listen_count = 0;
             let mut half_open = 0;
@@ -110,7 +113,7 @@ impl TcpStack {
                                 }
                             },
                         };
-                        let accept = self.listeners[index].accept.clone();
+                        let accept = accept.clone();
                         let (conn, stream) = self.bridge(handle, local, remote, peer);
                         self.conns.push(Conn {
                             pending_stream: Some((Handoff::Accept(accept), stream)),
@@ -150,7 +153,9 @@ impl TcpStack {
                     }
                 }
             }
-            self.listeners[index].handles = still_listening;
+            if let Some(listener) = self.listeners.get_mut(index) {
+                listener.handles = still_listening;
+            }
             index += 1;
         }
     }
@@ -160,7 +165,7 @@ impl TcpStack {
         let mut progressed = false;
         let mut index = 0;
         while index < self.conns.len() {
-            let conn = &mut self.conns[index];
+            let Some(conn) = self.conns.get_mut(index) else { break };
             let socket = self.sockets.get_mut::<tcp::Socket>(conn.handle);
 
             if let Some((handoff, stream)) = conn.pending_stream.take() {

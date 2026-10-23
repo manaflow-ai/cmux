@@ -12,6 +12,7 @@
 pub mod acpmux_policy;
 pub mod auth;
 pub mod browser;
+pub mod browser_policy;
 pub mod browser_track;
 pub mod chief_answers;
 pub mod chief_policy;
@@ -24,3 +25,4 @@ pub mod notify;
 pub mod pairing;
 pub mod policy;
 pub mod services;
+pub mod size_release;

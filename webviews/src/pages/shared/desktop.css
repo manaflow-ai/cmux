@@ -115,7 +115,9 @@ select {
   -webkit-backdrop-filter: var(--tooltip-blur);
   backdrop-filter: var(--tooltip-blur);
   box-shadow: var(--tooltip-shadow);
-  color: var(--cmux-text, CanvasText);
+  /* The host's tooltip ink (TooltipSurface.ink): the text, pushed only where a translucent tint
+     needs it. */
+  color: var(--cmux-tooltip-ink, var(--cmux-text, CanvasText));
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
@@ -501,6 +503,24 @@ input[type="submit"] {
   }
   50% {
     opacity: 0.3;
+  }
+}
+/* SPINNERS-OFF-MAIN: the Thinking line's shimmer (ShimmerText.tsx) as two transform loops the
+   compositor runs: the masked band crosses the line, its lit words move back by as much. */
+@keyframes cmux-shimmer-band {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes cmux-shimmer-lit {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(-100%);
   }
 }
 /* WORKING-LOOK "shimmer": a light band crosses the words of a working row, once per breath. */

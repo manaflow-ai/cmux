@@ -235,7 +235,9 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
       // Not JSON: answer as text below.
     }
   }
-  const reply = fauxText(`[${model.id}] reply to: ${text.slice(0, 200)}`);
+  // "SLOW_LONG" echoes more of the request, so a SLOW stream lasts as long as its request asks
+  // (the steering test needs one call of about 7 s; the plain cut at 200 made it about 2 s).
+  const reply = fauxText(`[${model.id}] reply to: ${text.slice(0, text.includes("SLOW_LONG") ? 1200 : 200)}`);
   if (!text.includes("THINK")) return fauxAssistantMessage([reply]);
   // Every thinking block the fake makes is signed for the tools list of its request.
   const pondering = fauxThinking("pondering the request");

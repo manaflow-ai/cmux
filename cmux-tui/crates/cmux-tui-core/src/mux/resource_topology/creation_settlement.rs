@@ -3,8 +3,45 @@
 use super::*;
 
 impl Mux {
+    /// A correlated creation (a terminal tab, pane or workspace). Its
+    /// commits defer their disk flush, so its terminal's output is released
+    /// without waiting for the disk; one fully synced commit then makes them
+    /// durable before the caller answers (new-terminal-100x).
     #[allow(clippy::too_many_arguments)]
     pub(super) fn resource_correlated_creation_operation(
+        self: &Arc<Self>,
+        operation: ResourceOperation,
+        selector_candidates: Vec<ResourceSelectors>,
+        fields: Map<String, Value>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        let deferred = crate::workspace_registry::registry_connection::DeferredDurability::enter();
+        let created = self.resource_correlated_creation_operation_deferred(
+            operation,
+            selector_candidates,
+            fields,
+            expected_revision,
+            mutation,
+            fingerprint,
+        );
+        drop(deferred);
+        // Also after a failure: its settlement commits must be durable too.
+        // A poisoned registry lock still flushes: the settlement commits must reach disk.
+        let flushed = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .flush_deferred_commits();
+        crate::debug_spans::mark("creation.durable");
+        let created = created?;
+        flushed?;
+        Ok(created)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn resource_correlated_creation_operation_deferred(
         self: &Arc<Self>,
         operation: ResourceOperation,
         selector_candidates: Vec<ResourceSelectors>,

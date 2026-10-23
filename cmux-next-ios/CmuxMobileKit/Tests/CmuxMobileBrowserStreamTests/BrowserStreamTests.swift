@@ -133,6 +133,23 @@ final class SinkBox: @unchecked Sendable {
         #expect(model.phase == .waiting("browser host: exited"))
     }
 
+    /// The Mac's reason for an address it does not open is shown as it is; an older
+    /// Mac's bare scheme list becomes what to do about it.
+    @Test func aForbiddenOpenShowsTheMacsSentence() async {
+        for (message, shown) in [
+            ("This file isn't in a folder this Mac shares with your iPhone.", "This file isn't in a folder this Mac shares with your iPhone."),
+            ("only http, https and about:blank load", "Update cmux on your Mac to open this page on your iPhone."),
+        ] {
+            let model = StreamedBrowserModel(tab: "s4", url: URL(string: "file:///Users/me/x.html")) { _ in
+                throw LinkError(code: "forbidden", message: message)
+            }
+            model.setVisible(true)
+            model.layout(points: CGSize(width: 300, height: 600), screenScale: 2)
+            for _ in 0..<200 where model.phase == .connecting { try? await Task.sleep(for: .milliseconds(5)) }
+            #expect(model.phase == .waiting(shown))
+        }
+    }
+
     /// A Mac with no browser host (this build's code, or an older Mac's words) is an
     /// honest state, never the raw reason.
     @Test func aMacWithoutABrowserHostIsUnavailable() async {
@@ -229,5 +246,110 @@ final class SinkBox: @unchecked Sendable {
         // Later reports follow the page again.
         model.apply(page("https://example.com/next", loading: false, back: true, forward: false))
         #expect(model.host == "example.com" && model.url?.path() == "/next")
+    }
+}
+
+/// The address bar of a streamed tab hands the Mac what the person typed: other
+/// schemes and Mac paths too, so the Mac decides and says why it refuses
+/// (cmux-next-ios/PROTOCOL.md `browser`, addresses).
+@MainActor @Suite struct StreamedAddressTests {
+    func url(_ text: String) -> String? { StreamedBrowserModel.url(for: text)?.absoluteString }
+
+    @Test func otherSchemesAndMacPathsGoToTheMac() {
+        #expect(url("file:///Users/me/verify/page.html") == "file:///Users/me/verify/page.html")
+        #expect(url("/Users/me/my page.html") == "file:///Users/me/my%20page.html")
+        #expect(url("data:text/html,hi") == "data:text/html,hi")
+        #expect(url("about:blank") == "about:blank")
+        #expect(url("view-source:https://example.com") == "view-source:https://example.com")
+        // Refused by the Mac, with its reason: still sent, never turned into a search.
+        #expect(url("javascript:alert(1)") == "javascript:alert(1)")
+        #expect(url("chrome://settings") == "chrome://settings")
+        #expect(url("zoommtg://zoom.us/join") == "zoommtg://zoom.us/join")
+        #expect(url("mailto:a@b.c") == "mailto:a@b.c")
+        #expect(url("//server/share")?.hasPrefix("https://duckduckgo.com/") == true)
+        #expect(url("localhost:3000") == "http://localhost:3000")
+        #expect(url("tel:911") == "tel:911")
+        #expect(url("mac.local:8080/x") == "http://mac.local:8080/x")
+        // Unchanged: hosts, searches, web addresses.
+        #expect(url("example.com") == "https://example.com")
+        #expect(url("https://example.com/a") == "https://example.com/a")
+        #expect(url("two words")?.hasPrefix("https://duckduckgo.com/?q=two") == true)
+    }
+}
+
+@MainActor @Suite struct RefusedNavigationTests {
+    func model() async throws -> (StreamedBrowserModel, FakeStream, any BrowserStreamSink) {
+        let stream = FakeStream()
+        let box = SinkBox()
+        let model = StreamedBrowserModel(tab: "s4", url: nil) { sink in
+            box.lock.withLock { box.sinks.append(sink) }
+            return stream
+        }
+        model.setVisible(true)
+        model.layout(points: CGSize(width: 402, height: 700), screenScale: 3)
+        for _ in 0..<200 where box.last == nil { try? await Task.sleep(for: .milliseconds(5)) }
+        let sink = try #require(box.last)
+        sink.browserMessage(Data(#"{"t":"welcome","caps":[]}"#.utf8))
+        for _ in 0..<20 { await Task.yield() }
+        return (model, stream, sink)
+    }
+
+    /// The Mac refuses an address: the page stays, the address bar goes back to
+    /// it, and the person reads why, in words, until the next navigation.
+    @Test func aRefusedAddressSaysWhyAndKeepsThePage() async throws {
+        let (model, stream, sink) = try await model()
+        model.apply(RemoteBrowserPage(json: ["t": "rb.page", "url": "https://example.com/", "title": "", "loading": false, "can_go_back": false, "can_go_forward": false])!)
+        model.navigate(to: "file:///Users/me/.ssh/id_ed25519")
+        #expect(stream.lock.withLock { stream.messages.last?["url"] as? String } == "file:///Users/me/.ssh/id_ed25519")
+        sink.browserMessage(Data(#"{"t":"rb.navigate.refused","url":"file:///Users/me/.ssh/id_ed25519","code":"file_not_shared","reason":"This file isn't in a folder this Mac shares with your iPhone."}"#.utf8))
+        for _ in 0..<20 { await Task.yield() }
+        #expect(model.notice == "This file isn't in a folder this Mac shares with your iPhone.")
+        #expect(model.url?.absoluteString == "https://example.com/")
+        #expect(model.phase != .waiting("This file isn't in a folder this Mac shares with your iPhone."))
+        model.navigate(to: "example.org")
+        #expect(model.notice == nil)
+        // A link inside the page the Mac took back: said too, the address follows the page.
+        sink.browserMessage(Data(#"{"t":"rb.navigate.refused","url":"javascript:x","code":"script","reason":"Scripts can't run from your iPhone's address bar."}"#.utf8))
+        for _ in 0..<20 { await Task.yield() }
+        #expect(model.notice == "Scripts can't run from your iPhone's address bar.")
+        model.dismissNotice()
+        #expect(model.notice == nil)
+    }
+}
+
+/// Keyboard input to a streamed page: what each key sends, and how much of the page
+/// the keyboard covers (the page lays out above it).
+@Suite struct StreamedKeyboardTests {
+    let wire = RemoteBrowserWire()
+
+    func object(_ data: Data) -> [String: Any] { (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:] }
+
+    @Test func typedTextReturnAndTab() {
+        let text = StreamedBrowserKey.typed("héllo 👋", wire: wire).map(object)
+        #expect(text.count == 1 && text[0]["e"] as? String == "ime_commit" && text[0]["text"] as? String == "héllo 👋")
+        let enter = StreamedBrowserKey.typed("\n", wire: wire).map(object)
+        #expect(enter.map { $0["down"] as? Bool } == [true, false])
+        #expect(enter.allSatisfy { $0["code"] as? String == "Enter" && $0["text"] as? String == "\r" })
+        let tab = StreamedBrowserKey.typed("\t", wire: wire).map(object)
+        #expect(tab.first?["code"] as? String == "Tab")
+        #expect(StreamedBrowserKey.typed("", wire: wire).isEmpty)
+    }
+
+    @Test func barKeysAndShortcuts() {
+        let all = StreamedBrowserKey.selectAll.events(wire).map(object)
+        #expect(all[0]["code"] as? String == "KeyA" && all[0]["modifiers"] as? Int == 8)
+        #expect((all[0]["edit_commands"] as? [[String: String]])?.first?["name"] == "SelectAll")
+        #expect((all[1]["edit_commands"] as? [Any])?.isEmpty == true && all[1]["down"] as? Bool == false)
+        #expect(StreamedBrowserKey.escape.events(wire).map(object).first?["code"] as? String == "Escape")
+        #expect(StreamedBrowserKey.left.events(wire).map(object).first?["key"] as? String == "ArrowLeft")
+        #expect(StreamedBrowserKey.copy.events(wire).map(object).first?["modifiers"] as? Int == 8)
+    }
+
+    @Test func theKeyboardCoversTheBottomOfThePage() {
+        let page = CGRect(x: 0, y: 59, width: 402, height: 700)
+        #expect(StreamedBrowserKey.covered(page: page, keyboard: nil) == 0)
+        #expect(StreamedBrowserKey.covered(page: page, keyboard: CGRect(x: 0, y: 874, width: 402, height: 336)) == 0)
+        #expect(StreamedBrowserKey.covered(page: page, keyboard: CGRect(x: 0, y: 500, width: 402, height: 374)) == 259)
+        #expect(StreamedBrowserKey.covered(page: page, keyboard: CGRect(x: 0, y: 0, width: 402, height: 874)) == 700)
     }
 }

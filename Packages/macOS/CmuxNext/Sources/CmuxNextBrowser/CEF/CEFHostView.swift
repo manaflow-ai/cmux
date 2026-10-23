@@ -34,12 +34,15 @@ final class CEFHostView: NSView {
     var liveResizeWillStart: (() -> Void)?
     /// Hands files dragged in from another app to the shown page (`CEFFileDragRelay`).
     let fileDrag = CEFFileDragRelay()
+    /// Layer hosting (fork API 26) of the page window over this view (`CEFLayerHosting`).
+    let layerHosting = CEFLayerHosting()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         updateBackground()
         fileDrag.view = self
+        layerHosting.view = self
         #if DEBUG
         Self.registerMotionSampler()
         #endif
@@ -96,23 +99,56 @@ final class CEFHostView: NSView {
     /// on every geometry update, so window rects convert at the current
     /// position.
     @objc func cmuxOcclusionRects() -> NSArray {
-        allOcclusionRects.map { NSValue(rect: $0) } as NSArray
+        Self.trackerStats.occlusionReads += 1
+        return allOcclusionRects.map { NSValue(rect: $0) } as NSArray
     }
 
     /// Read by the fork (`-cmuxClipPath`) on every geometry update: the
     /// pane's rounded clip and the window's rounded corners, so no square
     /// page corner shows past either. Nil when the page is a plain rect.
+    /// The same path object comes back until the shape changes; the fork
+    /// only reads it (it maps a copy to screen coordinates).
     @objc func cmuxClipPath() -> NSBezierPath? {
-        let shape = pageClip
-        // A page clipped away entirely is hidden by an occlusion hole over all of it
-        // (`allOcclusionRects`), the fork's documented way to keep a page from showing.
-        guard !CEFClipShape.showsNothing(shape) else { return nil }
-        return shape.map { NSBezierPath(cgPath: $0) }
+        Self.trackerStats.clipReads += 1
+        layerHosting.trackerDidRead()
+        return clipShape().bezier
     }
 
     /// The pane's rounded clip, the column strip's clip and the window's corners, in this view.
-    var pageClip: CGPath? {
-        CEFClipShape.path(bounds: bounds, clips: CEFClipShape.clips(around: self), cutouts: CEFClipShape.cutouts(around: self))
+    var pageClip: CGPath? { clipShape().path }
+
+    /// The last clip shape and what it was worked out from. The fork reads
+    /// the clip and the occlusion rects on every geometry update, several
+    /// times per display frame while a pane moves, and also on window moves,
+    /// key changes and occlusion changes that move nothing. The path
+    /// operations run only when the bounds, a clip or a cutout changed; the
+    /// walk of the ancestors that finds those still runs on every read.
+    private var clipMemo: ClipMemo?
+
+    private struct ClipMemo {
+        let inputs: CEFClipShape.Inputs
+        let path: CGPath?
+        /// `path` for the fork; nil when the page is a plain rect, and when it
+        /// shows nothing: a page clipped away entirely is hidden by an occlusion
+        /// hole over all of it (`allOcclusionRects`), the fork's documented way
+        /// to keep a page from showing.
+        let bezier: NSBezierPath?
+    }
+
+    private func clipShape() -> ClipMemo {
+        let started = CEFTrackerStats.now()
+        defer { Self.trackerStats.clipSeconds += CEFTrackerStats.now() - started }
+        let inputs = CEFClipShape.Inputs(around: self)
+        if let clipMemo, clipMemo.inputs == inputs {
+            Self.trackerStats.clipHits += 1
+            return clipMemo
+        }
+        Self.trackerStats.clipBuilds += 1
+        let path = inputs.path
+        let bezier = CEFClipShape.showsNothing(path) ? nil : path.map { NSBezierPath(cgPath: $0) }
+        let memo = ClipMemo(inputs: inputs, path: path, bezier: bezier)
+        clipMemo = memo
+        return memo
     }
 
     /// The chrome's rects plus the window's interactive overlays over this
@@ -153,8 +189,12 @@ final class CEFHostView: NSView {
     /// Tells the tracker about moves AppKit does not report (layer
     /// transforms, manual frame animation in an ancestor).
     func postGeometryChange() {
+        Self.trackerStats.geometryPosts += 1
         NotificationCenter.default.post(name: CEFHostView.geometryDidChange, object: self)
     }
+
+    /// What the fork's tracker read from host views so far (`debug.cef` `tracker`).
+    static var trackerStats = CEFTrackerStats()
 
     /// `CmuxParentViewGeometryDidChange` in the fork.
     static let geometryDidChange = Notification.Name("CmuxParentViewGeometryDidChange")

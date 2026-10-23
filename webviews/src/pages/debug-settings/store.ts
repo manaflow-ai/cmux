@@ -121,11 +121,31 @@ export class DebugSettingsStore {
   }
 
   /** Copies the changed values (`json`) or Swift defaults (`swift`); the app sets the notice. */
-  async copy(format: "json" | "swift"): Promise<void> {
+  copy(format: "json" | "swift"): Promise<void> {
+    return this.copyFrom(DebugTunablesOps.export, { format });
+  }
+
+  /** Copies one hang file's text. */
+  copyHang(path: string): Promise<void> {
+    return this.copyFrom(DebugTunablesOps.hangsCopy, { path });
+  }
+
+  /** Shows one hang file in Finder, or their folder with no path. */
+  async revealHang(path?: string): Promise<void> {
+    if (!this.client) return;
+    try {
+      await this.client.call(DebugTunablesOps.hangsReveal, path ? { path } : {});
+    } catch (error) {
+      this.set(failure(error));
+    }
+  }
+
+  /** Asks the app for `{text}` through `op` and writes it to the pasteboard. */
+  private async copyFrom(op: string, params: unknown): Promise<void> {
     if (!this.client) return;
     let text: string;
     try {
-      ({ text } = await this.client.call<{ text: string }>(DebugTunablesOps.export, { format }));
+      ({ text } = await this.client.call<{ text: string }>(op, params));
     } catch (error) {
       this.set(failure(error));
       return;

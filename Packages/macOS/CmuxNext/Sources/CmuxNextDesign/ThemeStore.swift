@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxTheme
 public import Observation
 import CmuxNextCompat
+public import CmuxNextDesignTokens
 
 /// A non-view object (controller, layer owner) that caches resolved theme
 /// colors and must refresh them on a theme change. Views need nothing: the
@@ -36,6 +37,8 @@ public final class ThemeStore {
     /// Art Color (`appearance.accent: "art"`): each scope's accent takes the hue of the art it
     /// shows (`BackdropArt.accentHue`), over the theme's own.
     public private(set) var accentFollowsArt = false
+    /// `appearance.machineColors`: the colors people picked for machines (`MachineColor.color`).
+    public private(set) var machineColors = MachineColorOverrides.none
 
     @ObservationIgnored private let publishesGlobally: Bool
     /// The Ghostty config's colors reached the windows once: later changes are color changes that
@@ -141,6 +144,17 @@ public final class ThemeStore {
                 repaintAll(crossfade: true)
             }
         }
+        return true
+    }
+
+    /// Sets the colors people picked for machines and repaints, so every machine mark (sidebar
+    /// rows, tab badges) redraws in them. Returns false when they did not change.
+    @discardableResult
+    public func setMachineColors(_ colors: MachineColorOverrides) -> Bool {
+        guard colors != machineColors else { return false }
+        machineColors = colors
+        generation += 1
+        if publishesGlobally { repaintAll(crossfade: true) }
         return true
     }
 

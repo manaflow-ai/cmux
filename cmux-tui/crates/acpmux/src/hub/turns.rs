@@ -200,7 +200,7 @@ impl Hub {
         let prompt_id = opts.prompt_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let control = opts.control;
         let trust_gate = opts.trust_gate;
-        let mut on_accepted = opts.on_accepted;
+        let mut on_accepted = self.with_host_pressure(opts.on_accepted);
         // The prompts this one replaced (`supersede.rs`), named in its acceptance: set where it
         // is committed (queued, started, or steered in), never before a refusal.
         let supersede = opts.supersede.clone();
@@ -213,17 +213,12 @@ impl Hub {
                 f(v);
             }
         };
-        // A prompt that cannot reach any agent (none running, and its harness is gone) is
-        // refused before it is recorded, so a caller may send it again (handoff start).
+        // A prompt that cannot reach any agent (none running, and its folder or harness is gone)
+        // is refused before it is recorded (`cold_prompt_check`, after steer-only's refusal).
         let live = match session.child.lock().await.as_ref() {
             Some(child) => child.is_alive().await,
             None => false,
         };
-        let m = session.meta();
-        if !live {
-            let cfg = self.config.read().await;
-            super::resolve::session_profile_checked(&cfg, &m.harness, &m.cwd, m.remote_origin)?;
-        }
         let text = prompt_text(&blocks);
         let running = session.turn();
         let steer_now = steer && session.steering.load(Ordering::SeqCst) && running.is_some();
@@ -232,6 +227,9 @@ impl Hub {
                 "steer.unavailable: the session has no running turn that its agent can steer",
             )
             .with_data(json!({"reason": "steer.unavailable"})));
+        }
+        if !live {
+            self.cold_prompt_check(session).await?;
         }
         if steer_now && session.moving().is_some() {
             return Err(super::queue::moving_error());

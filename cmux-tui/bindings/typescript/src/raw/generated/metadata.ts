@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 22526ef27362464ad1798ceadf7ab3b0225cd784acc1dcc13419362378a066bc. */
+/* cmux-tui mux protocol 12, IR 703393e4b4e99f70fa8b7761ae54eebd46dc54b8ed3ce9b83a597216d6f75cb1. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "22526ef27362464ad1798ceadf7ab3b0225cd784acc1dcc13419362378a066bc" as const;
+export const SDK_IR_SHA256 = "703393e4b4e99f70fa8b7761ae54eebd46dc54b8ed3ce9b83a597216d6f75cb1" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2069,7 +2069,16 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "rows-v1",
-    "fields": {},
+    "fields": {
+      "pane_id": {
+        "since": null,
+        "capability": "row-client-keys-v1"
+      },
+      "tab_id": {
+        "since": null,
+        "capability": "row-client-keys-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "Opens a new row of height_permille below the row of pane in that pane's column, holding one new pane with one new terminal. On a split screen the screen's tree first becomes the only row of one column.",
@@ -3254,6 +3263,17 @@ export const COMMAND_METADATA = {
       "max_bytes defaults to 1048576 and must be 1..=8388608; at least one page is returned when any exists.",
       "A before marker of another marker_epoch or one that left scrollback is range_evicted.",
       "marker_epoch is required: the epoch of the caller's markers (from the snapshot event's marker_epoch or an earlier reply)."
+    ]
+  },
+  "terminal-ports": {
+    "authority": "control",
+    "since": 12,
+    "capability": "terminal-ports-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "PTY surfaces only.",
+      "Read when the request arrives; the daemon keeps no poller or cache and never scans processes."
     ]
   },
   "terminal-read-range": {
@@ -8265,12 +8285,30 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "Id"
         }
       },
+      "pane_id": {
+        "capability": "row-client-keys-v1",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "surface": {
         "nullable": false,
         "presence": "required",
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "tab_id": {
+        "capability": "row-client-keys-v1",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "terminal_id": {
@@ -12685,6 +12723,88 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "workspace": {
         "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalPortsListener": {
+    "additional_properties": false,
+    "fields": {
+      "bound": {
+        "description": "The loopback address that accepted the daemon's connect: 127.0.0.1 or ::1.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "host": {
+        "description": "The host as the terminal printed it: localhost, 127.0.0.1, 0.0.0.0, [::1], ...",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "port": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "url": {
+        "description": "The printed URL, or http://HOST:PORT/ when the text had no scheme.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalPortsResult": {
+    "additional_properties": false,
+    "constraints": [
+      "Ports come from the terminal's text (the active screen with scrollback, the last 1 MiB) on loopback or wildcard hosts, newest mention first, at most 32.",
+      "A port is listed only when a TCP connect to 127.0.0.1 or ::1 succeeds within 150 ms."
+    ],
+    "fields": {
+      "closed": {
+        "description": "Ports the text names that refused the connect.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "uint16"
+          },
+          "kind": "array"
+        }
+      },
+      "listeners": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "TerminalPortsListener"
+          },
+          "kind": "array"
+        }
+      },
+      "surface": {
+        "nullable": false,
         "presence": "required",
         "type": {
           "kind": "ref",
@@ -21974,6 +22094,22 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "Id"
           }
         },
+        "pane_id": {
+          "capability": "row-client-keys-v1",
+          "constraints": [
+            {
+              "format": "client-minted public pane id",
+              "pattern": "^pane_[0-9a-f]{32}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "rows": {
           "default": null,
           "nullable": true,
@@ -21993,6 +22129,22 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "name": "string"
             },
             "kind": "array"
+          }
+        },
+        "tab_id": {
+          "capability": "row-client-keys-v1",
+          "constraints": [
+            {
+              "format": "client-minted public tab id",
+              "pattern": "^tab_[0-9a-f]{32}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "terminal_id": {
@@ -26150,6 +26302,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "TerminalHistoryPagesResult"
+    }
+  },
+  "terminal-ports": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalPortsResult"
     }
   },
   "terminal-read-range": {

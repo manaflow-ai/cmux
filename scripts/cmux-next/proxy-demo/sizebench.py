@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import subprocess
 import sys
 import time
@@ -34,8 +35,11 @@ def sh(argv: list[str]) -> str:
     return subprocess.run(argv, capture_output=True, text=True, timeout=20).stdout
 
 
+CMUX = "cmux"
+
+
 def daemon_grid(session: str, terminal: str) -> tuple[int, int]:
-    data = json.loads(sh(["cmux", "--session", session, "--json", "terminal", terminal, "screen", "read"]))
+    data = json.loads(sh([CMUX, "--session", session, "--json", "terminal", terminal, "screen", "read"]))
     value = data.get("value", data)
     return int(value["cols"]), int(value["rows"])
 
@@ -95,11 +99,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tmux-session", required=True)
     parser.add_argument("--timeout", type=float, default=5.0)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--cmux", default="cmux",
+                        help="cmux CLI path; the harness tmux server does not inherit this shell's PATH")
     args = parser.parse_args(argv)
+    global CMUX
+    CMUX = args.cmux
 
     sh([*HARNESS, "kill-server"])
     sh([*HARNESS, "new-session", "-d", "-s", "bench", "-x", "120", "-y", "40",
-        f"env -u TMUX cmux attach --session {args.session} --terminal {args.terminal}"])
+        f"env -u TMUX {shlex.quote(CMUX)} attach --session {args.session} --terminal {args.terminal}"])
     sh([*HARNESS, "set-option", "-g", "window-size", "manual"])
     results = []
     try:

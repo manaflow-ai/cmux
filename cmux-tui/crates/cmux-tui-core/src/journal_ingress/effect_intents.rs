@@ -97,6 +97,9 @@ impl JournalIngressSender {
                     deadline,
                     commit_fence: commit_fence.clone(),
                 }),
+                deferred:
+                    crate::workspace_registry::registry_connection::current_thread_commits_deferred(
+                    ),
             },
             deadline,
         ) {

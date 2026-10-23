@@ -20,6 +20,9 @@ path = "src/main.rs"
 [dependencies]
 optchat-core = { path = "../optchat-core" }
 optchat-host = { path = "../optchat-host" }
+# Claude Code's stream-json lines and token counts, shared with the Cloud
+# Chief's turn runner (Native/OptChat/chief-turn); the library only.
+chief-turn = { path = "../chief-turn", default-features = false }
 # The daemon client (local-conversations-v1 over the session socket).
 cmux-sdk = { path = "../../../cmux-tui/bindings/rust" }
 # Wire types of the conversation owner, and the pure ports of mux/host's wake
@@ -50,10 +53,6 @@ sha2 = "0.10"
 rusqlite = { version = "0.32", features = ["bundled"] }
 # The four fingerprint words, the same list and derivation the app shows.
 cmux-server-core = { path = "../../../cmux-tui/crates/cmux-server-core" }
-
-# The acpmux socket peer's Team signature (acpmux_peer, cx-ggai).
-[target.'cfg(target_os = "macos")'.dependencies]
-core-foundation-sys = "0.8"
 
 [features]
 # Only the tests' in-process fake acpmux daemons: a socket peer that is this

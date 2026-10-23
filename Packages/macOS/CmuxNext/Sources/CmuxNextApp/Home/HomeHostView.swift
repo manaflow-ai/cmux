@@ -9,7 +9,6 @@ import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
-import CmuxNextImportCards
 import CmuxNextPages
 import CmuxNextWakeups
 
@@ -119,6 +118,8 @@ final class HomeHostView: NSView {
             try? services?.settingsWindow.show(section: nil, focus: true, route: "#/settings/chief")
         }
         settingsView.checkHarness = { [weak services] id in (try? await services?.agentHarnesses.doctor(id: id))?["ok"]?.boolValue == true }
+        // Every harness this Mac's acpmux has (Settings > Agents' list), after the official engines.
+        settingsView.listHarnesses = { [weak services] in (try? await services?.agentHarnesses.listed())?.sorted() ?? [] }
         settingsView.onRename = { [weak service] name in
             guard let service else { return .noConnection }
             // A cloud Chief's name is its account record's (UserDO renames its conversation after):
@@ -230,12 +231,6 @@ final class HomeHostView: NSView {
         }
         // The first-run panel's agent rows open the agent's tab like a jump (Search Tabs).
         transcript.onFirstRunAgent = { [weak services] tab in _ = services?.revealTab(tab) }
-        // What this Mac can bring over (Claude Code's sessions, a browser's history) is one row on
-        // the Chief's front page, under its action rows: never a strip over the conversation
-        // (Leo 2026-10-21, nightly 331e2e9). Not Now dismisses it; Show All opens Settings › Import.
-        let suggestion = ImportSuggestionRowView()
-        suggestion.onChange = { [weak transcript] in transcript?.firstRunAccessoryChanged() }
-        transcript.setFirstRunAccessory(suggestion)
         // task-owner: lives as long as this view; event-driven (Observation):
         // the user's agents for the first-run glance, only while it can show
         // (the Chief with no messages yet): otherwise no tab is read, so tab
@@ -285,18 +280,20 @@ final class HomeHostView: NSView {
         message.lineBreakMode = .byWordWrapping
         message.wraps = true
         message.stringValue = HomeStrings.unavailable
+        // Hidden until the owner answers: a daemon still connecting is not one too old (the launch's fill shows).
+        message.isHidden = true
         addSubview(transcript)
         addSubview(message)
         // task-owner: lives as long as this view; event-driven (Observation)
         availability = Task { [weak self] in
             // Usable when its own owner answers: a cloud conversation (a Chief
             // placed on a server) needs no local Chief owner.
-            for await (available, online, why, notice) in ObservationStream({
-                (service.isAvailable || service.isCloudConversation(id), service.homeStore.isOnline, service.unavailableMessage,
-                 service.conversationNotice(for: id))
+            for await (available, explained, online, why, notice) in ObservationStream({
+                (service.isAvailable || service.isCloudConversation(id), service.isRefused || service.migrationNotice != nil,
+                 service.homeStore.isOnline, service.unavailableMessage, service.conversationNotice(for: id))
             }) {
                 self?.transcript.isHidden = !available
-                self?.message.isHidden = available
+                self?.message.isHidden = available || !explained
                 self?.message.stringValue = why
                 self?.transcript.showConversationNotice(notice)
                 self?.needsLayout = true

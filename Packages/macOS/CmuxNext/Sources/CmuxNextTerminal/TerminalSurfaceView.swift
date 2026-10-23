@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import CmuxNextTerminalGeometry
 import CmuxNextWakeups
 import GhosttyNextKit
@@ -188,9 +188,9 @@ public final class TerminalSurfaceView: NSView {
     }
 
     /// Shown in a window: observe it and apply its current scale, screen, size, occlusion and key
-    /// state (each a no-op when unchanged).
+    /// state (each a no-op when unchanged). Parked counts as hidden (``ParkingContainer``).
     private func syncWindowState() {
-        let shown = window != nil && !isHiddenOrHasHiddenAncestor
+        let shown = window != nil && !isHiddenOrHasHiddenAncestor && !isParkedOrHasParkedAncestor
         observeWindow(shown)
         if shown {
             updateContentScale()
@@ -485,4 +485,10 @@ public final class TerminalSurfaceView: NSView {
         guard let surface else { return false }
         return ghostty_surface_has_selection(surface)
     }
+}
+
+/// A workspace parked without hiding pauses this surface and drops its window observers, as hiding
+/// does; shown again it catches up (`syncWindowState`).
+extension TerminalSurfaceView: ParkingObserver {
+    public func parkingDidChange() { syncWindowState() }
 }

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextFilesUI
 
 /// The right sidebar's Find section and the Find pane's view: a search field
 /// over the focused terminal's folder and one row per matching line. Return

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Refuse merging a feat-cmux-next pull request that changes Swift before its head's Release compile passed.
+"""Refuse merging a feat-cmux-next pull request that changes Swift once its head's compile finished red.
 
 A Claude Code PreToolUse(Bash) hook (`merge_compile_guard.py --claude-hook`, reading the hook's JSON on
 stdin). On 2026-10-21 (UTC) #22835, #21480 and #21487 were merged by hand with `gh pr merge` while their
@@ -8,14 +8,18 @@ next-autoland waits for the same compile (leo-workspace tools/next_autoland.py `
 
 It refuses `gh pr merge [N|#N|URL|BRANCH]` (with or without --auto) and `gh api .../pulls/N/merge`
 when the PR is into feat-cmux-next, changes a Swift (or C header or source, module map, xcconfig,
-Xcode project or package manifest) file, and its head's `cmux-next Release compile (Xcode 26)`:
+Xcode project or package manifest) file, and its head's `cmux-next Release compile (Xcode 26)` finished
+red with no passing rerun.
 
-- is queued or running, or not created yet while cmux-next is still routing and placing the head
-  (or the head has no checks at all yet);
-- or finished red or cancelled with no passing rerun;
+Only that refuses (Leo, 2026-10-21: "IF THE MERGE HOOK IS WRONG THEN JUST FUCKING MERGE"; HQ's landing gate,
+tools/agent-guards/require-cmux-guards.py, does the same). Everything else is a Hold: the hook says it to the
+person and the agent, and the merge goes ahead. A Hold is a compile still waiting (queued, running, not created
+yet while cmux-next routes and places the head, no checks at all yet, or every attempt cancelled, which gives
+no verdict), a GitHub read that failed or ran out of time, and a merge the guard can't name or whose
+checkout it can't read. Under load on cosmic-gray that day the guard's reads timed out and refused #23660
+and #23371 for hours with a SHIP receipt at the head and a green compile.
 
-unless that compile is still waiting (queued, running, not created yet, or every attempt cancelled, which
-gives no verdict) and the build fleet compiled the exact head, read from either record of it:
+A waiting compile says nothing when the build fleet compiled the exact head, read from either record of it:
 
 - the build fleet's controller (`cmux-ci status`) holds a done `cmux-ci compile-check --ref <head> --app`
   job from a verified submitter, with exactly the command and pool that client submits (the worker runs
@@ -30,7 +34,7 @@ gives no verdict) and the build fleet compiled the exact head, read from either 
 
 A same-repository PR compiles its head on the build fleet (`cmux-next app compile (build fleet)`) and runs
 the Release compile only when that gave no verdict: while that job runs, the Release compile does not
-exist yet, which is a wait, and its red is a refusal like a red Release compile.
+exist yet, which is a Hold, and its red is a refusal like a red Release compile.
 
 A Release compile that finished red (any conclusion but success, skipped, neutral or
 cancelled) stays a refusal, even with a rerun queued: the fleet compiles on Linux with the pool
@@ -39,8 +43,8 @@ compiles (#22845 sat queued over an hour after its fleet pass, with 60 minis off
 
 A compile the router skipped (iOS, packages outside the CmuxNext graph, forks) or a head cmux-next
 never ran on does not apply, and neither does a PR that changes no Swift. The command is read the
-way the shell splits it: quoted text and heredoc bodies are data, never a merge. When GitHub can't be
-read for a merge it has to check, it refuses; the merge itself needs GitHub too.
+way the shell splits it: quoted text and heredoc bodies are data, never a merge. A Hold never hides a
+red: every merge in the command is judged, and any red refuses.
 """
 from __future__ import annotations
 
@@ -117,7 +121,7 @@ def run(args: list[str], cwd: str | None = None) -> str | None:
     left = BUDGET - (time.monotonic() - STARTED)
     if left < 1:
         FAILED[:] = [f"the guard's {BUDGET} s for GitHub reads was spent"]
-        return None  # out of time: an unread answer refuses, or counts as no fleet pass
+        return None  # out of time: an unread answer is a Hold, or counts as no fleet pass
     timeout = min(TIMEOUT, left)
     try:
         done = subprocess.run(args, capture_output=True, text=True, timeout=timeout, cwd=cwd, env=env)
@@ -323,8 +327,12 @@ def gh_lines(args: list[str], cwd: str | None):
         return None
 
 
+class Hold(str):
+    """Why the guard would have held a merge it found no red for: the hook warns and the merge goes ahead."""
+
+
 def verdict(pr: dict, files: list[str], checks: list[dict], fleet_passed: bool = False) -> str:
-    """"" when the merge may go ahead, else why it is refused."""
+    """"" when the merge goes ahead silently, a Hold when it goes ahead with a warning, else why it is refused."""
     if pr.get("base") != BASE:
         return ""
     swift = [f for f in files if changes_swift(f)]
@@ -338,9 +346,9 @@ def verdict(pr: dict, files: list[str], checks: list[dict], fleet_passed: bool =
     # No compile result on the head yet: the default path is the fleet's dev-build workers (COMMON.md), not
     # waiting on the Mac Release compile.
     what = changes_what(pr, swift)
-    return (f"{what} and {pr['head'][:12]} has no compile result yet. Compile-check it on the fleet dev-build "
-            f"workers: `cmux-ci compile-check --ref {pr['head']} --app`, then merge again; the guard reads that job. "
-            f"({why.removeprefix(what + ' and ')})")
+    return Hold(f"{what} and {pr['head'][:12]} has no compile result yet. To compile it now, run "
+                f"`cmux-ci compile-check --ref {pr['head']} --app` on the fleet dev-build workers. "
+                f"({why.removeprefix(what + ' and ')})")
 
 
 def compile_wait(checks: list[dict]) -> bool:
@@ -350,10 +358,20 @@ def compile_wait(checks: list[dict]) -> bool:
     finished = [c.get("conclusion") for c in named if c.get("status") == "completed"]
     if any(c not in NO_VERDICT and c != "success" for c in finished) and "success" not in finished:
         return False  # an attempt finished red: a rerun queued after it is no wait (every attempt is read)
+    if fleet_red(checks):
+        return False  # the build-fleet compile finished red: the Release compile queued beside it is no wait
     return (not checks or any(c.get("status") in RUNNING for c in named)
             or (not named and any(c.get("name") in ROUTING and c.get("status") in RUNNING for c in checks))
             or (len(finished) == len(named) and set(finished) - NOT_RUN == {"cancelled"})
             or fleet_stopped(checks))
+
+
+def fleet_red(checks: list[dict]) -> str:
+    """The red conclusion of the PR's build-fleet compile when no attempt of it, and no Release compile, passed."""
+    fleet = [c.get("conclusion") for c in checks if c.get("name") == FLEET_COMPILE and c.get("status") == "completed"]
+    red = [c for c in fleet if c not in NO_VERDICT and c != "success"]
+    passed = "success" in fleet or any(c.get("name") == COMPILE and c.get("conclusion") == "success" for c in checks)
+    return red[0] if red and not passed else ""
 
 
 def fleet_stopped(checks: list[dict]) -> bool:
@@ -373,19 +391,18 @@ def compile_refusal(pr: dict, swift: list[str], checks: list[dict]) -> str:
     head = pr["head"][:12]
     what = changes_what(pr, swift)
     if not checks:
-        return f"{what} and {head} has no checks yet; merge once its {COMPILE} passes."
+        return f"{what} and {head} has no checks yet, so no {COMPILE} either."
+    red = fleet_red(checks)
+    if red:
+        return (f"{what} and its {FLEET_COMPILE} finished {red} on {head}. "
+                f"Fix it, or merge the base in when the base has the fix, and merge once it passes.")
     if any(c.get("status") in RUNNING for c in named):
-        return f"{what} and its {COMPILE} is still running on {head}; merge once it passes."
+        return f"{what} and its {COMPILE} is still running on {head}."
     if not named and any(c.get("name") in ROUTING and c.get("status") in RUNNING for c in checks):
-        return f"{what} and cmux-next has not created its {COMPILE} on {head} yet; merge once it passes."
+        return f"{what} and cmux-next has not created its {COMPILE} on {head} yet."
     ran = [c for c in named if c.get("conclusion") not in NOT_RUN]
     if ran and not any(c.get("conclusion") == "success" for c in ran):
         return (f"{what} and its {COMPILE} finished {ran[0].get('conclusion')} on {head}. "
-                f"Fix it, or merge the base in when the base has the fix, and merge once it passes.")
-    fleet = [c.get("conclusion") for c in checks if c.get("name") == FLEET_COMPILE and c.get("status") == "completed"]
-    red = [c for c in fleet if c not in NO_VERDICT and c != "success"]
-    if red and "success" not in fleet and not any(c.get("conclusion") == "success" for c in ran):
-        return (f"{what} and its {FLEET_COMPILE} finished {red[0]} on {head}. "
                 f"Fix it, or merge the base in when the base has the fix, and merge once it passes.")
     if fleet_stopped(checks):
         return f"{what} and its {FLEET_COMPILE} was cancelled on {head}, so nothing compiled it; rerun it."
@@ -516,40 +533,51 @@ def on_base(repo: str, sha: str, cwd: str | None) -> bool:
 
 
 def refusal(command: str, cwd: str | None, reader=read_pr) -> str:
+    """The first red among the command's merges; else the first Hold; else ""."""
+    held = ""
     for repo, selector, where in merge_targets(command, cwd):
         if repo is None and where is REMOTE:
-            return ("merge-compile-guard: this merges a pull request in a checkout the guard can't read (over "
-                    "ssh or after `cd $VAR`); run `gh pr merge N -R OWNER/REPO` so its compile is checked.")
+            held = held or Hold("merge-compile-guard: this merges a pull request in a checkout the guard can't read "
+                                "(over ssh or after `cd $VAR`), so its compile was not checked; `gh pr merge N -R "
+                                "OWNER/REPO` lets the guard check it.")
+            continue
         repo = repo or checkout_repo(where)
         if repo is None:
-            return ("merge-compile-guard: can't tell which repository this merges in (its checkout's origin "
-                    "could not be read); run `gh pr merge N -R OWNER/REPO` so its compile is checked.")
+            held = held or Hold("merge-compile-guard: can't tell which repository this merges in (its checkout's "
+                                "origin could not be read), so its compile was not checked; `gh pr merge N -R "
+                                "OWNER/REPO` lets the guard check it.")
+            continue
         if repo != GUARDED_REPO:
             continue
         where = None if where is REMOTE else where
         if selector == UNKNOWN:
-            return ("merge-compile-guard: this merges a manaflow-ai/cmux pull request the guard can't name (a shell "
-                    "variable or a GraphQL mutation); run `gh pr merge N` with its number so its compile is checked.")
+            held = held or Hold("merge-compile-guard: this merges a manaflow-ai/cmux pull request the guard can't "
+                                "name (a shell variable or a GraphQL mutation), so its compile was not checked; "
+                                "`gh pr merge N` with its number lets the guard check it.")
+            continue
         if selector is None or not selector.isdigit():
             # gh refuses `pr view -R` without a selector: the checkout's branch is looked up in the checkout.
             args = [selector, "-R", repo] if selector else []
             found = gh_json(["pr", "view", *args, "--json", "number"], where)
             number = (found or {}).get("number")
             if not number:
-                return (f"merge-compile-guard: could not tell which pull request `gh pr merge {selector or ''}` merges; "
-                        f"name it by number (gh pr merge N).")
+                held = held or Hold(f"merge-compile-guard: could not tell which pull request `gh pr merge "
+                                    f"{selector or ''}` merges, so its compile was not checked.")
+                continue
         else:
             number = int(selector)
         try:
             why = reader(repo, number, where)
         except Unreadable:
             cause = FAILED[0] if FAILED else "GitHub gave no readable answer"
-            return (f"merge-compile-guard: could not read #{number} from GitHub ({cause}), so it can't tell whether "
-                    f"its Swift compile passed. Retry the merge; if GitHub stays slow, check `glaeda-gh budget` and the "
-                    f"host's load.")
-        if why:
+            held = held or Hold(f"merge-compile-guard: could not read #{number} from GitHub ({cause}), so it can't "
+                                f"tell whether its Swift compile passed.")
+            continue
+        if isinstance(why, Hold):
+            held = held or Hold(f"merge-compile-guard: {why}")
+        elif why:
             return f"merge-compile-guard: {why}"
-    return ""
+    return held
 
 
 def claude_hook(stdin) -> int:
@@ -559,7 +587,12 @@ def claude_hook(stdin) -> int:
         return 0
     command = ((payload.get("tool_input") or {}).get("command") or "")
     why = refusal(command, payload.get("cwd"))
-    if why:
+    if isinstance(why, Hold):
+        # No permissionDecision: the command goes through the normal permission flow.
+        text = f"{why} Only a compile that finished red refuses, so merging anyway."
+        json.dump({"systemMessage": text, "hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                                                 "additionalContext": text}}, sys.stdout)
+    elif why:
         json.dump({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                           "permissionDecisionReason": why}}, sys.stdout)
     return 0

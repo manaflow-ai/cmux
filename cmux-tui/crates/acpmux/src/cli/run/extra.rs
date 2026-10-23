@@ -343,6 +343,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         "web:      {}",
                         v.get("webUrl").and_then(Value::as_str).unwrap_or("-")
                     );
+                    if let Some(line) = host_pressure_line(&v["host_pressure"]) {
+                        println!("host:     {line}");
+                    }
                     for p in v.get("peers").and_then(Value::as_array).cloned().unwrap_or_default() {
                         println!(
                             "peer:     {} {} ({} sessions) {}",

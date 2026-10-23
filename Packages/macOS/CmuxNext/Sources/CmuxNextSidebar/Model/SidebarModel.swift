@@ -20,6 +20,8 @@ public final class SidebarModel {
             return storedSections
         }
         set {
+            // A group's indent comes only from the groups this list holds (`resolvingGroupDepths`).
+            let newValue = newValue.map { $0.resolvingGroupDepths() }
             // An unchanged set is no structural change (an intent that edits nothing).
             guard newValue != storedSections else { return }
             withMutation(keyPath: \.sections) {
@@ -114,6 +116,13 @@ public final class SidebarModel {
     /// Multi-selection (Cmd/Shift-click). Always contains `activeWorkspaceID`
     /// when that is set.
     public var selection: Set<WorkspaceID> = []
+    /// Where a Shift range starts: the row last clicked, Cmd-clicked in or
+    /// moved to without Shift. Shift+Arrow and Shift-click select from it to
+    /// the new row, so going back shrinks the range.
+    @ObservationIgnored var selectionAnchor: WorkspaceID?
+    /// The moving end of a Shift range (the row last Shift-clicked or
+    /// Shift-arrowed to): the next Shift+Arrow steps from it, as in Finder.
+    @ObservationIgnored var selectionExtent: WorkspaceID?
     /// Every workspace on screen in this window, the shown one too (`sidebar.multiView`): their rows draw a
     /// soft fill under the selection's. The App sets it; empty draws nothing extra.
     public var onScreen: Set<WorkspaceID> = []
@@ -210,6 +219,8 @@ public final class SidebarModel {
     public var detailedStatus = false
     /// Rows show when they last changed (`sidebar.showTimestamps`, off by default).
     public var showsTimestamps = false
+    /// `sidebar.showColors`: off, rows and group headers draw no workspace or group color.
+    public var showsColors = true
     /// This Mac's rows carry its machine mark too (`sidebar.showLocalMachine`, off by default).
     public var showsLocalMachine = false
     /// What a collapsed group header shows beside its loading spinner
@@ -254,7 +265,7 @@ public final class SidebarModel {
     @ObservationIgnored public var onPresentationChange: ((SidebarPresentation) -> Void)?
 
     public init(sections: [SidebarSection] = [], activeWorkspaceID: WorkspaceID? = nil) {
-        storedSections = sections
+        storedSections = sections.map { $0.resolvingGroupDepths() }
         collapsedSections = Set(sections.filter(\.isCollapsed).map(\.id))
         self.activeWorkspaceID = activeWorkspaceID
         if let activeWorkspaceID { selection = [activeWorkspaceID] }
@@ -512,6 +523,7 @@ public final class SidebarModel {
         (minimal, expanded) = (preferences.minimal, preferences.density == .expanded)
         detailedStatus = preferences.detailedStatusIcons
         showsTimestamps = preferences.showTimestamps
+        showsColors = preferences.showColors
         showsLocalMachine = preferences.showLocalMachine
         groupHeaderDetails = GroupHeaderDetails(memberCount: preferences.groupHeaderMemberCount,
                                                 unreadCount: preferences.groupHeaderUnreadCount)
@@ -542,6 +554,7 @@ public final class SidebarModel {
         (o.minimal, o.expanded) = (minimal, expanded)
         o.detailedStatus = detailedStatus
         o.showsTimestamps = showsTimestamps
+        o.showsColors = showsColors
         o.flattensMachines = !groupsByComputer
         if o.flattensMachines {
             for section in sections {
@@ -550,8 +563,7 @@ public final class SidebarModel {
                 o.machineStatusLabels[machine.id] = status
             }
         }
-        // The local Chief runs on this Mac (SidebarRowIndex.machineLabel): not another machine.
-        let listed = sections.compactMap(\.machine).filter { !$0.id.isLocalChief }
+        let listed = sections.compactMap(\.machine)
         if Set(listed.map(\.id)).count > 1 {
             o.machines = Dictionary(listed.filter { $0.kind != .local || showsLocalMachine }.map { ($0.id, $0) },
                                     uniquingKeysWith: { first, _ in first })
@@ -575,6 +587,12 @@ public final class SidebarModel {
 
     /// Toggle Sidebar: fully shown at `width`, or fully hidden.
     public func toggle() {
+        // The rail (`sidebar.style` = rail): the toggle opens the full sidebar over the content and
+        // closes it back to the rail (Lawrence 2026-10-21: the full sidebar opens from the toggle, not on hover).
+        if style == .rail, presentation == .shown {
+            isRailOpen.toggle()
+            return
+        }
         presentation = presentation == .hidden ? .shown : .hidden
     }
 }

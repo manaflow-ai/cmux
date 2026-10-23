@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextControl
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSettingsWindow
@@ -18,22 +19,36 @@ extension PageDescriptor {
 /// - `view.set {query?, selection?}`: search and sidebar selection;
 /// - `set {key, value}` (null resets) and `reset {key | section | all}`;
 /// - `export {format: json | swift}`: the hand-off text (`{text}`); the page copies it;
-/// - stream `changed`: `{state}` after any change of the store, the view state or the theme.
+/// - `hangs.reveal {path?}` and `hangs.copy {path}`: a recent hang file (``HangFileTunables``);
+/// - stream `changed`: `{state}` after any change of the store, the view state, the theme or the
+///   hang files.
 @MainActor
 final class DebugSettingsPageProvider: PageProvider {
     private let model: DebugSettingsModel
+    /// The watchdog's hang files, listed in the state's `hangs`.
+    private let hangs: HangEpisodeRecorder?
     private var listeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     private var watching = false
+    /// Observes ``HangEpisodeRecorder/didChange`` while a page listens.
+    private var hangObserver: (any NSObjectProtocol)?
 
-    init(model: DebugSettingsModel) {
+    init(model: DebugSettingsModel, hangs: HangEpisodeRecorder?) {
         self.model = model
+        self.hangs = hangs
+    }
+
+    /// The model's page state with the recent hangs.
+    private func state() -> JSONValue {
+        guard case .object(var fields) = model.pageState() else { return model.pageState() }
+        fields["hangs"] = HangFileTunables.pageJSON(hangs)
+        return .object(fields)
     }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         let fields = params.objectValue ?? [:]
         switch op {
         case "cmux.debug.tunables.state":
-            return model.pageState()
+            return state()
         case "cmux.debug.tunables.view.set":
             model.applyView(fields)
         case "cmux.debug.tunables.set":
@@ -54,10 +69,14 @@ final class DebugSettingsPageProvider: PageProvider {
             // nil pasteboard: the model sets its notice and returns the text; the page copies it.
             let text = fields["format"]?.stringValue == "swift" ? model.copySwift(to: nil) : model.copyJSON(to: nil)
             return ["text": .string(text)]
+        case "cmux.debug.tunables.hangs.reveal":
+            try HangFileTunables.reveal(hangs, path: fields["path"]?.stringValue)
+        case "cmux.debug.tunables.hangs.copy":
+            return try await HangFileTunables.text(hangs, path: fields["path"]?.stringValue)
         default:
             throw PageError.unknownOp(op)
         }
-        return model.pageState()
+        return state()
     }
 
     func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
@@ -66,7 +85,22 @@ final class DebugSettingsPageProvider: PageProvider {
         let id = UUID()
         listeners[id] = onEvent
         if !watching { watch() }
-        return PageSubscription { [weak self] in _ = self?.listeners.removeValue(forKey: id) }
+        if hangObserver == nil, let hangs {
+            hangObserver = NotificationCenter.default.addObserver(forName: HangEpisodeRecorder.didChange, object: hangs, queue: nil) { [weak self] _ in
+                // task-owner: one change event per written hang file; nothing to cancel.
+                Task { @MainActor in self?.emit() }
+            }
+        }
+        return PageSubscription { [weak self] in self?.unsubscribe(id) }
+    }
+
+    /// The last listener leaving stops the hang-file observer (the Observation watch ends at
+    /// its next change, ``watch()``).
+    private func unsubscribe(_ id: UUID) {
+        listeners.removeValue(forKey: id)
+        guard listeners.isEmpty, let observer = hangObserver else { return }
+        NotificationCenter.default.removeObserver(observer)
+        hangObserver = nil
     }
 
     /// Observation, re-armed after each change while a page listens; changes in one main-actor
@@ -84,8 +118,13 @@ final class DebugSettingsPageProvider: PageProvider {
     }
 
     private func changed() {
-        let event: JSONValue = ["state": model.pageState()]
-        for listener in listeners.values { listener(event) }
+        emit()
         watch()
+    }
+
+    private func emit() {
+        guard !listeners.isEmpty else { return }
+        let event: JSONValue = ["state": state()]
+        for listener in listeners.values { listener(event) }
     }
 }

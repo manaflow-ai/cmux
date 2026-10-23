@@ -80,7 +80,7 @@ pub async fn serve(
         "file" => file(&config, &args, &sender).await,
         "upload" => upload(&config, &peer, &args, &sender, receiver).await,
         "version" => version(&config, &sender).await,
-        "browser" => crate::browser::serve(&config.browser, &peer, &args, &sender, receiver).await,
+        "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
         _ => Err(Refusal::new("unknown_service", format!("no service {service}"))),
     };
     match result {
@@ -293,10 +293,16 @@ async fn splice(
         .map_err(|e| Refusal::new("unavailable", format!("cmux-tui session {label}: {e}")))?;
     let (daemon_read, mut daemon_write) = socket.into_split();
     let (lines_tx, mut lines_rx) = mpsc::channel::<Vec<u8>>(256);
+    // The daemon lane: the phone's terminal size claims, released when it
+    // leaves on purpose (size_release.rs).
+    let claims = terminal_folders.is_some();
+    let _active = claims.then(crate::size_release::ActiveSplice::begin);
+    let pending = Arc::new(crate::size_release::PendingReleases::default());
 
     // Daemon → phone, whole lines.
     let daemon_lines = lines_tx.clone();
     let reply_policy = policy.clone();
+    let answers = Arc::clone(&pending);
     let mut from_daemon = tokio::spawn(async move {
         let mut reader = BufReader::with_capacity(64 * 1024, daemon_read);
         loop {
@@ -304,6 +310,10 @@ async fn splice(
             match reader.read_until(b'\n', &mut line).await {
                 Ok(0) | Err(_) => return,
                 Ok(_) => {
+                    // hostd's own releases: answered to hostd, not the phone.
+                    if answers.answer(&line) {
+                        continue;
+                    }
                     let Some(line) = reply_policy.reply(line) else { continue };
                     if daemon_lines.send(line).await.is_err() {
                         return;
@@ -315,9 +325,30 @@ async fn splice(
 
     // Phone → daemon, filtered.
     let refusals = lines_tx;
+    let releases = Arc::clone(&pending);
+    let mut stopping = crate::size_release::stopping();
     let mut to_daemon = tokio::spawn(async move {
         let mut pending: Vec<u8> = Vec::new();
-        while let Some(ChannelEvent::Data(bytes)) = receiver.recv().await {
+        let mut sized = crate::size_release::SizeClaims::default();
+        loop {
+            let event = tokio::select! {
+                event = receiver.recv() => event,
+                // hostd is stopping (iPhone connections off, the app quitting).
+                () = async { drop(stopping.wait_for(|stopping| *stopping).await) }, if claims => {
+                    release_claims(&sized, &releases, &mut daemon_write, crate::size_release::ReleaseReason::Stopping).await;
+                    return;
+                }
+            };
+            let bytes = match event {
+                Some(ChannelEvent::Data(bytes)) => bytes,
+                Some(ChannelEvent::Closed(info)) => {
+                    if claims && let Some(reason) = crate::size_release::ReleaseReason::for_close(&info) {
+                        release_claims(&sized, &releases, &mut daemon_write, reason).await;
+                    }
+                    return;
+                }
+                None => return,
+            };
             pending.extend_from_slice(&bytes);
             while let Some(newline) = pending.iter().position(|&b| b == b'\n') {
                 let mut line: Vec<u8> = pending.drain(..=newline).collect();
@@ -345,6 +376,9 @@ async fn splice(
                         if let Some(path) = &terminal_folders {
                             line = with_pane_folder(path, line).await;
                         }
+                        if claims {
+                            sized.observe(&line);
+                        }
                         line.push(b'\n');
                         if daemon_write.write_all(&line).await.is_err() {
                             return;
@@ -353,6 +387,9 @@ async fn splice(
                     Verdict::Rewrite(mut line) => {
                         if let Some(path) = &terminal_folders {
                             line = with_pane_folder(path, line).await;
+                        }
+                        if claims {
+                            sized.observe(&line);
                         }
                         line.push(b'\n');
                         if daemon_write.write_all(&line).await.is_err() {
@@ -383,6 +420,24 @@ async fn splice(
             line = lines_rx.recv() => match line {
                 Some(line) => {
                     if sender.send(Bytes::from(line)).await.is_err() {
+                        // The phone is gone (its close frame, a removed phone). Its
+                        // close reaches the phone-to-daemon task, which releases its
+                        // sizes: let that finish (bounded) instead of aborting it,
+                        // or the daemon reads end of file first and holds the grid.
+                        if claims {
+                            let _ = tokio::time::timeout(
+                                crate::size_release::RELEASE_WAIT + std::time::Duration::from_millis(300),
+                                async {
+                                    loop {
+                                        tokio::select! {
+                                            _ = &mut to_daemon => return,
+                                            line = lines_rx.recv() => if line.is_none() { return },
+                                        }
+                                    }
+                                },
+                            )
+                            .await;
+                        }
                         break;
                     }
                 }
@@ -407,6 +462,33 @@ async fn splice(
     to_daemon.abort();
     from_daemon.abort();
     Ok(())
+}
+
+/// Releases every terminal size the phone claimed on this channel and waits
+/// (at most `RELEASE_WAIT`) for the daemon's answers, keeping the socket open
+/// meanwhile: an end of file the daemon read before a release would be a
+/// dropped view, which holds the grid.
+async fn release_claims(
+    claims: &crate::size_release::SizeClaims,
+    pending: &crate::size_release::PendingReleases,
+    daemon: &mut tokio::net::unix::OwnedWriteHalf,
+    reason: crate::size_release::ReleaseReason,
+) {
+    if claims.is_empty() {
+        return;
+    }
+    let lines = claims.release_lines();
+    tracing::info!(?reason, terminals = lines.len(), "releasing the phone's terminal sizes");
+    let mut batch = Vec::new();
+    for (id, line) in lines {
+        pending.add(id);
+        batch.extend_from_slice(&line);
+        batch.push(b'\n');
+    }
+    if daemon.write_all(&batch).await.is_err() {
+        return;
+    }
+    pending.wait(crate::size_release::RELEASE_WAIT).await;
 }
 
 /// The acpmux WebSocket address and token.
@@ -785,12 +867,12 @@ pub fn safe_file_name(name: &str) -> String {
 
 /// The folders of the tabs the daemon lists (`list-workspaces`), canonical.
 async fn daemon_folders(config: &ServiceConfig) -> Result<Vec<PathBuf>, Refusal> {
-    let path = config
-        .default_socket
-        .clone()
-        .unwrap_or_else(|| config.tui_socket_dir.join(format!("{}.sock", config.default_session)));
-    let reply = list_workspaces(&path).await?;
-    let data = reply.get("data").unwrap_or(&reply);
+    Ok(folders_in(&list_workspaces(&config.daemon_socket()).await?))
+}
+
+/// The tab folders in a `list-workspaces` reply, canonical.
+fn folders_in(reply: &Value) -> Vec<PathBuf> {
+    let data = reply.get("data").unwrap_or(reply);
     let mut folders = Vec::new();
     let empty = Vec::new();
     let list = |value: &Value, key: &str| value.get(key).and_then(Value::as_array).unwrap_or(&empty).clone();
@@ -809,7 +891,61 @@ async fn daemon_folders(config: &ServiceConfig) -> Result<Vec<PathBuf>, Refusal>
             }
         }
     }
-    Ok(folders)
+    folders
+}
+
+/// The address of every browser tab in a `list-workspaces` reply.
+pub fn browser_urls_in(reply: &Value) -> Vec<String> {
+    let data = reply.get("data").unwrap_or(reply);
+    let empty = Vec::new();
+    let list = |value: &Value, key: &str| value.get(key).and_then(Value::as_array).unwrap_or(&empty).clone();
+    let mut urls = Vec::new();
+    for workspace in list(data, "workspaces") {
+        for screen in list(&workspace, "screens") {
+            for pane in list(&screen, "panes") {
+                for tab in list(&pane, "tabs") {
+                    if tab.get("kind").and_then(Value::as_str) == Some("browser")
+                        && let Some(url) = tab.get("url").and_then(Value::as_str)
+                        && !url.is_empty()
+                        && !urls.iter().any(|u| u == url)
+                    {
+                        urls.push(url.to_owned());
+                    }
+                }
+            }
+        }
+    }
+    urls
+}
+
+/// What the Mac shares with phones and what its browser tabs show, for the
+/// `browser` service's address checks (`browser_policy.rs`), from one
+/// `list-workspaces` answer. No answer (or no home folder): only the Chat
+/// Folders, and no Mac pages.
+impl crate::browser_policy::MacPages for ServiceConfig {
+    fn view(&self) -> futures_util::future::BoxFuture<'_, crate::browser_policy::MacView> {
+        Box::pin(async move {
+            let reply = list_workspaces(&self.daemon_socket()).await.ok();
+            let browser_urls = reply.as_ref().map(browser_urls_in).unwrap_or_default();
+            let roots = match std::env::var_os("HOME").filter(|h| !h.is_empty()) {
+                Some(home) => {
+                    let folders = reply.as_ref().map(folders_in).unwrap_or_default();
+                    shared_file_roots(&self.file_roots, folders, Path::new(&home))
+                }
+                None => self.file_roots.clone(),
+            };
+            crate::browser_policy::MacView { roots, browser_urls }
+        })
+    }
+}
+
+impl ServiceConfig {
+    /// The app's daemon socket (`default_socket`, else the default session's).
+    fn daemon_socket(&self) -> PathBuf {
+        self.default_socket
+            .clone()
+            .unwrap_or_else(|| self.tui_socket_dir.join(format!("{}.sock", self.default_session)))
+    }
 }
 
 /// The daemon at `path`'s `list-workspaces` reply (at most 5 s).
@@ -1108,6 +1244,46 @@ async fn receive_upload(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The daemon down: only the Chat Folders are shared and no Mac page loads.
+    #[tokio::test]
+    async fn with_no_daemon_the_browser_checks_fail_closed() {
+        use crate::browser_policy::MacPages;
+        let base = tempfile::tempdir().unwrap();
+        let chat = base.path().join("chat");
+        std::fs::create_dir_all(&chat).unwrap();
+        let config = ServiceConfig {
+            tui_socket_dir: base.path().to_path_buf(),
+            default_session: "main".into(),
+            default_socket: Some(base.path().join("gone.sock")),
+            file_roots: vec![chat.clone()],
+            acpmux: AcpmuxTarget::Fixed { url: "ws://127.0.0.1:1".into(), token: None },
+            pairing: None,
+            agent_tab_host: None,
+            uploads_dir: base.path().join("uploads"),
+            upload_max_bytes: 1,
+            chief_socket: None,
+            browser: crate::browser::BrowserConfig::default(),
+        };
+        let view = config.view().await;
+        assert!(view.browser_urls.is_empty());
+        assert_eq!(view.roots, vec![chat]);
+    }
+
+    #[test]
+    fn the_macs_browser_tabs_are_listed() {
+        let reply = serde_json::json!({"ok": true, "data": {"workspaces": [{"screens": [{"panes": [
+            {"tabs": [{"surface": 9, "kind": "browser", "url": "file:///Users/me/a%20b.html"},
+                      {"surface": 10, "kind": "pty", "url": "https://not-a-browser.example/", "cwd": "/Users/me"},
+                      {"surface": 11, "kind": "browser", "url": ""}]},
+            {"tabs": [{"surface": 12, "kind": "browser", "url": "https://cmux.com/"},
+                      {"surface": 13, "kind": "browser", "url": "https://cmux.com/"}]}]}]}]}});
+        assert_eq!(
+            browser_urls_in(&reply),
+            vec!["file:///Users/me/a%20b.html".to_owned(), "https://cmux.com/".into()]
+        );
+        assert!(browser_urls_in(&serde_json::json!({"ok": false})).is_empty());
+    }
 
     /// End to end through a fake daemon: the phone's `new-tab` leaves with the pane's
     /// folder; a line that names one, or another command, is untouched.

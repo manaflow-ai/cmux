@@ -11608,6 +11608,12 @@
         "required": true
       }
     },
+    "request:terminal-ports": {
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "request:terminal-read-range": {
       "/format": {
         "ty": "string",
@@ -20022,6 +20028,42 @@
       },
       "/data/snapshot_version": {
         "ty": "uint16",
+        "required": true
+      },
+      "/data/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:terminal-ports": {
+      "/data/closed": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/closed/*": {
+        "ty": "uint16"
+      },
+      "/data/listeners": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/listeners/*": {
+        "ty": "object"
+      },
+      "/data/listeners/*/bound": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/listeners/*/host": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/listeners/*/port": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/data/listeners/*/url": {
+        "ty": "string",
         "required": true
       },
       "/data/surface": {

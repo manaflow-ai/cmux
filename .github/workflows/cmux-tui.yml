@@ -397,6 +397,18 @@ jobs:
         working-directory: cmux-tui
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      # Panic ratchet (plans/cmux-next/rust-panic-free.md): production targets
+      # only (--lib --bins), so tests, benches and build scripts stay free.
+      # A crate may not gain an unwrap/expect/panic/indexing hit; a new crate
+      # starts at zero. Dependencies are already checked by the step above,
+      # so this rechecks only the workspace crates.
+      - name: Rust panic ratchet
+        if: ${{ !cancelled() }}
+        working-directory: cmux-tui
+        run: |
+          cargo clippy --workspace --lib --bins --locked --message-format=json -- $(python3 ../scripts/cmux-next/rust_panic_ratchet.py --flags) > "$RUNNER_TEMP/panic-clippy.jsonl"
+          python3 ../scripts/cmux-next/rust_panic_ratchet.py --clippy-json "$RUNNER_TEMP/panic-clippy.jsonl"
+
       # cmux-rd-ffi is its own Cargo workspace (outside --workspace), so the
       # cmux-tui lint/test steps never build it. Its tests pin the C header
       # against the exports and layouts (plans/cmux-next/remote-desktop.md 3).
@@ -832,6 +844,12 @@ jobs:
       - name: Build the cmux-tui daemon and CLI
         working-directory: cmux-tui
         run: cargo build --locked -p cmux-tui --bin cmux-tui
+
+      # The shared Claude Code turn crate and the Cloud Chief's Rust turn runner
+      # (its own workspace; the runner's tests drive the real binary on Linux).
+      - name: chief-turn test suite
+        working-directory: Native/OptChat/chief-turn
+        run: cargo test --locked
 
       - name: optchat-chief test suite
         working-directory: Native/OptChat/optchat-chief

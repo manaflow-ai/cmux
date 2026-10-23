@@ -6,14 +6,20 @@ import { useT } from "./i18n";
 import { ContextRing } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
 
-type Props = { used?: number; size?: number; setup?: number };
+type Props = { used?: number; size?: number; setup?: number; details?: boolean };
 
 function GalleryContextRing(props: Props) {
   const t = useT();
   const [requested, setRequested] = useState(false);
   return (
     <div className="context-ring-gallery" data-context-automation={requested ? "requested" : "idle"}>
-      <ContextRing {...props} />
+      <ContextRing
+        used={props.used}
+        size={props.size}
+        setup={props.setup}
+        // The chat's Inspector reveal (App.tsx); the gallery has no Inspector to open.
+        onOpenDetails={props.details ? () => {} : undefined}
+      />
       <button
         type="button"
         className="context-ring-gallery-opener"
@@ -35,7 +41,13 @@ const openByAutomation: Play = async (ctx) => {
 
 const openKnownByAutomation: Play = async (ctx) => {
   await openByAutomation(ctx);
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-pop") !== null);
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-card") !== null);
+};
+
+// Resting the pointer on the ring shows the card with no click (Leo 2026-10-21).
+const hoverCard: Play = async (ctx) => {
+  await ctx.hover({ selector: "button.acpmux-context-ring" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-card"));
 };
 
 export default componentEntry<Props>({
@@ -43,23 +55,26 @@ export default componentEntry<Props>({
   title: "Context usage ring",
   area: "Agent pane",
   pane: true,
-  height: 220,
+  height: 260,
   widths: { narrow: 360, normal: 520, wide: 720 },
   anchors: [{ selector: ".acpmux-context" }],
-  covers: ["agent-session/acpmux/ComposerPickers.tsx#ContextRing"],
+  covers: [
+    "agent-session/acpmux/ComposerPickers.tsx#ContextRing",
+    "agent-session/acpmux/ContextCard.tsx#ContextCardBody",
+  ],
   styles: () => Promise.all([import("./styles.css"), import("./composerControls.css")]),
   checks: {
     anchorMovePx: {
       value: 0,
-      reason: "Opening context details must leave the ring's trigger geometry fixed.",
+      reason: "Showing the context card must leave the ring's trigger geometry fixed.",
     },
     layoutShiftMax: {
       value: 0,
-      reason: "The usage details render in a portal and must not add flow around the ring.",
+      reason: "The context card renders in a portal and must not add flow around the ring.",
     },
     longFrameFailMs: {
       value: 33,
-      reason: "Context details are a local popover and should open within one display frame.",
+      reason: "The context card is a local hover card and should open within one display frame.",
     },
   },
   load: async () => GalleryContextRing,
@@ -70,9 +85,19 @@ export default componentEntry<Props>({
       play: openByAutomation,
     },
     "known-usage": {
-      note: "Once usage is known, the same automation path opens the anchored usage details.",
+      note: "Once usage is known, the same automation path pins the context card open.",
       props: { used: 33551, size: 200000, setup: 12000 },
       play: openKnownByAutomation,
+    },
+    "card-claude": {
+      note: "Hover on a Claude chat: the glass card reads 23% used · 111K / 475K, the bar splits the agent's setup from the conversation, and Details › opens the Inspector's Context section. Plan limits are not reported to the pane yet, so the card shows none.",
+      props: { used: 111_000, size: 475_000, setup: 21_000, details: true },
+      play: hoverCard,
+    },
+    "card-codex": {
+      note: "Hover on a Codex chat that reports only the window: the context line, one used stretch on the bar, and Details ›.",
+      props: { used: 111_000, size: 475_000, details: true },
+      play: hoverCard,
     },
     "usage-empty": {
       note: "A fresh chat: usage is known but nothing is used, so only the 1px track shows.",

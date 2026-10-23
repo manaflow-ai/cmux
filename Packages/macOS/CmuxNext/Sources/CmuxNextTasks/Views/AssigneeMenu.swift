@@ -31,7 +31,7 @@ struct AssigneeMenu: View {
             model.choose(choice, for: task.id)
         } label: {
             if model.isCurrent(choice, for: task) {
-                Label { Text(title) } icon: { Image(nsImage: NSImage.icon(.stateSelected, size: 16)) }
+                Label { Text(title) } icon: { Image(systemName: "checkmark") }
             } else {
                 Text(title)
             }

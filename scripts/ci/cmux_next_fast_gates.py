@@ -19,7 +19,8 @@ result is fresh for the tip they merge into.
                                                   when any gate fails, after running all of them
 
 The gates, each the same invocation as its push-time job:
-  web lint        scripts/web_lint_prepush.py --base BASE --head MERGE (cmux-next-web.yml, web lint (fast))
+  web lint        scripts/web_lint_prepush.py --base BASE --head MERGE --new-only (cmux-next-web.yml's
+                  web lint (fast); only findings the PR adds, per error)
   crash ratchet   scripts/ci/crash_ratchet_compare.py on the merge and BASE's exported tree (cmux-next-guards.yml)
   defaults stamp  scripts/ci/defaults_guard.py check-stamp --base BASE (cmux-next-guards.yml, defaults-snapshot)
   prepush gate    scripts/cmux-next/prepush-gate.py --base BASE --head MERGE (only violations the PR adds)
@@ -106,11 +107,25 @@ def checks_needed(repo: Path, event: str, base: str, merge: str) -> bool:
 
 
 def fetch_for_merge(repo: Path, remote: str, pr: str, base: str) -> None:
-    """Fetch the PR head and the branch tip shallowly, then deepen until BASE is here and meets the head."""
+    """Fetch the PR head and the branch tip shallowly, then deepen until BASE is here and meets the head at its
+    true merge base."""
     refspecs = [f"+refs/pull/{pr}/head:{HEAD_REF}", f"+refs/heads/{BRANCH}:{BASE_REF}"]
 
     def met() -> bool:
-        return bool(rev(repo, base)) and git(repo, "merge-base", HEAD_REF, base, check=False).returncode == 0
+        if not rev(repo, base):
+            return False
+        bases = git(repo, "merge-base", "--all", HEAD_REF, base, check=False).stdout.split()
+        if not bases:
+            return False
+        # A cut commit shows no parents, so a merge base found here can be an older common ancestor than the
+        # true one, hidden past the cut on one side (#24250: spurious conflicts in files the PR never touched).
+        # One found base is the true one once every cut either side reaches lies behind it. Several can be
+        # stale even then (a cut at one hides that it descends from another), and git merges them into a
+        # virtual base from their own history, so they count only once no cut is reachable at all.
+        shallow = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path", "shallow").stdout.strip())
+        cuts = set(shallow.read_text().split()) if shallow.exists() else set()
+        behind = ["--not", *bases] if len(bases) == 1 else []
+        return not cuts.intersection(git(repo, "rev-list", HEAD_REF, base, *behind).stdout.split())
 
     # A depth flag only in a checkout that is already shallow (the CI checkout): in a full clone it would make
     # every worktree sharing it shallow (tests/test_ci_no_shallow_dev_fetch.py), so there it fetches whole.
@@ -194,7 +209,8 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
     """(name, argv) in order; argv None is a skipped gate (SKIPPED says why)."""
     py = sys.executable
     return [
-        ("web lint", [py, "scripts/web_lint_prepush.py", "--base", base, "--head", merge, "--timings"] if web else None),
+        ("web lint", [py, "scripts/web_lint_prepush.py", "--base", base, "--head", merge, "--timings", "--new-only"]
+         if web else None),
         ("crash ratchet", [py, "scripts/ci/crash_ratchet_compare.py", "--script", "scripts/cmux-next/crash_ratchet.py",
                            "--head", str(repo), "--base", str(base_tree)]),
         ("defaults stamp", [py, "scripts/ci/defaults_guard.py", "check-stamp", "--base", base]),

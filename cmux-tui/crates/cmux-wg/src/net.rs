@@ -403,7 +403,12 @@ impl Driver {
             self.catch_up_timers();
             self.run_watchdog();
             match event {
-                Event::Datagram(count, origin) => self.handle_datagram(&datagram[..count], origin),
+                Event::Datagram(count, origin) => {
+                    // A count past the buffer is not a datagram: drop it.
+                    if let Some(received) = datagram.get(..count) {
+                        self.handle_datagram(received, origin);
+                    }
+                }
                 Event::DatagramError(error) => {
                     if is_transient(&error) {
                         continue;

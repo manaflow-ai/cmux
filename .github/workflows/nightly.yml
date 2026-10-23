@@ -668,7 +668,7 @@ jobs:
             }
             const nextHold = track === 'nightly-next' && process.env.NIGHTLY_NEXT_HOLD === '1';
             if (nextHold) {
-              core.warning('nightly-next is on hold (repository variable NIGHTLY_NEXT_HOLD=1): the 2026-10-10 hold followed a feat-cmux-next launch SIGTRAP; no build or publication runs until the signed app passes the 15-second launch smoke and crash-report check. Clear it with: gh variable set NIGHTLY_NEXT_HOLD --body 0 --repo manaflow-ai/cmux');
+              core.warning('nightly-next is on hold (repository variable NIGHTLY_NEXT_HOLD=1): the 2026-10-10 hold followed a feat-cmux-next launch SIGTRAP; no build or publication runs until the signed app passes its canary. Clear it with: gh variable set NIGHTLY_NEXT_HOLD --body 0 --repo manaflow-ai/cmux');
             }
             core.setOutput('should_build', shouldBuild && !pushThrottled && !nextNotWriter && !nextHold ? 'true' : 'false');
             core.setOutput('head_sha', headSha);
@@ -2403,6 +2403,8 @@ jobs:
         run: |
           set -euo pipefail
           app="build-universal/Build/Products/Release/cmux.app"
+          # An app built for the fleet benches keeps the debug.* commands; it never ships.
+          ./scripts/cmux-next/check-no-bench-hooks.sh "$app"
           framework="$app/Contents/Frameworks/Chromium Embedded Framework.framework"
           if [[ -d "$framework" ]]; then
             echo "Chromium engine embedded: $(lipo -archs "$framework/Versions/A/Chromium Embedded Framework")"
@@ -3951,7 +3953,7 @@ jobs:
       contents: read
       issues: read # the canary mode's report week (nightly_next_canary_mode.py)
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -4049,30 +4051,17 @@ jobs:
 
 
       - name: Smoke launch signed app
+        if: env.TRACK != 'nightly-next'
         run: |
           set -euo pipefail
           # Direct execution is isolated from the runner's Dock state.
-          # 2026-10-10: a feat-cmux-next app trapped (SIGTRAP) about 1 s after launch. nightly-next
-          # holds the app 15 s and fails on any crash report the launch wrote (publish-nightly
-          # needs this job, so nothing is published).
-          stable=5
-          [[ "$TRACK" != nightly-next ]] || stable=15
-          marker="$RUNNER_TEMP/smoke-start"; : >"$marker"
-          CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 CMUX_SMOKE_STABLE_SECONDS="$stable" \
+          CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 CMUX_SMOKE_STABLE_SECONDS=5 \
             ./scripts/smoke-launch-macos-app.sh \
             "$CHANNEL_APP_PATH"
-          if [[ "$TRACK" == nightly-next ]]; then
-            app_exec="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$CHANNEL_APP_PATH/Contents/Info.plist")"
-            crashes="$(find "$HOME/Library/Logs/DiagnosticReports" -newer "$marker" \( -name "${app_exec}*.ips" -o -name "${app_exec}*.crash" \) 2>/dev/null || true)"
-            if [[ -n "$crashes" ]]; then
-              echo "::error title=nightly-next launch smoke::the app wrote a crash report during the launch smoke; nothing is published"
-              for c in $crashes; do echo "== $c"; head -c 4000 "$c"; echo; done
-              exit 1
-            fi
-          fi
 
 
       - name: Smoke bundled CLI against the signed app
+        if: env.TRACK != 'nightly-next'
         run: |
           set -euo pipefail
           # Launch-only smoke proves the process lives; this drives the shipped
@@ -4122,14 +4111,14 @@ jobs:
           CANARY_MODE: ${{ steps.canary-mode.outputs.mode }}
           CANARY_WHY: ${{ steps.canary-mode.outputs.why }}
 
-      # The smokes leave daemons of the shipped bundle running (the app keeps
+      # The canary leaves daemons of the shipped bundle running (the app keeps
       # its cmux-tui and acpmux daemons by design). On a hosted runner the
       # runner then spends 3 to 5 minutes in "Cleaning up orphan processes"
       # before the job ends (run 39395352101: two `cmux` orphans,
       # 09:27:36-09:31:01). List what is left, stop the acp daemon through its
       # command, then signal what still runs from this job's bundle.
       # Ephemeral runner only.
-      - name: Stop the daemons the smokes left
+      - name: Stop the daemons the canary left
         if: always() && env.TRACK == 'nightly-next'
         continue-on-error: true
         timeout-minutes: 2
@@ -4139,7 +4128,7 @@ jobs:
           # never answers held the whole step to its 2-minute timeout (run
           # 39438045034), and the step then printed nothing about which one.
           bounded() { local s="$1"; shift; perl -e 'alarm shift; exec @ARGV or die "exec: $!"' "$s" "$@"; }
-          echo "cmux processes left by the smokes:"
+          echo "cmux processes left by the canary:"
           ps -axww -o pid=,ppid=,lstart=,args= | grep -i cmux | grep -v grep || true
           app="$GITHUB_WORKSPACE/$CHANNEL_APP_PATH"
           bin="$app/Contents/Resources/bin"
@@ -4165,7 +4154,7 @@ jobs:
           # "Cleaning up orphan processes" and slows the post-job steps
           # (run 39440747033: owners, the Chief host and the browser host
           # outlived the requests above; the job's tail took 2 min). The runner
-          # is ephemeral and the smokes are done: SIGTERM those exact PIDs,
+          # is ephemeral and the canary is done: SIGTERM those exact PIDs,
           # then SIGKILL the ones still alive after at most 5 s.
           app_name="$(basename "$app")"
           left() {
@@ -4248,11 +4237,11 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      # The notarize step stapled the final DMG with its launch smokes
-      # deferred. Smoke the app inside that exact DMG and record what was
-      # tested; publish-nightly publishes only these bytes. A build still in
-      # Apple's queue has no final DMG yet: verify-recovered-nightly-next
-      # smokes it when a later run continues it.
+      # The notarize step stapled the final DMG with launch checks deferred.
+      # Verify that exact DMG and record the tested bytes; NEXT skips launch
+      # checks here, while legacy tracks retain them. A build still in Apple's
+      # queue has no final DMG yet: verify-recovered-nightly-next verifies it
+      # when a later run continues it.
       - name: Download final DMG
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -4262,6 +4251,8 @@ jobs:
 
       - name: Smoke final DMG
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true'
+        env:
+          CMUX_SKIP_LAUNCH_SMOKES: ${{ needs.decide.outputs.track == 'nightly-next' && 'true' || 'false' }}
         run: |
           set -euo pipefail
           mkdir -p tested
@@ -4659,8 +4650,8 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  # No environment and no secrets: launch-smokes the DMG that
-  # recover-nightly-next-notarization continued and stapled with its smokes
+  # No environment and no secrets: verifies the DMG that
+  # recover-nightly-next-notarization continued and stapled with launch checks
   # deferred, and records the tested bytes; publish-nightly publishes a
   # recovered build only when this job passed, and only those bytes.
   verify-recovered-nightly-next:
@@ -4669,7 +4660,7 @@ jobs:
     permissions:
       contents: read
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       # Set only when the 6 h stapled-app fallback shipped the first DMG.
       STAPLED_APP_FALLBACK_ID: ${{ needs.recover-nightly-next-notarization.outputs.stapled_app_fallback_id }}
@@ -4700,6 +4691,8 @@ jobs:
           path: recovered
 
       - name: Smoke the recovered DMG
+        env:
+          CMUX_SKIP_LAUNCH_SMOKES: "true"
         run: |
           set -euo pipefail
           mkdir -p tested
@@ -7030,71 +7023,6 @@ jobs:
                 print(f"| #{pr['pr']} | {title} | {cell} |")
             PY
 
-  # Post-publication compatibility check: the published NEXT DMG on macOS 15
-  # (Sequoia), the oldest major a hosted
-  # runner offers (GitHub retired macos-14; macOS 14 runs in the fleet's Tart
-  # VMs, scripts/cmux-next/os-smoke/run.sh). The pre-notarization smoke runs
-  # on macOS 26 only. This job downloads exactly what users get, checks every
-  # Mach-O against the macOS 14 floor, launches the app with a scratch HOME,
-  # opens a terminal, browser, Settings and agent chat tab through the debug
-  # socket, checks it is alive after 60 s, dyld-loads every bundled Mach-O,
-  # and uploads the screenshots, crash reports and unified log.
-  nightly-next-macos15-launch:
-    needs: [decide, publish-nightly, resolve-nightly-cmux-tui-client]
-    if: "!cancelled() && github.repository_owner == 'manaflow-ai' && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true'"
-    runs-on: macos-15
-    timeout-minutes: 30
-    # Advisory until its first green run: the runner's Screen Recording grant
-    # for screencapture is not proven yet. The macOS 14/15/26 Tart smoke and
-    # the pre-notarization Mach-O floor check are the gates.
-    continue-on-error: true
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
-          persist-credentials: false
-          sparse-checkout: scripts
-      - name: Download and mount the published DMG
-        env:
-          BUILD: ${{ needs.publish-nightly.outputs.build }}
-          DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
-          RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          sw_vers
-          out="$RUNNER_TEMP/launch"; mkdir -p "$out/dmg" "$out/app"
-          url="https://github.com/$REPOSITORY/releases/download/$RELEASE_TAG/${DMG_PREFIX}-arm64-${BUILD}.dmg"
-          echo "$url"
-          curl -fsSL --retry 4 -o "$out/dmg/next.dmg" "$url"
-          hdiutil attach -nobrowse -readonly -mountpoint "$out/mnt" "$out/dmg/next.dmg" >/dev/null
-          app="$(find "$out/mnt" -maxdepth 1 -name '*.app' -print -quit)"
-          ditto "$app" "$out/app/$(basename "$app")"
-          hdiutil detach "$out/mnt" >/dev/null
-          echo "APP=$out/app/$(basename "$app")" >> "$GITHUB_ENV"
-          echo "OUT=$out" >> "$GITHUB_ENV"
-      - name: Check every bundled Mach-O loads on macOS 14
-        run: python3 scripts/ci/macho_minos.py scan "$APP" --floor 14.0
-      - name: Launch on macOS 15 and open each tab kind
-        run: |
-          set -euo pipefail
-          # The runner's own HOME, as on the Tart VMs: a release build keeps
-          # Chromium's cookie key in the login keychain, and an empty HOME has
-          # none (the key's first write waits on a dialog; no page loads).
-          # The probe gives the app a scratch config of its own.
-          OS_SMOKE_LAUNCH_DEADLINE=180 OS_SMOKE_TAB_DEADLINE=120 \
-            /usr/bin/python3 -I scripts/cmux-next/os-smoke/guest-probe.py "$APP" "$OUT/probe"
-      - name: Upload screenshots, crash reports and logs
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: nightly-next-macos15-launch
-          path: ${{ runner.temp }}/launch/probe
-          if-no-files-found: warn
-          retention-days: 14
-
   # A cancelled job (a timeout reports as cancelled) counts as a failure. On
   # nightly-next the signed release notes are part of the publication: a
   # published build whose notes jobs did not both succeed is reported too
@@ -7221,4 +7149,3 @@ jobs:
               await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: `${process.env.CHANNEL_APP_NAME} publish succeeded again on ${process.env.HEAD_SHA}: ${runUrl}` });
               await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
             }
-

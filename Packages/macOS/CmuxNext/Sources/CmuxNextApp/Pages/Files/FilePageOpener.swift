@@ -41,25 +41,50 @@ final class FilePageOpener: FileOpening {
         open(file, in: pane, userChose: true)
     }
 
+    /// Where an open of a file shows it (``route(for:userChose:asText:)``).
+    enum Route: Equatable {
+        /// A browser tab renders the page (a person's own open of HTML or SVG).
+        case renderedPage
+        /// The markdown page.
+        case markdown
+        /// The code editor page (Monaco): the file's text.
+        case editor
+        /// The browser tab's preview (an image, a PDF, media).
+        case preview
+    }
+
+    /// The one rule for where `url` opens. `asText` (Open as Text, u9489): a page cmux renders
+    /// (``FileOpenKind/opensAsText``) opens as its source in the code editor; other files open as
+    /// they always do.
+    nonisolated static func route(for url: URL, userChose: Bool, asText: Bool = false) -> Route {
+        let name = url.lastPathComponent
+        if asText, FileOpenKind(fileName: name, isDirectory: false, isPackage: false).opensAsText { return .editor }
+        if userChose, FileOpenKind(fileName: name, isDirectory: false, isPackage: false) == .web { return .renderedPage }
+        switch kind(for: url) {
+        case .markdown?: return .markdown
+        case .editor?: return .editor
+        case nil: return .preview
+        }
+    }
+
     /// `userChose` false for an agent's or a script's open (`cmux file open`): a markdown document
     /// is writable all the same; another document is writable only inside a root the user chose.
+    /// `asText`: Open as Text, the code editor for a page cmux would render (``route(for:userChose:asText:)``).
     /// `placed` (``LinkOpener``): a new tab opens unselected and reports its surface there, to be
     /// moved beside `pane`; a tab that already shows the file is selected and focused where it is.
     /// `position` (a Find result): the code editor puts the cursor there; other pages ignore it.
-    func open(_ file: URL, in pane: PaneController?, userChose: Bool, at position: FilePosition? = nil,
+    func open(_ file: URL, in pane: PaneController?, userChose: Bool, asText: Bool = false, at position: FilePosition? = nil,
               placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String? {
         guard let url = AgentPaneFileOpen.resolve(file.path) else { return FilePageStrings.notAFile }
         guard let pane = pane ?? services.windows.active?.focusedPane else { return FilePageStrings.noPane }
-        if userChose, FileOpenKind(fileName: url.lastPathComponent, isDirectory: false, isPackage: false) == .web {
+        switch Self.route(for: url, userChose: userChose, asText: asText) {
+        case .renderedPage:
             pane.newBrowserTab(url: url, background: placed != nil, then: placed)
-            return nil
-        }
-        switch Self.kind(for: url) {
-        case .markdown?:
+        case .markdown:
             services.viewers.markdownPages.open(url, in: pane, focus: placed == nil, userChose: userChose, placed: placed)
-        case .editor?:
+        case .editor:
             services.viewers.editorPages.open(url, in: pane, focus: placed == nil, userChose: userChose, at: position, placed: placed)
-        case nil:
+        case .preview:
             guard AgentPaneFileOpen.showsInTab(url) else { return FilePageStrings.notAFile }
             pane.newBrowserTab(url: url, engine: Self.tabEngine(for: url), background: placed != nil, then: placed)
         }

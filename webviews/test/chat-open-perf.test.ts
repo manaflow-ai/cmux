@@ -163,8 +163,10 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   const byId = new Map(chats.map((entry) => [entry.sessionId, entry]));
 
   let attaches = 0;
-  /// The chats one run opens: far apart in the list, as a person picks them out of the sidebar.
-  const picked = [...Array(VISITS).keys()].map((at) => chats[7 + at * 17]!);
+  /// The chats one run opens: far apart in the list, as a person picks them out of the sidebar, and
+  /// below the recent chats the pane reads ahead (direct.ts READ_AHEAD_RECENT), so the first visit
+  /// to each is the cold open this measures (chat-switch-prefetch.test.ts holds the read-ahead).
+  const picked = [...Array(VISITS).keys()].map((at) => chats[20 + at * 17]!);
   /// The chats that keep working under load. None of them is one the run opens: a reader's own
   /// chat redrawing is its attach, not the load around it.
   const busyLanes = chats.filter((entry) => !picked.includes(entry)).slice(-BUSY_LANES);

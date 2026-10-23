@@ -52,6 +52,13 @@ extension WebKitTab: WKNavigationDelegate {
             return
         }
         applySiteSettings(to: preferences, for: navigationAction)
+        // This view's own main-frame navigation, from here on not cancelled by this method: the
+        // newest one decides, as WebKit lets only the newest go ahead. A new window's action has
+        // no target frame and leaves it as it was.
+        if navigationAction.targetFrame?.isMainFrame == true {
+            let get = (navigationAction.request.httpMethod?.uppercased() ?? "GET") == "GET"
+            mainFramePlayableVideo = get && navigationAction.navigationType != .backForward && RemoteVideoPage.plays(url) ? url : nil
+        }
         guard navigationAction.targetFrame?.isMainFrame ?? true, let engine else { return decisionHandler(.allow, preferences) }
         navigationSourceSite = pageSite
         engine.admitMainFrameLoad(url, in: self) { decisionHandler($0 ? .allow : .cancel, preferences) }
@@ -67,7 +74,13 @@ extension WebKitTab: WKNavigationDelegate {
             .flatMap { $0.value(forHTTPHeaderField: "Content-Disposition") }?
             .lowercased()
             .hasPrefix("attachment") ?? false
-        if navigationResponse.isForMainFrame, isAttachment || !navigationResponse.canShowMIMEType {
+        if navigationResponse.isForMainFrame, !isAttachment, !navigationResponse.canShowMIMEType,
+           let url = navigationResponse.response.url, url == mainFramePlayableVideo {
+            // A video sent as a generic file plays in the tab, at its own address. A simulated
+            // load, not `loadHTMLString`: the player takes the video's place in the back list.
+            decisionHandler(.cancel)
+            webView.loadSimulatedRequest(URLRequest(url: url), responseHTML: RemoteVideoPage.html(for: url))
+        } else if navigationResponse.isForMainFrame, isAttachment || !navigationResponse.canShowMIMEType {
             // The page that started the navigation counts the download.
             admitDownload(navigationResponse.response.url, site: navigationSourceSite) { decisionHandler($0 ? .download : .cancel) }
         } else {

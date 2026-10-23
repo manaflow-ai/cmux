@@ -2,18 +2,18 @@
 // desktop's): the read receipt (one check once acpmux has it, two once the agent read it, "Read by
 // Claude Code" on hover), the prompt's age ("3 days ago"; "Oct 18, 2026, 10:16 PM" above it on
 // hover), a dot, then Copy, Retry and Fork from here, each naming itself on hover, then cmux's Edit
-// where the chat can fork before the prompt. No Pin here: an answer's row has it. Fork hides where
-// the harness cannot fork there (cx-ncc.60, Claude parity; Leo, GUI push 2026-10-20/21). The row
-// shows on hover or keyboard focus only, its height kept, so nothing moves when it appears. Edit
-// opens the prompt in place; Send forks the chat through the turn before it and sends the edited
-// text there (the App's `edit.send`), Escape or Cancel puts the bubble back. Edit shows only on a
-// prompt the chat can fork before (`editableTurns`), so it is never dead. Retry sends the prompt
-// again (MessageActions.tsx PromptRetry). A prompt
-// with versions (an edit made it, or replaced it) shows < n/m > before them, always (branches.ts,
-// cx-ncc.61). Fork forks the chat through the prompt's own turn, as its right-click Fork does. The
-// images a prompt sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they
-// vanished once sent). A long prompt opens collapsed on its first ten lines with Show more, and a
-// pasted block is a chip that opens in place (PromptText.tsx); Copy still copies the whole prompt.
+// where the chat can fork before the prompt, then More (its right-click menu). No Pin here: an
+// answer's row has it. Fork hides where the harness cannot fork there (cx-ncc.60, Claude parity;
+// Leo, GUI push 2026-10-20/21). The row shows on hover or keyboard focus only, its height kept, so
+// nothing moves when it appears. Edit opens the prompt in place; Send forks the chat through the
+// turn before it and sends the edited text there (the App's `edit.send`), Escape or Cancel puts the
+// bubble back. Edit shows only on a prompt the chat can fork before (`editableTurns`), so it is
+// never dead. Retry sends the prompt again (MessageActions.tsx PromptRetry). A prompt with versions
+// (an edit made it, or replaced it) shows < n/m > before them, always (branches.ts, cx-ncc.61).
+// Fork forks the chat through the prompt's own turn, as its right-click Fork does. The images a
+// prompt sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they vanished
+// once sent). A long prompt opens collapsed on its first ten lines with Show more, and a pasted
+// block is a chip that opens in place (PromptText.tsx); Copy still copies the whole prompt.
 import { memo, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AcpmuxRow, PromptImage } from "../model";
 import { useT } from "../i18n";
@@ -24,7 +24,16 @@ import { ChevronLeft, ChevronRight, ImageIcon, Pencil } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
-import { ForkButton, MessageCopy, MessageDot, MessageTime, PromptRetry, ReadReceipt, ROW_ICON } from "./MessageActions";
+import {
+  ForkButton,
+  MessageCopy,
+  MessageDot,
+  MessageMore,
+  MessageTime,
+  PromptRetry,
+  ReadReceipt,
+  ROW_ICON,
+} from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
 
 /// `pending` is a waiting steer's clock and Send now (PendingSteer.tsx): it sits beside the bubble's
@@ -124,6 +133,7 @@ export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: strin
               <Pencil size={ROW_ICON} />
             </button>
           )}
+          <MessageMore rowId={row.id} />
         </div>
       )}
     </>

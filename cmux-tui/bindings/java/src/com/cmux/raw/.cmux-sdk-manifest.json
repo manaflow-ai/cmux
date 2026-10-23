@@ -707,8 +707,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "e1af96a8170f92fb3c34f4d0134cc78c54920318a2f2ccf46916c5b8d6569d34",
-      "size": 77352
+      "sha256": "45dbacfccce3d1aeb8811a1022f59994a80184e1efcd70a015e3a0f54809f30c",
+      "size": 77675
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1357,8 +1357,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "a3c8644663e5a6ad03553b9af315ec20819e1c9d74f0e0b66764e31ce456ce92",
-      "size": 67059
+      "sha256": "aff3439fc0c22ce53a84fa59d28f70a034afa5eef1524cc3bf141805c610376d",
+      "size": 67299
     },
     {
       "path": "GetBlobRequest.java",
@@ -1892,13 +1892,13 @@
     },
     {
       "path": "NewRowRequest.java",
-      "sha256": "f414c43595164f5920d039df016fa56dc82f90d4cde297243617bd0994cb9694",
-      "size": 8048
+      "sha256": "6bd9d573050c8d44cde564c2f18b8cd66298a6032b3ab32f1a23d66bd59ef84d",
+      "size": 9284
     },
     {
       "path": "NewRowResult.java",
-      "sha256": "5dc3bb6b7d1235649fd9c6e96c9fdba46623151fc61009e294a02c5414ea8f10",
-      "size": 4810
+      "sha256": "3ce345507036417dc80dae0f2b37dd8692c9c1f8da61b514f096df527353ea6f",
+      "size": 5975
     },
     {
       "path": "NewScreenRequest.java",
@@ -2087,7 +2087,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "f10a21a929a1c847d5b74228ee478237b3fca90a1b9157a06df06f0c57c8c6dc",
+      "sha256": "d00e74382708cef092df6f175115ce68bdd84bd40aff0a7f7d6373b491f3f1f5",
       "size": 7486
     },
     {
@@ -3061,6 +3061,21 @@
       "size": 12545
     },
     {
+      "path": "TerminalPortsListener.java",
+      "sha256": "5db367ce0047d40834a1e3db5937d253de2ae4494d370ac3a775f136349bb831",
+      "size": 4039
+    },
+    {
+      "path": "TerminalPortsRequest.java",
+      "sha256": "d23e0425beeaee053b7c55290d9cb0208d75d42fde3763ab8d38cdc1045bfb2c",
+      "size": 2057
+    },
+    {
+      "path": "TerminalPortsResult.java",
+      "sha256": "b10f5d43469a646c924481c7c2b4aaba73d2d7bb8ad0a8abf39870a5db9da0a8",
+      "size": 3694
+    },
+    {
       "path": "TerminalReadRangeRequest.java",
       "sha256": "373183a5c3ecd573bd0f9ee76ea39aab58e166d5193cb3b5811a7cbfb970b4b1",
       "size": 5475
@@ -3357,7 +3372,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "22526ef27362464ad1798ceadf7ab3b0225cd784acc1dcc13419362378a066bc",
+  "ir_sha256": "703393e4b4e99f70fa8b7761ae54eebd46dc54b8ed3ce9b83a597216d6f75cb1",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

@@ -95,14 +95,15 @@
 /* The card and its strip, the input box itself, are more glass than the stack around them (Leo
    2026-10-21, "a bit more glass on the input box"). Glass is never opaque, and the transcript
    scrolls under the card (Leo 2026-10-19), so on an opaque window too the card is glass: the
-   composer surface at 78% under the shared surface blur, so a row passing under it frosts. 78% keeps
-   the prompt at 4.5:1 or more over the brightest and the darkest page (composer-glass.test.ts).
-   Over art or a see-through window under Plain glass it is clearer, at 50%. Lens and Spectrum keep
-   the liquid glass's own tint and frost; Reduce Transparency the solid surface (glass.css). The
-   queued prompts keep the stack's tokens above. */
+   composer surface at 70% under a 24px shared surface blur, so a row passing under it frosts while
+   the prompt remains at 4.5:1 or more over the brightest and the darkest page
+   (composer-glass.test.ts). The gallery keeps the previous 78% level and a clearer candidate beside
+   this choice. Over art or a see-through window under Plain glass it is clearer, at 50%.
+   Lens and Spectrum keep the liquid glass's own tint and frost; Reduce Transparency the solid
+   surface (glass.css). The queued prompts keep the stack's tokens above. */
 :root:not([data-cmux-see-through]) .acpmux-composer > :is(.acpmux-composer-box, .acpmux-composer-strip) {
-  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) 78%, transparent);
-  --glass-backdrop: var(--surface-blur);
+  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) 70%, transparent);
+  --glass-backdrop: blur(24px) saturate(1.25);
 }
 :root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"])
   .acpmux-composer > :is(.acpmux-composer-box, .acpmux-composer-strip) {
@@ -139,6 +140,19 @@
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
+/* In a see-through Chromium page the strip lays its fill over the theme surface too, as the card
+   does (glass.css, "CHROMIUM OVER THE WINDOW GLASS"): the transcript scrolls under both. */
+@media not (prefers-reduced-transparency: reduce) {
+  @supports not (-webkit-backdrop-filter: none) {
+    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency]):not([data-top-strip="plain"])
+      .acpmux-composer
+      > .acpmux-composer-strip {
+      background:
+        linear-gradient(var(--glass-tint), var(--glass-tint)),
+        color-mix(in srgb, var(--glass-surface) var(--glass-underlay), transparent);
+    }
+  }
+}
 /* The lens draws the stack as one glass: a seam between the queue, its fold, the strip and the card
    bends nothing (--glass-join, ui/glass/lens.ts). By default the queue stands on the strip or the
    card; under the tray it tucks under the card, which draws its whole rim over it. */
@@ -172,9 +186,27 @@
   > :is(.acpmux-composer-strip, .acpmux-composer-queue, .acpmux-queue-foldbar):has(+ .nt-box) {
   mask: linear-gradient(black calc(100% - var(--acpmux-tray-tuck, 0px)), transparent 0);
 }
+/* Codex's look tucks New Tab's tray (.nt-above, composerLook.css) under the box the same way, less
+   the composer's gap (--nt-composer-gap, newtab/screen.css): over the desktop it showed through the
+   box's glass as a band across the field's top (Leo 2026-10-23, cx-ncc.113.116). The tray now ends
+   at the box's top edge; the box stays glass. */
+:root[data-cmux-see-through]:not([data-reduce-transparency]) .nt-composer[data-composer-look="codex"]
+  > .nt-above:has(+ .nt-box) {
+  mask: linear-gradient(
+    black calc(100% - var(--acpmux-tray-tuck, 0px) + var(--nt-composer-gap, 0px)),
+    transparent 0
+  );
+}
 @media (prefers-reduced-transparency: reduce) {
   :root[data-top-strip="tray"] :is(.acpmux-composer, .nt-composer)
     > :is(.acpmux-composer-strip, .acpmux-composer-queue, .acpmux-queue-foldbar) {
+    mask: none;
+  }
+  /* The Codex tray's mask above, at its own specificity (a plainer selector loses to it). The app
+     also says Reduce Transparency with data-reduce-transparency, which that rule leaves out; WebKit
+     has no prefers-reduced-transparency, so the mask is never scoped to its no-preference. */
+  :root[data-cmux-see-through]:not([data-reduce-transparency]) .nt-composer[data-composer-look="codex"]
+    > .nt-above:has(+ .nt-box) {
     mask: none;
   }
 }
@@ -479,7 +511,8 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 }
 
 /* Queued prompts (ComposerQueue.tsx): the row's menu host stays out of the row's layout; a row
-   focused from the keyboard shows its ring and its actions; an edit takes the text's place. */
+   focused from the keyboard takes the hover wash and shows its actions; an edit takes the text's
+   place. */
 .acpmux-queued-menu {
   display: contents;
 }
@@ -493,10 +526,10 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-queued:focus-visible .acpmux-queued-actions {
   opacity: 1;
 }
-/* The edit field draws no ring of its own (Leo, 2026-10-21: no thick focus ring): the shared hairline
-   focus style and the caret show focus. */
+/* The edit field draws no ring of its own (Leo, 2026-10-21: no thick focus ring): its hairline edge
+   brightens to the composer's focused edge, as the card's does, and the caret shows focus. */
 .acpmux-queued-edit {
-  grid-column: 2 / -1;
+  grid-column: 1 / -1;
   min-width: 0;
   max-height: 88px;
   /* Its text stays where the row's text was. */
@@ -507,11 +540,13 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   border: 0;
   border-radius: 6px;
   outline: none;
-  /* The field's own edge, a hairline at rest and in focus alike. */
   box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);
   background: var(--acpmux-base);
   color: var(--agent-text);
   font: inherit;
+}
+.acpmux-queued-edit:focus {
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
 }
 
 /* The row's actions, as ChatGPT and Codex show them (ComposerQueue.tsx): Steer is its ↪ glyph and its
@@ -531,19 +566,10 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   padding-inline-start: 20px;
 }
 
-/* What the strip holds: "Queued" over prompts that wait for the turn to end, "Steering" on a
-   prompt sent now that stops the turn and runs next, above them (ComposerQueue.tsx). Every row
-   takes the queue's three columns (its mark, its text, its actions), so all the prompts' text
-   starts at one edge whichever kinds the queue holds; "Steering" leads its prompt's text. */
-.acpmux-queue-header {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 2px 12px 0;
-  color: var(--acpmux-composer-dim);
-  font-size: var(--text-detail);
-}
+/* What the strip holds: the prompts that wait for the turn to end, one muted line each with no
+   header and no number (Leo, 2026-10-21), and above them a prompt sent now that stops the turn and
+   runs next, its text led by "Steering" (ComposerQueue.tsx). Every row takes the queue's two columns
+   (its text, its actions), so all the prompts' text starts at one edge. */
 .acpmux-queued-kind {
   flex: none;
   color: var(--acpmux-composer-dim);
@@ -557,25 +583,19 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   margin-right: 6px;
   color: var(--agent-accent);
 }
-/* Another agent's message: its received line (conversation.css .cv-received) in the text column,
+/* Another agent's message: its received line (conversation.css .cv-received) across the row,
    its actions at the line's end. The line is 26px tall: it takes the row's padding, so the row
-   stays as tall as one of the person's. */
+   stays about as tall as one of the person's. */
 .acpmux-queued .cv-received {
-  grid-column: 2 / -1;
+  grid-column: 1 / -1;
   min-width: 0;
-  margin: -4px 0;
+  margin: -3px 0;
 }
 .acpmux-queued .cv-received__line {
   padding-right: 0;
 }
 .acpmux-queued .cv-received__line > .acpmux-queued-actions {
   margin: 0 0 0 auto;
-}
-.acpmux-queued-mark[data-kind="steer"] {
-  display: inline-flex;
-  align-items: center;
-  height: 18px;
-  color: var(--agent-accent);
 }
 
 /* A long queue's fold (ComposerQueue.tsx): one quiet line under the list, outside its scrolling,
@@ -595,7 +615,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-queue-foldbar {
   display: flex;
   min-width: 0;
-  padding: 0 8px 2px 34px;
+  padding: 0 6px 2px 12px;
   box-sizing: border-box;
   --acpmux-queue-fill: color-mix(in srgb, var(--acpmux-composer-tray) var(--acpmux-queue-glass, 100%), transparent);
   background: var(--acpmux-queue-fill);
@@ -606,20 +626,27 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 /* Over art or a see-through window the queued prompts' band and its fold are glass, as the card is
    (Leo 2026-10-20: "we want the glass, a lot of glass"): every fill they take (here and in each
    top-strip layout, focused or not) is --acpmux-queue-fill, so band and card read as one surface, not
-   an opaque two-tone (layout pass, 2026-10-20). Under Lens and Spectrum that is the card's glass tint
-   (.ui-glass, ComposerQueue.tsx); under Plain glass their tray tone at 60%, as before the lens, with
-   no blur. Reduce Transparency keeps them solid. */
+   an opaque two-tone (layout pass, 2026-10-20). In every glass mode that is the card's own glass
+   (.ui-glass, ComposerQueue.tsx): its tint and its blur, which the band inherits from the composer.
+   Under Plain glass the band used to be the tray tone at 60% with no blur; the tray is the text at 9%
+   over a page that is transparent here, so the art showed through almost untouched and the "Queued"
+   label and the prompts were hard to read (Leo 2026-10-21: "this is also maybe a little too...
+   glassy?"; queued-glass.test.ts). It is still glass, never opaque. Reduce Transparency makes it
+   the card's solid fill (--glass-opaque, the composer's solid surface): the tray is mixed over the
+   page, which is transparent over art, so without this the band stayed a 9% film under an opaque
+   card. */
 @media not (prefers-reduced-transparency: reduce) {
-  :root[data-cmux-see-through]:not([data-reduce-transparency]) {
-    --acpmux-queue-glass: 60%;
-  }
-  :root[data-cmux-see-through]:not([data-reduce-transparency]):is([data-glass="lens"], [data-glass="spectrum"])
-    .acpmux-composer > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
+  :root[data-cmux-see-through]:not([data-reduce-transparency]) .acpmux-composer > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
     --acpmux-queue-fill: var(--glass-tint);
   }
 }
-:root:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-composer > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
-  --glass-backdrop: none;
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-composer > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
+    --acpmux-queue-fill: var(--glass-opaque);
+  }
+}
+:root[data-reduce-transparency] .acpmux-composer > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
+  --acpmux-queue-fill: var(--glass-opaque);
 }
 .acpmux-queue-fold {
   height: 24px;
@@ -637,16 +664,24 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   background: var(--agent-control-hover);
   color: var(--agent-text);
 }
+/* Focus is the hover's soft pill, as on the rows' actions (styles.css .acpmux-queued-action). */
 .acpmux-queue-fold:focus-visible {
-  outline: 1.5px solid var(--agent-text);
-  outline-offset: -1px;
+  outline: none;
+  background: var(--agent-control-hover);
+  color: var(--agent-text);
+}
+@media (prefers-contrast: more) {
+  .acpmux-queue-fold:focus-visible {
+    outline: var(--cmux-focus-ring-width, 2px) solid var(--cmux-focus-ring-color, var(--agent-text));
+    outline-offset: -1px;
+  }
 }
 
 /* A queued prompt's images (QueuedImages.tsx): small thumbnails under its text, in the text's
    column, each opening the image viewer. While the prompt is edited each shows its remove
    control. No motion: they show and go at once. */
 .acpmux-queued-images {
-  grid-column: 2;
+  grid-column: 1;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;

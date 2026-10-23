@@ -178,6 +178,7 @@ fn the_offered_speeds_follow_the_turn_harness() {
             compactor_speed: None,
             compactor_harness: None,
             compactor_model: None,
+            reactions: Default::default(),
         },
     );
     assert_eq!(
@@ -207,6 +208,7 @@ fn the_engine_set_names_the_compactors_harness_and_model_acpmux_has() {
         compactor_speed: None,
         compactor_harness: Some(compactor_harness.to_owned()),
         compactor_model: compactor_model.map(str::to_owned),
+        reactions: Default::default(),
     };
 
     let answer = engine(&mut brain, set("claude-sr", Some("claude-haiku-5-5")));
@@ -266,6 +268,7 @@ fn a_chief_switches_its_turn_harness_to_uniichat_and_back() {
         compactor_speed: None,
         compactor_harness: None,
         compactor_model: None,
+        reactions: Default::default(),
     };
 
     let answer = engine(&mut brain, set("unii"));
@@ -286,4 +289,87 @@ fn a_chief_switches_its_turn_harness_to_uniichat_and_back() {
         optchat_chief::engine::load(&dir.path().join("engine.json")).harness,
         None
     );
+}
+
+/// The reaction classifier's fields (a416): a set saves them in engine.json,
+/// the answer names the classifier this Chief runs (Claude Haiku and the
+/// built-in prompt, "", by default), `default` clears them, and a
+/// reactions_can_wake that is not a boolean is refused.
+#[test]
+fn the_engine_set_takes_the_reaction_classifier() {
+    use optchat_chief::acpmux::Family;
+    use optchat_chief::brain::ReactionFields;
+    let dir = tempfile::tempdir().unwrap();
+    let mut brain = brain(
+        dir.path(),
+        &[("claude", Family::Claude), ("claude-sr", Family::Claude)],
+    );
+    brain.set_reaction_user_settings(None);
+    let set = |reactions: ReactionFields| EngineRequest::Set {
+        harness: None,
+        model: None,
+        effort: None,
+        speed: None,
+        compactor_speed: None,
+        compactor_harness: None,
+        compactor_model: None,
+        reactions: Box::new(reactions),
+    };
+    let shown = engine(&mut brain, EngineRequest::Show);
+    assert_eq!(
+        shown["engine"]["classifier_model"], "claude-haiku-5-5",
+        "{shown:#}"
+    );
+    assert_eq!(shown["engine"]["classifier_prompt"], "", "{shown:#}");
+    assert_eq!(shown["engine"]["reactions_can_wake"], true, "{shown:#}");
+    let answer = engine(
+        &mut brain,
+        set(ReactionFields {
+            classifier_harness: Some("claude-sr".into()),
+            classifier_model: Some("claude-sonnet-5-5".into()),
+            classifier_prompt: Some("Wake only on 👎.".into()),
+            reactions_can_wake: Some("false".into()),
+        }),
+    );
+    assert_eq!(
+        answer["engine"]["classifier_harness"], "claude-sr",
+        "{answer:#}"
+    );
+    assert_eq!(answer["engine"]["classifier_model"], "claude-sonnet-5-5");
+    assert_eq!(answer["engine"]["classifier_prompt"], "Wake only on 👎.");
+    assert_eq!(answer["engine"]["reactions_can_wake"], false);
+    assert_eq!(answer["choice"]["reactions_can_wake"], false);
+    let cleared = engine(
+        &mut brain,
+        set(ReactionFields {
+            classifier_model: Some("default".into()),
+            reactions_can_wake: Some("default".into()),
+            ..ReactionFields::default()
+        }),
+    );
+    assert_eq!(
+        cleared["engine"]["classifier_model"], "claude-haiku-5-5",
+        "{cleared:#}"
+    );
+    assert_eq!(cleared["engine"]["reactions_can_wake"], true);
+    assert_eq!(
+        cleared["engine"]["classifier_harness"], "claude-sr",
+        "an absent field stays"
+    );
+    let refused = engine(
+        &mut brain,
+        set(ReactionFields {
+            reactions_can_wake: Some("sometimes".into()),
+            ..ReactionFields::default()
+        }),
+    );
+    assert_eq!(refused["error"]["code"], "invalid_value", "{refused:#}");
+    let unknown = engine(
+        &mut brain,
+        set(ReactionFields {
+            classifier_harness: Some("nope".into()),
+            ..ReactionFields::default()
+        }),
+    );
+    assert_eq!(unknown["error"]["code"], "unknown_harness", "{unknown:#}");
 }

@@ -38,6 +38,7 @@ enum PaneHandlers {
     /// A pane-navigation key (Focus Pane Left, Next Pane, a pane number, a column key) moves focus
     /// where the person asked, so the layout records a keyboard move: no without-a-click flash.
     static func focusByKey(_ pane: LayoutPaneID, in content: WorkspaceContentController) {
+        DebugPaneFocus.began(content.focus)
         content.layoutModel.focus(pane, notify: false, source: .keyboard)
         focus(pane, in: content)
     }
@@ -78,7 +79,7 @@ enum PaneHandlers {
         let named = invocation["cwd"]?.stringValue
             ?? NewTerminalStart.uninherited(.split, services: ctx.services, daemon: daemon, besides: controller?.selectedTab)
         // Else the folder of the tab it splits: a terminal's, or an agent chat's exact folder.
-        let inherited = named ?? NewTerminalStart.folder(of: controller?.selectedTab, services: ctx.services)
+        let inherited = named ?? NewTerminalStart.inherited(besides: controller?.selectedTab, in: pane, services: ctx.services)
         let cwd = inherited ?? controller?.selectedTab?.cwd ?? pane.tabs.first?.cwd
         let workspace = ctx.services.workspaceKey(of: pane)
         let keep = invocation["keep"]?.boolValue == true ? true : nil
@@ -187,7 +188,7 @@ enum PaneHandlers {
                   let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
             guard let number = invocation["index"]?.intValue ?? ctx.refuse(RefusalStrings.indexRequired) else { return }
             // Focus Next Pane's order; 9 is always the last pane, as Cmd-9 is the last workspace.
-            let order = screen.layout.panes
+            let order = screen.layout.visualPanes
             let index = number >= 9 ? order.count - 1 : number - 1
             guard order.indices.contains(index) else { return ctx.refuseQuietly(RefusalStrings.noPaneWithNumber) }
             focusByKey(order[index], in: content)
@@ -197,7 +198,7 @@ enum PaneHandlers {
     private static func cycleFocus(_ ctx: AppActionContext, _ invocation: ActionInvocation, offset: Int) {
         guard let pane = ctx.paneController(invocation), let content = pane.workspace,
               let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
-        let order = screen.layout.panes
+        let order = screen.layout.visualPanes
         guard order.count > 1, let index = order.firstIndex(of: pane.layoutPaneID) else {
             return ctx.refuseQuietly(RefusalStrings.screenHasOnePane)
         }

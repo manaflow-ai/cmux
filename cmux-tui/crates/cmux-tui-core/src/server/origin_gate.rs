@@ -8,6 +8,7 @@
 
 use super::*;
 use crate::Actor;
+use crate::panic_free::RecoverPoison;
 use crate::request_origin::{
     CONFIRMATION_TTL_MS, HelloRole, LocalPeer, RequestOrigin, forbidden, mint_token, needs_user,
     valid_sha256_hex,
@@ -68,8 +69,7 @@ pub(super) fn handle_resource_line(
 /// held a line) has no known role, so it is refused (fail closed).
 fn check(mux: &Mux, client: u64, envelope: &RequestEnvelope) -> Result<Actor, ResourceError> {
     let now_ms = mux.control_clients.origin_clock.monotonic_ms();
-    let mut state =
-        mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut state = mux.control_clients.state.lock().recover_poison();
     let Some(record) = state.clients.get_mut(&client) else {
         return Err(forbidden(
             "the connection is not registered",
@@ -189,7 +189,7 @@ pub(super) fn is_page(mux: &Mux, client: u64) -> bool {
 
 /// The origin `client` derives; a client with no record is an agent.
 fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
-    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let state = mux.control_clients.state.lock().recover_poison();
     state.clients.get(&client).map_or(RequestOrigin::Agent, |record| record.origin.derive())
 }
 
@@ -208,8 +208,7 @@ fn check_pairing_accept(
         return Ok(());
     }
     let derived = {
-        let state =
-            mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let state = mux.control_clients.state.lock().recover_poison();
         state.clients.get(&client).map_or(RequestOrigin::Agent, |record| record.origin.derive())
     };
     Err(forbidden(
@@ -221,7 +220,7 @@ fn check_pairing_accept(
 /// The actor of a durable mutation that `client` asks for on the legacy
 /// control protocol. A client with no record is never the local user.
 pub(super) fn connection_actor(mux: &Mux, client: u64) -> Actor {
-    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let state = mux.control_clients.state.lock().recover_poison();
     let Some(record) = state.clients.get(&client) else {
         return Actor::Peer { id: "unregistered".to_string() };
     };
@@ -262,8 +261,7 @@ pub(super) struct AppConnection {
 
 pub(super) fn app_connection(mux: &Mux, client: u64) -> AppConnection {
     let verified_app = {
-        let state =
-            mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let state = mux.control_clients.state.lock().recover_poison();
         state
             .clients
             .get(&client)
@@ -278,8 +276,7 @@ pub(super) fn app_connection(mux: &Mux, client: u64) -> AppConnection {
 /// A WebSocket connection admitted with a page-bound credential
 /// (`page-credential {page}`): fixed at accept, with its page.
 pub(super) fn set_scoped_page(mux: &Mux, client: u64, page: String) {
-    let mut state =
-        mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut state = mux.control_clients.state.lock().recover_poison();
     if let Some(record) = state.clients.get_mut(&client) {
         record.origin.page = Some(page);
         record.origin.scoped_page = true;
@@ -308,7 +305,7 @@ static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 8]> = std::sync::Laz
 /// connection's (its page's conversation events), or `None` for any other
 /// connection, whose stream stays as it was.
 pub(super) fn page_relay_events(mux: &Mux, client: u64) -> Option<&'static [String]> {
-    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let state = mux.control_clients.state.lock().recover_poison();
     let origin = &state.clients.get(&client)?.origin;
     if origin.scoped_page {
         let channels = origin.page.as_deref() == Some("home-channels");
@@ -327,8 +324,7 @@ pub(super) fn page_relay_events(mux: &Mux, client: u64) -> Option<&'static [Stri
 /// origin `user` (a verified cmux app connection).
 pub(super) fn require_user(mux: &Mux, client: u64) -> Result<(), crate::apps::ApiError> {
     let derived = {
-        let state =
-            mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let state = mux.control_clients.state.lock().recover_poison();
         state.clients.get(&client).map_or(RequestOrigin::Agent, |record| record.origin.derive())
     };
     if derived == RequestOrigin::User {
@@ -351,8 +347,7 @@ pub(super) fn set_hello(
     signature_proved: bool,
     page: Option<String>,
 ) -> bool {
-    let mut state =
-        mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut state = mux.control_clients.state.lock().recover_poison();
     let Some(record) = state.clients.get_mut(&client) else { return false };
     if record.origin.role != HelloRole::Legacy {
         return false;
@@ -369,8 +364,7 @@ pub(super) fn set_hello(
 /// Records kernel peer identity at accept, before a legacy client can skip hello.
 pub(super) fn set_peer_identity_at_accept(mux: &Mux, client: u64, peer_key: Option<String>) {
     let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id);
-    let mut state =
-        mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut state = mux.control_clients.state.lock().recover_poison();
     if let Some(record) = state.clients.get_mut(&client) {
         record.origin.peer_key = peer_key;
         record.origin.local_peer = local_peer;
@@ -380,8 +374,7 @@ pub(super) fn set_peer_identity_at_accept(mux: &Mux, client: u64, peer_key: Opti
 /// The page a WebSocket connection serves, from its handshake Origin
 /// (`page-router-v1`): fixed at accept, before the connection's first line.
 pub(super) fn set_page(mux: &Mux, client: u64, page: String) {
-    let mut state =
-        mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut state = mux.control_clients.state.lock().recover_poison();
     if let Some(record) = state.clients.get_mut(&client) {
         record.origin.page = Some(page);
     }
@@ -391,7 +384,7 @@ pub(super) fn set_page(mux: &Mux, client: u64, page: String) {
 /// relay's hello), or `None` (also for a client with no record). For the
 /// audit actor only: an access decision reads [`websocket_admission`].
 pub(super) fn connection_page(mux: &Mux, client: u64) -> Option<String> {
-    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let state = mux.control_clients.state.lock().recover_poison();
     state.clients.get(&client).and_then(|record| record.origin.page.clone())
 }
 
@@ -423,8 +416,7 @@ pub(super) fn websocket_admission(mux: &Mux, client: u64) -> Option<WebSocketAdm
 /// relay (same process, same token) still matches it. False when the client
 /// is gone or is not role main.
 pub(super) fn set_install_proved(mux: &Mux, client: u64, install_id: &str) -> bool {
-    let mut state =
-        mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut state = mux.control_clients.state.lock().recover_poison();
     let Some(record) = state.clients.get_mut(&client) else { return false };
     if record.origin.role != HelloRole::Main {
         return false;
@@ -485,8 +477,7 @@ fn issue(
     let deadline_ms = now_ms.saturating_add(CONFIRMATION_TTL_MS);
     let expires_at_ms =
         mux.control_clients.origin_clock.wall_ms().saturating_add(CONFIRMATION_TTL_MS);
-    let mut state =
-        mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut state = mux.control_clients.state.lock().recover_poison();
     let caller = state.clients.get(&client).map(|record| &record.origin);
     let Some(caller) = caller else { return Err(needs_user(RequestOrigin::Agent)) };
     let derived = caller.derive();
@@ -540,7 +531,7 @@ mod test_hooks {
     use crate::request_origin::ConnectionOrigin;
 
     fn with_origin(mux: &Arc<Mux>, client: u64, change: impl FnOnce(&mut ConnectionOrigin)) {
-        let mut state = mux.control_clients.state.lock().unwrap();
+        let mut state = mux.control_clients.state.lock().recover_poison();
         change(&mut state.clients.get_mut(&client).expect("registered client").origin);
     }
 
@@ -576,7 +567,7 @@ mod test_hooks {
 
     pub(in crate::server) fn role_for_test(mux: &Arc<Mux>, client: u64) -> String {
         let role = {
-            let state = mux.control_clients.state.lock().unwrap();
+            let state = mux.control_clients.state.lock().recover_poison();
             state.clients.get(&client).map_or(HelloRole::Legacy, |record| record.origin.role)
         };
         match role {

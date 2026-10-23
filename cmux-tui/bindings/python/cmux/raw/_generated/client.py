@@ -522,8 +522,8 @@ class GeneratedClientMixin:
     def new_remote_terminal_tab(self, terminal_id: str, session_id: str, session_name: str, *, pane: Union[Id, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('new-remote-terminal-tab', NewRemoteTerminalTabRequest(terminal_id=terminal_id, session_id=session_id, session_name=session_name, pane=pane, cols=cols, rows=rows, title=title))
 
-    def new_row(self, pane: Id, height_permille: int, *, terminal_id: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, shell_args: Union[List[str], None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> NewRowResult:
-        return self._invoke_command('new-row', NewRowRequest(pane=pane, height_permille=height_permille, terminal_id=terminal_id, cols=cols, cwd=cwd, env=env, keep=keep, rows=rows, shell_args=shell_args, transaction=transaction))
+    def new_row(self, pane: Id, height_permille: int, *, terminal_id: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, pane_id: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, shell_args: Union[List[str], None, MissingType] = MISSING, tab_id: Union[str, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> NewRowResult:
+        return self._invoke_command('new-row', NewRowRequest(pane=pane, height_permille=height_permille, terminal_id=terminal_id, cols=cols, cwd=cwd, env=env, keep=keep, pane_id=pane_id, rows=rows, shell_args=shell_args, tab_id=tab_id, transaction=transaction))
 
     def new_screen(self, workspace: Union[Id, None, MissingType] = MISSING, *, terminal_id: Union[str, None, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, group: Union[str, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING, pinned: Union[bool, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, screen_name: Union[str, None, MissingType] = MISSING, shell_args: Union[List[str], None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-screen', NewScreenRequest(workspace=workspace, terminal_id=terminal_id, color=color, cols=cols, cwd=cwd, env=env, group=group, icon=icon, index=index, pinned=pinned, rows=rows, screen_name=screen_name, shell_args=shell_args))
@@ -776,6 +776,9 @@ class GeneratedClientMixin:
 
     def terminal_history(self, surface: Id, marker_epoch: int, *, before: Union[int, None, MissingType] = MISSING, max_bytes: Union[int, None, MissingType] = MISSING) -> TerminalHistoryPagesResult:
         return self._invoke_command('terminal-history', TerminalHistoryRequest(surface=surface, marker_epoch=marker_epoch, before=before, max_bytes=max_bytes))
+
+    def terminal_ports(self, surface: Id) -> TerminalPortsResult:
+        return self._invoke_command('terminal-ports', TerminalPortsRequest(surface=surface))
 
     def terminal_read_range(self, surface: Id, from_: RowMarkerPoint, marker_epoch: int, to: RowMarkerPoint, *, format: Union[str, None, MissingType] = MISSING, max_bytes: Union[int, None, MissingType] = MISSING) -> TerminalReadRangeResult:
         return self._invoke_command('terminal-read-range', TerminalReadRangeRequest(surface=surface, from_=from_, marker_epoch=marker_epoch, to=to, format=format, max_bytes=max_bytes))
@@ -1114,6 +1117,7 @@ GeneratedClientMixin.terminal_clipboard_reply.__cmux_command__ = COMMANDS['termi
 GeneratedClientMixin.terminal_clipboard_subscribe.__cmux_command__ = COMMANDS['terminal-clipboard-subscribe']
 GeneratedClientMixin.terminal_events.__cmux_command__ = COMMANDS['terminal-events']
 GeneratedClientMixin.terminal_history.__cmux_command__ = COMMANDS['terminal-history']
+GeneratedClientMixin.terminal_ports.__cmux_command__ = COMMANDS['terminal-ports']
 GeneratedClientMixin.terminal_read_range.__cmux_command__ = COMMANDS['terminal-read-range']
 GeneratedClientMixin.terminal_resources.__cmux_command__ = COMMANDS['terminal-resources']
 GeneratedClientMixin.terminal_resume_command.__cmux_command__ = COMMANDS['terminal-resume-command']

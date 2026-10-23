@@ -625,6 +625,7 @@ fn mcp_line(server: &str, tool: &str, input: Option<&Value>) -> String {
             "react" => "Reacting to a message".to_owned(),
             "reply" => "Replying in a thread".to_owned(),
             "send" => "Sending a message".to_owned(),
+            "transcript" => "Reading the chat as you see it".to_owned(),
             "stop" => "Ending the turn".to_owned(),
             "sleep" => "Setting a wake-up".to_owned(),
             "control" => control_line(input),

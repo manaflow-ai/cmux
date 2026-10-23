@@ -480,6 +480,7 @@
       "swap-pane",
       "terminal-events",
       "terminal-history",
+      "terminal-ports",
       "terminal-read-range",
       "terminal-resources",
       "terminal-resume-command",

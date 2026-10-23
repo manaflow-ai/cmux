@@ -1,3 +1,4 @@
+import type { ChatUnavailable } from "./chatUnavailable";
 import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
@@ -15,6 +16,9 @@ import { SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRo
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
 import { PASTE_CHIP_HEIGHT, type PasteRange, collapsedPromptHeight, promptParts } from "./conversation/promptCollapse";
+import { mcpCall } from "./conversation/mcpCalls";
+import { subsessionCall } from "./conversation/subsessionCalls";
+import type { ChatTool } from "./summary/chatTools";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -205,9 +209,13 @@ export type AcpmuxRow = {
   from?: "chief";
   /// The originating prompt row, so Retry can restore image/PDF attachments.
   retryRowId?: string;
+  /// A turn footer's answer row (turns.ts), whose right-click menu the footer's More opens.
+  answerId?: string;
   retryAttachments?: ComposerAttachment[];
   status?: string;
   error?: string;
+  /// acpmux's typed reason for a failed turn (`errorCode`, a string), for its card (failureCopy.ts).
+  errorCode?: string;
   permission?: AcpmuxPermission;
   /// A `questionRecord` row's question, answered or cancelled (question/record.ts).
   question?: AgentQuestion;
@@ -221,6 +229,7 @@ export type AcpmuxRow = {
   /// A run of finished tool calls folded under one summary line (Debug toggle
   /// `agentPane.debug.codexToolRuns`, on by default; conversation/turns.ts `codexRuns`,
   /// conversation/toolRunSummary.ts).
+  /// False keeps a run waiting for edit permission in tool rows without collapsing it.
   foldRun?: boolean;
   /// The live turn's latest row, whose last thought may still stream (conversation/turns.ts).
   live?: boolean;
@@ -245,7 +254,9 @@ export type AcpmuxRow = {
   doingDraft?: boolean;
   untimed?: boolean;
   quietKey?: string;
-  /// The call it names is a command, so the line leads with the terminal glyph (WorkingFor.tsx).
+  /// The call in flight is a command: the line offers "⌃B to run in background" (BackgroundHint.tsx;
+  /// never on the command's own row), and leads with the terminal glyph when it names it
+  /// (WorkingFor.tsx).
   doingCommand?: boolean;
   /// The disclosure of the group that draws the call's own row, and whether it opens by default: while
   /// it is open the row names the call, so the line does not (conversation/turns.ts `ownRow`).
@@ -269,6 +280,9 @@ export type AcpmuxRow = {
   steerPromptId?: string;
   /// The last turn's footer carries its prompt, for Retry (conversation/turns.ts).
   prompt?: string;
+  /// The last turn's footer when the reader stopped that turn and nothing followed: it offers
+  /// Continue (conversation/turns.ts, TurnRows.tsx TurnFooter).
+  resumable?: boolean;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
   ended?: boolean;
   /// A todo list whose turn has ended: a step left in progress no longer spins (conversation/turns.ts).
@@ -433,6 +447,7 @@ export type AcpmuxCatalogModel = {
   efforts?: string[];
   defaultEffort?: string;
   fast?: boolean;
+  serviceTiers?: (string | { id: string; name?: string; description?: string })[];
   contextWindow?: number;
   /** The catalog release an alias stands for (the picker catalog's alias rows). */
   release?: string;
@@ -449,6 +464,19 @@ export type QueueEdit =
   | { op: "interrupt" }
   /** Runs a queue a failed turn paused; any of its prompts names it. */
   | { op: "resume" };
+
+/// Claude Code's /context breakdown as acpmux keeps it (claude_stdio `context_breakdown`).
+export type AcpmuxContextBreakdown = {
+  /// `id` is Claude Code's (`system_prompt`, `mcp_tools_deferred`, `free_space`, ...) when it names
+  /// one; `name` is its display name.
+  categories: { id?: string; name: string; tokens: number; kind: "used" | "free" | "buffer" | "deferred" }[];
+  memoryFiles: { path: string; type: string; tokens: number }[];
+  mcpTools: { name: string; serverName: string; tokens: number }[];
+  /// Only when skills take context.
+  skills?: { name: string; tokens: number }[];
+  totalTokens: number;
+  maxTokens: number;
+};
 
 /** Why a tab's chat is missing: the daemon's list lacked it when the pane opened
  * (`notListedAtOpen`), or it left the list while the pane showed it (`leftListWhileShown`). */
@@ -474,8 +502,12 @@ export type AcpmuxSnapshot = {
     sessionId: string;
     cwd?: string;
     turnCount?: number;
-    /// Context-window tokens used of the session's window, from the agent's last usage update.
-    usage?: { used: number; size: number };
+    /// Context-window tokens used of the session's window, from the agent's last usage update, and
+    /// `setup`, the part the agent took before the conversation (its system prompt, tools and
+    /// memory), when the harness reports it (`_meta.acpmux.setup`).
+    usage?: { used: number; size: number; setup?: number };
+    /// What the context holds by category, as Claude Code's /context reports it.
+    contextBreakdown?: AcpmuxContextBreakdown;
     host?: string;
     peer?: string;
     hostKind?: "local" | "cloud";
@@ -519,6 +551,9 @@ export type AcpmuxSnapshot = {
       currentValue?: string;
       options: { value: string; name?: string; description?: string }[];
     }[];
+    /// The chat's tools (acpmux `tools`, cx-thur3) and whether `_acpmux/set_tools` can change them.
+    tools?: ChatTool[];
+    toolsMutable?: boolean;
   };
   connection: string;
   /// The origin acpmux names for this connection in `initialize` (`_meta.acpmux.origin`):
@@ -611,6 +646,9 @@ export type AcpmuxSnapshot = {
   /** A `cmux://session/<id>` link named this session and the daemon has none: the pane says so
    * instead of showing another chat. Unset once a session is selected. */
   missingSession?: string;
+  /** Why `missingSession` is not here: deleted, or on a machine that is not connected (or still
+   * connecting, which the pane shows as loading). chatUnavailable.ts. */
+  unavailable?: ChatUnavailable;
   /** Why `missingSession` is set (the pane reports each one to the app's log, `chat.missing`). */
   missingReason?: MissingSessionReason;
   /** The outside chat this pane adopts is still open in another process (acpmux refused with
@@ -660,6 +698,37 @@ const USER_STATUS_HEIGHT = 20;
 const META_GAP = 4;
 const META_ROW = 24;
 const MESSAGE_GAP = 8;
+/// The compact tool run rhythm (`conversation.css --cv-tool-row-height` and its run bottom gap).
+const TOOL_RUN_TOP = 2;
+const TOOL_ROW_HEIGHT = 22;
+const TOOL_RUN_BOTTOM = 4;
+
+/// Ordinary tool rows use the compact rhythm. Notes and specialized MCP cards keep a conservative
+/// estimate until their renderer reports its measured height (a wait can contain several three-line replies).
+function activityStepHeight(item: AcpmuxActivity): number {
+  const tool = item.tool;
+  if (!tool) return 26;
+  const mcp = mcpCall(tool);
+  if (mcp) {
+    const subsession = subsessionCall(tool, mcp);
+    if (!subsession) return 26;
+    if (subsession.tool === "wait" && !subsession.running) return Math.max(40, subsession.sessions.length * 80);
+    return 40;
+  }
+  switch (tool.kind) {
+    case "execute":
+    case "read":
+    case "edit":
+    case "delete":
+    case "move":
+    case "fileChange":
+    case "search":
+    case "fetch":
+      return TOOL_ROW_HEIGHT;
+    default:
+      return 26;
+  }
+}
 /// How many lines of another agent's message its card shows before it is cut
 /// (conversation/IncomingMessageCard.tsx, `.cv-received__body[data-cut]`).
 export const RECEIVED_LINES = 6;
@@ -808,9 +877,10 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
   if (row.kind === "activity") {
     // The edited-files card (conversation/EditedFilesCard.tsx): a 58px head, and 34px for each of the first
     // three files and for "Show N more"; one file is named in the head. Otherwise tool rows
-    // (`.cv-tools`: 2px above 26px rows), which is also how a copy inside an open "Worked for" draws.
+    // (`.cv-tools`: 2px above compact rows, with a small run gap), which is also how a copy inside
+    // an open "Worked for" draws.
     const edits = row.items?.filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ?? [];
-    if (edits.length && !isFoldedCopy(row)) {
+    if (edits.length && row.foldRun === undefined && !isFoldedCopy(row)) {
       const files = new Set(
         edits.flatMap(
           (item) => item.tool?.diffs?.flatMap((diff) => (contentsUnknown(diff) ? [] : [pathKey(diff)])) ?? [],
@@ -820,8 +890,10 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
       return 14 + editedCardHeight(files.size, plain.length);
     }
     // A folded run (Debug toggle) draws one summary line until opened.
-    if (row.foldRun && row.items && isFoldedRun(row.items)) return 36;
-    return Math.max(34, 10 + 26 * (row.items?.length ?? 1));
+    if (row.foldRun && row.items && isFoldedRun(row.items)) return TOOL_RUN_TOP + TOOL_ROW_HEIGHT + TOOL_RUN_BOTTOM;
+    const items = row.items ?? [];
+    const steps = items.length ? items.reduce((height, item) => height + activityStepHeight(item), 0) : TOOL_ROW_HEIGHT;
+    return TOOL_RUN_TOP + TOOL_RUN_BOTTOM + steps;
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
   // subagent, the last with the list's 8px below (subagents/SubagentGroup.tsx).
@@ -997,6 +1069,16 @@ function lexIncrementally(entry: PreparedRow, text: string): void {
   entry.text = text;
 }
 
+/// An activity row whose items are all thoughts that draw no row once done (thoughts.ts
+/// `isQuietThought`, after `mergeThoughts` joins neighbours as ToolRows does). The live turn's latest
+/// step may still stream its thought, so it is never one. Such a row draws no element at all
+/// (App.tsx ToolActivityRow), so its article is empty and takes no room (conversation.css).
+export const onlyQuietThoughts = (row: AcpmuxRow) =>
+  row.kind === "activity" &&
+  !row.live &&
+  (row.items?.length ?? 0) > 0 &&
+  mergeThoughts(row.items!).every((item) => isThought(item) && isQuietThought(item));
+
 function measuredRowHeight(
   row: AcpmuxRow,
   width: number,
@@ -1025,6 +1107,8 @@ function measuredRowHeight(
   if (row.incoming?.kind === "notice") return 2 + 26 + MESSAGE_GAP;
   // Bookkeeping alone: a turn's start that draws nothing (conversation/turns.ts).
   if (row.incoming?.kind === "hidden") return 0;
+  // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx).
+  if (onlyQuietThoughts(row)) return 0;
   // A preview row's text is its address, not prose: the card's height is fixed.
   if (!row.text || row.kind === PREVIEW) return fallbackRowHeight(row, width, beforeFooter, lastFooter);
   let entry = cache.get(row.id);
@@ -1139,8 +1223,9 @@ export function placeRows(
   let top = kept > 0 ? tops[kept - 1]! + heights[kept - 1]! : 0;
   for (let index = kept; index < heights.length; index += 1) {
     tops[index] = top;
+    // A drawn 0 is a row that draws nothing (App.tsx drawnHeightOf): it takes no room.
     const known = heightAt(index);
-    const height = known !== undefined && known > 0 ? known : estimate.heights[index];
+    const height = known !== undefined && known >= 0 ? known : estimate.heights[index];
     heights[index] = height;
     top += height;
   }
@@ -1207,6 +1292,7 @@ export function scrollLeadRanges(
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
 import { isFoldedRun } from "./conversation/toolRunSummary";
+import { isQuietThought, isThought, mergeThoughts } from "./conversation/thoughts";
 import { previewCardHeight } from "./conversation/previewUrl";
 import { RENDER_FRAME_MIN_HEIGHT } from "./conversation/renderCall";
 import {

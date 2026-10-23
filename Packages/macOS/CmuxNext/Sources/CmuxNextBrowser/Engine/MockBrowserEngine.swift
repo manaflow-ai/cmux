@@ -344,3 +344,8 @@ extension MockBrowserTab: BrowserBackForwardListing {
         return navigation != nil
     }
 }
+
+/// Mute as the real engines report it: the state follows at once.
+extension MockBrowserTab: BrowserAudioMuting {
+    public func setAudioMuted(_ muted: Bool) { simulate(.audioMutedChanged(muted)) }
+}

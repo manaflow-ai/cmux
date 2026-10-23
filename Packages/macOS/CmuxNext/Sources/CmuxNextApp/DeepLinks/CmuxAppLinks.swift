@@ -57,9 +57,11 @@ enum CmuxAppLinks {
     /// Chief home (`chiefHost`, `chief:<home id>`) and on this machine. Nil for anything else (an
     /// unknown scheme or host, a malformed id, a legacy UUID link, another Chief's subagent).
     static func link(for url: URL, linkScheme: String, chiefHost: String?) -> DeepLink? {
-        guard let link = DeepLink.parse(url, scheme: chiefScheme) ?? DeepLink.parse(url, scheme: linkScheme) else { return nil }
+        // A cloud group's https form (`https://cloud-api.cmux.dev/g/grp_…`) opens here too.
+        guard let link = DeepLink.parse(url, scheme: chiefScheme) ?? DeepLink.parse(url, scheme: linkScheme)
+            ?? DeepLink.parseGroupWeb(url) else { return nil }
         switch link.target {
-        case .workspace, .pane, .tab, .session, .agent:
+        case .workspace, .pane, .tab, .session, .agent, .group:
             return link
         case .chiefSession(let home, _):
             return link.machine == nil && chiefHost == "chief:" + home ? link : nil

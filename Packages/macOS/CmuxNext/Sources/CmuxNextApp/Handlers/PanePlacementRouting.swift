@@ -78,7 +78,7 @@ enum PanePlacementRouting {
         // starts it at home).
         if aimed["cwd"]?.stringValue == nil,
            NewTerminalStart.inherits(.split),
-           let focused, let cwd = NewTerminalStart.folder(of: focused.selectedTab, services: focused.services) {
+           let focused, let cwd = NewTerminalStart.inherited(besides: focused.selectedTab, in: focused.pane, services: focused.services) {
             aimed.arguments["cwd"] = .string(cwd)
         }
         return aimed

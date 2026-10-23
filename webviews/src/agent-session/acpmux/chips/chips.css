@@ -98,6 +98,15 @@
   margin: 0 0 0 3px;
   color: var(--cv-link);
 }
+/* A file on the machine an agent's message came from (LinkChips.tsx ElsewhereChip): the chip
+   without a click, a little quieter. */
+.cv-chip.is-elsewhere {
+  cursor: default;
+  color: var(--cv-text-dim);
+}
+.cv-chip.is-elsewhere:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
 .cv-chip__favicon {
   border-radius: 3px;
   object-fit: contain;
@@ -221,24 +230,101 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cv-media__expand {
+/* The video's frame: the poster with its play button and length until a click plays it. */
+.cv-media__frame {
+  position: relative;
+  display: block;
+  max-width: 100%;
+}
+.cv-media__poster {
+  appearance: none;
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+.cv-media__poster:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 2px;
+}
+/* The play button: a round glass lens over the frame, its triangle in the text color. */
+.cv-media__play {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding-left: 3px; /* the triangle's visual center */
+  box-sizing: border-box;
+  border-radius: 50%;
+  color: var(--cv-text);
+}
+.cv-media__poster:hover .cv-media__play {
+  transform: scale(1.06);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-media__play {
+    transition: transform var(--cmux-motion-micro, 120ms);
+  }
+}
+/* The length, in the frame's corner on its own dark scrim so it reads over any frame. */
+.cv-media__duration {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: #fff; /* theme-fixed: on its own black scrim over media */
+  background: rgb(0 0 0 / 0.55);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+/* Every control on a playing video takes the pointing hand too (WebKit's own controls). */
+.cv-media__frame.is-playing video,
+.cv-media__frame video::-webkit-media-controls-panel,
+.cv-media__frame video::-webkit-media-controls-play-button,
+.cv-media__frame video::-webkit-media-controls-timeline,
+.cv-media__frame video::-webkit-media-controls-mute-button,
+.cv-media__frame video::-webkit-media-controls-fullscreen-button {
+  cursor: pointer;
+}
+/* Open in tab and Expand: small glass buttons in the top corner, shown while the pointer is on it. */
+.cv-media__actions {
   position: absolute;
   top: 6px;
   right: 6px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-media__actions {
+    transition: opacity var(--cmux-motion-micro, 120ms);
+  }
+}
+.cv-media__action {
   display: grid;
   place-items: center;
   width: 24px;
   height: 24px;
+  padding: 0;
   border: 0;
   border-radius: 6px;
-  color: #fff; /* theme-fixed: on its own black scrim over media */
-  background: rgb(0 0 0 / 0.5);
-  opacity: 0;
-  transition: opacity 120ms;
+  color: var(--cv-text);
+  cursor: pointer;
 }
-.cv-media:hover .cv-media__expand,
-.cv-media__expand:focus-visible {
+.cv-media:hover .cv-media__actions,
+.cv-media__actions:focus-within {
   opacity: 1;
+}
+.cv-media__action:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 1px;
 }
 .cv-media-stage {
   flex: 1;

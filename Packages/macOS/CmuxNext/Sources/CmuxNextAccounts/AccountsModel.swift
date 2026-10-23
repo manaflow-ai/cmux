@@ -85,7 +85,9 @@ public final class AccountsModel {
         }
     }
 
-    /// The app became active: re-detect if a login ran in a tab meanwhile.
+    /// The app became active, or the Settings window came forward (a login
+    /// in a cmux terminal tab never makes the app inactive): re-detect if a
+    /// login or logout ran in a tab meanwhile.
     public func appDidBecomeActive() {
         guard !pendingReauth.isEmpty else { return }
         for provider in pendingReauth { apply(.reauthEnded, to: provider) }
@@ -104,7 +106,7 @@ public final class AccountsModel {
         guard state.phase == .idle || state.phase == .reauthenticating else { return AccountsStrings.errorBusy }
         if state.phase == .idle { apply(.reauthStarted, to: provider) }
         pendingReauth.insert(provider)
-        services.reauthenticate(provider, plan: provider.reauthPlan)
+        guard services.reauthenticate(provider, plan: provider.reauthPlan) else { return nothingOpened(provider) }
         return nil
     }
 
@@ -113,6 +115,26 @@ public final class AccountsModel {
     public func performReauthenticate(_ provider: AIProvider) async -> String? {
         await settle()
         return reauthenticate(provider)
+    }
+
+    /// Runs the provider's own logout in a terminal tab; re-detects when the
+    /// app becomes active again, like a re-authentication. Returns why
+    /// nothing ran when no local pane could take the tab, or nil.
+    @discardableResult
+    public func signOut(_ provider: AIProvider) -> String? {
+        guard row(provider).canSignOut, !row(provider).isBusy else { return nil }
+        apply(.reauthStarted, to: provider)
+        pendingReauth.insert(provider)
+        guard services.reauthenticate(provider, plan: provider.signOutPlan) else { return nothingOpened(provider) }
+        return nil
+    }
+
+    /// No local pane took the login or logout: the row is free again and
+    /// says why, instead of waiting for a re-detect that never comes.
+    private func nothingOpened(_ provider: AIProvider) -> String {
+        pendingReauth.remove(provider)
+        apply(.reauthFailed(AccountsStrings.errorNoLocalPane), to: provider)
+        return AccountsStrings.errorNoLocalPane
     }
 
     /// Connect: asks for a paste first when there is no local secret to send.

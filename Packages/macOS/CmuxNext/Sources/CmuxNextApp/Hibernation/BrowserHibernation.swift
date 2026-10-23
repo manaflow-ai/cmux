@@ -30,6 +30,13 @@ import os
 /// as they become neighbors, so Ctrl-Tab, Cmd-Shift-[ ] and the next click
 /// show a live page. A hovered tab wakes too. Memory pressure and Low Power
 /// Mode turn this off (plans/cmux-next/neighbor-tabs-DESIGN.md).
+///
+/// Which page goes first is a ranking (`HibernationPlanner.idleness`): how long it has been
+/// hidden, how often the person showed it in the last hour, and under memory pressure how much
+/// memory it holds. A few pages go per pass (`HibernationPlanner.Pace`), never all at once.
+/// A page never hibernates while it shows, plays, captures, has DevTools open, an agent holds
+/// its lease or called it lately, a download it started runs, or it holds the person's form
+/// input; pinned tabs and Never Hibernate hosts stay unless the setting says otherwise.
 @MainActor
 final class BrowserHibernation {
     private(set) weak var cache: TabContentCache?
@@ -98,6 +105,27 @@ final class BrowserHibernation {
     /// The page's freeze control (a seam for tests; Chromium pages only in the app).
     var freezer: (any BrowserTab) -> (any BrowserFreezing)? = { $0 as? any BrowserFreezing }
 
+    /// When the person showed each tab lately (at most `focusLimit`, within `focusWindow`).
+    private var focusedAt: [String: [ContinuousClock.Instant]] = [:]
+    /// Seconds of focus history a tab's ranking counts.
+    static let focusWindow: Double = 3_600
+    static let focusLimit = 64
+    /// Tabs whose browser lease an agent holds now (`noteLease`).
+    private(set) var leased: Set<String> = []
+    /// A download tab `key` started still runs; injected by the App.
+    var isDownloading: (String) -> Bool = { _ in false }
+    /// Samples each browser tab's memory (renderer footprint, shared renderers split); injected
+    /// by the App. Run only under memory pressure, at most every `memoryMaxAge` seconds.
+    var measureMemory: (() async -> [String: UInt64])?
+    private(set) var memoryBytes: [String: UInt64] = [:]
+    private var memoryMeasuredAt: ContinuousClock.Instant?
+    private var measuringMemory = false
+    static let memoryMaxAge: Double = 30
+    /// When the probe last kept each page; under pressure such a page ranks after the others
+    /// for `keptBackoff` seconds, so one playing page does not hold up the relief of the rest.
+    private var probeKeptAt: [String: ContinuousClock.Instant] = [:]
+    static let keptBackoff: Double = 60
+
     init(cache: TabContentCache, lowPower: LowPowerMode = .system) {
         self.cache = cache
         self.lowPower = lowPower
@@ -160,6 +188,44 @@ final class BrowserHibernation {
         agentPages?.update(setting: setting, pressure: pressure)
         refreshNeighbors(replans: false)
         replan()
+        refreshMemoryIfNeeded()
+    }
+
+    /// Under memory pressure, samples the tabs' memory when the last sample is stale, then
+    /// replans with it (the heaviest of equally idle pages goes first).
+    private func refreshMemoryIfNeeded() {
+        guard pressure != .normal, let measureMemory, !measuringMemory else { return }
+        if let at = memoryMeasuredAt, (ContinuousClock.now - at).seconds < Self.memoryMaxAge { return }
+        measuringMemory = true
+        Task { @MainActor [weak self] in
+            let sample = await measureMemory()
+            guard let self else { return }
+            self.measuringMemory = false
+            self.memoryBytes = sample
+            self.memoryMeasuredAt = .now
+            self.replan()
+        }
+    }
+
+    /// The host of the page tab `key` shows (Never Hibernate This Site); nil for none.
+    func host(of key: String) -> String? {
+        guard let host = cache?.browsers[key]?.tab.state.url?.host(), !host.isEmpty else { return nil }
+        return host
+    }
+
+    /// An agent took (`held`) or let go of tab `key`'s browser lease. A leased page never
+    /// freezes or hibernates; it thaws at once so the agent's next call runs.
+    func noteLease(_ key: String, held: Bool) {
+        if held {
+            guard leased.insert(key).inserted else { return }
+            thaw(key)
+        } else {
+            guard leased.remove(key) != nil else { return }
+            if exemptions[key] == .agentLease { exemptions[key] = nil }
+            // The agent left it: its hidden clock starts now.
+            if cache?.lifecycle.phase(key) == .mountedHidden { hiddenAt[key] = .now }
+        }
+        replan()
     }
 
     // MARK: Lifecycle notifications (from TabContentCache effects)
@@ -179,6 +245,21 @@ final class BrowserHibernation {
         hiddenAt[key] = nil
         prepared[key] = nil
         exemptions[key] = nil
+        probeKeptAt[key] = nil
+        noteFocus(key, at: .now)
+    }
+
+    /// Records a show of tab `key` for its ranking, dropping shows older than `focusWindow`.
+    func noteFocus(_ key: String, at now: ContinuousClock.Instant) {
+        var times = focusedAt[key, default: []].filter { (now - $0).seconds < Self.focusWindow }
+        times.append(now)
+        if times.count > Self.focusLimit { times.removeFirst(times.count - Self.focusLimit) }
+        focusedAt[key] = times
+    }
+
+    /// Shows of tab `key` within `focusWindow` of `now`.
+    func recentFocusCount(_ key: String, now: ContinuousClock.Instant) -> Int {
+        focusedAt[key]?.filter { (now - $0).seconds < Self.focusWindow }.count ?? 0
     }
 
     /// An agent acted on tab `key` (`cmux browser`, MCP, the browser REPL):
@@ -210,6 +291,10 @@ final class BrowserHibernation {
         answeredBusy.remove(key)
         hoveredAt[key] = nil
         awakeNeighbors.remove(key)
+        focusedAt[key] = nil
+        leased.remove(key)
+        memoryBytes[key] = nil
+        probeKeptAt[key] = nil
         snapshots.remove(key)
         wakeLog.forget(key)
     }
@@ -320,10 +405,15 @@ final class BrowserHibernation {
                 agentUsedAt[key] = nil
                 if exemptions[key] == .agentDriving { exemptions[key] = nil }
             }
-            return candidate(key, entry: entry, hiddenFor: (now - at).seconds)
+            var facts = candidate(key, entry: entry, hiddenFor: (now - at).seconds, now: now)
+            if let kept = probeKeptAt[key] {
+                if (now - kept).seconds < Self.keptBackoff { facts.recentlyKept = true } else { probeKeptAt[key] = nil }
+            }
+            return facts
         }
         let plan = HibernationPlanner.plan(setting, pressure: pressure, candidates: candidates)
         exemptions.merge(plan.exemptions) { $1 }
+        if !plan.due.isEmpty { refreshMemoryIfNeeded() }
         for key in plan.due { prepare(key) }
         if let next = [plan.nextCheck, graceEnds].compactMap(\.self).min() {
             deadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
@@ -386,9 +476,12 @@ final class BrowserHibernation {
         }
     }
 
-    /// No agent called the hidden page within `agentGrace`, and it is no neighbor or hovered tab.
+    /// No agent called the hidden page within `agentGrace` or holds its lease, and it is no
+    /// neighbor or hovered tab.
     private func mayFreeze(_ key: String) -> Bool {
         if let used = agentUsedAt[key], (ContinuousClock.now - used).seconds < Self.agentGrace { return false }
+        // An agent holds its lease: its next call would wait on a thaw.
+        if leased.contains(key) { return false }
         return !awakeNeighbors.contains(key) && hoverLeft(key, now: .now) == nil
     }
 
@@ -430,15 +523,20 @@ final class BrowserHibernation {
     /// switches neighbors exist to avoid (`debug.surfaces`, the bench).
     private(set) var coldShows = 0
 
-    private func candidate(_ key: String, entry: BrowserEntry, hiddenFor: Double) -> HibernationPlanner.Candidate {
+    private func candidate(_ key: String, entry: BrowserEntry, hiddenFor: Double, now: ContinuousClock.Instant = .now) -> HibernationPlanner.Candidate {
         let tab = entry.tab
         let capturing = (tab as? any PageInfoProviding).map { !$0.pageInfoInUse.union($0.pageInfoActivity.inUse).isEmpty } ?? false
-        return HibernationPlanner.Candidate(
+        var candidate = HibernationPlanner.Candidate(
             key: key, hiddenFor: hiddenFor, host: tab.state.url?.host(), isPinned: isPinned(key),
             hasDevTools: (tab as? any BrowserDevToolsHosting)?.devTools.isOpen ?? false, isCapturing: capturing,
             canRestore: (tab as? any BrowserHibernationSource)?.supportsHibernation ?? false,
             showsFormSubmission: (tab as? any BrowserHibernationSource)?.showsFormSubmission ?? false
         )
+        candidate.recentFocusCount = recentFocusCount(key, now: now)
+        candidate.memoryBytes = memoryBytes[key]
+        candidate.isDownloading = isDownloading(key)
+        candidate.hasAgentLease = leased.contains(key)
+        return candidate
     }
 
     // MARK: Hibernate
@@ -482,6 +580,7 @@ final class BrowserHibernation {
             }
             if let exemption {
                 self.exemptions[key] = exemption
+                self.probeKeptAt[key] = .now
                 return
             }
             // It became a neighbor or was hovered while the probe ran (the person's Hibernate Tab still applies).

@@ -532,7 +532,7 @@ extension LiveCoordinator {
         guard chiefMacID != focusedMacID else { return }
         let owner = focused
         guard let link = owner.servedLink else {
-            if chiefMacID != nil { chiefOffline() }
+            if chiefMacID != nil { chiefOffline() } else { useChiefCloudCopy(macName: owner.name) }
             return
         }
         Task { [weak self] in
@@ -551,6 +551,24 @@ extension LiveCoordinator {
         ChiefSession.shared.use(ChiefOfflineBackend())
         ChiefSession.shared.status = nil
         chiefLive = false
+        useChiefCloudCopy(macName: ChiefSession.shared.macName)
+    }
+
+    /// With no link to the Mac, Chief reads the Mac's cloud copy and its
+    /// messages wait in the cloud for the Mac (a450, logs/iphone-chief-DESIGN.md);
+    /// nothing changes when the Mac publishes no copy or a link came back meanwhile.
+    func useChiefCloudCopy(macName: String?) {
+        // task-owner: one host lookup; ends with the swap or nothing
+        Task { [weak self] in
+            guard let replica = await ChiefSources.shared.macReplica(named: macName) else { return }
+            let session = ChiefSession.shared
+            guard let self, self.chiefLink == nil, session.backend is ChiefOfflineBackend else {
+                replica.close()
+                return
+            }
+            session.use(replica)
+            session.status = ChiefSources.macOfflineReason
+        }
     }
 
     /// Chief on the Mac: its Chief owner over the link's scoped `chief`
@@ -592,6 +610,7 @@ extension LiveCoordinator {
             chiefLive = false
             MacHomeFeed.shared.forget(unless: owner.macID)
             log.info("chief unavailable: \(reason, privacy: .public)")
+            useChiefCloudCopy(macName: owner.name)
         }
         do {
             let channel = try await link.openChannel(service: ChiefDaemonBackend.service, args: [:])

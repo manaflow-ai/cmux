@@ -1129,6 +1129,8 @@ class NewRowResult:
     surface: Id
     pane: Id
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    pane_id: Union[str, MissingType] = field(default=MISSING)
+    tab_id: Union[str, MissingType] = field(default=MISSING)
     terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
     transaction: Union[str, MissingType] = field(default=MISSING)
 
@@ -1949,6 +1951,23 @@ class TerminalPlacement:
     terminal_incarnation: Union[str, None]
     terminal_revision: int
     terminal_resource_id: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class TerminalPortsListener:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalPortsListener'
+    bound: str
+    host: str
+    port: int
+    url: str
+
+
+@dataclass(frozen=True)
+class TerminalPortsResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalPortsResult'
+    surface: Id
+    closed: List[int]
+    listeners: List[TerminalPortsListener]
 
 
 @dataclass(frozen=True)
@@ -3898,8 +3917,10 @@ class NewRowRequest:
     cwd: Union[str, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
+    pane_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    tab_id: Union[str, None, MissingType] = field(default=MISSING)
     transaction: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -4657,6 +4678,12 @@ class TerminalHistoryRequest:
     marker_epoch: int
     before: Union[int, None, MissingType] = field(default=MISSING)
     max_bytes: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class TerminalPortsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/terminal-ports/request'
+    surface: Id
 
 
 @dataclass(frozen=True)
@@ -6066,6 +6093,8 @@ __all__ = [
     'TerminalKeyInput',
     'TerminalModifiers',
     'TerminalPlacement',
+    'TerminalPortsListener',
+    'TerminalPortsResult',
     'TerminalReadRangeResult',
     'TerminalRecord',
     'TerminalRegistryEvent',
@@ -6384,6 +6413,7 @@ __all__ = [
     'TerminalClipboardSubscribeRequest',
     'TerminalEventsRequest',
     'TerminalHistoryRequest',
+    'TerminalPortsRequest',
     'TerminalReadRangeRequest',
     'TerminalResourcesRequest',
     'TerminalResumeCommandRequest',

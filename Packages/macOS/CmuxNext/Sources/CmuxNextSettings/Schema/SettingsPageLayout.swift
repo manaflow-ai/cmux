@@ -19,6 +19,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case importSuggestions
         /// Every release channel's recent builds, with the one this Mac runs (Settings > Updates).
         case channels
+        /// The web UI served now, its last check and Roll Back (plans/cmux-next/web-ota.md); NIGHTLY only.
+        case webUpdates
         /// Settings > Chief's Voice input row: the Debug toggle home.voiceInput, only where it exists.
         case voiceInput
     }
@@ -115,7 +117,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 GroupSpec(keys: ["updates.idleInstallMaxWaitSeconds", "updates.idleInstallQuietSeconds"],
                           title: SettingsText.keyed("settings.pageGroup.updatesAdvanced", "Updates: Advanced")),
             ],
-            trail: [.channels]),
+            // After the groups: the Web UI card (the web half of Updates; NIGHTLY only), then the channels.
+            trail: [.webUpdates, .channels]),
         CategorySpec(
             id: "theme", title: SettingsText.keyed("settings.category.theme", "Theme"), symbol: "paintpalette",
             // appearance.theme and appearance.appTheme are drawn by the theme
@@ -184,6 +187,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.chiefChat"),
                 // The Chief pet floating over every app, and its character.
                 group("settings.group.chiefPet"),
+                // Whether a tapback on a Chief message can start a turn, and the classifier that decides (a416).
+                group("settings.group.chiefReactions"),
             ],
             lead: [.chiefs, .chiefPet, .voiceInput]),
         // A core cmux feature: banners, sounds, the attention ring and the
@@ -225,12 +230,14 @@ public nonisolated struct SettingsPageLayout: Sendable {
                           title: SettingsText.keyed("settings.pageGroup.localData", "Data on This Mac")),
                 GroupSpec(keys: ["browser.omnibar.remoteSuggestions", "announcements.fetch"],
                           title: SettingsText.keyed("settings.pageGroup.network", "Network Requests")),
+                GroupSpec(group: "settings.group.hangReports"),
             ],
             actions: [.home], aliases: [.home]),
         CategorySpec(
             id: "accounts", title: section(.accounts), symbol: "person.crop.circle",
-            // Phone access sits beside the account it signs in with and the machines list.
-            groups: [group("settings.group.phone"), group("settings.group.messagesServer")],
+            // Phone access sits beside the account it signs in with and the machines list. The
+            // Machines card draws Machine Colors on its rows (a color well per machine).
+            groups: [group("settings.group.phone"), group("settings.group.messagesServer"), group("settings.group.machineColors")],
             lead: [.accounts, .machines], actions: [.accounts, .machines], aliases: [.accounts, .machines]),
         // Phones reaching this Mac: the iPhone host's switch, then its live status and phones.
         CategorySpec(

@@ -58,6 +58,8 @@ pub mod net_keepalive;
 /// Remote access state; the cmux-tui-remote-access crate, re-exported at the old paths.
 use cmux_tui_remote_access::pairing;
 mod output_store;
+/// `RecoverPoison` and `JsonFields` (panic-free lane).
+mod panic_free;
 mod program_status;
 mod prompt_mode_reset;
 pub mod provider_management;
@@ -87,6 +89,8 @@ pub mod sizing_policy;
 mod state;
 pub mod store_schemas;
 use cmux_tui_util::stream_interrupt;
+#[cfg(unix)]
+mod holder_runtime;
 mod surface;
 mod terminal_activity;
 #[cfg(unix)]

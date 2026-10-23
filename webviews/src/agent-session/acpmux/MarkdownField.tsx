@@ -6,7 +6,8 @@ import { isImeKeyEvent } from "../../pages/shared/imeKeys";
 import { activeFormats, applyFormat, type MarkdownFormat } from "./markdownFormat";
 import "./markdownField.css";
 import { followScrollEdges } from "./summary/scrollEdges";
-import { MINIMAL_SCROLLER_ATTRIBUTE } from "../../scrollers";
+import { followActionsWidth } from "./composerScrollLane";
+import { MINIMAL_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import {
   Editor,
   defaultValueCtx,
@@ -40,10 +41,15 @@ export type MarkdownFieldHandle = {
   /// The caret's offset in the first paragraph.
   caret(): number;
   /// Replaces the prompt as typing would: the composer hears it through `onChange`.
-  type(markdown: string): void;
+  /// False when the editor is not made yet (it mounts a moment after the field): nothing changed,
+  /// and the caller sets the field's `value` instead.
+  type(markdown: string): boolean;
   /// The prompt as plain text (blocks joined by newlines) and the selection's offsets into it,
   /// for dictation, which splices words at the cursor.
   text(): PlainPrompt;
+  /// Whether Backspace here would do nothing: an empty caret at the very start of a plain first
+  /// paragraph (a heading, list item or quote there takes Backspace to lift itself).
+  atStart(): boolean;
   /// Rewrites the plain text to `value` as one undoable edit of the span that changed, then
   /// selects `selectionStart...selectionEnd`; the composer hears it through `onChange`.
   writeText(value: string, selectionStart: number, selectionEnd: number): void;
@@ -99,7 +105,8 @@ export type MarkdownFieldProps = {
   onSubmit?(markdown: string, modifiers: { cmd: boolean }): void;
   /// A new paragraph or line the browser inserts on its own, not from a key the field handled: the
   /// Return an input method or Dictation passes on (keyCode 229, which every key handler leaves to
-  /// it). Set, the field never adds that line and this runs instead, as Return would.
+  /// it), or that 229 Return itself once no composition runs or just ended. Set, the field never
+  /// adds that line and this runs instead, as Return would.
   onReturnInput?(): void;
   /// The user's first edit (the new tab's `newTab.touched`).
   onFirstInput?(): void;
@@ -206,6 +213,12 @@ const copiedText = (slice: Slice) => slice.content.textBetween(0, slice.content.
 /// How long after a focus with no click the browser's own caret placement is overruled. Its caret
 /// at the field's very start is overruled for as long as no key, click or edit came (see `keepCaret`).
 const KEEP_CARET_MS = 100;
+/// How soon after `compositionend` a keyCode-229 Return is the key that committed the composition
+/// (WebKit sends it after the event). ProseMirror's own Safari guard uses the same window.
+const COMMIT_RETURN_MS = 500;
+/** Return or keypad Enter, also when an input method reports its key as "Process". */
+const isReturnKey = (event: KeyboardEvent) =>
+  event.key === "Enter" || event.code === "Enter" || event.code === "NumpadEnter";
 /// The soft band at a long draft's scrolled edges (markdownField.css reads it as
 /// `--acpmux-md-fade-band`). The caret reveal keeps the caret this far from the field's edge, so the
 /// caret's line never sits in the fade. The attachment row above the prompt fades its scrolled sides
@@ -379,6 +392,11 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     // long paste left the field (it scrolls past eight lines) at the top. Set while a paste the
     // surface did not consume runs; the paste's dispatch is synchronous inside it.
     let pasting = false;
+    // When the last composition ended (the event's timeStamp), for the Return that commits it.
+    let compositionEndedAt = -Infinity;
+    // Set from a passed-on Return the field took until its key comes up: the paragraph an input
+    // method may still insert for that key is the same Return, not a second one.
+    let returnTaken = false;
     // A paste that ends the draft shows the field's whole end, its bottom inset too: the caret
     // reveal stops a margin short in WebKit, which would leave the last line under the bottom fade
     // (markdownField.css). Every paste path ends here.
@@ -396,8 +414,27 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
           props: {
             handleDOMEvents: {
               keydown: (_view, event) => {
+                returnTaken = false;
                 latest.current.onKeyDown?.(event);
                 if (event.defaultPrevented) return true;
+                // A Return an input method or Dictation passed on (keyCode 229) never reaches
+                // ProseMirror's keymap, which reads its key as Enter and splits the paragraph: in
+                // Leo's chat that line was all a dictated prompt's Return did (2026-10-21). The
+                // Return that commits a composition stays the input method's; any later one is
+                // Return, as the field's surface takes it.
+                const returnInput = latest.current.onReturnInput;
+                const plainReturn = !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey;
+                if (returnInput && isImeKeyEvent(event) && isReturnKey(event) && plainReturn) {
+                  if (event.isComposing || composing.current) return true;
+                  // WebKit's commit Return, just after compositionend: ProseMirror's own keydown
+                  // swallows it and clears its after-composition guard (imeKeys.ts). Kept from it,
+                  // the guard stayed armed and took the next key, so a quick Shift-Return sent.
+                  if (event.timeStamp - compositionEndedAt <= COMMIT_RETURN_MS) return false;
+                  event.preventDefault();
+                  returnTaken = true;
+                  returnInput();
+                  return true;
+                }
                 const submit = latest.current.onSubmit;
                 if (submit && event.key === "Enter" && !event.shiftKey && !event.altKey && !isImeKeyEvent(event)) {
                   event.preventDefault();
@@ -413,15 +450,21 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
                 if (!returnInput || (input.inputType !== "insertParagraph" && input.inputType !== "insertLineBreak"))
                   return false;
                 event.preventDefault();
-                returnInput();
+                if (returnTaken) returnTaken = false;
+                else returnInput();
                 return true;
+              },
+              keyup: () => {
+                returnTaken = false;
+                return false;
               },
               compositionstart: () => {
                 composing.current = true;
                 latest.current.onCompositionChange?.(true);
                 return false;
               },
-              compositionend: () => {
+              compositionend: (_view, event) => {
+                compositionEndedAt = event.timeStamp;
                 composing.current = false;
                 latest.current.onCompositionChange?.(false);
                 return false;
@@ -709,6 +752,15 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         : undefined,
     [],
   );
+  // In the composer's box, its scrollbar runs down the box's right edge, clear of the actions
+  // (composerScrollLane.ts).
+  useEffect(
+    () => (wrapper.current && typeof ResizeObserver === "function" ? followActionsWidth(wrapper.current) : undefined),
+    [],
+  );
+  // Under the scrollbar fade (agentPane.debug.scrollerFade, on by default since Lawrence 2026-10-23)
+  // a long draft's thumb fades in and out with the scrolling marks, as the transcript's does.
+  useEffect(() => (wrapper.current ? followShownScrollerFade(wrapper.current) : undefined), []);
   const handle = useRef<MarkdownFieldHandle>(undefined);
   useImperativeHandle(
     ref,
@@ -732,7 +784,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         value: () => known.current,
         caret: () => (view.current ? caretOf(view.current) : 0),
         type: (markdown) => {
-          if (!editor.current) return;
+          if (!editor.current) return false;
           refocus.current = null;
           // Not `known`: the view plugin reports the change as the user's.
           setDocument(markdown);
@@ -741,6 +793,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
             const end = current.state.doc.content.size;
             current.dispatch(current.state.tr.setSelection(TextSelection.near(current.state.doc.resolve(end), -1)));
           }
+          return true;
         },
         text: () => {
           const current = view.current;
@@ -751,6 +804,18 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
             selectionStart: plainOffset(doc, selection.from),
             selectionEnd: plainOffset(doc, selection.to),
           };
+        },
+        atStart: () => {
+          const current = view.current;
+          if (!current) return false;
+          const { doc, selection } = current.state;
+          const { $from } = selection;
+          return (
+            selection.empty &&
+            selection.from === Selection.atStart(doc).from &&
+            $from.depth === 1 &&
+            $from.parent.type.name === "paragraph"
+          );
         },
         writeText: (value, selectionStart, selectionEnd) => {
           const current = view.current;
@@ -843,7 +908,8 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
   return (
     <div
       className={`acpmux-md-field ${className ?? ""}`}
-      // A long draft keeps its thin scrollbar while it overflows (scrollers.ts).
+      // A long draft's thin scrollbar (scrollers.ts): kept while it overflows, or under the fade
+      // shown while it scrolls and while the pointer is near its edge.
       {...{ [MINIMAL_SCROLLER_ATTRIBUTE]: "" }}
       style={{ "--acpmux-md-fade-band": `${FADE_BAND_PX}px` } as React.CSSProperties}
       ref={(element: MarkdownFieldElement | null) => {

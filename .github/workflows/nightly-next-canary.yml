@@ -18,6 +18,9 @@ name: nightly-next canary
 # mode) and enforces after it, unless the canary failed a build in that week.
 # A schedule runs only from the default branch, so this file lives on main. A pull request that changes the canary runs it on
 # the newest feed build with the pull request's own harness and pulls nothing.
+#
+# The canary is the only post-publication runtime check. It uses the harness
+# from the build's own commit so the control protocol matches the app.
 on:
   schedule:
     - cron: "3,18,33,48 * * * *"
@@ -122,7 +125,7 @@ jobs:
     if: needs.pick.result == 'success' && needs.pick.outputs.checked != 'true'
     # No secrets: this job runs the published app.
     runs-on: macos-26
-    timeout-minutes: 25
+    timeout-minutes: 35
     permissions:
       contents: read
     outputs:

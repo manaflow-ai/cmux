@@ -165,6 +165,8 @@ public extension PageDescriptor {
                   "reloadConfiguration",
                   // Machines > Add Server… opens the Add Server card (no code: the page never approves).
                   "server.addServer",
+                  // Machines > Add Device… opens the one Add Device card (add-device-DESIGN.md).
+                  "device.add",
                   // Agents > Computer Use card (ComputerUseSetup).
                   "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
                   // Settings › Import's cards (CmuxNextImportCards): a card's button, and Import from Browser.
@@ -175,9 +177,10 @@ public extension PageDescriptor {
     /// The App Store page (react-pages.md 3). Install, update, Remove, `set` and allowing a scope pass
     /// the host's native sheet before they reach the owner (the app's ConfirmingPageProvider); Open
     /// runs the registry action `app.open` (a host verb, cx-hnmbt.13).
+    /// Its icons are the host's drawings (``AppsPageNativeOps/glyphPrefix``).
     static let apps = PageDescriptor(
         id: "cmux.apps", resource: "apps", namespaces: ["cmux.apps."], nativeOps: [PageNativeOp.actionRun],
-        actions: ["app.open"])
+        actions: ["app.open"], dynamicPrefixes: [AppsPageNativeOps.glyphPrefix])
 
     /// The CodeRouter page (coordinator decision: a separate page for the CodeRouter dashboard;
     /// Settings > Accounts links to it). Its ops are the CodeRouter app's `coderouter.*` family;
@@ -197,6 +200,8 @@ public extension PageDescriptor {
     /// highlight's "Try it", and only for an action in ``changelogTryItActions``: the signed
     /// notes may name an action id, never a command or a URL. Its one network source is the
     /// nightly reels' folder (``changelogReelSource``), so the update's reel plays in the page.
+    /// A highlight's PR chip opens its link through the owner's `cmux.changelog.browser.openIn`,
+    /// which takes only https and spends the person's gesture (ChangelogPageProvider).
     static let changelog = PageDescriptor(
         id: "cmux.changelog", resource: "changelog", namespaces: ["cmux.changelog."],
         nativeOps: [PageNativeOp.actionRun], actions: changelogTryItActions,

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "22526ef27362464ad1798ceadf7ab3b0225cd784acc1dcc13419362378a066bc";
+inline constexpr std::string_view kProtocolIrSha256 = "703393e4b4e99f70fa8b7761ae54eebd46dc54b8ed3ce9b83a597216d6f75cb1";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -211,6 +211,8 @@ struct TerminalKeyInput;
 enum class TerminalLifecycle;
 struct TerminalModifiers;
 struct TerminalPlacement;
+struct TerminalPortsListener;
+struct TerminalPortsResult;
 struct TerminalReadRangeResult;
 struct TerminalRecord;
 struct TerminalRegistryEvent;
@@ -525,6 +527,7 @@ struct TerminalClipboardReplyRequest;
 struct TerminalClipboardSubscribeRequest;
 struct TerminalEventsRequest;
 struct TerminalHistoryRequest;
+struct TerminalPortsRequest;
 struct TerminalReadRangeRequest;
 struct TerminalResourcesRequest;
 struct TerminalResumeCommandRequest;
@@ -3947,8 +3950,10 @@ struct NewRowRequest {
     std::uint64_t height_permille{};
     std::optional<bool> keep{};
     Id pane{};
+    Field<std::string> pane_id{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
+    Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> transaction{};
     friend bool operator==(const NewRowRequest&, const NewRowRequest&) = default;
@@ -3956,7 +3961,9 @@ struct NewRowRequest {
 
 struct NewRowResult {
     Id pane{};
+    std::optional<std::string> pane_id{};
     Id surface{};
+    std::optional<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> terminal_incarnation{};
     std::optional<std::string> transaction{};
@@ -5473,6 +5480,26 @@ struct TerminalPlacement {
     std::uint64_t terminal_revision{};
     std::optional<Id> workspace{};
     friend bool operator==(const TerminalPlacement&, const TerminalPlacement&) = default;
+};
+
+struct TerminalPortsListener {
+    std::string bound{};
+    std::string host{};
+    std::uint16_t port{};
+    std::string url{};
+    friend bool operator==(const TerminalPortsListener&, const TerminalPortsListener&) = default;
+};
+
+struct TerminalPortsRequest {
+    Id surface{};
+    friend bool operator==(const TerminalPortsRequest&, const TerminalPortsRequest&) = default;
+};
+
+struct TerminalPortsResult {
+    std::vector<std::uint16_t> closed{};
+    std::vector<TerminalPortsListener> listeners{};
+    Id surface{};
+    friend bool operator==(const TerminalPortsResult&, const TerminalPortsResult&) = default;
 };
 
 struct TerminalReadRangeRequest {
@@ -7067,6 +7094,18 @@ template <>
 struct Codec<TerminalPlacement> {
     static Result<Json> encode(const TerminalPlacement& value);
     static Result<TerminalPlacement> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalPortsListener> {
+    static Result<Json> encode(const TerminalPortsListener& value);
+    static Result<TerminalPortsListener> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalPortsResult> {
+    static Result<Json> encode(const TerminalPortsResult& value);
+    static Result<TerminalPortsResult> decode(const Json& value);
 };
 
 template <>
@@ -8951,6 +8990,12 @@ template <>
 struct Codec<TerminalHistoryRequest> {
     static Result<Json> encode(const TerminalHistoryRequest& value);
     static Result<TerminalHistoryRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalPortsRequest> {
+    static Result<Json> encode(const TerminalPortsRequest& value);
+    static Result<TerminalPortsRequest> decode(const Json& value);
 };
 
 template <>

@@ -51,6 +51,11 @@ enum AccountsStrings {
     static var reauthenticate: String { text("accounts.action.reauth", "Re-authenticate") }
     static var signIn: String { text("accounts.action.signIn", "Sign In") }
     static var getKey: String { text("accounts.action.getKey", "Get Key") }
+    static var signOut: String { text("accounts.action.signOut", "Sign Out") }
+    /// No variable name: recovery copy names no environment variables (review-bot rules).
+    static var shellSignInWins: String {
+        text("accounts.hint.shellSignIn", "Your shell provides this sign-in, and it wins over a sign-in made here. Remove it from your shell setup for Re-authenticate or Sign Out to take effect.")
+    }
     static var addKey: String { text("accounts.action.addKey", "Add Key…") }
     static var deleteSavedKey: String { text("accounts.action.deleteSavedKey", "Delete Saved Key") }
     static var connect: String { text("accounts.action.connect", "Connect to CodeRouter") }
@@ -95,6 +100,9 @@ enum AccountsStrings {
     }
     static func errorProviderSignInFirst(_ provider: String) -> String {
         String(format: text("accounts.error.providerSignInFirst", "Sign in to %@ first, then try again."), provider)
+    }
+    static var errorNoLocalPane: String {
+        text("accounts.error.noLocalPane", "Open a workspace on this Mac first, then try again.")
     }
     static var errorNeedsPaste: String { text("accounts.error.needsPaste", "Paste a key or token first.") }
     static var errorInvalidFormat: String { text("accounts.error.invalidFormat", "That is not a valid key or token for this provider.") }

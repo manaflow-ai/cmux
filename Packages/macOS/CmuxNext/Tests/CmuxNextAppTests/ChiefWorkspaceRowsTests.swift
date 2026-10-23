@@ -9,8 +9,7 @@ import Foundation
 import Testing
 
 /// The Chief's subagent workspaces read like any workspace (Leo 2026-10-21): their row shows the
-/// task title on one line, with no `a14 · ` subagent id and no "Chief" second line, and the hover
-/// card says "Started by Chief". The id stays the Chief's own.
+/// task title on one line, with no `a14 · ` subagent id and no "Chief" second line. The id stays the Chief's own.
 @MainActor
 struct ChiefWorkspaceRowsTests {
     static let chief = try! ServerReach.localChief(homeID: "6b68ac4a", socket: "/tmp/chief.sock", name: "Chief")
@@ -33,10 +32,6 @@ struct ChiefWorkspaceRowsTests {
         #expect("a3 · ".chiefTaskTitle == nil)
     }
 
-    @Test func onlyTheLocalChiefSaysItStartedAWorkspace() {
-        #expect(CmuxNextSidebar.MachineID("server-host_chief0001").startedBy == "Started by Chief")
-        #expect(CmuxNextSidebar.MachineID("server-host_7f3a0001").startedBy == nil)
-    }
 
     static func workspace(_ name: String) throws -> WorkspaceModel {
         _ = NSApplication.shared
@@ -55,26 +50,7 @@ struct ChiefWorkspaceRowsTests {
         #expect(SidebarMapping.shared.row(workspace, machine: CmuxNextSidebar.MachineID.local).title == "a14 · Native workflows runtime")
     }
 
-    @Test func aChiefWorkspaceRowHasNoMachineLine() {
-        func label(_ machine: SidebarMachine) -> String? {
-            let section = SidebarSection(kind: .machine(machine), nodes: [])
-            var options = SidebarLayoutOptions()
-            options.flattensMachines = true
-            return SidebarLayout.machineLabel(section, options: options)
-        }
-        #expect(label(SidebarMachine(id: CmuxNextSidebar.MachineID(Self.chief.machineID), name: "Chief", kind: .server)) == nil)
-        #expect(label(SidebarMachine(id: CmuxNextSidebar.MachineID("server-host_7f3a0001"), name: "mini", kind: .server)) == "mini")
-    }
 
-    @Test func aChiefWorkspacesHoverCardSaysWhoStartedIt() throws {
-        let id = CmuxNextSidebar.MachineID(Self.chief.machineID)
-        let workspace = SidebarWorkspace(id: CmuxNextSidebar.WorkspaceID("w1"), machineID: id, title: "Native workflows runtime")
-        let machine = SidebarMachine(id: id, name: "Chief", kind: .server)
-        let card = WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date())
-        let fact = try #require(card.facts.first { $0.kind == "machine" })
-        #expect(fact.text == CmuxNextSidebar.Strings.startedByChief)
-        #expect(card.title == "Native workflows runtime")
-    }
 
     /// The Chief's daemon holding one subagent workspace `name` (`ws_…0011` in session
     /// `cmux-chief-6b68ac4a`), an agent chat in it when `harness` is set, pinned to the top.

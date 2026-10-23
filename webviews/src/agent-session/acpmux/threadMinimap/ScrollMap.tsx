@@ -1,4 +1,4 @@
-// The full-height thread minimap (the `thread-minimap-layout` experiment's default arm): the rail
+// The full-height thread minimap (the `thread-minimap-layout` experiment's `full` arm): the rail
 // spans the transcript's viewport and maps the whole scroll height onto it. Each prompt is a longer,
 // brighter tick and a tab stop; each reply a shorter, dimmer one set in a little; a bar shows what
 // is on screen and follows the scroll on its own frame without a render. Hovering grows the marks
@@ -344,6 +344,8 @@ export function ScrollMap({
           id={cardId}
           x={RAIL_LEFT + ROW_WIDTH}
           y={cardOffset(MAP_MARGIN + cardAt.y, cardHeight, viewportHeight)}
+          // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
+          scroller={scroller.current}
           prompt={cardTurn?.prompt}
           reply={cardTurn ? cardTurn.reply : agentReply}
           bookmark={
