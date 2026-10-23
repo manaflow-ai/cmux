@@ -68,6 +68,16 @@ import Foundation
         }
     }
 
+    /// The pane a pending create's command addresses: `handle`, or, for a stand-in pane, the daemon's
+    /// pane that took it over under the same public id (nil until the daemon reports it).
+    static func daemonHandle(showing handle: PaneID, in store: DaemonStore) -> PaneID? {
+        guard let provisional = store.intentLog.entries.lazy.compactMap({ entry -> ProvisionalPane? in
+            if case .splitPane(_, _, _, let provisional) = entry.kind, provisional.handle == handle { return provisional }
+            return nil
+        }).first else { return store.panesByHandle[handle] != nil ? handle : nil }
+        return daemonPane(provisional, in: store)?.handle
+    }
+
     /// The daemon's pane under the split's public pane id, once its records hold it.
     static func daemonPane(_ provisional: ProvisionalPane, in store: DaemonStore) -> PaneModel? {
         store.index.panesByResource[ResourceID(rawValue: provisional.paneID)].flatMap { $0.handle != provisional.handle ? $0 : nil }
