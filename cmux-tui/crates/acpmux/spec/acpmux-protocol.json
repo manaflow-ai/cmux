@@ -608,6 +608,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/media_open",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/media_range",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/permission_respond",
       "params": {
         "$ref": "#/types/PermissionRespondParams"
