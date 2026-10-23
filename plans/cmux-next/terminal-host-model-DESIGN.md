@@ -107,6 +107,12 @@ processes and ~2,000 threads fewer.
   dup), ADOPT (fds by SCM_RIGHTS + ids + offsets: a new holder takes over after a holder crash),
   ATTACH from offset, DATA (offset, bytes), GAP, ACK (trim), WRITE, RESIZE, SIGNAL, CLOSE, EXIT
   (status, end offset), LIST (every terminal: id, pid, offsets, state), PING/PONG, ERROR.
+  Descriptors (holder-core review): every frame of this build states how many it passes
+  (`FLAG_FDS_STATED` and a 3-bit count in its flags; an older build's frame counts by kind). The
+  receiver gives a frame exactly the descriptors that arrived with its first byte; a missing one,
+  one no frame states, or one the kernel dropped (`MSG_CTRUNC`) ends the link, never a shift of
+  every later terminal's master. A holder that cannot dup a terminal's descriptors refuses the
+  HELLO (`NO_DESCRIPTORS`) and keeps its link instead of listing the terminal without them.
 - Input: the daemon writes keystrokes to its own master dup directly (one hop less than today);
   WRITE exists for a daemon that lost its dup. The holder leaves the master non-blocking (the flag
   is shared by every dup), so the daemon's writer waits for POLLOUT on WouldBlock.
