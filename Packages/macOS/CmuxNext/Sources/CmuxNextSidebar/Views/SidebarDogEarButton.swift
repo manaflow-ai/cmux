@@ -38,6 +38,9 @@ final class SidebarDogEarButton: NSButton {
         isBordered = false
         imagePosition = .imageOnly
         setAccessibilityLabel(label)
+        // A button to VoiceOver at any size (the snug cut is smaller than AppKit's own buttons).
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
         themedToolTip = label
         wantsLayer = true
         // Over the row's trailing marks, which keep their places under the corner.
