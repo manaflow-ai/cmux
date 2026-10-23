@@ -65,11 +65,15 @@ final class ControlSnapshotPublisher {
     /// Per-workspace control values kept between publishes (cx-9c8m).
     private let workspaceInfos = ControlWorkspaceInfoCache()
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "control.snapshot")
+    /// Hears the parts each publish built (the test seam that counts rebuilds per event).
+    private let onPublish: (Parts) -> Void
 
-    init(router: ControlRouter, services: AppServices, frames: any ControlFrameSource) {
+    init(router: ControlRouter, services: AppServices, frames: any ControlFrameSource,
+         onPublish: @escaping (Parts) -> Void = { _ in }) {
         self.router = router
         self.services = services
         self.frames = frames
+        self.onPublish = onPublish
     }
 
     func start() {
@@ -171,6 +175,7 @@ final class ControlSnapshotPublisher {
         if parts.contains(.settings) { settings = .some(track(.settings) { services.settings?.snapshot.root }) }
         var tabSearch: ControlTabSearchFacts?
         if parts.contains(.tabSearch) { tabSearch = track(.tabSearch) { TabSearchFactsBuilder.facts(services) } }
+        onPublish(parts)
         if parts == .windows, let windowFacts, windowFacts.windows == current.windows, windowFacts.focus == current.focus { return }
         router.snapshots.publish { snapshot in
             if let topology { snapshot.topology = topology }
