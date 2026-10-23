@@ -653,8 +653,9 @@ def load_guardrails(repo: Path, trusted_scripts: Path | None):
 def guardrails(repo: Path, ranges: list[tuple[str, str]], trusted_scripts: Path | None) -> bool:
     """Print the guardrail warnings and refusals for RANGES; True when they refuse the push.
 
-    The rules are advisory debt checks in every agent's hook: a bug in them (a parse edge, a failed git
-    call) prints a warning and lets the push through instead of blocking every push with a traceback.
+    The rules are advisory debt checks in every agent's hook: a bug in one rule turns off only that rule
+    (guardrails.check warns and runs the rest); a bug outside the rules (a failed load or git call, a parse
+    edge) prints a warning and lets the push through instead of blocking every push with a traceback.
     check_push leaves out what a range only brings in from origin/feat-cmux-next (a merge of it into a branch,
     or a rebase onto it and a force push): CI never runs these rules, so that base can carry debt.
     """

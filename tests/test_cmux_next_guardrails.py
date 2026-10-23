@@ -7,6 +7,7 @@ so the installed trusted copy of the gate is what runs. Not on CI (Lawrence 2026
 gates/tests in CI, but you have to run them yourself"): run it yourself after every change to guardrails.py,
 prepush-gate.py's guardrails path or install-git-hooks.sh: python3 tests/test_cmux_next_guardrails.py
 """
+import dataclasses
 import importlib.util
 import os
 from pathlib import Path
@@ -17,7 +18,18 @@ import tempfile
 import time
 import types
 import unittest
-import git_fixture_env  # disables git auto maintenance
+from unittest import mock
+
+
+def _load_git_fixture_env():
+    """tests/git_fixture_env.py by path, so `python3 -I` (no script folder on sys.path) runs this file too."""
+    spec = importlib.util.spec_from_file_location("git_fixture_env", Path(__file__).resolve().parent / "git_fixture_env.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # importing it disables git auto maintenance
+    return module
+
+
+git_fixture_env = _load_git_fixture_env()
 
 SOURCE = Path(__file__).resolve().parents[1]
 PKG = "Packages/macOS/CmuxNext"
@@ -413,6 +425,27 @@ class RuleTests(Fixture):
             del os.environ[guardrails.SKIP_ENV]
         self.assertFalse(refused)
         self.assertIn("SKIPPED", text)
+
+    def test_a_rule_that_raises_is_off_for_that_push_and_the_others_still_refuse(self):
+        self.write(f"{KIT}/Added.swift", CASES["singleton"][0])
+        self.commit("adds a singleton")
+
+        def broken(changes, moved):
+            raise RuntimeError("boom")
+
+        for failing in ("app-size", "singleton"):
+            with self.subTest(failing=failing):
+                rules = tuple(dataclasses.replace(r, find=broken) if r.id == failing else r for r in guardrails.RULES)
+                with mock.patch.object(guardrails, "RULES", rules):
+                    refusals, warnings = self.check()
+                self.assertEqual([r.id for r, _ in refusals], [] if failing == "singleton" else ["singleton"])
+                failed = [text for kind, text in warnings if kind == "guardrails"]
+                self.assertEqual(len(failed), 1, warnings)
+                self.assertIn(f"rule {failing} failed (RuntimeError: boom at test_cmux_next_guardrails.py:", failed[0])
+        with mock.patch.object(guardrails, "perf_hot_warnings", broken):
+            refusals, warnings = self.check()
+        self.assertEqual([r.id for r, _ in refusals], ["singleton"])
+        self.assertIn("perf-hot failed (RuntimeError: boom", " ".join(text for _, text in warnings))
 
     def test_skip_reason_skips_only_the_named_rules(self):
         self.write(f"{KIT}/Added.swift", CASES["singleton"][0] + CASES["main-async"][0])

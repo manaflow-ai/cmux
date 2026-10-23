@@ -15,6 +15,8 @@ merge or rebase onto it) never count (check_push). Base debt never blocks a push
 Refusals (rules below, `--list` prints them): each names the rule, why, the right pattern and its escape.
 Skip once: CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>" skips only the named rules; say it in your
 report.
+A rule (or warning check) that raises is not applied to that push and prints a `guardrails` warning that names
+it; the other rules still run and refuse (fail open per check, so one broken rule never switches off the rest).
 Warnings (never refuse):
   perf-hot  the push changes a function marked `// perf-hot: <budget> <path-id>` (a trailing comment on its
             declaration line, or in the comment block above it); names the bench from scripts/cmux-next/perf-hot-benches.json to run before
@@ -48,6 +50,7 @@ import re
 import subprocess
 import sys
 import time
+import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -1028,6 +1031,14 @@ def owner_warnings(files: list[str], owners: list[tuple[str, list[str], str, str
 
 # ---------------------------------------------------------------- run
 
+def check_failure(name: str, error: Exception) -> str:
+    """The warning for a rule or warning check NAME that raised: the error and where it raised."""
+    frames = traceback.extract_tb(error.__traceback__)
+    where = f" at {Path(frames[-1].filename).name}:{frames[-1].lineno}" if frames else ""
+    return (f"{name} failed ({type(error).__name__}: {error}{where}), so it was not applied to this push "
+            "(fail open); the other rules were. Tell the Performance Lead (PL-guardrails) with this line.")
+
+
 def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added]]], list[tuple[str, str]]]:
     """(refusals [(rule, hits)], warnings [(kind, text)]) for what HEAD adds over BASE."""
     # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse.
@@ -1053,17 +1064,28 @@ def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added
     moved = collections.Counter(r.text.strip() for c in files for r in c.removed if r.text.strip())
     refusals = []
     for rule in RULES:
-        hits = rule.find([f for f in files if f.path.startswith(rule.scope) or f.path.endswith(rule.scope)], moved)
+        scoped = [f for f in files if f.path.startswith(rule.scope) or f.path.endswith(rule.scope)]
+        try:
+            hits = rule.find(scoped, moved)
+        except Exception as error:  # fail open for this rule only: a bug in one rule must not switch off the rest
+            warnings.append(("guardrails", check_failure(f"rule {rule.id}", error)))
+            continue
         if hits:
             refusals.append((rule, hits))
     try:
         benches = json.loads(texts[(head, BENCHES)]) if (head, BENCHES) in texts else {}
     except json.JSONDecodeError:
         benches = {}
-    warnings += [("perf-hot", w) for w in perf_hot_warnings(changes, benches)]
+    try:
+        warnings += [("perf-hot", w) for w in perf_hot_warnings(changes, benches)]
+    except Exception as error:  # a broken warning must not switch off the refusals above
+        warnings.append(("guardrails", check_failure("perf-hot", error)))
     if (head, OWNERS) in texts:
         names_list = [f for f in names.split("\n") if f]
-        warnings += [("owner", w) for w in owner_warnings(names_list, parse_owners(texts[(head, OWNERS)]))]
+        try:
+            warnings += [("owner", w) for w in owner_warnings(names_list, parse_owners(texts[(head, OWNERS)]))]
+        except Exception as error:  # a broken warning must not switch off the refusals above
+            warnings.append(("guardrails", check_failure("owner", error)))
     return refusals, warnings
 
 
@@ -1074,15 +1096,18 @@ def check_push(repo: Path, base: str, head: str, upstream_ref: str = UPSTREAM):
     point. CI never runs these rules, so those lines can carry debt the push did not write (a skip reason, a
     clone with old or no hooks, --no-verify). Rebased or fast-forwarded onto it (its merge base with HEAD
     descends from BASE): the range starts at that merge base. Merged it in (neither descends from the other):
-    a hit counts only when it is also new against that merge base, and the warnings are the branch's own.
+    a hit counts only when it is also new against that merge base, and the warnings are the branch's own
+    plus any rule that failed on the pushed range.
     """
     upstream = git(repo, "merge-base", head, upstream_ref, check=False).strip()
     if not upstream or upstream == base or is_ancestor(repo, upstream, base):
         return check(repo, base, head)
     if is_ancestor(repo, base, upstream):
         return check(repo, upstream, head)
-    pushed, _ = check(repo, base, head)
+    pushed, pushed_warnings = check(repo, base, head)
     branch, warnings = check(repo, upstream, head)
+    # A rule that failed on the pushed range is off for this push even when it ran on the branch's own range.
+    warnings += [w for w in pushed_warnings if w[0] == "guardrails" and w not in warnings]
     own = collections.Counter((rule.id, h.path, h.text.strip()) for rule, hits in branch for h in hits)
     refusals = []
     branch_hits = {rule.id: hits for rule, hits in branch}
