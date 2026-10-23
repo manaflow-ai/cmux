@@ -77,13 +77,13 @@ import Testing
         }
     }
 
-    private static func publisher(_ services: AppServices, frames: ManualFrames,
+    private static func publisher(_ services: AppServices, frames: ManualFrames, notices: NotificationCenter,
                                   rebuilds: Rebuilds) -> (ControlRouter, ControlSnapshotPublisher) {
         let identity = ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
                                        processID: getpid())
         let router = ControlRouter(identity: identity, executor: NoActions())
         return (router, ControlSnapshotPublisher(router: router, services: services, frames: frames,
-                                                 onPublish: { [rebuilds] in rebuilds.note($0) }))
+                                                 notices: notices, onPublish: { [rebuilds] in rebuilds.note($0) }))
     }
 
     /// A connected local daemon with workspaces `k0` and `k1`, one terminal each.
@@ -126,7 +126,9 @@ import Testing
 
         let frames = ManualFrames()
         let rebuilds = Rebuilds()
-        let (router, publisher) = Self.publisher(services, frames: frames, rebuilds: rebuilds)
+        // The publisher hears this test's notices only, and nothing else hears them.
+        let center = NotificationCenter()
+        let (router, publisher) = Self.publisher(services, frames: frames, notices: center, rebuilds: rebuilds)
         publisher.start()
         defer { publisher.stop() }
         await Self.settle(frames)
@@ -135,22 +137,19 @@ import Testing
 
         // Key moves A -> B -> A, the way AppKit drives it: the window that resigns, then the one
         // that becomes key (its controller's delegate methods, and the notices the publisher
-        // hears, posted by a window no controller owns so no delegate hears them twice).
-        let center = NotificationCenter.default
-        let notice = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10), styleMask: [.titled], backing: .buffered, defer: true)
-        notice.isReleasedWhenClosed = false
+        // hears, on the test's own center so no delegate or other suite hears them).
         var previous: WindowController?
         for target in [b, a, b, a] {
             let generation = router.snapshots.current.generation
             if let previous, let window = previous.window {
                 key.window = nil
                 previous.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification, object: window))
-                center.post(name: NSWindow.didResignKeyNotification, object: notice)
+                center.post(name: NSWindow.didResignKeyNotification, object: window)
             }
             let window = try #require(target.window)
             key.window = window
             target.windowDidBecomeKey(Notification(name: NSWindow.didBecomeKeyNotification, object: window))
-            center.post(name: NSWindow.didBecomeKeyNotification, object: notice)
+            center.post(name: NSWindow.didBecomeKeyNotification, object: window)
             await Self.settle(frames)
             previous = target
 
@@ -181,14 +180,15 @@ import Testing
         services.keyWindowSource = { [key] in key.window }
         let frames = ManualFrames()
         let rebuilds = Rebuilds()
-        let (_, publisher) = Self.publisher(services, frames: frames, rebuilds: rebuilds)
+        // The publisher hears this test's notices only, and nothing else hears them.
+        let center = NotificationCenter()
+        let (_, publisher) = Self.publisher(services, frames: frames, notices: center, rebuilds: rebuilds)
         publisher.start()
         defer { publisher.stop() }
         await Self.settle(frames)
         let before = rebuilds.topology
 
         // A Cmd-Tab away and back, and a panel (the palette) taking the keys and giving them back.
-        let center = NotificationCenter.default
         let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: true)
         panel.isReleasedWhenClosed = false
         for _ in 0..<3 {
@@ -210,13 +210,14 @@ import Testing
         let services = try Self.services()
         let frames = ManualFrames()
         let rebuilds = Rebuilds()
-        let (_, publisher) = Self.publisher(services, frames: frames, rebuilds: rebuilds)
+        // The publisher hears this test's notices only, and nothing else hears them.
+        let center = NotificationCenter()
+        let (_, publisher) = Self.publisher(services, frames: frames, notices: center, rebuilds: rebuilds)
         publisher.start()
         defer { publisher.stop() }
         await Self.settle(frames)
         let before = rebuilds.topology
 
-        let center = NotificationCenter.default
         for _ in 0..<3 {
             let popup = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless],
                                  backing: .buffered, defer: true)

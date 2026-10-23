@@ -83,12 +83,16 @@ final class ControlSnapshotPublisher {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "control.snapshot")
     /// Hears the parts each publish built (the test seam that counts rebuilds per event).
     private let onPublish: (Parts) -> Void
+    /// Where the window, key and activation notices come from: AppKit's center in the app, a
+    /// private one in a test (a post there reaches no other suite and no AppKit observer).
+    private let notices: NotificationCenter
 
     init(router: ControlRouter, services: AppServices, frames: any ControlFrameSource,
-         onPublish: @escaping (Parts) -> Void = { _ in }) {
+         notices: NotificationCenter, onPublish: @escaping (Parts) -> Void = { _ in }) {
         self.router = router
         self.services = services
         self.frames = frames
+        self.notices = notices
         self.onPublish = onPublish
     }
 
@@ -97,12 +101,11 @@ final class ControlSnapshotPublisher {
         // Read-your-writes for local state: a CLI mutation's effect on focus
         // or selection is in the snapshot before the next request is read.
         router.workQueue.setAfterFrame { [weak self] in self?.publishNow() }
-        let center = NotificationCenter.default
         // A window of the window manager that closes leaves the window list and takes its
         // workspaces' panes off screen: everything. Any other window (a hover card, a toast, a
         // sheet, a panel, a Chromium popup) moves at most the window facts; that path upgrades to
         // the topology itself when the window list differs from the published one.
-        observers.append(center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { [weak self] notice in
+        observers.append(notices.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { [weak self] notice in
             let window = notice.object as? NSWindow
             MainActor.assumeIsolated { // main-proof: observer on queue: .main
                 guard let self else { return }
@@ -113,7 +116,7 @@ final class ControlSnapshotPublisher {
         trailObserver = services.locationTrail.addObserver { [weak self] in self?.invalidate(.trail, notBefore: nil) }
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
                      NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            observers.append(notices.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.invalidate(.windows, notBefore: nil) } // main-proof: observer on queue: .main
             })
         }
@@ -129,7 +132,7 @@ final class ControlSnapshotPublisher {
     func stop() {
         isStopped = true
         router.workQueue.setAfterFrame(nil)
-        observers.forEach(NotificationCenter.default.removeObserver)
+        observers.forEach(notices.removeObserver)
         observers.removeAll()
         if let trailObserver { services.locationTrail.removeObserver(trailObserver) }
         trailObserver = nil
