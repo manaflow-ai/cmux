@@ -89,6 +89,7 @@ mod remote_cli {
         1
     }
 }
+mod devices;
 mod owner_start;
 mod remote_host;
 #[cfg(unix)]
@@ -1757,6 +1758,17 @@ fn run_main() {
     // before installing the interactive daemon's signal handlers: the host
     // owns its own lifecycle and must not inherit "request mux shutdown"
     // semantics.
+    // The one process that holds every PTY of this install (cmux-holder,
+    // terminal-host-model-DESIGN.md). Same rule as the host: before any
+    // daemon signal handler.
+    #[cfg(unix)]
+    if raw_args.first().map(String::as_str) == Some("__holder") {
+        if let Err(error) = cmux_holder::serve(&raw_args[1..]) {
+            crate::client_log::stderr_log!("startup", "cmux-tui holder: {error}");
+            client_log::exit(1);
+        }
+        return;
+    }
     if raw_args.first().map(String::as_str) == Some("__terminal-host") {
         if let Err(error) = run_terminal_host_process(&raw_args[1..]) {
             crate::client_log::stderr_log!("startup", "cmux-tui terminal host: {error}");
@@ -1784,6 +1796,14 @@ fn run_main() {
     if cli::remote_host_requested(&raw_args) {
         discard_provider_secret_environment();
         client_log::exit(remote_host::run(&raw_args[1..]));
+    }
+    // `cmux device list|remove|audit|network|invite` and `add --yes`: one
+    // device list over every store (plans/cmux-next/add-device-DESIGN.md).
+    // `cmux device add` without `--yes` is the app's Add Device card. Both
+    // surfaces: the app runs its bundled `cmux-tui device list --json`.
+    if devices::handles(&raw_args) {
+        discard_provider_secret_environment();
+        client_log::exit(devices::run(&raw_args[1..]));
     }
     #[cfg(unix)]
     if let Some(run) = cli::early_unix_scope(&raw_args) {

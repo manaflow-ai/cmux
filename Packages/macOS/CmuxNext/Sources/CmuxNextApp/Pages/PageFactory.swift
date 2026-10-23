@@ -5,6 +5,7 @@ import CmuxNextApps
 import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextPages
+import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextUpdater
@@ -113,6 +114,7 @@ struct PageFactory {
         let provider = SettingsPageProvider(settings: settings, domains: { [weak services] in
             ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds, "recent_fonts": services?.settings?.recentFonts.families ?? []]
         }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null })
+        provider.removeDevice = { [weak services] id in await services?.devices.remove(id: id) }
         let accounts = services.accounts.model
         provider.accountsState = { (try? JSONValue.parse(JSONEncoder().encode(accounts.pageState))) ?? .null }
         provider.accountsRun = { params in

@@ -89,6 +89,32 @@ export type BrowserProfile = {
   source: string | null;
 };
 
+/** One row of Settings > Devices. */
+export type DeviceRow = {
+  id: string;
+  title: string;
+  subtitle: string;
+  detail: string | null;
+  /** connected, offline, pending or error. */
+  state: string;
+  removable: boolean;
+};
+
+/** Settings > Devices as the app serves it (`devices` in the host lists), every text localized. */
+export type DevicesHostState = {
+  title: string;
+  help: string;
+  empty: string;
+  add_title: string;
+  remove_title: string;
+  remove_confirm_title: string;
+  remove_help: string;
+  activity_title: string;
+  error: string | null;
+  rows: DeviceRow[];
+  activity: Array<{ time: string; what: string; subject: string }>;
+};
+
 /** The lists the host shows beside the schema rows; `rooms` is null when spaces are unsupported. */
 export type HostLists = {
   rooms: HostListRow[] | null;
@@ -114,6 +140,8 @@ export type HostLists = {
   computer_use?: ComputerUseState | null;
   /** Settings > Mobile: the iPhone host's status, space and connected phones; every text localized by the host. */
   iphone?: IPhoneHostState | null;
+  /** Settings > Devices (plans/cmux-next/add-device-DESIGN.md): every device, its texts localized by the app. */
+  devices?: DevicesHostState | null;
   /** Settings › Import: the import suggestion cards, every text localized by the host (ui/ImportCards.tsx parses it). */
   import_suggestions?: unknown;
   /** Updates > Web UI: the web UI served between app updates; null unless the bundle takes them (NIGHTLY). */
@@ -517,6 +545,8 @@ export type SettingsOps = {
   "cmux.settings.channels.go_back": [{ ring: string; build: string }, Record<string, never>];
   /** Native: Settings > Mobile's Remove: the phone leaves the account's devices (the person's gesture only). */
   "cmux.settings.mobile.remove_phone": [{ id: string }, Record<string, never>];
+  /** Native: Settings > Devices' Remove: the device leaves every store that lets it in (the person's gesture only). */
+  "cmux.settings.devices.remove": [{ id: string }, { error?: string }];
   /** Native: after the owner removed this Mac, allow iPhone connections again (a new device; the person's gesture only). */
   "cmux.settings.mobile.allow_again": [Record<string, never>, Record<string, never>];
   /** A phone's pairing request: Allow or Don't Allow (the person's own gesture only). */
@@ -675,6 +705,7 @@ export const settingsPageActions = [
   "openSettings",
   "browserProfile.new",
   "server.addServer",
+  "device.add",
   "browserProfile.rename",
   "browserProfile.setColor",
   "browserProfile.clearColor",

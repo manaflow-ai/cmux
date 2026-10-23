@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxNextDesignTokens
 
 /// The one web theme (plans/cmux-next/windows.md, "One background token"):
 /// the CSS custom properties every cmux web page reads, from the same
@@ -89,6 +90,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             ?? (pageOpaque ? surface.withAlpha(1) : surface.withAlpha(0))
         let cardMaterial = CardMaterial(tokens, lift: ChromeTunables.opaqueOverlayLift.value,
                                         minimumOpacity: ChromeTunables.cardOpacity.value)
+        let tooltip = TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value)
         variables = [
             "--cmux-surface-background": Self.css(page),
             "--cmux-surface-token": Self.css(surface),
@@ -101,9 +103,11 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             // The solid surface of menus, popovers and tooltips (`--surface-popup`), the same
             // opaque fill as native overlays (`Palette.popupSurface`).
             "--cmux-popup-surface": Self.css(tokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value)),
-            // The tooltip's frosted tint (`TooltipSurface`, the native tooltip's): the popup
-            // surface at the least alpha that keeps the text 4.5:1 over any backdrop.
-            "--cmux-tooltip-tint": Self.css(TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value).tint),
+            // The tooltip's frosted tint and its ink (`TooltipSurface`, the native tooltip's): the
+            // popup surface at the least alpha that keeps the ink 4.5:1 over any backdrop, never
+            // solid; the ink is the text unless a low-contrast theme needs it pushed.
+            "--cmux-tooltip-tint": Self.css(tooltip.tint),
+            "--cmux-tooltip-ink": Self.css(tooltip.ink),
             // Floating cards' material (`CardMaterial`, the native `makeOverlayPanel` cards and the
             // find pill): the popup surface, mostly opaque, at the least alpha that keeps primary
             // and secondary text 4.5:1 over any backdrop, and its rim.
@@ -358,5 +362,12 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         func channel(_ value: Double) -> Int { Int((value * 255).rounded()) }
         let alpha = (color.alpha * 1000).rounded() / 1000
         return "rgba(\(channel(color.red)), \(channel(color.green)), \(channel(color.blue)), \(alpha))"
+    }
+
+    /// `color` as pages read it from `css`: each channel rounded to 8 bits, the alpha to 3 decimals.
+    public static func cssRounded(_ color: ThemeRGB) -> ThemeRGB {
+        func channel(_ value: Double) -> Double { (value * 255).rounded() / 255 }
+        return ThemeRGB(red: channel(color.red), green: channel(color.green), blue: channel(color.blue),
+                        alpha: (color.alpha * 1000).rounded() / 1000)
     }
 }

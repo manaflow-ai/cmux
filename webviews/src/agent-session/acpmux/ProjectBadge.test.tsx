@@ -1,6 +1,6 @@
 // A project's badge in the pickers (the New Tab strip, the composer's folder menu) shows the
-// project's own favicon when the host finds one (`project.icon`, read on this Mac only), and its
-// letters otherwise: no icon, a refusal, or a remote project, which the page never asks about.
+// project's own icon when the host finds one (`project.icon`, read on this Mac only), and a plain
+// folder otherwise: no icon, a refusal, or a remote project, which the page never asks about.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -70,18 +70,28 @@ test("a local project with a favicon shows it in its badge", async () => {
   expect(badge.textContent).toBe("");
 });
 
-test("a project with no favicon keeps its letters", async () => {
+// Leo 2026-10-21 on the New Tab project picker: two-letter tiles (PR, CM, CG, LW) with a grey dot.
+test("a project with no icon and no language draws a folder, never its letters", async () => {
   setProjectIconHost(async () => ({}));
   const badge = await render({ cwd: "/Users/me/code/cmux-next", label: "cmux next" });
   expect(badge.querySelector("img")).toBeNull();
-  expect(badge.textContent).toBe("CN");
+  expect(badge.hasAttribute("data-project-folder")).toBe(true);
+  expect(badge.querySelector("svg path")).not.toBeNull();
+  expect(badge.textContent).toBe("");
 });
 
-test("an answer that is not an image data URL keeps the letters", async () => {
+test("an answer that is not an image data URL draws the folder", async () => {
   setProjectIconHost(async () => ({ src: "https://example.com/favicon.ico" }));
   const badge = await render({ cwd: "/Users/me/code/elsewhere", label: "elsewhere" });
   expect(badge.querySelector("img")).toBeNull();
-  expect(badge.textContent).toBe("EL");
+  expect(badge.hasAttribute("data-project-folder")).toBe(true);
+  expect(badge.textContent).toBe("");
+});
+
+test("no badge draws a corner dot, whatever its kind", async () => {
+  const { readFileSync } = await import("node:fs");
+  const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+  expect(css).not.toMatch(/\.acpmux-project-badge[^{,]*::(?:after|before)\s*\{/);
 });
 
 test("a remote project never asks this Mac for an icon", async () => {
@@ -93,7 +103,7 @@ test("a remote project never asks this Mac for an icon", async () => {
   const badge = await render({ cwd: "/home/me/api", label: "api", peer: "devbox" });
   expect(asked).toEqual([]);
   expect(badge.querySelector("img")).toBeNull();
-  expect(badge.textContent).toBe("AP");
+  expect(badge.textContent).toBe("");
 });
 
 test("a badge that moves to another project drops the old icon before the host answers", async () => {
@@ -108,7 +118,7 @@ test("a badge that moves to another project drops the old icon before the host a
   });
   const moved = document.querySelector<HTMLElement>(".acpmux-project-badge")!;
   expect(moved.querySelector("img")).toBeNull();
-  expect(moved.textContent).toBe("OT");
+  expect(moved.hasAttribute("data-project-folder")).toBe(true);
   await act(async () => answer({}));
 });
 

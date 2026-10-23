@@ -94,8 +94,9 @@ export function papercutEvents({
   return { events, session };
 }
 
-/// Starts the stand-in daemon and the dev server; returns `open` and `close`. `open` waits for the
-/// last answer, or for `ready` (a selector) when the chat's end shows something else.
+/// Starts the stand-in daemon and the dev server; returns `open`, `close` and `methods`. `open` waits
+/// for the last answer, or for `ready` (a selector) when the chat's end shows something else;
+/// `methods` lists every method the pages sent the daemon, in order (a stop is `session/cancel`).
 export async function papercutPane(
   browser: () => Browser,
   options: {
@@ -109,6 +110,7 @@ export async function papercutPane(
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "../..");
   const { events, session } = papercutEvents(options);
+  const methods: string[] = [];
   const answer = (method: string): unknown => {
     switch (method) {
       case "initialize":
@@ -132,6 +134,7 @@ export async function papercutPane(
     websocket: {
       message(ws, raw) {
         const message = JSON.parse(String(raw)) as { id?: number; method: string };
+        methods.push(message.method);
         if (message.id !== undefined)
           ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
       },
@@ -184,5 +187,5 @@ export async function papercutPane(
     await vite.close();
     await daemon.stop(true);
   };
-  return { open, close };
+  return { open, close, methods };
 }

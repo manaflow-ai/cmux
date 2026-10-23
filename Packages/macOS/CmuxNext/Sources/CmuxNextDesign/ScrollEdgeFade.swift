@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// Which edges of a scrolling list have content hidden beyond them.
 public nonisolated struct ScrollEdges: OptionSet, Hashable, Sendable {
@@ -60,7 +61,7 @@ public final class ScrollEdgeFadeView: NSView {
     public let scrollView: NSScrollView
     public private(set) var edges: ScrollEdges = []
     private let fadeMask = CAGradientLayer()
-    private var observers: [any NSObjectProtocol] = []
+    private var observers: [MainActorObservation] = []
     private weak var observedDocument: NSView?
     /// The layer size and fade fraction the mask geometry was last set for; a scroll that finds
     /// either changed (a tunable edit, a resize with no layout yet) sets the geometry again.
@@ -81,25 +82,17 @@ public final class ScrollEdgeFadeView: NSView {
         let center = NotificationCenter.default
         // A scroll (the clip's bounds) changes only which edges hide content; the mask's geometry
         // follows this view's own size, so a scroll frame touches the mask only when an edge flips.
-        observers.append(center.addObserver(forName: NSView.boundsDidChangeNotification, object: clip, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.updateEdges() } // main-proof: observer on queue: .main
+        observers.append(MainActorObservation(NSView.boundsDidChangeNotification, object: clip, center: center) { [weak self] in
+            self?.updateEdges()
         })
-        observers.append(center.addObserver(forName: NSView.frameDidChangeNotification, object: clip, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.updateFade() } // main-proof: observer on queue: .main
+        observers.append(MainActorObservation(NSView.frameDidChangeNotification, object: clip, center: center) { [weak self] in
+            self?.updateFade()
         })
         updateFade(animated: false)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            for observer in observers { NotificationCenter.default.removeObserver(observer) }
-        }
-    }
 
     public override func layout() {
         super.layout()
@@ -196,8 +189,8 @@ public final class ScrollEdgeFadeView: NSView {
         guard let document, document !== observedDocument else { return }
         observedDocument = document
         document.postsFrameChangedNotifications = true
-        observers.append(NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: document, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.updateFade() } // main-proof: observer on queue: .main
+        observers.append(MainActorObservation(NSView.frameDidChangeNotification, object: document) { [weak self] in
+            self?.updateFade()
         })
     }
 }

@@ -1350,5 +1350,157 @@
   },
   "mode_fields": null,
   "breaks": false
+ },
+ {
+  "name": "app_reply known params pass",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/app_reply",
+   "params": {
+    "sessionId": "a",
+    "to": "b",
+    "replyTo": "msg_1",
+    "threadId": "msg_1",
+    "text": "Done.",
+    "replyId": "m-1"
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "app_reply names no recipients",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/app_reply",
+   "params": {
+    "sessionId": "a",
+    "to": "b",
+    "replyTo": "msg_1",
+    "threadId": "msg_1",
+    "text": "Done.",
+    "replyId": "m-1",
+    "recipients": [
+     "acp:c"
+    ]
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "app_reply carries no credential",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/app_reply",
+   "params": {
+    "sessionId": "a",
+    "to": "b",
+    "replyTo": "msg_1",
+    "threadId": "msg_1",
+    "text": "Done.",
+    "replyId": "m-1",
+    "credential": "x"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "app_reply picks no sender name",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/app_reply",
+   "params": {
+    "sessionId": "a",
+    "to": "b",
+    "replyTo": "msg_1",
+    "threadId": "msg_1",
+    "text": "Done.",
+    "replyId": "m-1",
+    "senderName": "Chief"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "app_reply has no meta",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/app_reply",
+   "params": {
+    "sessionId": "a",
+    "to": "b",
+    "replyTo": "msg_1",
+    "threadId": "msg_1",
+    "text": "Done.",
+    "replyId": "m-1",
+    "_meta": {
+     "acpmux": {
+      "provenance": {}
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "a prompt carries no provenance",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "b",
+    "prompt": [],
+    "_meta": {
+     "acpmux": {
+      "provenance": {
+       "kind": "agent_message"
+      }
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "set_tools known params pass",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/set_tools",
+   "params": {
+    "sessionId": "a",
+    "id": "mcp:github",
+    "enabled": false
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "set_tools unknown param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/set_tools",
+   "params": {
+    "sessionId": "a",
+    "id": "mcp:github",
+    "enabled": false,
+    "harness": "x"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
  }
 ]

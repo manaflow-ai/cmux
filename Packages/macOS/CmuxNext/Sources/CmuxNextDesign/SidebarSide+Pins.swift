@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 // `sidebar.side` (R109): the root pins the sidebar to the chosen edge and the
 // content and title beside it. Moved out of CmuxNextApp (SW14 app-size cap).

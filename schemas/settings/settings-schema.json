@@ -48,6 +48,9 @@
               "tabs.newTabWidgets.actions",
               "tabs.newTabWidgets.chats",
               "tabs.newTabWidgets.styleDots",
+              "tabs.newTabWidgets.weather",
+              "tabs.newTabWidgets.weatherCity",
+              "tabs.newTabWidgets.machines",
               "tabs.newTabWidgets.order",
               "sidebar.showChats"
             ],
@@ -401,6 +404,7 @@
               "appearance.background",
               "appearance.backgroundRotation",
               "appearance.paneBackgrounds",
+              "ui.reducedBackgrounds",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur",
               "appearance.inactiveWindowDim"
@@ -466,6 +470,7 @@
               "sidebar.density",
               "sidebar.detailedStatusIcons",
               "sidebar.showTimestamps",
+              "sidebar.showColors",
               "sidebar.showLocalMachine",
               "sidebar.groupHeader.memberCount",
               "sidebar.groupHeader.unreadCount",
@@ -901,6 +906,19 @@
               "key" : "settings.group.chiefPet",
               "text" : "Chief Pet"
             }
+          },
+          {
+            "key" : "settings.group.chiefReactions",
+            "rows" : [
+              "chief.reactionsCanWake",
+              "chief.reactionClassifier.harness",
+              "chief.reactionClassifier.model",
+              "chief.reactionClassifier.prompt"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefReactions",
+              "text" : "Reactions"
+            }
           }
         ],
         "id" : "chief",
@@ -963,6 +981,9 @@
             "rows" : [
               "notifications.attention.style",
               "notifications.attention.color",
+              "notifications.attention.terminals",
+              "notifications.attention.agentChats",
+              "notifications.attention.agentChatBlinkCount",
               "notifications.attention.width",
               "notifications.attention.blinkCount",
               "notifications.attention.duration",
@@ -1116,6 +1137,8 @@
           {
             "key" : "settings.group.openingLinks",
             "rows" : [
+              "terminal.linkOpener.default",
+              "terminal.linkOpener.rules",
               "browser.enabled",
               "browser.openLinksInCmuxBrowser",
               "browser.hostsToOpenInEmbeddedBrowser",
@@ -1287,6 +1310,16 @@
             "title" : {
               "key" : "settings.pageGroup.network",
               "text" : "Network Requests"
+            }
+          },
+          {
+            "key" : "settings.group.hangReports",
+            "rows" : [
+              "diagnostics.hangReports"
+            ],
+            "title" : {
+              "key" : "settings.group.hangReports",
+              "text" : "Hang Reports"
             }
           }
         ],
@@ -2258,18 +2291,24 @@
       },
       "help" : {
         "key" : "settings.tabs.terminalFirst.help",
-        "text" : "When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page."
+        "text" : "New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.terminalFirst",
       "keywords" : [
         "terminal",
         "classic",
+        "classic mode",
+        "cmux classic",
         "new tab",
         "split",
+        "workspace",
+        "window",
         "cmd-t",
         "cmd-d",
+        "cmd-n",
         "new tab page",
+        "gui",
         "default"
       ],
       "kind" : "toggle",
@@ -2287,7 +2326,7 @@
       "summary" : null,
       "title" : {
         "key" : "settings.tabs.terminalFirst",
-        "text" : "New Tabs and Splits Open a Terminal"
+        "text" : "cmux Classic Mode"
       },
       "validation" : "portable"
     },
@@ -11127,6 +11166,61 @@
         "text" : "Window Background"
       },
       "help" : {
+        "key" : "settings.ui.reducedBackgrounds.help",
+        "text" : "Draws windows in the plain theme color, without paintings, wallpapers or glass. Your background choices stay as they are and come back when you turn it off."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.reducedBackgrounds",
+      "keywords" : [
+        "background",
+        "plain",
+        "reduce",
+        "reduced",
+        "painting",
+        "wallpaper",
+        "glass",
+        "transparency",
+        "backdrop",
+        "art",
+        "simple",
+        "performance"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "reducedBackgrounds"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.reducedBackgrounds",
+        "text" : "Plain Backgrounds"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
         "key" : "settings.appearance.experimentalControls.help",
         "text" : "Applies Hue and Saturation to the window's tint. Off, they have no effect."
       },
@@ -17793,7 +17887,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.display.inspector.help",
-        "text" : "Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."
+        "text" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.display.inspector.placement",
@@ -17803,6 +17897,8 @@
         "acp",
         "display",
         "reading",
+        "session",
+        "info",
         "inspector",
         "panel",
         "side",
@@ -17828,7 +17924,7 @@
       "summary" : null,
       "title" : {
         "key" : "settings.agentPane.display.inspector",
-        "text" : "Inspector"
+        "text" : "Session Info"
       },
       "validation" : "portable"
     },
@@ -17937,6 +18033,130 @@
       "title" : {
         "key" : "settings.terminal.fontSize",
         "text" : "Font Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "cmux",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.openingLinks",
+        "text" : "Opening Links"
+      },
+      "help" : {
+        "key" : "settings.terminal.linkOpener.default.help",
+        "text" : "Where a URL goes when a program in a terminal opens a browser, such as aws login or gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, a profile after @ (chrome@Profile 1), or command:<command> to let your script decide. A BROWSER you set yourself wins."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "terminal.linkOpener.default",
+      "keywords" : [
+        "browser",
+        "open",
+        "url",
+        "link",
+        "BROWSER",
+        "xdg-open",
+        "login",
+        "oauth",
+        "default browser",
+        "chrome",
+        "safari",
+        "profile"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "terminal",
+        "linkOpener",
+        "default"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "terminal",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.terminal.linkOpener.default",
+        "text" : "Open Program Links In"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.openingLinks",
+        "text" : "Opening Links"
+      },
+      "help" : {
+        "key" : "settings.terminal.linkOpener.rules.help",
+        "text" : "Checked in order before the default; the first match wins. Write <match> -> <target>: caller:aws matches the program that opened the URL, and text, * wildcards or re: match the URL. Example: caller:gh github.com -> safari"
+      },
+      "kept_on_reset_all" : false,
+      "key" : "terminal.linkOpener.rules",
+      "keywords" : [
+        "browser",
+        "rules",
+        "url",
+        "link",
+        "caller",
+        "regex",
+        "profile",
+        "script"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "terminal",
+        "linkOpener",
+        "rules"
+      ],
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "terminal",
+      "summary" : {
+        "key" : "settings.terminal.linkOpener.rules.summary",
+        "text" : "Rules for program links"
+      },
+      "title" : {
+        "key" : "settings.terminal.linkOpener.rules",
+        "text" : "Program Link Rules"
       },
       "validation" : "portable"
     },
@@ -21763,6 +21983,59 @@
       "consumers" : [
         "cmux-next"
       ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.showColors.help",
+        "text" : "Workspaces and groups draw their colors in the sidebar. Off, the sidebar draws no colors and keeps the colors you set."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showColors",
+      "keywords" : [
+        "sidebar",
+        "color",
+        "colors",
+        "colour",
+        "tint",
+        "swatch",
+        "group",
+        "workspace",
+        "hide",
+        "plain"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showColors"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.showColors",
+        "text" : "Show Workspace Colors"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -23714,7 +23987,7 @@
         true,
         false
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "privacy",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -23823,7 +24096,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -23831,15 +24104,17 @@
       },
       "help" : {
         "key" : "settings.tabs.newTabWidgets.greeting.help",
-        "text" : "A short greeting over the composer."
+        "text" : "A headline over the composer that asks what to work on, with the project as a picker."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.newTabWidgets.greeting",
       "keywords" : [
         "new tab",
         "widget",
+        "headline",
         "greeting",
-        "hello"
+        "project",
+        "question"
       ],
       "kind" : "toggle",
       "page_hidden" : false,
@@ -23857,7 +24132,7 @@
       "summary" : null,
       "title" : {
         "key" : "settings.tabs.newTabWidgets.greeting",
-        "text" : "Show Greeting on New Tab"
+        "text" : "Ask What to Work On on New Tab"
       },
       "validation" : "portable"
     },
@@ -24057,6 +24332,155 @@
       "title" : {
         "key" : "settings.tabs.newTabWidgets.styleDots",
         "text" : "Show Template Dots on New Tab"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabWidgets.weather.help",
+        "text" : "The current weather and today's high and low, for the city below or your time zone's city."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabWidgets.weather",
+      "keywords" : [
+        "new tab",
+        "widget",
+        "weather",
+        "temperature",
+        "forecast",
+        "location"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabWidgets",
+        "weather"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabWidgets.weather",
+        "text" : "Show Weather on New Tab"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabWidgets.weatherCity.help",
+        "text" : "A city for the weather widget. Empty uses your time zone's city."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabWidgets.weatherCity",
+      "keywords" : [
+        "new tab",
+        "widget",
+        "weather",
+        "city",
+        "location"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabWidgets",
+        "weatherCity"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabWidgets.weatherCity",
+        "text" : "Weather City"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabWidgets.machines.help",
+        "text" : "Your machines and whether each is online."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabWidgets.machines",
+      "keywords" : [
+        "new tab",
+        "widget",
+        "machines",
+        "computers",
+        "ssh",
+        "cloud",
+        "online"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabWidgets",
+        "machines"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabWidgets.machines",
+        "text" : "Show Machines on New Tab"
       },
       "validation" : "portable"
     },
@@ -31789,6 +32213,211 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefReactions",
+        "text" : "Reactions"
+      },
+      "help" : {
+        "key" : "settings.chief.reactionsCanWake.help",
+        "text" : "A reaction you put on a Chief message can start a turn when it asks for one, such as a question mark on a question or a thumbs down on a plan. A cheap model decides first, so a reaction that needs no answer never shows the typing dots. Off, reactions are only noted."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "chief.reactionsCanWake",
+      "keywords" : [
+        "chief",
+        "reaction",
+        "tapback",
+        "wake",
+        "classifier",
+        "turn",
+        "typing"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "chief",
+        "reactionsCanWake"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.chief.reactionsCanWake",
+        "text" : "Reactions Can Wake the Chief"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefReactions",
+        "text" : "Reactions"
+      },
+      "help" : {
+        "key" : "settings.chief.reactionClassifier.harness.help",
+        "text" : "The agent harness the reaction classifier runs on, for example claude or codex. Empty uses the Chief's Claude route."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "chief.reactionClassifier.harness",
+      "keywords" : [
+        "chief",
+        "reaction",
+        "tapback",
+        "wake",
+        "classifier",
+        "turn",
+        "typing",
+        "harness"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "chief",
+        "reactionClassifier",
+        "harness"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.chief.reactionClassifier.harness",
+        "text" : "Reaction Classifier Harness"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "claude-haiku-5-5",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefReactions",
+        "text" : "Reactions"
+      },
+      "help" : {
+        "key" : "settings.chief.reactionClassifier.model.help",
+        "text" : "The model that decides whether a reaction starts a turn. Claude Haiku by default: it is fast and cheap."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "chief.reactionClassifier.model",
+      "keywords" : [
+        "chief",
+        "reaction",
+        "tapback",
+        "wake",
+        "classifier",
+        "turn",
+        "typing",
+        "model",
+        "haiku"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "chief",
+        "reactionClassifier",
+        "model"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.chief.reactionClassifier.model",
+        "text" : "Reaction Classifier Model"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefReactions",
+        "text" : "Reactions"
+      },
+      "help" : {
+        "key" : "settings.chief.reactionClassifier.prompt.help",
+        "text" : "What the classifier is told when it decides. Empty uses the built-in instructions."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "chief.reactionClassifier.prompt",
+      "keywords" : [
+        "chief",
+        "reaction",
+        "tapback",
+        "wake",
+        "classifier",
+        "turn",
+        "typing",
+        "prompt",
+        "instructions"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "chief",
+        "reactionClassifier",
+        "prompt"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.chief.reactionClassifier.prompt",
+        "text" : "Reaction Classifier Instructions"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "keystroke",
         "click",
         "focus",
@@ -32971,8 +33600,8 @@
       ],
       "default" : null,
       "default_label" : {
-        "key" : "settings.default.notificationBlue",
-        "text" : "Notification Blue"
+        "key" : "settings.choice.themeAccent",
+        "text" : "Theme Accent"
       },
       "group" : {
         "key" : "settings.group.attention",
@@ -33003,6 +33632,201 @@
       "title" : {
         "key" : "settings.attention.color",
         "text" : "Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "glow",
+        "ring",
+        "none"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.glow",
+            "text" : "Glow"
+          },
+          "value" : "glow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.ring",
+            "text" : "Ring"
+          },
+          "value" : "ring"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.none",
+            "text" : "None"
+          },
+          "value" : "none"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "glow",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attention",
+        "text" : "Attention Ring"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "notifications.attention.terminals",
+      "keywords" : [
+        "ring",
+        "glow",
+        "flash",
+        "blink",
+        "terminal"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "attention",
+        "terminals"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.attention.terminals",
+        "text" : "Ring Terminal Panes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "glow",
+        "ring",
+        "none"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.glow",
+            "text" : "Glow"
+          },
+          "value" : "glow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.ring",
+            "text" : "Ring"
+          },
+          "value" : "ring"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.none",
+            "text" : "None"
+          },
+          "value" : "none"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "none",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attention",
+        "text" : "Attention Ring"
+      },
+      "help" : {
+        "key" : "settings.attention.agentChats.help",
+        "text" : "Ring an agent chat's pane when its turn ends, until you click or type in it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.attention.agentChats",
+      "keywords" : [
+        "ring",
+        "glow",
+        "flash",
+        "blink",
+        "agent",
+        "chat",
+        "turn"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "attention",
+        "agentChats"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.attention.agentChats",
+        "text" : "Ring Agent Chat Panes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        10,
+        5.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attention",
+        "text" : "Attention Ring"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "notifications.attention.agentChatBlinkCount",
+      "keywords" : [
+
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "attention",
+        "agentChatBlinkCount"
+      ],
+      "range" : {
+        "max" : 10,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -8,
+        19,
+        "1"
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.attention.agentChatBlinkCount",
+        "text" : "Agent Chat Blinks"
       },
       "validation" : "portable"
     },
@@ -34313,6 +35137,61 @@
       "title" : {
         "key" : "settings.agents.defaultPermissionMode",
         "text" : "Permission Mode for New Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.hangReports",
+        "text" : "Hang Reports"
+      },
+      "help" : {
+        "key" : "settings.diagnostics.hangReports.help",
+        "text" : "Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "diagnostics.hangReports",
+      "keywords" : [
+        "hang",
+        "lag",
+        "slow",
+        "performance",
+        "diagnostics",
+        "telemetry",
+        "privacy",
+        "metrickit",
+        "report"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "diagnostics",
+        "hangReports"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "summary" : {
+        "key" : "settings.diagnostics.hangReports.summary",
+        "text" : "Nightly only. No file names, text or addresses."
+      },
+      "title" : {
+        "key" : "settings.diagnostics.hangReports",
+        "text" : "Send Hang Reports"
       },
       "validation" : "portable"
     },

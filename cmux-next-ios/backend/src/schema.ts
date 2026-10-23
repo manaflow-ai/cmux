@@ -11,6 +11,11 @@ export const devices = pgTable(
     kind: text("kind", { enum: ["mac", "phone"] }).notNull(),
     name: text("name").notNull(),
     wgPublicKey: text("wg_public_key"),
+    /**
+     * A Mac's machine id (PROTOCOL.md "Devices"): the same for every cmux build on one computer and owner, a
+     * keyed hash the Mac derives (never the raw hardware id). Null for phones and for Macs that never sent one.
+     */
+    machineId: text("machine_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true })

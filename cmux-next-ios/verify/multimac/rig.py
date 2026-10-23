@@ -4,6 +4,10 @@ config, credentials; settings only through `open --env`, never an Info.plist edi
     python3 rig.py prepare|launch|quit|status|device-id|cli ARGS...|link-events SINCE
                    |ask TEXT|acpmux ARGS...
 
+Several rigs can share one mini, each a copy of this folder with its own app (its
+own bundle id): `MULTIMAC_DEVICE_NAME=NAME python3 rig.py launch` gives the rig a
+name phones list it by.
+
 The rig's acpmux runs in its own home (rig/acpmux, ACPMUX_HOME at launch) whose
 default harness is acpmux's credit-free fake agent (BASE/fake_agent.py, copied
 from cmux-tui/crates/acpmux/tests): `ask "ask: X"` starts a chat that asks a
@@ -31,6 +35,10 @@ def mac():
     m = Mac(os.path.join(BASE, "rig"), src)
     if os.path.exists(FAKE_AGENT):
         m.launch_env = {"ACPMUX_HOME": ACPMUX_HOME}
+    # MULTIMAC_DEVICE_NAME: the name phones list this Mac by (a Debug build's
+    # CMUX_NEXT_MOBILE_DEVICE_NAME, passed at launch with open --env), so two Macs can share one.
+    if os.environ.get("MULTIMAC_DEVICE_NAME"):
+        m.launch_env = dict(m.launch_env, CMUX_NEXT_MOBILE_DEVICE_NAME=os.environ["MULTIMAC_DEVICE_NAME"])
     m.pid = (m.main_pids() or [None])[0]
     return m
 

@@ -1,9 +1,10 @@
 import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject } from "react";
 import type { ComposerAttachment } from "./attachments";
-import { AttachmentStrip, type PendingAttachment } from "./composer/attachmentIntake";
+import { AttachmentStrip, backspacedAttachment, type PendingAttachment } from "./composer/attachmentIntake";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
+import { useQuietRow } from "./composerLook";
 import { useRowFit } from "./composerRowFit";
 import { FastToggle, SpeedToggleHost, type SpeedTiers } from "./FastToggle";
 import { MarkdownField, type MarkdownFieldHandle, type MarkdownFieldProps } from "./MarkdownField";
@@ -56,7 +57,8 @@ export type ComposerBoxProps = {
   /// The agent's mode, model and effort chips: in the box's row, or with the plain footer in the
   /// quiet row under it (ComposerFoot). They hand up Codex's speed option (FastToggle.tsx).
   chips?: React.ReactNode;
-  /// What ends the quiet row (the context ring); only the plain footer draws it.
+  /// What ends the quiet row (the context ring); the plain footer draws it there, Codex's look
+  /// before the model in the box's row.
   ring?: React.ReactNode;
   /// The actions before Codex's bolt and the mic (steer, and Stop with the plain footer).
   actionsLead?: React.ReactNode;
@@ -66,6 +68,9 @@ export type ComposerBoxProps = {
   trailing?: React.ReactNode;
   /// The hideable controls the row's right-click shows again (composerChrome.tsx).
   chromeItems: readonly HideableChromeItem[];
+  /// Drawn in the composer's bottom area, centered: the chat's look dots (LookSwitch.tsx), in the
+  /// quiet row's empty middle, or under the box in Codex's look.
+  bottom?: React.ReactNode;
 };
 
 /// The one composer box every surface draws (one-composer: the chat pane, New Tab, Quick
@@ -97,12 +102,16 @@ export function ComposerBox({
   accessory,
   trailing,
   chromeItems,
+  bottom,
 }: ComposerBoxProps) {
-  // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css).
+  // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css): the
+  // chips as plain text. With Claude's look (composerLook.ts, the default) they sit in the quiet row
+  // under the box; Codex's keeps them in the box's own row.
   const { plainFooter } = useComposerSettings();
+  const quietRow = useQuietRow();
   // The controls row swaps whole units as it narrows (composerRowFit.ts).
   const bar = useRef<HTMLDivElement>(null);
-  useRowFit(bar, plainFooter);
+  useRowFit(bar, quietRow);
   // Codex's speed option, which the chips hand up: the bolt left of the mic (FastToggle.tsx). Claude
   // Code's Fast mode stays a row of the model button's menu, so its chips hand up none.
   const [speed, setSpeed] = useState<SpeedTiers | undefined>(undefined);
@@ -148,7 +157,7 @@ export function ComposerBox({
   return (
     <>
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
-      <div ref={boxRef} className="ui-glass acpmux-composer-box" onMouseDown={focusFromCard}>
+      <div ref={boxRef} className="ui-glass ui-glass-floats acpmux-composer-box" onMouseDown={focusFromCard}>
         {top}
         <AttachmentStrip
           attachments={attachments}
@@ -174,7 +183,17 @@ export function ComposerBox({
             // ui-allow: the prompt field's own editing keys (⌘⇧V's paste stays text), before the host's.
             onKeyDown={(event) => {
               // Every key belongs to the input method while it composes.
-              if (!event.isComposing && event.keyCode !== 229 && isPasteAsPlainTextKey(event)) pastedChips.plainPaste();
+              const composing = event.isComposing || event.keyCode === 229;
+              if (!composing && isPasteAsPlainTextKey(event)) pastedChips.plainPaste();
+              // Backspace at the prompt's start takes back the last chip (backspacedAttachment).
+              const backspaced = composing
+                ? undefined
+                : backspacedAttachment(event, prompt.current?.atStart() ?? false, attachments);
+              if (backspaced) {
+                event.preventDefault();
+                setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
+                return;
+              }
               onKeyDown?.(event);
             }}
           />
@@ -184,16 +203,18 @@ export function ComposerBox({
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
           {/* Claude Code's split (Leo 2026-10-19), the plain footer's default: the box keeps +, the
               prompt, the mic and Send or Stop; the mode, model and effort sit in a quiet row under
-              it (ComposerFoot below). The other look keeps them all in this row. */}
+              it (ComposerFoot below). The other look, and Codex's, keep them all in this row. */}
           <div
-            ref={plainFooter ? undefined : bar}
-            className={plainFooter ? "acpmux-composer-bar acpmux-composer-inner" : "acpmux-composer-bar"}
+            ref={quietRow ? undefined : bar}
+            className={quietRow ? "acpmux-composer-bar acpmux-composer-inner" : "acpmux-composer-bar"}
             data-footer-look={plainFooter ? "plain" : undefined}
           >
             {leading}
             {/* The granted-permission status gets no slot of its own in this row (hq#1957 item 15
                 compact row): grants live in the permission mode's Access menu, one lock. */}
-            {!plainFooter && shownChips}
+            {!quietRow && shownChips}
+            {/* Codex's look: the context ring before the model, where Codex shows its own. */}
+            {!quietRow && plainFooter && ring}
             <span className="acpmux-composer-actions">
               {actionsLead}
               {/* Codex's bolt, just left of the mic (Leo 2026-10-21), in either footer look. */}
@@ -209,13 +230,21 @@ export function ComposerBox({
           </div>
         </ChromeArea>
       </div>
-      {plainFooter && (
+      {quietRow && (
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
           <ComposerFoot ref={bar}>
             {shownChips}
             {ring}
           </ComposerFoot>
         </ChromeArea>
+      )}
+      {/* One place for both looks, so a look switched from the dots by keys keeps the same dots and
+          their focus (they would remount under the box and drop it): with the quiet row they draw
+          over its empty middle, with Codex's look in the band under the box (composerLook.css). */}
+      {bottom && (
+        <div className="acpmux-composer-under" data-beside-foot={quietRow ? "" : undefined}>
+          {bottom}
+        </div>
       )}
     </>
   );

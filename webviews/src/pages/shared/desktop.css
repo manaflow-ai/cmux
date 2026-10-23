@@ -115,7 +115,9 @@ select {
   -webkit-backdrop-filter: var(--tooltip-blur);
   backdrop-filter: var(--tooltip-blur);
   box-shadow: var(--tooltip-shadow);
-  color: var(--cmux-text, CanvasText);
+  /* The host's tooltip ink (TooltipSurface.ink): the text, pushed only where a translucent tint
+     needs it. */
+  color: var(--cmux-tooltip-ink, var(--cmux-text, CanvasText));
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);

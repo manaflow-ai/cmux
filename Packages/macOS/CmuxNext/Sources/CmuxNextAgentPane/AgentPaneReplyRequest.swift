@@ -104,7 +104,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     }
 
     /// The request for `method` and `params`, nil when they break the contract.
-    init?(method: String, params: [String: Any]?) {
+    public init?(method: String, params: [String: Any]?) {
         guard let known = Self.knownParams[method] else { return nil }
         let params = params ?? [:]
         guard Set(params.keys).isSubset(of: known) else { return nil }

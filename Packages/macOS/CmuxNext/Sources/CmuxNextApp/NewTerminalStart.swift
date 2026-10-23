@@ -31,4 +31,14 @@ enum NewTerminalStart {
         guard let tab else { return nil }
         return tab.kind == .pty ? tab.cwd : services.agentTabs.terminalFolder(of: tab.id)
     }
+
+    /// The folder a new terminal or agent chat opened beside `tab` in `pane` inherits
+    /// (NEW-WORK-INHERITS-CONTEXT, ``WorkContextTrail``): `tab`'s own when it is a terminal or a
+    /// chat, else the terminal or chat the person focused last in the pane's workspace, else (for a
+    /// workspace with none of its own) in the window. Nil leaves the caller's fallback (the daemon's
+    /// resolver, then the home folder). Callers apply ``uninherited`` first.
+    @MainActor static func inherited(besides tab: TabModel?, in pane: PaneModel?, services: AppServices) -> String? {
+        services.inheritedWork(besides: tab, in: pane, kinds: [.terminal, .chat]) { folder(of: $0, services: services) }
+            ?? folder(of: tab, services: services)
+    }
 }

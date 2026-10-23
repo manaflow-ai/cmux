@@ -6,7 +6,7 @@
 // answers in place in the sender's chat and thread.
 import { agentPaneEntry, type ChipHostFixture } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
-import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
+import { SESSION_ID, assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
 import { sampleChart, sampleDiagram, sampleGradient } from "../mockFixture";
 
 const message = (
@@ -21,6 +21,7 @@ const message = (
 });
 
 const gridFix = "The grid fix is on cmux/grid-fix; tests pass.";
+const chiefReport = "Sidebar fix is up as #24012; the review passed and CI is green.";
 
 // A lane's report as Leo got it (2026-10-21): signed with its name, a pull request written two
 // ways, a commit, and its screenshots in /tmp, the first by its full path and the rest by name.
@@ -246,6 +247,35 @@ export default agentPaneEntry({
           untyped: true,
         }),
       ]),
+    },
+    "sender-hover": {
+      note: 'A lane on another machine (studio-mac) messages this chat. Hovering its name: the accent ring over glass, and the tooltip "Open chief-ui (studio-mac)"; a click opens that chat beside this one, or focuses its tab when one shows it.',
+      snapshot: chat(
+        [
+          user("Ask chief-ui where the sidebar fix stands", 9),
+          assistant("Asked chief-ui; it will report back here.", 8.5),
+          summary(8.5, { status: "completed" }),
+          user(chiefReport, 4, { incoming: message("chief-ui", chiefReport), untyped: true }),
+        ],
+        {
+          sessions: [
+            session({ sessionId: SESSION_ID, title: "Add retries to the fetch helper" }),
+            // A peer's chat as acpmux lists it here (hub/peers.rs): `<peer>/<name>`, signed with the bare name.
+            session({
+              sessionId: "chief-ui-1",
+              name: "studio-mac/chief-ui",
+              title: "chief-ui",
+              peer: "studio-mac",
+              host: "studio-mac",
+              hostKind: undefined,
+            }),
+          ],
+        },
+      ),
+      play: async (ctx) => {
+        await ctx.hover({ selector: "button.cv-received__name" });
+        await ctx.waitFor(() => ctx.document.querySelector(".ui-title-tooltip"));
+      },
     },
     files: {
       note: 'A lane\'s report, opened: its "[name]" signature is out, #23825 written twice is one chip, and the SHAs are quiet monospace.',

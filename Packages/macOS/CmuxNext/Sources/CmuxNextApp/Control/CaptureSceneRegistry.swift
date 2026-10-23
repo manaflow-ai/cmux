@@ -97,7 +97,7 @@ final class CaptureSceneRegistry {
 
         // Home is native: it settles on its own conditions, and neither the
         // agent pane's readiness nor its web view is part of its picture.
-        let isHome = definition.name == Self.homeChiefScene
+        let isHome = definition.name == Self.homeChiefScene || definition.name == Self.homeChiefLongDraftScene
         let readiness = await DebugAgentPane.handle(["action": .string("readiness")], services)
         guard isHome || readinessIsComplete(readiness) else {
             return .object([
@@ -107,7 +107,8 @@ final class CaptureSceneRegistry {
         }
 
         let sceneAction = await applySceneAction(definition.name)
-        let actionReadiness = isHome ? await showHomeChief(windowID: targetWindowID) : await waitForSceneAnimation()
+        let actionReadiness = isHome
+            ? await showHomeChief(windowID: targetWindowID, longDraft: definition.name == Self.homeChiefLongDraftScene) : await waitForSceneAnimation()
         guard case .object(let actionReadinessReport) = actionReadiness,
               actionReadinessReport["error"] == nil,
               isHome || actionReadinessReport["animations_pending"]?.boolValue == false else {
@@ -197,6 +198,9 @@ final class CaptureSceneRegistry {
         CaptureSceneDefinition(name: "hints-ctrl-held", description: "Control modifier hint destination."),
         CaptureSceneDefinition(name: homeChiefScene,
                                description: "Home's empty Chief conversation listing the showcase agents and terminal agents waiting, failed, done and working; click_agent N clicks row N (from 0) and reports the focused tab, click_path snapshots after it."),
+        // A literal name: cmux-ci capture finds scenes by `CaptureSceneDefinition(name: "…")`.
+        CaptureSceneDefinition(name: "home-chief-long-draft",
+                               description: "The home-chief scene with a long draft that grows the field up into the first-run panel; the panel drops what does not fit and nothing it shows runs under the field."),
     ]
 }
 #endif

@@ -46,6 +46,7 @@ members = [
     "crates/cmux-unix-socket",
     "crates/cmux-panic-log",
     "crates/cmux-pty",
+    "crates/cmux-holder",
     "crates/cmux-remote-protocol",
     "crates/cmux-remote-transcript",
     "crates/cmux-build-identity",
@@ -188,6 +189,7 @@ cmux-agent-pane-policy = { path = "crates/cmux-agent-pane-policy" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
+cmux-holder = { path = "crates/cmux-holder" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-history = { path = "crates/cmux-history" }

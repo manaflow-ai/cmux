@@ -131,6 +131,41 @@
   background: var(--glass-tint);
 }
 
+/* CHROMIUM OVER THE WINDOW GLASS (Leo 2026-10-22: "we can't be having unstyled main chat panes").
+   Chromium draws a backdrop-filter's blurred copy over the page's own pixels, not in their place.
+   The window glass is not in a see-through page, so that copy is mostly clear and the text under a
+   menu, a hover card, the composer or the Inspector reads crisp through its tint. WebKit's backdrop
+   takes in the window glass, which is opaque, and frosts it. Until the CEF fork's compositor
+   replaces the backdrop, a glass there lays its tint over the theme surface at --glass-underlay, so
+   the text under it fades. Only glass that floats over the page does: a popup, a tooltip, a hover
+   card, or a surface that says so with .ui-glass-floats (the composer, the Inspector). Glass in the
+   page's flow (a user's bubble, a settings card) has nothing under it and keeps its tint, as in
+   WebKit. WebKit (which keeps -webkit-backdrop-filter), an opaque window and the lens (whose canvas
+   is under the glass) keep the tint alone. The strength is the experiment chromium-glass-underlay
+   (chromiumUnderlay.experiment.ts, which desktop.ts puts on <html>). */
+:root {
+  --glass-underlay: 70%;
+}
+:root[data-glass-underlay="none"] {
+  --glass-underlay: 0%;
+}
+:root[data-glass-underlay="light"] {
+  --glass-underlay: 50%;
+}
+:root[data-glass-underlay="heavy"] {
+  --glass-underlay: 85%;
+}
+@media not (prefers-reduced-transparency: reduce) {
+  @supports not (-webkit-backdrop-filter: none) {
+    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency])
+      :is(.ui-popup, .ui-tooltip, .ui-title-tooltip, .ui-card, .ui-glass-floats).ui-glass {
+      background:
+        linear-gradient(var(--glass-tint), var(--glass-tint)),
+        color-mix(in srgb, var(--glass-surface) var(--glass-underlay), transparent);
+    }
+  }
+}
+
 /* TOOLTIPS AND HOVER CARDS (Leo 2026-10-21: "WHERE IS THE GLASS EVERYWHERE, all these hover tooltips
    and hover previews"). Every tooltip (ui/Tooltip.tsx, the title tooltip of ui/titleTooltips.ts, a
    toolbar hint) and every hover card (ui/Tooltip.tsx AnchoredCard, a chart's tooltip) is this glass:

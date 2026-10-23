@@ -15,6 +15,8 @@ import { callChipHost } from "./host";
 import { redactUrlText } from "./linkDisplay";
 import { PullRequestCardBody, type KnownPullRequest } from "./PullRequestCard";
 import type { HoverCard } from "./useHoverCard";
+// The card's rules, for every page that shows it (the agent pane, the changelog).
+import "./linkCard.css";
 
 /// `href`'s host, or `href` when it doesn't parse.
 export function linkHost(href: string): string {
@@ -82,7 +84,11 @@ export function LinkHoverCard({
     <AnchoredCard
       id={id}
       anchor={hover.open ? anchor : null}
-      className={pullRequest ? "ui-glass cv-link-preview acpmux-pr-card" : "ui-glass cv-link-preview"}
+      className={
+        pullRequest
+          ? "ui-glass ui-glass-floats cv-link-preview acpmux-pr-card"
+          : "ui-glass ui-glass-floats cv-link-preview"
+      }
       side={side}
       interactive
       // A pull request's page title only repeats its own title: the card is named by its reference.
