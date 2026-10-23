@@ -3,8 +3,9 @@
 
 Each test commits into a throwaway repository and checks what the commit adds. The rule tests call
 `guardrails.check` directly; the hook tests install the real hooks and push through the real `git push`,
-so the installed trusted copy of the gate is what runs. Run it yourself (Lawrence 2026-10-23: no new
-CI tests): python3 tests/test_cmux_next_guardrails.py
+so the installed trusted copy of the gate is what runs. Not on CI (Lawrence 2026-10-23: "not to add
+gates/tests in CI, but you have to run them yourself"): run it yourself after every change to guardrails.py,
+prepush-gate.py's guardrails path or install-git-hooks.sh: python3 tests/test_cmux_next_guardrails.py
 """
 import importlib.util
 import os
@@ -13,7 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
+import types
 import unittest
 import git_fixture_env  # disables git auto maintenance
 
@@ -161,12 +162,108 @@ class RuleTests(Fixture):
         refusals, _ = self.check()
         self.assertEqual(refusals, [])
 
+    def rebase_on(self, files, message="more base debt"):
+        for relative, text in files.items():
+            self.write(relative, text)
+        self.commit(message)
+        self.base = self.git("rev-parse", "HEAD").stdout.strip()
+
+    def test_editing_a_line_that_already_has_debt_adds_none(self):
+        before = {
+            f"{KIT}/Old.swift": "final class Old {\n    static let shared = Old()\n}\n",
+            f"{KIT}/Box.swift": "final class Box: @unchecked Sendable {\n    var x = 0\n}\n",
+            f"{KIT}/Hop.swift": "func f(_ x: Int) {\n    MainActor.assumeIsolated { self.handle(x) }\n}\n",
+            f"{KIT}/Wait.swift": "func wait() async throws {\n    while !ready() {\n"
+                                 "        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n",
+        }
+        self.rebase_on(before)
+        after = {
+            f"{KIT}/Old.swift": "final class Old {\n    static let shared = Old(limit: 2)\n}\n",
+            f"{KIT}/Box.swift": "final class Box: Equatable, @unchecked Sendable {\n    var x = 0\n}\n",
+            f"{KIT}/Hop.swift": "func f(_ x: Int) {\n    MainActor.assumeIsolated { self.handle(x + 1) }\n}\n",
+            f"{KIT}/Wait.swift": "func wait() async throws {\n    while !ready() {\n"
+                                "        try await Task.sleep(for: .milliseconds(50))\n    }\n}\n",
+        }
+        for relative, text in after.items():
+            self.write(relative, text)
+        self.commit("edits lines that already had debt")
+        refusals, _ = self.check()
+        self.assertEqual([(r.id, [h.text.strip() for h in hits]) for r, hits in refusals], [])
+
+    def test_an_edit_does_not_hide_a_second_new_hit_in_the_same_file(self):
+        self.write(f"{KIT}/Old.swift", "final class Old {\n    static let shared = Old(limit: 2)\n}\n"
+                                       "final class Other {\n    static let shared = Other()\n}\n")
+        self.commit("edits one singleton and adds another")
+        refusals, _ = self.check()
+        self.assertEqual([(r.id, len(hits)) for r, hits in refusals], [("singleton", 1)])
+
+    def test_a_one_line_poll_is_refused_and_wakeup_allow_is_its_escape(self):
+        poll = "func wait() async throws {\n    while !ready() { try await Task.sleep(for: .milliseconds(5)) }\n}\n"
+        self.write(f"{KIT}/Added.swift", poll)
+        self.commit("one-line poll")
+        self.assertIn("sleep-poll", [r.id for r, _ in self.check()[0]])
+        self.git("reset", "--quiet", "--hard", self.base)
+        self.write(f"{KIT}/Added.swift", poll.replace("    while", "    // wakeup-allow: the device has no change event\n    while"))
+        self.commit("reviewed poll")
+        self.assertEqual(self.check()[0], [])
+
+    def test_stateful_named_singletons_are_refused_and_value_constants_pass(self):
+        cases = {
+            "final class Prefs {\n    static let standard = Prefs()\n}\n": True,
+            "actor Clock {\n    static let live = Clock()\n}\n": True,
+            "struct Style {\n    static let standard = Style()\n}\n": False,
+            "enum Spacing {\n    static let `default` = 8.0\n}\n": False,
+        }
+        for text, refused in cases.items():
+            with self.subTest(text=text):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(f"{KIT}/Added.swift", text)
+                self.commit("named static")
+                self.assertEqual("singleton" in [r.id for r, _ in self.check()[0]], refused)
+
+    def test_short_notification_names_in_a_name_extension_are_refused(self):
+        for decl in ('Self("pagesChanged")', '.init("pagesChanged")'):
+            with self.subTest(decl=decl):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(f"{KIT}/Added.swift", f"extension Notification.Name {{\n    static let pagesChanged = {decl}\n}}\n")
+                self.commit("short name")
+                self.assertIn("broadcast-name", [r.id for r, _ in self.check()[0]])
+
     def test_big_new_app_file_is_refused_and_app_growth_warns(self):
         self.write(f"{APP}/Feature.swift", "import Foundation\n" + "let x = 1\n" * 450)
         self.commit("big new App file")
         refusals, warnings = self.check()
         self.assertIn("app-big-file", [r.id for r, _ in refusals])
         self.assertTrue(any(kind == "app-grow" for kind, _ in warnings))
+
+    def test_app_file_limit_matches_wc_l_and_a_renamed_app_file_passes(self):
+        def body(lines):
+            return "".join(f"let value{n} = {n}\n" for n in range(lines))
+
+        self.write(f"{APP}/Exact.swift", body(400))
+        self.commit("a new App file of exactly 400 lines")
+        self.assertEqual(self.check()[0], [], "check-no-godfiles.sh accepts 400 lines")
+        self.write(f"{APP}/Exact.swift", body(401))
+        self.commit("401 lines")
+        self.assertIn("app-big-file", [r.id for r, _ in self.check()[0]])
+
+        self.git("reset", "--quiet", "--hard", self.base)
+        self.rebase_on({f"{APP}/Feature.swift": body(450)}, "an existing big App file")
+        self.git("mv", f"{APP}/Feature.swift", f"{APP}/Features/Feature.swift")
+        self.commit("moves it into a folder")
+        self.assertEqual(self.check()[0], [], "a git mv adds no new App code")
+
+    def test_app_growth_counts_only_swift(self):
+        self.write(f"{APP}/Resources/Localizable.xcstrings", "{\n" + '  "k": "v",\n' * 50 + "}\n")
+        self.commit("strings only")
+        _, warnings = self.check()
+        self.assertEqual([w for kind, w in warnings if kind == "app-grow"], [])
+
+    def test_owner_globs_do_not_cross_folders_with_a_single_star(self):
+        self.assertTrue(guardrails.glob_match("A/Motion/Spring.swift", "A/Motion/"))
+        self.assertTrue(guardrails.glob_match("A/MotionGate.swift", "A/Motion*.swift"))
+        self.assertFalse(guardrails.glob_match("A/Motion/Spring.swift", "A/Motion*.swift"))
+        self.assertTrue(guardrails.glob_match("A/B/C/D.swift", "A/**/D.swift"))
 
     def test_skip_reason_lets_the_push_through_and_is_printed(self):
         self.write(f"{KIT}/Added.swift", CASES["singleton"][0])
@@ -214,13 +311,31 @@ class WarningTests(Fixture):
         self.assertIn("a590", owners[0])
         self.assertIn("plans/cmux-next/sidebar-owner.md", owners[0])
 
-    def test_a_typical_push_is_checked_in_well_under_a_second(self):
+    def test_a_typical_push_runs_git_a_fixed_number_of_times(self):
+        # The cost that grows with a push is git process starts, so count them instead of timing a busy runner:
+        # one diff, one name list and one batched blob read, however many files the push changes.
         for n in range(5):
             self.write(f"{KIT}/F{n}.swift", "import Foundation\n" + "func f() { print(1) }\n" * 300)
         self.commit("five files")
-        started = time.monotonic()
-        self.check()
-        self.assertLess(time.monotonic() - started, 1.0)
+        calls = []
+
+        def run(args, *rest, **kwargs):
+            calls.append(args)
+            return subprocess.run(args, *rest, **kwargs)
+
+        def popen(args, *rest, **kwargs):
+            calls.append(args)
+            return subprocess.Popen(args, *rest, **kwargs)
+
+        # A stand-in for the module guardrails.py imported, so subprocess's own internals are not counted.
+        guardrails.subprocess = types.SimpleNamespace(run=run, Popen=popen, PIPE=subprocess.PIPE,
+                                                      DEVNULL=subprocess.DEVNULL)
+        try:
+            refusals, _ = self.check()
+        finally:
+            guardrails.subprocess = subprocess
+        self.assertEqual(refusals, [])
+        self.assertEqual(len(calls), 3, calls)
 
 
 class HookTests(Fixture):
@@ -273,6 +388,26 @@ class HookTests(Fixture):
         output = result.stdout + result.stderr
         self.assertEqual(result.returncode, 0, output)
         self.assertIn("SKIPPED by CMUX_GUARDRAILS_SKIP_REASON", output)
+
+    def test_a_broken_guardrails_script_warns_and_lets_the_push_through(self):
+        installed = self.repo / ".git" / "cmux-git-hooks" / "cmux-next-checks"
+        self.assertTrue(installed.is_symlink(), "the installer swaps a link, so the checks are never missing")
+        (installed / "guardrails.py").write_text("def check(repo, base, head):\n    raise ValueError('boom')\n")
+        result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="fixture: other checks")
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn("guardrails.py failed (ValueError: boom)", output)
+
+    def test_a_second_install_keeps_the_checks_in_place(self):
+        before = (self.repo / ".git" / "cmux-git-hooks" / "cmux-next-checks").resolve()
+        again = subprocess.run(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo, env=self.env, text=True,
+                               capture_output=True)
+        self.assertEqual(again.returncode, 0, again.stderr)
+        link = self.repo / ".git" / "cmux-git-hooks" / "cmux-next-checks"
+        self.assertTrue(link.is_symlink())
+        self.assertNotEqual(link.resolve(), before, "each install writes a new copy")
+        self.assertTrue((link / "guardrails.py").is_file())
+        self.assertTrue((before / "guardrails.py").is_file(), "the replaced copy stays for a push already running")
 
     def test_ci_runs_never_apply_the_guardrails(self):
         gate = self.repo / "scripts/cmux-next/prepush-gate.py"

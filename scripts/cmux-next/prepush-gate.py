@@ -646,20 +646,29 @@ def load_guardrails(repo: Path, trusted_scripts: Path | None):
 
 
 def guardrails(repo: Path, ranges: list[tuple[str, str]], trusted_scripts: Path | None) -> bool:
-    """Print the guardrail warnings and refusals for RANGES; True when they refuse the push."""
-    module = load_guardrails(repo, trusted_scripts)
-    if module is None:
-        if trusted_scripts:
-            log("prepush-gate: guardrails.py is not installed; rerun scripts/install-git-hooks.sh")
+    """Print the guardrail warnings and refusals for RANGES; True when they refuse the push.
+
+    The rules are advisory debt checks in every agent's hook: a bug in them (a parse edge, a failed git
+    call) prints a warning and lets the push through instead of blocking every push with a traceback.
+    """
+    try:
+        module = load_guardrails(repo, trusted_scripts)
+        if module is None:
+            if trusted_scripts:
+                log("prepush-gate: guardrails.py is not installed; rerun scripts/install-git-hooks.sh")
+            return False
+        refused = False
+        for base, head in ranges:
+            refusals, warnings = module.check(repo, base, head)
+            text, refuse = module.format_report(refusals, warnings)
+            if text:
+                print(text)
+            refused = refused or refuse
+        return refused
+    except (Exception, SystemExit) as error:  # SystemExit: guardrails.git() exits on a failed git call
+        log(f"prepush-gate: WARNING: guardrails.py failed ({type(error).__name__}: {error}); not applied to "
+            "this push. Tell the Performance Lead (PL-guardrails) with this line.")
         return False
-    refused = False
-    for base, head in ranges:
-        refusals, warnings = module.check(repo, base, head)
-        text, refuse = module.format_report(refusals, warnings)
-        if text:
-            print(text)
-        refused = refused or refuse
-    return refused
 
 
 def stale_hook_warning(repo: Path, trusted_scripts: Path) -> None:

@@ -3,8 +3,10 @@
 
 Run by the pre-push hook through `prepush-gate.py --pre-push` (and by a plain local `prepush-gate.py`),
 never by CI (Lawrence 2026-10-23: no new CI gates). Only lines the push ADDS under
-Packages/macOS/CmuxNext/Sources count, and an added line whose text the same push removes elsewhere is a
-move, not new. Base debt never blocks a push (plans/cmux-next/codebase-health.md has the counts).
+Packages/macOS/CmuxNext/Sources count. Per file and rule it is a count ratchet: an added match is new only
+when the same file does not remove as many matches (editing a line that already has debt, such as a changed
+initializer or an added conformance, adds none), and an added line whose text the push removes in another
+file is a move. Base debt never blocks a push (plans/cmux-next/codebase-health.md has the counts).
 
 Refusals (rules below, `--list` prints them): each names the rule, why, the right pattern and its escape.
 Skip once: CMUX_GUARDRAILS_SKIP_REASON="<rule>: <why>"; say it in your report.
@@ -23,7 +25,7 @@ from __future__ import annotations
 
 import argparse
 import collections
-import fnmatch
+import itertools
 import json
 import os
 import re
@@ -129,19 +131,56 @@ class Context:
     moved: collections.Counter
 
 
-def new_hits(change: FileChange, ctx: Context, pattern: re.Pattern, escape: re.Pattern | None) -> list[Added]:
-    hits = []
+def new_hits(change: FileChange, ctx: Context, pattern: re.Pattern, escape: re.Pattern | None,
+             keep: Callable[[FileChange, Added], bool] | None = None) -> list[Added]:
+    """CHANGE's added lines that match PATTERN (and KEEP) and are new debt.
+
+    An added match is not new when it carries ESCAPE, when the same file removes a line with the same text,
+    when another file removes a line with the same text (a move, CTX.moved), or when the same file removes
+    another line matching PATTERN (an edit of a line that already had the debt: a count ratchet per file).
+    """
+    candidates = []
     for added in change.added:
-        code = code_of(added.text)
-        if not pattern.search(code):
+        if not pattern.search(code_of(added.text)):
+            continue
+        if keep is not None and not keep(change, added):
             continue
         if escape is not None and escaped(change.head_lines, added.number - 1, escape):
             continue
+        candidates.append(added)
+    if not candidates:
+        return []
+    removed = collections.Counter(r.strip() for r in change.removed if pattern.search(code_of(r)))
+
+    def claim(key: str) -> None:
+        if ctx.moved[key] > 0:
+            ctx.moved[key] -= 1
+
+    rest = []
+    for added in candidates:  # unchanged or re-indented in place
+        key = added.text.strip()
+        if removed[key] > 0:
+            removed[key] -= 1
+            claim(key)
+        else:
+            rest.append(added)
+    edited = []
+    for added in rest:  # moved here from another file
         key = added.text.strip()
         if ctx.moved[key] > 0:
             ctx.moved[key] -= 1
-            continue
-        hits.append(added)
+        else:
+            edited.append(added)
+    # An edit of a line that already had the debt: each remaining removed match pays for one added match. It
+    # does not claim CTX.moved, so the result never depends on which file the diff lists first (a removed
+    # line could otherwise pay here and leave its real move into a later file looking new).
+    budget = sum(removed.values())
+    hits = []
+    for added in edited:
+        if budget > 0:
+            budget -= 1
+        else:
+            hits.append(added)
     return hits
 
 
@@ -151,18 +190,23 @@ def line_rule(pattern: str, escape: str | None) -> Callable[[FileChange, Context
     return lambda change, ctx: new_hits(change, ctx, compiled, marker)
 
 
-def enclosing_openers(lines: list[str], index: int, stop: re.Pattern) -> list[str]:
-    """The lines that open the blocks around LINES[INDEX], innermost first, up to a line matching STOP."""
+def enclosing_openers(lines: list[str], index: int, stop: re.Pattern, prefix: str = "") -> list[str]:
+    """The block openers around LINES[INDEX], innermost first, up to one matching STOP.
+
+    PREFIX is the code before the point of interest on LINES[INDEX] itself (a one-line `while x { sleep }`).
+    Each opener is its line's code up to and including the `{`.
+    """
     openers, depth = [], 0
-    for j in range(index - 1, -1, -1):
-        code = code_of(lines[j])
-        for c in reversed(code):
+    above = (code_of(lines[j]) for j in range(index - 1, -1, -1))
+    for code in itertools.chain([prefix], above):
+        for pos in range(len(code) - 1, -1, -1):
+            c = code[pos]
             if c == "}":
                 depth += 1
             elif c == "{":
                 if depth == 0:
-                    openers.append(code)
-                    if stop.search(code):
+                    openers.append(code[:pos + 1])
+                    if stop.search(code[:pos + 1]):
                         return openers
                 else:
                     depth -= 1
@@ -172,16 +216,62 @@ def enclosing_openers(lines: list[str], index: int, stop: re.Pattern) -> list[st
 SLEEP = re.compile(r"\bTask\.sleep\(|\.sleep\((for|until):|\bclock\.sleep\b")
 LOOP = re.compile(r"^\s*(\}\s*)?(while\b|repeat\b|for\b)|\b(while|repeat)\s*[{(!]")
 FUNC_STOP = re.compile(r"\b(func|init|deinit)\b[^{]*\{|\b(Task|Task\.detached)\s*(\([^)]*\))?\s*\{")
-POLL_ALLOW = re.compile(r"//\s*poll-allow:\s*\S")
+# check-concurrency.sh's reviewed `// wakeup-allow:` covers it too; `poll-allow:` is the older name.
+POLL_ALLOW = re.compile(r"//\s*(wakeup|poll)-allow:\s*\S")
+
+
+def in_loop(change: FileChange, added: Added) -> bool:
+    code = code_of(added.text)
+    match = SLEEP.search(code)
+    prefix = code[:match.start()] if match else ""
+    openers = enclosing_openers(change.head_lines, added.number - 1, FUNC_STOP, prefix)
+    return any(LOOP.search(o) for o in openers)
 
 
 def sleep_in_loop(change: FileChange, ctx: Context) -> list[Added]:
-    hits = []
-    for added in new_hits(change, ctx, SLEEP, POLL_ALLOW):
-        openers = enclosing_openers(change.head_lines, added.number - 1, FUNC_STOP)
-        if any(LOOP.search(o) for o in openers):
-            hits.append(added)
-    return hits
+    return new_hits(change, ctx, SLEEP, POLL_ALLOW, in_loop)
+
+
+SINGLETON = re.compile(r"\bstatic\s+(let|var)\s+(shared|sharedInstance|instance)\b")
+# CLAUDE.md names these too; as stored statics of a class or actor, or mutable ones, they hold runtime state.
+# A struct or enum's `static let standard = Style()` is a value constant and passes.
+SINGLETON_NAMED = re.compile(r"\bstatic\s+(let|var)\s+(`default`|standard|current|live)\s*(:[^={]*)?=")
+SINGLETON_ANY = re.compile(SINGLETON.pattern + "|" + SINGLETON_NAMED.pattern)
+STATEFUL = re.compile(r"\bstatic\s+var\b|=\s*(Mutex|NSHashTable|NSMapTable|OSAllocatedUnfairLock)\b")
+TYPE_OPENER = re.compile(r"\b(class|actor|struct|enum|extension|protocol)\b")
+SINGLETON_ALLOW = re.compile(r"//\s*singleton-allow:\s*\S")
+
+
+def holds_state(change: FileChange, added: Added) -> bool:
+    code = code_of(added.text)
+    if SINGLETON.search(code) or STATEFUL.search(code):
+        return True
+    openers = enclosing_openers(change.head_lines, added.number - 1, TYPE_OPENER)
+    kind = TYPE_OPENER.search(openers[-1]) if openers else None
+    return kind is not None and kind.group(1) in ("class", "actor")
+
+
+def singleton(change: FileChange, ctx: Context) -> list[Added]:
+    return new_hits(change, ctx, SINGLETON_ANY, SINGLETON_ALLOW, holds_state)
+
+
+BROADCAST = re.compile(r"\b(NS)?Notification\.Name(\.init)?\(|:\s*(NS)?Notification\.Name\s*=")
+# Inside `extension Notification.Name`, `static let x = Self("x")` / `.init("x")` declare one too.
+BROADCAST_SHORT = re.compile(r"\bstatic\s+(let|var)\s+\w+\s*=\s*(Self|\.init)\s*\(")
+BROADCAST_ANY = re.compile(BROADCAST.pattern + "|" + BROADCAST_SHORT.pattern)
+NAME_EXTENSION = re.compile(r"\bextension\s+(Foundation\.)?(NS)?Notification\.Name\b")
+BROADCAST_ALLOW = re.compile(r"//\s*broadcast-allow:\s*\S")
+
+
+def declares_name(change: FileChange, added: Added) -> bool:
+    if BROADCAST.search(code_of(added.text)):
+        return True
+    openers = enclosing_openers(change.head_lines, added.number - 1, TYPE_OPENER)
+    return bool(openers) and NAME_EXTENSION.search(openers[-1]) is not None
+
+
+def broadcast_name(change: FileChange, ctx: Context) -> list[Added]:
+    return new_hits(change, ctx, BROADCAST_ANY, BROADCAST_ALLOW, declares_name)
 
 
 ROW_STRUCT = re.compile(r"\bstruct\s+(\w*(Row|Cell|Tile|Gap|Item)(View)?)\b[^{]*:\s*[^{]*\bView\b")
@@ -215,24 +305,41 @@ def row_store(change: FileChange, ctx: Context) -> list[Added]:
     if not spans:
         return []
     inside = [a for a in change.added if any(s < a.number <= e for s, e in spans)]
-    sub = FileChange(change.path, lines, inside)
+    sub = FileChange(change.path, lines, inside, removed=change.removed)
     return new_hits(sub, ctx, ROW_STORE, ROW_ALLOW)
 
 
+def line_count(lines: list[str]) -> int:
+    """`wc -l` of the text LINES came from (`text.split("\\n")`): a final newline adds no line."""
+    return len(lines) - (1 if lines and lines[-1] == "" else 0)
+
+
 def big_new_app_file(change: FileChange, ctx: Context) -> list[Added]:
-    if change.is_new and change.path.startswith(APP) and len(change.head_lines) > NEW_APP_FILE_MAX:
-        return [Added(change.path, 1, f"new file, {len(change.head_lines)} lines (limit {NEW_APP_FILE_MAX})")]
-    return []
+    total = line_count(change.head_lines)
+    if not (change.is_new and change.path.startswith(APP) and total > NEW_APP_FILE_MAX):
+        return []
+    # The diff runs with --no-renames: a `git mv` (or a split of an existing file) shows as a new file whose
+    # lines another file removes. Only a file that is mostly new lines is new App code.
+    code = [a.text.strip() for a in change.added if a.text.strip()]
+    fresh = 0
+    for key in code:
+        if ctx.moved[key] > 0:
+            ctx.moved[key] -= 1
+        else:
+            fresh += 1
+    if fresh * 2 <= len(code):
+        return []
+    return [Added(change.path, 1, f"new file, {total} lines, {fresh} of them new (limit {NEW_APP_FILE_MAX})")]
 
 
 RULES = (
-    Rule("singleton", "New `static let shared` singleton",
+    Rule("singleton", "New singleton (`static let shared`, or a class's stored `standard`/`default`/`current`/`live`)",
          "a global hides runtime state: no injection, no test seam, every caller couples to one instance "
          f"({149} already, codebase-health.md)",
          "construct it once at the composition root (the App's startup) and pass it through `init`; "
          "`static let` is fine for constants and identifiers",
          "// singleton-allow: <why a process-wide instance is the only correct shape>",
-         line_rule(r"\bstatic\s+(let|var)\s+(shared|sharedInstance|instance)\b", "singleton-allow:")),
+         singleton),
     Rule("assume-isolated", "`MainActor.assumeIsolated` without a main-thread proof",
          "it traps in Release when the caller is not on main, and nothing proves it is",
          "make the caller `@MainActor` (and await it), or prove the thread on the line or above: "
@@ -249,7 +356,7 @@ RULES = (
          "a sleep that waits for a condition wakes forever, adds up to one period of latency and hides the real signal",
          "await the event (AsyncStream, a continuation, observation); one deadline: DemandTimer; a retry after a "
          "failure: Backoff.wait",
-         "// poll-allow: <why no event exists>",
+         "// wakeup-allow: <why no event exists> (check-concurrency.sh's marker; `poll-allow:` also works)",
          sleep_in_loop),
     Rule("main-async", "`DispatchQueue.main.async`",
          "an untyped hop that reorders work and hides isolation (CLAUDE.md forbids it in new code)",
@@ -263,7 +370,7 @@ RULES = (
          "tell the one object that changed (a method on its owner, a closure the owner holds, or an "
          "AsyncStream keyed by id)",
          "// broadcast-allow: <why every observer must hear every post>",
-         line_rule(r"\b(NS)?Notification\.Name\(|:\s*(NS)?Notification\.Name\s*=", "broadcast-allow:")),
+         broadcast_name),
     Rule("combine-state", "`ObservableObject` / `@Published` / Combine state",
          "one change invalidates every observer view; CLAUDE.md requires Observation",
          "`@MainActor @Observable` models; views take `@State`, `@Bindable`, a plain `let` or "
@@ -328,7 +435,9 @@ def blobs(repo: Path, rev: str, paths: list[str]) -> dict[str, str]:
     result = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], input=request, capture_output=True)
     out, cursor, found = result.stdout, 0, {}
     for path in paths:
-        end = out.index(b"\n", cursor)
+        end = out.find(b"\n", cursor)
+        if end < 0:  # git stopped early (a bad REV): report what it gave
+            break
         header = out[cursor:end].split()
         cursor = end + 1
         if len(header) < 3 or header[1] != b"blob":
@@ -433,10 +542,11 @@ def parse_owners(text: str) -> list[tuple[str, list[str], str, str]]:
 
 
 def glob_match(path: str, pattern: str) -> bool:
+    """PATTERN from OWNERS.md: a trailing `/` is a directory prefix, `**` crosses folders, `*` does not."""
     if pattern.endswith("/"):
         return path.startswith(pattern)
     regex = re.escape(pattern).replace(r"\*\*", "\0").replace(r"\*", "[^/]*").replace("\0", ".*")
-    return re.fullmatch(regex, path) is not None or fnmatch.fnmatch(path, pattern)
+    return re.fullmatch(regex, path) is not None
 
 
 def owner_warnings(files: list[str], owners: list[tuple[str, list[str], str, str]]) -> list[str]:
@@ -450,9 +560,11 @@ def owner_warnings(files: list[str], owners: list[tuple[str, list[str], str, str
 
 
 def app_warnings(changes: dict[str, FileChange]) -> list[str]:
-    added = sum(len(c.added) for p, c in changes.items() if p.startswith(APP))
-    removed = sum(len(c.removed) for p, c in changes.items() if p.startswith(APP))
-    new_files = sorted(p for p, c in changes.items() if p.startswith(APP) and c.is_new)
+    # Swift only, like check-app-size.sh: a string catalog or asset change does not grow the module.
+    app = {p: c for p, c in changes.items() if p.startswith(APP) and p.endswith(".swift")}
+    added = sum(len(c.added) for c in app.values())
+    removed = sum(len(c.removed) for c in app.values())
+    new_files = sorted(p for p, c in app.items() if c.is_new)
     out = []
     if new_files:
         out.append(f"adds {len(new_files)} file(s) to CmuxNextApp ({new_files[0]}...): new features get their own target "

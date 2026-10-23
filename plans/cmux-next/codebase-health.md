@@ -429,9 +429,28 @@ plans/cmux-next/remote-hosts/DESIGN.md: plans/cmux-next/object-sync/DESIGN.md
 ## 6. Guardrails (pre-push, local, never CI)
 
 `scripts/cmux-next/guardrails.py`, run by the pre-push hook through `prepush-gate.py --pre-push`, looks only at
-lines the push adds under `Packages/macOS/CmuxNext/Sources` (moved lines do not count) and takes well under
-a second. Refusals print the rule, why, the right pattern and the escape. Skip one push with
+lines the push adds under `Packages/macOS/CmuxNext/Sources` and takes well under a second. Per file and rule it
+is a count ratchet: an edit of a line that already has the debt adds none, and a line moved from another file
+does not count. Refusals print the rule, why, the right pattern and the escape. Skip one push with
 `CMUX_GUARDRAILS_SKIP_REASON="<rule>: <why>"` and say so in your report. `guardrails.py --list` prints every rule.
+If the script itself fails, the hook prints a warning and lets the push through.
 It also warns (never refuses) when a push changes a `// perf-hot:` function (names the bench,
 `scripts/cmux-next/perf-hot-benches.json`) or an area in [OWNERS.md](OWNERS.md).
+
+Perf-hot markers per path id. An id with no marker never warns: its owner marks the hot function
+(a trailing `// perf-hot: <budget> <path-id>` on the declaration line adds no line).
+
+- `key-dispatch`: **no marker** (owner PL-typing)
+- `terminal-key`: **no marker** (owner PL-typing)
+- `home-key`: **no marker** (owner PL-typing)
+- `palette-key`: CmuxNextPalette/PaletteModel+Search.swift
+- `omnibar-key`: CmuxNextBrowser/Omnibox/OmnibarReducer.swift
+- `motion-frame`: **no marker** (owner PL-motion-core)
+- `frame-tick`: CmuxNextWakeups/FrameScheduler.swift
+- `drag-frame`: CmuxNextApp/Drag/TabDragSession+Ghost.swift
+- `tab-switch`: **no marker** (owner PL-switch)
+- `workspace-switch`: **no marker** (owner PL-switch)
+- `cef-geometry`: **no marker** (owner PL-motion-cef)
+- `cmd-tab`: **no marker** (owner PL-switch)
+- `new-tab`: **no marker** (owner PL-cef-tab)
 
