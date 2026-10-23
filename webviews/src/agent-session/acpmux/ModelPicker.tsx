@@ -17,7 +17,7 @@ import { currentLanguage, useT } from "./i18n";
 import { useUpdateOffer } from "./HarnessHealthNotice";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
 import { curatedSections, modelSections } from "./modelSections";
-import { effortWords, fitsQuery, modelEffort, parseQuery } from "./modelQuery";
+import { effortWords, fitsQuery, modelEffort, parseQuery, type ParsedQuery } from "./modelQuery";
 import { registerPicker } from "./pickerOpeners";
 import { QuickModelMenu, type QuickFamily, type QuickModel } from "./QuickModelMenu";
 import { useUiAnchor } from "../../ui/anchor";
@@ -145,6 +145,19 @@ function quickSections(
 function choicesFor(entry: HarnessChoice | undefined): ModelChoice[] {
   const { latest, older } = sectionsFor(entry);
   return [...latest, ...older];
+}
+
+/// The models a typed query finds among `entries`, each with its harness, in rail order: the full
+/// picker's search and the compact menu's search field both list these.
+function searchModels(
+  entries: readonly HarnessChoice[],
+  query: ParsedQuery,
+): { model: ModelChoice; entry: HarnessChoice }[] {
+  return entries.flatMap((entry) =>
+    choicesFor(entry)
+      .filter((model) => fitsQuery(model, entry.name, query))
+      .map((model) => ({ model, entry })),
+  );
 }
 
 function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] {
@@ -344,9 +357,10 @@ export function ModelPicker(props: ModelPickerProps) {
   const owners = useMemo(() => {
     const owner = new Map<ModelChoice, HarnessChoice>();
     if (searching) {
-      for (const entry of harnesses)
-        if (entry.pickable && !blockedProfile(entry) && loginFor(entry) === undefined)
-          for (const model of choicesFor(entry)) if (fitsQuery(model, entry.name, parsed)) owner.set(model, entry);
+      const searchable = harnesses.filter(
+        (entry) => entry.pickable && !blockedProfile(entry) && loginFor(entry) === undefined,
+      );
+      for (const { model, entry } of searchModels(searchable, parsed)) owner.set(model, entry);
     } else if (starredView) {
       for (const entry of harnesses)
         if (loginFor(entry) === undefined)
@@ -543,6 +557,35 @@ export function ModelPicker(props: ModelPickerProps) {
     onLand(model.id);
     close();
   };
+  /// The compact menu's search field: the full picker's search over the harnesses the menu offers.
+  /// A row names its harness when the menu has a rail, and the effort and fast mode the query named
+  /// ("gpt high fast"), which its pick lands with.
+  const quickSearch = (text: string): QuickModel[] => {
+    const typed = parseQuery(text, vocabulary);
+    // The chat's own harness once it has started, else every one the rail offers.
+    const searchable = (harnessFixed ? ownHarness : harnesses).filter(
+      (entry) =>
+        entry.pickable &&
+        !blockedProfile(entry) &&
+        entry.folder?.state !== "needs-enable" &&
+        loginFor(entry) === undefined,
+    );
+    return searchModels(searchable, typed).map(({ model, entry }) => {
+      const effort = modelEffort(model, typed.effort);
+      const hint = [!harnessFixed ? entry.name : undefined, effort, typed.fast ? fastText : undefined]
+        .filter(Boolean)
+        .join(" · ");
+      return {
+        id: model.id,
+        name: model.name,
+        family: entry.id,
+        ...(model.unavailable ? { disabled: true } : {}),
+        ...(hint ? { hint } : {}),
+        ...(effort ? { effort } : {}),
+        ...(typed.fast ? { fast: true } : {}),
+      };
+    });
+  };
   // The compact menu's rail (Leo 2026-10-18): Starred when any model is starred, then each harness
   // that can start here, its top models numbered and the rest under More models.
   const quickFamilies = useMemo(() => {
@@ -583,16 +626,21 @@ export function ModelPicker(props: ModelPickerProps) {
     return list;
   }, [quick, harnessFixed, harnesses, loginFor, favorites, starredText, harness, props.model, t, onLogIn]);
   /// A compact-menu pick: this harness's model lands in place; another harness's starts a chat there.
+  /// A searched row with an effort or fast mode lands as one combo, as the full picker's does.
   const pickQuick = (model: QuickModel) => {
     const owner = harnesses.find((entry) => entry.id === model.family);
     if (!owner || model.disabled || !owner.pickable || loginFor(owner) !== undefined) return;
-    if (owner.ids.includes(harness ?? "")) {
+    const harnessId = owner.acpmuxHarness ?? owner.id;
+    const here = owner.ids.includes(harness ?? "");
+    if (onCombo && (model.effort || model.fast || !here)) {
+      onCombo({ harness: harnessId, model: model.id, effort: model.effort, fast: model.fast });
+      return;
+    }
+    if (here) {
       onLand(model.id);
       return;
     }
-    const harnessId = owner.acpmuxHarness ?? owner.id;
-    if (onCombo) onCombo({ harness: harnessId, model: model.id });
-    else if (owner.acpmuxHarness) onHarness?.(owner.acpmuxHarness);
+    if (owner.acpmuxHarness) onHarness?.(owner.acpmuxHarness);
   };
   const addHarness = () => {
     close();
@@ -832,6 +880,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 : [],
             current: props.model,
             onModel: (id) => onLand(id),
+            search: { find: quickSearch, pick: pickQuick },
             ...(quickFamilies
               ? {
                   families: {
