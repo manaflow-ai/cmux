@@ -13,8 +13,9 @@ public import AppKit
 /// warm-up may run is ``OpenPanelWarmGate``'s.
 ///
 /// The app makes one, at its composition root (`AppServices.openPanel`), and passes it to every picker that takes
-/// it: `AgentPaneView` (and its `AgentPaneFilePicker`), `PageOpenPanel` and Home's `HomeAttachmentPanel`. Each
-/// instance keeps its own panel, so a test makes its own and never shares one with the app.
+/// it: `AgentPaneView` (and its `AgentPaneFilePicker`), Home's `HomeAttachmentPanel`, and every web view's
+/// `<input type="file">` (``WebFileInputAnswering``: `PageOpenPanel` and the WebKit browser engine's
+/// `fileInput`). Each instance keeps its own panel, so a test makes its own and never shares one with the app.
 @MainActor
 public final class MadeAheadOpenPanel {
     private let store: MadeAheadPanelStore<NSOpenPanel>
