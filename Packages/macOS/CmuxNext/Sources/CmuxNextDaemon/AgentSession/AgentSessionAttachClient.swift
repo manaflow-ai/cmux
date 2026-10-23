@@ -23,8 +23,8 @@ public actor AgentSessionAttachClient {
 
         var capability: String {
             switch self {
-            case .attach: return DaemonCapabilities.agentSessionAttach
-            case .observe: return DaemonCapabilities.agentSessionObserve
+            case .attach: return DaemonCapability.agentSessionAttach.rawValue
+            case .observe: return DaemonCapability.agentSessionObserve.rawValue
             }
         }
 
@@ -49,7 +49,7 @@ public actor AgentSessionAttachClient {
         }
     }
 
-    public static let capability = DaemonCapabilities.agentSessionAttach
+    public static let capability = DaemonCapability.agentSessionAttach.rawValue
 
     private let surface: UInt64
     private let mode: Mode
@@ -265,10 +265,10 @@ public actor AgentSessionAttachClient {
                 transport.close()
                 throw AgentSessionAttachError(code: "agent_session.unsupported", message: mode.unsupportedMessage)
             }
-            servesStart = identity.supports(DaemonCapabilities.agentSessionStart)
-            servesTrust = identity.supports(DaemonCapabilities.agentSessionTrust)
-            servesKeyedReason = identity.supports(DaemonCapabilities.agentSessionStartKeyedReason)
-            servesChildren = identity.supports(DaemonCapabilities.agentSessionChildren)
+            servesStart = identity.supports(DaemonCapability.agentSessionStart.rawValue)
+            servesTrust = identity.supports(DaemonCapability.agentSessionTrust.rawValue)
+            servesKeyedReason = identity.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue)
+            servesChildren = identity.supports(DaemonCapability.agentSessionChildren.rawValue)
             _ = try await DaemonConnection.perform(
                 SetClientInfoRequest(name: mode.clientInfoName, kind: mode.clientInfoKind, capabilities: []),
                 on: transport, timeout: requestTimeout)
