@@ -12,11 +12,11 @@
 // worktree of its own, its environment, tokens, background test run and diffs its own, under three
 // ways to say whose panel it is (the head's title, the one drawn; a path; a card); one sharing the
 // chat's checkout; and the chat's panel beside them, its Subagents listing it.
-import type { ComponentProps } from "react";
+import type { ComponentProps, CSSProperties } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
 import { WAVE_CLASS, WAVE_KEYFRAMES } from "../../../ui/wave";
-import { activity, assistant, chat, CWD, tool } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, CONTEXT_BREAKDOWN, CWD, tool } from "../../../gallery/fixtures/acpmux";
 import type { StartedSession } from "../started/startedSessions";
 import type { Subagent } from "../subagents/subagentFold";
 import { sessionSummary } from "../summary/sessionSummary";
@@ -32,6 +32,8 @@ type Props = ComponentProps<typeof ChatInspector> & {
   /// A subagent's panel: whose it is, said the `header` way.
   scope?: Pick<SubagentScope, "agent" | "parent" | "onBack">;
   header?: SubagentHeaderVariant;
+  /// A gallery-only palette for the Context breakdown's categories (ContextSection.css tones).
+  tones?: CSSProperties;
 };
 
 const edit = (path: string, oldText: string | undefined, newText: string) =>
@@ -53,7 +55,7 @@ const made = sessionSummary(local.rows);
 const TRANSCRIPT = [
   "Make the Inspector glass, and its cards bordered with no fill.",
   "The panel paints the chat's page color, so nothing behind it shows. I'll give it the shared glass and drop the cards' fill.",
-  '<aside className="ui-glass acpmux-chat-inspector">\n  {sections}\n</aside>',
+  '<aside className="ui-glass ui-glass-floats acpmux-chat-inspector">\n  {sections}\n</aside>',
   "Check it over a long transcript in light and dark.",
   "Over the transcript the text frosts under the panel and the cards keep only their hairline.",
   "export const tries = 3;\nexport const backoff = 200;\nexport async function retry() {}",
@@ -78,9 +80,16 @@ function Transcript() {
   );
 }
 
-function GalleryInspector({ placement = "overlay", transcript = false, scope, header = "title", ...props }: Props) {
+function GalleryInspector({
+  placement = "overlay",
+  transcript = false,
+  scope,
+  header = "title",
+  tones,
+  ...props
+}: Props) {
   return (
-    <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%" }}>
+    <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%", ...tones }}>
       {transcript ? <Transcript /> : null}
       <InspectorPanel
         width={320}
@@ -310,7 +319,7 @@ const projectRows = [
       touched("agent-pane-reference/README.md"),
       touched("cmuxterm-hq/build-fleet/FLEET-AND-CI.md"),
       touched("leo-workspace/NOW.md"),
-      touched("glaeda/main.go"),
+      touched("ci-daemon/main.go"),
     ],
     6,
   ),
@@ -406,6 +415,20 @@ const sharedRows = [
   ),
   assistant("fetchWithRetry has three callers: client.ts, upload.ts and the webhook relay.", 7),
 ];
+/// A Claude Code chat with its /context breakdown, Context open and the long sections folded so the
+/// card shows whole.
+const breakdownProps: Props = {
+  ...full,
+  summary: { ...summary, usage: { used: 171_400, size: 400_000 }, contextBreakdown: CONTEXT_BREAKDOWN },
+  sections: { ...DEFAULT_SECTIONS, environment: false, context: true, changes: false, subagents: false, tasks: false },
+};
+/// A gallery-only palette for the breakdown's used categories, largest first.
+const palette = (colors: string[]) =>
+  Object.fromEntries(colors.map((color, index) => [`--acpmux-context-tone-${index}`, color])) as CSSProperties;
+const openMcpTools: Play = async (ctx) => {
+  await ctx.click({ selector: '[data-list="mcpTools"] button' });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-breakdown__items") !== null);
+};
 
 const text = (ctx: Parameters<Play>[0]) => ctx.document.querySelector(".acpmux-chat-inspector")?.textContent ?? "";
 
@@ -452,6 +475,29 @@ export default componentEntry<Props>({
     "context-connectors-open": {
       note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status.",
       props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
+    },
+    "context-breakdown": {
+      note: "Shipped: a Claude Code chat's /context in Context, open: 43% used with 171.4k / 400k, the bar split by category in steps of the theme accent (largest first; the autocompact buffer grey; free space the track), a row per category with its tokens and share, the deferred ones dimmed with no share, then the MCP tools, Memory files and Skills folds, MCP tools open.",
+      props: breakdownProps,
+      play: openMcpTools,
+    },
+    "context-breakdown-hues": {
+      note: "Alternative (not shipped): each category a different hue turned from the theme accent, as Claude Code desktop colors them. Reads faster, but brings colors the theme does not have.",
+      props: {
+        ...breakdownProps,
+        tones: palette(
+          [0, 60, 150, 210, 280, 320].map((turn) => `oklch(from var(--agent-accent) l c calc(h + ${turn}))`),
+        ),
+      },
+      play: openMcpTools,
+    },
+    "context-breakdown-mono": {
+      note: "Alternative (not shipped): every used category in the full accent, told apart only by the bar's gaps and the row order. Quietest, but the bar no longer says which part is which.",
+      props: {
+        ...breakdownProps,
+        tones: palette(Array.from({ length: 6 }, () => "var(--agent-accent)")),
+      },
+      play: openMcpTools,
     },
     "changes-breakdown": {
       note: "Changes: hovering a pull request's line counts splits them into Code, Tests, Generated and Docs; its 3 failing checks dim the 2 already on base.",
