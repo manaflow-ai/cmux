@@ -155,3 +155,48 @@ test("a subagent's background shell ends where the chat's rows note it", () => {
   expect(ended.map((task) => task.state)).toEqual(["completed"]);
   expect(withChatEnds(tasks, [])).toBe(tasks);
 });
+
+test("a nested subagent's Agent call, its parent's update, still gives it its worktree", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Lead" }] });
+  feed(
+    fold,
+    { sessionUpdate: "subagent_spawned" },
+    { subagents: [{ id: "b", parent: "a", name: "Worker", toolCallId: "toolu_9" }] },
+  );
+  feed(
+    fold,
+    { sessionUpdate: "tool_call", toolCallId: "toolu_9", title: "Agent", rawInput: { isolation: "worktree" } },
+    { subagent: "a" },
+  );
+  feed(
+    fold,
+    {
+      sessionUpdate: "tool_call_update",
+      toolCallId: "toolu_9",
+      content: [{ type: "content", content: { type: "text", text: `worktreePath: ${TREE}\nworktreeBranch: wt-b` } }],
+    },
+    { subagent: "a" },
+  );
+  expect(fold.all().find((found) => found.id === "b")).toMatchObject({
+    isolated: true,
+    worktree: { path: TREE, branch: "wt-b" },
+  });
+});
+
+test("a worktree path with a space, and a chat already in the worktree its subagent works in", () => {
+  expect(worktreeIn("worktreePath: /Users/you/My Repo/.claude/worktrees/x  \nworktreeBranch: wt-x")).toEqual({
+    path: "/Users/you/My Repo/.claude/worktrees/x",
+    branch: "wt-x",
+  });
+  // The chat runs in that worktree: the subagent shares its checkout, folder and branch.
+  const inTree = { ...CHAT, cwd: TREE, worktree: TREE, branch: "worktree-agent-a3f9c2" };
+  expect(subagentSummary(inTree, agent(), treeRows)).toMatchObject({
+    cwd: TREE,
+    worktree: TREE,
+    branch: "worktree-agent-a3f9c2",
+  });
+  // A folder it was given outside its worktree does not hide the worktree.
+  expect(subagentSummary(CHAT, agent({ cwd: "/tmp/elsewhere", worktree: { path: TREE } }), [])?.cwd).toBe(TREE);
+  expect(subagentSummary(CHAT, agent({ cwd: `${TREE}/web`, worktree: { path: TREE } }), [])?.cwd).toBe(`${TREE}/web`);
+});
