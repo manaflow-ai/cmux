@@ -1,4 +1,4 @@
-import Observation
+public import Observation
 
 /// The indexed tabs that carry a status fact (``TabModel/carriesStatusFact``): an agent hook
 /// record, OSC 7501 program status records, a running shell command, or an agent session.
