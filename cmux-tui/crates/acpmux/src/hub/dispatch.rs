@@ -1,6 +1,3 @@
-//! First-class agent dispatch records.  The brief is the durable identity of a
-//! task; the harness that executes it is only one field of the record.
-
 use super::*;
 use std::collections::BTreeMap;
 use std::sync::Mutex as StdMutex;
