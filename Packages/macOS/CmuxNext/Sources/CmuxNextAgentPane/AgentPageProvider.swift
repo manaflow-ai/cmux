@@ -71,6 +71,24 @@ public final class AgentPageProvider: PageProvider {
 
     private let prepare: Prepare
     private var listeners: [UInt64: @MainActor (JSONValue) -> Void] = [:]
+    /// Events published while the page host has no subscription (a reload or bridge gap). They
+    /// stay in host order until the next page subscribes. A provider belongs to one
+    /// ``AgentPaneView`` and is released with that view if no page returns, so this is a
+    /// gap-lifetime queue rather than process-wide retention; a reconnect drains it once.
+    private var bufferedEvents: [AgentPageEvent] = []
+    /// A subscriber's replay is held in one queue until its subscription reply has reached the
+    /// page. Events arriving during that handoff append to the same queue instead of overtaking it.
+    private final class PendingEvents {
+        var events: [AgentPageEvent]
+        var next = 0
+
+        init(_ events: [AgentPageEvent]) {
+            self.events = events
+        }
+
+        var remaining: [AgentPageEvent] { Array(events[next...]) }
+    }
+    private var pendingEvents: [UInt64: PendingEvents] = [:]
     private var nextListener: UInt64 = 1
     /// The current state a new subscriber gets first (theme, shortcuts, preview, customization),
     /// as the old host pushed it again on every handshake.
@@ -90,7 +108,17 @@ public final class AgentPageProvider: PageProvider {
 
     /// Sends `event` to every subscribed page.
     public func publish(_ event: AgentPageEvent) {
-        for id in listeners.keys.sorted() { listeners[id]?(event.data) }
+        guard !listeners.isEmpty else {
+            bufferedEvents.append(event)
+            return
+        }
+        for id in listeners.keys.sorted() {
+            if let pending = pendingEvents[id] {
+                pending.events.append(event)
+            } else {
+                listeners[id]?(event.data)
+            }
+        }
     }
 
     public var hasSubscribers: Bool { !listeners.isEmpty }
@@ -101,13 +129,52 @@ public final class AgentPageProvider: PageProvider {
         let id = nextListener
         nextListener += 1
         listeners[id] = onEvent
-        // The current state, after the subscribe reply that names the subscription reaches the page.
-        // task-owner: one replay after the reply; a cancelled subscription receives nothing
+        let buffered = bufferedEvents
+        bufferedEvents.removeAll()
+        let pending = PendingEvents(buffered)
+        pendingEvents[id] = pending
+        // Keep replay ahead of events emitted while the current-state closure runs. Those events
+        // append to the pending queue because the subscription is already marked as handshaking.
+        let replayEvents = self.replay?() ?? []
+        pending.events.insert(contentsOf: replayEvents, at: pending.next)
+        // The current state and any buffered events go after the subscribe reply that names the
+        // subscription reaches the page. task-owner: one replay after the reply.
         Task { @MainActor [weak self] in
-            guard let self, self.listeners[id] != nil else { return }
-            for event in self.replay?() ?? [] { self.listeners[id]?(event.data) }
+            guard let self else { return }
+            self.flushPendingEvents(for: id)
         }
-        return PageSubscription { [weak self] in self?.listeners.removeValue(forKey: id) }
+        return PageSubscription { [weak self] in self?.cancel(id: id) }
+    }
+
+    /// Replays in order after the page has the subscription id. Events that arrive while the
+    /// callback runs append to `pendingEvents`, so they cannot overtake older buffered events.
+    private func flushPendingEvents(for id: UInt64) {
+        guard let pending = pendingEvents[id] else { return }
+        while pending.next < pending.events.count {
+            guard let listener = listeners[id] else {
+                requeuePendingEvents(for: id, pending: pending)
+                return
+            }
+            let event = pending.events[pending.next]
+            pending.next += 1
+            listener(event.data)
+        }
+        pendingEvents.removeValue(forKey: id)
+    }
+
+    /// A page can disappear before its queued replay runs. Keep the not-yet-delivered suffix for
+    /// the next page only when this was the last listener; another live page already received it.
+    private func cancel(id: UInt64) {
+        listeners.removeValue(forKey: id)
+        guard let pending = pendingEvents.removeValue(forKey: id), listeners.isEmpty else { return }
+        bufferedEvents.insert(contentsOf: pending.remaining, at: 0)
+    }
+
+    private func requeuePendingEvents(for id: UInt64, pending: PendingEvents) {
+        pendingEvents.removeValue(forKey: id)
+        listeners.removeValue(forKey: id)
+        guard listeners.isEmpty else { return }
+        bufferedEvents.insert(contentsOf: pending.remaining, at: 0)
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
