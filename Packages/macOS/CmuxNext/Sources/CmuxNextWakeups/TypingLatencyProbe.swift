@@ -7,7 +7,9 @@ import CmuxNextCompat
 ///
 /// A sample opens at a key-down and records the first time each later hop
 /// runs: AppKit dispatch, Ghostty's write callback, the attach socket
-/// submit, the echo's decode on the attach reader, its main-thread hop,
+/// submit, the echo's decode on the attach reader, the session taking it for its
+/// output lane (`output_received_ms`: off the main actor since G4, so rows before 04237873b23
+/// named this column `output_main_ms` and do not compare),
 /// its parse on the output lane, and the first `layer.contents` set after
 /// that parse (the frame Core Animation commits). The row is appended when
 /// that frame lands. Drive it with keys paced wider than one round trip;
@@ -26,7 +28,7 @@ public final class TypingLatencyProbe: Sendable {
     public static var isEnabled: Bool { shared.output != nil }
 
     public enum Mark: Int, CaseIterable, Sendable {
-        case dispatchStart, dispatchEnd, ioWrite, socketSubmit, outputDecoded, outputMain, outputParsed, contents, commit
+        case dispatchStart, dispatchEnd, ioWrite, socketSubmit, outputDecoded, outputReceived, outputParsed, contents, commit
 
         var columnName: String {
             switch self {
@@ -35,7 +37,7 @@ public final class TypingLatencyProbe: Sendable {
             case .ioWrite: "io_write_ms"
             case .socketSubmit: "socket_submit_ms"
             case .outputDecoded: "output_decoded_ms"
-            case .outputMain: "output_main_ms"
+            case .outputReceived: "output_received_ms"
             case .outputParsed: "output_parsed_ms"
             case .contents: "contents_ms"
             case .commit: "commit_ms"
@@ -49,8 +51,8 @@ public final class TypingLatencyProbe: Sendable {
             case .dispatchStart, .dispatchEnd, .ioWrite: nil
             case .socketSubmit: .ioWrite
             case .outputDecoded: .socketSubmit
-            case .outputMain: .outputDecoded
-            case .outputParsed: .outputMain
+            case .outputReceived: .outputDecoded
+            case .outputParsed: .outputReceived
             case .contents: .outputParsed
             case .commit: .dispatchEnd
             }

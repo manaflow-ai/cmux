@@ -366,7 +366,7 @@ def measure(surface, phase, params, column, pid, streams=()):
     publishes = [p.get("ms") for p in (timings.get("control_publishes") or []) if isinstance(p, dict)]
     every = probe_rows()[rows_before:]
     marks = ["dispatch_start_ms", "dispatch_end_ms", "io_write_ms", "socket_submit_ms", "output_decoded_ms",
-             "output_main_ms", "output_parsed_ms", "contents_ms", "commit_ms"]
+             "output_received_ms", "output_parsed_ms", "contents_ms", "commit_ms"]
     hangs = rpc("debug.hangs", {"limit": 12}, timeout=20)
     f = lambda key: [float(r[key]) for r in rows if r.get(key)]
     entry = {

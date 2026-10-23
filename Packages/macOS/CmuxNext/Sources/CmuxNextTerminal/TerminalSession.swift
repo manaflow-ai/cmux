@@ -287,7 +287,7 @@ public final class TerminalSession {
             var lane: TerminalOutputLane?
             for await event in events {
                 if case .output(let data) = event, let lane {
-                    TypingLatencyProbe.shared.mark(.outputMain)
+                    TypingLatencyProbe.shared.mark(.outputReceived)
                     ExpectedActivity.shared.note(.terminalOutput)
                     await lane.waitForCapacity()
                     lane.processOutput(data)
@@ -337,7 +337,7 @@ public final class TerminalSession {
             frameHold.contentQueued()
             TerminalTimings.contentApplied()
         case .output(let data):
-            TypingLatencyProbe.shared.mark(.outputMain)
+            TypingLatencyProbe.shared.mark(.outputReceived)
             ExpectedActivity.shared.note(.terminalOutput)
             guard let lane = surfaceView.lane else { return }
             await lane.waitForCapacity()
