@@ -6,7 +6,7 @@ import SwiftUI
 /// addressed message through the host callback and never mutates the report.
 struct ReportsBasketView: View {
     let model: FeedModel
-    let onReply: (@MainActor (String, String) -> Void)?
+    let onReply: (@MainActor (String, String) -> Bool)?
     @Environment(\.feedColors) private var colors
     @State private var selected: String?
     @State private var draft = ""
@@ -60,8 +60,7 @@ struct ReportsBasketView: View {
                 ReportsBasketDetail(item: report, draft: $draft, onSend: {
                     let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !text.isEmpty else { return }
-                    onReply?(report.sender, text)
-                    draft = ""
+                    if onReply?(report.sender, text) == true { draft = "" }
                 })
             } else {
                 VStack(spacing: 8) {

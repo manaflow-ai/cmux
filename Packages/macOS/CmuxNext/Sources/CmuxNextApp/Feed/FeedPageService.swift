@@ -44,11 +44,17 @@ final class FeedPageService: InternalPageProvider {
             // human reply intentionally wakes that session, unlike delivery
             // into the reports basket. The feed owner remains the source of
             // report rows; the command is a bounded local adapter for Labs.
-            guard !reportID.isEmpty else { return }
+            guard !reportID.isEmpty, let environment = QuitAgents.environment(services) else { return false }
             let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = ["acpmux", "send", reportID, reply, "--no-wait", "--no-steer"]
-            try? process.run()
+            process.executableURL = environment.executable
+            process.arguments = ["send", reportID, reply, "--no-wait", "--no-steer"]
+            process.environment = ProcessInfo.processInfo.environment.merging(environment.childEnvironment) { _, value in value }
+            do {
+                try process.run()
+                return true
+            } catch {
+                return false
+            }
         }
     }
 }
