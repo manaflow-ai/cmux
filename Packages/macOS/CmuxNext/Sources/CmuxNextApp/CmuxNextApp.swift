@@ -22,8 +22,9 @@ public struct CmuxNextApp {
         // Without this, a free() on another thread in that moment crashed
         // with "No zone found" (browser-isolation.md, allocator zone race).
         _ = cmux_early_malloc_zone_registration()
-        // Before any socket or pipe exists (ChildSignalDefaults).
-        ChildSignalDefaults.installAppSignalPolicy()
+        // Before any socket or pipe exists (ChildSignalDefaults); the open-file limit before CefInitialize
+        // (OpenFileLimit: launchd's 256 stopped the app at 80-100 Chromium tabs).
+        ChildSignalDefaults.installAppSignalPolicy(); OpenFileLimit().raise()
         // Before any thread starts or anything reads the environment: drop
         // cmux variables inherited from a shell inside another cmux, so they
         // cannot pick this app's socket, tag, or daemon session.

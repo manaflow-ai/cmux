@@ -60,6 +60,9 @@ extension DaemonService {
     nonisolated static var firstPartyAppsEnvironment: [String: String] {
         var environment = ["CMUX_APPS_FIRST_PARTY_DIR": AppPlatformResources.firstParty.path]
         if let pages = pageBundleDirectory { environment["CMUX_TUI_PAGES_DIR"] = pages.path }
+        // The app raised its open-file limit (OpenFileLimit): every shell gets back the launch one.
+        let launchSoft = OpenFileLimit.launchSoftLimit.load(ordering: .acquiring)
+        if launchSoft > 0 { environment[OpenFileLimit.originalSoftLimitKey] = String(launchSoft) }
         return environment
     }
 
