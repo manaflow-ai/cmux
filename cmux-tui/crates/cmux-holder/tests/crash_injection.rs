@@ -787,3 +787,53 @@ fn a_shell_started_through_login_is_a_login_shell_and_a_close_reaches_it() {
     kill(holder);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Holder-core review: a shell a new holder adopted after a holder crash
+/// ends its terminal when it exits, even while a background job keeps its
+/// PTY open, as it does on the holder that started it. The adopting
+/// holder is not the shell's parent, so it watches the pid for its exit.
+/// Not on Linux: there a terminal ends at the master's end of file only,
+/// started or adopted (`ENDS_ON_CHILD_EXIT`).
+#[cfg(not(target_os = "linux"))]
+#[test]
+fn an_adopted_shell_that_exits_ends_its_terminal_while_a_background_job_keeps_the_pty() {
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let first = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let mut request = shell(1);
+    // The job keeps the PTY's slave open after the shell is gone.
+    request.argv[2] = b"sleep 60 & echo ready-1; read line; exit 0".to_vec();
+    let (pid, master) = client.spawn(1, &request).unwrap();
+    client.attach(1, 0).unwrap();
+    let mut screens = BTreeMap::from([(1, Screen { master, pid, base: 0, bytes: Vec::new() })]);
+    pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
+    drop(client);
+    kill(first);
+
+    let second = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let screen = &screens[&1];
+    let mut id = [0u8; 16];
+    id[..4].copy_from_slice(&1u32.to_le_bytes());
+    client.adopt(1, &id, pid, screen.end(), &screen.master).unwrap();
+    client.attach(1, screen.end()).unwrap();
+    // The shell reads its line and exits; `sleep` keeps the slave open.
+    write_master(&screen.master, b"\n");
+    loop {
+        match expect_event(&mut client, "the adopted shell's EXIT") {
+            Event::Exit { status, .. } => {
+                assert_eq!(status, ExitStatus::Unobserved, "an adopted child has no status");
+                break;
+            }
+            Event::Data { .. } => {}
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+    // SAFETY: SIGKILL to the job's group, the shell's (a non-interactive
+    // shell runs its jobs in its own group).
+    unsafe { libc::killpg(pid, libc::SIGKILL) };
+    drop(screens);
+    kill(second);
+    let _ = std::fs::remove_dir_all(&dir);
+}
