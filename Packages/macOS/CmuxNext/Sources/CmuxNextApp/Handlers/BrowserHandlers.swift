@@ -62,6 +62,9 @@ enum BrowserHandlers {
                 "UI pointer picker is off. Turn it on in Debug Settings > Browser Page Loading."
         }, run: { invocation in
             let entry = try context.page(invocation)
+            guard BrowserPageTunables.uiPointer.value || entry.chrome.toolbarButtons.modes.designMode else {
+                throw ActionFailure(message: "UI pointer picker is off. Turn it on in Debug Settings > Browser Page Loading.")
+            }
             guard let key = context.services.cache.key(of: entry.tab) else { return }
             context.services.designMode.toggle(entry, key: key)
         })
