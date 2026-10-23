@@ -133,9 +133,16 @@ enum PaneHandlers {
         // every pane of the chain moves on one spring (split-spring-animation); the ratio intents
         // go once the daemon made the split.
         let shownSizing = provisional == nil ? nil : content?.layoutModel.showSplitSizing(sizing)
+        // The new pane's grid, read once the window laid it out: the daemon then starts its shell
+        // on the prewarmed host at that size, so the prompt shows sooner (like Cmd-T's tab).
+        let chrome = controller?.contentChrome
         let intended = provisional.map { provisional in
             defer { BenchSpans.measure("split.layout") { content?.applyCurrent() } }
-            return BenchSpans.measure("split.intend") { command.intendNow(on: daemon, provisional: provisional) }
+            let laidOutSize: @MainActor () -> CellSize? = {
+                guard let controller, let chrome, let newPane = content?.handles.paneIDs[provisional.handle] else { return nil }
+                return controller.splitTerminalSize(newPane: newPane, chrome: chrome)
+            }
+            return BenchSpans.measure("split.intend") { command.intendNow(on: daemon, provisional: provisional, laidOutSize: laidOutSize) }
         }
         ctx.registry.track(Task {
             var landed = false
