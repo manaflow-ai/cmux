@@ -41,3 +41,16 @@ extension CloudStrings {
         String(localized: "cloud.pro.required.upgrade", defaultValue: "Upgrade to cmux Pro", table: "Cloud", bundle: .module)
     }
 }
+
+/// Open Desktop (``CloudDesktop``). Keys live in Resources/Cloud.xcstrings with every app locale.
+extension CloudStrings {
+    /// The desktop workspace's name: the machine's title, then "Desktop".
+    static func desktopWorkspaceName(_ machine: String) -> String {
+        String(format: String(localized: "cloud.desktop.workspaceName", defaultValue: "%@ Desktop", table: "Cloud", bundle: .module), machine)
+    }
+
+    /// A machine made shell-only, or one with no address on its Cloud network yet.
+    static func desktopUnavailable(_ machine: String) -> String {
+        String(format: String(localized: "cloud.desktop.unavailable", defaultValue: "%@ has no desktop to open.", table: "Cloud", bundle: .module), machine)
+    }
+}

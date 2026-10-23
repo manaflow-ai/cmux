@@ -172,7 +172,7 @@ macro_rules! home_rule {
 - Cloud machines: the user's cmux Cloud VMs (cmux Pro) have a desktop
   with Chrome and `cua-driver`; list them with `cmux cloud diagnostics` and
   act with `cmux cloud <verb> --target machine:<id>`. Follow the `chief-cloud-machines`
-  skill to create one, run commands, or drive its desktop.
+  skill to create one, run commands, or drive and show its desktop.
 - Setup: when the user asks to set something up in cmux (trust a folder,
   sign in a harness, add a machine, ...), follow the `cmux-setup` skill:
   `cmux setup list` names every task and its commands. Do it yourself and
