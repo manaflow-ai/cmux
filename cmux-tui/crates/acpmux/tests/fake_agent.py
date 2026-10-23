@@ -663,6 +663,14 @@ def handle_prompt(rid, params):
         sys.stderr.write(text[4:].strip() + "\n")
         sys.stderr.flush()
         os._exit(3)
+    # "die-later: X" streams a moment, then dies as "die: X" does mid-turn. The wait leaves a
+    # test time to queue a prompt behind it on a loaded machine.
+    if text.startswith("die-later:"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "dying "}})
+        time.sleep(3.0)
+        sys.stderr.write(text[10:].strip() + "\n")
+        sys.stderr.flush()
+        os._exit(3)
     if text.startswith("limit:"):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
         return
