@@ -111,11 +111,19 @@ impl Surface {
             adoption.opts.cols = cols;
             adoption.opts.rows = rows;
         }
-        let kitty_reservation = adoption
+        let kitty_reservation = match adoption
             .mux
             .upgrade()
             .map(|mux| mux.reserve_kitty_image_surface(adoption.id))
-            .transpose()?;
+            .transpose()
+        {
+            Ok(reservation) => reservation,
+            Err(error) => {
+                let _ = service.close(terminal.chan, 0);
+                service.untrack(terminal.chan);
+                return Err(error);
+            }
+        };
         let initial_kitty_limits = kitty_reservation
             .as_ref()
             .map(crate::mux::KittyImageBudgetReservation::initial_limits)
@@ -128,7 +136,7 @@ impl Surface {
         });
         let command = adoption.opts.command.clone().unwrap_or_default();
         let cwd = adoption.opts.cwd.clone();
-        Self::run_on_holder(
+        let adopted = Self::run_on_holder(
             &terminal,
             LocalSpawn {
                 id: adoption.id,
@@ -144,8 +152,14 @@ impl Surface {
                 host_identity: Some(adoption.identity),
             },
             (command, cwd),
-        )
-        .map(Some)
+        );
+        if adopted.is_err() {
+            // No surface shows it, and the startup pass no longer lists it:
+            // end it rather than leave it on the holder for ever.
+            let _ = service.close(terminal.chan, 0);
+            service.untrack(terminal.chan);
+        }
+        adopted.map(Some)
     }
 
     fn run_on_holder(

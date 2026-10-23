@@ -50,13 +50,20 @@ pub struct HolderClient {
     stream: UnixStream,
     reader: wire::Reader,
     pending: VecDeque<Event>,
+    /// The wire version the holder's WELCOME settled on.
+    version: u16,
 }
 
 impl HolderClient {
     /// Connect and authenticate; returns the terminals the holder runs.
     pub fn connect(socket: &Path, token: &[u8; 32]) -> io::Result<(Self, Vec<Listed>)> {
         let stream = UnixStream::connect(socket)?;
-        let mut client = Self { stream, reader: wire::Reader::default(), pending: VecDeque::new() };
+        let mut client = Self {
+            stream,
+            reader: wire::Reader::default(),
+            pending: VecDeque::new(),
+            version: wire::MIN_VERSION,
+        };
         client.send(Kind::Hello, 0, &Out::default().u16(wire::VERSION).bytes(token).0, None)?;
         let deadline = Instant::now() + Duration::from_secs(10);
         let count = loop {
@@ -64,7 +71,7 @@ impl HolderClient {
             match Kind::from_u16(frame.kind) {
                 Some(Kind::Welcome) => {
                     let mut input = In(&frame.payload);
-                    let _version = input.u16()?;
+                    client.version = input.u16()?;
                     break input.u32()?;
                 }
                 Some(Kind::Error) => return Err(io::Error::other("holder refused the token")),
@@ -81,10 +88,21 @@ impl HolderClient {
         Ok((client, listed))
     }
 
-    /// The authenticated socket and the bytes already read past the
-    /// handshake (for [`crate::link::HolderLink`]).
-    pub(crate) fn into_parts(self) -> (UnixStream, wire::Reader) {
-        (self.stream, self.reader)
+    /// The authenticated socket, the bytes already read past the handshake
+    /// and the settled wire version (for [`crate::link::HolderLink`]).
+    pub(crate) fn into_parts(self) -> (UnixStream, wire::Reader, u16) {
+        (self.stream, self.reader, self.version)
+    }
+
+    /// Whether the holder sends at most [`wire::CREDIT_WINDOW`] past the
+    /// last [`Self::ack`] (wire version 2).
+    pub fn has_credit(&self) -> bool {
+        self.version >= 2
+    }
+
+    /// Tell the holder this client parsed `chan`'s output before `offset`.
+    pub fn ack(&mut self, chan: u32, offset: u64) -> io::Result<()> {
+        self.send(Kind::Ack, chan, &Out::default().u64(offset).0, None)
     }
 
     /// Start `request` on channel `chan`. Returns the child's pid and the

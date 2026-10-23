@@ -18,12 +18,15 @@
 
 use std::collections::BTreeMap;
 use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Child;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use cmux_holder::SpawnRequest;
 use cmux_holder::client::{Event, HolderClient, launch};
+use cmux_holder::holder::error_code;
+use cmux_holder::wire::{ACK_EVERY, Kind};
+use cmux_holder::{ExitStatus, SpawnRequest};
 
 const TERMINALS: u32 = 16;
 const TOKEN: [u8; 32] = [0x5a; 32];
@@ -217,11 +220,7 @@ fn shells_survive_a_holder_crash_and_a_daemon_crash_with_their_screens() {
     let mut ended = 0;
     while ended < TERMINALS {
         if let Event::Exit { status, .. } = client.next_event(deadline).unwrap() {
-            assert_eq!(
-                status,
-                cmux_holder::ExitStatus::Unobserved,
-                "adopted children have no status"
-            );
+            assert_eq!(status, ExitStatus::Unobserved, "adopted children have no status");
             ended += 1;
         }
     }
@@ -239,9 +238,9 @@ fn a_spawned_shells_exit_status_reaches_the_daemon_after_its_last_output() {
     let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
     let mut request = shell(1);
     request.argv = vec![b"/bin/sh".to_vec(), b"-c".to_vec(), b"echo last-words; exit 3".to_vec()];
-    let (_pid, master) = client.spawn(1, &request).unwrap();
-    // The daemon's dup keeps the PTY open; drop it so the holder sees EOF.
-    drop(master);
+    // The daemon keeps its custody dup of the master for the whole life of
+    // the terminal, so the end must not wait for every master to close.
+    let (_pid, _custody) = client.spawn(1, &request).unwrap();
     client.attach(1, 0).unwrap();
     let deadline = Instant::now() + Duration::from_secs(20);
     let mut output = Vec::new();
@@ -249,7 +248,7 @@ fn a_spawned_shells_exit_status_reaches_the_daemon_after_its_last_output() {
         match client.next_event(deadline).unwrap() {
             Event::Data { bytes, .. } => output.extend_from_slice(&bytes),
             Event::Exit { status, end, .. } => {
-                assert_eq!(status, cmux_holder::ExitStatus::Exited(3));
+                assert_eq!(status, ExitStatus::Exited(3));
                 assert_eq!(end, output.len() as u64);
                 break;
             }
@@ -267,6 +266,123 @@ fn a_wrong_token_is_refused() {
     let socket = dir.join("h.sock");
     let holder = launch(holder_binary(), &socket, &TOKEN).unwrap();
     assert!(HolderClient::connect(&socket, &[0u8; 32]).is_err());
+    kill(holder);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_flood_through_a_slow_daemon_arrives_whole_and_in_order() {
+    const FLOOD: usize = 3 * 1024 * 1024;
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let holder = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    assert!(client.has_credit(), "this build's holder takes acknowledgements");
+    let mut request = shell(1);
+    // Raw mode: the PTY passes the bytes as they are.
+    request.argv = vec![
+        b"/bin/sh".to_vec(),
+        b"-c".to_vec(),
+        format!("stty raw -echo; head -c {FLOOD} /dev/zero | tr '\\0' a; printf done-flood")
+            .into_bytes(),
+    ];
+    let (_pid, _custody) = client.spawn(1, &request).unwrap();
+    client.attach(1, 0).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(120);
+    let (mut received, mut acked) = (0u64, 0u64);
+    let mut output = Vec::new();
+    loop {
+        match client.next_event(deadline).unwrap() {
+            Event::Data { offset, bytes, .. } => {
+                assert_eq!(offset, received, "output must stay contiguous: no byte dropped");
+                received += bytes.len() as u64;
+                output.extend_from_slice(&bytes);
+                // A parser far slower than the shell prints.
+                std::thread::sleep(Duration::from_millis(20));
+                if received - acked >= ACK_EVERY {
+                    client.ack(1, received).unwrap();
+                    acked = received;
+                }
+            }
+            Event::Exit { status, end, .. } => {
+                assert_eq!(status, ExitStatus::Exited(0));
+                assert_eq!(end, received);
+                break;
+            }
+            Event::Gap { requested, oldest, .. } => {
+                panic!("the holder dropped output {requested}..{oldest}")
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+    assert_eq!(output.iter().filter(|byte| **byte == b'a').count(), FLOOD);
+    assert!(output.ends_with(b"done-flood"), "the last output arrived after the flood");
+    kill(holder);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_probe_or_a_bad_token_keeps_the_attached_daemon_and_a_new_daemon_supersedes_it() {
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let holder = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let (pid, master) = client.spawn(1, &shell(1)).unwrap();
+    client.attach(1, 0).unwrap();
+    let mut screens = BTreeMap::from([(1, Screen { master, pid, base: 0, bytes: Vec::new() })]);
+    pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
+
+    // A second holder start's liveness probe, a stale token, a silent peer.
+    drop(UnixStream::connect(&socket).unwrap());
+    assert!(HolderClient::connect(&socket, &[0u8; 32]).is_err());
+    let silent = UnixStream::connect(&socket).unwrap();
+    client.write(1, b"still-here\n").unwrap();
+    pump_until(&mut client, &mut screens, |_| "still-here\r\nstill-here".to_string());
+    drop(silent);
+
+    // A daemon with the token takes the holder, and the old one is told.
+    let (_second, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    assert_eq!(listed.len(), 1);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        match client.next_event(deadline) {
+            Ok(Event::Error { chan: 0, request_kind, code, .. }) => {
+                assert_eq!(request_kind, Kind::Hello as u16);
+                assert_eq!(code, error_code::SUPERSEDED);
+                break;
+            }
+            Ok(_) => {}
+            Err(error) => panic!("the replaced daemon was not told it was superseded: {error}"),
+        }
+    }
+    drop(screens);
+    kill(holder);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_bare_program_runs_from_path_and_a_bad_directory_or_program_fails_the_spawn() {
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let holder = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let mut bare = shell(1);
+    bare.argv[0] = b"sh".to_vec();
+    let (pid, master) = client.spawn(1, &bare).unwrap();
+    client.attach(1, 0).unwrap();
+    let mut screens = BTreeMap::from([(1, Screen { master, pid, base: 0, bytes: Vec::new() })]);
+    pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
+
+    let mut bad_dir = shell(2);
+    bad_dir.cwd = b"/nonexistent-cmux-holder-dir".to_vec();
+    let error = client.spawn(2, &bad_dir).unwrap_err();
+    assert!(error.to_string().contains("nonexistent-cmux-holder-dir"), "{error}");
+
+    let mut missing = shell(3);
+    missing.argv = vec![b"cmux-no-such-program".to_vec()];
+    let error = client.spawn(3, &missing).unwrap_err();
+    assert!(error.to_string().contains("cmux-no-such-program"), "{error}");
+    drop(screens);
     kill(holder);
     let _ = std::fs::remove_dir_all(&dir);
 }

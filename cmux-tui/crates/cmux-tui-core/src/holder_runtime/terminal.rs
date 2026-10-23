@@ -1,8 +1,8 @@
 //! One terminal on the holder, and the local-runtime launch the daemon
 //! parses it on.
 
-use std::io;
-use std::os::fd::OwnedFd;
+use std::io::{self, Write};
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::Arc;
 
 use cmux_holder::ExitStatus;
@@ -85,7 +85,10 @@ pub(crate) fn holder_local_launch(
     cwd: Option<String>,
 ) -> anyhow::Result<LocalLaunch> {
     let master = cmux_pty::adopt_master(terminal.custody.try_clone()?)?;
-    let writer = master.take_writer()?;
+    let writer = Box::new(WaitingWriter {
+        inner: master.take_writer()?,
+        master: terminal.custody.try_clone()?,
+    });
     let waited = terminal.clone();
     Ok(LocalLaunch {
         master,
@@ -129,6 +132,65 @@ fn terminal_end(end: SinkEnd) -> TerminalEnd {
     }
 }
 
+/// The surface's input writer on the custody master. The holder reads that
+/// master non-blocking, and `O_NONBLOCK` belongs to the open file
+/// description every dup shares, so a write the PTY's input queue (about 1
+/// KiB on macOS) cannot take returns `WouldBlock`. This writer then waits
+/// for room, as a write on a blocking master does: a paste or a burst of
+/// mouse reports is never cut.
+struct WaitingWriter {
+    inner: Box<dyn Write + Send>,
+    /// A dup of the master to wait on.
+    master: OwnedFd,
+}
+
+impl Write for WaitingWriter {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        loop {
+            match self.inner.write(buffer) {
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    wait_writable(self.master.as_raw_fd())?;
+                }
+                result => return result,
+            }
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        loop {
+            match self.inner.flush() {
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    wait_writable(self.master.as_raw_fd())?;
+                }
+                result => return result,
+            }
+        }
+    }
+}
+
+/// Block until the master takes input again. A master whose terminal ended
+/// is an error rather than a wait that never ends.
+fn wait_writable(master: std::os::fd::RawFd) -> io::Result<()> {
+    loop {
+        let mut poll_fd = libc::pollfd { fd: master, events: libc::POLLOUT, revents: 0 };
+        // SAFETY: polls one live pollfd; -1 waits like a blocking write.
+        let ready = unsafe { libc::poll(&mut poll_fd, 1, -1) };
+        if ready < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(error);
+        }
+        if poll_fd.revents & libc::POLLOUT == 0
+            && poll_fd.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0
+        {
+            return Err(io::Error::new(io::ErrorKind::BrokenPipe, "the terminal's PTY closed"));
+        }
+        return Ok(());
+    }
+}
+
 struct HolderKiller(Arc<HolderTerminal>);
 
 impl ChildKiller for HolderKiller {
@@ -145,5 +207,61 @@ impl ChildKiller for HolderKiller {
 impl std::fmt::Debug for HolderKiller {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HolderKiller").field("chan", &self.0.chan).finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Read;
+    use std::os::fd::FromRawFd;
+
+    use super::*;
+
+    /// A raw PTY pair whose master is non-blocking, as the holder leaves it.
+    fn nonblocking_pty() -> (OwnedFd, std::fs::File) {
+        let (mut master, mut slave) = (-1, -1);
+        // SAFETY: out-pointers to live locals; default termios and size.
+        let opened = unsafe {
+            libc::openpty(
+                &mut master,
+                &mut slave,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        assert_eq!(opened, 0, "openpty: {}", io::Error::last_os_error());
+        // SAFETY: openpty returned two fresh descriptors this test owns.
+        let (master, slave) =
+            unsafe { (OwnedFd::from_raw_fd(master), OwnedFd::from_raw_fd(slave)) };
+        // SAFETY: termios calls on the slave this test owns; fcntl on its master.
+        unsafe {
+            let mut termios: libc::termios = std::mem::zeroed();
+            assert_eq!(libc::tcgetattr(slave.as_raw_fd(), &mut termios), 0);
+            libc::cfmakeraw(&mut termios);
+            assert_eq!(libc::tcsetattr(slave.as_raw_fd(), libc::TCSANOW, &termios), 0);
+            let flags = libc::fcntl(master.as_raw_fd(), libc::F_GETFL);
+            libc::fcntl(master.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK);
+        }
+        (master, std::fs::File::from(slave))
+    }
+
+    #[test]
+    fn a_paste_bigger_than_the_input_queue_waits_for_a_slow_program() {
+        let (master, mut slave) = nonblocking_pty();
+        let paste: Vec<u8> = (0..64 * 1024).map(|index| b'a' + (index % 26) as u8).collect();
+        let expected = paste.clone();
+        // The program reads nothing for a while, then everything.
+        let program = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            let mut got = vec![0u8; expected.len()];
+            slave.read_exact(&mut got).unwrap();
+            got == expected
+        });
+        let pty = cmux_pty::adopt_master(master.try_clone().unwrap()).unwrap();
+        let mut writer = WaitingWriter { inner: pty.take_writer().unwrap(), master };
+        writer.write_all(&paste).expect("the paste waits for room instead of failing");
+        writer.flush().unwrap();
+        assert!(program.join().unwrap(), "the program got every byte, in order");
     }
 }

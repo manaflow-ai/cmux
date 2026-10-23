@@ -260,6 +260,36 @@ fn shells_on_the_holder_survive_a_holder_crash_and_a_daemon_crash() {
     }
 }
 
+/// The daemon holds the custody master of every holder terminal for its
+/// whole life; a shell that exits must still end its terminal, with its
+/// own status.
+#[test]
+fn a_holder_shell_that_exits_ends_its_terminal_with_its_status() {
+    let mut daemon = Daemon::start();
+    let created = request(
+        &daemon.socket,
+        json!({"cmd": "run", "argv": ["/bin/sh", "-c", "read line; echo bye-$line; exit 3"],
+            "new_workspace": true, "name": "exit-3", "cols": 80, "rows": 24}),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let shell = shell_pid(&daemon.socket, surface);
+    daemon.cleanup.push(shell);
+    daemon.cleanup.push(parent_of(shell));
+    send(&daemon.socket, surface, "now");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let resolved = loop {
+        let resolved =
+            request(&daemon.socket, json!({"cmd": "resolve-terminal", "terminal_id": terminal_id}));
+        if resolved["lifecycle"] == "exited" {
+            break resolved;
+        }
+        assert!(Instant::now() < deadline, "the terminal never ended: {resolved}");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(resolved["exit"]["outcome"], json!({"kind": "exit", "code": 3}), "{resolved}");
+}
+
 fn send(socket: &Path, surface: u64, line: &str) {
     request(socket, json!({"cmd": "send", "surface": surface, "text": format!("{line}\n")}));
 }

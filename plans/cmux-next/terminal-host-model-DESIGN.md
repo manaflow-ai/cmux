@@ -80,7 +80,15 @@ processes and ~2,000 threads fewer.
   ATTACH from offset, DATA (offset, bytes), GAP, ACK (trim), WRITE, RESIZE, SIGNAL, CLOSE, EXIT
   (status, end offset), LIST (every terminal: id, pid, offsets, state), PING/PONG, ERROR.
 - Input: the daemon writes keystrokes to its own master dup directly (one hop less than today);
-  WRITE exists for a daemon that lost its dup.
+  WRITE exists for a daemon that lost its dup. The holder leaves the master non-blocking (the flag
+  is shared by every dup), so the daemon's writer waits for POLLOUT on WouldBlock.
+- Flow control (wire v2, review 1): ACK carries the offset the daemon parsed. The holder sends an
+  attached terminal at most 512 KiB past its last ACK and stops reading a master that holds
+  256 KiB unsent, so a flood blocks in the PTY as on a direct PTY: no byte is dropped while a
+  daemon is attached and the daemon's queue per terminal stays bounded. A DATA offset past what
+  the daemon has, or a GAP, cancels the parser's current sequence (CAN) instead of splicing.
+- Handshake: a connection becomes the link only after a valid HELLO; a probe or a bad token never
+  drops the attached daemon. The daemon it replaces gets ERROR SUPERSEDED and does not reconnect.
 
 ## 5. Daemon side
 

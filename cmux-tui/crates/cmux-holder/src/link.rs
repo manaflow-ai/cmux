@@ -26,6 +26,22 @@ pub trait TerminalSink: Send + Sync {
     /// A VT replay of the screen as of the next output byte (a holder that
     /// adopted this terminal after a crash keeps one).
     fn prologue(&self, _bytes: &[u8]) {}
+    /// Whether this sink acknowledges what it consumed itself, with
+    /// [`HolderLink::ack`] (a sink that queues bytes for a slower reader).
+    /// When false, the link acknowledges each byte as it delivers it.
+    fn acks_itself(&self) -> bool {
+        false
+    }
+}
+
+/// Why a link ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkEnd {
+    /// The holder closed the link or died.
+    Lost,
+    /// Another daemon of the session authenticated and took the holder: do
+    /// not take it back (two daemons would take turns forever).
+    Superseded,
 }
 
 type SpawnReply = io::Result<(i32, OwnedFd)>;
@@ -41,6 +57,8 @@ struct State {
 pub struct HolderLink {
     writer: Mutex<UnixStream>,
     state: Mutex<State>,
+    /// The holder takes [`Kind::Ack`] (wire version 2).
+    credit: bool,
 }
 
 /// How long a spawn waits for the holder's answer.
@@ -49,26 +67,27 @@ const SPAWN_TIMEOUT: Duration = Duration::from_secs(10);
 impl HolderLink {
     /// Connect and authenticate, return the terminals the holder runs, and
     /// start the reader thread. `on_lost` runs on that thread once, when the
-    /// link ends (a holder crash).
+    /// link ends (a holder crash, or another daemon took the holder).
     pub fn connect(
         socket: &Path,
         token: &[u8; 32],
-        on_lost: Box<dyn FnOnce() + Send>,
+        on_lost: Box<dyn FnOnce(LinkEnd) + Send>,
     ) -> io::Result<(Arc<Self>, Vec<Listed>)> {
         let (client, listed) = crate::client::HolderClient::connect(socket, token)?;
-        let (stream, reader) = client.into_parts();
+        let (stream, reader, version) = client.into_parts();
         stream.set_read_timeout(None)?;
         let link = Arc::new(Self {
             writer: Mutex::new(stream.try_clone()?),
             state: Mutex::new(State { open: true, ..State::default() }),
+            credit: version >= 2,
         });
         let weak = Arc::downgrade(&link);
         std::thread::Builder::new().name("holder-link".into()).spawn(move || {
-            read_loop(&stream, reader, &weak);
+            let end = read_loop(&stream, reader, &weak);
             if let Some(link) = weak.upgrade() {
                 link.lost();
             }
-            on_lost();
+            on_lost(end);
         })?;
         Ok((link, listed))
     }
@@ -132,15 +151,36 @@ impl HolderLink {
     /// Stream a listed terminal's output to `sink` from `from`, after its
     /// prologue if it has one (a restarted daemon re-attaching).
     pub fn attach(&self, chan: u32, from: u64, sink: Arc<dyn TerminalSink>) -> io::Result<()> {
+        self.attach_flagged(chan, from, sink, wire::FLAG_WITH_PROLOGUE)
+    }
+
+    /// Stream a terminal this daemon already shows to `sink` from `from`,
+    /// without its prologue: the same holder, after the link dropped.
+    pub fn resume(&self, chan: u32, from: u64, sink: Arc<dyn TerminalSink>) -> io::Result<()> {
+        self.attach_flagged(chan, from, sink, 0)
+    }
+
+    fn attach_flagged(
+        &self,
+        chan: u32,
+        from: u64,
+        sink: Arc<dyn TerminalSink>,
+        flags: u16,
+    ) -> io::Result<()> {
         self.lock().sinks.insert(chan, sink);
-        let frame = wire::encode_flagged(
-            Kind::Attach,
-            wire::FLAG_WITH_PROLOGUE,
-            chan,
-            &Out::default().u64(from).0,
-        );
+        let frame = wire::encode_flagged(Kind::Attach, flags, chan, &Out::default().u64(from).0);
         let writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         wire::send_all(writer.as_raw_fd(), &frame, &[])
+    }
+
+    /// Tell the holder the daemon parsed `chan`'s output before `offset`,
+    /// so it sends up to [`wire::CREDIT_WINDOW`] past it. A holder older
+    /// than wire version 2 sends without credit and is not told.
+    pub fn ack(&self, chan: u32, offset: u64) -> io::Result<()> {
+        if !self.credit {
+            return Ok(());
+        }
+        self.send(Kind::Ack, chan, &Out::default().u64(offset).0, None)
     }
 
     pub fn write(&self, chan: u32, bytes: &[u8]) -> io::Result<()> {
@@ -187,15 +227,24 @@ fn lost() -> io::Error {
     io::Error::new(io::ErrorKind::BrokenPipe, "holder link lost")
 }
 
-fn read_loop(stream: &UnixStream, mut reader: wire::Reader, link: &std::sync::Weak<HolderLink>) {
+/// Route frames until the link ends; returns why it ended.
+fn read_loop(
+    stream: &UnixStream,
+    mut reader: wire::Reader,
+    link: &std::sync::Weak<HolderLink>,
+) -> LinkEnd {
+    let mut ending = LinkEnd::Lost;
+    // Per channel, the offset the link last acknowledged for a sink that
+    // does not acknowledge itself.
+    let mut acked: HashMap<u32, u64> = HashMap::new();
     loop {
         loop {
             let mut frame = match reader.next_frame() {
                 Ok(Some(frame)) => frame,
                 Ok(None) => break,
-                Err(_) => return,
+                Err(_) => return ending,
             };
-            let Some(link) = link.upgrade() else { return };
+            let Some(link) = link.upgrade() else { return ending };
             let chan = frame.chan;
             let mut input = In(&frame.payload);
             match Kind::from_u16(frame.kind) {
@@ -210,9 +259,16 @@ fn read_loop(stream: &UnixStream, mut reader: wire::Reader, link: &std::sync::We
                 }
                 Some(Kind::Error) => {
                     let request = input.u16().unwrap_or_default();
+                    let rest = input.rest();
+                    let code = In(rest).u16().unwrap_or_default();
                     let message =
-                        String::from_utf8_lossy(input.rest().get(2..).unwrap_or_default())
-                            .into_owned();
+                        String::from_utf8_lossy(rest.get(2..).unwrap_or_default()).into_owned();
+                    if chan == 0
+                        && request == Kind::Hello as u16
+                        && code == crate::holder::error_code::SUPERSEDED
+                    {
+                        ending = LinkEnd::Superseded;
+                    }
                     if request == Kind::Spawn as u16
                         && let Some(waiter) = link.lock().spawns.remove(&chan)
                     {
@@ -226,7 +282,16 @@ fn read_loop(stream: &UnixStream, mut reader: wire::Reader, link: &std::sync::We
                         if frame.flags & wire::FLAG_PROLOGUE != 0 {
                             sink.prologue(input.rest());
                         } else {
-                            sink.data(offset, input.rest());
+                            let bytes = input.rest();
+                            sink.data(offset, bytes);
+                            let through = offset + bytes.len() as u64;
+                            if !sink.acks_itself() {
+                                let last = acked.entry(chan).or_insert(offset);
+                                if through >= *last + wire::ACK_EVERY {
+                                    *last = through;
+                                    let _ = link.ack(chan, through);
+                                }
+                            }
                         }
                     }
                 }
@@ -241,6 +306,7 @@ fn read_loop(stream: &UnixStream, mut reader: wire::Reader, link: &std::sync::We
                     if let (Ok(kind), Ok(code), Ok(end)) = (input.u8(), input.i32(), input.u64())
                         && let Some(sink) = link.lock().sinks.remove(&chan)
                     {
+                        acked.remove(&chan);
                         sink.exit(ExitStatus::decode(kind, code), end);
                     }
                 }
@@ -249,7 +315,7 @@ fn read_loop(stream: &UnixStream, mut reader: wire::Reader, link: &std::sync::We
         }
         match reader.fill(stream.as_raw_fd()) {
             Ok(true) => {}
-            Ok(false) | Err(_) => return,
+            Ok(false) | Err(_) => return ending,
         }
     }
 }

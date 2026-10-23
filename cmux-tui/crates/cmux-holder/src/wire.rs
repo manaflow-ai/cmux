@@ -17,8 +17,20 @@ pub const MAGIC: [u8; 4] = *b"CMHX";
 pub const HEADER: usize = 16;
 /// Largest payload a frame may carry.
 pub const MAX_PAYLOAD: usize = 1 << 20;
-/// Wire version this build speaks.
-pub const VERSION: u16 = 1;
+/// Wire version this build speaks. Version 2 adds [`Kind::Ack`] flow
+/// control; a version 1 peer gets none.
+pub const VERSION: u16 = 2;
+/// Oldest wire version this build still serves.
+pub const MIN_VERSION: u16 = 1;
+/// Output a holder sends one terminal past the offset its daemon last
+/// acknowledged ([`Kind::Ack`], version 2): the daemon queues at most this
+/// much per terminal, and a terminal that prints faster than the daemon
+/// parses blocks in its PTY, as on a direct PTY.
+pub const CREDIT_WINDOW: u64 = 512 * 1024;
+/// A daemon acknowledges after it parsed this much since its last
+/// [`Kind::Ack`]. Less than [`CREDIT_WINDOW`], so a stalled terminal always
+/// gets the acknowledgement that frees it.
+pub const ACK_EVERY: u64 = CREDIT_WINDOW / 4;
 
 /// Frame kinds. Values are frozen; a new kind gets a new value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,7 +38,8 @@ pub const VERSION: u16 = 1;
 pub enum Kind {
     /// d->h: `version u16, token [u8; 32]`.
     Hello = 1,
-    /// h->d: `version u16, count u32`, then one [`Kind::Listed`] per terminal.
+    /// h->d: `version u16` (the lower of the two peers' versions), `count
+    /// u32`, then one [`Kind::Listed`] per terminal.
     Welcome = 2,
     /// d->h: spawn on a new PTY; payload [`crate::SpawnRequest`].
     Spawn = 3,
@@ -56,12 +69,17 @@ pub enum Kind {
     /// h->d: one terminal in a [`Kind::Welcome`]: `pid i32, oldest u64, end u64,
     /// exited u8, id [u8; 16]`, plus one descriptor: a dup of its master.
     Listed = 14,
-    /// h->d: `request_kind u16, code u16`, then a UTF-8 message.
+    /// h->d: `request_kind u16, code u16`, then a UTF-8 message. Code
+    /// `SUPERSEDED` on channel 0 (request kind [`Kind::Hello`]): another
+    /// daemon authenticated and took this link's place.
     Error = 15,
     /// both: `nonce u64`.
     Ping = 16,
     /// both: `nonce u64`.
     Pong = 17,
+    /// d->h (version 2): `offset u64`: the daemon parsed every byte before
+    /// it, so the holder may send up to `offset + CREDIT_WINDOW`.
+    Ack = 18,
 }
 
 impl Kind {
@@ -86,6 +104,7 @@ impl Kind {
             15 => Error,
             16 => Ping,
             17 => Pong,
+            18 => Ack,
             _ => return None,
         })
     }
