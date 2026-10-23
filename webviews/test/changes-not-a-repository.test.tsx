@@ -91,7 +91,10 @@ test("a folder outside any repository shows the turn's files and a quiet note, n
     });
   });
   const text = view.container.textContent ?? "";
-  expect(text).toContain("batch103.sh");
+  // The file list shows (its tree draws no rows without layout, so its names aren't in the text).
+  expect(view.container.querySelector(".acpmux-diff-tree")).not.toBeNull();
+  expect(text).not.toContain("No file changes in this turn.");
+  expect(text).toContain("+18");
   expect(text).toContain("This chat's folder is not in a git repository.");
   expect(text).not.toContain("The branch state could not be read");
   expect(view.container.querySelector('[role="alert"]')).toBeNull();
