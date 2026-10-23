@@ -18,6 +18,9 @@ struct AgentPaneDebugClickPageHostTests {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
 
+    /// The chat's page makes its Chromium page once it shows (PageChromiumCostTests).
+    private let stage = PageTestWindow()
+
     @Test func clickFindsAnElementOfThePageTheChatShows() async throws {
         let file = try #require(AgentPageTestRoot.page)
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true,
@@ -59,6 +62,7 @@ struct AgentPaneDebugClickPageHostTests {
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true,
                                               chromium: hosting))
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        stage.show(view)
         let deadline = Date().addingTimeInterval(5)
         while !view.debugShowsChromium, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
         #expect(view.debugShowsChromium)

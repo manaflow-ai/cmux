@@ -33,6 +33,13 @@ public final class FakeChromiumPage: PageChromiumPage {
     public private(set) var zoom: Double?
     /// Whether the host closed the page.
     public private(set) var closed = false
+    /// Every ``setVisible(_:)``, in order.
+    public private(set) var visibility: [Bool] = []
+    /// Every ``setFrozen(_:)``, in order.
+    public private(set) var freezes: [Bool] = []
+    /// Every ``setVisible(_:)`` and ``setFrozen(_:)`` in one order: `shown`, `hidden`, `frozen`,
+    /// `thawed` (a thaw must come before the show).
+    public private(set) var lifecycle: [String] = []
     /// The last ``setSeeThrough(_:)``; nil before any.
     public private(set) var seeThrough: Bool?
     /// ``seeThrough`` when the first document loaded.
@@ -70,14 +77,24 @@ public final class FakeChromiumPage: PageChromiumPage {
 
     /// Records the value in ``seeThrough``.
     public func setSeeThrough(_ seeThrough: Bool) { self.seeThrough = seeThrough }
-    /// Does nothing.
-    public func reload() {}
+    /// Reloads asked for so far.
+    public private(set) var reloads = 0
+    /// Counts the reload in ``reloads``.
+    public func reload() { reloads += 1 }
     /// Records the value in ``zoom``.
     public func setZoom(_ zoom: Double) { self.zoom = zoom }
     /// Does nothing.
     public func setFocused(_ focused: Bool) {}
-    /// Does nothing.
-    public func setVisible(_ visible: Bool) {}
+    /// Records the value in ``visibility`` and ``lifecycle``.
+    public func setVisible(_ visible: Bool) {
+        visibility.append(visible)
+        lifecycle.append(visible ? "shown" : "hidden")
+    }
+    /// Records the value in ``freezes`` and ``lifecycle``.
+    public func setFrozen(_ frozen: Bool) {
+        freezes.append(frozen)
+        lifecycle.append(frozen ? "frozen" : "thawed")
+    }
 
     /// Sets ``closed`` and runs ``onClose``.
     public func close() {
