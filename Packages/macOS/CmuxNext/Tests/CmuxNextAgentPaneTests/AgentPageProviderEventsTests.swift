@@ -166,4 +166,24 @@ struct AgentPageProviderEventsTests {
         await nextPage.waitFor(1)
         #expect(Self.names(nextPage.events) == ["reset-dropped"])
     }
+
+    @Test func routerResetDropUsesTheCapturedProviderAfterRouterCloses() async throws {
+        let provider = AgentPageProvider { _ in nil }
+        let router = PageRouter(descriptor: .agent, routes: [PageRoute(prefix: AgentPageOps.namespace, provider: provider)])
+        var dropped: (@MainActor () -> Void)?
+        router.sendWithDrop = { _, onDrop in dropped = onDrop }
+        _ = await router.handle(["t": .string("sub"), "id": .number(1), "stream": .string(AgentPageProvider.hostEvents)])
+        provider.publish(Self.command("router-reset"))
+        #expect(dropped != nil)
+        router.close()
+        dropped?()
+
+        let nextPage = Received()
+        let next = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { event in
+            nextPage.append(event)
+        }
+        defer { next.cancel() }
+        await nextPage.waitFor(1)
+        #expect(Self.names(nextPage.events) == ["router-reset"])
+    }
 }

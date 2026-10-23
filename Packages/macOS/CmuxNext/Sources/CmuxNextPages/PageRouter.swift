@@ -227,8 +227,9 @@ public final class PageRouter {
         let seq = (sequences[sub] ?? 0) + 1
         sequences[sub] = seq
         let envelope: JSONValue = ["t": "ev", "sub": .number(Double(sub)), "seq": .number(Double(seq)), "data": data]
-        let dropped = { @MainActor [weak self] in
-            guard let self, let stream = self.streamProviders[sub] else { return }
+        let stream = streamProviders[sub]
+        let dropped = { @MainActor in
+            guard let stream else { return }
             stream.provider.eventDeliveryDropped(stream: stream.name, data: data)
         }
         if let sendWithDrop { sendWithDrop(envelope, dropped) } else { send?(envelope) }
