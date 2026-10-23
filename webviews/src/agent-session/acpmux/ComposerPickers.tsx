@@ -13,6 +13,7 @@ import {
 import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot } from "./model";
 import type { SpeedSection } from "./EffortPicker";
+import { type SpeedTiers, useSpeedToggle } from "./FastToggle";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
@@ -25,8 +26,13 @@ import { catalogRow } from "./catalogRow";
 import { harnessProfiles } from "./harnessProfiles";
 import { useStartMode } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
+import { useModelCatalogState } from "./modelCatalogHost";
 import { focusWithRing } from "../../ui/focusWithRing";
-import { Popover } from "../../ui/Popover";
+import { AnchoredCard } from "../../ui/Tooltip";
+import { HOVER_INTENT } from "../../ui/hoverIntent";
+import { useHoverCard } from "./chips/useHoverCard";
+import { ContextCardBody } from "./ContextCard";
+import { contextBreakdown } from "./inspector/ContextSection";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
@@ -37,6 +43,7 @@ import { usePopupHost } from "../../ui/UiProvider";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { isMousePress } from "../../ui/pressRelease";
 import { focusAfterEscape } from "../../ui/escapeFocus";
+import { type ModeIconName, RECOMMENDED_BADGE, type ShownMode, harnessModeMenu, shownModes } from "./harnessModes";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -104,6 +111,9 @@ export type Choice = {
   /// The level the model recommends (its catalog default): the effort slider marks it.
   recommended?: boolean;
 };
+
+/// A permission mode row: a choice with the harness's own badge and icon (harnessModes.ts).
+type ModeChoice = Omit<Choice, "icon"> & Pick<ShownMode, "recommended" | "icon">;
 
 /// Runs `run` after `ms` unless the returned cancel runs first.
 export type SettleTimer = (run: () => void, ms: number) => () => void;
@@ -193,7 +203,8 @@ export function ComposerPickers({
   // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts).
   // The model button is the row's one model control (Leo 2026-10-20): it names the model and its
   // effort ("Opus 5.5  Medium") and opens the compact menu, which carries Effort, More models,
-  // Account and Fast mode. There is no effort chip and no bolt beside it.
+  // Account and, for Claude Code, Fast mode. There is no effort chip beside it; Codex's speed is the
+  // bolt left of the mic (FastToggle.tsx), never a menu row as well.
   const { showContextUsage, harnessSwitch } = useComposerSettings();
   const chatAccounts = useChatAccounts();
   const summary = snapshot.summary;
@@ -202,7 +213,7 @@ export function ComposerPickers({
   // probe alone (a timeout) keeps it.
   // Once a chat has a message its harness is fixed (Leo 2026-10-13): the picker lists that
   // harness's models only, with no harness rail and no Add harness… (Leo 2026-10-19: a rail of one
-  // harness, then Add harness…, read as an offer to switch), and another harness is Continue in…,
+  // harness, then Add harness…, read as an offer to switch), and another harness is Continue In…,
   // never a pick. Debug Settings' "Allow switching harness in a started chat" (`harnessSwitch`)
   // keeps the whole rail and its switch.
   const locked = !harnessSwitch && !!summary?.harness && ((summary.turnCount ?? 0) > 0 || snapshot.rows.length > 0);
@@ -233,12 +244,24 @@ export function ComposerPickers({
   // An agent's own default remains an internal sentinel. The picker omits it
   // instead of exposing a separate "Default" row.
   const models: Choice[] = sessionModels(snapshot.catalog, summary);
-  const allModes: Choice[] = (summary?.modes?.availableModes ?? []).map((mode) => ({
-    id: mode.id,
-    name: mode.name || mode.id,
-    description: mode.description,
-  }));
-  const plan = allModes.find((choice) => isPlan(choice.id));
+  // The harness's own mode menu (harnessModes.ts): Claude Code's and Codex's labels, descriptions
+  // and order for the ids they report; any other harness's modes as it reports them.
+  const modeMenu = harnessModeMenu(
+    summary?.family,
+    summary?.harness,
+    (summary?.modes?.availableModes ?? []).map((mode) => mode.id),
+  );
+  const allModes: ModeChoice[] = shownModes(
+    modeMenu,
+    (summary?.modes?.availableModes ?? []).map((mode) => ({
+      id: mode.id,
+      name: mode.name || mode.id,
+      ...(mode.description ? { description: mode.description } : {}),
+    })),
+    summary?.modes?.currentModeId,
+  );
+  // Plan is its own toggle, unless the harness's own menu lists it as a mode (Claude Code's does).
+  const plan = modeMenu?.rows.some((row) => isPlan(row.id)) ? undefined : allModes.find((choice) => isPlan(choice.id));
   const modes = allModes.filter((choice) => choice !== plan);
   const hasGrants = (permissionAccess?.grants.length ?? 0) > 0;
   const currentId = summary?.modes?.currentModeId;
@@ -257,22 +280,67 @@ export function ComposerPickers({
       ? (resolvedModel(summary) ?? (summary.harness ? loadResolvedDefaults()[summary.harness] : undefined))
       : summary?.model;
   // A profile the catalog does not map to its family (a second Claude account's harness id) still
-  // runs a catalogued model: its family's row for that id (else any harness's) names it and its
-  // default level, so the chips never fall back to the raw id or to the word Reasoning.
-  const catalogModel =
-    catalogRow(
-      pickerCatalog?.harnesses.find(
-        (entry) => entry.acpmuxHarness === summary?.harness || entry.id === summary?.harness,
-      )?.models,
-      runningModel,
-    ) ??
+  // runs a catalogued model: its family's row for that id (else any harness's) names it, so the
+  // chips never fall back to the raw id or to the word Reasoning.
+  const kinRows = (id = runningModel) =>
     [
       ...(pickerCatalog?.harnesses.filter((entry) => entry.id === summary?.family) ?? []),
       ...(pickerCatalog?.harnesses ?? []),
-    ]
-      .map((entry) => catalogRow(entry.models, runningModel))
-      .find((row) => row !== undefined);
-  const efforts: Choice[] = reasoningChoices(effort?.options ?? [], catalogModel, t);
+    ].map((entry) => catalogRow(entry.models, id));
+  const ownRow = catalogRow(
+    pickerCatalog?.harnesses.find((entry) => entry.acpmuxHarness === summary?.harness || entry.id === summary?.harness)
+      ?.models,
+    runningModel,
+  );
+  const catalogModel = ownRow ?? kinRows().find((row) => row !== undefined);
+  // The levels the chat runs and the one the agent's "default" resolves to come from this chat's
+  // own model row, else from the release it runs (Leo 2026-10-22: "this should just show the effort
+  // too right? and then the effort tells you what you're already currrently on?"). A profile's probed
+  // row (a claude-sr2 chat's Opus 5.5) names the model but no level; the release's catalog row does.
+  // An alias ("opus") is not a release: what it runs depends on the installed harness, so another
+  // profile's row for it never lends its levels. Its release is the one its own row names, else
+  // acpmux's row for it, else the one the session's model option reports it runs (Claude Code's
+  // `opus` running claude-opus-5-5), once no switch or other pick is in flight. A release is an id
+  // the model catalog lists as a model; unknown, the button names no level.
+  const { catalog: modelCatalog } = useModelCatalogState();
+  const isRelease = (id: string | undefined): id is string => {
+    const bare = id?.replace(/\[[^\]]*\]$/, "");
+    return (
+      !!bare &&
+      !isDefaultChoice({ id: bare }) &&
+      (bare in modelCatalog.models ||
+        modelCatalog.harnesses.some((harness) => harness.models.some((model) => model.id === bare)))
+    );
+  };
+  const modelOption = summary?.configOptions?.find((option) => option.category === "model" || option.id === "model");
+  // A harness still starting shows its last session's options, which name no model this chat runs.
+  const settled =
+    snapshot.switching === undefined && (!summary?.confirmedModel || summary.confirmedModel === summary.model);
+  const runningRelease = [
+    runningModel,
+    ownRow?.release,
+    snapshot.catalog.find((entry) => entry.id === summary?.harness)?.models.find((row) => row.id === runningModel)
+      ?.release,
+    settled && typeof modelOption?.currentValue === "string" ? modelOption.currentValue : undefined,
+  ].find(isRelease);
+  // The release's own row first (a harness that lists it pinned), else a row that stands for it.
+  const releaseRows = runningRelease
+    ? [
+        ...kinRows(runningRelease).filter((row) => row?.id === runningRelease && !row.release),
+        ...kinRows(runningRelease),
+      ].filter((row) => row !== undefined)
+    : [];
+  const levelRow = ownRow?.efforts.length ? ownRow : (releaseRows.find((row) => row.efforts.length > 0) ?? ownRow);
+  const defaultEffort =
+    ownRow?.defaultEffort ?? releaseRows.find((row) => row.defaultEffort !== undefined)?.defaultEffort;
+  const efforts: Choice[] = reasoningChoices(
+    effort?.options ?? [],
+    {
+      ...(levelRow ? { efforts: levelRow.efforts } : {}),
+      ...(defaultEffort ? { defaultEffort } : {}),
+    },
+    t,
+  );
   // Claude Code's Ultracode: a switch beside the levels, offered where the model runs Extra High.
   // It rides the free effort option (ultracode on, Extra High off): acpmux's own `ultracode` id is a
   // mode switch the app would confirm with a sheet.
@@ -309,6 +377,25 @@ export function ComposerPickers({
           onPick: (value: string) => onEffort(fastOption.id, value),
         }
       : undefined;
+  // Codex keeps its bolt left of the mic; Claude Code's Fast mode is a row of the model button's
+  // menu (Leo 2026-10-21: "REMOVE it for Claude, where Fast mode lives inside the menu. KEEP it for
+  // Codex"). A second Codex profile ("codex-work") is still the Codex family.
+  const codex = /codex/i.test(summary?.family ?? "") || /codex/i.test(summary?.harness ?? "");
+  // Fast mode is offered where the running model honors it, or while it is still on.
+  const fastOffered =
+    fastMode !== undefined && (catalogModel?.fast !== false || fastMode.currentValue !== fastMode.offValue);
+  // The bolt: every tier the option offers past off.
+  const speedTiers: SpeedTiers | undefined =
+    codex && fastOption && fastMode && fastOffered
+      ? {
+          current: fastOption.currentValue,
+          off: fastMode.offValue,
+          tiers: fastOption.options.map((option) => option.value).filter((value) => value !== fastMode.offValue),
+          onPick: fastMode.onPick,
+        }
+      : undefined;
+  // A Codex chip with no composer to draw the bolt (a bare gallery row) keeps Fast mode in its menu.
+  const bolted = useSpeedToggle(speedTiers) && speedTiers !== undefined;
   const model = models.find((choice) => choice.id === summary?.model);
   const effortName = efforts.find((choice) => choice.id === effort?.currentValue)?.name;
   // Recents follow what the session actually runs, whichever control changed it,
@@ -505,7 +592,7 @@ export function ComposerPickers({
   // The agent's own level ("default") names the level it resolves to: the running model's default
   // effort. It never guesses the first level.
   const effortDefaulted = effort?.currentValue === "default";
-  const effortValue = effort && (effortDefaulted ? catalogModel?.defaultEffort : effort.currentValue);
+  const effortValue = effort && (effortDefaulted ? defaultEffort : effort.currentValue);
   const effortChoice = efforts.find((choice) => choice.id === effortValue);
   const ultracodeOn = ultracode !== undefined && ultracode.current === ultracode.on;
   const lastChips = awaiting && chipHarness ? loadLastChips()[chipHarness] : undefined;
@@ -566,10 +653,18 @@ export function ComposerPickers({
   const startMode = useStartMode(chipHarness, folder ?? summary?.cwd, awaiting && local && modes.length === 0);
   // Another folder's answer (acpmux has not answered for this one yet) only holds the chip's
   // place: this folder's profile or preset may start the chat in another mode, so it names none.
+  // The harness's own menu names the start mode as it names the mode once the chat reports it.
+  const pendingMenu =
+    modeMenu ??
+    harnessModeMenu(undefined, chipHarness, [
+      ...(harnessProfiles.get(chipHarness)?.modes?.availableModes ?? []).map((choice) => choice.id),
+      ...(startMode && !startMode.borrowed ? [startMode.modeId] : []),
+    ]);
   const startModeName = startMode?.borrowed
     ? t(PICKER_LABELS.mode)
     : startMode
-      ? (startMode.name ??
+      ? (pendingMenu?.rows.find((row) => row.id === startMode.modeId)?.name ??
+        startMode.name ??
         harnessProfiles.get(chipHarness)?.modes?.availableModes.find((choice) => choice.id === startMode.modeId)
           ?.name ??
         startMode.modeId)
@@ -578,15 +673,19 @@ export function ComposerPickers({
   // chip) where a pick is held (`holdsModePick`): the harness's last mode catalog for the rows,
   // checked at the start mode, never at the mode its last chat showed, and named as acpmux named
   // it. A start in Plan keeps the inert chip: Plan is never an access row.
-  const pendingAccessModes: Choice[] = (() => {
+  const pendingAccessModes: ModeChoice[] = (() => {
     if (!holdsModePick || !startMode || startMode.borrowed || isPlan(startMode.modeId)) return [];
-    const known = (harnessProfiles.get(chipHarness)?.modes?.availableModes ?? [])
-      .filter((choice) => !isPlan(choice.id))
-      .map((choice) => ({
-        id: choice.id,
-        name: (choice.id === startMode.modeId ? startMode.name : undefined) || choice.name || choice.id,
-        description: choice.description,
-      }));
+    const known = shownModes(
+      pendingMenu,
+      (harnessProfiles.get(chipHarness)?.modes?.availableModes ?? [])
+        .filter((choice) => !isPlan(choice.id))
+        .map((choice) => ({
+          id: choice.id,
+          name: (choice.id === startMode.modeId ? startMode.name : undefined) || choice.name || choice.id,
+          ...(choice.description ? { description: choice.description } : {}),
+        })),
+      startMode.modeId,
+    );
     if (known.some((choice) => choice.id === startMode.modeId)) return known;
     const description = unrestricted(startMode.modeId) ? t(PICKER_LABELS.fullAccessWarning) : undefined;
     return [{ id: startMode.modeId, name: startModeName ?? startMode.modeId, description }, ...known];
@@ -648,11 +747,11 @@ export function ComposerPickers({
     chatAccounts && summary?.sessionId && !summary.host && summary.hostKind !== "cloud"
       ? { sessionId: summary.sessionId, accounts: chatAccounts }
       : undefined;
-  // Fast mode is one checkbox row of the menu, after Account (Leo 2026-10-20, as Claude Code's), where
-  // the running model honors it, or while it is still on. On is any tier past off; a click turns it
-  // off, or on at the option's first tier.
+  // Claude Code's Fast mode is one checkbox row of the menu, after Account (Leo 2026-10-20, as Claude
+  // Code's). On is any tier past off; a click turns it off, or on at the option's first tier. Codex
+  // has the bolt instead.
   const quickFast: QuickMenuExtras["fast"] =
-    fastMode && (catalogModel?.fast !== false || fastMode.currentValue !== fastMode.offValue)
+    fastMode && fastOffered && !bolted
       ? {
           checked: fastMode.currentValue !== undefined && fastMode.currentValue !== fastMode.offValue,
           onChange: (on) => fastMode.onPick(on ? fastMode.onValue : fastMode.offValue),
@@ -698,7 +797,7 @@ export function ComposerPickers({
           onAddAgent={onAddAgent}
           harnessFixed={locked}
           {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
-          fastMode={fastMode}
+          fastMode={bolted ? undefined : fastMode}
           catalogRefresh={catalogRefresh}
           harnessNotes={
             snapshot.switching?.phase === "failed"
@@ -723,7 +822,11 @@ export function ComposerPickers({
         )
       )}
       {modes.length === 0 && !hasGrants && startMode && startModeName && pendingAccessModes.length === 0 && (
-        <PendingMode label={startModeName} modeId={startMode.borrowed ? undefined : startMode.modeId} />
+        <PendingMode
+          label={startModeName}
+          modeId={startMode.borrowed ? undefined : startMode.modeId}
+          icon={startMode.borrowed ? undefined : pendingMenu?.rows.find((row) => row.id === startMode.modeId)?.icon}
+        />
       )}
       {/* Granted folder trust and chat allowance stay revocable when the harness offers no modes. */}
       {(modes.length > 0 || hasGrants || pendingAccessModes.length > 0) && (
@@ -737,6 +840,9 @@ export function ComposerPickers({
           refusedReason={t(PICKER_LABELS.modeRefused)}
           permissionAccess={permissionAccess}
           onMode={onMode}
+          {...(pendingMenu
+            ? { heading: t(pendingMenu.heading ?? PICKER_LABELS.mode), numbered: pendingMenu.numbered }
+            : {})}
         />
       )}
       {showPlan && plan && (
@@ -780,12 +886,12 @@ export function ComposerPickers({
 /// The mode a chat will start in, before it reports its modes: the access chip's face (AccessMenu),
 /// inert until the session's own replaces it in place. `modeId` is read from storage: only a
 /// string names a mode that may skip approvals.
-function PendingMode({ label, modeId }: { label: string; modeId?: unknown }) {
+function PendingMode({ label, modeId, icon }: { label: string; modeId?: unknown; icon?: ModeIconName }) {
   const warning = typeof modeId === "string" && unrestricted(modeId) ? " acpmux-unrestricted" : "";
   return (
     <span className={`acpmux-mode acpmux-access acpmux-chip-pending${warning}`} aria-hidden="true">
       <span className="acpmux-picker-button acpmux-access-trigger">
-        <ModeShield modeId={modeId} />
+        <ModeIcon modeId={modeId} icon={icon} />
         <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">
           {label}
         </span>
@@ -820,9 +926,11 @@ function AccessMenu({
   refusedReason,
   permissionAccess,
   onMode,
+  heading,
+  numbered = true,
 }: {
   label: string;
-  modes: Choice[];
+  modes: ModeChoice[];
   current?: string;
   sessionId?: string;
   warning: string;
@@ -830,6 +938,10 @@ function AccessMenu({
   refusedReason: string;
   permissionAccess?: ComposerPermissionAccess;
   onMode(modeId: string): void | Promise<unknown>;
+  /// The menu's heading, as the harness's own menu titles it ("Mode", "How should actions be approved?").
+  heading?: string;
+  /// Rows show their number keys, as Claude Code's mode menu does (the keys pick either way).
+  numbered?: boolean;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -866,6 +978,9 @@ function AccessMenu({
     });
   };
   const tooltip = `${label}: ${currentMode?.name ?? label}\n${help}`;
+  // A numbered menu (Claude Code's) draws no icon column, as Claude Code's mode menu does; the
+  // button keeps the mode's symbol.
+  const iconless = numbered && heading !== undefined;
   // Nothing left to pick (every other mode refused, no grants): a plain label, never a dead menu.
   if (
     refusedIds.length > 0 &&
@@ -880,7 +995,7 @@ function AccessMenu({
         /* tooltip-allow: the chip is its shield alone; the tooltip says what it is and why it is fixed */
         title={`${tooltip}\n${refusedReason}`}
       >
-        <ModeShield modeId={value} />
+        <ModeIcon modeId={value} icon={currentMode?.icon} />
         <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">
           {currentMode?.name ?? label}
         </span>
@@ -902,7 +1017,7 @@ function AccessMenu({
           title={tooltip}
           aria-haspopup="menu"
         >
-          {modes.length > 0 ? <ModeShield modeId={value} /> : <LockIcon />}
+          {modes.length > 0 ? <ModeIcon modeId={value} icon={currentMode?.icon} /> : <LockIcon />}
           <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">
             {currentMode?.name ?? (modes.length === 0 ? grants[0]?.label : undefined) ?? label}
           </span>
@@ -922,6 +1037,11 @@ function AccessMenu({
             else pick(choice.id);
           }}
         >
+          {heading && modes.length > 0 && (
+            <div className="acpmux-access-heading" aria-hidden="true">
+              {heading}
+            </div>
+          )}
           {modes.length > 0 && (
             <MenuRadioGroup value={value} onValueChange={pick}>
               {modes.map((choice, index) => (
@@ -929,14 +1049,24 @@ function AccessMenu({
                   key={choice.id}
                   value={choice.id}
                   disabled={refusedIds.includes(choice.id)}
-                  shortcut={index < 9 ? String(index + 1) : undefined}
-                  className={`acpmux-access-item${unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
+                  shortcut={numbered && index < 9 ? String(index + 1) : undefined}
+                  className={`acpmux-access-item${unrestricted(choice.id) ? " acpmux-unrestricted" : ""}${iconless ? " acpmux-access-item-iconless" : ""}`}
                 >
-                  <span className="acpmux-access-item-icon" aria-hidden="true">
-                    {choice.icon ?? <ModeShield modeId={choice.id} />}
-                  </span>
+                  {!iconless && (
+                    <span className="acpmux-access-item-icon" aria-hidden="true">
+                      <ModeIcon modeId={choice.id} icon={choice.icon} />
+                    </span>
+                  )}
                   <span className="acpmux-menu-text">
-                    <span className="acpmux-menu-label">{choice.name}</span>
+                    {choice.recommended ? (
+                      // The name and Claude Code's Recommended badge on one line.
+                      <span className="acpmux-access-title">
+                        <span className="acpmux-menu-label">{choice.name}</span>
+                        <span className="acpmux-menu-badge">{t(RECOMMENDED_BADGE)}</span>
+                      </span>
+                    ) : (
+                      <span className="acpmux-menu-label">{choice.name}</span>
+                    )}
                     {refusedIds.includes(choice.id) ? (
                       <span className="acpmux-menu-description">{refusedReason}</span>
                     ) : choice.description || unrestricted(choice.id) ? (
@@ -976,59 +1106,140 @@ export function isPlan(modeId: string): boolean {
   return /(^|[-_])plan$/i.test(modeId);
 }
 
-/// How much of the context window the session has used, as a pie that fills. A click opens
-/// the details: the share used, tokens used of the window, and Compact when the agent offers it.
+/// What the keyboard tabs to, for leaving the context card forward.
+const TABBABLE =
+  'a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex]:not([tabindex="-1"])';
+
+/// How much of the context window the session has used, as a ring that fills. Resting the pointer
+/// on it, or focusing it, shows the context card with no click (ContextCard.tsx; Leo 2026-10-21,
+/// after Claude's and Codex's): the share and tokens used, the window as a stacked bar, and
+/// Details ›, which opens the Inspector's Context section. A click pins the card until a press
+/// outside; Escape closes it however it opened. Tab from the ring moves into the card's buttons,
+/// and Tab past them goes on to what follows the ring. The ring itself never takes a hover pill
+/// (contextCard.css).
 export function ContextRing({
   used,
   size,
   setup,
+  breakdown: reported,
   onCompact,
+  onOpenDetails,
   working = false,
 }: {
   used?: number;
   size?: number;
-  /// Tokens the agent took before the conversation; the details split it out when known.
+  /// Tokens the agent took before the conversation; the card splits it out when known.
   setup?: number;
+  /// Claude Code's /context (`summary.contextBreakdown`): its categories replace the bar and parts.
+  breakdown?: unknown;
   onCompact?(): void;
+  /// Opens the Inspector at its Context section; the card shows Details › only with it.
+  onOpenDetails?(): void;
   working?: boolean;
 }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
+  const hover = useHoverCard(HOVER_INTENT.tooltipDelay);
+  const [pinned, setPinned] = useState(false);
+  const wrapper = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  // Whether the details were open when a press on the ring began. That press is also the
-  // popover's outside press, which can close it before the click lands; the click then
-  // toggles from the state the press saw, so the press that closed it does not reopen it.
-  const openAtPress = useRef<boolean | null>(null);
+  const card = useRef<HTMLDivElement>(null);
   const known = used !== undefined && size !== undefined && size > 0;
   const fraction = known ? Math.min(1, Math.max(0, used / size)) : 0;
   const percent = Math.round(fraction * 100);
   const label = known ? t(PICKER_LABELS.context, { percent }) : t("context.title");
+  const breakdown = known ? contextBreakdown(reported) : undefined;
+  const shown = known && (pinned || hover.open);
   // As Claude desktop's: a 14 px ring, a faint track with the share used drawn over it as an arc
   // from twelve o'clock (round ends), not a pie and not a spinner.
   const arcRadius = 6;
   const arcCircumference = 2 * Math.PI * arcRadius;
   useEffect(() => {
     // Keep the automation path truthful too: before the first usage report the ring is
-    // intentionally inert, so opening it by label must not reveal an empty 0% popover.
+    // intentionally inert, so opening it by label must not reveal an empty 0% card.
     const unregister = registerPicker(t("context.title"), () => {
-      if (known) setOpen(true);
+      if (known) setPinned(true);
     });
     return unregister;
   }, [known, t]);
   useEffect(() => {
-    // Usage can disappear when a session resets. Do not leave an already-open details
-    // surface showing a stale zeroed reading.
-    if (!known) setOpen(false);
+    // Usage can disappear when a session resets: no pinned card over a stale reading.
+    if (!known) setPinned(false);
   }, [known]);
-  const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
+  const dismissHover = hover.dismiss;
+  useEffect(() => {
+    // Escape closes the card however it opened (hover, keyboard focus or a click), and takes the
+    // press, so it doesn't also reach the composer.
+    if (!shown) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      // Focus in the card goes back to the ring, before the card closes (the ring's focus would
+      // open it again otherwise).
+      if (card.current?.contains(document.activeElement)) trigger.current?.focus();
+      setPinned(false);
+      dismissHover();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [shown, dismissHover]);
+  useEffect(() => {
+    // A pinned card goes on a press outside the ring and the card. The card is its outer element,
+    // so a press on its padding is inside.
+    if (!pinned) return;
+    const onPress = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target && (wrapper.current?.contains(target) || card.current?.contains(target))) return;
+      setPinned(false);
+    };
+    document.addEventListener("pointerdown", onPress, true);
+    return () => document.removeEventListener("pointerdown", onPress, true);
+  }, [pinned]);
   const full = fraction >= 0.8 ? " acpmux-context-full" : "";
-  // On the wrapper, so it also shows while the ring is inert before the first usage report.
-  const tooltip = known
-    ? t("context.ringTooltip", { percent, used: tokens.format(used), size: tokens.format(size) })
-    : t("context.ringTooltipEmpty");
+  /// The card's buttons the keyboard reaches (Compact, Details ›).
+  const cardButtons = () => [...(card.current?.querySelectorAll<HTMLElement>("button:not(:disabled)") ?? [])];
+  /// Leaves the card forward: to whatever the page tabs to after the ring, and the card closes.
+  const tabPastCard = () => {
+    const ring = trigger.current;
+    if (!ring) return;
+    const order = [...ring.ownerDocument.querySelectorAll<HTMLElement>(TABBABLE)].filter(
+      (element) => element.tabIndex >= 0 && !card.current?.contains(element),
+    );
+    const next = order[order.indexOf(ring) + 1];
+    if (next) next.focus();
+    else ring.blur();
+    setPinned(false);
+    dismissHover();
+  };
+  // Tab inside the open card: Shift-Tab off its first button goes back to the ring, Tab off its
+  // last goes on past the ring. A document listener, as Escape's, since the card is a portal.
+  const tabFromCard = useRef<(event: KeyboardEvent) => void>(() => {});
+  tabFromCard.current = (event) => {
+    if (event.key !== "Tab") return;
+    const buttons = cardButtons();
+    const at = buttons.indexOf(event.target as HTMLElement);
+    if (at < 0) return;
+    if (event.shiftKey && at === 0) {
+      event.preventDefault();
+      trigger.current?.focus();
+    } else if (!event.shiftKey && at === buttons.length - 1) {
+      event.preventDefault();
+      tabPastCard();
+    }
+  };
+  useEffect(() => {
+    if (!shown) return;
+    const onKey = (event: KeyboardEvent) => tabFromCard.current(event);
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [shown]);
   return (
-    // tooltip-allow: names the icon-only ring's reading, and why it is inert before any usage.
-    <span className={`acpmux-picker acpmux-context${full}`} title={open ? undefined : tooltip}>
+    // tooltip-allow: before any usage the inert ring says why; once usage is known the card replaces it.
+    <span
+      ref={wrapper}
+      className={`acpmux-picker acpmux-context${full}`}
+      title={known ? undefined : t("context.ringTooltipEmpty")}
+    >
       <button
         ref={trigger}
         type="button"
@@ -1036,13 +1247,19 @@ export function ContextRing({
         data-menu={t("context.title")}
         aria-label={label}
         aria-haspopup="dialog"
-        aria-expanded={open}
+        aria-expanded={shown}
         // Before the first usage report there is nothing to show: the ring keeps its place, off.
         disabled={!known}
-        onPointerDown={() => (openAtPress.current = open)}
-        onClick={() => {
-          setOpen(!(openAtPress.current ?? open));
-          openAtPress.current = null;
+        {...hover.trigger}
+        onClick={() => setPinned((was) => !was)}
+        onKeyDown={(event) => {
+          // Tab goes into the open card (it sits in a portal, out of the page's tab order).
+          if (event.key !== "Tab" || event.shiftKey || !shown) return;
+          const first = cardButtons()[0];
+          if (!first) return;
+          event.preventDefault();
+          setPinned(true);
+          first.focus();
         }}
       >
         <svg width={14} height={14} viewBox="0 0 14 14" aria-hidden="true" focusable="false">
@@ -1070,51 +1287,44 @@ export function ContextRing({
           )}
         </svg>
       </button>
-      <Popover
-        open={open}
-        onOpenChange={setOpen}
-        anchor={open ? trigger.current : null}
-        label={t("context.title")}
-        className={`acpmux-context-pop${full}`}
-        finalFocus={trigger}
+      <AnchoredCard
+        anchor={shown ? trigger.current : null}
+        // AnchoredCard makes it the shared glass hover card (ui-tooltip ui-card ui-glass).
+        className={`acpmux-context-card acpmux-context-pop${breakdown ? " acpmux-context-pop--breakdown" : ""}${full}`}
+        side="top"
+        interactive
+        ariaLabel={t("context.title")}
+        popupRef={card}
+        // On the card's outer element, so its padding counts as inside the card.
+        onPointerEnter={hover.card.onPointerEnter}
+        onPointerLeave={hover.card.onPointerLeave}
       >
-        <div className="acpmux-context-title">{t("context.title")}</div>
-        <div className="acpmux-context-percent">{t("context.percent", { percent })}</div>
-        <div className="acpmux-context-bar" aria-hidden="true">
-          <span style={{ width: `${percent}%` }} />
-        </div>
         {known && (
-          <div className="acpmux-context-tokens">
-            {t("context.tokens", { used: tokens.format(used), size: tokens.format(size) })}
+          <div onFocusCapture={hover.card.onFocusCapture} onBlurCapture={hover.card.onBlurCapture}>
+            <ContextCardBody
+              used={used}
+              size={size}
+              setup={setup}
+              breakdown={reported}
+              working={working}
+              onCompact={
+                onCompact &&
+                (() => {
+                  setPinned(false);
+                  onCompact();
+                })
+              }
+              onOpenDetails={
+                onOpenDetails &&
+                (() => {
+                  setPinned(false);
+                  onOpenDetails();
+                })
+              }
+            />
           </div>
         )}
-        {known && setup !== undefined && setup <= used && (
-          <div className="acpmux-context-parts">
-            <div className="acpmux-context-part">
-              <span className="acpmux-context-part-name">{t("context.setup")}</span>
-              <span className="acpmux-context-part-tokens">{tokens.format(setup)}</span>
-              <span className="acpmux-context-part-detail">{t("context.setupDetail")}</span>
-            </div>
-            <div className="acpmux-context-part">
-              <span className="acpmux-context-part-name">{t("context.conversation")}</span>
-              <span className="acpmux-context-part-tokens">{tokens.format(used - setup)}</span>
-            </div>
-          </div>
-        )}
-        {onCompact && (
-          <button
-            type="button"
-            className="acpmux-context-compact"
-            disabled={working}
-            onClick={() => {
-              setOpen(false);
-              onCompact();
-            }}
-          >
-            {t("context.compact")}
-          </button>
-        )}
-      </Popover>
+      </AnchoredCard>
     </span>
   );
 }
@@ -1313,7 +1523,12 @@ export function Picker({
       </button>
       {/* A native select cannot hold descriptions, sections or the pane's styling. */}
       {open && (
-        <div ref={attach} style={menuStyle} className={`ui-popup acpmux-menu acpmux-menu-${align}`} data-side="above">
+        <div
+          ref={attach}
+          style={menuStyle}
+          className={`ui-popup ui-glass acpmux-menu acpmux-menu-${align}`}
+          data-side="above"
+        >
           {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
           <div id={menuId} role="listbox" aria-label={heading ?? label}>
             {heading && (
@@ -1382,11 +1597,22 @@ export function Picker({
 }
 
 // Composer icons (a 16px grid drawn at 18px, stroke in currentColor).
-function Icon({ children, size = 18, shield }: { children: React.ReactNode; size?: number; shield?: string }) {
+function Icon({
+  children,
+  size = 18,
+  shield,
+  modeIcon,
+}: {
+  children: React.ReactNode;
+  size?: number;
+  shield?: string;
+  modeIcon?: ModeIconName;
+}) {
   return (
     <svg
       className="acpmux-icon"
       data-shield={shield}
+      data-mode-icon={modeIcon}
       width={size}
       height={size}
       viewBox="0 0 16 16"
@@ -1404,8 +1630,8 @@ function Icon({ children, size = 18, shield }: { children: React.ReactNode; size
 }
 const SHIELD = "M8 1.9 13 3.7v4.1c0 3.1-2.3 5.3-5 6.3-2.7-1-5-3.2-5-6.3V3.7Z";
 /** Full access: the shield with an exclamation mark, drawn in the warning color by its row. */
-export const ShieldIcon = ({ shield }: { shield?: string }) => (
-  <Icon shield={shield}>
+export const ShieldIcon = ({ shield, modeIcon }: { shield?: string; modeIcon?: ModeIconName }) => (
+  <Icon shield={shield} modeIcon={modeIcon}>
     <path d={SHIELD} />
     <path d="M8 5.2v3.3" />
     <circle cx="8" cy="10.9" r=".35" fill="currentColor" />
@@ -1452,6 +1678,27 @@ function ModeShield({ modeId }: { modeId?: unknown }) {
     <ShieldPlainIcon shield={kind} />
   );
 }
+/** Codex's approval icons (its own menu's): a raised hand for Ask for approval, a terminal prompt in
+ * a shield for Approve for me, the shield with "!" for Full access. */
+const HandIcon = () => (
+  <Icon modeIcon="hand">
+    <path d="M5.5 8.6V4.4a.9.9 0 0 1 1.8 0V8M7.3 7.6V3.3a.9.9 0 0 1 1.8 0v4.3M9.1 7.7V4a.9.9 0 0 1 1.8 0v4.6" />
+    <path d="M10.9 7.4a.9.9 0 0 1 1.8 0v1.9a4.6 4.6 0 0 1-4.6 4.6h-.3a4 4 0 0 1-3-1.4L3.3 10.8a.9.9 0 0 1 1.3-1.2l.9.9" />
+  </Icon>
+);
+const TerminalShieldIcon = () => (
+  <Icon modeIcon="terminal-shield">
+    <path d={SHIELD} />
+    <path d="m5.8 6.4 1.6 1.4-1.6 1.4M8.4 9.6h2" />
+  </Icon>
+);
+/** A mode's symbol: the harness's own icon for it when its menu draws one, else the shield family. */
+function ModeIcon({ modeId, icon }: { modeId?: unknown; icon?: ModeIconName }) {
+  if (icon === "hand") return <HandIcon />;
+  if (icon === "terminal-shield") return <TerminalShieldIcon />;
+  if (icon === "shield-alert") return <ShieldIcon shield="alert" modeIcon="shield-alert" />;
+  return <ModeShield modeId={modeId} />;
+}
 export const ChevronIcon = () => (
   <Icon size={14}>
     <path d="M4.6 6.3 8 9.6l3.4-3.3" />
@@ -1479,22 +1726,23 @@ export const PlusIcon = () => (
     <path d="M8 2.75v10.5M2.75 8h10.5" />
   </Icon>
 );
-/** Send's arrow: iMessage's bold arrow.up, a heavier stroke than the bar's other glyphs. */
+/** Send's arrow: a plain outline glyph with the mic's stroke (Leo 2026-10-21: no disc). */
 export const ArrowUpIcon = () => (
   <Icon>
-    <path d="M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1" strokeWidth={2.1} />
+    <path d="M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1" />
   </Icon>
 );
 /** Steer's return glyph (↵): a prompt typed during a turn goes in now, as Codex and Claude draw it. */
 export const ReturnIcon = () => (
   <Icon>
-    <path d="M12.6 3.6v4.1a1.8 1.8 0 0 1-1.8 1.8H3.6M6.6 6.4 3.4 9.5l3.2 3.1" strokeWidth={1.9} />
+    <path d="M12.6 3.6v4.1a1.8 1.8 0 0 1-1.8 1.8H3.6M6.6 6.4 3.4 9.5l3.2 3.1" />
   </Icon>
 );
+/** Stop: a plain outline square with the mic's stroke, Claude Code desktop's, never a disc. */
 export const StopIcon = () => (
-  <svg className="acpmux-icon" width={18} height={18} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-    <rect x="3" y="3" width="10" height="10" rx="2" fill="currentColor" />
-  </svg>
+  <Icon>
+    <rect x="3.5" y="3.5" width="9" height="9" rx="1.5" />
+  </Icon>
 );
 export const PlanIcon = () => (
   <Icon>

@@ -174,6 +174,52 @@ import Testing
         #expect(try await store.save(again).saved.history.count == 1)
     }
 
+    @Test func aRemovedPageStaysOutUnderEverySpellingOfItsURL() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "import-remove-spelling-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ImportedDataStore(directory: root)
+        let then = Date().addingTimeInterval(-600)
+        let page = { (url: String) in ImportedHistoryEntry(url: URL(string: url)!, title: nil, visitCount: 1, lastVisit: then) }
+        var batch = ImportBatch(source: ImportSourceRecord(browser: .chrome, profileDirectory: "Default", displayName: "Google Chrome",
+                                                           proposedProfileID: "p1", targetProfileID: "p1"), kinds: [.history])
+        batch.history = [page("http://www.A.example/One/"), page("https://a.example/one?tab=2")]
+        try await store.save(batch)
+
+        // The omnibar shows these as one row (scheme, www, case, trailing slash), so removing it removes both.
+        try await store.forgetPage(URL(string: "https://a.example/one")!, profile: "p1")
+        #expect(await store.batches(profile: "p1").first?.history.map(\.url.absoluteString) == ["https://a.example/one?tab=2"])
+        batch.history = [page("https://www.a.example/ONE"), page("https://a.example/one?tab=2")]
+        #expect(try await store.save(batch).saved.history.map(\.url.absoluteString) == ["https://a.example/one?tab=2"])
+    }
+
+    @Test func theRemovalFencesStayBounded() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "import-fence-bound-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ImportedDataStore(directory: root)
+        var batch = ImportBatch(source: ImportSourceRecord(browser: .chrome, profileDirectory: "Default", displayName: "Google Chrome",
+                                                           proposedProfileID: "p1", targetProfileID: "p1"), kinds: [.history])
+        batch.history = [ImportedHistoryEntry(url: URL(string: "https://a.example/")!, title: nil, visitCount: 1, lastVisit: Date().addingTimeInterval(-60))]
+        try await store.save(batch)
+
+        // A Clear History of all time covers every earlier removal, so those fences go.
+        try await store.forgetPage(URL(string: "https://a.example/one")!, profile: "p1")
+        try await store.forgetSite(host: "b.example")
+        try await store.forgetHistory(profile: "p1", since: nil)
+        let record = try #require(await store.sources().first)
+        #expect(record.removedPages == nil && record.removedSites == nil)
+        #expect(record.clearedRanges?.count == 1)
+
+        // Past the limit the oldest removals go; a page saved by an older build is keyed the new way.
+        var many = ImportSourceRecord(browser: .chrome, profileDirectory: "Default", displayName: "Google Chrome", proposedProfileID: "p1", targetProfileID: "p1")
+        let base = Date(timeIntervalSince1970: 1_000_000)
+        many.removedPages = Dictionary(uniqueKeysWithValues: (0..<(ImportSourceRecord.fenceLimit + 2)).map { ("https://a.example/\($0)", base.addingTimeInterval(Double($0))) })
+        many.removedPages?["https://www.a.example/Old/"] = base.addingTimeInterval(1_000_000)
+        let compacted = many.compacted()
+        #expect(compacted.removedPages?.count == ImportSourceRecord.fenceLimit)
+        #expect(compacted.removedPages?["a.example/0"] == nil, "the oldest removal goes first")
+        #expect(compacted.removedPages?["a.example/old"] != nil)
+    }
+
     @Test func clearedRangesMerge() {
         let base = Date(timeIntervalSince1970: 1_000_000)
         let range = { (start: Double, end: Double) in DateInterval(start: base.addingTimeInterval(start), end: base.addingTimeInterval(end)) }

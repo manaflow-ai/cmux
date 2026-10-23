@@ -597,7 +597,7 @@ code {
   height: 14px;
   border-radius: 50%;
   background: var(--page-elevated);
-  transition: transform 0.15s ease;
+  transition: transform var(--cmux-motion-micro) ease;
 }
 
 .apps-switch.on .apps-switch-knob {
@@ -801,11 +801,28 @@ code {
   .apps-chips {
     flex-wrap: nowrap;
     overflow-x: auto;
-    scrollbar-width: none;
     /* 2px left of the first chip for its focus ring (pulled back so it stays on the edge), and room
        past the last one to scroll it clear of the fade. */
     margin-left: -2px;
     padding-inline: 2px 24px;
     mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
   }
+}
+
+/* Host glyphs (apps-web-DESIGN.md): cmux's own drawing as an alpha mask, inked in the text color. */
+.apps-glyph {
+  display: inline-block;
+  flex: none;
+  background-color: currentColor;
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+}
+
+.apps-icon-tile {
+  display: inline-grid;
+  place-items: center;
+  color: var(--page-text);
+  background: var(--page-hover);
+  border: 1px solid var(--page-separator);
 }

@@ -119,4 +119,13 @@ mod session_arg {
             "{params}"
         );
     }
+
+    #[test]
+    fn agent_open_tab_opens_an_existing_session_as_a_tab_of_a_pane() {
+        let params = action_run_params(&["agent", "open-tab", "sess-1", "--target", "pane:pane_7"]);
+        assert_eq!(params["action"], "agent open-tab", "{params}");
+        assert_eq!(params["cli"], true, "{params}");
+        assert_eq!(params["target"], "pane:pane_7", "{params}");
+        assert_eq!(params["args"], json!({"session": "sess-1"}), "{params}");
+    }
 }

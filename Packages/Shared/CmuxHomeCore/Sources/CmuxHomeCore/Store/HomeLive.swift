@@ -136,7 +136,7 @@ public struct HomeLiveRun: Hashable, Sendable {
     /// The run's talk steps in order, joined by a blank line ("" before the first text).
     public var text: String
     public var activity: HomeLiveActivity?
-    /// The headline of the run's newest thought (``HomeThoughtHeadline``), kept after its step ends
+    /// The headline of the run's newest thought (`String.thoughtHeadline`), kept after its step ends
     /// until the next thought; nil when there is none.
     /// Home's running indicator shows its headline as the Chief's progress narration.
     public var thought: String? = nil

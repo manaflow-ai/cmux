@@ -13,6 +13,7 @@ export function BackgroundMark({ background }: { background: AcpmuxBackgroundSta
     case "running": {
       const label = t("tools.background.running");
       return (
+        // tooltip-allow: the spinner is the row's only visible mark; its label is for screen readers only
         <span className="cv-command__bg-state" title={label} data-state="running">
           <Spinner size={12} />
           <span className="cv-command__bg-label" data-find-skip>
@@ -29,6 +30,7 @@ export function BackgroundMark({ background }: { background: AcpmuxBackgroundSta
       );
     case "stopped":
       return (
+        // tooltip-allow: the row shows only "Stopped"; the agent's reason is on hover, not on screen
         <span className="cv-command__stopped" title={background.reason} data-state="stopped">
           {t("bgTask.state.stopped")}
         </span>

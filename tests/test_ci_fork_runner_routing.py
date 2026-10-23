@@ -176,8 +176,9 @@ FORK_PULL_REQUEST_LABEL = re.compile(
 # CI_SIDE_LANE_RUNNER and CI_LIGHT_LANE_RUNNER name owned side labels outright
 # (runner_label_policy.side_lane_reason), and CI_AWS_SIDE_RUNNER the owned AWS
 # pool (aws_side_reason), so every read of them is gated too. CI_FAST_LANE_RUNNER
-# names the fast tier's own owned label, so it is gated as well.
-OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER|CI_SIDE_LANE_RUNNER|CI_LIGHT_LANE_RUNNER|CI_AWS_SIDE_RUNNER|CI_FAST_LANE_RUNNER)"
+# names the fast tier's own owned label and CI_SESSION_LANE_RUNNER generated
+# files' session label, so they are gated as well.
+OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER|CI_SIDE_LANE_RUNNER|CI_LIGHT_LANE_RUNNER|CI_AWS_SIDE_RUNNER|CI_FAST_LANE_RUNNER|CI_SESSION_LANE_RUNNER)"
 OWNED_RUNNER_VARIABLE = re.compile(
     rf"\bvars(?:\.{OWNED_RUNNER_NAME}\b|\[\s*'{OWNED_RUNNER_NAME}'\s*\])", re.IGNORECASE
 )

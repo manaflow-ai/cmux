@@ -425,6 +425,18 @@ impl Transcript {
                             }
                         }
                     }
+                    // Several agents' messages that went in as one turn (acpmux `hub/digest.rs`).
+                    if provenance["kind"] == "agent_digest" {
+                        extra.insert("origin".into(), json!("agent_digest"));
+                        let senders: Vec<Value> = provenance["messages"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|m| m["from"].as_str())
+                            .map(|from| json!(acpmux::secret_scan::mask(from)))
+                            .collect();
+                        extra.insert("senders".into(), Value::Array(senders));
+                    }
                     let text = msg["text"].as_str().unwrap_or_default().to_owned();
                     self.push(seq, "user", text, extra);
                 }
@@ -437,7 +449,14 @@ impl Transcript {
                 _ => {}
             },
             Some("in") if !kind.ends_with(".replay") && msg["method"] == "session/update" => {
-                self.apply_update(seq, &msg["params"]["update"]);
+                // A subagent's words (`_meta.acpmux.subagent`) are its own, never the chat's answer.
+                let words = matches!(
+                    msg["params"]["update"]["sessionUpdate"].as_str(),
+                    Some("agent_message_chunk" | "agent_thought_chunk")
+                );
+                if !words || msg["params"]["_meta"]["acpmux"]["subagent"].is_null() {
+                    self.apply_update(seq, &msg["params"]["update"]);
+                }
             }
             _ => {}
         }
@@ -812,6 +831,19 @@ mod tests {
             assert_eq!(item["origin"], Value::Null, "{item}");
             assert_eq!(item["from"], Value::Null, "{item}");
         }
+    }
+
+    #[test]
+    fn a_turn_of_agent_messages_names_its_senders() {
+        let events = vec![mux(
+            1,
+            "user_message",
+            json!({"text": "2 messages", "_meta": {"provenance": {"kind": "agent_digest", "messages": [{"promptId": "p1", "from": "lane-a"}, {"promptId": "p2", "from": "lane-b"}]}}}),
+        )];
+        let page = transcript(&events).page("c", 0, 10, false, 1);
+        let item = &page["items"][0];
+        assert_eq!(item["origin"], "agent_digest", "{item}");
+        assert_eq!(item["senders"], json!(["lane-a", "lane-b"]), "{item}");
     }
 
     #[test]

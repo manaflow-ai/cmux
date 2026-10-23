@@ -41,13 +41,17 @@ const thumbResize: Play = async (ctx) => {
     kind: "scroll-thumb",
     target: ".scroll-area-motion-gallery__scroll",
     visual: ".scroll-area-motion-gallery__scroll .cmux-scrollbar-thumb",
-    maxMs: 1200,
+    maxMs: 3000,
   });
   await ctx.click({ testId: "scroll-thumb-shrink" });
   await ctx.waitFor(() => thumb().getBoundingClientRect().height > before + 1);
   const shrunk = thumb().getBoundingClientRect().height;
   await ctx.click({ testId: "scroll-thumb-grow" });
   await ctx.waitFor(() => thumb().getBoundingClientRect().height < shrunk - 1);
+  // Judge the motion once the thumb's size transition has finished and held for a few frames (the
+  // probe calls it settled after three samples at the final size), not mid-way.
+  await ctx.waitFor(() => thumb().getAnimations().length === 0);
+  for (let frame = 0; frame < 3; frame++) await new Promise((done) => requestAnimationFrame(done));
   const report = ctx.motion.stop();
   if (!report || report.status === "fail")
     throw new Error(report?.problems.join("; ") ?? "scroll thumb motion was not sampled");

@@ -31,7 +31,7 @@ struct AgentPaneSelfFocusTests {
     private func refuses(_ view: AgentPaneView, inInputEvent: Bool = false, focusModelApplies: Bool = false,
                          focusedPane: String? = "pane-a", shownIn pane: String? = "pane-a") -> Bool {
         AgentPaneView.refusesSelfFocus(view.webView, inInputEvent: inInputEvent, focusModelApplies: focusModelApplies,
-                                       focusedPane: focusedPane, pane: { _ in pane })
+                                       focusedPane: { focusedPane }, pane: { _ in pane })
     }
 
     @Test func aHiddenPageInTheFocusedPaneCannotTakeTheKeyboard() throws {

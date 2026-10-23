@@ -158,10 +158,16 @@ test("between calls, the line reads Working for, with no mark before it", () => 
   expect(stillMarkup(html)).toBe(true);
 });
 
-test("Thinking is the word alone, with no mark before it", () => {
+test("Thinking is the word alone, with no mark before it; the word itself shimmers", () => {
   const html = renderToStaticMarkup(<Thinking />);
   expect(text(html)).toBe("Thinking");
   expect(stillMarkup(html)).toBe(true);
+  expect(html).toContain('class="cv-thinking is-shimmer"');
+});
+
+test("the start status before the turn does not shimmer", () => {
+  const html = renderToStaticMarkup(<Thinking status="Starting Claude Code…" />);
+  expect(html).not.toContain("is-shimmer");
 });
 
 test("the activity line names the work with no dots before it", () => {
@@ -179,12 +185,23 @@ test("a call whose title is its raw input reads as a label, not JSON", () => {
   expect(status.doing).not.toContain("{");
 });
 
-test("nothing on the running line loops: no working dots, no activity dots, no Thinking shimmer", async () => {
+test("no dots loop on the running line; only the word Thinking shimmers, in the theme accent", async () => {
   const css = await Bun.file(
     new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
   ).text();
   expect(css).not.toContain("cv-thinking-sweep");
   expect(css).not.toMatch(/cv-working-mark|cv-working-dot|cv-activity__dots|cv-activity-dot/);
+  // The sweep runs only with motion allowed and the status look not static, on the shared clock's
+  // keyframes (two transform loops, ShimmerText.tsx), its lit words mixed from the theme accent
+  // (never a literal color). working-loops-compositor.test.tsx checks the loops in the engines.
+  const rule = (selector: string) =>
+    css.match(new RegExp(`:root:not\\(\\[data-status-indicators="static"\\]\\) \\${selector} \\{([^}]*)\\}`));
+  const band = rule(".cv-shimmer__band");
+  const lit = rule(".cv-shimmer__lit");
+  expect(band![1]).toContain("animation: cmux-shimmer-band");
+  expect(lit![1]).toContain("animation: cmux-shimmer-lit");
+  expect(lit![1]).toContain("var(--agent-accent");
+  expect(lit![1]).not.toMatch(/#[0-9a-f]{3,8}\b|rgb\(|orange/i);
 });
 
 // Find counts and visits only transcript rows (findMatches skips the working row), so the status

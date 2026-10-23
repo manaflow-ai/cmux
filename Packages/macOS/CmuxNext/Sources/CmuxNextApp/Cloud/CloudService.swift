@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
@@ -46,8 +47,9 @@ final class CloudService {
     private(set) var hasLoadedMachines = false
     /// The Cloud app server's ops on the local daemon (contract 2.1).
     var appOps: CloudAppOp { CloudAppLinks.ops(local: machines.local) }
-    /// The cmux window a create's native confirmation attaches to (set by AppServices).
-    @ObservationIgnored var confirmWindow: (@MainActor () -> NSWindow?)?
+    /// The person's confirmation of a create (set by AppServices: a sheet in the active window, or the
+    /// sidebar card for an agent's or a script's request while that sidebar shows); none answers false.
+    @ObservationIgnored var confirmCreate: (@MainActor (CloudMachineCreateFlow.Prompt) async -> Bool)?
     /// Machine creations in flight (sidebar can show a placeholder).
     private(set) var creating = 0
     /// New Cloud Workspace runs from the click to the open terminal: each
@@ -130,7 +132,15 @@ final class CloudService {
     }
 
     static var deviceName: String { MacName().linkDeviceName() }
-    func localDeviceID() throws -> String { try paths.loadOrCreateDeviceID() }
+    /// This Mac's install id, read from disk once (it never changes once written); every window
+    /// record save reads it, so a pane focus move does no file I/O (speed-of-sound-DESIGN.md 3.2).
+    func localDeviceID() throws -> String {
+        if let cachedDeviceID { return cachedDeviceID }
+        let id = try paths.loadOrCreateDeviceID()
+        cachedDeviceID = id
+        return id
+    }
+    @ObservationIgnored private var cachedDeviceID: String?
 
     var isSignedIn: Bool { auth.isSignedIn }
 
@@ -204,6 +214,13 @@ final class CloudService {
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
                 guard let self, let last = self.lastRefresh, last.duration(to: .now) > .seconds(30) else { continue }
                 await self.refresh()
+            }
+        })
+        // After sleep the list is stale even with cmux in front: the idle
+        // auto-pause may have parked machines while the lid was closed.
+        observers.append(Task { [weak self] in
+            for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.didWakeNotification) {
+                await self?.refresh(ifOlderThan: .seconds(30))
             }
         })
     }
@@ -284,7 +301,15 @@ final class CloudService {
         guard auth.isSignedIn, unavailableReason == nil else { return }
         lastRefresh = .now
         do {
-            let list = configuration.linkSource == .appServer ? try await appServerMachines() : try await api.listMachines()
+            let list: [CloudMachine]
+            if configuration.linkSource == .appServer {
+                list = try await appServerMachines()
+                machines.cloudLimits = nil
+            } else {
+                let listed = try await api.listMachinesAndLimits()
+                list = listed.machines
+                machines.cloudLimits = listed.limits
+            }
             lastError = nil
             reconcile(list)
             hasLoadedMachines = true
@@ -292,6 +317,12 @@ final class CloudService {
             lastError = String(describing: error)
             logger.error("machine list failed: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    /// ``refresh()`` unless the list was read within `age`.
+    func refresh(ifOlderThan age: Duration) async {
+        if let last = lastRefresh, last.duration(to: .now) < age { return }
+        await refresh()
     }
 
     private func reconcile(_ list: [CloudMachine]) {
@@ -336,6 +367,12 @@ final class CloudService {
             session = CloudMachineSession(machine: machine, link: link)
         }
         session.daemon.workTracker = machines.local.workTracker
+        // An attach to a paused machine resumes it through Resume Machine's own path.
+        session.resumer = { [weak self] id in try await self?.resumeMachine(id) }
+        // An attach reads a record that may be stale (paused behind the app) again first.
+        session.refresher = { [weak self] force in
+            if force { await self?.refresh() } else { await self?.refresh(ifOlderThan: .seconds(30)) }
+        }
         machines.add(session)
         session.connect()
         return session
@@ -344,6 +381,7 @@ final class CloudService {
     private func dropAllMachines() {
         for creation in creations.all { creations.remove(creation) }
         for session in machines.cloud { machines.remove(session.machineID)?.disconnect() }
+        machines.cloudLimits = nil
         hasLoadedMachines = false
     }
 
@@ -351,18 +389,17 @@ final class CloudService {
 
     /// Creates a machine and connects to it. Returns its session.
     /// `creation` moves to its `creating` stage when the request is sent.
-    /// `startedByPerson`: the person's own gesture in this app; on the app
-    /// server path any other create asks the person first
-    /// (``CloudMachineCreateFlow``).
-    func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool) async throws -> CloudMachineSession {
+    /// `startedByPerson`: the person's own gesture in this app; any other
+    /// create asks the person first, on either path (``CloudMachineCreateFlow``); `askedBy` names the agent chat that asked.
+    func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool, askedBy: String? = nil) async throws -> CloudMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         guard auth.isSignedIn else { throw ActionFailure(message: CloudStrings.signInFirst) }
         creating += 1
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
         let machine = configuration.linkSource == .appServer
-            ? try await appServerCreate(name: name, startedByPerson: startedByPerson, onSent: onSent)
-            : try await api.createMachine(displayName: name, onSent: onSent)
+            ? try await appServerCreate(name: name, startedByPerson: startedByPerson, askedBy: askedBy, onSent: onSent)
+            : try await CloudMachineCreateFlow.legacy(name: name, startedByPerson: startedByPerson, askedBy: askedBy, confirm: { [weak self] in await self?.confirmCreate?($0) ?? false }, create: { [api] in try await api.createMachine(displayName: name, onSent: onSent) })
         logger.info("created machine \(machine.id, privacy: .public)")
         if let existing = machines.session(machine.id) { return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }
@@ -388,12 +425,21 @@ final class CloudService {
         logger.info("resumed machine \(machineID, privacy: .public)")
     }
 
+    /// The machine's idle auto-pause (`PUT /api/vm/{id}/idle-pause`): minutes
+    /// of idle before cmux Cloud pauses it; 0 is Off.
+    func setIdlePause(_ machineID: String, minutes: Int) async throws {
+        try await api.setIdlePause(machineID, minutes: minutes)
+        machines.session(machineID)?.machine.idlePauseMinutes = minutes
+        logger.info("set idle pause \(machineID, privacy: .public) to \(minutes) min")
+    }
+
     func renameMachine(_ machineID: String, to name: String) async throws {
         try await api.renameMachine(machineID, to: name.isEmpty ? nil : name)
         machines.session(machineID)?.machine.displayName = name.isEmpty ? nil : name
     }
 
     func signOut() async {
+        AgentPaneTailCache.shared.clear() // the panes' chat tails: memory only, forgotten whole
         // No ensure starts from here until the session's final endLink (the
         // signed-out branch above, after auth.signOut).
         link.beginEnding()

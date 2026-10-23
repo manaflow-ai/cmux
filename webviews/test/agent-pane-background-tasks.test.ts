@@ -3,10 +3,14 @@
 // background end with acpmux's `background_task_update`. The call's own "Ran" row says how its
 // shell stands (running in the background, then stopped or finished), in whichever turn it ended;
 // a shell whose call is not in the transcript is noted where it ended, in a few words
-// ("Background task finished: pytest -x"). The header's summary lists the chat's background tasks
-// with how each stands. A click on a note or a summary row opens the task's terminal
-// (`chat.processTerminal`, background-task-terminal-DESIGN.md). The page is the pane's dev entry with its browser
-// host, talking JSON-RPC to a stand-in acpmux daemon.
+// ("Background task finished: pytest -x"). The Inspector's Background tasks (Debug Settings
+// `agent.inspector`; with it off, the header's summary) lists the chat's background tasks with how
+// each stands, the ones only the transcript knows included (this daemon keeps no process registry).
+// A click on a task's row in the Inspector or the summary opens the task's terminal
+// (`chat.processTerminal`, background-task-terminal-DESIGN.md). A click on a note opens it in place
+// (the whole command, how it ended), never a terminal; only its Open in terminal opens one (Leo
+// 2026-10-21). The page is the pane's dev entry with its browser host, talking JSON-RPC to a
+// stand-in acpmux daemon.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -189,6 +193,9 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
       .getByRole("button", { name: /^Worked for/ })
       .first()
       .click();
+    // Its two calls fold under their run's line too (Debug toggle agentPane.debug.codexToolRuns,
+    // on by default): open it to their rows.
+    await page.locator("button.cv-tool", { hasText: "Ran 2 commands" }).click();
     const row = (command: string) => page.locator(".cv-tool", { hasText: command }).first();
     await row("npm run dev").waitFor({ timeout: 5_000 });
     const stopped = row("npm run dev").locator(".cv-command__stopped");
@@ -256,10 +263,22 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
         .map((post) => post.params),
     );
 
-  test("clicking a background task's end opens its terminal beside the chat", async () => {
+  test("clicking a background task's end opens it in place; only Open in terminal opens its terminal", async () => {
     const page = await recordingPage();
     const note = page.getByRole("button", { name: /Background task finished: pytest -x/ });
+    const top = await note.evaluate((node) => node.getBoundingClientRect().top);
     await note.click();
+    expect(await note.getAttribute("aria-expanded")).toBe("true");
+    const card = page.locator(`[id="${await note.getAttribute("aria-controls")}"]`);
+    await card.waitFor({ timeout: 5_000 });
+    expect(await card.locator(".cv-shell__command").textContent()).toBe("$ pytest -x");
+    // acpmux's own words on the end.
+    expect(await card.locator(".cv-bgtask__detail").textContent()).toBe("Tests passed");
+    // The clicked line stays where it was (foldAnchor.ts).
+    expect(Math.abs((await note.evaluate((node) => node.getBoundingClientRect().top)) - top)).toBeLessThan(1);
+    // Opening it asked the host for nothing.
+    expect(await opened(page)).toEqual([]);
+    await card.getByRole("button", { name: "Open in terminal" }).click();
     await page.waitForFunction(() =>
       ((window as any).__posted as { method: string }[]).some((post) => post.method === "chat.processTerminal"),
     );
@@ -267,46 +286,79 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     await page.close();
   });
 
-  test("clicking a background task in the summary opens its terminal, a running one included", async () => {
-    const page = await recordingPage();
-    await page.getByRole("button", { name: "Chat summary" }).click();
-    const section = page.getByRole("region", { name: "Background tasks" });
-    await section.waitFor({ timeout: 5_000 });
-    await section.getByRole("button", { name: /cargo watch -x test/ }).click();
-    await page.waitForFunction(() =>
-      ((window as any).__posted as { method: string }[]).some((post) => post.method === "chat.processTerminal"),
-    );
-    expect(await opened(page)).toEqual([{ toolCallId: "bg2" }]);
-    await page.close();
-  });
-
-  test("the summary lists the chat's background tasks: running ones first, the finished folded", async () => {
-    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
-    await page.goto(url(CHAT));
-    await page.getByText("Dev server stopped.").waitFor();
-    await page.getByRole("button", { name: "Chat summary" }).click();
-    const section = page.getByRole("region", { name: "Background tasks" });
-    await section.waitFor({ timeout: 5_000 });
-    const rows = () =>
-      section
-        .locator(".acpmux-summary-task")
-        .evaluateAll((items) =>
-          items.map((item) => [
-            item.querySelector(".acpmux-summary-text")?.textContent,
-            item.querySelector(".acpmux-summary-meta")?.textContent,
-          ]),
+  type Page = Awaited<ReturnType<typeof recordingPage>>;
+  /// Where the chat lists its background tasks: the Inspector's section (the App pushes Debug
+  /// Settings `agent.inspector` with the header state; the Inspector opens by default), or, with it
+  /// off, the summary card's under the header's Chat summary.
+  const surfaces = {
+    inspector: {
+      open: async (page: Page) => {
+        await page.evaluate(() =>
+          (
+            window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
+          ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
         );
-    // The running one says how long it has run; the ended ones wait behind one row.
-    const running = await rows();
-    expect(running.map(([command]) => command)).toEqual(["cargo watch -x test"]);
-    expect(running[0]![1]).toMatch(/^\d+[smh]/);
-    const finished = section.getByRole("button", { name: "2 finished" });
-    await finished.click();
-    expect(await finished.getAttribute("aria-expanded")).toBe("true");
-    expect((await rows()).slice(1)).toEqual([
-      ["npm run dev", "Stopped"],
-      ["pytest -x", "Finished"],
-    ]);
-    await page.close();
-  });
+        const section = page.locator('aside.acpmux-chat-inspector section[data-section="tasks"]');
+        await section.waitFor({ timeout: 5_000 });
+        return section;
+      },
+      row: ".acpmux-chat-inspector-task",
+      text: ".acpmux-chat-inspector-task__command",
+      // A running row says its time; an ended one how it ended.
+      meta: ".acpmux-chat-inspector-task__time, .acpmux-chat-inspector-task__state",
+    },
+    "summary card": {
+      open: async (page: Page) => {
+        await page.getByRole("button", { name: "Chat summary" }).click();
+        const section = page.getByRole("region", { name: "Background tasks" });
+        await section.waitFor({ timeout: 5_000 });
+        return section;
+      },
+      row: ".acpmux-summary-task",
+      text: ".acpmux-summary-text",
+      meta: ".acpmux-summary-meta",
+    },
+  };
+
+  for (const [name, surface] of Object.entries(surfaces)) {
+    test(`clicking a background task in the ${name} opens its terminal, a running one included`, async () => {
+      const page = await recordingPage();
+      const section = await surface.open(page);
+      await section.getByRole("button", { name: /cargo watch -x test/ }).click();
+      await page.waitForFunction(() =>
+        ((window as any).__posted as { method: string }[]).some((post) => post.method === "chat.processTerminal"),
+      );
+      expect(await opened(page)).toEqual([{ toolCallId: "bg2" }]);
+      await page.close();
+    });
+
+    test(`the ${name} lists the chat's background tasks: running ones first, the finished folded`, async () => {
+      const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+      await page.goto(url(CHAT));
+      await page.getByText("Dev server stopped.").waitFor();
+      const section = await surface.open(page);
+      const rows = () =>
+        section
+          .locator(surface.row)
+          .evaluateAll(
+            (items, { text, meta }) =>
+              items.map((item) => [item.querySelector(text)?.textContent, item.querySelector(meta)?.textContent]),
+            { text: surface.text, meta: surface.meta },
+          );
+      // The running one says how long it has run, with no Stop (the registry lists nothing); the
+      // ended ones wait behind one row.
+      const running = await rows();
+      expect(running.map(([command]) => command)).toEqual(["cargo watch -x test"]);
+      expect(running[0]![1]).toMatch(/^\d+[smh]/);
+      expect(await section.locator("button.acpmux-chat-inspector-stop").count()).toBe(0);
+      const finished = section.getByRole("button", { name: "2 finished" });
+      await finished.click();
+      expect(await finished.getAttribute("aria-expanded")).toBe("true");
+      expect((await rows()).slice(1)).toEqual([
+        ["npm run dev", "Stopped"],
+        ["pytest -x", "Finished"],
+      ]);
+      await page.close();
+    });
+  }
 });

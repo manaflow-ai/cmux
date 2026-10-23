@@ -11,21 +11,16 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional], targets: [.pane], cliName: "pane split-right", mainMenu: .view, startsTerminal: true
             ),
             // A PNG of the pane as on screen, never changing focus or selection
-            // (ScreenshotHandlers): Copy menu and palette; automation is refused.
-            {
-                var screenshot = ActionDescriptor(
-                    id: "pane.screenshot",
-                    title: String(localized: "action.pane.screenshot", defaultValue: "Screenshot Pane", bundle: .module),
-                    keywords: ["screenshot", "capture", "image", "png", "picture"], category: .pane, symbol: "camera",
-                    surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.screenshotOut], targets: [.pane],
-                    cliName: "pane screenshot",
-                    surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.pane, .inspect, 510, folder: .copy)])
-                )
-                // A pane can contain browser pixels. Automation must use the browser host's
-                // guarded capture, which masks cross-session secrets before it returns pixels.
-                screenshot.isPersonOnly = true
-                return screenshot
-            }(),
+            // (ScreenshotHandlers): Copy menu, palette and automation. An automation run's
+            // image has every web page the app does not own painted over (ScreenshotPrivacyMask).
+            ActionDescriptor(
+                id: "pane.screenshot",
+                title: String(localized: "action.pane.screenshot", defaultValue: "Screenshot Pane", bundle: .module),
+                keywords: ["screenshot", "capture", "image", "png", "picture"], category: .pane, symbol: "camera",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.screenshotOut], targets: [.pane],
+                cliName: "pane screenshot",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.pane, .inspect, 510, folder: .copy)])
+            ),
             ActionDescriptor(
                 id: "newColumn",
                 title: String(localized: "action.newColumn", defaultValue: "New Column", bundle: .module),
@@ -173,7 +168,7 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.swapWithSession",
-                title: String(localized: "action.palette.swapWithSession", defaultValue: "Swap With Session…", bundle: .module),
+                title: String(localized: "action.palette.swapWithSession", defaultValue: "Swap with Session…", bundle: .module),
                 keywords: ["swap", "exchange"], category: .pane, symbol: "arrow.left.arrow.right",
                 surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.panePane], targets: [.pane],
                 cliName: "pane swap-with-session"
@@ -350,13 +345,13 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 id: "palette.openFilesPane",
                 title: String(localized: "action.palette.openFilesPane", defaultValue: "Open Files as Pane", bundle: .module),
                 keywords: ["explorer", "pane"], category: .pane, symbol: "doc.text", surfaces: [.palette],
-                targets: [.pane], cliName: "pane open-files-as"
+                arguments: [CatalogArgument.optionalPathString], targets: [.pane], cliName: "pane open-files-as"
             ),
             ActionDescriptor(
                 id: "palette.openFindPane",
                 title: String(localized: "action.palette.openFindPane", defaultValue: "Open Find as Pane", bundle: .module),
                 keywords: ["search", "pane"], category: .pane, symbol: "text.magnifyingglass", surfaces: [.palette],
-                targets: [.pane], cliName: "pane open-find-as"
+                arguments: [CatalogArgument.optionalPathString], targets: [.pane], cliName: "pane open-find-as"
             ),
             ActionDescriptor(
                 id: "palette.openVaultPane",

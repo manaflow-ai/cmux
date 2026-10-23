@@ -29,11 +29,30 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     public var revealFolder: @MainActor (URL) -> Void = { NSWorkspace.shared.revealInBackground([$0]) }
     /// Selects a file in Finder (the image viewer's Show in Finder).
     public var revealFile: @MainActor (URL) -> Void = { NSWorkspace.shared.revealInBackground([$0]) }
+    /// The context menu's Copy Image: replaces the general pasteboard's contents with the item
+    /// (``AgentPaneImageCopies/pasteboardItem(_:data:)``); tests record it instead.
+    public var copyItem: @MainActor (NSPasteboardItem) -> Bool = { AgentPaneImageCopies.writeGeneral($0) }
+    /// Save Image As…: asks where to save the file under the name (the system save panel).
+    public var saveFile: @MainActor (_ file: URL, _ name: String) -> Void = { AgentPaneImageCopies.askToSave($0, name: $1) }
+    /// Quick Look on a file (the system's preview panel).
+    public lazy var quickLookFile: @MainActor (URL) -> Void = { [quickLook = self.quickLook] in quickLook.show($0) }
+    /// Whether the person still holds the pointer's button: a page drag (`image.drag`, `file.drag`)
+    /// becomes the host's drag only then, so page script alone never starts one.
+    public var mouseHeld: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
+    /// Starts the host's drag of a real file out of the pane (the view's dragging session); false
+    /// when there is no pane to drag from.
+    public var startDrag: @MainActor (URL) -> Bool = { _ in false }
+    /// The Quick Look panel's source for ``quickLookFile``.
+    private let quickLook = AgentPaneQuickLook()
     /// Where the image viewer keeps the copies it shows or opens (``AgentPaneImageCopies``).
     public var imageFolder = AgentPaneImageCopies.defaultFolder()
     public var browsers: any AgentPaneBrowserApps = AgentPaneWorkspaceBrowsers()
-    /// What the user's GitHub CLI says about a pull request (`pr.inspect`); nil when it can't say.
-    public var pullRequest: @MainActor (URL) async -> AgentPanePullRequest? = { _ in nil }
+    /// What the host already has about a pull request (`pr.inspect`), with the age of it; it never
+    /// waits on GitHub, and a stale link's refresh runs in the background at most once a minute
+    /// however often it is hovered (``AgentReplyPullRequests``).
+    public var pullRequest: @MainActor (URL) -> AgentPanePullRequestAnswer = { _ in .init() }
+    /// The pull requests a reply links, so the host has them before a card opens.
+    public var registerPullRequests: @MainActor ([URL]) -> Void = { _ in }
     var fetcher: any AgentPaneImageFetching = AgentPaneSafeFetch()
     /// The fetch for web video and audio (``AgentPaneSafeFetch/media``).
     var mediaFetcher: any AgentPaneImageFetching = AgentPaneSafeFetch.media
@@ -43,9 +62,14 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
 
     public init() {}
 
-    /// `pr.inspect`'s reply: the pull request, or `null` when the host can't read it.
-    func respondToPullRequest(_ url: URL) async -> [String: Any] {
-        AgentPaneReply.success(["pullRequest": await pullRequest(url)?.json.foundationObject ?? NSNull()])
+    /// `pr.inspect`'s reply: the pull request the host already has, when it was read, and whether
+    /// a read is running. `null` with no answer yet; the card then shows what the chat knows.
+    func respondToPullRequest(_ url: URL) -> [String: Any] {
+        let answer = pullRequest(url)
+        var reply: [String: Any] = ["pullRequest": answer.pullRequest?.json.foundationObject ?? NSNull(),
+                                    "reading": answer.reading]
+        if let fetchedAt = answer.fetchedAt { reply["fetchedAt"] = fetchedAt }
+        return AgentPaneReply.success(reply)
     }
 }
 
@@ -76,6 +100,9 @@ extension AgentPaneModel {
                 if let title = site.title, !title.isEmpty { entry["title"] = String(title.prefix(300)) }
                 if !entry.isEmpty { sites[text] = entry }
             }
+            // The reply's pull request links are read now, in the background, so a card has them
+            // before the pointer arrives and no hover ever waits on GitHub.
+            replyLinks.registerPullRequests(urls.compactMap(AgentPaneReplyRequest.pullRequestURL))
             let setting = replyLinks.settings()
             return AgentPaneReply.success([
                 "paths": places, "sites": sites,
@@ -90,7 +117,7 @@ extension AgentPaneModel {
         case .listBrowsers:
             return AgentPaneReply.success(["browsers": replyLinks.choices.list(from: replyLinks.browsers)])
         case .inspectPullRequest(let url):
-            return await replyLinks.respondToPullRequest(url)
+            return replyLinks.respondToPullRequest(url)
         case .openIn(let url, let browserId):
             if browserId == "cmux" {
                 guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
@@ -101,7 +128,8 @@ extension AgentPaneModel {
             guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
             replyLinks.browsers.open(url, withApplicationAt: app)
             return AgentPaneReply.success()
-        case .revealImage, .openImageInPane: return await AgentPaneImageCopies.respond(to: request, in: self)
+        case .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile:
+            return await AgentPaneImageCopies.respond(to: request, in: self)
         }
     }
 

@@ -69,9 +69,9 @@ extension AgentPaneView {
     /// answer within `limit`; empty when it holds nothing.
     public func wakeState(limit: Duration = .seconds(1)) async -> AgentPaneWakeState? {
         await agentPaneFirst(within: limit) { [weak self] in
-            guard let webView = self?.webView else { return nil }
+            guard let self else { return nil }
             let script = "const read = window.cmuxAcpmuxActions?.['pane.wakeState']; return read ? await read({}) : null;"
-            let value = try? await webView.callAsyncJavaScript(script, arguments: [:], in: nil, contentWorld: .page)
+            let value = try? await self.callPageScript(script)
             return AgentPaneWakeState(page: value)
         }
     }

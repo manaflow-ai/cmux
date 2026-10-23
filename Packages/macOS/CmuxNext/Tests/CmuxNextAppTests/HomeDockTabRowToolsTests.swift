@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
+@testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextHome
 import CmuxNextSidebar
@@ -15,6 +16,10 @@ import Testing
 @MainActor @Suite struct HomeDockTabRowToolsTests {
     final class Dock: HomeDockSwitchView {
         override func makeContent(for mode: HomeDockMode) -> NSView? { NSView() }
+    }
+
+    @MainActor final class Notices {
+        var shown: [String] = []
     }
 
     final class Tools: NSView {
@@ -105,6 +110,31 @@ import Testing
         #expect(runs.compactMap { $0.target.map { SidebarTransientItem.chiefSubagentSession(LayoutItemID($0.id)) } }
             == ["id-optchat-sub-6b68ac4a-a2", "id-optchat-sub-6b68ac4a-a3"])
         #expect(runs.allSatisfy { $0.arguments.isEmpty })
+    }
+
+    /// Open Chief Subagent run with no subagent row (its shortcut, `cmux action run` without
+    /// `--target`) says why in the refusal notice a keyboard run shows, and the caller gets the
+    /// reason, instead of doing nothing.
+    @Test func openSubagentWithNoSubagentRefusesVisibly() {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        let registry = services.registry
+        let notices = Notices()
+        let shows = registry.refusalObserver
+        registry.refusalObserver = { reason, quiet in
+            if !quiet { notices.shown.append(reason) }
+            shows?(reason, quiet)
+        }
+        defer { registry.refusalObserver = shows }
+        _ = registry.perform(ChiefSidebar.openSubagentAction, invocation: ActionInvocation(origin: .user))
+        #expect(notices.shown.count == 1)
+        #expect(notices.shown.allSatisfy { !$0.isEmpty })
+        let refusal = registry.capturingRefusal {
+            _ = registry.perform(ChiefSidebar.openSubagentAction, invocation: ActionInvocation(origin: .user))
+        }
+        #expect(refusal != nil)
+        #expect(refusal == notices.shown.first)
     }
 
     /// Chief Actions is the app's one more button (⋮, OverflowButton): VoiceOver's press opens the

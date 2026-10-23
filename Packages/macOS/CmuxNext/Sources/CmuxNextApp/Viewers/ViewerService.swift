@@ -114,11 +114,13 @@ final class ViewerService {
     /// it did not open (the refusal shows). `placed`: a new tab opens unselected and reports its
     /// surface there (``LinkOpener`` moves it right of `pane`); a tab that already shows the file
     /// is selected where it is.
+    /// `position` (a Find result): the code editor opens with the cursor there.
+    /// `asText` (Open as Text): a page cmux renders opens as its source in the code editor.
     @discardableResult
-    func openFile(_ file: URL, in pane: PaneController?, markdown: Bool,
+    func openFile(_ file: URL, in pane: PaneController?, markdown: Bool, asText: Bool = false, at position: FilePosition? = nil,
                   placed: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
-        let refusal = if let placed, let opener = fileOpener as? FilePageOpener {
-            opener.open(file, in: pane, userChose: true, placed: placed)
+        let refusal = if placed != nil || position != nil || asText, let opener = fileOpener as? FilePageOpener {
+            opener.open(file, in: pane, userChose: true, asText: asText, at: position, placed: placed)
         } else {
             fileOpener.open(file, in: pane)
         }
@@ -126,7 +128,7 @@ final class ViewerService {
             showRefusal(reason)
             return false
         }
-        let kind: ViewerRecents.Kind = markdown || PickerFilter.markdown.accepts(file.lastPathComponent) ? .markdown : .file
+        let kind: ViewerRecents.Kind = !asText && (markdown || PickerFilter.markdown.accepts(file.lastPathComponent)) ? .markdown : .file
         recents.record(file, as: kind)
         return true
     }

@@ -62,6 +62,8 @@ struct ForkApi {
   // API version 12: page background, New Tab page, install prompts,
   // chrome.omnibox keyword sessions, native messaging fallback folders.
   int (*browser_set_background_color)(int, unsigned int) = nullptr;
+  // API version 17: see-through pages.
+  int (*tab_set_transparent_background)(int, int) = nullptr;
   void (*set_new_tab_page_url)(const char*) = nullptr;
   void (*set_install_prompt_handler)(void (*)(void*, int, int, const char*), void*) = nullptr;
   int (*install_prompt_reply)(int, int) = nullptr;
@@ -117,6 +119,10 @@ struct Host {
 ForkApi& fork_api();
 void InstallForkObserver();
 Host& host();
+
+// True once quit began to stop Chromium (cmux_shim_close_all): no browser is
+// made after, as CEF aborts creating one once its shutdown began.
+bool& stopping();
 
 // Emits one event to Swift (main thread only).
 void Emit(int kind,

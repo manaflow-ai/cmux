@@ -10,7 +10,7 @@
   min-height: 100%;
   padding: 34px clamp(18px, 4vw, 64px) 40px;
   color: var(--compare-ink);
-  background: var(--cmux-surface-background, Canvas);
+  background: var(--cmux-surface-background, transparent);
   font-family: var(--font-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
   font-size: var(--text-detail);
 }
@@ -47,7 +47,7 @@
 .compare-matrix-heading h2 small { margin-left: 7px; color: var(--compare-muted); font-size: var(--text-caption); font-weight: 450; letter-spacing: 0; }
 .compare-capture-receipt { max-width: min(590px, 50%); color: var(--compare-muted); font-size: var(--text-caption); line-height: 1.45; text-align: right; }
 .compare-matrix { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; margin: 0; padding: 0; list-style: none; }
-.compare-candidate { min-width: 0; overflow: hidden; border: 1px solid var(--compare-line); border-radius: 10px; background: var(--cmux-surface-background, Canvas); transition: border-color 120ms ease, box-shadow 120ms ease; }
+.compare-candidate { min-width: 0; overflow: hidden; border: 1px solid var(--compare-line); border-radius: 10px; background: var(--cmux-surface-solid, Canvas); transition: border-color 120ms ease, box-shadow 120ms ease; }
 .compare-candidate[data-selected]:not([data-selected=""]) { border-color: color-mix(in srgb, var(--compare-ink) 45%, var(--compare-line)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--compare-ink) 10%, transparent); }
 .compare-candidate-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 13px 14px 11px; }
 .compare-candidate-select { display: flex; align-items: center; gap: 9px; min-width: 0; border: 0; background: transparent; padding: 0; text-align: left; cursor: pointer; }
@@ -64,7 +64,7 @@
 .compare-candidate-state[data-verdict="running"] { color: var(--compare-amber); }
 .compare-candidate-preview-button { display: block; width: calc(100% - 28px); margin: 0 14px; border: 1px solid var(--compare-line); border-radius: 7px; background: var(--compare-soft); padding: 0; overflow: hidden; cursor: pointer; text-align: left; }
 .compare-candidate-preview-button:hover { border-color: color-mix(in srgb, var(--compare-ink) 40%, var(--compare-line)); }
-.compare-preview { min-width: 0; color: var(--compare-ink); background: color-mix(in srgb, var(--cmux-surface-background, Canvas) 90%, var(--compare-soft)); font-family: var(--font-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif); }
+.compare-preview { min-width: 0; color: var(--compare-ink); background: color-mix(in srgb, var(--cmux-surface-solid, Canvas) 90%, var(--compare-soft)); font-family: var(--font-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif); }
 .compare-preview-bar { display: flex; align-items: center; justify-content: space-between; gap: 7px; min-height: 30px; border-bottom: 1px solid var(--compare-line); padding: 7px 10px; color: var(--compare-muted); font-size: var(--text-caption); }
 .compare-preview-bar strong { color: var(--compare-ink); font-size: var(--text-caption); font-weight: 600; }
 .compare-preview-bar strong span { color: var(--compare-green); }
@@ -113,7 +113,7 @@
 .compare-tabs { display: flex; gap: 3px; margin: 0; padding: 0; border: 0; }
 .compare-tabs-label { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .compare-tabs button { border: 0; border-radius: 5px; background: transparent; padding: 6px 8px; color: var(--compare-muted); font-size: var(--text-caption); cursor: pointer; }
-.compare-tabs button[aria-pressed="true"] { background: var(--compare-ink); color: var(--cmux-surface-background, Canvas); }
+.compare-tabs button[aria-pressed="true"] { background: var(--compare-ink); color: var(--cmux-surface-solid, Canvas); }
 .compare-review-content { display: grid; grid-template-columns: minmax(0, 1fr) 245px; min-height: 300px; }
 .compare-review-main { min-width: 0; padding: 17px; }
 .compare-side-by-side { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(190px, .7fr); gap: 13px; }
@@ -167,7 +167,7 @@
 .compare-approval-bar p { margin: 4px 0 0; color: var(--compare-muted); font-size: var(--text-caption); line-height: 1.45; }
 .compare-approval-bar label { display: flex; align-items: center; gap: 7px; color: var(--compare-muted); font-size: var(--text-caption); white-space: nowrap; }
 .compare-approval-bar input { margin: 0; accent-color: var(--compare-ink); }
-.compare-approve { border: 0; border-radius: 6px; background: var(--compare-ink); padding: 9px 12px; color: var(--cmux-surface-background, Canvas); font-size: var(--text-caption); font-weight: 550; white-space: nowrap; cursor: pointer; }
+.compare-approve { border: 0; border-radius: 6px; background: var(--compare-ink); padding: 9px 12px; color: var(--cmux-surface-solid, Canvas); font-size: var(--text-caption); font-weight: 550; white-space: nowrap; cursor: pointer; }
 .compare-approve:disabled { cursor: not-allowed; opacity: .4; }
 .compare-run-footnote { display: flex; justify-content: space-between; gap: 20px; max-width: 1440px; margin: 17px auto 0; color: var(--compare-muted); font-size: var(--text-caption); }
 

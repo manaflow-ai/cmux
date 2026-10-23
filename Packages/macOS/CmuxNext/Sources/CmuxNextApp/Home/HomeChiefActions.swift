@@ -8,12 +8,20 @@ import CmuxNextHomeEngine
 /// bar's Stop, Esc and Cmd-., `cmux action run`). The front window's Home acts on the Chief it shows;
 /// with none in front, Stop stops the working Chief directly and Settings brings Home forward at
 /// the Chief and opens its settings (``HomeChiefActionPlan``). Each refuses with a reason only when
-/// there is nothing to act on.
+/// there is nothing to act on. `home.stopAllAgents` acts only on the front window's Chief Home
+/// (HomeHostView+StopAll) and is unavailable, with its reason, without one.
 @MainActor
 enum HomeChiefActions {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("home.toggleChiefSettings", run: { _ in toggleSettings(context) })
         registry.bind(HomeChiefControl.stopAction, run: { _ in stop(context) })
+        registry.bind(HomeChiefControl.stopAllAction, unavailable: { stopAllTarget() == nil ? HomeStopAllStrings.unavailable : nil },
+                      run: { _ in stopAllTarget()?.stopAllAgents() })
+    }
+
+    /// The front window's Chief Home, unless a hosted cloud Chief (no stop there).
+    private static func stopAllTarget() -> HomeHostView? {
+        frontHome().flatMap { $0.chiefControl.isHosted ? nil : $0 }
     }
 
     /// The Home in the front window (``HomeChiefSettingsPopover/frontToggleTarget``) that shows a Chief.

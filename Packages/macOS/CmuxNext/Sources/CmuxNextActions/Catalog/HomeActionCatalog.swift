@@ -185,17 +185,31 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 cliName: "home archive-chief",
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
-            // No keys: Cmd-Shift-[ / ] are Chrome tab keys everywhere, Home too (KeyBindingDefaults.tabSwitching).
+            // On Home the tab keys move through the chat list (Lawrence 2026-10-21): Ctrl-Tab /
+            // Ctrl-Shift-Tab, Cmd-Shift-] / [ and Ctrl-1…9, scoped to the Home page and the docked Home
+            // (KeyBindingDefaults.homeChatSwitching); a Chief opened as a pane tab keeps the tab keys.
             ActionDescriptor(
                 id: "home.previousConversation", title: t("action.home.previousConversation", "Previous Conversation"),
-                keywords: ["home", "conversation", "previous", "person", "people", "chief", "up"],
+                keywords: ["home", "conversation", "previous", "person", "people", "chief", "up", "cycle", "tab"],
+                defaultShortcut: Shortcut("\t", modifiers: [.control, .shift]),
                 category: .window, symbol: "chevron.up", surfaces: [.palette, .keyboard, .menu], mainMenu: .view,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.focusMove), contextMenuExemption: .focusMove)
             ),
             ActionDescriptor(
                 id: "home.nextConversation", title: t("action.home.nextConversation", "Next Conversation"),
-                keywords: ["home", "conversation", "next", "person", "people", "chief", "down"],
+                keywords: ["home", "conversation", "next", "person", "people", "chief", "down", "cycle", "tab"],
+                defaultShortcut: Shortcut("\t", modifiers: [.control]),
                 category: .window, symbol: "chevron.down", surfaces: [.palette, .keyboard, .menu], mainMenu: .view,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.focusMove), contextMenuExemption: .focusMove)
+            ),
+            // Ctrl-1…9 on Home: the nth conversation in the list, 9 the last (as Select Tab 1…9).
+            ActionDescriptor(
+                id: "home.selectConversationByNumber",
+                title: t("action.home.selectConversationByNumber", "Select Conversation 1…9"),
+                keywords: ["home", "conversation", "chief", "number", "index", "switch", "jump"],
+                defaultShortcut: Shortcut("1", modifiers: [.control]), shortcutFamily: .digits,
+                category: .window, symbol: "number.square", surfaces: [.keyboard],
+                arguments: [CatalogArgument.indexNumber],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.focusMove), contextMenuExemption: .focusMove)
             ),
             ActionDescriptor(
@@ -310,6 +324,17 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                             ActionArgument(name: "text", title: t("argument.home.send.text", "Message"), kind: .string)],
                 cliName: "home send",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
+            // Stop all agents (coordinator 2026-10-20): the Chief's turn and every
+            // subagent (chief.stop {all}); a plain stop never stops a subagent.
+            // Option-click on the compose bar's stop button runs it too; its
+            // toast lists what stopped and offers Restart.
+            ActionDescriptor(
+                id: "home.stopAllAgents",
+                title: String(localized: "action.home.stopAllAgents", defaultValue: "Stop All Agents", bundle: .module),
+                keywords: ["chief", "home", "stop", "all", "agents", "subagents", "cancel"], category: .agents,
+                symbol: "stop.circle.fill", surfaces: [.palette, .menu], mainMenu: .file,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             // DEV and NIGHTLY: MessagesLab's flight recorder writes the last ~10 s of the
             // Home transcript to ~/Library/Logs/<app>/blink-<time>/ (Debug menu, palette).

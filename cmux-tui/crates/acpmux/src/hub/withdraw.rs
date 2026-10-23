@@ -72,7 +72,22 @@ impl Found {
             self.turn_id = field("turnId").to_owned();
             self.ended = false;
         }
+        // Back in the queue after the turn of agent messages it joined failed (`digest.rs`).
+        if e.kind == "queued"
+            && e.msg.get("requeued") == Some(&Value::Bool(true))
+            && field("promptId") == self.prompt_id
+        {
+            self.turn_id = field("turnId").to_owned();
+            (self.started, self.ended) = (false, false);
+            return;
+        }
         let same_turn = !self.turn_id.is_empty() && field("turnId") == self.turn_id;
+        // It went in with an earlier agent message's turn (`digest.rs`): that turn is its own.
+        if e.kind == "dequeued" && same_turn && !field("joinedTurnId").is_empty() {
+            self.turn_id = field("joinedTurnId").to_owned();
+            (self.started, self.ended) = (true, false);
+            return;
+        }
         match e.kind.as_str() {
             "user_message" | "dequeued" | "turn_started" if same_turn => self.started = true,
             "queue_removed" if same_turn => self.removed = true,
@@ -183,15 +198,29 @@ impl Hub {
             return None;
         }
         let mut answered = false;
-        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-            let p =
-                |k: &str| e.msg.pointer(&format!("/_meta/provenance/{k}")).and_then(Value::as_str);
-            answered = e.kind == "user_message"
-                && p("kind") == Some("agent_message")
+        let fits = |m: &Value| {
+            let p = |k: &str| m.get(k).and_then(Value::as_str);
+            p("kind") == Some("agent_message")
                 && p("msgId") == Some(reply_to)
                 && p("threadId").or(p("msgId")) == Some(thread)
                 // `cmux agent message` names a chat `acp:<id>` (PaletteNavigationEntry.swift).
-                && p("from").is_some_and(|f| f.strip_prefix("acp:").unwrap_or(f) == to);
+                && p("from").is_some_and(|f| f.strip_prefix("acp:").unwrap_or(f) == to)
+        };
+        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+            let Some(p) = e.msg.pointer("/_meta/provenance").filter(|_| e.kind == "user_message")
+            else {
+                return true;
+            };
+            answered = match p.get("messages").and_then(Value::as_array) {
+                // It went in with other agents' messages (`digest.rs`): each keeps its provenance.
+                Some(joined)
+                    if p.get("kind").and_then(Value::as_str)
+                        == Some(super::digest::DIGEST_KIND) =>
+                {
+                    joined.iter().filter_map(|m| m.get("provenance")).any(fits)
+                }
+                _ => fits(p),
+            };
             !answered
         });
         if !answered {

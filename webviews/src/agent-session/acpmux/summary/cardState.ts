@@ -75,9 +75,8 @@ export function useSummaryColumn(shell: HTMLElement | null, blocked: boolean): b
       return;
     }
     const measure = () => {
-      const sidebar = shell.querySelector<HTMLElement>(":scope>.acpmux-sidebar");
       const rail = shell.querySelector<HTMLElement>(":scope>.acpmux-chat-inspector");
-      const reserved = (sidebar?.offsetWidth ?? 0) + (rail?.offsetWidth ?? 0);
+      const reserved = rail?.offsetWidth ?? 0;
       const available = shell.clientWidth - reserved;
       // The summary takes 300px from the same flex row as the transcript. At a width where that
       // would erase the active mode's extra measure, keep it as a popover. The preceding mode's

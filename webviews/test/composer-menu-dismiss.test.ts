@@ -19,8 +19,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -46,7 +46,7 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   const browsers = new Map<string, Browser>();
   const stageURL = (entry: string, variant: string, width: number) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}&frame=component&width=${width}&theme=Catppuccin+Mocha`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant, frame: "component", width, theme: "Catppuccin Mocha" })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -55,23 +55,11 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
-    for (const [name, engine] of engines) {
-      const browser = await engine.launch({ headless: true });
-      browsers.set(name, browser);
-      // The first load can run Vite's dependency optimizer and reload mid-compile.
-      const warm = await browser.newPage({ viewport: { width: 760, height: 600 } });
-      await warm.goto(stageURL("agent-pane.composer", "picker-toggle", 760));
-      for (;;) {
-        try {
-          await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-          break;
-        } catch (error) {
-          if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-        }
-      }
-      await warm.close();
-    }
+    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
+    // The first load can run Vite's dependency optimizer and reload mid-compile.
+    const browser = browsers.get("chromium") ?? browsers.get("webkit");
+    await warmGalleryFrame(vite, "agent-pane.composer", { browser, params: { variant: "picker-toggle" } });
+    await warmGalleryFrame(vite, "agent-pane.new-tab", { browser });
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
@@ -125,7 +113,6 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
     await page.mouse.move(x, y);
     await page.mouse.down();
     await page.mouse.up();
-    await page.waitForTimeout(300);
   };
   /** A point on `selector` that no open menu covers, from its trailing end, or null. */
   const clearPoint = (page: Page, selector: string) =>
@@ -150,6 +137,42 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
           .map(([name]) => name),
       names.map((name) => [name, chip(name)] as const),
     );
+  /** Waits until the chips whose menu is open are `want` and every menu has stopped moving (a
+   *  closed one has faded out and left), then returns the chips whose menu is open. If that never
+   *  comes, it returns the state it stopped at, for the expect to show. */
+  const settle = async (page: Page, names: string[], want: string[]) => {
+    await page
+      .waitForFunction(
+        ([pairs, want]) => {
+          const open = pairs
+            .filter(([, selector]) => {
+              const button = document.querySelector(selector);
+              return button?.getAttribute("aria-expanded") === "true" || button?.hasAttribute("data-popup-open");
+            })
+            .map(([name]) => name);
+          if (open.join("\n") !== want.join("\n")) return false;
+          const popups = [...document.querySelectorAll(".ui-popup")];
+          if (want.length === 0 ? popups.length > 0 : popups.length === 0) return false;
+          return popups.every((popup) =>
+            popup.getAnimations({ subtree: true }).every((animation) => animation.playState !== "running"),
+          );
+        },
+        [names.map((name) => [name, chip(name)] as const), want] as const,
+        { timeout: 5_000 },
+      )
+      .catch(() => {});
+    return expanded(page, names);
+  };
+  /** Waits until the open menus have stopped moving, so a press lands where their rows rest. */
+  const menusAtRest = (page: Page) =>
+    page.waitForFunction(() =>
+      [...document.querySelectorAll(".ui-popup")].every((popup) =>
+        popup.getAnimations({ subtree: true }).every((animation) => animation.playState !== "running"),
+      ),
+    );
+  /** Waits until `holds` is true in the page or 5 s pass; the expect after it reads the state. */
+  const until = (page: Page, holds: (arg: string) => boolean, arg: string) =>
+    page.waitForFunction(holds, arg, { timeout: 5_000 }).catch(() => {});
   /** Whether `name`'s chip is what the pointer would press at its centre (no open menu over it). */
   const onTop = (page: Page, name: string) =>
     page.evaluate((selector) => {
@@ -166,9 +189,9 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
           const page = await open(engine, stage, width);
           for (const name of stage.chips) {
             await pressAt(page, chip(name));
-            expect({ name, open: await expanded(page, stage.chips) }).toEqual({ name, open: [name] });
+            expect({ name, open: await settle(page, stage.chips, [name]) }).toEqual({ name, open: [name] });
             await pressAt(page, chip(name));
-            expect({ name, open: await expanded(page, stage.chips) }).toEqual({ name, open: [] });
+            expect({ name, open: await settle(page, stage.chips, []) }).toEqual({ name, open: [] });
           }
           await page.close();
         });
@@ -179,13 +202,14 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
             for (const to of stage.chips) {
               if (from === to) continue;
               await pressAt(page, chip(from));
+              expect({ from, open: await settle(page, stage.chips, [from]) }).toEqual({ from, open: [from] });
               // A menu that covers the other chip takes the press itself.
               if (await onTop(page, to)) {
                 await pressAt(page, chip(to));
-                expect({ from, to, open: await expanded(page, stage.chips) }).toEqual({ from, to, open: [to] });
+                expect({ from, to, open: await settle(page, stage.chips, [to]) }).toEqual({ from, to, open: [to] });
               }
               await page.keyboard.press("Escape");
-              await page.waitForTimeout(150);
+              expect({ from, to, open: await settle(page, stage.chips, []) }).toEqual({ from, to, open: [] });
             }
           await page.close();
         });
@@ -209,15 +233,17 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
           for (const name of stage.chips)
             for (const target of [".acpmux-mic", stage.field]) {
               await pressAt(page, chip(name));
-              expect({ name, open: await expanded(page, stage.chips) }).toEqual({ name, open: [name] });
+              expect({ name, open: await settle(page, stage.chips, [name]) }).toEqual({ name, open: [name] });
               const point = await clearPoint(page, target);
               if (!point) {
                 await page.keyboard.press("Escape");
+                expect({ name, open: await settle(page, stage.chips, []) }).toEqual({ name, open: [] });
                 continue;
               }
               const before = await pressed();
+              // The press's events are dispatched by the time it returns, so the counts below are final.
               await pressPoint(page, point.x, point.y);
-              expect({ name, target, open: await expanded(page, stage.chips) }).toEqual({ name, target, open: [] });
+              expect({ name, target, open: await settle(page, stage.chips, []) }).toEqual({ name, target, open: [] });
               expect({ name, target, pressed: await pressed() }).toEqual({ name, target, pressed: before });
               await page.keyboard.press("Escape");
             }
@@ -231,8 +257,15 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
           for (const name of stage.chips) {
             const page = await open(engine, stage, width);
             await pressAt(page, chip(name));
+            await settle(page, stage.chips, [name]);
             await page.keyboard.press("Escape");
-            await page.waitForTimeout(250);
+            await until(
+              page,
+              (selector) =>
+                document.querySelectorAll(".ui-popup").length === 0 &&
+                document.activeElement === document.querySelector(selector),
+              chip(name),
+            );
             const focus = await page.evaluate(
               (selector) => ({
                 open: document.querySelectorAll(".ui-popup").length,
@@ -250,15 +283,23 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
           for (const name of stage.picks) {
             const page = await open(engine, stage, width);
             await pressAt(page, chip(name));
+            await settle(page, stage.chips, [name]);
             if (name === "Model") {
               // The level rows sit in the model menu's Effort › submenu, the popup with no submenu row.
               await pressAt(page, '.acpmux-quick-sub:has-text("Effort")');
               await page.locator('[role="menu"]:not(:has(.acpmux-quick-sub)) [role="menuitemradio"]').first().waitFor();
+              await menusAtRest(page);
               await pressAt(
                 page,
                 '[role="menu"]:not(:has(.acpmux-quick-sub)) [role="menuitemradio"][aria-checked="false"]',
               );
             } else await pressAt(page, '[role="menuitemradio"][aria-checked="false"]');
+            await until(
+              page,
+              (field) =>
+                document.querySelectorAll(".ui-popup").length === 0 && !!document.activeElement?.closest(field),
+              stage.field,
+            );
             const focus = await page.evaluate(
               (field) => ({
                 open: document.querySelectorAll(".ui-popup").length,

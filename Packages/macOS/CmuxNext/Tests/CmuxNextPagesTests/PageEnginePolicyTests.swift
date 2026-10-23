@@ -40,13 +40,27 @@ struct PageEnginePolicyTests {
         let policy = PageEnginePolicy(preference: .chromium, chromiumAvailable: true)
         let spike = PageEngineOptions(chromiumAgentChat: true)
         #expect(policy.decide(for: Self.agent, options: spike) == .chromium)
-        #expect(policy.decide(for: Self.dynamic, options: spike) == .webKit(.runtimeResources))
+        // Only that one hold: a page the spike says nothing about keeps the reason it has.
+        #expect(policy.decide(for: Self.dynamic,
+                              options: PageEngineOptions(requiresWebKit: .transparentOverlay, chromiumAgentChat: true))
+            == .webKit(.transparentOverlay))
         #expect(policy.decide(for: Self.agent, options: PageEngineOptions(requiresWebKit: .nativeHooks, chromiumAgentChat: true))
             == .webKit(.nativeHooks))
         #expect(PageEnginePolicy(preference: .webkit, chromiumAvailable: true).decide(for: Self.agent, options: spike)
             == .webKit(.personChoseWebKit))
         #expect(PageEnginePolicy(preference: .chromium, chromiumAvailable: false).decide(for: Self.agent, options: spike)
             == .webKit(.chromiumUnavailable))
+    }
+
+    /// `web-dev.json` reaches only WebKit's scheme handler, so a live override keeps every page there,
+    /// after the person's choice and the page's own reason, which still name why.
+    @Test func aLiveWebOverrideKeepsPagesOnWebKit() {
+        let live = PageEnginePolicy(preference: .chromium, chromiumAvailable: true, liveWebOverride: true)
+        #expect(live.decide(for: Self.plain, options: .standard) == .webKit(.liveWebOverride))
+        #expect(live.decide(for: Self.dynamic, options: .standard) == .webKit(.liveWebOverride))
+        #expect(live.decide(for: Self.agent, options: .standard) == .webKit(.agentChat))
+        #expect(PageEnginePolicy(preference: .webkit, chromiumAvailable: true, liveWebOverride: true)
+            .decide(for: Self.plain, options: .standard) == .webKit(.personChoseWebKit))
     }
 
     @Test func missingOrUnservedChromiumKeepsThePageOnWebKit() {

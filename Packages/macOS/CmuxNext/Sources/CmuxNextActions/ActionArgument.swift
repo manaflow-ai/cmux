@@ -44,7 +44,7 @@ public nonisolated struct ActionArgument: Sendable, Hashable {
     /// a target of its kind is its value: right-clicking a Space and
     /// choosing New Workspace in Space… uses that space. Without it, an
     /// action that acts on the argument's kind asks for another object
-    /// (Swap With Session… asks for the other pane).
+    /// (Swap with Session… asks for the other pane).
     public var isSuppliedByTarget = false
 
     public init(name: String, title: String, kind: ActionArgumentKind, isRequired: Bool = true, suggestions: ActionSuggestions? = nil) {

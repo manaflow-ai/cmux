@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentActivity
+@testable import CmuxNextAgentLanes
 import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
@@ -9,7 +11,7 @@ import Testing
 
 /// An action with a required argument of kind K asks for K in the palette, which lists the
 /// objects `PaletteSourcesBridge.targetSource` gives for K. No source listed spaces, panes, tab
-/// groups or workspace groups, so New Workspace in Space…, Swap With Session…, Add Tab to
+/// groups or workspace groups, so New Workspace in Space…, Swap with Session…, Add Tab to
 /// Group…, Reopen Saved Tab Group… and the rest opened an empty list and could never run from
 /// the app (unimpl-audit-actions rows 2-10). The guard covers every catalog action, so a new
 /// action of a kind nothing lists fails here.
@@ -67,6 +69,20 @@ import Testing
         return Fixture(services: services, controller: controller)
     }
 
+    /// The Priority view's chats on one acpmux: a finished result nobody saw, and a question.
+    /// The app lists this Mac's and the Chief's (`AgentPriorityChats.app`); a test has none.
+    static let priorityChats: AgentPriorityChats = {
+        let store = AgentLaneStore()
+        store.socketPath = "/tmp/picker-acpmux.sock"
+        store.live = true
+        let since = Date().addingTimeInterval(-20 * 60)
+        for (id, state, unread) in [("done", AgentActivityLane.State.idle, true), ("asks", .input, false)] {
+            store.lanes[id] = AgentActivityLane(id: id, name: id, title: "Chat \(id)", peer: nil, parent: nil, state: state,
+                                                since: since, error: nil, unread: unread, project: "cmux")
+        }
+        return AgentPriorityChats(marks: AgentPriorityMarks(defaults: nil), stores: [store]) { _, _ in }
+    }()
+
     /// The options the palette lists when `descriptor` asks for `argument` (its other required
     /// arguments already given), as the palette's argument page builds them.
     static func listed(_ descriptor: ActionDescriptor, _ argument: ActionArgument, _ services: AppServices) -> [PaletteItem]? {
@@ -74,7 +90,8 @@ import Testing
         for other in descriptor.arguments where other.isRequired && other.name != argument.name {
             collected.arguments[other.name] = .string("x")
         }
-        let flow = PaletteArgumentFlow(registry: services.registry, descriptor: descriptor, targets: PaletteSourcesBridge.targetSource(services))
+        let targets = PaletteSourcesBridge.targetSource(services, chats: priorityChats)
+        let flow = PaletteArgumentFlow(registry: services.registry, descriptor: descriptor, targets: targets)
         guard case .push(let page) = flow.effect(collected: collected).resolved() else { return nil }
         return page.providers.flatMap { $0.immediateItems ?? [] }
     }
@@ -100,6 +117,17 @@ import Testing
         #expect(empty.isEmpty, "the palette lists nothing for:\n\(empty.joined(separator: "\n"))")
     }
 
+    /// Mark Chat as Read…, Pin/Unpin Chat in Priority… and Snooze Chat for 1 Hour… ask which
+    /// chat and list the Priority view's chats (#23527 listed none in the picker test).
+    @Test func thePriorityRowActionsListThePriorityChats() async throws {
+        let fixture = try await Self.fixture()
+        defer { fixture.close() }
+        for id in ["sidebar.priority.markRead", "sidebar.priority.togglePin", "sidebar.priority.snooze"] as [ActionID] {
+            let listed = try Self.listed(id, fixture.services)
+            #expect(Set(listed.map(\.title)) == ["Chat done", "Chat asks"], "\(id)")
+        }
+    }
+
     @Test func theSpacePickerListsEverySpaceInOrder() async throws {
         let fixture = try await Self.fixture()
         defer { fixture.close() }
@@ -108,7 +136,7 @@ import Testing
         }
     }
 
-    /// Swap With Session… lists both panes, the focused one last, and the picked row names
+    /// Swap with Session… lists both panes, the focused one last, and the picked row names
     /// that pane (a pane's own id holds a colon: `pane:2`).
     @Test func swapWithSessionListsThePanesAndPicksTheChosenOne() async throws {
         let fixture = try await Self.fixture()

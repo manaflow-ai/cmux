@@ -21,7 +21,7 @@ import Testing
     static func progress(_ lines: [String], thought: String? = nil, style: HomeTurnProgressStyle = .narrated) -> HomeTurnProgress {
         let steps = steps(lines)
         let current = HomeLiveActivity(line: lines.last ?? "Thinking", since: t0.addingTimeInterval(Double(lines.count - 1) * 10))
-        return HomeTurnProgress(steps: steps.steps, current: current, thought: thought.flatMap(HomeThoughtHeadline.of),
+        return HomeTurnProgress(steps: steps.steps, current: current, thought: thought?.thoughtHeadline,
                                 now: current.since.addingTimeInterval(5), style: style)
     }
 

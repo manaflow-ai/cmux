@@ -74,7 +74,7 @@ async function renderNewTab(
 ) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
-  const { useDictation } = await import("../src/agent-session/acpmux/dictation");
+  const { useDictation, isWaitingForWords } = await import("../src/agent-session/acpmux/dictation");
   const { DictationMic } = await import("../src/agent-session/acpmux/DictationMic");
   const { registerComposerHost } = await import("../src/agent-session/acpmux/composerSettings");
   const call = async (method: string, params?: Record<string, unknown>) => {
@@ -91,6 +91,7 @@ async function renderNewTab(
         lastAgent="claude"
         cwd="/Users/you/src/app"
         dictationField={field}
+        dictating={isWaitingForWords(dictation.state)}
         accessory={<DictationMic dictation={dictation} />}
         onAsk={onAsk}
         onOpen={noop}
@@ -322,8 +323,13 @@ test("the finish key ends the session and keeps its words (stop, never cancel)",
     deliverDictation({ state: "listening", text: "rename the helper", level: 0.4, cancelled: false }),
   );
   calls.length = 0;
+  // Pressed from the keyboard: the finish key has focus, not the field.
+  finishKey()!.focus();
+  expect(document.activeElement).toBe(finishKey());
   await act(async () => finishKey()!.click());
   expect(calls.map(([method]) => method)).toEqual(["dictation.stop"]);
+  // The keyboard goes back to the field the words are in, not to the page.
+  expect(document.activeElement).toBe(field());
   await act(async () =>
     deliverDictation({ state: "finalizing", text: "rename the helper", level: 0, cancelled: false }),
   );

@@ -249,7 +249,7 @@ test("before its first message, a row of another provider starts that provider o
 // Leo 2026-10-13 (cosmic-gray): in a running claude-sr chat, picking a ChatGPT model started a
 // Codex session in the tab, and picking Claude again started a bare `claude` one that was signed
 // out; the chat itself left the sidebar. Once a chat has a message its harness is fixed: the picker
-// lists that harness's models only, and crossing to another is Continue in…, never a pick.
+// lists that harness's models only, and crossing to another is Continue In…, never a pick.
 // Leo 2026-10-19: the menu still drew a rail of that one harness and then offered Add harness…; a
 // started chat's menu is search, its harness's models and More models, as in Claude Code.
 test("a started chat's picker lists only its own harness, and no pick or search leaves it", async () => {

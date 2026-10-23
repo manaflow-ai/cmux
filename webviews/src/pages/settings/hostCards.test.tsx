@@ -3,12 +3,25 @@
 // writes appearance.background on Appearance, Terminal shows the Ghostty facts,
 // and Advanced shows the settings file and every problem of the last load.
 import { act } from "react";
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, jest, test } from "bun:test";
 import { installDom } from "./testDom";
 
 const restore = installDom();
 afterAll(() => restore());
 const { renderPage, settle } = await import("./testing");
+
+/// Runs `act` with `ms` of the page's timers passing on a fake clock: the dwell is the behavior.
+async function elapse(ms: number, run: () => void) {
+  jest.useFakeTimers();
+  try {
+    await act(async () => {
+      run();
+      jest.advanceTimersByTime(ms);
+    });
+  } finally {
+    jest.useRealTimers();
+  }
+}
 
 const runs = (page: Awaited<ReturnType<typeof renderPage>>, op: string) =>
   page.provider.log.filter((entry) => entry.op === op).map((entry) => entry.params);
@@ -29,10 +42,7 @@ test("Change Background… shows the picker on Appearance: resting previews, lea
   expect(document.activeElement?.getAttribute("aria-label")).toBe("The Starry Night");
 
   const tile = picker.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!;
-  await act(async () => {
-    tile.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  });
+  await elapse(200, () => tile.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true })));
   await settle();
   expect(runs(page, "cmux.settings.preview").at(-1)).toMatchObject({
     key: "appearance.background",
@@ -153,10 +163,7 @@ test("Change Background… on a workspace chooses that workspace's own backgroun
 
   const none = picker.querySelector<HTMLButtonElement>('[aria-label="No wallpaper"]')!;
   const appPreviews = runs(page, "cmux.settings.preview").length;
-  await act(async () => {
-    none.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  });
+  await elapse(200, () => none.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true })));
   await settle();
   expect(runs(page, "cmux.settings.backdrop.workspace.preview").at(-1)).toMatchObject({
     workspace: "ws-1",
@@ -257,10 +264,9 @@ test("the wallpaper card holds Opacity and Material once each, and nothing repea
 test("sweeping the pointer across the picker previews nothing", async () => {
   const page = await renderPage({ path: "/settings/appearance" });
   const tile = page.container.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!;
-  await act(async () => {
+  await elapse(200, () => {
     tile.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
     tile.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 200));
   });
   await settle();
   expect(runs(page, "cmux.settings.preview").length).toBe(0);

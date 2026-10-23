@@ -169,9 +169,10 @@ import Testing
         try await rig.until("the page hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
         let snapshot = try #require((rig.services.cache.browsers[key]?.tab as? HibernatedBrowserTab)?.snapshotImage,
                                     "a large pane's page hibernated without a snapshot")
-        #expect(PreviewImageCache.cost(snapshot) <= rig.services.cache.previews.capacityBytes / 4, "one snapshot takes over a quarter of the cache")
-        // #20866 second review: the page's colors and shape, only smaller.
-        #expect(snapshot.colorSpace?.name == CGColorSpace.displayP3, "the snapshot lost the page's color space")
+        let store = rig.hibernation.snapshots
+        #expect(store.count == 1 && store.totalBytes <= store.capacityBytes / 4, "one snapshot takes \(store.totalBytes >> 20) MB of the store")
+        // #20866 second review: the page's colors and shape (PR 23083: kept at its size, compressed).
+        #expect(snapshot.colorSpace?.isWideGamutRGB == true, "the snapshot lost the page's wide-gamut color space")
         #expect(abs(Double(snapshot.width) / Double(snapshot.height) - 1.6) < 0.005, "the snapshot was squeezed to \(snapshot.width) x \(snapshot.height)")
     }
 
@@ -195,7 +196,7 @@ import Testing
         #expect(snapshot?.width == 900, "the page showed the picture of its first sleep")
     }
 
-    @Test func hibernatedPagesKeepNoMoreSnapshotsThanThePreviewCache() async throws {
+    @Test func hibernatedPagesKeepNoMoreSnapshotBytesThanTheirStore() async throws {
         let rig = try Rig()
         defer { rig.close() }
         var keys: [String] = []
@@ -209,12 +210,116 @@ import Testing
             #expect(rig.isHibernated(key))
             keys.append(key)
         }
-        let held = keys.compactMap { (rig.services.cache.browsers[$0]?.tab as? HibernatedBrowserTab)?.snapshotImage }
-            .reduce(0) { $0 + PreviewImageCache.cost($1) }
-        #expect(held <= rig.services.cache.previews.capacityBytes,
-                "hibernated pages hold \(held >> 20) MB of snapshots, over the \(rig.services.cache.previews.capacityBytes >> 20) MB cache")
+        let store = rig.hibernation.snapshots
+        #expect(store.count == keys.count && store.totalBytes <= store.capacityBytes,
+                "hibernated pages hold \(store.totalBytes >> 20) MB of snapshots, over the \(store.capacityBytes >> 20) MB store")
+        #expect(rig.services.cache.previews.count == 0, "a hibernated page's decoded picture went to the shared preview cache")
         let last = try #require(rig.services.cache.browsers[keys[keys.count - 1]]?.tab as? HibernatedBrowserTab)
         #expect(last.snapshotImage != nil, "the latest hibernated page lost its snapshot")
+    }
+
+    /// PR 23083 (Leo: wake from a snapshot): each picture was scaled to a quarter of the shared
+    /// 32 MB preview cache, so only the last four hibernated pages kept one and every other tab
+    /// woke to an empty pane.
+    @Test func everyHibernatedPageKeepsItsSnapshot() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        var keys: [String] = []
+        for index in 0..<8 {
+            let page = try await rig.page("kept\(index)", body: "<p>page \(index)</p>")
+            let picture = try Self.picture(shade: Double(index) / 8)
+            rig.hibernation.capture = { _ in picture }
+            let key = try await rig.hide(page)
+            try await rig.until("page \(index) hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
+            try #require(rig.isHibernated(key))
+            keys.append(key)
+        }
+        for (index, key) in keys.enumerated() {
+            let snapshot = (rig.services.cache.browsers[key]?.tab as? HibernatedBrowserTab)?.snapshotImage
+            #expect(snapshot != nil, "hibernated page \(index) of \(keys.count) lost its snapshot")
+        }
+    }
+
+    /// The snapshot store keeps its budget: the least recently used picture goes first.
+    @Test func theSnapshotStoreDropsTheLeastRecentlyUsedPicturePastItsBudget() async throws {
+        let one = try #require(await HibernationSnapshots.compress(Self.noise(seed: 1)))
+        let size = try #require(one.data?.count)
+        let store = HibernationSnapshots(capacityBytes: size * 5 / 2)
+        store.insert(one, for: "a")
+        store.insert(try #require(await HibernationSnapshots.compress(Self.noise(seed: 2))), for: "b")
+        _ = store.image(for: "a")  // "a" is used again: "b" is now the oldest
+        store.insert(try #require(await HibernationSnapshots.compress(Self.noise(seed: 3))), for: "c")
+        #expect(store.image(for: "a") != nil && store.image(for: "c") != nil, "a recently used picture was dropped")
+        #expect(store.image(for: "b") == nil, "the least recently used picture stayed past the budget")
+        #expect(store.totalBytes <= store.capacityBytes)
+    }
+
+    /// Each wake is timed for `debug.surfaces` and the bench: shown with its snapshot, back, then loaded.
+    @Test func aWakeIsTimedWithItsSnapshot() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let picture = try Self.picture(shade: 0.4, width: 1200, height: 800)
+        rig.hibernation.capture = { _ in picture }
+        let key = try await rig.hide(rig.page("timed", body: "<p>timed</p>"))
+        try await rig.until("the page hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
+        try #require(rig.isHibernated(key))
+        rig.services.cache.present(key, by: rig.pane, presence: .visible)
+        try await rig.until("the woken page loaded") { rig.hibernation.wakeLog.records.last?.loadedMs != nil }
+        let wake = try #require(rig.hibernation.wakeLog.records.last)
+        #expect(wake.tab == key && wake.engine == .webkit && wake.visible, "the wake was not the shown page's: \(wake)")
+        #expect(wake.snapshot, "the pane had no snapshot while the page came back")
+        #expect((wake.mountedMs ?? .max) <= (wake.loadedMs ?? 0), "the page loaded before it was back: \(wake)")
+        #expect(rig.hibernation.snapshots.count == 0, "the woken page's snapshot stayed in the store")
+    }
+
+    /// Leo (PR 23083): a hibernated page comes back where it was, with what its fields held.
+    @Test func aWokenPageHasItsScrollAndFormBack() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let page = try await rig.page("state", body: """
+            <input id="name"><textarea id="notes"></textarea><div style="height: 8000px">long</div>
+            """)
+        rig.window.contentView = page.contentView  // laid out at the window's size, as in a pane
+        _ = try await page.evaluate("""
+            document.getElementById('name').value = 'Ada'; document.getElementById('notes').value = 'two\\nlines';
+            window.scrollTo(0, 3000); true
+            """, world: .page)
+        // WebKit writes the scroll position into the page's history item once scrolling has
+        // stopped for a moment; a person's page hibernates minutes later.
+        try await Task.sleep(for: .seconds(1))
+        // A pane parks the page it stops showing hidden in the window (`PaneContentView.retire`);
+        // WebKit then saves the page's fields into its history item (the state hibernation keeps).
+        // It saves them only when the page goes from shown to hidden: a host whose window is never
+        // on screen (a CI mini's console) gets the scroll back but not the fields, which
+        // scripts/cmux-next/bench_hibernation.py checks on a capture mini.
+        let shown = rig.window.occlusionState.contains(.visible)
+        page.contentView.isHidden = true
+        let key = try await rig.hide(page)
+        try await rig.until("the page hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
+        try #require(rig.isHibernated(key))
+        rig.services.cache.present(key, by: rig.pane, presence: .visible)
+        let state = "JSON.stringify([document.getElementById('name')?.value, document.getElementById('notes')?.value, Math.round(window.scrollY)])"
+        var seen = "no page"
+        try await rig.until("the woken page has its state back (it has \(seen))") {
+            guard let woken = rig.services.cache.browsers[key]?.tab as? WebKitTab else { return false }
+            if rig.window.contentView !== woken.contentView { rig.window.contentView = woken.contentView }
+            let value = try? await woken.evaluate(state, world: .page)
+            seen = String(describing: value)
+            return value == .string(shown ? #"["Ada","two\nlines",3000]"# : #"["","",3000]"#)
+        }
+    }
+
+    /// An image JPEG cannot squeeze much (a page picture's real cost, unlike a flat color).
+    private static func noise(seed: UInt64, width: Int = 400, height: Int = 300) throws -> CGImage {
+        let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        var state = seed &* 0x9E37_79B9_7F4A_7C15
+        let pixels = try #require(context.data?.bindMemory(to: UInt32.self, capacity: width * height))
+        for index in 0..<(width * height) {
+            state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            pixels[index] = UInt32(truncatingIfNeeded: state >> 32)
+        }
+        return try #require(context.makeImage())
     }
 
     private static func picture(shade: Double, width: Int = 2048, height: Int = 1536,
@@ -303,10 +408,10 @@ import Testing
         func isHibernated(_ key: String) -> Bool { services.cache.browsers[key]?.tab is HibernatedBrowserTab }
         func exemption(_ key: String) -> HibernationPlanner.Exemption? { hibernation.exemptions[key] }
 
-        func until(_ what: String, _ condition: () async -> Bool) async throws {
+        func until(_ what: @autoclosure () -> String, _ condition: () async -> Bool) async throws {
             let deadline = ContinuousClock.now + .seconds(15)
             while !(await condition()), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(25)) }
-            try #require(await condition(), "\(what) never happened")
+            try #require(await condition(), "\(what()) never happened")
         }
 
         func close() {

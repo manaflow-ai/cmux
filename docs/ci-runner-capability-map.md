@@ -122,3 +122,48 @@ description of the requirement, then give it a label in *every* fleet.
 `tests/test_ci_runner_capability_resolver.py` fails if a fleet is missing a key
 or defines one that `capabilities` does not declare. A new fleet is a new entry
 under `fleets` plus, if it should serve an owner, a row in `owners`.
+
+## Linux sizes
+
+`linux` is 4 vCPU on Blacksmith. `linux_16` and `linux_32` are the 16 and
+32 vCPU sizes, for CPU-bound jobs. On the hosted fleet all three are
+`ubuntu-24.04`. Blacksmith Linux capacity is not the constraint (256 × 32 vCPU
+started in under 23 s in the 2026-10-19 probe), so a job that is slow or
+timing out on `linux` takes a bigger key instead of a longer timeout.
+`ci-web.yml`'s React Doctor reads `linux_16` this way.
+
+## Job classes: why a job is on macOS
+
+macOS runners are the scarce part of CI. `.github/runners.json` also says, for
+every job whose `runs-on:` can route to macOS, what kind of work it does:
+
+- `job_classes` names each kind of work and whether it `needs` `macos` or
+  `linux`. `apple-app-build`, `apple-swift-tests`, `apple-gui`, `apple-ios`,
+  `apple-signing-release`, `macos-runtime-tests` and
+  `rust-darwin-release-build` need macOS. `rust-darwin-compile`,
+  `cpp-unit-tests`, `shell-parse`, `portable-swift-packages` and
+  `web-and-tooling` run on Linux.
+- `macos_jobs` maps `<workflow file>#<job id>` to its class.
+
+`scripts/ci/runner_routing_table.py check` (run by
+`tests/test_runner_routing_table.py` in the `ci` guard group, which runs on
+main pull requests and, through `cmux-next-guards.yml`'s `ci-guard-group` job,
+on feat-cmux-next pull requests and pushes) fails when:
+
+- a job can run on macOS and has no `macos_jobs` entry;
+- its class runs on Linux;
+- it takes an owned side-lane label straight from `vars.CI_SIDE_LANE_RUNNER`
+  or `vars.CI_LIGHT_LANE_RUNNER`, with no placement output in its `runs-on:`,
+  so it bypasses placement (`scripts/ci/side_lane_placement.py` spills a
+  starved pool to an idle compatible one; a variable never does);
+- an entry names a job that is gone or no longer on macOS.
+
+`linux_followup` and `placement_followup` mark existing jobs that should move
+and have not yet. A new job never gets one, and a followup that no longer
+applies fails, so both lists only shrink. `python3
+scripts/ci/runner_routing_table.py check` prints them.
+
+A job that is not plainly on a Linux or Windows runner counts as macOS, so an
+expression the scan cannot read fails as unlisted rather than slipping
+through. A job on the capability map routes by its key: `linux*` keys are
+Linux.

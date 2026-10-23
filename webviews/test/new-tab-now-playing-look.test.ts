@@ -12,8 +12,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("new-tab-now-playing-look.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -28,7 +28,7 @@ await requireBrowserLane("new-tab-now-playing-look.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const stageURL = (variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.new-tab&variant=${variant}&frame=component&width=760&theme=Catppuccin+Mocha`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.new-tab", { variant, frame: "component", width: 760, theme: "Catppuccin Mocha" })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -37,14 +37,24 @@ await requireBrowserLane("new-tab-now-playing-look.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, "agent-pane.new-tab", { browser });
   });
   afterAll(async () => {
     await browser?.close();
     await vite?.close();
   });
 
+  /** Resolves once nothing on the page is easing: no transition or animation left to run (a
+   *  looping one, the level bars, never ends). */
+  const eased = (page: Page) =>
+    page.waitForFunction(() =>
+      document
+        .getAnimations()
+        .every(
+          (animation) => animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity,
+        ),
+    );
   const open = async (variant: string): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width: 760, height: 720 } });
     for (;;) {
@@ -62,7 +72,7 @@ await requireBrowserLane("new-tab-now-playing-look.test.ts", async () => {
     await page.evaluate(() => document.fonts.ready);
     if (variant !== "now-playing-off") await page.waitForSelector(".nt-player, .nt-player-note");
     await page.mouse.move(1, 1);
-    await page.waitForTimeout(250);
+    await eased(page);
     return page;
   };
   const box = (page: Page, selector: string) =>
@@ -131,7 +141,10 @@ await requireBrowserLane("new-tab-now-playing-look.test.ts", async () => {
     if (fine) {
       const previous = await box(page, '.nt-player [data-command="previous"]');
       await page.mouse.move(previous.left + previous.width / 2, previous.top + previous.height / 2);
-      await page.waitForTimeout(250);
+      await page.waitForFunction(() =>
+        document.querySelector('.nt-player [data-command="previous"]')?.matches(":hover"),
+      );
+      await eased(page);
       expect(await filled(page, '.nt-player [data-command="previous"]'), "hover draws no round").toBe(true);
     }
     // No artwork: the music note sits in the same rounded slot.

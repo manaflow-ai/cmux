@@ -90,21 +90,11 @@ public final class ServerHostView: NSView {
         let colors = performWithTheme {
             let base = Palette.windowBackground.usingColorSpace(.sRGB) ?? Palette.windowBackground
             wash.layer?.backgroundColor = base.withAlphaComponent(backdrop.material == .opaque ? 0 : Self.washAlpha).cgColor
-            return ServerColors(
-                primary: Self.color(Palette.textPrimary), secondary: Self.color(Palette.textSecondary),
-                tertiary: Self.color(Palette.textTertiary), hover: Self.color(Palette.hoverFill),
-                selection: Self.color(Palette.selectionFill), separator: Self.color(Palette.separator),
-                warning: Self.color(Palette.attention), critical: Self.color(Palette.danger),
-                ok: Self.color(Palette.success), onPrimary: Self.color(Palette.textOnPrimary))
+            return ServerColors.resolved()
         }
         if appearanceState.colors != colors { appearanceState.colors = colors }
         backdrop.applyTheme()
     }
 
     private static let washAlpha: CGFloat = 0.78
-
-    /// A static color: dynamic ones would re-resolve outside this view's theme scope.
-    private static func color(_ color: NSColor) -> Color {
-        Color(nsColor: color.usingColorSpace(.sRGB) ?? color)
-    }
 }

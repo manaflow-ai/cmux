@@ -2,12 +2,13 @@
 // after 110 ms) on everything the pointer passed. They now share the
 // app's hover intent (ui/hoverIntent.ts): the first waits the hover delay (450 ms; AppKit's tooltip
 // delay is about 1 s), a neighbor's then shows at once, and half a second away cools it again.
-// These run on the real timers, through the components' own pointer handlers.
-import { afterAll, expect, test } from "bun:test";
+// These run on a fake clock, through the components' own pointer handlers: the delays are the
+// behavior, and a loaded runner's late wake-ups must not decide them.
+import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
-// These tests drive the compact (Codex) rail; the full-height map is the default arm (layout.experiment.ts).
+// These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -63,7 +64,7 @@ afterAll(() => {
   }
 });
 
-const wait = (ms: number) => act(async () => void (await new Promise((resolve) => setTimeout(resolve, ms))));
+const wait = (ms: number) => act(async () => void jest.advanceTimersByTime(ms));
 const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
 const TURNS = 8;
 const turns = Array.from({ length: TURNS }, (_, index) => [
@@ -76,6 +77,7 @@ const turns = Array.from({ length: TURNS }, (_, index) => [
 // rail should feel like Codex's); under 200 ms is still a pass-over.
 test("the minimap's turn preview waits its delay, then follows the pointer at once until the rail cools", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
+  jest.useFakeTimers();
   try {
     await act(async () =>
       root.render(
@@ -106,12 +108,17 @@ test("the minimap's turn preview waits its delay, then follows the pointer at on
         if (under !== undefined) pointer("pointerout", tick(under), null);
         under = undefined;
       });
+    // Still hidden 199 ms after the pointer came (one at 110 ms, the old delay, shows by then), and
+    // shown by 250 ms.
+    const waitsItsDelay = async (index: number) => {
+      await move(index);
+      await wait(199);
+      expect(visible()).toBe(false);
+      await wait(51);
+      expect(visible()).toBe(true);
+    };
 
-    await move(2);
-    await wait(200);
-    expect(visible()).toBe(false);
-    await wait(650);
-    expect(visible()).toBe(true);
+    await waitsItsDelay(2);
     // Warm: the next tick's preview at once.
     await move(3);
     expect(visible()).toBe(true);
@@ -119,12 +126,9 @@ test("the minimap's turn preview waits its delay, then follows the pointer at on
     await leave();
     expect(visible()).toBe(false);
     await wait(600);
-    await move(4);
-    await wait(200);
-    expect(visible()).toBe(false);
-    await wait(650);
-    expect(visible()).toBe(true);
+    await waitsItsDelay(4);
   } finally {
+    jest.useRealTimers();
     await act(async () => root.unmount());
   }
 });

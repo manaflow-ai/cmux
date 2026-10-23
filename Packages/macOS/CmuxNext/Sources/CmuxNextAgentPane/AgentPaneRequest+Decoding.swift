@@ -32,6 +32,12 @@ extension AgentPaneRequest {
         switch method {
         case "ready":
             self = params?["reconnect"] as? Bool == true ? .reconnect : .ready
+        case "chat.missing":
+            if let session = params?["session"] as? String, !session.isEmpty {
+                self = .missingChat(session: session, reason: params?["reason"] as? String ?? "unknown")
+            } else {
+                self = .unsupported(method)
+            }
         case "chat.persistSession":
             if let id = params?["sessionId"] as? String, !id.isEmpty {
                 self = .persistSession(id)
@@ -91,7 +97,7 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "pane.painted":
-            self = .painted
+            self = .painted(fromKeptTail: params?["drewKeptTail"] as? Bool ?? false)
         case "pane.renderRate":
             if let full = params?["full"] as? Bool {
                 self = .renderRate(full)
@@ -168,12 +174,16 @@ extension AgentPaneRequest {
             }
         case "newTab.setTemplate":
             if let template = params?["template"] as? String, !template.isEmpty, template.count <= 32 {
-                self = .setNewTabTemplate(template)
+                self = .editNewTab(.template(template))
             } else {
                 self = .unsupported(method)
             }
+        case "newTab.editWidgets":
+            self = AgentPaneNewTabEdit(widgetParams: params).map(AgentPaneRequest.editNewTab) ?? .unsupported(method)
         case "nowPlaying.command":
             if let command = AgentPaneNowPlaying.Command(params) { self = .nowPlaying(command) } else { self = .unsupported(method) }
+        case "importCards.act":
+            if let act = AgentPaneImportCards.Act(params) { self = .importCard(act) } else { self = .unsupported(method) }
         case "newTab.remember":
             // One input (R86): the agent pick, and the model picked on it in `folder`.
             if let agent = params?["agent"] as? String, !agent.isEmpty, agent.count <= 128 {
@@ -227,6 +237,9 @@ extension AgentPaneRequest {
         case "chats.openInTerminal":
             if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .openChatInTerminal(key) }
             else { self = .unsupported(method) }
+        case "chats.watch":
+            if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .watchChat(key) }
+            else { self = .unsupported(method) }
         case "chats.page": self = .chatsPage(AgentPaneChatsQuery(params: params))
         case "app.action":
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 { self = .appAction(id) }
@@ -261,7 +274,11 @@ extension AgentPaneRequest {
         case "chat.newHere":
             if let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder) { self = .newChatHere(cwd) } else { self = .unsupported(method) }
         case "chat.openTab":
-            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .chatTab(id) } else { self = .unsupported(method) }
+            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .chatTab(id, AgentForkDestination(placement: params?["placement"] as? String)) } else { self = .unsupported(method) }
+        case "chat.asks.open":
+            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .asksOpen(id) } else { self = .unsupported(method) }
+        case "chat.offer.open":
+            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .offerOpen(id, sender: params?["sender"] as? Bool == true) } else { self = .unsupported(method) }
         case "chat.upload":
             if let files = AgentPaneUpload.files(params) { self = .upload(files) } else { self = .unsupported(method) }
         case "chat.toolCard.respond":

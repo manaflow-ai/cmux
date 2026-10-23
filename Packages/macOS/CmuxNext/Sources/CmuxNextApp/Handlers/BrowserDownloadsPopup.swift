@@ -326,7 +326,7 @@ private struct BrowserDownloadPopupRow: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .help(BrowserHitStrings.downloadShowInFinder)
+                    .themedHelp(BrowserHitStrings.downloadShowInFinder)
                     .accessibilityLabel(BrowserHitStrings.downloadShowInFinder)
                 }
             }
@@ -340,7 +340,8 @@ private struct BrowserDownloadPopupRow: View {
             overRow = inside
             if inside { model.pointerEntered() }
         }
-        .help(download.filename)
+        // The name truncates in the middle, so hovering the row shows it whole.
+        .themedHelp(download.filename)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("browser.downloads.row")
     }
@@ -460,5 +461,8 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
 /// The popup's content: a click on a control (a footer button) acts on the
 /// first click, also while the popup opened without the keys.
 final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    // A main-actor generic class's isolated deinit crashes the Release compile (swift-frontend 6.3, macOS 14 target).
+    nonisolated deinit {}
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }

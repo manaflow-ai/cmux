@@ -27,12 +27,14 @@ gives ANSI colors, Cmd-F search, selection and copy, scrollback and fast renderi
 output for free, and it is what "a terminal that shows everything" means. A web widget would
 re-implement each of those, worse.
 
-Clicking opens it from every place a background task shows in the chat:
+It opens from every place a background task shows in the chat:
 
-- the transcript note of its end ("Background task completed: npm run dev"), and
-- the chat summary's Background tasks list (running ones included).
-
-Each row says it can be opened (pointer, tooltip "Show output").
+- the transcript note of its end ("Background task failed: npm test"): a click opens the note
+  in place (the whole command, the end of its output from `_acpmux/process/tail`, the exit code
+  when known, the harness's summary), and its **Open in terminal** button is the only thing
+  that opens the terminal (Leo 2026-10-21: a click on the row must never replace the window);
+- the chat summary's and the Inspector's Background tasks lists (running ones included), where
+  a click on a row opens it.
 
 ## The view (`acpmux process show`)
 
@@ -82,14 +84,15 @@ and at the end, for example `✓ Completed after 3m 12s`, `✗ Failed (exit 1) a
 ## Wiring
 
 - **Page** (`webviews/src/agent-session/acpmux`): `processTerminal.ts` posts
-  `chat.processTerminal {toolCallId}`; `BackgroundTaskNote` and the summary's background
-  task rows call it.
+  `chat.processTerminal {toolCallId}`; `BackgroundTaskNote`'s Open in terminal and the
+  summary's and Inspector's background task rows call it.
 - **Pane host** (`CmuxNextAgentPane`): `AgentPaneRequest.processTerminal(toolCall:)`; the
   model answers it through `AgentPaneHeaderHooks.openProcess(session, toolCall)`.
   `AgentPaneProcessViewer` builds the viewer's argv, title and environment
   (`ACPMUX_SOCKET` of the chat's daemon only, never a secret).
-- **App** (`CmuxNextApp`): opens a PTY tab with that argv in the chat's pane and places it
-  in the column right of the chat (`AgentBesidePlacement`, as Changes and Preview open).
+- **App** (`CmuxNextApp`): starts that argv with `create-terminal` (`new-tab` takes no argv
+  and ran a bare shell instead) and places the tab in the column right of the chat
+  (`AgentBesidePlacement`, as Changes and Preview open).
 - **CLI** (`acpmux process list | show | kill`): `show` finds the process by id, or by the
   chat's session and the tool call that started it (also a subagent's).
 
@@ -98,8 +101,9 @@ and at the end, for example `✓ Completed after 3m 12s`, `✗ Failed (exit 1) a
 - Rust (`cli/process.rs`): finding a process by tool call (subagent included), header and
   footer text for each state, replay of every byte across pages, follow until the end, a
   kill after `k` then `y`, and the Codex notice.
-- Web (`agent-pane-background-tasks.test.ts`): clicking the end note and the summary row
-  posts `chat.processTerminal` with the tool call id.
+- Web (`agent-pane-background-tasks.test.ts`, `BackgroundMark.test.tsx`): clicking the end
+  note opens it in place and posts nothing; its Open in terminal and the summary row post
+  `chat.processTerminal` with the tool call id.
 - Swift (`AgentPaneProcessViewerTests`): the request decodes, and the viewer's argv and
   environment.
 

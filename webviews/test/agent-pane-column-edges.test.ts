@@ -9,8 +9,8 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 type Frame = { entry: string; variant: string; edge: string; blocks: Record<string, string> };
 
@@ -69,8 +69,12 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(
+      vite,
+      ["agent-pane.bottom-stack", "agent-pane.pr-dock", "agent-pane.new-tab", "agent-pane.composer"],
+      { browser },
+    );
   });
   afterAll(async () => {
     await browser?.close();
@@ -122,7 +126,7 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
     for (const width of WIDTHS) {
       for (const frame of FRAMES) {
         const page = await browser!.newPage({ viewport: { width, height: 760 } });
-        await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=${frame.entry}&variant=${frame.variant}`);
+        await page.goto(`http://127.0.0.1:${port}${galleryFrame(frame.entry, { variant: frame.variant })}`);
         // The first page waits on a cold Vite compiling the gallery, past 30 s on a busy runner.
         await page.locator(frame.edge).first().waitFor({ timeout: 90_000 });
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
@@ -214,7 +218,7 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
     for (const width of WIDTHS) {
       for (const frame of JOINS) {
         const page = await browser!.newPage({ viewport: { width, height: 760 } });
-        await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=${frame.entry}&variant=${frame.variant}`);
+        await page.goto(`http://127.0.0.1:${port}${galleryFrame(frame.entry, { variant: frame.variant })}`);
         await page.locator(frame.edge).first().waitFor({ timeout: 90_000 });
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
           timeout: 30_000,

@@ -4,7 +4,9 @@ import Foundation
 nonisolated struct RipgrepMatch: Equatable, Sendable {
     let path: String
     let relativePath: String
+    /// 1-based.
     let line: Int
+    /// 1-based, in UTF-16 code units (the code editor's column).
     let column: Int
     let preview: String
 }
@@ -72,7 +74,14 @@ nonisolated enum RipgrepSearch {
               let lineNumber = payload["line_number"] as? Int else { return nil }
         let start = (payload["submatches"] as? [[String: Any]])?.first?["start"] as? Int
         return RipgrepMatch(path: path, relativePath: relativePath(path, root: root), line: lineNumber,
-                            column: (start ?? 0) + 1, preview: lines.trimmingCharacters(in: .whitespacesAndNewlines))
+                            column: utf16Column(lines, byteOffset: start ?? 0), preview: lines.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// The 1-based UTF-16 column (the code editor's) of the match rg reports `byteOffset` UTF-8
+    /// bytes into `line`.
+    static func utf16Column(_ line: String, byteOffset: Int) -> Int {
+        let bytes = line.utf8.prefix(max(0, byteOffset))
+        return String(decoding: bytes, as: UTF8.self).utf16.count + 1
     }
 
     /// rg writes non-UTF-8 text as base64 `bytes`.

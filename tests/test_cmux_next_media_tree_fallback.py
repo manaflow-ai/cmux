@@ -167,7 +167,8 @@ class TreeFallbackTest(unittest.TestCase):
         publish = {s.get("name"): s for s in workflow["jobs"]["publish"]["steps"]}
         step = publish["Upload the media and update the comment"]
         self.assertIn("needs.tour.outputs.tree_note", step["env"]["TREE_NOTE"])
-        self.assertIn("$TREE_NOTE", step["run"])
+        # The step publishes through .github/actions/pr-media-publish; its command composes the note.
+        self.assertIn("$TREE_NOTE", step["with"]["command"])
 
 
 if __name__ == "__main__":

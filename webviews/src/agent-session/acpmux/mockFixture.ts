@@ -430,6 +430,8 @@ export function sessionSummary(session: MockSession, now: number, turnCount: num
     ...fields,
     preview,
     name: session.harness,
+    // acpmux runs the fixture's `claude` as Claude Code: Ctrl-B and subagent Stop.
+    backgroundsWork: session.harness === "claude",
     updatedAt: now - ago * 60_000,
     turnCount,
     indicator: fixtureIndicator(session),
@@ -460,6 +462,7 @@ export function newSessionSummary(
     harness,
     // acpmux names the harness family, which decides what the chat forks (Edit, versions).
     family: harness,
+    backgroundsWork: !codex,
     model: (codex ? codexModels : claudeModels)[0]!.id,
     status: "idle",
     cwd,

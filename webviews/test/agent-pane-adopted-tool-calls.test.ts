@@ -166,8 +166,9 @@ await requireBrowserLane("agent-pane-adopted-tool-calls.test.ts", async () => {
     const page = await open(PATCH_CHAT);
     await page.locator("button.cv-worked").click();
     await page.locator("button.cv-tool", { hasText: "Ran 3 commands" }).waitFor();
-    // With no diff the edit keeps its own row; it names both files' count, not the first file.
-    const edit = page.locator(".cv-tool", { hasText: /^Edit \d+ files$/ });
+    // With no diff the edit keeps its own row; it names both files' count, not the first file. Its
+    // label, not the whole row: the row also holds the call's check and time, shown on hover.
+    const edit = page.locator(".cv-tool .cv-tool__text", { hasText: /^Edit \d+ files$/ });
     await expect(edit.textContent()).resolves.toBe("Edit 2 files");
     await page.close();
   });

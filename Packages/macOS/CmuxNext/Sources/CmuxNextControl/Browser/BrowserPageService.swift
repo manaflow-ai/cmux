@@ -108,6 +108,7 @@ public struct BrowserPageService: Sendable {
         router.register([rightMethod(router: router)])
         router.register(passkeyMethods())
         router.register(inputMethods())
+        router.register(rawInputMethods())
         router.register(browserUseMethods())
         router.register(cookieAndStorageMethods())
     }

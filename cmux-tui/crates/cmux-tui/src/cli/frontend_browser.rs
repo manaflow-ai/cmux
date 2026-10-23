@@ -58,7 +58,7 @@ fn applies(plan: &RequestPlan) -> bool {
 /// `daemon_socket` and answers there. `--app-socket` names that app
 /// explicitly; otherwise the app this `cmux` belongs to owns the session
 /// when the daemon socket is that app's own daemon socket.
-fn owning_app(global: &GlobalArgs, daemon_socket: &Path) -> Option<UnixStream> {
+pub(super) fn owning_app(global: &GlobalArgs, daemon_socket: &Path) -> Option<UnixStream> {
     if global.app_socket.is_none() && !app_daemon_is(daemon_socket) {
         return None;
     }

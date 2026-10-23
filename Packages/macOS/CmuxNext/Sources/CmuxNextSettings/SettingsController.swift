@@ -47,6 +47,8 @@ public final class SettingsController {
     /// opacity write with Material unset names the material it gives, and an opacity reset drops
     /// only that material (`WindowBackgroundSetting.linkedEdits`). Nil reads as no blur.
     @ObservationIgnored public var ghosttyBackgroundBlur: (@MainActor () -> Int)?
+    /// Font families written lately to a font family setting (`setSetting`), newest first.
+    @ObservationIgnored public var recentFonts = RecentFonts()
     /// Device-scoped values of the managing team's policy; set with `setTeamPolicy`.
     public internal(set) var teamPolicy: TeamPolicyLayer = .none
 
@@ -195,6 +197,18 @@ public final class SettingsController {
     /// minutes) through `setSetting`.
     public func setBrowserHibernation(_ mode: BrowserHibernationSetting.Mode) async throws {
         try await setSetting(at: BrowserHibernationSetting.configPath, to: BrowserHibernationSetting(mode: mode).configValue, by: .currentRun())
+    }
+
+    /// Writes `browser.hibernationExclusions` with `host` added ("Never Hibernate This Site")
+    /// through `setSetting`; does nothing when an exclusion already matches it. Returns the
+    /// setting with the host added.
+    @discardableResult
+    public func addBrowserHibernationExclusion(host: String) async throws -> BrowserHibernationSetting {
+        let current = snapshot.browserHibernation
+        let next = current.addingExclusion(host: host)
+        guard next != current else { return current }
+        try await setSetting(at: BrowserHibernationSetting.exclusionsPath, to: .array(next.exclusions.map(JSONValue.string)), by: .currentRun())
+        return next
     }
 
     /// Writes `browser.keepNeighborTabsAwake` (0...3) through `setSetting`;

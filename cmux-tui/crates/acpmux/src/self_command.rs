@@ -56,6 +56,9 @@ impl SelfCommand {
 }
 
 #[cfg(test)]
+pub(crate) use tests::both as test_commands;
+
+#[cfg(test)]
 mod tests {
     use super::SelfCommand;
     use std::ffi::OsString;
@@ -84,6 +87,3 @@ mod tests {
         assert_eq!(args, ["acp", "subsession-mcp"]);
     }
 }
-
-#[cfg(test)]
-pub(crate) use tests::both as test_commands;

@@ -215,10 +215,24 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     });
     // One still per settled play step (frame/playRunner.ts), for the per-PR diff's filmstrips.
     const stills: { index: number; step: string; screenshot: string }[] = [];
+    let stillsMs = 0;
     await page.exposeFunction("cmuxGalleryStep", async (step: { index: number; step: string }) => {
+      const started = Date.now();
       const name = `${safeFilePart(item.id)}-${engine}--step-${String(step.index + 1).padStart(2, "0")}.png`;
       await page.screenshot({ path: join(outputDir, name), fullPage: true });
       stills.push({ index: step.index, step: String(step.step).slice(0, 200), screenshot: name });
+      stillsMs += Date.now() - started;
+    });
+    // When the stage first says it is ready, from navigation start (mount, play and settle; the play
+    // waits for each step's still, and that time is taken out below): gallery health holds each state to a ready-time budget (health.ts). The script runs
+    // before <html> exists, so it watches the document.
+    await page.addInitScript(() => {
+      const stamp = window as unknown as { cmuxGalleryReadyMs?: number };
+      new MutationObserver((_records, observer) => {
+        if (document.documentElement?.dataset.galleryReady === undefined) return;
+        stamp.cmuxGalleryReadyMs = Math.round(performance.now());
+        observer.disconnect();
+      }).observe(document, { subtree: true, attributes: true, attributeFilter: ["data-gallery-ready"] });
     });
     const target = /^https?:\/\//.test(item.path_or_url) ? item.path_or_url : `${baseUrl}/${item.path_or_url.replace(/^\/+/, "")}`;
     const url = queryUrl(target, params);
@@ -229,6 +243,8 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     // A gallery stage says when it has painted and gone still (frame/main.ts `data-gallery-ready`).
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined || !document.querySelector("script[src*='gallery-frame']"), null, { timeout: 20_000 }).catch(() => undefined);
     const ready = await page.evaluate(() => document.documentElement.dataset.galleryReady ?? null);
+    const stamped = await page.evaluate(() => (window as unknown as { cmuxGalleryReadyMs?: number }).cmuxGalleryReadyMs ?? null);
+    const readyMs = stamped === null ? null : Math.max(0, stamped - stillsMs);
     const revision = await page.evaluate(() => {
       const root = document.documentElement;
       return {
@@ -248,7 +264,7 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     await page.screenshot({ path: join(outputDir, `${safeFilePart(item.id)}-${engine}.png`), fullPage: true });
     const screenshotName = `${safeFilePart(item.id)}-${engine}.png`;
     const screenshotPath = join(outputDir, screenshotName);
-    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, revision, play, ...(experiment ? { experiment } : {}) };
+    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, readyMs, revision, play, ...(experiment ? { experiment } : {}) };
     if (stills.length) result.steps = stills.sort((a, b) => a.index - b.index);
     if (baselineDir) {
       const baselinePath = join(baselineDir, screenshotName);
