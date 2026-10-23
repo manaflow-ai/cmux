@@ -35,13 +35,14 @@ public nonisolated struct ImageClassifier: Sendable {
     /// - Parameters:
     ///   - appBundlePath: The running app's bundle (`Bundle.main.bundlePath`); images inside it are ours.
     ///   - forbiddenTerms: Words a sent name must not hold (the user's short and full name, the
-    ///     host name; ``personalTerms()``), compared case-insensitively; terms under 3 letters are ignored.
+    ///     host name; ``personalTerms()``), compared case-insensitively; terms under 4 letters, and
+    ///     words of our own vocabulary (``isOwnWord(_:)``), are ignored.
     ///   - systemImageExists: Whether an image of that name exists in an Apple folder (the default
     ///     looks on disk); tests pass a fixed answer.
     public init(appBundlePath: String?, forbiddenTerms: [String],
                 systemImageExists: @escaping @Sendable (String) -> Bool = ImageClassifier.systemImageOnDisk) {
         self.appBundlePath = appBundlePath.map { $0.hasSuffix("/") ? $0 : $0 + "/" }
-        self.forbiddenTerms = forbiddenTerms.map { $0.lowercased() }.filter { $0.count >= 3 }
+        self.forbiddenTerms = forbiddenTerms.map { $0.lowercased() }.filter { $0.count >= Self.minimumTermLength && !Self.isOwnWord($0) }
         self.systemImageExists = systemImageExists
     }
 
@@ -66,10 +67,10 @@ public nonisolated struct ImageClassifier: Sendable {
         guard let name, !name.isEmpty else { return .other }
         // A name that is a path is judged as a path; a bare name is ours by prefix or Apple's
         // when that framework or library exists in an Apple folder.
-        let owner: Owner = name.contains("/") ? owner(path: name)
+        let who: Owner = name.contains("/") ? owner(path: name)
             : Self.ownNamePrefixes.contains { name.hasPrefix($0) } ? .ours
             : systemImageExists(name) ? .apple : .other
-        guard owner != .other, let sent = sendableName(name) else { return .other }
+        guard who != .other, let sent = sendableName(name) else { return .other }
         return HangReportFrame(image: sent, uuid: uuid.uppercased(), offset: offset)
     }
 
@@ -85,15 +86,19 @@ public nonisolated struct ImageClassifier: Sendable {
         let name = path.split(separator: "/").last.map(String.init) ?? ""
         guard name.range(of: Self.namePattern, options: .regularExpression) != nil else { return nil }
         let lowered = name.lowercased()
-        guard !forbiddenTerms.contains(where: { lowered.contains($0) && !Self.isOwnWord($0) }) else { return nil }
+        guard !forbiddenTerms.contains(where: { lowered.contains($0) }) else { return nil }
         return name
     }
 
-    /// A forbidden term that is itself part of our own product names ("cmux", "next", "nightly")
-    /// says nothing a report does not already say; it must not refuse our own images.
+    /// Shorter personal terms are ignored: a three-letter name ("max") would refuse common words.
+    static let minimumTermLength = 4
+
+    /// A personal term that is part of our product names or of the report's fixed vocabulary
+    /// ("cmux", "nightly", "apple", "stall") says nothing a report does not already say, and must
+    /// not refuse every report.
     static func isOwnWord(_ term: String) -> Bool {
-        ["cmux", "cmux next", "cmux next nightly", "next", "nightly", "ghosttykit", "chromium embedded framework"]
-            .contains { $0.contains(term) }
+        ["cmux next nightly", "ghosttykit", "chromium embedded framework", "metrickit", "watchdog", "stall", "hang",
+         "release", "apple", "intel", "ultra", "other", "arm64", "x86_64"].contains { $0.contains(term) }
     }
 
     static func isUUID(_ value: String) -> Bool {
@@ -103,7 +108,7 @@ public nonisolated struct ImageClassifier: Sendable {
 
     /// Whether `/System/Library/{Frameworks,PrivateFrameworks}/<name>.framework` or
     /// `/usr/lib/<name>` exists (a bare name with no slash; anything else is false).
-    @Sendable public static func systemImageOnDisk(_ name: String) -> Bool {
+    public static func systemImageOnDisk(_ name: String) -> Bool {
         guard !name.isEmpty, !name.contains("/"), !name.hasPrefix(".") else { return false }
         let manager = FileManager.default
         return ["/System/Library/Frameworks/\(name).framework", "/System/Library/PrivateFrameworks/\(name).framework",

@@ -72,7 +72,9 @@ public actor HangReportStore {
             }
             return (url, date)
         }
-        return dated.sorted { $0.1 < $1.1 }.compactMap { url, _ in (try? Data(contentsOf: url)).map { (url, $0) } }
+        return dated.sorted { $0.1 < $1.1 }.compactMap { entry -> (url: URL, body: Data)? in
+            (try? Data(contentsOf: entry.0)).map { (url: entry.0, body: $0) }
+        }
     }
 
     public func remove(_ url: URL) { try? manager.removeItem(at: url) }
