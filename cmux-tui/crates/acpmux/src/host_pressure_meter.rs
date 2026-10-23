@@ -46,6 +46,16 @@ impl Drop for Sampling<'_> {
     }
 }
 
+/// A [`Meter::sampling`] claim taken before a blocking job is queued, so a queued
+/// job also counts as in flight; it clears the flag even if the job never runs.
+struct Claim(Arc<Meter>);
+
+impl Drop for Claim {
+    fn drop(&mut self) {
+        self.0.sampling.store(false, Ordering::SeqCst);
+    }
+}
+
 impl Meter {
     /// This host's one meter, shared by the process: the budget is the host's, not a
     /// daemon's. Its probe and the override file are read at each fresh sample.
@@ -92,12 +102,24 @@ impl Meter {
         if let Some(v) = self.fresh_at(Instant::now()) {
             return Some(v);
         }
-        let meter = self.clone();
-        let sample = tokio::task::spawn_blocking(move || meter.sample_at(Instant::now()));
+        let Some(sample) = self.start_sample() else {
+            return self.last();
+        };
         match tokio::time::timeout(SAMPLE_WAIT, sample).await {
             Ok(Ok(Some(v))) => Some(v),
             _ => self.last(),
         }
+    }
+
+    /// Claims [`Meter::sampling`] and then queues one sample on a blocking thread;
+    /// `None` while another is queued or running, so a stalled probe never piles
+    /// up blocking jobs.
+    fn start_sample(self: &Arc<Self>) -> Option<tokio::task::JoinHandle<Option<Verdict>>> {
+        if self.sampling.swap(true, Ordering::SeqCst) {
+            return None;
+        }
+        let claim = Claim(self.clone());
+        Some(tokio::task::spawn_blocking(move || claim.0.take_sample(Instant::now())))
     }
 
     /// For a turn's acceptance, which must not wait: the last verdict while it is
@@ -110,9 +132,8 @@ impl Meter {
             (age.as_secs_f64() < v.formula.sample_seconds, age <= RECENT, v.clone())
         });
         let fresh = last.as_ref().is_some_and(|(fresh, _, _)| *fresh);
-        if !fresh && !self.sampling.load(Ordering::SeqCst) {
-            let meter = self.clone();
-            drop(tokio::task::spawn_blocking(move || meter.sample_at(Instant::now())));
+        if !fresh {
+            drop(self.start_sample());
         }
         last.filter(|(_, recent, _)| *recent).map(|(_, _, v)| v)
     }
@@ -128,6 +149,15 @@ impl Meter {
             return None;
         }
         let _sampling = Sampling(&self.sampling);
+        self.take_sample(now)
+    }
+
+    /// Samples now unless the last verdict is fresh; the caller holds the
+    /// [`Meter::sampling`] claim. Blocking.
+    fn take_sample(&self, now: Instant) -> Option<Verdict> {
+        if let Some(v) = self.fresh_at(now) {
+            return Some(v);
+        }
         let budget = (self.budget)(&self.host);
         let sample = self.probe.sample();
         let mut state = self.lock();

@@ -81,8 +81,10 @@ async fn a_stalled_sample_never_holds_a_turn_or_status() {
     assert_eq!(m.current().await, None);
     assert_eq!(m.current().await, None);
     assert!(start.elapsed() < SAMPLE_WAIT * 4, "{:?}", start.elapsed());
-    // One sample at a time: the stalled one is the only read.
+    // One sample at a time: the stalled one is the only read, and no other
+    // blocking job queues behind it.
     assert_eq!(*probe.reads.lock().unwrap(), 1);
+    assert!(m.start_sample().is_none());
     release.send(()).unwrap();
     let mut v = None;
     for _ in 0..200 {
