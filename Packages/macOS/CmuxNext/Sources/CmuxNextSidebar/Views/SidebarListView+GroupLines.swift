@@ -46,7 +46,8 @@ extension SidebarGroupLine {
     /// (cx-q5jw: straight and unbroken, Edge style). `frame` places a row.
     /// With `nested` off, the rails before the nested-groups prototype: one per group, ending at its own
     /// last member, at full strength (the "before" capture).
-    /// A header sits at its own members' x (`SidebarRow.indentLevel`), so the line sits just left of the header.
+    /// A header's bar reaches left of its own members' x over the line (`SidebarStyle.groupRailReach`): the line
+    /// starts at the header frame's left edge, the bar's.
     static func lines(_ rows: [SidebarRow], colors: [GroupID: SidebarGroup], nested: Bool = true,
                       frame: (SidebarRow) -> CGRect) -> [SidebarGroupLine] {
         var headers: [(GroupID, SidebarRow)] = []
@@ -79,8 +80,9 @@ extension SidebarGroupLine {
             // The header's bar fills its row: the line starts just under it.
             let top = head.maxY + Metrics.space1, bottom = tail.maxY - Metrics.space1
             guard bottom > top else { return nil }
-            // Left of the group's own members' x, which is its header's (not the subtree's last row, which may sit deeper).
-            let x = SidebarStyle.groupLineX(membersMinX: head.minX)
+            // At the header bar's left edge, which reaches left of the group's own members' x by the rail and its gap
+            // (`SidebarListView.railReach(for:)`; not the subtree's last row, which may sit deeper).
+            let x = head.minX
             return SidebarGroupLine(group: id, frame: CGRect(x: x, y: top, width: width, height: bottom - top),
                                     color: colors[id]?.tint ?? .palette(end.groupColor ?? .grey), level: nested ? header.depth : 0)
         }

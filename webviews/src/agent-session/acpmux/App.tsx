@@ -69,6 +69,7 @@ import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
 import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
+import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
 import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
@@ -2025,6 +2026,9 @@ export function VirtualTranscript({
   // render, and many at once (a session switch, older history), are a load and do not.
   const knownRows = useRef<Set<string> | null>(null);
   const knownFor = useRef<AcpmuxRow[] | null>(null);
+  /// Where this snapshot first differs from the last, found once below; the rail reads it instead
+  /// of comparing the rows again (model.ts minimapTurns).
+  const rowsChange = useRef<RowsChange | undefined>(undefined);
   const enteringRows = useRef(new Set<string>());
   /// The minimap's hook for this commit's settled offset (ThreadMinimap `placed`).
   const minimapPlaced = useRef<(() => void) | undefined>(undefined);
@@ -2040,6 +2044,7 @@ export function VirtualTranscript({
     const previous = knownFor.current ?? [];
     let from = 0;
     while (from < rows.length && from < previous.length && rows[from] === previous[from]) from += 1;
+    rowsChange.current = { base: previous, rows, from };
     // A page of older history lands above the first row that was already there (a date divider
     // moves up to the page's first turn, so the first known row, not the first row): those rows fade
     // in as they are first seen, and never take a live row's entrance.
@@ -3376,9 +3381,13 @@ export function VirtualTranscript({
           // Above the room under the last row, so a composer that grows while the reader is scrolled
           // up leaves the map as it was, as it does the scrollbar.
           viewportHeight={height - room}
+          // Where the transcript's mask ends the view (conversation.css --acpmux-view-foot): the
+          // rail's rows stay above its bottom band.
+          foot={height - dockSpace}
           scrolls={layout.totalHeight - height > 0.5}
           width={width}
           placed={minimapPlaced}
+          change={rowsChange.current}
         />
         {find?.open && <ChatFindBar find={find} />}
         <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>
