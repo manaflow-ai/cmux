@@ -134,7 +134,8 @@ final class HostPressureService {
     private func stopMonitor() {
         running = false
         lifecycleGeneration += 1
-        wanted.withLock { $0 = lifecycleGeneration }
+        let generation = lifecycleGeneration
+        wanted.withLock { $0 = generation }
         monitored = .normal
         monitoredVerdict = nil
         let (monitor, previous) = (monitor, lifecycle)
