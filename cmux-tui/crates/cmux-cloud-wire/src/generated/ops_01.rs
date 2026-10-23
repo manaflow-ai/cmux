@@ -681,7 +681,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Delete a chief (not the default; active or archived) for good: it stops waking, its tokens and sandboxes end, and only a tombstone keeps its id. No restore.
+    /// Delete a chief (not the default; active or archived) for good: it stops waking, its tokens end, its sandboxes are deleted, and only a tombstone keeps its id; its conversation history stays read-only with its members. No restore.
     ChiefDeleteOp {
         name: "chief.delete",
         class: Mutation,

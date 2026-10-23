@@ -29,7 +29,7 @@ import { ccRoute } from "../chief-brain-cc/vm.ts"
 import { ccNotes } from "../chief-brain-cc/turn.ts"
 import { toolFiles, toolsCall } from "../chief-brain-cc/tools.ts"
 import { githubCall, githubDump, type GithubHost, githubPoll, type GithubStatus, githubTurn } from "../chief-brain-cc/github.ts"
-import { ccSandbox, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
+import { ccSandbox, ccSandboxPurge, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
 import { IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, importBatch, importing, importStatus } from "./memory-import.ts"
 
 /**
@@ -492,6 +492,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
   /** The Chief was archived: its sandboxes pause and its Freestyle identity goes, with every token and grant. */
   async ccSandboxRetire(): Promise<{ paused: number; revoked: boolean }> {
     return ccSandboxRetire(this)
+  }
+
+  /** The Chief was deleted: its sandboxes are deleted and its Freestyle identity goes. */
+  async ccSandboxPurge(): Promise<{ deleted: number; left: number; revoked: boolean }> {
+    return ccSandboxPurge(this)
   }
 
   /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */

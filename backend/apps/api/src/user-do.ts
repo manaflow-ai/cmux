@@ -372,8 +372,10 @@ export class UserDO extends OwnerDO<UserState> {
       const agent = (result.value as { id?: string }).id
       if (!agent) return
       this.closeSockets((p) => p.agent === agent, op === "chief.delete" ? "chief deleted" : "chief archived")
-      // Its sandboxes pause and their Freestyle identity (tokens and grants) is revoked (chief-brain-cc/sandbox.ts).
-      this.ctx.waitUntil((this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(`${agent}/sandboxes`)) as unknown as { ccSandboxRetire(): Promise<unknown> }).ccSandboxRetire().catch(() => undefined))
+      // Its sandboxes pause (archive: a restore resumes them) or are deleted (delete), and their Freestyle identity
+      // (tokens and grants) is revoked (chief-brain-cc/sandbox.ts).
+      const sandboxes = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(`${agent}/sandboxes`)) as unknown as { ccSandboxRetire(): Promise<unknown>; ccSandboxPurge(): Promise<unknown> }
+      this.ctx.waitUntil((op === "chief.delete" ? sandboxes.ccSandboxPurge() : sandboxes.ccSandboxRetire()).catch(() => undefined))
       if (markAgentClosing(this.ctx.storage.sql, agent, Date.now()) > 0) this.ctx.waitUntil(this.flushCloses(Date.now()).finally(() => this.scheduleAlarm()))
       return
     }
