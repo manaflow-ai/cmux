@@ -72,3 +72,29 @@ extension TabStripModel {
         return target != index && section.contains(target) ? target : nil
     }
 }
+
+extension TabStripModel {
+    /// The tabs the strip shows, in strip order: every tab but the members
+    /// of a collapsed group (Chrome's next and previous tab skip them too).
+    public var visibleOrderedTabs: [TabItem] {
+        let collapsed = Set(groups.filter(\.isCollapsed).map(\.id))
+        return orderedTabs.filter { tab in tab.groupID.map { !collapsed.contains($0) } ?? true }
+    }
+
+    /// The visible tab `offset` steps from `id` in strip order, wrapping
+    /// (Next / Previous Tab). From a hidden tab it counts from its place.
+    public func adjacentVisibleTab(from id: TabID?, offset: Int) -> TabID? {
+        let ordered = orderedTabs
+        let visible = Set(visibleOrderedTabs.map(\.id))
+        guard !visible.isEmpty, offset != 0 else { return nil }
+        let count = ordered.count
+        var index = id.flatMap { id in ordered.firstIndex { $0.id == id } } ?? (offset > 0 ? count - 1 : 0)
+        var remaining = abs(offset)
+        let step = offset > 0 ? 1 : -1
+        while remaining > 0 {
+            index = (index + step + count) % count
+            if visible.contains(ordered[index].id) { remaining -= 1 }
+        }
+        return ordered[index].id
+    }
+}
