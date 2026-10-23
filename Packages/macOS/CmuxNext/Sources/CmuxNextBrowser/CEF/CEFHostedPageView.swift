@@ -85,7 +85,9 @@ final class CEFHostedPageView: NSView {
         guard let type = NSClassFromString("CALayerHost") as? CALayer.Type else { return nil }
         let layerHost = type.init()
         // A class without the key would raise in setValue(_:forKey:); ask first.
+        // crash-allow: only builds a selector to ask responds(to:), which never raises
         guard layerHost.responds(to: NSSelectorFromString("setContextId:")) else { return nil }
+        // crash-allow: the key is set only after responds(to:) proved the setter exists (line above)
         layerHost.setValue(NSNumber(value: contextID), forKey: "contextId")
         return layerHost
     }
