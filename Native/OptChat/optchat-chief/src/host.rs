@@ -397,9 +397,38 @@ pub fn subagent_preset(
         name,
         harness: profile.to_owned(),
         env,
-        args: Vec::new(),
+        args: if family == Family::Claude {
+            subagent_claude_args()
+        } else {
+            Vec::new()
+        },
         system_prompt: (family == Family::Claude).then(|| text.to_owned()),
     }
+}
+
+/// Built-in tools a Chief subagent never uses: `session_dir::SUBAGENT_DENIED_TOOLS`
+/// (Claude Code's own subagents and the tools that wait for a human), and
+/// the ones that need the user's own opt-in in their own chat (`Workflow`,
+/// `/loop`'s `ScheduleWakeup`, crons). Each listed tool's text was in every
+/// request of every subagent, about 3.5k tokens (a 2026-10-23 subagent).
+pub const SUBAGENT_EXTRA_DENIED_TOOLS: [&str; 5] = [
+    "Workflow",
+    "ScheduleWakeup",
+    "CronCreate",
+    "CronDelete",
+    "CronList",
+];
+
+/// A Claude subagent's args: the deny list by argument, since the subagent
+/// runs in its task's folder, where the subagent folder's project settings
+/// never apply. No setting-source limit: subagents keep the user's settings.
+pub fn subagent_claude_args() -> Vec<String> {
+    let denied: Vec<&str> = session_dir::SUBAGENT_DENIED_TOOLS
+        .iter()
+        .chain(SUBAGENT_EXTRA_DENIED_TOOLS.iter())
+        .copied()
+        .collect();
+    vec!["--disallowedTools".to_owned(), denied.join(",")]
 }
 
 /// The turn preset's name: `optchat-chief-<home id>`, and
