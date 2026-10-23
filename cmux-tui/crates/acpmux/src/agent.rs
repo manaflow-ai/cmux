@@ -222,7 +222,7 @@ impl ChildAgent {
         let mut cmd = harness_command(name, profile, cwd, command_line, session)?;
         #[cfg(windows)]
         cmd.creation_flags(crate::job::AGENT_FLAGS);
-        let mut child = cmd.spawn().with_context(|| format!("spawn agent {name}"))?;
+        let mut child = cmd.spawn().map_err(|e| spawn_error(name, e))?;
         #[cfg(windows)]
         let job = {
             let contained = child
@@ -1085,6 +1085,26 @@ async fn end_still_running(procs: Vec<crate::agent_host::tree::Started>) {
     let _ =
         tokio::task::spawn_blocking(move || crate::agent_host::tree::kill_still_running(&procs))
             .await;
+}
+
+/// The error of an agent that did not start. Out of descriptors, the bare
+/// "Too many open files (os error 24)" read like the agent's fault (cmux16,
+/// 2026-10-22): say it is the daemon's, with its limit and what to do.
+fn spawn_error(name: &str, e: std::io::Error) -> anyhow::Error {
+    #[cfg(unix)]
+    if matches!(e.raw_os_error(), Some(libc::EMFILE | libc::ENFILE)) {
+        let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        let limit = if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) } == 0 {
+            format!(" (its limit is {})", lim.rlim_cur)
+        } else {
+            String::new()
+        };
+        return anyhow!(
+            "spawn agent {name}: the acpmux daemon is out of open files{limit}; \
+             `acpmux daemon shutdown` stops it and the next acpmux command starts it again: {e}"
+        );
+    }
+    anyhow::Error::new(e).context(format!("spawn agent {name}"))
 }
 
 #[cfg(all(test, unix))]
