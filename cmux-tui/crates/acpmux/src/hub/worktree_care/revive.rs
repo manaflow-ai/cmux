@@ -76,9 +76,7 @@ impl Hub {
                 self.append(session, "mux", "worktree_recreated", json!({
                     "cwd": cwd, "root": origin.root, "branch": origin.branch, "from": from, "at": at
                 }));
-                if self.recorded_worktree_is_here(&cwd, &origin).await {
-                    return Ok(());
-                }
+                return Ok(());
             }
             result => {
                 self.append(
