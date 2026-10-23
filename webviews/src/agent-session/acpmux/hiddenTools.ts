@@ -15,6 +15,16 @@ export function isPlumbingCall(update: any): boolean {
   return typeof tool === "string" && PLUMBING_TOOLS.has(tool);
 }
 
+/// Tracks which call ids in `hidden` are plumbing and says whether this update's call is one. A
+/// plumbing call marks its id; any other call that starts under that id clears the mark, since an
+/// adapter that numbers calls per process reuses an id in a later prompt (cx-jzhka). A result
+/// (`tool_call_update`, which names no tool) keeps whatever mark its call left.
+export function hiddenCall(hidden: Set<string>, key: string, update: any): boolean {
+  if (isPlumbingCall(update)) hidden.add(key);
+  else if (update?.sessionUpdate === "tool_call") hidden.delete(key);
+  return hidden.has(key);
+}
+
 /// Whether a tool name (Claude's `last_tool_name` in a subagent's progress) is plumbing.
 export function isPlumbingName(name: unknown): boolean {
   return typeof name === "string" && PLUMBING_TOOLS.has(name.trim());

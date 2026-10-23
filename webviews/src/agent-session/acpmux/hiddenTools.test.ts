@@ -238,3 +238,31 @@ test("a subagent calling ToolSearch never shows it as what the subagent is doing
   const audit = fold.takeRows().flatMap((row) => row.subagents ?? []);
   expect(audit.map((agent) => agent.action)).toEqual(["Read retry.ts"]);
 });
+
+test("a later call reusing a ToolSearch call's id draws and becomes the action (ids repeat per prompt)", () => {
+  // An adapter that numbers calls per process reuses an id in a later prompt (cx-jzhka).
+  const entries = [...toolSearch("same"), ...call("same", "Read", "Read retry.ts", "read")].map((step, index) => ({
+    event: { seq: index + 1, at: 1_000 + index },
+    update: step.update,
+  }));
+  expect(titles(childRows("child", entries, new Map(), 1) as Row[])).toEqual(["Read retry.ts"]);
+
+  const fold = new SubagentFold();
+  let seq = 0;
+  const feed = (update: any, acpmux: Record<string, unknown>) => {
+    seq += 1;
+    fold.reduce(
+      { seq, at: seq * 1000, msg: { method: "session/update", params: { update, _meta: { acpmux } } } },
+      update,
+    );
+  };
+  feed({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Audit" }] });
+  for (const step of toolSearch("same")) feed(step.update, { subagent: "a" });
+  for (const step of call("same", "ToolSearch", "ToolSearch", "other")) {
+    // An MCP tool titled ToolSearch, no Claude meta: a real call.
+    const { _meta, ...update } = step.update as any;
+    feed(update, { subagent: "a" });
+  }
+  const audit = fold.takeRows().flatMap((row) => row.subagents ?? []);
+  expect(audit.map((agent) => agent.action)).toEqual(["ToolSearch"]);
+});
