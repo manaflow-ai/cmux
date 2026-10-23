@@ -382,7 +382,7 @@ const MOBILE_HOST_NAME: &str = "cmux-mobile-host";
 /// daemon's own (canonical) executable. Read while the accepted peer is
 /// live, like the terminal ancestry; any lookup failure is false.
 fn is_bundled_mobile_host(pid: u32) -> bool {
-    static SIBLING: OnceLock<Option<PathBuf>> = OnceLock::new();
+    static SIBLING: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
     let sibling = SIBLING.get_or_init(|| {
         let own = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
         let sibling = std::fs::canonicalize(own.parent()?.join(MOBILE_HOST_NAME)).ok()?;
