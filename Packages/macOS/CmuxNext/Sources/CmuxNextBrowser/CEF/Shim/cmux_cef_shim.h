@@ -355,6 +355,12 @@ CMUX_SHIM_EXPORT void cmux_shim_stop(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_set_focus(int browser_id, int focus);
 // Without a handler every focus request wins (CEF's default).
 CMUX_SHIM_EXPORT void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn handler);
+// Main thread, after the page left a Command or Control key down unhandled
+// (CefKeyboardHandler::OnKeyEvent: no preventDefault). Return 1 when the host
+// ran a shortcut it held back for the page (cmux Find after a page without
+// its own); Chromium's own handling of the key then stops. Without a handler
+// the key goes on to Chromium.
+CMUX_SHIM_EXPORT void cmux_shim_set_unhandled_key_handler(cmux_shim_key_fn handler);
 CMUX_SHIM_EXPORT void cmux_shim_set_zoom_level(int browser_id, double level);
 // CefBrowserHost::SetAccessibilityState: 1 builds the page's accessibility tree (an assistive
 // client asked for the app's), 0 turns it off.
@@ -706,6 +712,15 @@ CMUX_SHIM_EXPORT int cmux_shim_renderer_client_ids(int browser_id, int* out, int
 // 127.0.0.1:port, which accepts only this app's processes. Returns 1 when
 // stored.
 CMUX_SHIM_EXPORT int cmux_shim_set_context_proxy(const char* profile_cache_path, int port);
+// A browser profile's own proxy (#24432): profile_cache_path's request
+// context uses exactly `server` ("http|https|socks5://host:port", one server,
+// no credentials), bypassing the hosts of bypass_list (";"-separated, may be
+// empty), with WebRTC UDP kept inside the proxy. A dead proxy fails closed:
+// Chromium never falls back to direct. An empty server clears it (system
+// proxy settings again). Applies to a context made earlier this launch now
+// and to a later one when it initializes. Returns 1 when stored, 0 for an
+// invalid server or a remote machine's context.
+CMUX_SHIM_EXPORT int cmux_shim_set_context_proxy_server(const char* profile_cache_path, const char* server, const char* bypass_list);
 // 2 applied to the request context, 1 pending (not initialized yet),
 // 0 none, -1 Chromium refused the preference.
 CMUX_SHIM_EXPORT int cmux_shim_context_proxy_state(const char* profile_cache_path);

@@ -1,29 +1,14 @@
-//! The provider's tab table and the per-tab refusals (D1 browser pages,
-//! the interim extension rule).
+//! The provider's tab table and the per-tab refusal (D1 browser pages).
 
 use super::*;
-
-/// `errorName` of a call refused by the interim extension rule.
-pub const EXTENSION_HOST_ACCESS: &str = "extension_host_access";
 
 /// `errorName` of a call on a tab that shows a browser page (chrome://,
 /// first-party cmux-page hosts: `policy::is_browser_page`).
 pub const BROWSER_PAGE: &str = "browser_page";
 
-/// The password lead's text (2026-10-04), the same as the app's control
-/// path (`AppBrowserPage.agentExtensionRefusal`). Names go in `data`.
-const EXTENSION_REFUSAL: &str = "the tab's profile has an enabled extension with access to this \
-     page; open the tab with openBrowser profile \"agent\" (a profile without extensions), or ask \
-     the person to allow agents in this tab";
-const EXTENSION_REFUSAL_HINT: &str = "open the tab with openBrowser profile \"agent\" (a profile \
-     without extensions), or ask the person to allow agents in this tab";
-
-/// The provider's tabs as the app reports them: engine per tab, and for CEF
-/// tabs the last `tab.access` report (interim extension rule).
+/// The provider's tabs as the app reports them: engine and URL per tab.
 #[derive(Default)]
 pub(super) struct TabTable {
-    /// targetId -> (extension_host_access, user_override, extension names).
-    pub(super) access: HashMap<String, (bool, bool, Vec<String>)>,
     /// Every announced tab, in announce order (`tabs.list`): the one record
     /// of each tab's engine and main-frame URL (hello, tab.announced,
     /// tab.navigated). The checks read it; nothing copies it.
@@ -47,7 +32,6 @@ impl TabTable {
     }
 
     pub(super) fn forget(&mut self, target_id: &str) {
-        self.access.remove(target_id);
         self.info.retain(|tab| tab.target_id != target_id);
     }
 
@@ -83,10 +67,8 @@ impl TabTable {
         }
     }
 
-    /// Why an agent call on `target_id` is refused, or `None`. WebKit tabs
-    /// have no extensions. Every other tab (CEF, or one the app did not
-    /// announce) needs a `tab.access` report that says no enabled extension
-    /// holds host access on its page, or the person's override: fail closed.
+    /// Why an agent call on `target_id` is refused, or `None`: only a tab
+    /// that shows a browser page is.
     pub(super) fn refusal(&self, method: &str, target_id: &str) -> Option<DriverError> {
         // D1: a tab that shows a browser page is never driven, on any engine.
         if let Some(url) = self.tab(target_id).map(|tab| &tab.url)
@@ -99,22 +81,9 @@ impl TabTable {
             error.error_name = Some(BROWSER_PAGE.to_owned());
             return Some(error);
         }
-        if self.tab(target_id).is_some_and(|tab| tab.engine == "webkit") {
-            return None;
-        }
-        let (message, names) = match self.access.get(target_id) {
-            Some((false, _, _) | (true, true, _)) => return None,
-            Some((true, false, names)) => (EXTENSION_REFUSAL.to_owned(), names.clone()),
-            None => (
-                format!(
-                    "{method}: the cmux app has not reported this tab's extension access yet; {EXTENSION_REFUSAL_HINT}"
-                ),
-                Vec::new(),
-            ),
-        };
-        let mut error = DriverError::new(crate::protocol::ErrorCode::Forbidden, message);
-        error.error_name = Some(EXTENSION_HOST_ACCESS.to_owned());
-        error.data = Some(json!({"reason": EXTENSION_HOST_ACCESS, "extensions": names}));
-        Some(error)
+        // The interim extension rule is gone (#24413): an enabled extension
+        // with access to the page is no gate. Every agent may drive every
+        // tab; the automation lease coordinates agents on one tab.
+        None
     }
 }
