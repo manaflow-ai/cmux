@@ -1,5 +1,5 @@
-import CmuxNextDesign
-import CmuxNextPages
+public import CmuxNextDesign
+public import CmuxNextPages
 
 nonisolated extension AgentPaneTunables {
     /// The cmux NEXT own-window UI pointer inspector. It is a Debug/Labs
