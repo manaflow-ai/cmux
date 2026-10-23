@@ -376,6 +376,7 @@ impl Mux {
             }
             self.adopt_from_holder_or_end(&terminal, &options)?;
         }
+        self.release_unclaimed_holder_terminals(&options);
         Ok(())
     }
 

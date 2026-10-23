@@ -74,7 +74,7 @@ fn eight_threads_spawn_at_once_and_each_terminal_gets_only_its_own_output() {
     let (link, listed) = HolderLink::connect(
         &socket,
         &TOKEN,
-        Box::new(move || {
+        Box::new(move |_| {
             let _ = lost_tx.send(());
         }),
     )

@@ -42,9 +42,27 @@ impl Ring {
     /// Up to `max` bytes from `from` (clamped to the oldest kept byte), with
     /// the offset they start at.
     pub fn read(&self, from: u64, max: usize) -> (u64, Vec<u8>) {
+        let (from, head, tail) = self.slices(from, max);
+        let mut out = Vec::with_capacity(head.len() + tail.len());
+        out.extend_from_slice(head);
+        out.extend_from_slice(tail);
+        (from, out)
+    }
+
+    /// [`Self::read`] without a copy: the offset and the bytes as at most
+    /// two slices of the ring's buffer, in order.
+    pub fn slices(&self, from: u64, max: usize) -> (u64, &[u8], &[u8]) {
         let from = from.clamp(self.start, self.end());
         let skip = (from - self.start) as usize;
-        (from, self.bytes.iter().skip(skip).take(max).copied().collect())
+        let take = max.min(self.bytes.len() - skip);
+        let (head, tail) = self.bytes.as_slices();
+        if skip < head.len() {
+            let end = (skip + take).min(head.len());
+            (from, &head[skip..end], &tail[..take - (end - skip)])
+        } else {
+            let start = skip - head.len();
+            (from, &tail[start..start + take], &[])
+        }
     }
 }
 
@@ -60,5 +78,16 @@ mod tests {
         assert_eq!(ring.read(0, 10), (102, b"cdef".to_vec()));
         assert_eq!(ring.read(104, 1), (104, b"e".to_vec()));
         assert_eq!(ring.read(106, 10), (106, Vec::new()));
+    }
+
+    #[test]
+    fn reads_across_the_wrap_of_its_buffer() {
+        let mut ring = Ring::new(0, 8);
+        ring.push(b"012345");
+        ring.push(b"6789ab");
+        assert_eq!((ring.oldest(), ring.end()), (4, 12));
+        assert_eq!(ring.read(4, 8), (4, b"456789ab".to_vec()));
+        assert_eq!(ring.read(6, 3), (6, b"678".to_vec()));
+        assert_eq!(ring.read(10, 8), (10, b"ab".to_vec()));
     }
 }

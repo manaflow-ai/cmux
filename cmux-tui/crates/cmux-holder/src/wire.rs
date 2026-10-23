@@ -17,8 +17,22 @@ pub const MAGIC: [u8; 4] = *b"CMHX";
 pub const HEADER: usize = 16;
 /// Largest payload a frame may carry.
 pub const MAX_PAYLOAD: usize = 1 << 20;
-/// Wire version this build speaks.
-pub const VERSION: u16 = 1;
+/// Wire version this build speaks. Version 2 adds [`Kind::Ack`] flow
+/// control; a version 1 peer gets none. Version 3 adds
+/// [`Kind::Snapshot`] and [`Kind::Detach`]; a daemon sends them only to a
+/// holder that speaks it.
+pub const VERSION: u16 = 3;
+/// Oldest wire version this build still serves.
+pub const MIN_VERSION: u16 = 1;
+/// Output a holder sends one terminal past the offset its daemon last
+/// acknowledged ([`Kind::Ack`], version 2): the daemon queues at most this
+/// much per terminal, and a terminal that prints faster than the daemon
+/// parses blocks in its PTY, as on a direct PTY.
+pub const CREDIT_WINDOW: u64 = 512 * 1024;
+/// A daemon acknowledges after it parsed this much since its last
+/// [`Kind::Ack`]. Less than [`CREDIT_WINDOW`], so a stalled terminal always
+/// gets the acknowledgement that frees it.
+pub const ACK_EVERY: u64 = CREDIT_WINDOW / 4;
 
 /// Frame kinds. Values are frozen; a new kind gets a new value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,15 +40,19 @@ pub const VERSION: u16 = 1;
 pub enum Kind {
     /// d->h: `version u16, token [u8; 32]`.
     Hello = 1,
-    /// h->d: `version u16, count u32`, then one [`Kind::Listed`] per terminal.
+    /// h->d: `version u16` (the lower of the two peers' versions), `count
+    /// u32`, then one [`Kind::Listed`] per terminal.
     Welcome = 2,
     /// d->h: spawn on a new PTY; payload [`crate::SpawnRequest`].
     Spawn = 3,
     /// h->d: `pid i32`, plus one descriptor: the daemon's custody dup of the master.
     Spawned = 4,
-    /// d->h: take over a running terminal: `pid i32, base u64, id [u8; 16]`, plus its master.
+    /// d->h: take over a running terminal: `pid i32, base u64, id [u8; 16]`,
+    /// then its prologue (a VT replay of its screen at `base`, may be
+    /// empty), plus its master.
     Adopt = 5,
-    /// d->h: stream output from `offset u64` (a [`Kind::Gap`] first when it rolled out).
+    /// d->h: stream output from `offset u64` (a [`Kind::Gap`] first when it
+    /// rolled out); with [`FLAG_WITH_PROLOGUE`], the prologue first.
     Attach = 6,
     /// h->d: `offset u64`, then output bytes.
     Data = 7,
@@ -53,12 +71,27 @@ pub enum Kind {
     /// h->d: one terminal in a [`Kind::Welcome`]: `pid i32, oldest u64, end u64,
     /// exited u8, id [u8; 16]`, plus one descriptor: a dup of its master.
     Listed = 14,
-    /// h->d: `request_kind u16, code u16`, then a UTF-8 message.
+    /// h->d: `request_kind u16, code u16`, then a UTF-8 message. Code
+    /// `SUPERSEDED` on channel 0 (request kind [`Kind::Hello`]): another
+    /// daemon authenticated and took this link's place.
     Error = 15,
     /// both: `nonce u64`.
     Ping = 16,
     /// both: `nonce u64`.
     Pong = 17,
+    /// d->h (version 2): `offset u64`: the daemon parsed every byte before
+    /// it, so the holder may send up to `offset + CREDIT_WINDOW`.
+    Ack = 18,
+    /// d->h (version 3): `base u64`, then a VT replay of the daemon's
+    /// parsed screen at output offset `base`. The holder keeps the newest
+    /// as the terminal's prologue, so a restarted daemon restores modes,
+    /// alternate screen, title and directory even after the ring dropped
+    /// the bytes that set them.
+    Snapshot = 19,
+    /// d->h (version 3): the daemon leaves this terminal on purpose (its
+    /// shutdown): the link's end then is no strike against the terminal's
+    /// stream (the poison-pill count).
+    Detach = 20,
 }
 
 impl Kind {
@@ -83,6 +116,9 @@ impl Kind {
             15 => Error,
             16 => Ping,
             17 => Pong,
+            18 => Ack,
+            19 => Snapshot,
+            20 => Detach,
             _ => return None,
         })
     }
@@ -103,64 +139,160 @@ pub struct Frame {
     pub fds: Vec<OwnedFd>,
 }
 
+/// [`Kind::Attach`] flag: send the terminal's prologue first.
+pub const FLAG_WITH_PROLOGUE: u16 = 1;
+/// [`Kind::Data`] flag: these bytes are the prologue (a VT replay of the
+/// screen when this holder adopted the terminal), not ring output.
+pub const FLAG_PROLOGUE: u16 = 1;
+
 /// Encode a frame header and payload.
 pub fn encode(kind: Kind, chan: u32, payload: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(HEADER + payload.len());
+    encode_flagged(kind, 0, chan, payload)
+}
+
+/// [`encode`] with header flags.
+pub fn encode_flagged(kind: Kind, flags: u16, chan: u32, payload: &[u8]) -> Vec<u8> {
+    encode_parts(kind, flags, chan, &[payload])
+}
+
+/// A frame whose payload is `parts` in order: one allocation and one copy
+/// of each part (a DATA frame straight from the two halves of a ring).
+pub fn encode_parts(kind: Kind, flags: u16, chan: u32, parts: &[&[u8]]) -> Vec<u8> {
+    let len: usize = parts.iter().map(|part| part.len()).sum();
+    let mut out = Vec::with_capacity(HEADER + len);
     out.extend_from_slice(&MAGIC);
     out.extend_from_slice(&(kind as u16).to_le_bytes());
-    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&flags.to_le_bytes());
     out.extend_from_slice(&chan.to_le_bytes());
-    out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
-    out.extend_from_slice(payload);
+    out.extend_from_slice(&(len as u32).to_le_bytes());
+    for part in parts {
+        out.extend_from_slice(part);
+    }
     out
 }
 
+/// Kernel buffer each end of a link asks for, each way. macOS gives a Unix
+/// stream socket 8 KiB (`net.local.stream.sendspace` and `recvspace`), so
+/// a 256 KiB DATA frame took 32 `sendmsg`/`recvmsg` pairs and 32 holder
+/// turns. More would only queue more bulk output in the kernel ahead of a
+/// small frame (an echo): 512 KiB each way drains in well under 1 ms.
+pub const LINK_SOCKET_BUFFER: libc::c_int = 512 * 1024;
+
+/// Size a link socket's kernel buffers ([`LINK_SOCKET_BUFFER`]) and, on
+/// macOS, turn SIGPIPE into an EPIPE error for writes to a peer that is
+/// gone. Best effort: a socket that refuses keeps its defaults.
+pub fn tune_socket(fd: RawFd) {
+    let size = LINK_SOCKET_BUFFER;
+    for option in [libc::SO_SNDBUF, libc::SO_RCVBUF] {
+        // SAFETY: setsockopt reads one c_int from a live local.
+        unsafe {
+            libc::setsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                option,
+                (&raw const size).cast(),
+                size_of::<libc::c_int>() as libc::socklen_t,
+            )
+        };
+    }
+    #[cfg(target_vendor = "apple")]
+    {
+        let on: libc::c_int = 1;
+        // SAFETY: setsockopt reads one c_int from a live local.
+        unsafe {
+            libc::setsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_NOSIGPIPE,
+                (&raw const on).cast(),
+                size_of::<libc::c_int>() as libc::socklen_t,
+            )
+        };
+    }
+}
+
+/// Bytes one `recvmsg` may read into a [`Reader`].
+const READ_CHUNK: usize = 256 * 1024;
+/// Descriptors one `recvmsg` may carry (Linux `SCM_MAX_FD`): a WELCOME
+/// passes one per terminal.
+const MAX_RECV_FDS: usize = 253;
+
 /// Bytes read from a socket, with the descriptors that arrived alongside,
-/// split into frames.
+/// split into frames. Frames are taken from a read cursor; the buffer is
+/// compacted once per [`Self::fill`], not once per frame, and the receive
+/// buffers are allocated once.
 #[derive(Default)]
 pub struct Reader {
     buf: Vec<u8>,
+    /// Offset in `buf` of the first byte no frame took yet.
+    start: usize,
     fds: VecDeque<OwnedFd>,
+    /// The `recvmsg` control buffer, allocated on the first fill.
+    control: Vec<u8>,
 }
 
 impl Reader {
     /// Read what the socket has (one `recvmsg`). `Ok(false)` at end of stream.
     pub fn fill(&mut self, fd: RawFd) -> io::Result<bool> {
-        let mut chunk = [0u8; 64 * 1024];
-        let (n, fds) = recv_with_fds(fd, &mut chunk)?;
-        self.fds.extend(fds);
-        if n == 0 {
-            return Ok(false);
+        if self.start > 0 {
+            self.buf.drain(..self.start);
+            self.start = 0;
         }
-        self.buf.extend_from_slice(&chunk[..n]);
-        Ok(true)
+        if self.control.is_empty() {
+            self.control = vec![0u8; control_space()];
+        }
+        self.buf.reserve(READ_CHUNK);
+        let len = self.buf.len();
+        let room = (self.buf.capacity() - len).min(READ_CHUNK);
+        // SAFETY: `reserve` made `room` bytes of capacity past `len`, so
+        // the pointer stays inside the allocation; recvmsg writes at most
+        // that many, and `set_len` below covers only what it wrote.
+        let tail = unsafe { self.buf.as_mut_ptr().add(len) };
+        // SAFETY: `tail` is valid for writes of `room` bytes (above).
+        let (n, fds) = unsafe { recv_with_fds(fd, tail, room, &mut self.control)? };
+        // SAFETY: recvmsg initialized `n` bytes past `len`.
+        unsafe { self.buf.set_len(len + n) };
+        self.fds.extend(fds);
+        Ok(n != 0)
     }
 
     /// The next complete frame, if one is buffered. A bad magic or an
     /// oversized length is an error: the stream is lost.
     pub fn next_frame(&mut self) -> io::Result<Option<Frame>> {
-        if self.buf.len() < HEADER {
+        let pending = &self.buf[self.start..];
+        if pending.len() < HEADER {
             return Ok(None);
         }
-        if self.buf[..4] != MAGIC {
+        if pending[..4] != MAGIC {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "bad holder frame magic"));
         }
-        let kind = u16::from_le_bytes([self.buf[4], self.buf[5]]);
-        let flags = u16::from_le_bytes([self.buf[6], self.buf[7]]);
-        let chan = u32::from_le_bytes(self.buf[8..12].try_into().unwrap_or_default());
-        let len = u32::from_le_bytes(self.buf[12..16].try_into().unwrap_or_default()) as usize;
+        let kind = u16::from_le_bytes([pending[4], pending[5]]);
+        let flags = u16::from_le_bytes([pending[6], pending[7]]);
+        let chan = u32::from_le_bytes(pending[8..12].try_into().unwrap_or_default());
+        let len = u32::from_le_bytes(pending[12..16].try_into().unwrap_or_default()) as usize;
         if len > MAX_PAYLOAD {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "holder frame too large"));
         }
-        if self.buf.len() < HEADER + len {
+        if pending.len() < HEADER + len {
             return Ok(None);
         }
-        let payload = self.buf[HEADER..HEADER + len].to_vec();
-        self.buf.drain(..HEADER + len);
+        let payload = pending[HEADER..HEADER + len].to_vec();
+        self.start += HEADER + len;
+        if self.start == self.buf.len() {
+            // Everything was taken: the next fill needs no compaction.
+            self.buf.clear();
+            self.start = 0;
+        }
         let wanted = Kind::from_u16(kind).map_or(0, Kind::descriptors);
         let fds = (0..wanted).filter_map(|_| self.fds.pop_front()).collect();
         Ok(Some(Frame { kind, flags, chan, payload, fds }))
     }
+}
+
+/// Bytes of a control buffer for [`MAX_RECV_FDS`] descriptors.
+fn control_space() -> usize {
+    // SAFETY: CMSG_SPACE computes a size from a length.
+    unsafe { libc::CMSG_SPACE((MAX_RECV_FDS * size_of::<RawFd>()) as u32) as usize }
 }
 
 /// Write all of `bytes`, passing `fds` with the first byte. Blocking.
@@ -226,21 +358,29 @@ fn send_flags() -> libc::c_int {
     0
 }
 
-/// One `recvmsg`; descriptors that arrive are returned owned (close-on-exec).
-fn recv_with_fds(fd: RawFd, buf: &mut [u8]) -> io::Result<(usize, Vec<OwnedFd>)> {
-    let mut iov = libc::iovec { iov_base: buf.as_mut_ptr().cast(), iov_len: buf.len() };
-    // Room for 253 descriptors per read (Linux SCM_MAX_FD): a WELCOME passes one per terminal.
-    // SAFETY: CMSG_SPACE computes a size from a length.
-    let space = unsafe { libc::CMSG_SPACE((253 * size_of::<RawFd>()) as u32) as usize };
-    let mut control = vec![0u8; space];
+/// One `recvmsg` of at most `len` bytes into `buf`, with `control` as the
+/// control buffer; descriptors that arrive are returned owned
+/// (close-on-exec).
+///
+/// # Safety
+///
+/// `buf` must be valid for writes of `len` bytes.
+unsafe fn recv_with_fds(
+    fd: RawFd,
+    buf: *mut u8,
+    len: usize,
+    control: &mut [u8],
+) -> io::Result<(usize, Vec<OwnedFd>)> {
+    let mut iov = libc::iovec { iov_base: buf.cast(), iov_len: len };
     // SAFETY: zeroed msghdr is a valid empty header.
     let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
     msg.msg_iov = &mut iov;
     msg.msg_iovlen = 1;
     msg.msg_control = control.as_mut_ptr().cast();
-    msg.msg_controllen = space as _;
+    msg.msg_controllen = control.len() as _;
     let n = loop {
-        // SAFETY: msg points at live buffers for the call.
+        // SAFETY: msg points at live buffers for the call (the caller
+        // vouches for `buf`).
         let n = unsafe { libc::recvmsg(fd, &mut msg, 0) };
         if n >= 0 {
             break n as usize;

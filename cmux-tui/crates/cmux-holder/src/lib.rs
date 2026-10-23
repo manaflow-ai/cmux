@@ -148,24 +148,43 @@ impl ExitStatus {
     }
 }
 
-/// Run a holder process: `--socket PATH`, the owner token as 64 hex
-/// characters on stdin, `ready` on stdout once it listens. Returns only on a
-/// startup error.
+/// The environment variable that carries the soft `RLIMIT_NOFILE` cmux
+/// started with (the daemon raised its own): the holder gives it back to
+/// every shell. The same name a spawned terminal host reads.
+pub const NOFILE_SOFT_ENV: &str = "CMUX_TUI_HOST_NOFILE_SOFT";
+
+/// Run a holder process: `--socket PATH` (and `--idle-exit-ms N`, the idle
+/// exit; default [`holder::IDLE_EXIT`]), the owner token as 64 hex
+/// characters on stdin, `ready` on stdout once it listens. Returns on a
+/// startup error, once it was idle for its idle exit, or when launchd ends
+/// it (logout, shutdown).
 pub fn serve(args: &[String]) -> io::Result<()> {
+    // First, before any descriptor of the holder's own exists: nothing the
+    // daemon inherited reaches a shell.
+    pty::mark_inherited_close_on_exec();
     let mut args = args.iter().cloned();
     let mut socket = None;
+    let mut idle_exit = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--socket" => socket = args.next().map(PathBuf::from),
+            "--idle-exit-ms" => {
+                let millis = args.next().and_then(|value| value.parse::<u64>().ok());
+                let millis = millis.ok_or_else(|| invalid("--idle-exit-ms takes milliseconds"))?;
+                idle_exit = Some(std::time::Duration::from_millis(millis));
+            }
             other => return Err(invalid(&format!("unknown argument {other}"))),
         }
     }
+    let child_open_file_limit =
+        std::env::var(NOFILE_SOFT_ENV).ok().and_then(|value| value.parse::<u64>().ok());
     let socket = socket.ok_or_else(|| invalid("--socket PATH is required"))?;
     let mut line = String::new();
     io::stdin().lock().read_line(&mut line)?;
     let token = parse_token(line.trim()).ok_or_else(|| invalid("bad token on stdin"))?;
 
     // SAFETY: plain process-wide calls at startup, before any thread exists.
+    // SIGTERM gets a handler in `Holder::new`: only launchd's ends the holder.
     unsafe {
         libc::setsid();
         for signal in [libc::SIGHUP, libc::SIGINT, libc::SIGTERM, libc::SIGPIPE, libc::SIGQUIT] {
@@ -182,6 +201,10 @@ pub fn serve(args: &[String]) -> io::Result<()> {
     }
     let listener = UnixListener::bind(&socket)?;
     let mut holder = holder::Holder::new(listener, token)?;
+    holder.set_child_open_file_limit(child_open_file_limit);
+    if let Some(idle_exit) = idle_exit {
+        holder.set_idle_exit(idle_exit);
+    }
     let mut stdout = io::stdout().lock();
     stdout.write_all(b"ready\n")?;
     stdout.flush()?;

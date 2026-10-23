@@ -1,4 +1,5 @@
 public import Foundation
+import MachO
 
 /// Decides what a report may say about the image of a frame (hang-reports-DESIGN.md section 3).
 ///
@@ -46,20 +47,22 @@ public nonisolated struct ImageClassifier: Sendable {
     ]
 
     private let appBundlePath: String?
-    private let forbiddenTerms: [String]
+    private let forbiddenTerms: @Sendable () -> [String]
     private let systemImageExists: @Sendable (String) -> Bool
 
     /// - Parameters:
     ///   - appBundlePath: The running app's bundle (`Bundle.main.bundlePath`); images inside it are ours.
     ///   - forbiddenTerms: Words a sent name must not hold (the user's short and full name, the
     ///     host name; ``personalTerms()``), compared case-insensitively; terms under 4 letters, and
-    ///     words of our own vocabulary (``isOwnWord(_:)``), are ignored.
+    ///     words of our own vocabulary (``isOwnWord(_:)``), are ignored. Read at each name
+    ///     check, never at init: ``personalTerms()`` does an OpenDirectory lookup, so the app
+    ///     passes a value computed once on the first check (a utility task or the service actor).
     ///   - systemImageExists: Whether an image of that name exists in an Apple folder (the default
     ///     looks on disk); tests pass a fixed answer.
-    public init(appBundlePath: String?, forbiddenTerms: [String],
+    public init(appBundlePath: String?, forbiddenTerms: @autoclosure @escaping @Sendable () -> [String],
                 systemImageExists: @escaping @Sendable (String) -> Bool = { ImageClassifier.systemImageOnDisk($0) }) {
         self.appBundlePath = appBundlePath.map { $0.hasSuffix("/") ? $0 : $0 + "/" }
-        self.forbiddenTerms = forbiddenTerms.map { $0.lowercased() }.filter { $0.count >= Self.minimumTermLength && !Self.isOwnWord($0) }
+        self.forbiddenTerms = { Self.normalizedTerms(forbiddenTerms()) }
         self.systemImageExists = systemImageExists
     }
 
@@ -115,8 +118,13 @@ public nonisolated struct ImageClassifier: Sendable {
         let name = path.split(separator: "/").last.map(String.init) ?? ""
         guard name.range(of: Self.namePattern, options: .regularExpression) != nil else { return nil }
         let lowered = name.lowercased()
-        guard !forbiddenTerms.contains(where: { lowered.contains($0) }) else { return nil }
+        guard !forbiddenTerms().contains(where: { lowered.contains($0) }) else { return nil }
         return name
+    }
+
+    /// `terms` lowercased, without the short ones and our own words.
+    static func normalizedTerms(_ terms: [String]) -> [String] {
+        terms.map { $0.lowercased() }.filter { $0.count >= minimumTermLength && !isOwnWord($0) }
     }
 
     /// Shorter personal terms are ignored: a three-letter name ("max") would refuse common words.
@@ -135,13 +143,20 @@ public nonisolated struct ImageClassifier: Sendable {
                     options: .regularExpression) != nil
     }
 
-    /// Whether `/System/Library/{Frameworks,PrivateFrameworks}/<name>.framework` or
-    /// `/usr/lib/<name>` exists (a bare name with no slash; anything else is false).
+    /// Whether `/System/Library/{Frameworks,PrivateFrameworks}/<name>.framework` exists on disk,
+    /// or `/usr/lib/<name>` or `/usr/lib/system/<name>` is in the dyld shared cache or on disk (a
+    /// bare name with no slash; anything else is false). Since macOS 11 the system dylibs exist
+    /// only in the shared cache, so a disk check alone would make `libdispatch.dylib`,
+    /// `libsystem_kernel.dylib` and `libobjc.A.dylib` frames `other` once their UUID is no
+    /// longer loaded (after an update).
     public static func systemImageOnDisk(_ name: String) -> Bool {
         guard !name.isEmpty, !name.contains("/"), !name.hasPrefix(".") else { return false }
         let manager = FileManager.default
-        return ["/System/Library/Frameworks/\(name).framework", "/System/Library/PrivateFrameworks/\(name).framework",
-                "/usr/lib/\(name)", "/usr/lib/system/\(name)"].contains { manager.fileExists(atPath: $0) }
+        if ["/System/Library/Frameworks/\(name).framework", "/System/Library/PrivateFrameworks/\(name).framework"]
+            .contains(where: { manager.fileExists(atPath: $0) }) { return true }
+        return ["/usr/lib/\(name)", "/usr/lib/system/\(name)"].contains {
+            _dyld_shared_cache_contains_path($0) || manager.fileExists(atPath: $0)
+        }
     }
 
     /// The user's short name, the words of their full name and the host name's labels: words a

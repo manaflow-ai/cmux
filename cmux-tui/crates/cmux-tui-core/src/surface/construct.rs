@@ -200,6 +200,7 @@ impl Surface {
                 mux,
                 host_root,
                 terminal_id,
+                seed: seed.to_vec(),
                 terminal_public_id,
                 resource_identity,
                 kitty_reservation,

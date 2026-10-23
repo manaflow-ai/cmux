@@ -98,6 +98,7 @@ extension SettingsSchema {
         "appearance.background",
         "appearance.backgroundRotation",
         "appearance.paneBackgrounds",
+        "ui.reducedBackgrounds",
         "appearance.experimentalControls",
         "app.uiScale",
         "appearance.glassTransparency",

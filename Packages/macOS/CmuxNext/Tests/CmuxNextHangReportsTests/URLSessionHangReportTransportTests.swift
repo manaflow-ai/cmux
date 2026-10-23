@@ -25,6 +25,37 @@ struct URLSessionHangReportTransportTests {
         override func stopLoading() {}
     }
 
+    /// Answers 204 only when the request carries exactly the fixed headers (no cookie, the fixed
+    /// language and user agent), else 400.
+    final class HeaderServer: URLProtocol {
+        override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "hang-headers.test" }
+        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+        override func startLoading() {
+            let headers = request.allHTTPHeaderFields ?? [:]
+            let fixed = URLSessionHangReportTransport.fixedHeaders.allSatisfy { headers[$0.key] == $0.value }
+            let ok = fixed && headers["Cookie"] == nil && headers["Authorization"] == nil
+                && headers["Content-Type"] == "application/json"
+            guard let url = request.url,
+                  let response = HTTPURLResponse(url: url, statusCode: ok ? 204 : 400, httpVersion: "HTTP/1.1", headerFields: [:]) else {
+                client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+                return
+            }
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data())
+            client?.urlProtocolDidFinishLoading(self)
+        }
+
+        override func stopLoading() {}
+    }
+
+    @Test func aRequestCarriesOnlyTheFixedHeadersNotThePersonsLanguages() async {
+        #expect(URLSessionHangReportTransport.fixedHeaders["Accept-Language"] == "en")
+        let transport = URLSessionHangReportTransport(endpoint: "https://hang-headers.test/api/hang-reports",
+                                                      protocolClasses: [HeaderServer.self])
+        #expect(await transport.send(Data("{}".utf8)) == .accepted)
+    }
+
     @Test(arguments: zip([204, 400, 413, 429, 503],
                          [HangReportTransportResult.accepted, .refused(status: 400), .refused(status: 413), .retryLater, .retryLater]))
     func eachStatusMapsToItsOutboxAction(status: Int, expected: HangReportTransportResult) async {
