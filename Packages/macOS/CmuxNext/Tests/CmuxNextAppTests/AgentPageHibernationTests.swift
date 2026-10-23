@@ -181,14 +181,16 @@ struct AgentPageHibernationTests {
     /// a pane's five hidden chats held 375 MB. Past the page warm budget
     /// (`WarmSetBudget.pageCapacity`, as for browser pages) the chats the person left longest ago
     /// let their pages go once hidden `HibernationPlanner.overBudgetMinimumHidden`; the most
-    /// recently left stay, and each pane's shown chat (a parked workspace's, what a switch shows
-    /// again) holds the first place in the budget.
+    /// recently left stay. A parked workspace's shown chat (what a switch shows again) counts
+    /// `HibernationPlanner.frontCreditShare` of the timeout less idle: hidden before the others,
+    /// it still stays, where a ranking by recency alone lets it go first.
     @Test func hiddenChatsPastTheWarmBudgetLetGoAfterAMinute() async throws {
         let rig = Rig()
         rig.hibernation.warmPages = { 2 }
-        rig.hibernation.fronts = { ["tab_front"] }
+        rig.hibernation.fronts = { ["tab_front": .parked] }
         rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
         let front = try rig.hiddenChat("tab_front", session: "s-front")
+        rig.elapsed += .seconds(1)
         let old = try rig.hiddenChat("tab_old", session: "s-old")
         rig.elapsed += .seconds(1)
         let recent = try rig.hiddenChat("tab_recent", session: "s-recent")
@@ -205,28 +207,60 @@ struct AgentPageHibernationTests {
         #expect(rig.tabs.existingView("tab_old") == nil, "a hidden chat past the warm budget kept its page until the timeout")
         #expect(rig.displaced == ["tab_old"])
         #expect(rig.tabs.existingView("tab_recent") === recent, "the most recently left chat (inside the budget) let its page go")
-        #expect(rig.tabs.existingView("tab_front") === front, "a pane's shown chat went before a chat nobody shows")
+        #expect(rig.tabs.existingView("tab_front") === front, "a parked workspace's shown chat went before a chat nobody shows")
         #expect(rig.tabs.session(of: "tab_old") == "s-old", "the released chat lost its session")
     }
 
-    /// Parked workspaces' shown chats count in the budget too (ranked last): a STRESS session's
-    /// parked workspaces each kept a 75 MB chat page for the whole 30 minute timeout, O(workspaces).
-    /// Past the budget the workspaces left longest ago let their chat page go after a minute.
+    /// Parked workspaces' shown chats count in the budget too: a STRESS session's parked
+    /// workspaces each kept a 75 MB chat page for the whole 30 minute timeout, O(workspaces). Past
+    /// the budget the workspaces left longest ago let their chat page go after a minute. The
+    /// workspace left last (`.warm`) keeps its chat out of the budget, so a switch back is live.
     @Test func parkedWorkspacesShownChatsCountInTheBudget() async throws {
         let rig = Rig()
         rig.hibernation.warmPages = { 1 }
-        rig.hibernation.fronts = { ["tab_ws_old", "tab_ws_recent"] }
+        rig.hibernation.fronts = { ["tab_ws_old": .parked, "tab_ws_recent": .parked, "tab_ws_last": .warm] }
         rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
         let old = try rig.hiddenChat("tab_ws_old", session: "s-ws-old")
         rig.elapsed += .seconds(1)
         let recent = try rig.hiddenChat("tab_ws_recent", session: "s-ws-recent")
+        rig.elapsed += .seconds(1)
+        let last = try rig.hiddenChat("tab_ws_last", session: "s-ws-last")
         #expect(rig.hibernation.hasDeadline, "no deadline for the parked chat past the budget")
 
         rig.advance(minutes: 1.5)
         await rig.settle { rig.tabs.existingView("tab_ws_old") == nil }
         #expect(rig.tabs.existingView("tab_ws_old") !== old, "a parked workspace's chat past the budget kept its page until the timeout")
         #expect(rig.tabs.existingView("tab_ws_recent") === recent, "the most recently left workspace's chat let its page go")
+        #expect(rig.tabs.existingView("tab_ws_last") === last, "the chat of the workspace left last let its page go")
         #expect(rig.displaced == ["tab_ws_old"])
+    }
+
+    /// A pane switch hides its old chat before the pane reports its new shown tab, so the hide is
+    /// planned while the chat is still a warm front (out of the budget, the 30 minute timeout).
+    /// When the fronts move (`BrowserHibernation.refreshNeighbors`), the chat planner plans again:
+    /// past the budget the hidden chat goes after a minute, not after the timeout.
+    @Test func aChatHiddenByASwitchInItsPaneCountsOnceTheFrontsMove() async throws {
+        let rig = Rig()
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let browser = BrowserHibernation(cache: services.cache)
+        services.cache.hibernation = browser
+        defer { browser.stop() }
+        let pane = NSObject()
+        browser.paneDidChange(ObjectIdentifier(pane), order: ["tab_was_shown", "tab_next"], selected: "tab_was_shown")
+        rig.hibernation.fronts = { [weak browser] in browser?.fronts ?? [:] }
+        rig.hibernation.warmPages = { 0 }
+        browser.agentPages = rig.hibernation
+        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
+
+        _ = try rig.hiddenChat("tab_was_shown", session: "s-was-shown")
+        let stale = try #require(rig.hibernation.nextCheck)
+        #expect(stale > 25 * 60, "the hide was not planned with the fronts before the switch (the test's premise)")
+
+        browser.paneDidChange(ObjectIdentifier(pane), order: ["tab_was_shown", "tab_next"], selected: "tab_next")
+        let next = try #require(rig.hibernation.nextCheck, "no deadline for the hidden chat past the budget")
+        #expect(next <= HibernationPlanner.overBudgetMinimumHidden, "the chat kept its page for the timeout after the fronts moved")
+        withExtendedLifetime(pane) {}
     }
 
     /// With the acpmux turn watch down no chat's turn is known: every chat counts as busy and

@@ -9,14 +9,16 @@ import Testing
 /// for the 30 minutes before `browser.hibernation` lets it go, so 20 hidden tabs held over 1 GB.
 /// Hidden live pages now share one memory budget with the hidden terminal surfaces
 /// (`WarmSetBudget.pageCapacity`): past it, the least valuable hidden pages hibernate once the
-/// person has been away from them a minute, through the same probe, ranking and pace. The tabs a
-/// pane shows (also in a parked workspace) and their neighbors stay out of the budget, so a
-/// workspace switch and Ctrl-Tab still show live pages.
+/// person has been away from them a minute, through the same probe, ranking and pace. The
+/// neighbors stay out of the budget, and so do the tabs the panes of a workspace on screen or of
+/// the workspace left last show (`Front.warm`), so Ctrl-Tab, a column scroll and a switch back
+/// show live pages. The shown tabs of workspaces left before that (`Front.parked`) count, in one
+/// idleness order with every other page and a bounded credit.
 @Suite struct HiddenPageWarmBudgetTests {
-    private func page(_ key: String, minutes: Double, focus: Int = 0, front: Bool = false) -> HibernationPlanner.Candidate {
+    private func page(_ key: String, minutes: Double, focus: Int = 0, front: HibernationPlanner.Front? = nil) -> HibernationPlanner.Candidate {
         var candidate = HibernationPlanner.Candidate(key: key, hiddenFor: minutes * 60)
         candidate.recentFocusCount = focus
-        candidate.isFront = front
+        candidate.front = front
         return candidate
     }
 
@@ -53,25 +55,47 @@ import Testing
         #expect(plan.nextCheck.map { abs($0 - (HibernationPlanner.overBudgetMinimumHidden - 10)) < 1e-6 } == true)
     }
 
-    /// What each pane shows, also in a parked workspace or an off-screen column, is what a
-    /// switch shows again: it is the most valuable page and goes for the budget only after every
-    /// other hidden page (the timeout and memory pressure still apply as to any page).
-    @Test func eachPanesShownTabGoesLastForTheBudget() {
-        let candidates = (0..<3).map { page("front\($0)", minutes: 20, front: true) } + [page("back", minutes: 5)]
-        let plan = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: candidates, warmPages: 3)
-        #expect(plan.due == ["back"], "a parked pane's shown tab went before a tab nobody shows")
-        let timedOut = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: [page("front", minutes: 31, front: true)], warmPages: 1)
+    /// A parked workspace's shown tab ranks with every other page, with a bounded credit: four
+    /// parked fronts hidden 20 minutes do not push out the tab the person left 2 minutes ago in the
+    /// pane they work in (and showed often), nor one nobody shows hidden 10 minutes. Before, fronts
+    /// went strictly last, so once they filled the budget no other hidden tab stayed live.
+    @Test func parkedFrontsRankWithTheOtherPagesWithABoundedCredit() {
+        let fronts = (0..<4).map { page("front\($0)", minutes: 20, front: .parked) }
+        let recent = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: fronts + [page("recent", minutes: 2, focus: 15)],
+                                             warmPages: 4)
+        #expect(recent.due == ["front0"], "a tab left 2 minutes ago went before a workspace left 20 minutes ago")
+        let unshown = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: fronts + [page("back", minutes: 10)], warmPages: 4)
+        #expect(unshown.due == ["front0"], "the parked fronts' credit was not bounded")
+        // Within the credit (5 minutes at the 30 minute default) the parked front is worth more.
+        let close = HibernationPlanner.plan(.fallback, pressure: .normal,
+                                            candidates: [page("front", minutes: 6, front: .parked), page("back", minutes: 5)], warmPages: 1)
+        #expect(close.due == ["back"], "a parked front went before a tab nobody shows left about as long ago")
+        let timedOut = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: [page("front", minutes: 31, front: .parked)], warmPages: 1)
         #expect(timedOut.due == ["front"], "the timeout no longer applied to a shown tab of a parked pane")
+    }
+
+    /// The panes of the workspace left last (a 12-pane STRESS workspace) and the off-screen
+    /// columns of the one on screen show their tabs again on the next switch back or scroll, all
+    /// at once: they stay out of the budget, so a switch back wakes nothing. They neither go for
+    /// the budget nor hold a place in it; the timeout still applies.
+    @Test func theWorkspaceLeftLastKeepsItsShownPages() {
+        let warm = (0..<12).map { page("pane\($0)", minutes: 2, front: .warm) }
+        let plan = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: warm + [page("back", minutes: 3)], warmPages: 4)
+        #expect(plan.due.isEmpty, "the workspace left last lost live pages, so a switch back wakes them")
+        let tight = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: warm + [page("back", minutes: 3)], warmPages: 0)
+        #expect(tight.due == ["back"], "a warm front held a place in the budget")
+        let timedOut = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: [page("pane", minutes: 31, front: .warm)], warmPages: 4)
+        #expect(timedOut.due == ["pane"], "the timeout no longer applied to the workspace left last")
     }
 
     /// The red row of the STRESS session's parked workspaces: each workspace left with a Chromium
     /// page in front kept that renderer (55 MB) for the whole 30 minute timeout, because a pane's
     /// shown tab was out of the budget: hidden-page memory grew O(workspaces), 10 parked
-    /// workspaces ~550 MB, 150 several GB. Shown tabs count in the budget now, ranked last: past
-    /// it the workspaces left longest ago let their page go after a minute; the most recently left
-    /// keep theirs, so a switch back to them still shows a live page.
+    /// workspaces ~550 MB, 150 several GB. Parked workspaces' shown tabs count in the budget now:
+    /// past it the workspaces left longest ago let their page go after a minute; the most recently
+    /// left keep theirs (and the workspace left last all of its own, `Front.warm`).
     @Test func parkedWorkspacesShownTabsCountInTheBudget() {
-        let fronts = (0..<10).map { page("ws\($0)", minutes: 2 + Double($0), front: true) }
+        let fronts = (0..<10).map { page("ws\($0)", minutes: 2 + Double($0), front: .parked) }
         let plan = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: fronts, warmPages: 4)
         #expect(plan.due == ["ws9", "ws8"], "the workspaces left longest ago did not let their page go, or all went at once")
         #expect(plan.nextCheck == HibernationPlanner.Pace.normal.interval)
@@ -124,9 +148,39 @@ import Testing
         var tabs = NeighborTabs()
         tabs.set(pane, order: ["a", "b", "c"], selected: "b", visible: false)
         #expect(tabs.awake(radius: 1).isEmpty)
-        #expect(tabs.fronts == ["b"])
+        #expect(tabs.fronts == ["b": .parked])
         tabs.set(pane, order: ["a", "b", "c"], selected: "b")
         #expect(tabs.awake(radius: 1) == ["a", "c"])
-        #expect(tabs.fronts == ["b"])
+        #expect(tabs.fronts == ["b": .warm])
+    }
+
+    /// The fronts of a workspace are one unit: all of a workspace on screen (an off-screen column
+    /// too) and all of the workspace left last are warm, so a switch back shows every pane live,
+    /// not the few a key order picked; a workspace left before that is parked as a whole.
+    @Test func theFrontsOfTheWorkspaceLeftLastStayWarmTogether() {
+        let workspaces = (0..<3).map { _ in NSObject() }
+        let (a, b, c) = (ObjectIdentifier(workspaces[0]), ObjectIdentifier(workspaces[1]), ObjectIdentifier(workspaces[2]))
+        let panes = (0..<5).map { _ in NSObject() }
+        let id = panes.map { ObjectIdentifier($0) }
+        var tabs = NeighborTabs()
+        // Workspace a on screen: one pane visible, one in an off-screen column.
+        tabs.set(id[0], order: ["a0"], selected: "a0", group: a)
+        tabs.set(id[1], order: ["a1"], selected: "a1", visible: false, group: a)
+        #expect(tabs.fronts == ["a0": .warm, "a1": .warm])
+        // Switch to b: a's panes go off screen, b's come on.
+        tabs.set(id[0], order: ["a0"], selected: "a0", visible: false, group: a)
+        tabs.set(id[2], order: ["b0"], selected: "b0", group: b)
+        tabs.set(id[3], order: ["b1"], selected: "b1", group: b)
+        #expect(tabs.fronts == ["a0": .warm, "a1": .warm, "b0": .warm, "b1": .warm], "the workspace left last lost its warm fronts")
+        // Switch to c: b is left last, a before it.
+        tabs.set(id[2], order: ["b0"], selected: "b0", visible: false, group: b)
+        tabs.set(id[3], order: ["b1"], selected: "b1", visible: false, group: b)
+        tabs.set(id[4], order: ["c0"], selected: "c0", group: c)
+        #expect(tabs.fronts == ["a0": .parked, "a1": .parked, "b0": .warm, "b1": .warm, "c0": .warm])
+        // b closes: a is the workspace left last again.
+        tabs.remove(id[2])
+        tabs.remove(id[3])
+        #expect(tabs.fronts == ["a0": .warm, "a1": .warm, "c0": .warm])
+        withExtendedLifetime((workspaces, panes)) {}
     }
 }
