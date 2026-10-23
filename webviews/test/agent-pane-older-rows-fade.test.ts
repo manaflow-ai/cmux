@@ -80,11 +80,9 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
         return { sessions: [session] };
       case "_acpmux/attach": {
         const result = page(params);
-        console.log("DIAG attach", JSON.stringify(params), "events", result.events.length);
         for (const event of result.events)
           if (event.kind === "user_message")
             openedFrom = Math.min(openedFrom, Number(String(event.msg.text).replace("Question ", "")));
-        console.log("DIAG openedFrom", openedFrom);
         return { session, ...result };
       }
       case "_acpmux/events":
@@ -145,14 +143,6 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
   async function open(reducedMotion: "reduce" | "no-preference"): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 }, reducedMotion });
     await installPaintedFrames(page);
-    page.on("console", (message) => {
-      if (message.type() === "error" || message.type() === "warning")
-        console.log("DIAG console", message.type(), message.text().slice(0, 300));
-    });
-    page.on("pageerror", (error) => console.log("DIAG pageerror", error.message.slice(0, 300)));
-    page.on("framenavigated", (frame) => {
-      if (frame === page.mainFrame()) console.log("DIAG navigated", frame.url().slice(0, 80));
-    });
     await page.addInitScript(() => {
       const fades: { id: string; text: string; name: string }[] = [];
       (window as unknown as { __rowAnimations: typeof fades }).__rowAnimations = fades;
@@ -242,48 +232,7 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
           return n < turn && box.bottom > view.top && box.top < view.bottom;
         });
       }, turn);
-      if (seen) {
-        console.log(
-          "DIAG scrolled",
-          turn,
-          "steps",
-          step,
-          "inflight",
-          inflight,
-          JSON.stringify(
-            await page.evaluate((turn) => {
-              const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-              const view = scroller.getBoundingClientRect();
-              const match = [...document.querySelectorAll<HTMLElement>(".cv-user__bubble")].find((bubble) => {
-                const box = bubble.getBoundingClientRect();
-                const n = Number((bubble.textContent ?? "").replace("Question ", ""));
-                return n < turn && box.bottom > view.top && box.top < view.bottom;
-              })!;
-              const row = match.closest<HTMLElement>(".acpmux-row");
-              const box = (node: Element | null | undefined) => {
-                const b = node?.getBoundingClientRect();
-                return b ? [Math.round(b.top), Math.round(b.bottom), Math.round(b.width)] : null;
-              };
-              return {
-                view: box(scroller),
-                scrollTop: scroller.scrollTop,
-                scrollHeight: scroller.scrollHeight,
-                clientHeight: scroller.clientHeight,
-                bubble: [match.textContent, box(match)],
-                row: [row?.dataset.rowId, box(row)],
-                ancestors: (() => {
-                  const out: string[] = [];
-                  for (let n: HTMLElement | null = match; n && out.length < 12; n = n.parentElement)
-                    out.push(n.className.toString().slice(0, 40));
-                  return out;
-                })(),
-                rows: document.querySelectorAll(".acpmux-row").length,
-              };
-            }, turn),
-          ),
-        );
-        return;
-      }
+      if (seen) return;
       await page.mouse.wheel(0, -300);
       await settle(page);
     }
@@ -380,7 +329,6 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
           animations: row.getAnimations().length,
         }));
     });
-    console.log("DIAG measured", rows.length, "openedFrom", openedFrom);
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.filter((row) => row.opacity !== "1" || row.animations > 0)).toEqual([]);
     expect(await olderFades(page)).toEqual([]);
