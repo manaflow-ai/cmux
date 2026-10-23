@@ -605,6 +605,22 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
     isn't in a folder this Mac shares with your iPhone."). The phone shows the
     reason over the page, in its own words for a known `code`, and the address
     bar goes back to the page.
+  - **The host checks every `file:` load itself** (2026-10-22): hostd sends
+    `rb.file_policy {roots, files}` right after its hello, and again when it
+    changes. `roots` are the shared folders; `files` are the pages the Mac showed
+    this tab (each page alone, never its folder). The host's request
+    handler (`OnBeforeBrowse` for navigations and frames,
+    `OnBeforeResourceLoad` for images, iframes, fetch and every other
+    subresource) refuses a `file:` URL whose path, resolved at load time, is
+    not one of `files` or inside one of `roots`. A host with no policy (the
+    Mac app's own remote tabs) loads every file. Known limits: the policy is
+    refreshed when hostd next checks an address (2 s cache), a link the host
+    refuses shows no notice on the phone, and a page restored from the
+    back-forward cache is not checked again by the host (hostd's take-back
+    still applies); a policy is replaced, never
+    removed, and a phone cannot send one (hostd's viewer allowlist). A new
+    host of a `file:` page starts at `about:blank` and hostd navigates it
+    after the policy.
   - hostd checks the host's `rb.page` too: a page the host went to by itself
     (a link, a redirect, script) that the rules refuse is not forwarded; hostd
     sends the host `rb.history back` (or `rb.navigate` to the last shown page
@@ -625,10 +641,15 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   Paste sends the phone's clipboard text as `ime_commit`. While the keyboard shows, the phone sends
   `rb.screen` with the page's visible height, so the page lays out above the
   keyboard. Hiding the keyboard sends nothing (the page keeps its focus). The host
-  does not report the focused field yet (`rb.text_input`), so the phone cannot
-  raise the keyboard by itself when the page focuses a field. Keys of a
-  hardware keyboard attached to the phone reach the page only as text (and
-  Return, Tab, Backspace); arrows, Escape and shortcuts go through the key bar. Under
+  reports the focused field, `rb.text_input {input_type, composition_rects,
+  caret}` (CSS pixels; `input_type` `none` when nothing takes text): the phone
+  raises the keyboard when a field gains focus and lowers it when the page
+  blurs a field it raised it for; Chromium keeps the focused field in view as
+  the viewport shrinks. A hardware keyboard's arrows, Escape, Home/End,
+  forward Delete and Command/Control shortcuts go to the page directly as
+  `key` events (with the Mac's edit commands: Option-arrows by word,
+  Command-arrows by line or document, Command-Z/Shift-Command-Z); Command-V
+  pastes the phone's clipboard. Under
   `CMUX_MOBILE_CONTROL=stdio` the app starts the hosts: hostd writes
   `{"type":"need_browser","request","tab","url"}` and the app answers
   `{"type":"browser","request","addr":"127.0.0.1:PORT","secret"}` or

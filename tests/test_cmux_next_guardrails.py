@@ -79,6 +79,8 @@ CASES = {
                        "protocol PagesObserver: AnyObject {\n    func pageChanged(_ id: Int)\n}\n"),
     "combine-state": ("import Combine\nfinal class Model: ObservableObject {\n    @Published var x = 0\n}\n",
                       "import Observation\n@Observable final class Model {\n    var x = 0\n}\n"),
+    "generic-class-deinit": ("@MainActor final class Once<T> {\n    var value: T?\n}\n",
+                             "@MainActor final class Once<T> {\n    var value: T?\n    nonisolated deinit {}\n}\n"),
     "row-store": ("import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n"
                   "    @Environment(SidebarStore.self) private var store\n    var body: some View { Text(title) }\n}\n",
                   "import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n    let onSelect: () -> Void\n"
@@ -398,6 +400,37 @@ class RuleTests(Fixture):
         self.assertTrue(guardrails.glob_match("A/MotionGate.swift", "A/Motion*.swift"))
         self.assertFalse(guardrails.glob_match("A/Motion/Spring.swift", "A/Motion*.swift"))
         self.assertTrue(guardrails.glob_match("A/B/C/D.swift", "A/**/D.swift"))
+
+    def test_a_moved_line_that_only_gains_an_access_modifier_is_no_new_debt(self):
+        (self.repo / "Packages/macOS/CmuxNext/Sources/CmuxNextOther").mkdir(parents=True)
+        self.git("mv", f"{KIT}/Old.swift", "Packages/macOS/CmuxNext/Sources/CmuxNextOther/Old.swift")
+        self.write("Packages/macOS/CmuxNext/Sources/CmuxNextOther/Old.swift",
+                   "package final class Old {\n    package static let shared = Old()\n}\n")
+        self.commit("git mv into another package; access internal -> package")
+        self.assertEqual(self.refused(), [])
+
+    def test_the_bench_configuration_is_refused_in_shipped_build_settings(self):
+        self.write(".github/workflows/nightly.yml", "jobs:\n  build:\n    steps:\n      - run: ./scripts/reload.sh --config bench\n")
+        self.write("config/Release.xcconfig", "OTHER_SWIFT_FLAGS = $(inherited) -DCMUX_BENCH_HOOKS\n")
+        self.write("scripts/measure/pane-perf.sh", "./scripts/reload.sh --config bench\n")
+        self.commit("bench flags in shipped settings, and in a measure script")
+        self.assertEqual(self.refused(), [("bench-hooks-shipped", [
+            "nightly.yml: - run: ./scripts/reload.sh --config bench",
+            "Release.xcconfig: OTHER_SWIFT_FLAGS = $(inherited) -DCMUX_BENCH_HOOKS"])])
+
+    def test_the_generic_class_rule_reads_test_targets_and_honors_nonisolated(self):
+        tests = "Packages/macOS/CmuxNext/Tests/CmuxNextFooTests"
+        self.write(f"{tests}/Wait.swift", "final class Once<T> {\n    var value: T?\n}\n")
+        self.write(f"{KIT}/Free.swift", "nonisolated final class Box<T> {\n    var value: T?\n}\n"
+                   "final class Mailbox<T> { // generic-class-allow: a nonisolated target\n    var value: T?\n}\n")
+        self.commit("generic classes in a test target and Sources")
+        self.assertEqual(self.refused(), [("generic-class-deinit", ["Wait.swift: final class Once<T> {"])])
+
+    def test_other_rules_do_not_read_test_targets(self):
+        self.write("Packages/macOS/CmuxNext/Tests/CmuxNextFooTests/Fake.swift",
+                   "final class Fake {\n    static let shared = Fake()\n}\n")
+        self.commit("a test fake singleton")
+        self.assertEqual(self.refused(), [])
 
     def test_skip_reason_lets_the_push_through_and_is_printed(self):
         self.write(f"{KIT}/Added.swift", CASES["singleton"][0])

@@ -65,7 +65,7 @@
 }
 /* On an opaque window the chat's tray is the card's glass, not the solid composer surface: glass
    is never opaque, and the card and its strip are glass on every window (composerStates.css, Leo
-   2026-10-21 "a bit more glass on the input box"). The wash goes over the card's tint (78% of the
+   2026-10-21 "a bit more glass on the input box"). The wash goes over the card's tint (70% of the
    surface) and the strip keeps the card's blur (--glass-backdrop). Over art or a see-through window
    the surface rule above is already glass. Reduce Transparency, by the app's attribute or the
    system's setting, keeps the solid fill above and no blur (composerStates.css); WebKit matches

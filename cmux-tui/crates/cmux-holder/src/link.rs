@@ -11,6 +11,7 @@ use std::sync::mpsc::{SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use crate::client::Spawned;
 use crate::wire::{self, In, Kind, Out};
 use crate::{ExitStatus, Listed, SpawnRequest};
 
@@ -46,7 +47,7 @@ pub enum LinkEnd {
     Superseded,
 }
 
-type SpawnReply = io::Result<(i32, OwnedFd)>;
+type SpawnReply = io::Result<Spawned>;
 
 #[derive(Default)]
 struct State {
@@ -102,15 +103,26 @@ impl HolderLink {
         self.lock().open
     }
 
+    /// The wire version the holder settled on.
+    pub fn version(&self) -> u16 {
+        self.version
+    }
+
+    /// Whether the holder passes and takes ring segments (wire version 4):
+    /// a crash of it then loses no byte it read.
+    pub fn has_rings(&self) -> bool {
+        self.version >= 4
+    }
+
     /// Start `request` on `chan`, streaming its output to `sink` from its
-    /// first byte. Returns the child's pid and the caller's custody dup of
-    /// the PTY master.
+    /// first byte. Returns the child's pid and the caller's custody dups of
+    /// the PTY master and (wire version 4) the ring segment.
     pub fn spawn(
         &self,
         chan: u32,
         request: &SpawnRequest,
         sink: Arc<dyn TerminalSink>,
-    ) -> io::Result<(i32, OwnedFd)> {
+    ) -> io::Result<Spawned> {
         let (reply, answered) = sync_channel(1);
         {
             let mut state = self.lock();
@@ -137,20 +149,44 @@ impl HolderLink {
     }
 
     /// Hand a running terminal to this holder (after a holder crash): its
-    /// custody master, pid and the offset its output continues from. Its
-    /// output then streams to `sink` from `base`.
+    /// custody master, pid, the prologue (a VT replay of its screen at
+    /// `base`) and the offset its stream continues from, `resume`. Its
+    /// output then streams to `sink` from `resume`.
+    ///
+    /// With `ring` (the dead holder's segment; only on a link with
+    /// [`Self::has_rings`]) the new holder continues that ring: `base` is
+    /// the offset the daemon parsed and confirmed, at or before `resume`,
+    /// and the bytes from `resume` the dead holder read but never sent come
+    /// first. Without it the new holder starts a fresh ring at `resume`, and
+    /// `base` must equal `resume` (the prologue then carries what the daemon
+    /// had not parsed).
     pub fn adopt(
         &self,
         chan: u32,
         id: &[u8; 16],
-        (pid, base): (i32, u64),
-        master: &OwnedFd,
+        (pid, base, resume): (i32, u64, u64),
+        (master, ring): (&OwnedFd, Option<&OwnedFd>),
         (sink, prologue): (Arc<dyn TerminalSink>, &[u8]),
     ) -> io::Result<()> {
         self.lock().sinks.insert(chan, sink);
-        let payload = Out::default().i32(pid).u64(base).bytes(id).bytes(prologue).0;
-        self.send(Kind::Adopt, chan, &payload, Some(master))?;
-        self.send(Kind::Attach, chan, &Out::default().u64(base).0, None)
+        match ring.filter(|_| self.has_rings()) {
+            Some(ring) => {
+                let payload =
+                    Out::default().i32(pid).u64(base).bytes(id).u64(resume).bytes(prologue).0;
+                let frame = wire::encode_flagged(Kind::Adopt, wire::FLAG_RING, chan, &payload);
+                let writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+                wire::send_all(
+                    writer.as_raw_fd(),
+                    &frame,
+                    &[master.as_raw_fd(), ring.as_raw_fd()],
+                )?;
+            }
+            None => {
+                let payload = Out::default().i32(pid).u64(resume).bytes(id).bytes(prologue).0;
+                self.send(Kind::Adopt, chan, &payload, Some(master))?;
+            }
+        }
+        self.send(Kind::Attach, chan, &Out::default().u64(resume).0, None)
     }
 
     /// Stream a listed terminal's output to `sink` from `from`, after its
@@ -274,8 +310,9 @@ fn read_loop(
             let mut input = In(&frame.payload);
             match Kind::from_u16(frame.kind) {
                 Some(Kind::Spawned) => {
-                    let reply = match (input.i32(), frame.fds.pop()) {
-                        (Ok(pid), Some(fd)) => Ok((pid, fd)),
+                    let mut fds = std::mem::take(&mut frame.fds).into_iter();
+                    let reply = match (input.i32(), fds.next()) {
+                        (Ok(pid), Some(master)) => Ok(Spawned { pid, master, ring: fds.next() }),
                         _ => Err(io::Error::other("malformed SPAWNED")),
                     };
                     if let Some(waiter) = link.lock().spawns.remove(&chan) {

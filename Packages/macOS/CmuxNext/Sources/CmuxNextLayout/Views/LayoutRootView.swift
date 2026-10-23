@@ -22,6 +22,8 @@ public final class LayoutRootView: NSView {
     weak var planeHost: (any OverlayPlaneHosting)?
     var reportedInteractiveRects: [CGRect] = []
     var reportedDividerMouseAreas: [LayoutMouseArea] = []
+    /// ``isInLayoutMotion`` at the last report: its end is reported even when no rect changed.
+    var reportedLayoutMotion = false
     let driver = DisplayLinkDriver()
     private var observationTask: Task<Void, Never>?
     private var eventMonitor: Any?
@@ -430,6 +432,8 @@ public final class LayoutRootView: NSView {
         guard moving != isLayoutInMotion else { return }
         isLayoutInMotion = moving
         for block in layoutMotionObservers.values { block(moving) }
+        // The landing frame synced while still in motion: the window hears the rest now (catchers).
+        if !moving { reportInteractiveRects() }
     }
 
     func updateVisibility() {

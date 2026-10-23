@@ -10,15 +10,30 @@ use cmux_holder::wire::ACK_EVERY;
 
 use crate::panic_free::RecoverPoison;
 
+/// A run of queued bytes: holder output from `offset` on, or bytes that
+/// take no holder offset (`None`: a reopen seed, a prologue, a CAN for a
+/// gap).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Run {
+    len: usize,
+    offset: Option<u64>,
+}
+
 #[derive(Default)]
 struct SinkState {
+    /// Bytes for the parser, in order. The first `in_flight` of them were
+    /// handed to the reader, which has not finished parsing them.
     bytes: VecDeque<u8>,
-    /// Bytes at the front of `bytes` that carry no holder offset (a reopen
-    /// seed, a prologue). Never more than there are: an uncounted one only
-    /// delays an acknowledgement until the queue drains.
-    unnumbered: usize,
+    /// `bytes` as runs, so each byte's holder offset (or none) is known.
+    runs: VecDeque<Run>,
+    in_flight: usize,
     /// Offset after the newest byte received (the holder's numbering).
     received: u64,
+    /// Offset after the last holder byte the parser finished parsing: the
+    /// screen is exactly the output up to here (plus the unnumbered bytes
+    /// parsed before it). Acknowledgements, snapshots and a hand-off to a
+    /// new holder all start here, never at `received`.
+    confirmed: u64,
     /// Offset last acknowledged to the holder.
     acked: u64,
     /// Offset of the newest screen snapshot handed to the holder.
@@ -32,7 +47,7 @@ struct SinkState {
 
 /// Bytes the holder streamed for one terminal, waiting for the terminal's
 /// reader thread, and the terminal's end. Bounded by credit: the sink
-/// acknowledges what the parser read (every `ACK_EVERY` bytes), and the
+/// acknowledges what the parser parsed (every `ACK_EVERY` bytes), and the
 /// holder sends at most `CREDIT_WINDOW` past the last acknowledgement, so a
 /// terminal that prints faster than the daemon parses waits in its PTY
 /// instead of growing this queue.
@@ -48,11 +63,88 @@ pub(crate) struct HolderSink {
 /// offset.
 pub(crate) type Acker = Box<dyn Fn(u64) + Send + Sync>;
 
+/// What the parser has not finished parsing, at one instant: the bytes a
+/// new holder's prologue must carry (`crate::holder_runtime` re-adoption).
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct Pending {
+    /// [`HolderSink`]'s confirmed offset: the screen is the output up to it.
+    pub(crate) confirmed: u64,
+    /// The offset after the newest byte received.
+    pub(crate) received: u64,
+    /// The unnumbered bytes before the first holder byte not parsed yet (a
+    /// seed the parser has not finished).
+    pub(crate) head: Vec<u8>,
+    /// Every byte not parsed yet, in order.
+    pub(crate) all: Vec<u8>,
+}
+
 impl SinkState {
-    /// Offset after the last byte the parser read.
-    fn parsed(&self) -> u64 {
-        let numbered = self.bytes.len() - self.unnumbered.min(self.bytes.len());
-        self.received.saturating_sub(numbered as u64)
+    fn push_numbered(&mut self, offset: u64, bytes: &[u8]) {
+        if bytes.is_empty() {
+            return;
+        }
+        self.bytes.extend(bytes);
+        match self.runs.back_mut() {
+            Some(Run { len, offset: Some(start) }) if *start + *len as u64 == offset => {
+                *len += bytes.len();
+            }
+            _ => self.runs.push_back(Run { len: bytes.len(), offset: Some(offset) }),
+        }
+    }
+
+    fn push_unnumbered(&mut self, bytes: &[u8]) {
+        if bytes.is_empty() {
+            return;
+        }
+        self.bytes.extend(bytes);
+        match self.runs.back_mut() {
+            Some(Run { len, offset: None }) => *len += bytes.len(),
+            _ => self.runs.push_back(Run { len: bytes.len(), offset: None }),
+        }
+    }
+
+    /// The reader finished parsing what it took: drop it from the queue
+    /// and move the confirmed offset past its last holder byte.
+    fn confirm(&mut self) {
+        let mut left = std::mem::take(&mut self.in_flight);
+        self.bytes.drain(..left.min(self.bytes.len()));
+        while left > 0 {
+            let Some(run) = self.runs.front_mut() else { break };
+            let n = left.min(run.len);
+            if let Some(offset) = run.offset.as_mut() {
+                *offset += n as u64;
+                self.confirmed = *offset;
+            }
+            run.len -= n;
+            left -= n;
+            if run.len == 0 {
+                self.runs.pop_front();
+            }
+        }
+    }
+
+    /// An acknowledgement is due for what the parser confirmed.
+    fn due_ack(&mut self, can_ack: bool) -> Option<u64> {
+        (can_ack && self.confirmed >= self.acked + ACK_EVERY).then(|| {
+            self.acked = self.confirmed;
+            self.confirmed
+        })
+    }
+
+    fn has_unnumbered(&self) -> bool {
+        self.runs.iter().any(|run| run.offset.is_none())
+    }
+
+    fn pending(&self) -> Pending {
+        let all: Vec<u8> = self.bytes.iter().copied().collect();
+        let head_len: usize =
+            self.runs.iter().take_while(|run| run.offset.is_none()).map(|run| run.len).sum();
+        Pending {
+            confirmed: self.confirmed,
+            received: self.received,
+            head: all[..head_len.min(all.len())].to_vec(),
+            all,
+        }
     }
 }
 
@@ -62,6 +154,7 @@ impl HolderSink {
         Arc::new(Self {
             state: Mutex::new(SinkState {
                 received: base,
+                confirmed: base,
                 acked: base,
                 snapshot_base: base,
                 ..SinkState::default()
@@ -72,35 +165,64 @@ impl HolderSink {
     }
 
     /// Acknowledge through `acker` from now on, starting with what the
-    /// parser already read: the holder may be waiting for it.
+    /// parser already parsed: the holder may be waiting for it.
     pub(crate) fn set_acker(&self, acker: Acker) {
         if self.acker.set(acker).is_err() {
             return;
         }
-        let parsed = {
+        let confirmed = {
             let mut state = self.state.lock().recover_poison();
-            let parsed = state.parsed();
-            state.acked = state.acked.max(parsed);
-            parsed
+            state.acked = state.acked.max(state.confirmed);
+            state.confirmed
         };
         if let Some(acker) = self.acker.get() {
-            acker(parsed);
+            acker(confirmed);
         }
     }
 
-    /// Offset after the newest byte received: where a new holder resumes.
+    /// Offset after the newest byte received.
     pub(crate) fn received(&self) -> u64 {
         self.state.lock().recover_poison().received
+    }
+
+    /// Offset after the last byte the parser finished parsing.
+    #[cfg(test)]
+    pub(crate) fn confirmed(&self) -> u64 {
+        self.state.lock().recover_poison().confirmed
+    }
+
+    /// The parser finished parsing every byte the reader took. The reader
+    /// calls it right after it wrote them to the terminal, under the
+    /// terminal lock, so whoever holds that lock sees a screen and a
+    /// [`Self::pending`] that match exactly.
+    pub(crate) fn confirm_parsed(&self) {
+        self.state.lock().recover_poison().confirm();
+    }
+
+    /// Everything the parser has not finished parsing. Exact when called
+    /// under the terminal lock (see [`Self::confirm_parsed`]): the screen is
+    /// then the output up to [`Pending::confirmed`], and parsing
+    /// [`Pending::all`] after it gives the screen at [`Pending::received`].
+    pub(crate) fn pending(&self) -> Pending {
+        self.state.lock().recover_poison().pending()
     }
 
     /// Bytes the parser reads before the holder's (an archived terminal's
     /// replay); they take no holder offset.
     pub(crate) fn prepend(&self, seed: &[u8]) {
+        if seed.is_empty() {
+            return;
+        }
         let mut state = self.state.lock().recover_poison();
+        // Before the reader takes anything: a seed is set at the spawn.
+        debug_assert_eq!(state.in_flight, 0, "a seed after the reader started");
         for byte in seed.iter().rev() {
             state.bytes.push_front(*byte);
         }
-        state.unnumbered += seed.len();
+        match state.runs.front_mut() {
+            Some(Run { len, offset: None }) => *len += seed.len(),
+            _ => state.runs.push_front(Run { len: seed.len(), offset: None }),
+        }
     }
 
     /// The offset to snapshot the screen at now, if one is due: called by
@@ -112,33 +234,21 @@ impl HolderSink {
     /// unnumbered bytes (a seed, a prologue) wait: the screen is not the
     /// screen at any offset until they are parsed.
     pub(super) fn snapshot_due(&self) -> Option<u64> {
-        let state = self.state.lock().recover_poison();
-        if state.unnumbered > 0 || state.detached || state.lost || state.exit.is_some() {
+        let mut state = self.state.lock().recover_poison();
+        state.confirm();
+        if state.has_unnumbered() || state.detached || state.lost || state.exit.is_some() {
             return None;
         }
-        let parsed = state.parsed();
-        let since = parsed.saturating_sub(state.snapshot_base);
+        let since = state.confirmed.saturating_sub(state.snapshot_base);
         let idle = state.bytes.is_empty();
-        ((idle && since >= SNAPSHOT_IDLE_BYTES) || since >= SNAPSHOT_EVERY_BYTES).then_some(parsed)
+        ((idle && since >= SNAPSHOT_IDLE_BYTES) || since >= SNAPSHOT_EVERY_BYTES)
+            .then_some(state.confirmed)
     }
 
     /// A snapshot at `base` went to the holder (or could not be made).
     pub(super) fn snapshot_taken(&self, base: u64) {
         let mut state = self.state.lock().recover_poison();
         state.snapshot_base = state.snapshot_base.max(base);
-    }
-
-    /// Wait (at most `limit`) until the reader took every queued byte.
-    pub(crate) fn wait_drained(&self, limit: std::time::Duration) {
-        let deadline = std::time::Instant::now() + limit;
-        let mut state = self.state.lock().recover_poison();
-        while !state.bytes.is_empty() && !state.detached {
-            let left = deadline.saturating_duration_since(std::time::Instant::now());
-            if left.is_zero() {
-                return;
-            }
-            state = self.changed.wait_timeout(state, left).recover_poison().0;
-        }
     }
 
     /// The holder is gone for good: the reader drains and the wait ends lost.
@@ -159,8 +269,18 @@ impl HolderSink {
     }
 
     /// Up to `buf.len()` bytes; 0 once the terminal ended (or the daemon
-    /// detached) and every byte before was read.
+    /// detached) and every byte before was read. A call means the reader
+    /// parsed what it took before (if [`Self::confirm_parsed`] did not say
+    /// so already), so the acknowledgement for it goes out first.
     fn read(&self, buf: &mut [u8]) -> usize {
+        let ack = {
+            let mut state = self.state.lock().recover_poison();
+            state.confirm();
+            state.due_ack(self.acker.get().is_some())
+        };
+        if let (Some(offset), Some(acker)) = (ack, self.acker.get()) {
+            acker(offset);
+        }
         let mut state = self.state.lock().recover_poison();
         while state.bytes.is_empty() && state.exit.is_none() && !state.detached && !state.lost {
             state = self.changed.wait(state).recover_poison();
@@ -168,27 +288,14 @@ impl HolderSink {
         if state.detached {
             return 0;
         }
+        // Taken, not parsed: the bytes stay queued (and in `pending`) until
+        // the reader confirms them.
         let n = buf.len().min(state.bytes.len());
         let (head, tail) = state.bytes.as_slices();
         let from_head = n.min(head.len());
         buf[..from_head].copy_from_slice(&head[..from_head]);
         buf[from_head..n].copy_from_slice(&tail[..n - from_head]);
-        state.bytes.drain(..n);
-        state.unnumbered = state.unnumbered.saturating_sub(n);
-        let parsed = state.parsed();
-        let ack = (parsed >= state.acked + ACK_EVERY && self.acker.get().is_some()).then(|| {
-            state.acked = parsed;
-            parsed
-        });
-        let drained = state.bytes.is_empty();
-        drop(state);
-        if drained {
-            // A re-adoption waits for the queue to drain (`wait_drained`).
-            self.changed.notify_all();
-        }
-        if let (Some(offset), Some(acker)) = (ack, self.acker.get()) {
-            acker(offset);
-        }
+        state.in_flight = n;
         n
     }
 
@@ -218,16 +325,6 @@ pub(super) const SNAPSHOT_IDLE_BYTES: u64 = 64 * 1024;
 /// the holder's prologue then is at most this far behind the stream.
 pub(super) const SNAPSHOT_EVERY_BYTES: u64 = 2 * 1024 * 1024;
 
-impl SinkState {
-    /// Queue bytes that take no holder offset behind what is queued.
-    fn push_unnumbered(&mut self, bytes: &[u8]) {
-        if self.unnumbered == self.bytes.len() {
-            self.unnumbered += bytes.len();
-        }
-        self.bytes.extend(bytes);
-    }
-}
-
 impl TerminalSink for HolderSink {
     fn data(&self, offset: u64, bytes: &[u8]) {
         let mut state = self.state.lock().recover_poison();
@@ -239,10 +336,11 @@ impl TerminalSink for HolderSink {
         if offset > state.received {
             // Bytes missing before these: never splice them silently.
             eprintln!("cmux-tui: holder terminal lost output {}..{offset}", state.received);
-            state.bytes.push_back(CANCEL);
+            state.push_unnumbered(&[CANCEL]);
         }
         let skip = state.received.saturating_sub(offset) as usize;
-        state.bytes.extend(&bytes[skip.min(bytes.len())..]);
+        let from = offset.max(state.received);
+        state.push_numbered(from, &bytes[skip.min(bytes.len())..]);
         state.received = end;
         drop(state);
         self.changed.notify_all();
@@ -253,7 +351,7 @@ impl TerminalSink for HolderSink {
         if oldest > state.received {
             eprintln!("cmux-tui: holder terminal lost output {requested}..{oldest}");
             state.received = oldest;
-            state.bytes.push_back(CANCEL);
+            state.push_unnumbered(&[CANCEL]);
             drop(state);
             self.changed.notify_all();
         }
@@ -268,6 +366,12 @@ impl TerminalSink for HolderSink {
             state.push_unnumbered(&[CANCEL]);
         } else {
             state.received = base;
+            // The prologue is the screen at `base`: once it is parsed, the
+            // parser is at `base` (no holder byte before it comes).
+            if state.runs.iter().all(|run| run.offset.is_none()) {
+                state.confirmed = state.confirmed.max(base);
+                state.acked = state.acked.max(base);
+            }
         }
         state.snapshot_base = state.snapshot_base.max(base);
         drop(state);
@@ -315,6 +419,10 @@ pub(super) struct SnapshottingReader {
     pub(super) sink: Arc<HolderSink>,
     /// Builds and sends the snapshot at an offset (the terminal's replay).
     pub(super) snapshot: Box<dyn Fn(u64) + Send>,
+    /// The terminal id (hex) its create's debug spans follow: the first
+    /// output, first text and first prompt the daemon reads for it are
+    /// marked as on the hosted path (new-terminal-100x's first-text).
+    pub(super) terminal_id: String,
 }
 
 impl Read for SnapshottingReader {
@@ -323,7 +431,9 @@ impl Read for SnapshottingReader {
             (self.snapshot)(base);
             self.sink.snapshot_taken(base);
         }
-        Ok(self.sink.read(buf))
+        let n = self.sink.read(buf);
+        crate::debug_spans::output_marks(&self.terminal_id, &buf[..n]);
+        Ok(n)
     }
 }
 
@@ -342,6 +452,7 @@ mod tests {
         reader.read_to_end(&mut out).unwrap();
         assert_eq!(out, b"abcde");
         assert_eq!(sink.received(), 15);
+        assert_eq!(sink.confirmed(), 15);
         assert_eq!(sink.wait_end(), SinkEnd::Exited(ExitStatus::Exited(0)));
     }
 
@@ -359,7 +470,7 @@ mod tests {
     }
 
     #[test]
-    fn the_sink_acknowledges_what_the_parser_read_so_the_holder_sends_more() {
+    fn the_sink_acknowledges_what_the_parser_parsed_so_the_holder_sends_more() {
         let acks = Arc::new(Mutex::new(Vec::new()));
         let sink = HolderSink::new(0);
         sink.prepend(b"seed");
@@ -370,15 +481,19 @@ mod tests {
         sink.set_acker(Box::new(move |offset| recorded.lock().unwrap().push(offset)));
         // Nothing parsed yet: the first acknowledgement is the base.
         assert_eq!(*acks.lock().unwrap(), vec![0]);
-        let mut reader = SinkReader(sink);
+        let mut reader = SinkReader(sink.clone());
         let mut buf = vec![0u8; 64 * 1024];
         let mut read = 0;
         while read < 4 + 2 * chunk.len() {
             read += reader.read(&mut buf).unwrap();
         }
+        // The last chunk is parsed once the reader says so.
+        sink.confirm_parsed();
+        sink.exit(ExitStatus::Exited(0), 2 * chunk.len() as u64);
+        assert_eq!(reader.read(&mut buf).unwrap(), 0);
         let acks = acks.lock().unwrap().clone();
         let last = *acks.last().unwrap();
-        // The seed takes no holder offset: what the parser read of the
+        // The seed takes no holder offset: what the parser parsed of the
         // holder's bytes is acknowledged, every ACK_EVERY bytes.
         assert!(acks.len() >= 2, "{acks:?}");
         assert!(last >= ACK_EVERY && last <= 2 * chunk.len() as u64, "{acks:?}");
@@ -396,6 +511,7 @@ mod tests {
         SinkReader(sink.clone()).read_to_end(&mut out).unwrap();
         assert_eq!(out, b"\x1b[3\x181mx\x18y");
         assert_eq!(sink.received(), 21);
+        assert_eq!(sink.confirmed(), 21);
     }
 
     #[test]
@@ -443,5 +559,31 @@ mod tests {
         let mut buf = [0u8; 8];
         assert_eq!(SinkReader(sink.clone()).read(&mut buf).unwrap(), 0);
         assert_eq!(sink.wait_end(), SinkEnd::Detached);
+    }
+
+    /// The replay race (holder item 1): a chunk the reader took but has not
+    /// parsed is still pending, and the confirmed offset stays before it,
+    /// so a hand-off to a new holder never claims a byte the screen does
+    /// not show yet.
+    #[test]
+    fn a_taken_chunk_stays_pending_until_the_parser_confirms_it() {
+        let sink = HolderSink::new(0);
+        sink.prepend(b"seed");
+        sink.data(0, b"\x1b[38;5;1");
+        sink.data(8, b"96mRED");
+        let mut buf = [0u8; 8];
+        let mut reader = SinkReader(sink.clone());
+        // The reader takes "seed\x1b[38" and is still parsing it.
+        assert_eq!(reader.read(&mut buf).unwrap(), 8);
+        let pending = sink.pending();
+        assert_eq!((pending.confirmed, pending.received), (0, 14));
+        assert_eq!(pending.head, b"seed");
+        assert_eq!(pending.all, b"seed\x1b[38;5;196mRED");
+        // Parsed: the confirmed offset moves past its holder bytes only.
+        sink.confirm_parsed();
+        let pending = sink.pending();
+        assert_eq!((pending.confirmed, pending.received), (4, 14));
+        assert!(pending.head.is_empty());
+        assert_eq!(pending.all, b";5;196mRED");
     }
 }

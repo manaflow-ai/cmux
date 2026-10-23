@@ -65,7 +65,7 @@ final class FilePageService: InternalPageProvider {
     static let flushTimeout: Duration = .seconds(3)
 
     init(services: AppServices, kind: FilePageKind, clock: any Clock<Duration> = ContinuousClock(),
-         images: any RemoteImageFetching = GuardedRemoteImages(), documents: FileQuitDocuments = .shared,
+         images: any RemoteImageFetching = GuardedRemoteImages(), documents: FileQuitDocuments? = nil,
          tableWidths: (any MarkdownTableWidthStoring)? = nil) {
         self.services = services
         self.tableWidths = kind == .markdown
@@ -76,7 +76,7 @@ final class FilePageService: InternalPageProvider {
                                            name: MarkdownTableWidthRepository.commentsAttributeName,
                                            maxBytes: MarkdownTableWidthRepository.commentsValueLimit)
             : nil
-        self.documents = documents
+        self.documents = documents ?? services.fileQuitDocuments
         self.kind = kind
         self.clock = clock
         self.images = images

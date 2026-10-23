@@ -89,6 +89,9 @@ pub struct Listed {
     pub exited: bool,
     /// The custody dup of the master (`None` from the holder's own encode).
     pub master: Option<std::os::fd::OwnedFd>,
+    /// The custody dup of its output ring segment (wire version 4; `None`
+    /// from an older holder or a ring in private memory).
+    pub ring: Option<std::os::fd::OwnedFd>,
 }
 
 impl Listed {
@@ -102,14 +105,18 @@ impl Listed {
             .0
     }
 
+    /// Decode a LISTED payload; `fds` are the master, then the ring
+    /// segment when the frame had [`wire::FLAG_RING`].
     pub(crate) fn decode(
         chan: u32,
         payload: &[u8],
-        master: Option<std::os::fd::OwnedFd>,
+        fds: Vec<std::os::fd::OwnedFd>,
     ) -> io::Result<Self> {
         let mut input = wire::In(payload);
+        let mut fds = fds.into_iter();
         Ok(Self {
-            master,
+            master: fds.next(),
+            ring: fds.next(),
             chan,
             pid: input.i32()?,
             oldest: input.u64()?,
@@ -153,15 +160,43 @@ impl ExitStatus {
 /// every shell. The same name a spawned terminal host reads.
 pub const NOFILE_SOFT_ENV: &str = "CMUX_TUI_HOST_NOFILE_SOFT";
 
+/// What `cmux-holder --version` prints: the program and the wire versions
+/// it serves. A daemon starts a holder binary only when it reports this
+/// shape (`cmux-holder wire MIN-MAX`) with a range it speaks. No build
+/// identity: a holder whose code did not change is the same file in every
+/// cmux build, so an update reuses its content-addressed copy.
+pub fn version_line() -> String {
+    format!("cmux-holder wire {}-{}", wire::MIN_VERSION, wire::VERSION)
+}
+
+/// The wire range in a [`version_line`], `None` for any other answer.
+pub fn parse_version_line(line: &str) -> Option<(u16, u16)> {
+    let range = line.trim_end().strip_prefix("cmux-holder wire ")?;
+    let (min, max) = range.split_once('-')?;
+    let (min, max) = (min.parse().ok()?, max.parse().ok()?);
+    (min <= max).then_some((min, max))
+}
+
+/// The lock file beside a content-addressed copy of the holder: each
+/// process that runs the copy holds it shared, and a daemon deletes a copy
+/// only when it can take it exclusively.
+pub const IN_USE_LOCK: &str = "in-use.lock";
+
 /// Run a holder process: `--socket PATH` (and `--idle-exit-ms N`, the idle
 /// exit; default [`holder::IDLE_EXIT`]), the owner token as 64 hex
-/// characters on stdin, `ready` on stdout once it listens. Returns on a
-/// startup error, once it was idle for its idle exit, or when launchd ends
-/// it (logout, shutdown).
+/// characters on stdin, `ready` on stdout once it listens. `--version`
+/// prints [`version_line`]. Returns on a startup error, once it was idle
+/// for its idle exit, or when launchd ends it (logout, shutdown).
 pub fn serve(args: &[String]) -> io::Result<()> {
     // First, before any descriptor of the holder's own exists: nothing the
     // daemon inherited reaches a shell.
     pty::mark_inherited_close_on_exec();
+    if args.first().is_some_and(|arg| arg == "--version") {
+        let mut stdout = io::stdout().lock();
+        writeln!(stdout, "{}", version_line())?;
+        return stdout.flush();
+    }
+    hold_copy_in_use();
     let mut args = args.iter().cloned();
     let mut socket = None;
     let mut idle_exit = None;
@@ -225,6 +260,29 @@ pub fn serve(args: &[String]) -> io::Result<()> {
     holder.run()
 }
 
+/// When this holder runs from a content-addressed copy (an
+/// [`IN_USE_LOCK`] beside its executable), hold that lock shared for the
+/// holder's whole life: the copy outlives every daemon that made it, as
+/// long as a holder runs it. Best effort; the descriptor never reaches a
+/// shell (close-on-exec).
+fn hold_copy_in_use() {
+    use std::os::unix::ffi::OsStrExt;
+    let Some(lock) =
+        std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.join(IN_USE_LOCK)))
+    else {
+        return;
+    };
+    let Ok(path) = std::ffi::CString::new(lock.as_os_str().as_bytes()) else { return };
+    // SAFETY: opens a NUL-terminated path; the descriptor is kept open for
+    // the life of the process on purpose (the lock lives with it).
+    unsafe {
+        let fd = libc::open(path.as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW);
+        if fd >= 0 && libc::flock(fd, libc::LOCK_SH) != 0 {
+            libc::close(fd);
+        }
+    }
+}
+
 fn parse_token(hex: &str) -> Option<[u8; 32]> {
     if hex.len() != 64 {
         return None;
@@ -243,6 +301,15 @@ fn invalid(message: &str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_version_line_names_the_wire_range_and_parses_back() {
+        assert_eq!(version_line(), format!("cmux-holder wire 1-{}", wire::VERSION));
+        assert_eq!(parse_version_line(&version_line()), Some((1, wire::VERSION)));
+        assert_eq!(parse_version_line("cmux-holder wire 2-3\n"), Some((2, 3)));
+        assert_eq!(parse_version_line("cmux-tui-host 1.2.3"), None);
+        assert_eq!(parse_version_line("cmux-holder wire 4-3"), None);
+    }
 
     #[test]
     fn spawn_request_round_trips() {

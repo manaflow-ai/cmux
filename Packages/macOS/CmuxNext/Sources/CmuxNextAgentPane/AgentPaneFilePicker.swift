@@ -2,13 +2,13 @@ public import AppKit
 import CmuxNextDesign
 
 /// Add Files to Project's open panel (cx-ncc.67): a sheet on the pane's window for files, several
-/// at a time. None when the user cancels or the pane has no window. The model asks for it only
+/// at a time. None when the user cancels, the pane has no window, or the panel came back dead (no
+/// GUI session: no sheet is shown, so nothing waits on it). The model asks for it only
 /// after a real gesture. Both sheets take the app's panel made ahead (`MadeAheadOpenPanel`).
 public struct AgentPaneFilePicker {
     public init() {}
     @MainActor public static func pick(window: NSWindow?) async -> [URL] {
-        guard let window else { return [] }
-        let panel = MadeAheadOpenPanel.shared.panel()
+        guard let window, let panel = MadeAheadOpenPanel.shared.panel() else { return [] }
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = true
@@ -20,10 +20,9 @@ public struct AgentPaneFilePicker {
     }
 
     /// Attach files or folders (`chat.attach.choose`): the same sheet for files and folders, several
-    /// at a time. None when the user cancels or the pane has no window.
+    /// at a time. None when the user cancels, the pane has no window, or the panel came back dead.
     @MainActor public static func pickAttachments(window: NSWindow?) async -> [URL] {
-        guard let window else { return [] }
-        let panel = MadeAheadOpenPanel.shared.panel()
+        guard let window, let panel = MadeAheadOpenPanel.shared.panel() else { return [] }
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = true

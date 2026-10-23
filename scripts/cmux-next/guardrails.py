@@ -44,6 +44,13 @@ from typing import Callable
 SOURCES = "Packages/macOS/CmuxNext/Sources/"
 # The rules read Swift only: the string catalogs under Sources are MBs of JSON per localization push.
 SWIFT_SOURCES = f":(glob){SOURCES}**/*.swift"
+TESTS = "Packages/macOS/CmuxNext/Tests/"
+SWIFT_TESTS = f":(glob){TESTS}**/*.swift"
+# Where a shipped build's settings live: the release and nightly pipelines, the release script, build
+# settings files and the app's package manifest.
+SHIPPED_BUILD = (".github/workflows/", "scripts/build-sign-upload.sh", "Packages/macOS/CmuxNext/Package.swift")
+SHIPPED_BUILD_SPECS = (".github/workflows", "scripts/build-sign-upload.sh", "Packages/macOS/CmuxNext/Package.swift",
+                       ":(glob)**/*.xcconfig", ":(glob)**/project.pbxproj")
 APP = SOURCES + "CmuxNextApp/"
 UPSTREAM = "origin/feat-cmux-next"
 OWNERS = "plans/cmux-next/OWNERS.md"
@@ -156,6 +163,7 @@ class Rule:
     fix: str
     escape: str | None
     find: Callable[[list[FileChange], collections.Counter], list[Added]]  # (changed files, removed texts) -> hits
+    scope: tuple[str, ...] = (SOURCES,)  # path prefixes the rule reads (most rules: Sources only)
 
 
 # (version, 0-based line) -> (the match is debt there, the 1-based opener lines that make it so)
@@ -205,6 +213,15 @@ def debt_in(version: Version, changed: list[Added], matcher: Matcher) -> list[Ad
     return out
 
 
+ACCESS_WORDS = re.compile(r"\b(public|package|internal|private|fileprivate|open)\s+(?!\()|\b(public|package|internal)\s+import\b")
+
+
+def debt_key(text: str) -> str:
+    """The text two debt lines are compared by: stripped, with access modifiers dropped, so a line that moved
+    to another module and only gained `package` or `public` (a git mv into a package) pairs with its old self."""
+    return re.sub(r"\s+", " ", ACCESS_WORDS.sub(lambda m: "import " if m.group(2) else "", text)).strip()
+
+
 def resolve(found: list[tuple[list[Added], list[Added]]]) -> list[Added]:
     """New debt from each file's (head debt the push changed, base debt the push changed), in file order.
 
@@ -218,10 +235,10 @@ def resolve(found: list[tuple[list[Added], list[Added]]]) -> list[Added]:
     left_added: list[list[Added]] = []
     pools: list[collections.Counter] = []
     for added, removed in found:
-        pool = collections.Counter(r.text.strip() for r in removed)
+        pool = collections.Counter(debt_key(r.text) for r in removed)
         rest = []
         for line in added:
-            key = line.text.strip()
+            key = debt_key(line.text)
             if pool[key] > 0:
                 pool[key] -= 1
             else:
@@ -231,7 +248,7 @@ def resolve(found: list[tuple[list[Added], list[Added]]]) -> list[Added]:
     for i, rest in enumerate(left_added):
         still = []
         for line in rest:
-            key = line.text.strip()
+            key = debt_key(line.text)
             sources = [j for j, pool in enumerate(pools) if j != i and pool[key] > 0]
             source = max(sources, key=lambda j: (sum(pools[j].values()) - len(left_added[j]), -j), default=None)
             if source is None:
@@ -406,6 +423,37 @@ def big_new_app_file(changes: list[FileChange], moved: collections.Counter) -> l
     return hits
 
 
+# A generic class whose deinit is implicit. In a main-actor target (the default of every UI and test
+# target, `.defaultIsolation(MainActor.self)`) that deinit is isolated, and swift-frontend 6.3.3 (Xcode 26.6)
+# crashes on it in -O: signal 11 in EarlyPerfInliner, isCallerAndCalleeLayoutConstraintsCompatible, on the
+# class's deallocating deinit (`...CfD`). It broke `swift build --build-tests -c release` twice on 2026-10-23
+# (PageTestWait.Once, CloudPaneTests.Seen) and can hit any edit of such a class.
+GENERIC_CLASS = re.compile(r"(^|[\s)])(final\s+)?class\s+\w+\s*<")
+GENERIC_CLASS_ALLOW = re.compile(r"//\s*generic-class-allow:\s*\S")
+
+
+def implicit_deinit(version: Version, index: int) -> tuple[bool, list[int]]:
+    """A generic class declared here that is not `nonisolated` and whose body declares no `deinit`."""
+    code = code_of(version.lines[index])
+    match = GENERIC_CLASS.search(code)
+    if match is None or re.search(r"\bnonisolated\b", code[:match.end()]):
+        return False, []
+    depth, opened = 0, False
+    for j in range(index, len(version.lines)):
+        line = code_of(version.lines[j])
+        if opened and depth == 1 and re.search(r"\bdeinit\b", line):
+            return False, []
+        for c in line if j > index else line[match.start():]:
+            if c == "{":
+                depth += 1
+                opened = True
+            elif c == "}":
+                depth -= 1
+        if opened and depth <= 0:
+            break
+    return True, []
+
+
 singleton = matcher_rule(Matcher(SINGLETON_ANY, SINGLETON_ALLOW, holds_state))
 sleep_in_loop = matcher_rule(Matcher(SLEEP, POLL_ALLOW, in_loop))
 broadcast_name = matcher_rule(Matcher(BROADCAST_ANY, BROADCAST_ALLOW, declares_name))
@@ -465,6 +513,23 @@ RULES = (
          "ForEach",
          "// row-snapshot-allow: <why>",
          row_store),
+    Rule("generic-class-deinit", "A generic class with an implicit deinit (main-actor by default)",
+         "swift-frontend 6.3.3 (Xcode 26.6) crashes with signal 11 in -O on the implicit isolated deinit of a generic "
+         "main-actor class (EarlyPerfInliner, isCallerAndCalleeLayoutConstraintsCompatible): the Release test build "
+         "and every Release bench stop (2026-10-23: PageTestWait.Once, CloudPaneTests.Seen)",
+         "give it `nonisolated deinit {}` (or a nonisolated deinit that does its cleanup), declare the class "
+         "`nonisolated`, or make the box non-generic",
+         "// generic-class-allow: <why this class is not main-actor isolated, e.g. its target's default isolation>",
+         matcher_rule(Matcher(GENERIC_CLASS, GENERIC_CLASS_ALLOW, implicit_deinit)),
+         scope=(SOURCES, TESTS)),
+    Rule("bench-hooks-shipped", "The bench configuration in a shipped build's settings",
+         "CMUX_BENCH_HOOKS (reload.sh --config bench) keeps the debug.* control commands in an optimized app for "
+         "the fleet benches; in a release, nightly or RC build's settings it would ship them to users",
+         "build benches with `scripts/reload.sh --config bench` or a measure script's `--config=bench` only; "
+         "shipped pipelines run scripts/cmux-next/check-no-bench-hooks.sh on their app",
+         None,
+         line_rule(r"CMUX_BENCH_HOOKS|--config[= ]bench\b", None),
+         scope=SHIPPED_BUILD + (".xcconfig", "project.pbxproj")),
     Rule("app-big-file", f"New CmuxNextApp file over {NEW_APP_FILE_MAX} lines",
          "the App target re-emits its whole module on every edit (check-app-size.sh) and CI refuses god files",
          "put the feature in its own target under Packages/macOS/CmuxNext/Sources, one type per file",
@@ -675,7 +740,8 @@ def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added
     """(refusals [(rule, hits)], warnings [(kind, text)]) for what HEAD adds over BASE."""
     # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse.
     diff, names = run_both(repo, ["diff", "-U0", "--no-color", "--no-renames", "--no-ext-diff", "--src-prefix=a/",
-                                  "--dst-prefix=b/", base, head, "--", SWIFT_SOURCES],
+                                  "--dst-prefix=b/", base, head, "--", SWIFT_SOURCES, SWIFT_TESTS,
+                                  *SHIPPED_BUILD_SPECS],
                            ["diff", "--name-only", "--no-renames", base, head])
     changes = parse_diff(diff)
     warnings: list[tuple[str, str]] = []
@@ -695,7 +761,7 @@ def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added
     moved = collections.Counter(r.text.strip() for c in files for r in c.removed if r.text.strip())
     refusals = []
     for rule in RULES:
-        hits = rule.find(files, moved)
+        hits = rule.find([f for f in files if f.path.startswith(rule.scope) or f.path.endswith(rule.scope)], moved)
         if hits:
             refusals.append((rule, hits))
     try:

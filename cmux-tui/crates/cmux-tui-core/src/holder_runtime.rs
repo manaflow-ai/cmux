@@ -19,6 +19,8 @@ mod sink;
 mod terminal;
 
 pub(crate) use service::HolderService;
+#[cfg(not(test))]
+pub(crate) use service::prepare_in_background;
 pub(crate) use sink::HolderSink;
 pub(crate) use terminal::{HolderTerminal, holder_local_launch};
 
