@@ -8,6 +8,29 @@ import Testing
 @testable import cmux
 #endif
 
+/// Turns the Cloud opt-in on for one test and puts the previous value back.
+/// Cloud creation actions present the Cloud welcome instead of creating while
+/// the opt-in is off (#19876), so tests that exercise creation hold it on.
+/// The opt-in is process-wide, so callers run under `.exclusiveAppContext`.
+@MainActor
+struct CloudMachinesOptInForTesting {
+    private static let key = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
+    private let previous: Any?
+
+    init() {
+        previous = UserDefaults.standard.object(forKey: Self.key)
+        UserDefaults.standard.set(true, forKey: Self.key)
+    }
+
+    func restore() {
+        if let previous {
+            UserDefaults.standard.set(previous, forKey: Self.key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.key)
+        }
+    }
+}
+
 /// Exercises the real window and action owners with an isolated fleet and no remote mutation.
 @MainActor
 final class CloudWorkspaceTargetingFixture {
@@ -25,6 +48,7 @@ final class CloudWorkspaceTargetingFixture {
     let manager: TabManager
     let windowID: UUID
     private let input: Input
+    private let cloudOptIn = CloudMachinesOptInForTesting()
     var requests: [CloudWorkspaceCreationRequest] { input.requests }
     var scope: String? { get { input.scope } set { input.scope = newValue } }
     var available: Bool { get { input.available } set { input.available = newValue } }
@@ -63,5 +87,6 @@ final class CloudWorkspaceTargetingFixture {
         app.unregisterMainWindowContextForTesting(windowId: windowID)
         manager.finalizeAllWorkspacesForWindowClose()
         defaults.removePersistentDomain(forName: suite)
+        cloudOptIn.restore()
     }
 }

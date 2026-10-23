@@ -1,7 +1,7 @@
 // Invitations addressed to the signed-in user, and accepting or declining
 // them. The verified email is the proof, so no token is needed once signed
 // in; the emailed link goes through the same path with the token as proof.
-import { userVerifiedEmails } from "./accept";
+import { userVerifiedEmails, verifiedChannelEmails } from "./accept";
 import { TeamApiError } from "./errors";
 import { hashInviteLinkToken, isInviteLinkToken } from "./links";
 import { TEAM_ADMIN_PERMISSION } from "./permissions";
@@ -13,6 +13,7 @@ import {
   isTeamMembershipAlreadyExists,
   withStackDeadline,
   type StackTeam,
+  type StackTeamMember,
   type StackUser,
   type TeamStackApp,
 } from "./stack";
@@ -24,8 +25,7 @@ export type ReceivedDependencies = {
   readonly seats?: TeamSeatSync;
 };
 
-async function inviterName(team: StackTeam, invitedByUserId: string): Promise<string | null> {
-  const members = await withStackDeadline(() => team.listUsers()).catch(() => []);
+function inviterName(members: readonly StackTeamMember[], invitedByUserId: string): string | null {
   const inviter = members.find((member) => member.id === invitedByUserId);
   return inviter?.teamProfile?.displayName || inviter?.displayName || inviter?.primaryEmail || null;
 }
@@ -37,22 +37,34 @@ export async function listReceivedInvitations(
 ): Promise<ReceivedTeamInvitation[]> {
   const store = dependencies.store ?? databaseTeamInviteStore;
   const stack = dependencies.stack ?? defaultTeamStackApp();
-  const user = await withStackDeadline(() => stack.getUser(userId));
-  if (!user) throw new TeamApiError("unauthorized", 401);
-  const emails = [...await userVerifiedEmails(user)];
+  // The route already authenticated this user; only the verified emails are
+  // needed, so read the contact channels directly instead of the user first.
+  const channels = await withStackDeadline(() => stack.listUserContactChannels(userId));
+  if (!channels) throw new TeamApiError("unauthorized", 401);
+  const emails = [...verifiedChannelEmails(channels)];
   const rows = await store.listPendingEmailInvitationsForEmails(emails);
+  // One team read and one member list per team, however many of its
+  // invitations reached this user.
+  const teams = new Map<string, Promise<StackTeam | null>>();
+  const inviters = new Map<string, Promise<readonly StackTeamMember[]>>();
   const result: ReceivedTeamInvitation[] = [];
   for (const row of rows) {
-    const team = await withStackDeadline(() => stack.getTeam(row.stackTeamId)).catch(() => null);
+    if (!teams.has(row.stackTeamId)) {
+      teams.set(row.stackTeamId, withStackDeadline(() => stack.getTeam(row.stackTeamId)).catch(() => null));
+    }
+    const team = await teams.get(row.stackTeamId)!;
     // A deleted team's invitation cannot be accepted; leave it out.
     if (!team) continue;
+    if (!inviters.has(team.id)) {
+      inviters.set(team.id, withStackDeadline(() => team.listUsers()).catch(() => []));
+    }
     result.push({
       id: row.id,
       teamId: team.id,
       teamName: team.displayName,
       email: row.email,
       role: row.role,
-      invitedBy: await inviterName(team, row.invitedByUserId),
+      invitedBy: inviterName(await inviters.get(team.id)!, row.invitedByUserId),
       expiresAt: row.expiresAt.toISOString(),
     });
   }

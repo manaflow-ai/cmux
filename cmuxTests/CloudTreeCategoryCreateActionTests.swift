@@ -13,20 +13,32 @@ import Testing
 @MainActor
 @Suite("Cloud sidebar category create rows")
 struct CloudTreeCategoryCreateActionTests {
-    @Test("Cloud Machines has no New Cloud Machine row; the panel's button owns creation", arguments: [0, 1, 3])
+    @Test("Cloud Machines has no New Cloud Machine row and an empty fleet keeps its line", arguments: [0, 1, 3])
     func cloudMachinesCategoryHasNoMachineRow(machineCount: Int) throws {
         let fixture = Fixture()
         defer { fixture.close() }
         fixture.apply(machines: fixture.machines(machineCount))
 
         let section = try #require(fixture.cloudSection)
-        // New Cloud Machine is `CloudNewMachineButton` above the tree, and the
-        // empty fleet's double-click-only placeholder goes with the row.
-        #expect(section.children.allSatisfy { $0.id != "cloud-machines-section/empty" })
-        // The section has no create row of its own: each machine's
-        // workspaces start with their New Workspace.
+        // New Cloud Machine is `CloudNewMachineButton` above the tree. The
+        // section has no create row of its own: each machine's workspaces
+        // start with their New Workspace.
         #expect(section.children.allSatisfy { $0.structureTag != "createAction" })
-        if machineCount == 0 { #expect(section.children.isEmpty) }
+        let empty = section.children.filter { $0.id == "cloud-machines-section/empty" }
+        if machineCount == 0 {
+            // An empty fleet keeps a plain "No cloud machines yet" line, so the
+            // section still has its chevron.
+            #expect(section.children.count == 1)
+            guard case .placeholder(_, let placeholder) = try #require(empty.first).kind else {
+                Issue.record("the empty fleet's row is a placeholder")
+                return
+            }
+            #expect(placeholder.style == .empty)
+            #expect(placeholder.text == String(localized: "machines.empty.none", defaultValue: "No cloud machines yet"))
+            #expect(section.isExpandable)
+        } else {
+            #expect(empty.isEmpty)
+        }
     }
 
     @Test("Each Cloud machine's workspaces start with New Workspace")
@@ -148,7 +160,7 @@ struct CloudTreeCategoryCreateActionTests {
             coordinator = CloudTreeOutlineView.Coordinator(
                 machineActions: MachineRowActions(
                     openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
-                    confirmDelete: { _ in }, promptRename: { _, _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}
+                    confirmDelete: { _ in }, promptRename: { _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}
                 ),
                 nodeActions: actions,
                 expansionStore: CloudTreeExpansionStore(defaults: defaults),

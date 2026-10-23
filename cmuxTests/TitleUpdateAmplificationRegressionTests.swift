@@ -288,7 +288,10 @@ struct TitleUpdateAmplificationRegressionTests {
         #expect(intervalRecorder.value == .milliseconds(1_000))
     }
 
-    @Test
+    // Waits for the callback itself. A racing 2 s sleep failed this on a
+    // memory-starved CI runner that took longer to schedule the utility-queue
+    // timer; the time limit still fails a deadline that never fires.
+    @Test(.timeLimit(.minutes(1)))
     func productionTitleDeadlineDeliversThroughItsCallbackSignal() async {
         let (events, continuation) = AsyncStream<Void>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
@@ -301,19 +304,8 @@ struct TitleUpdateAmplificationRegressionTests {
             deadline.cancel()
             continuation.finish()
         }
-        let didFire = await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                var iterator = events.makeAsyncIterator()
-                return await iterator.next() != nil
-            }
-            group.addTask {
-                try? await Task.sleep(for: .seconds(2))
-                return false
-            }
-            let result = await group.next() ?? false
-            group.cancelAll()
-            return result
-        }
+        var iterator = events.makeAsyncIterator()
+        let didFire = await iterator.next() != nil
         #expect(didFire)
     }
 

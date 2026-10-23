@@ -35,6 +35,14 @@ private struct CmuxForceDispatchedKeyEventIdentity: Hashable {
     let keyCode: UInt16
     let modifierFlags: UInt
     let timestamp: TimeInterval
+
+    init(_ event: NSEvent, windowNumber: Int) {
+        self.windowNumber = windowNumber
+        eventType = event.type.rawValue
+        keyCode = event.keyCode
+        modifierFlags = event.modifierFlags.rawValue
+        timestamp = event.timestamp
+    }
 }
 
 /// Events whose force-dispatch is currently on the main-thread stack.
@@ -57,6 +65,13 @@ extension NSApplication {
 }
 
 extension NSWindow {
+    /// Identifies synchronous replay of the exact key this window is forwarding.
+    func cmuxIsForceDispatchingKeyDown(_ event: NSEvent) -> Bool {
+        cmuxInFlightForceDispatchedKeyEventIdentities.contains(
+            CmuxForceDispatchedKeyEventIdentity(event, windowNumber: windowNumber)
+        )
+    }
+
     /// Routes an application undo or redo command through the focused cmux
     /// surface, keeping AppKit's shared window undo stack out of the path.
     func cmuxRouteApplicationUndoRedoCommandEquivalent(_ event: NSEvent) -> Bool {
@@ -156,13 +171,7 @@ extension NSWindow {
         to target: NSResponder,
         reason: @autoclosure () -> String
     ) -> Bool {
-        let identity = CmuxForceDispatchedKeyEventIdentity(
-            windowNumber: self.windowNumber,
-            eventType: event.type.rawValue,
-            keyCode: event.keyCode,
-            modifierFlags: event.modifierFlags.rawValue,
-            timestamp: event.timestamp
-        )
+        let identity = CmuxForceDispatchedKeyEventIdentity(event, windowNumber: windowNumber)
         guard !cmuxInFlightForceDispatchedKeyEventIdentities.contains(identity) else {
 #if DEBUG
             cmuxDebugLog("  → \(reason()) reentry; declining force-dispatch of in-flight key event")

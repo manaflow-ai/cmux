@@ -30,6 +30,39 @@
       "message": "이 머신은 Cloud 업데이트 이전에 만들어져 연결할 수 없습니다.",
       "action": "새 머신을 만들고 cmux vm pull과 cmux vm push로 파일을 옮긴 다음 이 머신을 삭제하세요."
     },
+    "guestUnresponsive": {
+      "title": "머신이 응답하지 않음",
+      "message": "이 머신이 제시간에 응답하지 않아 요청을 완료할 수 없습니다.",
+      "action": "새 머신을 만들기 전에 추적 ID를 첨부해 지원팀에 문의하세요."
+    },
+    "inProgress": {
+      "title": "아직 진행 중",
+      "message": "클라우드 제공업체가 아직 이 변경을 완료하지 않았습니다. 이후에 완료될 수 있습니다.",
+      "action": "다시 시도하기 전에 cmux vm ls 또는 머신 목록에서 머신 상태를 확인하세요."
+    },
+    "providerTimeout": {
+      "title": "클라우드 제공업체 응답 지연",
+      "message": "클라우드 제공업체가 제시간에 응답하지 않았습니다.",
+      "action": "잠시 후 다시 시도하세요."
+    },
+    "providerCapacity": {
+      "title": "지금은 Cloud 용량이 없음",
+      "message": "Cloud 서비스에 지금 이 머신을 위한 공간이 없습니다. 아무것도 변경되지 않았습니다.",
+      "action": "1분 후에 다시 시도하세요."
+    },
+    "stateConflict": {
+      "title": "머신이 사용 중임",
+      "message": "이 머신이 시작 중이거나 일시 정지 중이거나 실행 중이 아니어서 지금은 이 작업을 할 수 없습니다.",
+      "action": "잠시 후 다시 시도하세요. cmux vm ls로 머신 상태를 확인하고, 일시 정지되어 있으면 먼저 재개하세요."
+    },
+    "networkRuleCapacity": {
+      "title": "네트워크 규칙 한도 도달",
+      "message": "네트워크 정책은 저장되었지만 적용되지 않았습니다. cmux Cloud의 네트워크 규칙 한도에 도달했습니다.",
+      "action": "cmux 팀에 알림이 전달되었습니다. 이 머신에 더 이상 필요 없는 도메인을 제거하거나 지원팀에 문의하세요. 그때까지 이 머신의 네트워크 액세스가 저장된 정책과 다를 수 있습니다."
+    },
+    "networkPolicyStatus": {
+      "applyFailed": "네트워크 정책은 저장되었지만 적용되지 않았습니다. 다시 저장하여 재시도하세요."
+    },
     "unsupported": {
       "title": "Cloud VM 작업을 사용할 수 없음",
       "reason": "이 머신 종류는 이 작업을 제공하지 않습니다.",
@@ -81,12 +114,27 @@
       "shapeMessage": "Go는 2 vCPU, 4 GiB 메모리, 16 GiB 디스크를 지원합니다.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
+    "planBudget": {
+      "computeTitle": "{plan} 컴퓨팅 한도를 모두 사용했습니다",
+      "computeMessage": "{plan} 플랜이 이번 청구 기간의 {included} 컴퓨팅 시간을 모두 사용했습니다. 1 컴퓨팅 시간은 2 GB 메모리의 vCPU 1개를 1시간 실행한 양입니다. 머신은 {resetDate}부터 다시 시작할 수 있습니다.",
+      "computeAction": "일시 중지된 머신의 파일은 유지됩니다. {resetDate} 전에 더 많은 컴퓨팅이 필요하면 지원팀에 문의하세요.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "{plan} 디스크 한도를 모두 사용했습니다",
+      "storageMessage": "{plan} 플랜에는 저장된 모든 머신을 합쳐 {included} GB의 디스크가 포함됩니다. 저장된 머신이 {used} GB를 사용 중이며 이 요청에는 {requested} GB가 필요합니다.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+    },
     "resourcePool": {
       "title": "Cloud VM 리소스가 부족합니다",
       "memoryMessage": "VM이 이미 {pool} GB RAM 중 {used} GB를 사용하고 있습니다. 이 VM에는 {requested} GB가 필요합니다.",
       "vcpuMessage": "VM이 이미 vCPU {pool}개 중 {used}개를 사용하고 있습니다. 이 VM에는 vCPU {requested}개가 필요합니다.",
       "upgradeAction": "VM을 일시 중지하거나 삭제하거나, Max로 업그레이드하세요.",
       "action": "VM을 일시 중지하거나 삭제하세요."
+    },
+    "activeLimit": {
+      "counted": "현재 집계 중: {machines}. 일시 중지된 머신은 집계되지 않습니다.",
+      "provisioning": "{name} (프로비저닝 중)",
+      "separator": ", "
     }
   },
   "billingRecovery": {
@@ -180,6 +228,7 @@
     "copyright": "© {year} Manaflow",
     "language": "언어",
     "assets": "애셋",
+    "art": "아트",
     "openSource": "오픈 소스",
     "guides": "가이드",
     "compare": "비교"
@@ -475,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "변경하려면 먼저 요금제를 재개하세요.",
           "granted": "cmux에서 제공한 요금제입니다. 변경할 항목이 없습니다.",
+          "grantedNoCancel": "cmux에서 부여한 플랜이므로 취소할 항목이 없습니다.",
+          "paymentFailed": "플랜을 변경하기 전에 결제 수단을 업데이트하세요.",
+          "foundersLifetime": "Founder's Edition에는 Pro가 평생 포함됩니다.",
           "adminOnly": "팀 관리자만 요금제를 변경할 수 있습니다."
         },
         "names": {
@@ -497,11 +549,11 @@
           ],
           "pro": [
             "Cloud VM의 클라우드 에이전트",
-            "최대 5대의 Cloud VM이 vCPU 20개와 40 GB RAM을 공유",
+            "최대 5대의 Cloud VM이 vCPU 20개와 40 GB RAM을 공유. VM 한 대는 최대 16 GB RAM / 8 vCPU를 사용할 수 있습니다. 24 GB / 12 vCPU와 32 GB / 16 vCPU 크기는 Max가 필요합니다.",
             "cmux iOS 앱"
           ],
           "max": [
-            "최대 5대의 Cloud VM이 vCPU 80개와 160 GB RAM을 공유",
+            "최대 5대의 Cloud VM이 vCPU 80개와 160 GB RAM을 공유. Max는 24 GB / 12 vCPU, 32 GB / 16 vCPU 및 최대 64 GB / 32 vCPU를 제공합니다.",
             "더 큰 머신 크기",
             "Pro의 모든 기능"
           ],
@@ -517,6 +569,7 @@
       "change": {
         "title": "{plan}(으)로 전환할까요?",
         "upgradeBody": "{plan}이(가) 지금 시작됩니다. 이번 결제 기간의 남은 기간에 대해 오늘 {amount}을(를) 결제합니다. {date}부터는 매월 {price}을(를) 결제합니다.",
+        "upgradeBodyYearly": "{plan}이(가) 지금 시작됩니다. 이번 결제 기간의 남은 기간에 대해 오늘 {amount}을(를) 결제합니다. {date}부터는 매년 {price}을(를) 결제합니다.",
         "downgradeBody": "{plan}이(가) 지금 시작됩니다. 현재 요금제의 사용하지 않은 부분 {credit}은(는) 다음 청구서에 적립됩니다. {date}의 다음 청구 금액은 {amount}입니다.",
         "confirm": "{plan}(으)로 전환",
         "keep": "현재 요금제 유지",
@@ -529,6 +582,8 @@
         "title": "{plan}을(를) 해지할까요?",
         "body": "{date}까지 {plan}을(를) 사용할 수 있습니다. 그 후에는 다음을 사용할 수 없습니다:",
         "bodyNoDate": "이번 결제 기간이 끝날 때까지 {plan}을(를) 사용할 수 있습니다. 그 후에는 다음을 사용할 수 없습니다:",
+        "foundersBody": "{plan} 구독은 {date}에 종료됩니다. 이후에는 Founder's Edition에 평생 포함된 Pro를 이용합니다.",
+        "foundersBodyNoDate": "{plan} 구독은 이번 결제 기간이 끝날 때 종료됩니다. 이후에는 Founder's Edition에 평생 포함된 Pro를 이용합니다.",
         "reasonLabel": "해지하는 이유 (선택)",
         "otherPlaceholder": "자세히 알려 주세요 (선택)",
         "confirm": "요금제 해지",
@@ -1114,7 +1169,7 @@
       "transferUnavailableError": "지금은 이전할 수 없거나 계정을 갱신하는 중입니다. 잠시 후 다시 시도하세요.",
       "shareWithTeam": "팀과 공유",
       "makePrivate": "비공개로 전환",
-      "privateImportHint": "새 계정은 비공개입니다. 이 팀의 Cloud VM에서 사용하려면 계정을 공유하세요.",
+      "privateImportHint": "조직에서는 새 계정이 팀과 팀의 Cloud VM에 공유됩니다. 개인 팀에서는 본인만 쓰는 비공개 계정으로 유지됩니다. 계정별로 '비공개로 전환' 또는 '팀과 공유'로 바꿀 수 있습니다.",
       "description": "공유 계정은 이 팀의 Cloud VM에서 사용할 수 있습니다. 비공개 계정은 계정을 추가한 사람만 사용할 수 있습니다.",
       "cancelAction": "취소",
       "apiKeysTitle": "API 키",
@@ -2157,6 +2212,7 @@
           "defaultSearchEngine": "브라우저 주소 표시줄에서 URL이 아닌 입력에 사용할 기본 검색 엔진입니다. 다른 제공자는 custom과 customSearchEngineURLTemplate을 사용하세요.",
           "customSearchEngineName": "defaultSearchEngine이 custom일 때 사용할 표시 이름입니다.",
           "customSearchEngineURLTemplate": "defaultSearchEngine이 custom일 때 사용할 검색 URL입니다. 인코딩된 검색어에는 쿼리 자리표시자 또는 %s를 포함하세요. 자리표시자가 없으면 cmux가 URL에 q=를 추가합니다.",
+          "showLinkHoverURL": "포인터가 링크 위에 있거나 링크에 키보드 포커스가 있는 동안 브라우저 패널 왼쪽 하단에 링크의 대상 주소를 표시합니다.",
           "urlAllowlist": "내장 브라우저 탐색을 제한하는 호스트 또는 URL 패턴입니다. 설정 화면은 로컬 개발 오리진을 제안하며, 목록을 저장하면 선택적 제한이 활성화됩니다. 항목을 삭제하면 해당 오리진을 차단하고, 관리 정책이 없을 때 사용자 값을 비워 제한을 해제할 수 있습니다."
         },
         "workspaceGroups": {
@@ -2176,6 +2232,7 @@
           "notificationMessageLineLimit": "각 작업 공간 제목 아래에 표시되는 최신 알림의 최대 줄 수입니다.",
           "rightMaxWidth": "오른쪽 사이드바의 최대 너비(포인트). 생략하면 내장 동적 상한이 적용됩니다.",
           "showAgentUsage": "Claude Code 또는 Codex 상태 항목에 코딩 에이전트 사용량을 덧붙입니다. 모델과 사용한 컨텍스트 창을 표시하고, Claude Code에서는 Anthropic이 공개한 정가를 기준으로 한 API 비용 추정치(메인 스레드와 서브에이전트)도 함께 표시합니다. 이 비용은 추정치이며 구독 청구액이 아닙니다. 배치 및 우선 처리 등급, 파트너 가격, 고속 모드, 서버 도구 요금은 반영하지 않습니다.",
+          "showCloudDeviceIcons": "Git 브랜치 및 디렉터리 세부 정보와 관계없이 원격 워크스페이스 제목 옆에 Cloud 컴퓨터 및 기기 아이콘을 표시합니다.",
           "beta": {
             "conversations": {
               "enabled": "사이드바 선택기에 통합 대화 보기를 표시합니다."
@@ -2200,6 +2257,21 @@
           "indentGuides": "내장 파일 편집기에서 들여쓰기 수준마다 얇은 세로선을 표시합니다.",
           "currentLineHighlight": "아무것도 선택하지 않았을 때 캐럿이 있는 줄에 색을 입힙니다.",
           "tabWidth": "탭 정지 하나가 차지하는 열 수입니다. 들여쓰기 가이드도 같은 간격을 사용합니다."
+        },
+        "actions": "명령 팔레트, 단축키, 탭 표시줄 버튼, 더하기 버튼 메뉴에서 사용하는 재사용 가능한 동작입니다. builtin, command, agent, workspaceCommand, workspace, setting, settingPreset, text를 지원합니다. text 동작은 줄바꿈을 유지하여 포커스된 터미널에 붙여넣으며, submit: true는 Enter를 누릅니다. 설정 동작에는 전역 구성이 필요합니다.",
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "원격 tmux 작업 공간을 선택하면 새 작업 공간이 해당 작업 공간의 호스트에서 tmux 세션을 시작합니다."
+            }
+          }
+        },
+        "chief": {
+          "description": "홈 에이전트 Chief: 표시 여부와 사용할 하네스, 모델, 추론 강도.",
+          "enabled": "홈 행과 Chief 진입점을 표시합니다. false이면 홈 행, Chief 열기 단축키, 메뉴 항목, 명령 팔레트 항목이 숨겨집니다.",
+          "harness": "Chief가 실행되는 에이전트 하네스: claude(Claude Code) 또는 codex(Codex).",
+          "model": "하네스에 전달할 모델. 비워 두면 하네스 기본값을 사용합니다.",
+          "effort": "하네스에 전달할 추론 강도(예: low, medium, high). 비워 두면 하네스 기본값을 사용합니다."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -2270,7 +2342,7 @@
       "plusButtonScreenshotAlt": "Worktree Agents, New Terminal, New Browser를 보여 주는 cmux 플러스 버튼 오른쪽 클릭 메뉴",
       "plusButtonScreenshotCaption": "오른쪽 클릭 메뉴는 ui.newWorkspace.contextMenu의 순서를 따릅니다.",
       "newWorkspaceButton": "플러스 버튼 사용자 지정 액션",
-      "newWorkspaceButtonDesc": "<action>ui.newWorkspace.action</action>으로 플러스 버튼의 동작을 재정의합니다. <contextMenu>ui.newWorkspace.contextMenu</contextMenu>(또는 <rightClick>rightClick</rightClick> alias)로 정렬된 right-click 메뉴를 정의합니다. 메뉴 항목은 액션 ID, 액션 객체 또는 <separator>{ \"type\": \"separator\" }</separator>일 수 있습니다. 설정하지 않으면 메뉴에 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)가 현재 단축키와 함께 표시됩니다. 클라우드 항목은 Cloud Machines가 활성화된 경우에만 표시됩니다. New Cloud Workspace는 마지막으로 선택한 Cloud 워크스페이스의 머신을 사용한 뒤 오른쪽 사이드바의 첫 번째 머신을 사용합니다. New Cloud Machine은 의도적으로 머신을 프로비저닝합니다.",
+      "newWorkspaceButtonDesc": "<action>ui.newWorkspace.action</action>으로 플러스 버튼의 동작을 재정의합니다. <contextMenu>ui.newWorkspace.contextMenu</contextMenu>(또는 <rightClick>rightClick</rightClick> alias)로 정렬된 right-click 메뉴를 정의합니다. 메뉴 항목은 액션 ID, 액션 객체 또는 <separator>{ \"type\": \"separator\" }</separator>일 수 있습니다. 설정하지 않으면 메뉴에 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)가 현재 단축키와 함께 표시됩니다. 클라우드 항목은 Cloud Machines가 활성화된 경우에만 표시됩니다. New Cloud Workspace는 마지막으로 선택한 Cloud 워크스페이스의 머신을 사용한 뒤 오른쪽 사이드바의 첫 번째 머신을 사용합니다. 사용 가능한 머신이 없으면 New Cloud Machine을 엽니다.",
       "newWorkspaceWorktreeNote": "이 예시는 일반 플러스 클릭이 <action>worktree-agents</action> 액션을 실행하게 합니다. <commands>commands</commands>의 워크스페이스 명령은 보이는 설정 터미널을 사용해 먼저 Git <worktree>worktree</worktree>를 만듭니다. Codex와 Claude는 동시에 시작해 워크스페이스별 상태 파일을 기다린 다음, exec 전에 생성된 디렉터리로 이동합니다.",
       "simpleCommands": "셸 명령",
       "simpleCommandsDesc": "가장 작은 항목은 이름과 명령 문자열뿐입니다. Command Palette에서 이 항목을 선택하면 해당 문자열이 포커스된 터미널에 입력되고 실행됩니다.",
@@ -2873,7 +2945,7 @@
       "metaTitle": "cmux Cloud",
       "metaDescription": "cmux에서 영구적인 Linux 클라우드 머신을 실행하고, Mac을 닫은 뒤에도 코딩 에이전트가 계속 작업하게 하세요.",
       "intro": "cmux Cloud는 일반 cmux 워크스페이스로 열리는 영구적인 Linux 머신을 클라우드에서 제공합니다. 패널을 닫거나, 네트워크가 끊기거나, 노트북을 닫아도 터미널은 계속 실행되므로 코딩 에이전트는 작업을 이어가고, 로그인된 어떤 Mac에서든 다시 연결할 수 있습니다.",
-      "betaNote": "cmux Cloud는 얼리 액세스 단계이며 Mac에 단계적으로 켜지고 있습니다. 사용하려면 Mac이 롤아웃 대상에 포함되어 있어야 하고 Settings › Beta Features › Cloud Machines를 켜야 합니다. Mac이 아직 롤아웃 대상이 아니면 Cloud 명령에 \"Cloud Machines를 일시적으로 사용할 수 없음\"이 표시됩니다.",
+      "betaNote": "cmux Cloud는 얼리 액세스 단계이며 조직에서 비활성화하지 않은 경우 사용할 수 있습니다. 사용하려면 Settings › Beta Features › Cloud Machines를 켜세요.",
       "whatTitle": "머신이란",
       "whatDesc": "머신은 사용자 또는 팀에 속한 영구적인 클라우드 컴퓨터입니다. 파일, 설치한 도구, 실행 중인 터미널을 그대로 유지합니다. 쓰고 버리는 자원이 아니라 오래 쓰는 컴퓨터로 다루세요. 필요한 것을 한 번 설치하고 나중에 다시 돌아와 사용합니다.",
       "whatDaemon": "모든 머신에서는 cmux TUI 데몬이 실행됩니다. 데몬은 머신의 워크스페이스와 터미널을 보관합니다. Mac의 cmux 패널은 머신에 있는 터미널을 보여줄 뿐이므로, 패널을 닫아도 프로세스는 절대 멈추지 않습니다.",
@@ -2882,18 +2954,18 @@
       "requirementsTitle": "필요한 것",
       "reqMac": "실행 중이고 로그인된 cmux macOS 앱. cmux CLI는 앱과 통신하며, 자격 증명은 앱이 보관합니다.",
       "reqPlan": "cmux 유료 플랜. 무료 계정은 머신을 만들 수 없습니다. 현재 플랜은 가격 페이지를 확인하세요.",
-      "reqBeta": "Cloud 얼리 액세스 롤아웃 대상에 포함되고 Settings › Beta Features에서 Cloud Machines가 켜져 있는 Mac.",
+      "reqBeta": "Settings › Beta Features에서 Cloud Machines가 켜져 있고 조직 정책에서 Cloud를 비활성화하지 않아야 합니다.",
       "reqNoVpn": "VPN, SSH 키, 포트 포워딩 설정이 필요 없습니다. cmux는 자동으로 시작되는 사설 네트워크를 통해 머신에 연결합니다.",
       "quickstartTitle": "빠른 시작",
       "stepSignIn": "로그인합니다. 오른쪽 사이드바의 Cloud 탭을 사용하거나 터미널에서 로그인 명령을 실행하세요.",
-      "stepCreate": "File › New Cloud Machine 또는 ⌘Y로 머신을 만듭니다. 크기와 선택 사항인 레이블을 고릅니다. 생성은 백그라운드에서 진행되며, 머신이 준비되면 cmux가 알림을 표시합니다.",
-      "stepWorkspace": "⇧⌘Y(New Cloud Workspace)로 머신에서 워크스페이스를 엽니다. Cloud 워크스페이스 안에서 ⌘N을 누르면 같은 머신에 워크스페이스가 하나 더 생깁니다.",
+      "stepCreate": "File › New Cloud Machine 또는 ⇧⌘Y로 머신을 만듭니다. 크기와 선택 사항인 레이블을 고릅니다. 생성은 백그라운드에서 진행되며, 머신이 준비되면 cmux가 알림을 표시합니다.",
+      "stepWorkspace": "⌘Y(New Cloud Workspace)로 머신에서 워크스페이스를 엽니다. Cloud 워크스페이스 안에서 ⌘N을 누르면 항상 이 Mac에 로컬 워크스페이스가 생성됩니다.",
       "stepAgent": "에이전트를 실행합니다. Claude Code, Codex, OpenCode, Pi가 머신에 이미 설치되어 있습니다.",
       "stepCli": "CLI에서도 같은 작업을 할 수 있습니다:",
       "appTitle": "앱에서 Cloud 사용하기",
       "appSidebar": "오른쪽 사이드바의 Cloud 탭에 머신 목록이 표시됩니다. 각 머신 아래에는 워크스페이스, 포워딩된 포트, VNC 디스플레이, 터미널이 표시됩니다. 항목을 클릭하면 열립니다. 명령 팔레트에서 Open Cloud as Pane을 사용해 Cloud 트리를 패널로 열 수도 있습니다.",
       "appMenu": "머신을 오른쪽 클릭하면 셸 열기, 워크스페이스 만들기, 데스크톱 열기, 전체 cmux TUI 클라이언트 열기, 크기 조정, 이름 변경, IP 주소 복사, 상태 확인, 체크포인트 만들기, 포크, 삭제를 할 수 있습니다. 머신을 고정하거나 순서를 바꿀 수도 있습니다.",
-      "appShortcuts": "New Cloud Machine(⌘Y)과 New Cloud Workspace(⇧⌘Y)는 File 메뉴, 더하기 버튼 메뉴, 명령 팔레트에 있습니다. 두 단축키 모두 설정에서 바꾸거나 cmux.json의 newCloudMachine, newCloudWorkspace 키로 바꿀 수 있습니다.",
+      "appShortcuts": "New Cloud Machine(⇧⌘Y)과 New Cloud Workspace(⌘Y)는 File 메뉴, 더하기 버튼 메뉴, 명령 팔레트에 있습니다. 두 단축키 모두 설정에서 바꾸거나 cmux.json의 newCloudMachine, newCloudWorkspace 키로 바꿀 수 있습니다.",
       "cliIntroTitle": "CLI에서 Cloud 사용하기",
       "cliIntroDesc": "cmux vm과 cmux cloud는 같은 명령입니다. 하위 명령 없이 cmux vm을 실행하면 머신 목록이 표시됩니다. 모든 하위 명령에는 앱 없이도 볼 수 있는 --help 페이지가 있으며, cmux vm guide는 전체 Markdown 가이드를 출력합니다. 어떤 하위 명령에든 --json을 붙이면 기계가 읽을 수 있는 출력을 얻습니다.",
       "baseTitle": "기본 머신",
@@ -2911,11 +2983,11 @@
       "metaDescription": "cmux Cloud 머신을 만들고, 크기를 고르고 조정하며, 일시 중지, 스냅샷, 포크, 삭제하는 방법과 플랜 한도를 알아보세요.",
       "intro": "이 페이지는 cmux Cloud 머신의 수명 주기를 설명합니다. 머신을 만드는 방법, 고를 수 있는 크기, 플랜 한도가 적용되는 방식, 그리고 일시 중지, 스냅샷, 포크, 삭제하는 방법을 다룹니다.",
       "createTitle": "머신 만들기",
-      "createApp": "앱에서는 File › New Cloud Machine(⌘Y), 더하기 버튼 메뉴, 명령 팔레트, 또는 Cloud 사이드바의 더하기 버튼을 사용합니다. 표시되는 시트에서 크기와 선택 사항인 레이블을 입력합니다.",
+      "createApp": "앱에서는 File › New Cloud Machine(⇧⌘Y), 더하기 버튼 메뉴, 명령 팔레트, 또는 Cloud 사이드바의 더하기 버튼을 사용합니다. 표시되는 시트에서 크기와 선택 사항인 레이블을 입력합니다.",
       "createCli": "CLI에서는 cmux vm new가 머신을 만들고 그 머신에서 워크스페이스를 엽니다. 아무것도 열지 않고 만들려면 --detach를 사용합니다. 생성 요청이 재시도되면 cmux가 같은 요청을 재사용하므로 머신이 두 대 생기지 않습니다.",
       "createFailed": "생성에 실패하면 알림에서 재시도하거나, 오류를 보거나, 지원 요청용으로 오류를 복사할 수 있습니다.",
       "sizesTitle": "크기",
-      "sizesDesc": "각 크기는 메모리, vCPU, 디스크를 함께 정합니다. 생성 시트나 --size로 크기를 고릅니다.",
+      "sizesDesc": "각 크기는 메모리, vCPU, 디스크를 함께 정합니다. 생성 시트나 --size로 크기를 고릅니다. Pro와 Team은 4g, 8g, 16g(2, 4, 8 vCPU)를 지원합니다. Max는 24g와 32g(12, 16 vCPU), 그리고 64g(32 vCPU)도 잠금 해제합니다.",
       "sizeColumn": "크기",
       "memoryColumn": "메모리",
       "cpuColumn": "vCPU",
@@ -2929,7 +3001,7 @@
       "limitsFree": "무료 계정은 머신을 만들 수 없습니다.",
       "limitsPaid": "Pro 및 Founder's Edition 계정은 vCPU 20개와 40 GB 메모리를 공유하는 활성 머신을 최대 5대까지 가질 수 있습니다. 실행 중이거나 시작 중인 머신이 활성 머신입니다.",
       "limitsTeam": "Team 계정은 유료 시트 하나당 활성 머신을 최대 5대까지 가질 수 있습니다. 유료 시트 하나마다 팀 풀에 vCPU 20개와 40 GB 메모리가 추가됩니다.",
-      "limitsMax": "Max 계정은 vCPU 80개와 160 GB 메모리를 공유하는 활성 머신을 최대 5대까지 가질 수 있습니다. 머신 한 대는 Pro와 Team에서 최대 32 GB와 vCPU 16개, Max에서 최대 64 GB와 vCPU 32개까지 가능합니다.",
+      "limitsMax": "Max 계정은 vCPU 80개와 160 GB 메모리를 공유하는 활성 머신을 최대 5대까지 가질 수 있습니다. Max 머신 한 대는 64 GB와 vCPU 32개까지 사용할 수 있으며, 24 GB / 12 vCPU와 32 GB / 16 vCPU 크기도 포함됩니다. Pro와 Team은 16 GB와 vCPU 8개까지입니다.",
       "limitsPoolFull": "새로 만들거나, 재개하거나, 크기를 늘리거나, 포크한 머신이 풀을 넘게 되면 cmux는 요청을 거부하고 풀 사용량을 보여 줍니다. 머신을 일시 중지하거나 삭제해 리소스를 확보하거나 Max로 업그레이드하세요.",
       "limitsPricing": "현재 가격은 가격 페이지를 확인하세요. 사용량 기반 과금이나 초과 요금은 없습니다.",
       "agentUpdatesTitle": "코딩 에이전트를 최신 상태로 유지",
@@ -2939,7 +3011,7 @@
       "agentUpdatesToggle": "새 머신 시트에서는 이 설정이 기본으로 켜져 있습니다. 기존 머신에서 바꾸려면 머신을 오른쪽 클릭하고 에이전트를 최신 상태로 유지를 선택하거나 cmux vm agent-updates를 실행하세요. cmux vm new는 --agent-updates latest를 전달하지 않으면 이미지의 버전을 유지합니다. 업데이트를 끄면 이미 설치된 버전이 유지됩니다.",
       "agentUpdatesNetwork": "업데이트는 github.com, api.github.com, objects.githubusercontent.com, release-assets.githubusercontent.com만 사용합니다. cmux는 허용 목록과 인터넷 없음을 포함한 모든 네트워크 모드에서 이 호스트를 허용하므로, 네트워크 정책이 업데이트를 막지 않습니다.",
       "resizeTitle": "크기 조정",
-      "resizeDesc": "데이터 손실 없이 머신을 더 크게 만들 수 있습니다. 머신을 오른쪽 클릭하고 Resize machine을 선택하거나 cmux vm resize를 사용합니다. 크기 조정은 머신을 키우는 것만 가능합니다. 디스크는 4 GB 단위로 최대 256 GB까지 늘릴 수 있습니다. 메모리와 CPU는 Pro와 Team에서 최대 32 GB와 16 vCPU, Max에서 최대 64 GB와 32 vCPU까지 늘릴 수 있습니다. 머신이 클수록 풀을 더 많이 사용합니다. 실제 최대치는 플랜에 따라 정해집니다.",
+      "resizeDesc": "데이터 손실 없이 머신을 더 크게 만들 수 있습니다. 머신을 오른쪽 클릭하고 Resize machine을 선택하거나 cmux vm resize를 사용합니다. 크기 조정은 머신을 키우는 것만 가능합니다. 디스크는 Pro와 Team에서 4 GB 단위로 최대 128 GB, Max에서 최대 256 GB까지 늘릴 수 있습니다(Go는 16 GB로 제한됩니다). 메모리와 CPU는 Pro와 Team에서 최대 16 GB와 8 vCPU, Max에서 최대 64 GB와 32 vCPU까지 늘릴 수 있습니다. 머신이 클수록 풀을 더 많이 사용합니다. 실제 최대치는 플랜에 따라 정해집니다.",
       "pauseTitle": "일시 중지와 재개",
       "pauseDesc": "cmux vm pause는 머신의 컴퓨팅을 중지합니다. 디스크, 워크스페이스, 터미널 기록은 유지되고, 실행 중인 프로세스는 중지됩니다. cmux vm resume은 머신을 다시 시작합니다. 일시 중지된 머신을 열거나 그 머신에서 명령을 실행해도 머신이 시작됩니다.",
       "pauseIdle": "머신은 유휴 상태여도 스스로 일시 중지되지 않습니다. 일시 중지하거나 삭제할 때까지 계속 실행됩니다.",
@@ -3082,15 +3154,15 @@
       "symptomColumn": "문제",
       "fixColumn": "해결 방법",
       "errNotSeen": "Cloud 탭이나 New Cloud Machine 명령이 없음",
-      "fixNotSeen": "Settings › Beta Features › Cloud Machines를 켜세요. 그래도 Cloud가 보이지 않으면 Mac이 아직 롤아웃 대상이 아닙니다. Cloud Machines가 관리자에 의해 비활성화되었다고 표시되면 관리자에게 문의하세요.",
-      "errUnavailable": "Cloud Machines를 일시적으로 사용할 수 없음",
-      "fixUnavailable": "Mac이 아직 Cloud 롤아웃 대상이 아니거나 Cloud가 일시적으로 꺼져 있습니다. Settings 토글만으로는 Cloud가 켜지지 않습니다. 나중에 다시 시도하세요.",
+      "fixNotSeen": "Settings › Beta Features › Cloud Machines를 켜세요. 그래도 Cloud가 보이지 않으면 관리자가 Cloud Machines를 비활성화했는지 확인하세요.",
+      "errUnavailable": "Cloud Machines가 비활성화되었거나 사용할 수 없음",
+      "fixUnavailable": "Cloud Machines는 Settings의 로컬 토글이 꺼져 있거나 관리자가 Cloud를 비활성화했기 때문에 꺼져 있습니다. 토글을 켜거나 관리자에게 Cloud 허용을 요청하세요.",
       "errSignIn": "Cloud VM에 접근하려면 로그인이 필요함",
       "fixSignIn": "cmux auth login을 실행한 뒤 다시 시도하세요. 세션이 거부되었다면 먼저 cmux auth logout을 실행하세요.",
       "errPlan": "Cloud VM에는 유료 플랜이 필요함",
       "fixPlan": "무료 계정은 머신을 만들 수 없습니다. 가격 페이지에서 업그레이드하세요.",
       "errSize": "선택한 크기에 더 높은 플랜이 필요함",
-      "fixSize": "32 GB보다 큰 머신에는 cmux Max가 필요합니다. 더 작은 크기를 고르거나 업그레이드하세요.",
+      "fixSize": "16 GB보다 큰 머신에는 cmux Max가 필요합니다. 더 작은 크기를 고르거나 업그레이드하세요.",
       "errLimit": "활성 머신 한도에 도달함",
       "fixLimit": "머신을 일시 중지하거나 삭제한 뒤 다시 시도하세요.",
       "errPool": "Cloud VM 리소스 부족",
@@ -3182,8 +3254,8 @@
       "cloudLink": "Cloud 머신에서 에이전트가 설정되는 방식",
       "teamsTitle": "팀과 공유",
       "teamsScope": "계정은 로그인한 팀에 속합니다. cr org list는 팀 목록을 보여주고, cr org switch는 cr이 사용하는 팀을 바꿉니다. cmux coderouter 명령은 --team '<id>'를 받습니다.",
-      "teamsPrivate": "새 계정은 추가한 사람만 쓸 수 있는 비공개 상태입니다. 대시보드에서 '팀과 공유'를 누르면 모든 멤버와 팀의 Cloud 머신이 사용할 수 있고, '비공개로 전환'으로 되돌릴 수 있습니다.",
-      "teamsPersonal": "개인 팀에서는 비공개 계정도 내 Cloud 머신에 사용됩니다. 조직의 Cloud 머신은 공유 계정만 사용하므로, 머신이 계정을 쓰게 하려면 먼저 공유하세요.",
+      "teamsPrivate": "조직에 추가한 계정은 팀에 공유되어 모든 구성원과 팀의 Cloud 머신이 사용할 수 있습니다. 대시보드에서 '비공개로 전환'을 누르면 추가한 사람만 쓸 수 있고, '팀과 공유'로 되돌릴 수 있습니다.",
+      "teamsPersonal": "개인 팀에서는 새 계정이 비공개이며, 비공개 계정은 본인의 Cloud 머신에서도 사용됩니다. 조직의 Cloud 머신은 공유 계정만 사용하므로, 비공개 계정은 머신에서 쓰기 전에 공유해야 합니다.",
       "teamsManage": "팀 멤버라면 누구나 팀의 공유 계정을 추가, 이름 변경, 비활성화, 이전, 제거할 수 있습니다. cr transfer는 확인 후 계정을 다른 팀으로 옮깁니다.",
       "usageTitle": "사용량과 한도",
       "usageLimits": "각 제공업체는 요청을 처리한 계정의 사용량을 그 계정의 플랜과 한도에 따라 측정합니다. CodeRouter는 작업을 여러 계정에 분산하지만 개별 계정의 한도를 늘리지는 않습니다.",
@@ -3223,12 +3295,13 @@
       "apiKeyScope": "조직의 API 키는 팀의 공유 계정만 사용합니다. 개인 팀의 키는 비공개 계정도 사용할 수 있습니다. CodeRouter는 Chat Completions가 아닌 OpenAI Responses API를 제공합니다.",
       "apiKeyLogin": "브라우저를 열 수 없는 머신에서는 cr login --api-key로 키를 사용해 cr에 로그인하고, CODEROUTER_API_KEY로 한 번의 명령에 키를 제공할 수 있습니다. 키는 대시보드에서 폐기하거나, 키를 사용하는 머신에서 cr logout을 실행하세요.",
       "cloudTitle": "cmux Cloud 머신에서",
-      "cloudDesc": "Cloud 머신은 설정이 필요 없습니다. 머신 환경이 OPENAI_BASE_URL과 ANTHROPIC_BASE_URL을 CodeRouter 비공개 주소로 지정하고, 셸이나 에이전트가 처음 시작될 때 cmux가 각 에이전트의 설정을 작성합니다:",
-      "cloudClaude": "Claude Code는 환경에서 ANTHROPIC_BASE_URL과 자리 표시자 ANTHROPIC_API_KEY를 읽습니다. 첫 실행 질문에는 이미 답이 입력되어 있습니다.",
+      "cloudDesc": "Cloud 머신은 설정이 필요 없습니다. 각 에이전트는 CodeRouter 비공개 주소를 통해 팀의 CodeRouter 계정을 사용하며, 셸이나 에이전트가 처음 시작될 때 cmux가 해당 설정을 작성합니다:",
+      "cloudClaude": "Claude Code는 모든 셸이 아니라 시작할 때마다 ANTHROPIC_BASE_URL과 자리 표시자 ANTHROPIC_API_KEY를 받으므로, 이 값이 직접 로그인한 계정보다 우선하지 않습니다. 첫 실행 질문에는 이미 답이 입력되어 있습니다.",
       "cloudCodex": "Codex에는 ~/.codex/config.toml에 cmux 모델 제공업체가 설정됩니다.",
       "cloudPi": "Pi에는 ~/.pi/agent/models.json에 제공업체 재정의가 설정됩니다.",
-      "cloudOpencode": "OpenCode는 처음 시작할 때 CodeRouter에서 제공업체 목록을 내려받아 ~/.config/opencode/opencode.json에 저장합니다.",
+      "cloudOpencode": "OpenCode는 처음 시작할 때 CodeRouter에서 제공업체 목록을 내려받아 ~/.config/cmux/opencode-team.json에 저장하고, 실행할 때마다 사용자 설정에 추가합니다.",
       "cloudYours": "cmux는 파일이 없을 때만 작성하므로 직접 수정한 내용은 유지됩니다. 이미 다른 모델 제공업체를 지정한 Codex 설정은 그대로 둡니다.",
+      "cloudOwnLogin": "대신 본인 계정을 사용하려면 머신에서 cr use own을 실행한 다음, 에이전트의 평소 방식대로 로그인하세요: Claude Code에서는 /login, 또는 codex login, opencode auth login. cr use team은 팀 계정으로 되돌리고, cr use own codex는 에이전트 하나만 바꾸며, cr use는 각 에이전트의 로그인 방식을 보여줍니다. 선택하지 않으면 머신에서 로그인한 에이전트는 본인 계정을 사용하고, 팀에 계정이 없는 에이전트는 평소의 로그인 화면을 표시합니다. 변경 사항은 에이전트가 다음에 시작될 때 적용됩니다.",
       "cloudRun": "에이전트는 평소처럼 실행합니다. cmux coderouter agent는 단독 프롬프트를 에이전트의 일회성 실행 형식으로 바꿉니다. 머신 안에서는 현재 터미널에서 실행하고, Mac에서는 cmux vm agent처럼 지정한 머신에서 에이전트를 시작합니다.",
       "cloudAccounts": "Cloud 머신은 머신을 소유한 팀의 계정을 사용합니다. 사용 가능한 계정이 없다고 에이전트가 알리면, 계정을 추가하거나 기존 계정을 해당 팀과 공유하세요.",
       "modelsTitle": "모델",
@@ -3303,6 +3376,23 @@
     "title": "사랑의 벽",
     "description": "사람들이 cmux에 대해 말하는 것."
   },
+  "art": {
+    "metaTitle": "cmux 배경 아트",
+    "metaDescription": "cmux가 창 배경으로 제공하는 퍼블릭 도메인 회화를 둘러보세요. 반 고흐, 프리드리히, 고야, 도레 등의 작품을 출처 및 라이선스와 함께 제공합니다.",
+    "title": "아트",
+    "description": "터미널 뒤에 둘 수 있는 유명한 퍼블릭 도메인 회화와 판화입니다. 모든 작품은 작가가 세상을 떠난 지 70년이 넘었고 1931년 이전에 발표되었습니다.",
+    "howToUse": "곧 cmux에서 제공 예정: 이 작품들을 터미널 뒤 배경으로 설정할 수 있습니다.",
+    "loading": "컬렉션을 불러오는 중…",
+    "unavailable": "컬렉션을 불러올 수 없습니다. 몇 분 후에 다시 시도하세요.",
+    "collectionsLabel": "컬렉션",
+    "source": "퍼블릭 도메인 · 출처",
+    "collections": {
+      "darkArt": "다크 아트",
+      "museumIcons": "명화",
+      "calm": "차분함",
+      "dore": "도레"
+    }
+  },
   "testimonials": {
     "mitchellh": "또 하나의 libghostty 기반 프로젝트. 이번엔 세로 탭이 있는 macOS 터미널로, 터미널 기반 AI 에이전트 워크플로를 많이 쓰는 사람을 위해 정리/알림 기능과 내장 스크립팅 가능한 브라우저를 탑재.",
     "steipete": "뒤늦게 알았지만 cmux는 훌륭합니다. 현재 역할 분담: Codex Mac 앱은 지식 작업, 학습, 읽기용; cmux + Codex CLI는 코딩용.",
@@ -3358,6 +3448,7 @@
     "unsupportedParams": "이 링크에는 cmux에서 거부할 지원되지 않는 매개변수가 포함되어 있습니다: {params}",
     "conflictingParams": "이 링크에는 함께 사용할 수 없는 매개변수가 포함되어 있습니다: {params}",
     "invalidParams": "이 링크에는 잘못된 매개변수 값이 포함되어 있습니다: {params}",
+    "ignoredParams": "cmux는 사용하지 않는 매개변수를 무시합니다: {params}. 세션은 그대로 열립니다.",
     "fixParams": "URL 매개변수를 수정한 후 이 페이지를 새로고침하세요.",
     "examplePrefix": "참조",
     "exampleLink": "예시 링크",
@@ -3381,6 +3472,16 @@
       "title": "cmux에서 규칙 열기",
       "intro": "이 페이지는 현재 cmux 작업 공간의 규칙을 엽니다.",
       "fallback": "cmux는 규칙을 먼저 표시하고 이를 현재 작업 공간에 붙여넣기 전에 묻습니다. cmux가 열리지 않으면 cmux를 설치하고 cmux에서 열기를 다시 클릭합니다."
+    },
+    "agent": {
+      "metaTitle": "cmux에서 에이전트 세션 열기",
+      "metaDescription": "cmux를 사용할 수 없을 때 설치 안내와 함께 웹에서 cmux 에이전트 세션 딥링크를 엽니다.",
+      "title": "에이전트 세션 열기",
+      "intro": "이 Mac이 이미 해당 세션에 접근할 수 있으면 이 링크가 cmux에서 에이전트의 세션을 엽니다. 링크 자체는 어떤 접근 권한도 부여하지 않습니다.",
+      "fallback": "cmux가 열리지 않으면 cmux를 설치하고 cmux에서 열기를 다시 클릭하세요. cmux는 이 Mac이 이미 접근할 수 있는 세션만 엽니다.",
+      "nameLabel": "이름: {value}",
+      "hostLabel": "호스트: {value}",
+      "harnessLabel": "하네스: {value}"
     }
   },
   "download": {
@@ -3414,7 +3515,10 @@
     "title": "cmux에 로그인했습니다",
     "body": "cmux가 자동으로 열리지 않으면 아래 버튼을 사용하세요.",
     "button": "cmux로 돌아가기",
-    "switchAccountButton": "다른 계정 사용"
+    "switchAccountButton": "다른 계정 사용",
+    "rateLimitedTitle": "로그인이 혼잡합니다",
+    "rateLimitedBody": "로그인 서비스에 요청이 너무 많습니다. 몇 초 기다린 후 계속하세요. 다시 로그인할 필요는 없습니다.",
+    "retryButton": "로그인 계속하기"
   },
   "landing": {
     "bestTerminal": {
@@ -5340,7 +5444,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro 활성화됨",
     "title": "cmux Pro에 오신 것을 환영합니다",
-    "body": "Pro 기능은 아직 개발 중입니다. Cloud 액세스가 곧 제공되며, 구독을 유지한 매월 사용 크레딧이 적립됩니다. 현재 Pro에는 TestFlight를 통한 cmux iOS 액세스가 포함됩니다.",
+    "body": "Pro에는 20 vCPU와 40GB RAM을 공유하는 최대 5대의 Cloud VM과 cmux iOS TestFlight 이용 권한이 포함됩니다. VM 한 대는 최대 16 GB RAM / 8 vCPU를 사용할 수 있습니다. 24 GB / 12 vCPU와 32 GB / 16 vCPU 크기는 Max가 필요합니다.",
     "done": "대시보드로 이동",
     "steps": {
       "iosApp": {
@@ -5416,6 +5520,8 @@
     "errorInvalidCode": "유효하지 않은 코드입니다. 이메일을 확인하고 다시 시도하세요.",
     "errorInvalidTotp": "유효하지 않은 2단계 인증 코드입니다.",
     "errorSignUpNotAllowed": "지금은 새 계정을 만들 수 없습니다.",
+    "errorEmailUnverified": "이 이메일에는 이미 계정이 있지만 주소가 아직 인증되지 않았습니다. 가입할 때 사용한 방법으로 로그인한 다음 이메일을 인증하면 로그인 코드를 사용할 수 있습니다.",
+    "useEmailPasswordInstead": "이메일과 비밀번호로 로그인",
     "errorPasskey": "패스키 로그인이 완료되지 않았습니다. 다시 시도하거나 다른 방법을 사용하세요.",
     "errorGeneric": "문제가 발생했습니다. 다시 시도하세요."
   },
@@ -5449,6 +5555,9 @@
     "switchFailed": "로그아웃할 수 없습니다. 다시 시도하세요.",
     "invalidTitle": "이 초대는 더 이상 유효하지 않습니다",
     "invalidBody": "만료되었거나, 취소되었거나, 이미 사용되었습니다. 팀 관리자에게 새 초대를 요청하세요.",
-    "goToTeams": "내 팀으로 이동"
+    "goToTeams": "내 팀으로 이동",
+    "unavailableTitle": "로그인을 확인할 수 없습니다",
+    "unavailableBody": "로그인 서비스가 혼잡합니다. 몇 초 기다린 후 초대를 다시 여세요. 다시 로그인할 필요는 없습니다.",
+    "retry": "다시 시도"
   }
 }

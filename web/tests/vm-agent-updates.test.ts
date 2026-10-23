@@ -15,10 +15,12 @@ import {
   rmSync,
   statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { AGENT_PIN_ARGS, devboxAgentPins } from "../scripts/devbox-image-common";
 import { runChild } from "./helpers/run-child";
@@ -26,12 +28,16 @@ import { parseAgentUpdatesBody, parseCreateAgentUpdates } from "../services/vms/
 import {
   GUEST_AGENTS,
   GUEST_AGENT_UPDATES_LOG,
+  GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS,
   GUEST_AGENT_UPDATER_DEFAULTS,
+  GUEST_CLONE_STARTED_MARKER,
   guestAgentInstallCommand,
   guestAgentUpdaterCommand,
+  guestAgentUpdaterLaunchScript,
   guestAgentUpdatesCommand,
   guestAgentUpdatesScript,
   type GuestAgentUpdaterOptions,
+  type GuestAgentUpdatesPaths,
 } from "../services/vms/guestAgentUpdates";
 import { GUEST_AGENT_UPDATE_DOMAINS, type GuestAgent } from "../services/vms/images/agents";
 import { CMUX_REQUIRED_DOMAINS } from "../services/vms/networkPolicy";
@@ -288,6 +294,84 @@ function state(g: Guest): { checkedAt: string; ok: boolean; versions: Record<str
   return JSON.parse(readFileSync(path.join(g.configDir, "agent-updates.state"), "utf8"));
 }
 
+/** The attach script's paths in `g`'s tree; no clone marker unless a test writes one. */
+function launchPaths(g: Guest, log: string): GuestAgentUpdatesPaths {
+  return {
+    configDir: g.configDir,
+    log,
+    updater: g.options,
+    cloneStartedMarker: path.join(g.root, "clone-started"),
+    resumeWindowSeconds: GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS,
+  };
+}
+
+/** `g`'s env plus a setsid stand-in: setsid is util-linux, absent on macOS test hosts. */
+function shimmedEnv(g: Guest): NodeJS.ProcessEnv {
+  const shims = path.join(g.root, "shims");
+  if (!existsSync(shims)) {
+    mkdirSync(shims);
+    writeFileSync(path.join(shims, "setsid"), "#!/bin/sh\nexec \"$@\"\n");
+    chmodSync(path.join(shims, "setsid"), 0o755);
+  }
+  return { ...g.env, PATH: `${g.env.PATH}:${shims}` };
+}
+
+/**
+ * Stand-ins for `date +%s` and `sleep`, first on PATH. `date +%s` reads a
+ * fixed epoch plus the fake clock's offset, never the real clock; a sleep
+ * advances the offset instead of waiting (plus the next of `jumps`, a snapshot
+ * resume; the first one also applies `rewriteMarkerAt`, a fork binding mid-wait)
+ * and records how many GitHub calls had been made before it.
+ */
+function fakeClock(g: Guest, opts: { jumps?: number[]; rewriteMarkerAt?: number } = {}) {
+  const dir = path.join(g.root, "clock");
+  mkdirSync(dir);
+  writeFileSync(path.join(dir, "offset"), "0\n");
+  if (opts.jumps) writeFileSync(path.join(dir, "jumps"), opts.jumps.map((jump) => `${jump}\n`).join(""));
+  const calls = path.join(g.github, "calls.log");
+  const marker = path.join(g.root, "clone-started");
+  const rewrite = path.join(dir, "rewrite");
+  const realDate = existsSync("/bin/date") ? "/bin/date" : "/usr/bin/date";
+  const epoch = 1_800_000_000;
+  if (opts.rewriteMarkerAt !== undefined) {
+    writeFileSync(rewrite, "");
+    utimesSync(rewrite, epoch + opts.rewriteMarkerAt, epoch + opts.rewriteMarkerAt);
+  }
+  writeFileSync(path.join(dir, "date"), [
+    "#!/bin/sh",
+    `if [ "$#" = 1 ] && [ "$1" = "+%s" ]; then echo $(( ${epoch} + $(cat '${dir}/offset') )); else exec ${realDate} "$@"; fi`,
+    "",
+  ].join("\n"));
+  writeFileSync(path.join(dir, "sleep"), [
+    "#!/bin/sh",
+    `fetched=0; [ -f '${calls}' ] && fetched=$(grep -c . '${calls}')`,
+    `echo "$1 $fetched" >> '${dir}/sleeps'`,
+    `jump=0; if [ -s '${dir}/jumps' ]; then jump=$(head -n 1 '${dir}/jumps'); tail -n +2 '${dir}/jumps' > '${dir}/jumps.next'; mv '${dir}/jumps.next' '${dir}/jumps'; fi`,
+    `echo $(( $(cat '${dir}/offset') + $1 + jump )) > '${dir}/offset'`,
+    `if [ -f '${rewrite}' ]; then touch -r '${rewrite}' '${marker}'; rm -f '${rewrite}'; fi`,
+    "",
+  ].join("\n"));
+  chmodSync(path.join(dir, "date"), 0o755);
+  chmodSync(path.join(dir, "sleep"), 0o755);
+  return {
+    env: { ...g.env, PATH: `${dir}:${g.env.PATH}` },
+    /** A clone marker in `g`'s tree written `offsetSeconds` from the fake clock's start. */
+    marker(offsetSeconds: number): string {
+      writeFileSync(marker, "");
+      utimesSync(marker, epoch + offsetSeconds, epoch + offsetSeconds);
+      return marker;
+    },
+    sleeps(): { seconds: number; fetchedBefore: number }[] {
+      const file = path.join(dir, "sleeps");
+      if (!existsSync(file)) return [];
+      return readFileSync(file, "utf8").trim().split("\n").map((line) => {
+        const [seconds, fetchedBefore] = line.split(" ").map(Number);
+        return { seconds: seconds!, fetchedBefore: fetchedBefore! };
+      });
+    },
+  };
+}
+
 /** What `binary` on PATH runs now: its --version output, through the real links. */
 async function runs(g: Guest, binary: string): Promise<string> {
   const entry = binary === "opencode" ? path.join(g.options.libexecDir, "cmux-opencode-real") : path.join(g.options.binDir, binary);
@@ -317,7 +401,12 @@ describe("guest agent updates", () => {
     expect(image).not.toContain("setsid");
     const latest = guestAgentUpdatesCommand("latest");
     expect(latest).toContain("latest > \"$tmp\"");
-    expect(latest).toContain("setsid nohup python3 -c");
+    expect(latest).toContain("setsid nohup sh -c");
+    expect(latest).toContain("python3 -c");
+    // Off the daemon's start on a resumed clone, and at idle priority.
+    expect(latest).toContain(GUEST_CLONE_STARTED_MARKER);
+    expect(latest).toContain("nice -n 19");
+    expect(latest).toContain("ionice -t -c 3");
     expect(latest).toContain(GUEST_AGENT_UPDATES_LOG);
     // Root runs it directly; the work user goes through passwordless sudo.
     expect(latest.startsWith(`if [ "$(id -u)" = 0 ]; then sh -c `)).toBe(true);
@@ -331,13 +420,8 @@ describe("guest agent updates", () => {
     const g = await guest(null);
     publish(g, "codex", "2.0.0");
     const log = path.join(g.root, "updates.log");
-    const paths = { configDir: g.configDir, log, updater: g.options };
-    // setsid is util-linux; stand in for it where the test host has none (macOS).
-    const shims = path.join(g.root, "shims");
-    mkdirSync(shims);
-    writeFileSync(path.join(shims, "setsid"), "#!/bin/sh\nexec \"$@\"\n");
-    chmodSync(path.join(shims, "setsid"), 0o755);
-    const env = { ...g.env, PATH: `${g.env.PATH}:${shims}` };
+    const paths = launchPaths(g, log);
+    const env = shimmedEnv(g);
     const recorded = await runChild("sh", ["-c", guestAgentUpdatesScript("image", paths)], { env });
     expect(recorded.status).toBe(0);
     expect(readFileSync(path.join(g.configDir, "agent-updates"), "utf8")).toBe("image\n");
@@ -350,6 +434,108 @@ describe("guest agent updates", () => {
     for (let i = 0; i < 200 && !existsSync(statePath); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
     expect(state(g)).toMatchObject({ ok: true, versions: { codex: "2.0.0" } });
     expect(readFileSync(log, "utf8")).toContain("installing codex 2.0.0");
+  });
+
+  test("the resume window equals the boot supervisor's housekeeping delay", () => {
+    const boot = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../services/vms/images/devbox/cmux-devbox-boot"), "utf8");
+    const delay = /^HOUSEKEEPING_DELAY=(\d+)min$/m.exec(boot);
+    expect(delay).not.toBeNull();
+    expect(Number(delay![1]) * 60).toBe(GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS);
+    expect(boot).toContain(': > "$TEMPLATE_RUN_DIR/clone-started"');
+    expect(GUEST_CLONE_STARTED_MARKER).toBe("/run/cmux/clone-started");
+  });
+
+  test("a just-resumed clone waits out its resume window before fetching anything", async () => {
+    const g = await guest();
+    publish(g, "codex", "2.0.0");
+    const clock = fakeClock(g);
+    const marker = clock.marker(0);
+    const result = await runChild("sh", ["-c", guestAgentUpdaterLaunchScript({ ...launchPaths(g, ""), cloneStartedMarker: marker })], { env: clock.env });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(`update: waiting ${GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS}s for the resumed machine to settle`);
+    const sleeps = clock.sleeps();
+    expect(sleeps).toEqual([{ seconds: GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS, fetchedBefore: 0 }]);
+    expect(state(g)).toMatchObject({ ok: true, versions: { codex: "2.0.0" } });
+  });
+
+  test("a resume during the wait (the clocks jump) starts a fresh window", async () => {
+    const g = await guest();
+    publish(g, "codex", "2.0.0");
+    const clock = fakeClock(g, { jumps: [3600] });
+    const marker = clock.marker(0);
+    const result = await runChild("sh", ["-c", guestAgentUpdaterLaunchScript({ ...launchPaths(g, ""), cloneStartedMarker: marker })], { env: clock.env });
+    expect(result.status).toBe(0);
+    const sleeps = clock.sleeps();
+    expect(sleeps).toEqual([
+      { seconds: GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS, fetchedBefore: 0 },
+      { seconds: GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS, fetchedBefore: 0 },
+    ]);
+    expect(state(g)).toMatchObject({ ok: true, versions: { codex: "2.0.0" } });
+  });
+
+  test("a marker dated in the future waits one window, not until the clock catches up", async () => {
+    const g = await guest();
+    publish(g, "codex", "2.0.0");
+    const clock = fakeClock(g);
+    const marker = clock.marker(6 * 3600);
+    const result = await runChild("sh", ["-c", guestAgentUpdaterLaunchScript({ ...launchPaths(g, ""), cloneStartedMarker: marker })], { env: clock.env });
+    expect(result.status).toBe(0);
+    expect(clock.sleeps()).toEqual([{ seconds: GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS, fetchedBefore: 0 }]);
+    expect(state(g)).toMatchObject({ ok: true, versions: { codex: "2.0.0" } });
+  });
+
+  test("a marker less than a window in the future still waits only one window", async () => {
+    const g = await guest();
+    publish(g, "codex", "2.0.0");
+    const clock = fakeClock(g);
+    const marker = clock.marker(300);
+    const result = await runChild("sh", ["-c", guestAgentUpdaterLaunchScript({ ...launchPaths(g, ""), cloneStartedMarker: marker })], { env: clock.env });
+    expect(result.status).toBe(0);
+    expect(clock.sleeps()).toEqual([{ seconds: GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS, fetchedBefore: 0 }]);
+    expect(state(g)).toMatchObject({ ok: true, versions: { codex: "2.0.0" } });
+  });
+
+  test("the clock stepping back after a resume does not stretch the wait", async () => {
+    const g = await guest();
+    publish(g, "codex", "2.0.0");
+    // A resume jumps the clock an hour mid-wait, then it steps back an hour.
+    const clock = fakeClock(g, { jumps: [3600, -3600] });
+    const marker = clock.marker(0);
+    const result = await runChild("sh", ["-c", guestAgentUpdaterLaunchScript({ ...launchPaths(g, ""), cloneStartedMarker: marker })], { env: clock.env });
+    expect(result.status).toBe(0);
+    const window = { seconds: GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS, fetchedBefore: 0 };
+    expect(clock.sleeps()).toEqual([window, window, window]);
+    expect(state(g)).toMatchObject({ ok: true, versions: { codex: "2.0.0" } });
+  });
+
+  test("a marker rewritten during the wait (a fork bound) starts its window over", async () => {
+    const g = await guest();
+    publish(g, "codex", "2.0.0");
+    // Halfway through the first wait a fork's boot supervisor rewrites the marker.
+    const clock = fakeClock(g, { rewriteMarkerAt: 300 });
+    const marker = clock.marker(0);
+    const result = await runChild("sh", ["-c", guestAgentUpdaterLaunchScript({ ...launchPaths(g, ""), cloneStartedMarker: marker })], { env: clock.env });
+    expect(result.status).toBe(0);
+    expect(clock.sleeps()).toEqual([
+      { seconds: GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS, fetchedBefore: 0 },
+      { seconds: 300, fetchedBefore: 0 },
+    ]);
+    expect(state(g)).toMatchObject({ ok: true, versions: { codex: "2.0.0" } });
+  });
+
+  test("a clone resumed longer ago than the window, or no clone at all, updates at once", async () => {
+    for (const age of [-3600, null]) {
+      const g = await guest();
+      publish(g, "codex", "2.0.0");
+      const clock = fakeClock(g);
+      const paths = launchPaths(g, "");
+      const marker = age === null ? paths.cloneStartedMarker : clock.marker(age);
+      const result = await runChild("sh", ["-c", guestAgentUpdaterLaunchScript({ ...paths, cloneStartedMarker: marker })], { env: clock.env });
+      expect(result.status).toBe(0);
+      expect(result.stdout).not.toContain("waiting");
+      expect(clock.sleeps()).toEqual([]);
+      expect(state(g)).toMatchObject({ ok: true, versions: { codex: "2.0.0" } });
+    }
   });
 
   test("installs only the agents behind the channel, verified, and keeps the bake's links", async () => {
@@ -380,6 +566,25 @@ describe("guest agent updates", () => {
       // The previous version stays for anything still running it.
       expect(existsSync(path.join(g.options.root, "claude/1.0.0/claude"))).toBe(true);
     })();
+  });
+
+  test("an update keeps claude behind its sign-in launcher and moves the real link", async () => {
+    const g = await guest();
+    // An image with the claude launcher (/etc/cmux/claude): the entry is the
+    // launcher, the version sits behind cmux-claude-real.
+    writeFileSync(path.join(g.configDir, "claude"), "#!/bin/bash\n");
+    chmodSync(path.join(g.configDir, "claude"), 0o755);
+    const entry = path.join(g.options.binDir, "claude");
+    const real = path.join(g.options.libexecDir, "cmux-claude-real");
+    symlinkSync(readlinkSync(entry), real);
+    rmSync(entry);
+    symlinkSync(path.join(g.configDir, "claude"), entry);
+    publish(g, "claude", "2.0.0");
+    expect((await runUpdater(g)).status).toBe(0);
+    expect(state(g).versions.claude).toBe("2.0.0");
+    expect(readlinkSync(entry)).toBe(path.join(g.configDir, "claude"));
+    expect(readlinkSync(real)).toBe(path.join(g.options.root, "claude/2.0.0/claude"));
+    expect((await runChild(real, ["--version"])).stdout.trim()).toBe("claude 2.0.0");
   });
 
   test("a release younger than the minimum age waits; the newest old-enough one installs", async () => {

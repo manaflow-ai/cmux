@@ -791,7 +791,7 @@
       ]
     },
     "BrowserUser.claimTab": {
-      "cmux": "tabs.list({ all: true }) lists tabs in every workspace and window; tabs.use(id) attaches one",
+      "cmux": "tabs.use(id) attaches a user's tab of the session's own workspace; a user's tab of another workspace needs a person's grant, which cmux does not offer yet, so it is refused",
       "cases": [
         "tabs.attach",
         "tabs.claim-other-workspace"
@@ -2397,7 +2397,7 @@
         ]
       },
       "user.claimTab": {
-        "cmux": "tabs.use(id) on any tab tabs.list({ all: true }) lists",
+        "cmux": "tabs.use(id) on a user's tab of the session's own workspace; another workspace's user tab is refused",
         "tests": [
           "diff:tabs.claim-other-workspace"
         ]

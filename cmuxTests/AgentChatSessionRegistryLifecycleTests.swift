@@ -12,6 +12,172 @@ import Testing
 
 struct AgentChatSessionRegistryLifecycleTests {
     @MainActor
+    @Test("Idle notifications after Stop preserve idle state for Grok and Claude")
+    func idleNotificationAfterStopAndSessionEndDoesNotReviveCompletedAgent() throws {
+        let cases = [
+            (source: "grok", extraFields: #"{"reason":"idle_prompt"}"#),
+            (source: "claude", extraFields: #"{"notification_type":"idle_prompt"}"#),
+        ]
+
+        for (source, extraFields) in cases {
+            let registry = AgentChatSessionRegistry()
+            let sessionID = "\(source)-completed-session"
+            let surfaceID = UUID().uuidString
+            let times = (start: Date(timeIntervalSince1970: 100), prompt: Date(timeIntervalSince1970: 101), stop: Date(timeIntervalSince1970: 102), idle: Date(timeIntervalSince1970: 103), end: Date(timeIntervalSince1970: 104), lateIdle: Date(timeIntervalSince1970: 105))
+
+            registry.noteHookEvent(WorkstreamEvent(
+                sessionId: sessionID,
+                hookEventName: .sessionStart,
+                source: source,
+                surfaceId: surfaceID,
+                receivedAt: times.start
+            ))
+            registry.noteHookEvent(WorkstreamEvent(
+                sessionId: sessionID,
+                hookEventName: .userPromptSubmit,
+                source: source,
+                surfaceId: surfaceID,
+                receivedAt: times.prompt
+            ))
+            let stopped = registry.noteHookEvent(WorkstreamEvent(
+                sessionId: sessionID,
+                hookEventName: .stop,
+                source: source,
+                surfaceId: surfaceID,
+                receivedAt: times.stop
+            ))
+            #expect(stopped.state == .idle)
+
+            let delayedIdle = registry.noteHookEvent(WorkstreamEvent(
+                sessionId: sessionID,
+                hookEventName: .notification,
+                source: source,
+                surfaceId: surfaceID,
+                receivedAt: times.idle,
+                extraFieldsJSON: extraFields,
+                isIdleReminder: true
+            ))
+            #expect(delayedIdle.state == .idle)
+
+            let ended = registry.noteHookEvent(WorkstreamEvent(
+                sessionId: sessionID,
+                hookEventName: .sessionEnd,
+                source: source,
+                surfaceId: surfaceID,
+                receivedAt: times.end
+            ))
+            #expect(ended.state == .ended)
+
+            let lateIdle = registry.noteHookEvent(WorkstreamEvent(
+                sessionId: sessionID,
+                hookEventName: .notification,
+                source: source,
+                surfaceId: surfaceID,
+                receivedAt: times.lateIdle,
+                extraFieldsJSON: extraFields,
+                isIdleReminder: true
+            ))
+            #expect(lateIdle.state == .ended)
+
+            let resumedSessionID = "\(source)-resumed-session"
+            let resumed = AgentChatSessionRegistry()
+            resumed.noteHookEvent(WorkstreamEvent(
+                sessionId: resumedSessionID,
+                hookEventName: .sessionStart,
+                source: source,
+                surfaceId: surfaceID,
+                receivedAt: times.start
+            ))
+            resumed.noteHookEvent(WorkstreamEvent(
+                sessionId: resumedSessionID,
+                hookEventName: .stop,
+                source: source,
+                surfaceId: surfaceID,
+                receivedAt: times.stop
+            ))
+            let resumedPrompt = resumed.noteHookEvent(WorkstreamEvent(
+                sessionId: resumedSessionID,
+                hookEventName: .userPromptSubmit,
+                source: source,
+                surfaceId: surfaceID,
+                receivedAt: times.idle
+            ))
+            #expect(resumedPrompt.state == .working(since: times.idle))
+            let lateAfterResume = resumed.noteHookEvent(WorkstreamEvent(
+                sessionId: resumedSessionID,
+                hookEventName: .notification,
+                source: source,
+                surfaceId: surfaceID,
+                receivedAt: times.lateIdle,
+                extraFieldsJSON: extraFields,
+                isIdleReminder: true
+            ))
+            #expect(lateAfterResume.state == .working(since: times.idle))
+        }
+    }
+
+    @MainActor
+    @Test("Claude blocking PreToolUse stays needs input before its journal event")
+    func claudeBlockingToolDoesNotFlashWorking() throws {
+        let registry = AgentChatSessionRegistry()
+        let sessionID = "claude-question-session"
+        let surfaceID = UUID().uuidString
+
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionStart,
+            source: "claude",
+            surfaceId: surfaceID,
+            receivedAt: Date(timeIntervalSince1970: 100)
+        ))
+
+        let question = registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .preToolUse,
+            source: "claude",
+            surfaceId: surfaceID,
+            toolName: "AskUserQuestion",
+            receivedAt: Date(timeIntervalSince1970: 101)
+        ))
+
+        #expect(question.state == .needsInput(since: Date(timeIntervalSince1970: 101)))
+    }
+
+    @MainActor
+    @Test("Terminal input optimistically clears needs input")
+    func terminalInputMovesWaitingSessionToWorking() throws {
+        let registry = AgentChatSessionRegistry()
+        let sessionID = "waiting-session"
+        let surfaceID = UUID().uuidString
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionStart,
+            source: "claude",
+            surfaceId: surfaceID,
+            receivedAt: Date(timeIntervalSince1970: 100)
+        ))
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .permissionRequest,
+            source: "claude",
+            surfaceId: surfaceID,
+            receivedAt: Date(timeIntervalSince1970: 101)
+        ))
+
+        #expect(registry.noteUserInput(surfaceID: surfaceID, at: Date(timeIntervalSince1970: 102)) == 1)
+        #expect(registry.record(sessionID: sessionID)?.state == .working(since: Date(timeIntervalSince1970: 102)))
+
+        let corrected = registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .permissionRequest,
+            source: "claude",
+            surfaceId: surfaceID,
+            receivedAt: Date(timeIntervalSince1970: 103)
+        ))
+        #expect(corrected.state == .needsInput(since: Date(timeIntervalSince1970: 103)))
+    }
+
+    @MainActor
     @Test("Feed v1 ids are decoded before chat records are indexed")
     func canonicalFeedIDIsDecodedBeforeChatBinding() throws {
         let sessionID = "thread-with-hyphens"

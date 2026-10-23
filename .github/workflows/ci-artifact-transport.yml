@@ -11,6 +11,7 @@ on:
       - scripts/ci/parallel_artifact_download.py
       - tests/test_ci_parallel_artifact_transport.py
       - scripts/ci/node_product_cache.py
+      - docs/ci/node-product-cache-maintenance.md
       - scripts/ci/peer_product_source.py
       - scripts/ci/app-host-products-archive.sh
       - scripts/ci/app_host_layer_transport.py
@@ -40,6 +41,7 @@ on:
       - scripts/ci/parallel_artifact_download.py
       - tests/test_ci_parallel_artifact_transport.py
       - scripts/ci/node_product_cache.py
+      - docs/ci/node-product-cache-maintenance.md
       - scripts/ci/peer_product_source.py
       - scripts/ci/app-host-products-archive.sh
       - scripts/ci/app_host_layer_transport.py

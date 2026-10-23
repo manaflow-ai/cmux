@@ -28,7 +28,7 @@ extension BrowserWindowPortalRegistry {
             object: nil,
             queue: .main
         ) { notification in
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 guard let window = notification.object as? NSWindow else { return }
                 scheduleExternalGeometrySynchronize(for: window)
             }

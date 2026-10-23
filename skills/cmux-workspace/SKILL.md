@@ -112,7 +112,7 @@ CMUX_TAG=<short-tag> scripts/cmux-debug-cli.sh identify --json
 
 ## Socket access
 
-Use the socket path cmux provided before any default: `SOCK="${CMUX_SOCKET_PATH:-/tmp/cmux.sock}"`. Socket access can be off, restricted to cmux-spawned processes, or open to all local processes. If a command cannot connect, inspect `cmux capabilities --json` and `cmux ping` before changing settings.
+Use the socket path cmux provided before any default: `SOCK="${CMUX_SOCKET_PATH:-${CMUX_SOCKET:-$HOME/.local/state/cmux/cmux.sock}}"`. Without an explicit path, the CLI also auto-discovers tagged/debug sockets. Socket access can be off, restricted to cmux-spawned processes, or open to all local processes. If a command cannot connect, inspect `cmux capabilities --json` and `cmux ping` before changing settings.
 
 ## Rules
 

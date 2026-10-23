@@ -1,0 +1,15 @@
+#!/bin/bash
+# Claude Code launcher (/usr/local/bin/claude). Every entrypoint, including
+# exec and direct process spawn, resolves this machine's sign-in mode
+# (/etc/cmux/agent-auth.sh) before starting the pinned executable: team
+# mode adds the CodeRouter model plane, own mode adds nothing so the user's
+# /login is what Claude Code uses. `cr use own|team` switches it; a switch
+# applies to the next launch. No errexit: a HOME the config generators cannot
+# write must still start claude, so nothing before the exec can abort it.
+if [ "$#" -eq 1 ]; then
+  case "$1" in --version|-v|--help|-h) exec /usr/local/libexec/cmux-claude-real "$@" ;; esac
+fi
+. /etc/cmux/agent-config.sh
+. /etc/cmux/agent-auth.sh
+cmux_claude_apply_auth_mode
+exec /usr/local/libexec/cmux-claude-real "$@"

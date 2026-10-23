@@ -1,4 +1,5 @@
 import Foundation
+import JavaScriptCore
 import Testing
 @testable import CmuxBrowser
 
@@ -47,7 +48,13 @@ struct BrowserControlServiceStorageScriptsTests {
             const out = {};
             for (let i = 0; i < st.length; i++) {
               const k = st.key(i);
-              out[k] = st.getItem(k);
+              // Define own properties so a literal "__proto__" key stays data.
+              Object.defineProperty(out, k, {
+                value: st.getItem(k),
+                enumerable: true,
+                configurable: true,
+                writable: true
+              });
             }
             return { ok: true, value: out };
           }
@@ -104,6 +111,71 @@ struct BrowserControlServiceStorageScriptsTests {
         #expect(script.contains("const type = String(\"session\");"))
         #expect(script.contains("const key = \"token\";"))
         #expect(script.contains("return { ok: true, value: st.getItem(String(key)) };"))
+    }
+
+    /// Runs a storage script against in-memory Web Storage fixtures and returns
+    /// the JSON-serialized result. Fixture entries are built from key/value pairs
+    /// so prototype-sensitive keys such as `__proto__` are stored as real keys.
+    private func runStorageScript(_ script: String) -> String? {
+        let context = JSContext()!
+        context.evaluateScript("""
+        const makeStorage = (pairs) => {
+          const entries = new Map(pairs);
+          return {
+            get length() { return entries.size; },
+            key: (i) => Array.from(entries.keys())[i] ?? null,
+            getItem: (k) => entries.has(k) ? entries.get(k) : null,
+            setItem: (k, v) => { entries.set(k, v); },
+            clear: () => { entries.clear(); },
+            dump: () => Array.from(entries)
+          };
+        };
+        var window = {
+          localStorage: makeStorage([["regular", "local-control"], ["__proto__", "local-kept"]]),
+          sessionStorage: makeStorage([["regular", "session-control"], ["__proto__", "session-kept"]])
+        };
+        """)
+        return context.evaluateScript("JSON.stringify(\(script))")?.toString()
+    }
+
+    @Test("storageGetScript keeps a __proto__ key in whole-area reads", arguments: ["local", "session"])
+    func storageGetWholeAreaKeepsProtoKey(storageType: String) {
+        let script = service.storageGetScript(storageType: storageType, key: nil)
+        #expect(
+            runStorageScript(script)
+                == #"{"ok":true,"value":{"regular":"\#(storageType)-control","__proto__":"\#(storageType)-kept"}}"#
+        )
+    }
+
+    @Test("storageGetScript reads a __proto__ key when requested directly", arguments: ["local", "session"])
+    func storageGetSingleProtoKey(storageType: String) {
+        let script = service.storageGetScript(storageType: storageType, key: "__proto__")
+        #expect(runStorageScript(script) == #"{"ok":true,"value":"\#(storageType)-kept"}"#)
+    }
+
+    @Test("storageSnapshotScript keeps a __proto__ key in both storage areas")
+    func storageSnapshotKeepsProtoKey() {
+        #expect(
+            runStorageScript(service.storageSnapshotScript())
+                == #"{"local":{"regular":"local-control","__proto__":"local-kept"},"session":{"regular":"session-control","__proto__":"session-kept"}}"#
+        )
+    }
+
+    @Test("storageRestoreScript writes a saved __proto__ key back to both storage areas")
+    func storageRestoreWritesProtoKey() {
+        let restore = service.storageRestoreScript(
+            storageLiteral: #"{"local":{"regular":"saved-local","__proto__":"saved-local-proto"},"session":{"regular":"saved-session","__proto__":"saved-session-proto"}}"#
+        )
+        let script = """
+        (() => {
+          \(restore);
+          return { local: window.localStorage.dump(), session: window.sessionStorage.dump() };
+        })()
+        """
+        #expect(
+            runStorageScript(script)
+                == #"{"local":[["regular","saved-local"],["__proto__","saved-local-proto"]],"session":[["regular","saved-session"],["__proto__","saved-session-proto"]]}"#
+        )
     }
 
     @Test("storageSetScript writes the value literal verbatim")

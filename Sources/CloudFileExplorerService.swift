@@ -60,6 +60,36 @@ json.dump(entries, sys.stdout, separators=(",", ":"))
         }
     }
 
+    func createFile(vmID: String, path: String) async throws {
+        try await runMutation(vmID: vmID, operation: "create_file", path: path)
+    }
+
+    func createDirectory(vmID: String, path: String) async throws {
+        try await runMutation(vmID: vmID, operation: "create_directory", path: path)
+    }
+
+    func rename(vmID: String, path: String, to destinationPath: String) async throws {
+        try await runMutation(
+            vmID: vmID,
+            operation: "rename",
+            path: path,
+            destinationPath: destinationPath
+        )
+    }
+
+    func delete(vmID: String, path: String) async throws {
+        try await runMutation(vmID: vmID, operation: "delete", path: path)
+    }
+
+    func copy(vmID: String, path: String, to destinationPath: String) async throws {
+        try await runMutation(
+            vmID: vmID,
+            operation: "copy",
+            path: path,
+            destinationPath: destinationPath
+        )
+    }
+
     /// Downloads one bounded remote file to a local preview cache.
     func download(vmID: String, path: String, to localURL: URL) async throws {
         let script = #"""
@@ -178,6 +208,88 @@ sys.exit(0 if exit_code in (0, 1) else exit_code)
             status: results.isEmpty ? .noMatches : (limitCount.map { .limited($0) } ?? .matches),
             isSearching: false
         )
+    }
+
+    private func runMutation(
+        vmID: String,
+        operation: String,
+        path: String,
+        destinationPath: String? = nil
+    ) async throws {
+        let command = Self.mutationCommand(
+            operation: operation,
+            path: path,
+            destinationPath: destinationPath
+        )
+        let result = try await commandRunner.run(vmID: vmID, command: command, timeoutMs: 30_000)
+        guard result.exitCode == 0 else {
+            throw FileExplorerError.mutationError(exitStatus: Int32(clamping: result.exitCode))
+        }
+    }
+
+    /// The shell command for one Cloud mutation. The script exits with the
+    /// shared ``SSHFileExplorerMutationCommand`` statuses for an existing
+    /// target and a permission failure.
+    static func mutationCommand(
+        operation: String,
+        path: String,
+        destinationPath: String?
+    ) -> String {
+        let script = #"""
+import os, shutil, sys
+EXISTS = 73
+DENIED = 77
+operation = sys.argv[1]
+path = sys.argv[2]
+destination = sys.argv[3] if len(sys.argv) > 3 else None
+def taken(target):
+    # A case-only rename may see the source itself under the new name.
+    if not os.path.lexists(target):
+        return False
+    return not (operation == "rename" and os.path.samestat(os.lstat(path), os.lstat(target)))
+try:
+    if operation == "create_file":
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        os.close(descriptor)
+    elif operation == "create_directory":
+        os.mkdir(path)
+    elif operation == "rename":
+        if destination is None:
+            sys.exit(74)
+        # Keep rename consistent with local and SSH providers: never replace
+        # an existing destination (including a dangling symlink).
+        if taken(destination):
+            sys.exit(EXISTS)
+        os.rename(path, destination)
+    elif operation == "copy":
+        if destination is None:
+            sys.exit(74)
+        if taken(destination):
+            sys.exit(EXISTS)
+        if os.path.isdir(path) and not os.path.islink(path):
+            shutil.copytree(path, destination, symlinks=True)
+        else:
+            shutil.copy2(path, destination, follow_symlinks=False)
+    elif operation == "delete":
+        if os.path.isdir(path) and not os.path.islink(path):
+            shutil.rmtree(path)
+        else:
+            os.unlink(path)
+    else:
+        sys.exit(74)
+except FileExistsError:
+    sys.exit(EXISTS)
+except PermissionError:
+    sys.exit(DENIED)
+except OSError:
+    sys.exit(74)
+"""#
+        var arguments = [operation, path]
+        if let destinationPath {
+            arguments.append(destinationPath)
+        }
+        return "python3 -c \(shellQuote(script)) "
+            + arguments.map(shellQuote).joined(separator: " ")
     }
 
     private static func shellQuote(_ value: String) -> String {

@@ -21,6 +21,12 @@ public import Dispatch
 /// stale side effects. Expiry is evaluated whenever a slot frees or the queue
 /// is full, so no timer is needed and a stalled pool drains as soon as any
 /// slot moves.
+///
+/// A job about to wait a long time on something outside the control plane
+/// (a blocking `feed.push` waiting for the user's permission decision) calls
+/// ``parkCurrentJob()``. It then stops counting against `maximumConcurrentJobs`
+/// and counts against `maximumParkedJobs` instead, so a burst of pending
+/// decisions cannot starve ordinary commands of slots (#16404).
 public actor ControlClientWorkerPool {
     /// Why a pending job was handed to its cleanup instead of started.
     public enum DropReason: Sendable, Equatable {
@@ -42,6 +48,17 @@ public actor ControlClientWorkerPool {
         case rejected
     }
 
+    /// The result of ``parkCurrentJob()``.
+    public enum ParkResult: Sendable, Equatable {
+        /// The job no longer holds a running slot.
+        case parked
+        /// `maximumParkedJobs` jobs are already parked; the job still holds
+        /// its running slot.
+        case parkedJobsFull
+        /// The caller is not a job running in this pool.
+        case notAPoolJob
+    }
+
     /// Point-in-time pool counters used by diagnostics and behavior tests.
     public struct Metrics: Sendable, Equatable {
         /// Number of operations currently executing.
@@ -56,6 +73,8 @@ public actor ControlClientWorkerPool {
         public let expiredJobs: Int
         /// Whether no further jobs can be admitted.
         public let isStopped: Bool
+        /// Number of running operations parked outside the running slots.
+        public let parkedJobs: Int
 
         /// Creates a metrics snapshot.
         public init(
@@ -64,7 +83,8 @@ public actor ControlClientWorkerPool {
             peakActiveJobs: Int,
             rejectedJobs: Int,
             expiredJobs: Int = 0,
-            isStopped: Bool
+            isStopped: Bool,
+            parkedJobs: Int = 0
         ) {
             self.activeJobs = activeJobs
             self.pendingJobs = pendingJobs
@@ -72,6 +92,7 @@ public actor ControlClientWorkerPool {
             self.rejectedJobs = rejectedJobs
             self.expiredJobs = expiredJobs
             self.isStopped = isStopped
+            self.parkedJobs = parkedJobs
         }
     }
 
@@ -84,6 +105,7 @@ public actor ControlClientWorkerPool {
 
     private let maximumConcurrentJobs: Int
     private let maximumPendingJobs: Int
+    private let maximumParkedJobs: Int
     private let maximumPendingAgeNanoseconds: UInt64?
     private let now: @Sendable () -> UInt64
     private var activeJobs = 0
@@ -93,7 +115,10 @@ public actor ControlClientWorkerPool {
     private var nextJobID: UInt64 = 1
     private var pendingJobs: [Job] = []
     private var runningTasks: [UInt64: Task<Void, Never>] = [:]
+    private var parkedJobIDs: Set<UInt64> = []
     private var stopped = false
+    /// The pool job the current task is running, read by ``parkCurrentJob()``.
+    @TaskLocal private static var currentJobID: UInt64?
 
     /// Creates a bounded pool.
     ///
@@ -102,6 +127,7 @@ public actor ControlClientWorkerPool {
     ///   - maximumPendingJobs: Upper bound on FIFO jobs waiting for a slot.
     ///   - maximumPendingAgeNanoseconds: Longest a job may wait for a slot
     ///     before it is dropped instead of started; `nil` never expires.
+    ///   - maximumParkedJobs: Upper bound on jobs parked by ``parkCurrentJob()``.
     ///   - now: Monotonic clock for submission stamps and expiry checks.
     ///     Tests inject a virtual clock.
     ///
@@ -111,11 +137,13 @@ public actor ControlClientWorkerPool {
         maximumConcurrentJobs: Int = 32,
         maximumPendingJobs: Int = 64,
         maximumPendingAgeNanoseconds: UInt64? = nil,
+        maximumParkedJobs: Int = 0,
         now: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds }
     ) {
         self.maximumConcurrentJobs = max(1, maximumConcurrentJobs)
         self.maximumPendingJobs = max(0, maximumPendingJobs)
         self.maximumPendingAgeNanoseconds = maximumPendingAgeNanoseconds
+        self.maximumParkedJobs = max(0, maximumParkedJobs)
         self.now = now
     }
 
@@ -180,6 +208,15 @@ public actor ControlClientWorkerPool {
         }
     }
 
+    /// Moves the calling job out of its running slot before a long external
+    /// wait, and starts the next pending job in its place. A parked job keeps
+    /// running; it finishes as usual and only stops counting against
+    /// `maximumConcurrentJobs`. Parking twice is harmless.
+    public nonisolated func parkCurrentJob() async -> ParkResult {
+        guard let jobID = Self.currentJobID else { return .notAPoolJob }
+        return await park(jobID: jobID)
+    }
+
     /// Returns current admission counters.
     public func metrics() -> Metrics {
         Metrics(
@@ -188,7 +225,8 @@ public actor ControlClientWorkerPool {
             peakActiveJobs: peakActiveJobs,
             rejectedJobs: rejectedJobs,
             expiredJobs: expiredJobs,
-            isStopped: stopped
+            isStopped: stopped,
+            parkedJobs: parkedJobIDs.count
         )
     }
 
@@ -219,15 +257,33 @@ public actor ControlClientWorkerPool {
         // The operation is async/non-blocking, so this creates a bounded task
         // count rather than a thread per connection.
         let task = Task.detached(priority: .userInitiated) { [weak self] in
-            await job.operation()
+            await Self.$currentJobID.withValue(job.id) {
+                await job.operation()
+            }
             await self?.finish(jobID: job.id)
         }
         runningTasks[job.id] = task
     }
 
+    private func park(jobID: UInt64) -> ParkResult {
+        guard runningTasks[jobID] != nil else { return .notAPoolJob }
+        guard !parkedJobIDs.contains(jobID) else { return .parked }
+        guard parkedJobIDs.count < maximumParkedJobs else { return .parkedJobsFull }
+        parkedJobIDs.insert(jobID)
+        activeJobs = max(0, activeJobs - 1)
+        startNextPendingJob()
+        return .parked
+    }
+
     private func finish(jobID: UInt64) {
         runningTasks.removeValue(forKey: jobID)
-        activeJobs = max(0, activeJobs - 1)
+        if parkedJobIDs.remove(jobID) == nil {
+            activeJobs = max(0, activeJobs - 1)
+        }
+        startNextPendingJob()
+    }
+
+    private func startNextPendingJob() {
         guard !stopped, activeJobs < maximumConcurrentJobs else { return }
         dropExpiredPendingJobs(at: now())
         guard !pendingJobs.isEmpty else { return }

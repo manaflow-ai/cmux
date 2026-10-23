@@ -29,6 +29,16 @@ struct MobilePlanOfferRow: View {
                     .monospacedDigit()
                     .accessibilityIdentifier("BillingOfferPrice.\(offer.planID.rawValue)")
             }
+            if let monthly = offer.product.monthlyEquivalentDisplayPrice {
+                Text(String(
+                    format: L10n.string("mobile.billing.monthlyEquivalent", defaultValue: "%@ / month, billed yearly"),
+                    monthly
+                ))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .accessibilityIdentifier("BillingOfferMonthlyEquivalent.\(offer.planID.rawValue)")
+            }
             ForEach(copy.features, id: \.self) { feature in
                 Label(feature, systemImage: "checkmark")
                     .font(.subheadline)

@@ -409,6 +409,92 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
         _ = navigationDelegate
     }
 
+    /// Regression for #18793: a static selection's handoff PNG must preserve
+    /// the selected element's top-to-bottom visual order.
+    @Test func staticSelectionHandoffPNGKeepsTopAboveBottom() async throws {
+        let directory = URL.temporaryDirectory.appendingPathComponent(
+            "cmux-design-mode-static-selection-test-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        var copiedPrompt: String?
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        let controller = BrowserDesignModeController(
+            surfaceID: UUID(),
+            script: BrowserDesignModeScript(),
+            promptFormatter: BrowserDesignModePromptFormatter(),
+            artifactStore: BrowserDesignModeArtifactStore(directory: directory),
+            javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
+            screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(
+                timeout: 10,
+                cleanupTimeout: 2,
+                scrollSettleTimeout: 0.05
+            ),
+            canEnable: { true },
+            clipboardWriter: { prompt in
+                copiedPrompt = prompt
+                return true
+            },
+            onActivityChanged: {}
+        )
+        controller.install(on: webView)
+
+        let (loaded, loadedContinuation) = AsyncStream<Void>.makeStream()
+        let navigationDelegate = BrowserDesignModeOffscreenNavigationDelegate {
+            loadedContinuation.yield()
+            loadedContinuation.finish()
+        }
+        webView.navigationDelegate = navigationDelegate
+        webView.loadHTMLString(
+            """
+            <style>
+              html, body { margin: 0; background: #fff; }
+              #card { position: static; width: 400px; }
+              #top { height: 150px; background: #f00; }
+              #bottom { height: 150px; background: #00f; }
+            </style>
+            <div id="card"><div id="top">TOP</div><div id="bottom">BOTTOM</div></div>
+            """,
+            baseURL: nil
+        )
+        var loadedIterator = loaded.makeAsyncIterator()
+        _ = await loadedIterator.next()
+
+        #expect(await controller.setEnabled(true, reason: "test"))
+        let evaluator = BrowserDesignModeJavaScriptEvaluator()
+        _ = try await evaluator.call(
+            "return globalThis.__cmuxDesignMode.select('#card');",
+            arguments: [:],
+            in: webView,
+            contentWorld: BrowserDesignModeController.contentWorld
+        )
+
+        await controller.copySelection()
+
+        let prompt = try #require(copiedPrompt)
+        let contextURL = try artifactURL(in: prompt, marker: "Details: ")
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: contextURL)) as? [String: Any]
+        )
+        let selections = try #require(payload["selections"] as? [[String: Any]])
+        let screenshotPath = try #require(selections.first?["screenshot_path"] as? String)
+        let bitmap = try #require(
+            NSBitmapImageRep(data: try Data(contentsOf: URL(fileURLWithPath: screenshotPath)))
+        )
+        let centerX = bitmap.pixelsWide / 2
+        let top = try #require(
+            bitmap.colorAt(x: centerX, y: bitmap.pixelsHigh / 8)?.usingColorSpace(.sRGB)
+        )
+        let bottom = try #require(
+            bitmap.colorAt(x: centerX, y: bitmap.pixelsHigh * 7 / 8)?.usingColorSpace(.sRGB)
+        )
+
+        #expect(top.redComponent > 0.7 && top.blueComponent < 0.3, "top was \(top)")
+        #expect(bottom.blueComponent > 0.7 && bottom.redComponent < 0.3, "bottom was \(bottom)")
+        _ = navigationDelegate
+    }
+
     private func solidImage(size: NSSize) -> NSImage {
         let image = NSImage(size: size)
         image.lockFocus()

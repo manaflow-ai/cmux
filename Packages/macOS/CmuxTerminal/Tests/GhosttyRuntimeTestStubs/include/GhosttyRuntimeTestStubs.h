@@ -65,7 +65,7 @@ bool ghostty_surface_set_font_size_action_callback(
     void *userdata);
 void ghostty_surface_config_new(void);
 void ghostty_surface_free(void *surface);
-void ghostty_surface_free_text(void);
+void ghostty_surface_free_text(void *surface, ghostty_text_s *text);
 float ghostty_surface_font_size(void *surface);
 bool ghostty_surface_font_size_adjusted(void *surface);
 uint64_t ghostty_surface_foreground_pid(void *surface);
@@ -88,8 +88,14 @@ bool ghostty_surface_needs_confirm_quit(void *surface);
 void ghostty_surface_new(void);
 bool ghostty_surface_process_exited(void *surface);
 void ghostty_surface_process_output(void *surface, const char *data, uintptr_t len);
+void cmux_test_ghostty_surface_terminal_modes_reset(void *surface);
+bool cmux_test_ghostty_surface_terminal_mode_enabled(void *surface, int mode);
 void ghostty_surface_quicklook_font(void);
-void ghostty_surface_read_screen_tail_vt(void);
+bool ghostty_surface_read_screen_tail_vt(
+    void *surface,
+    uintptr_t max_rows,
+    uintptr_t max_bytes,
+    ghostty_text_s *text);
 void ghostty_surface_read_text(void);
 void ghostty_surface_refresh(void);
 bool ghostty_surface_set_render_presented_callback(
@@ -161,5 +167,8 @@ bool cmux_test_ghostty_surface_key_was_called(void);
 int cmux_test_ghostty_surface_key_mods(void);
 uint32_t cmux_test_ghostty_surface_key_unshifted_codepoint(void);
 const char* cmux_test_ghostty_surface_key_text(void);
+void cmux_test_ghostty_input_events_reset(void);
+uint32_t cmux_test_ghostty_input_event_count(void);
+int cmux_test_ghostty_input_event_kind(uint32_t index);
 
 #endif

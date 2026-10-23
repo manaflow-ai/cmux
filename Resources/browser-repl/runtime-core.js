@@ -29,6 +29,8 @@
     return wrapped;
   })();
   const AGENT = 'globalThis[Symbol.for("cmux.browserRepl.agent")]';
+  // The key of the page agent's cut marker (page-agent.js, `reply`).
+  const REPLY_CUT = "__cmuxReplyCut";
   const DEFAULT_TIMEOUT = 30000;
   const UNDEFINED_MARK = "__cmuxUndefined__";
 
@@ -536,6 +538,11 @@
 
   // Page events whose listeners a session reports to the driver.
   const HANDLED_EVENTS = ["dialog", "filechooser", "download"];
+  // Page events reported as the one driver event "network": in a tab the
+  // session did not create, network events (and their headers) reach the
+  // session only while it listens for them, or for a request its own
+  // action started.
+  const NETWORK_EVENTS = ["request", "response", "requestfailed", "requestfinished"];
   // How long a call on a tab waits for that tab's pending tab.handleEvents.
   const HANDLED_SYNC_TIMEOUT = 5000;
   // What the bounded wait resolves with when the update did not settle.
@@ -545,13 +552,25 @@
   // last listener).
   const HANDLED_KEY_RESEND = Symbol("handled key resend");
 
+  // An emitter of a REPL session (one with `_session`) records the cell
+  // that registered each listener (`session.listenerOwnership`, set by
+  // repl-host.js); a listener of a cell the app cancelled (timed out) is
+  // dropped instead of run, so it cannot act in a later cell.
   class EventEmitter {
     constructor() {
       this._listeners = new Map();
     }
+    _listenerOwner() {
+      const ownership = this._session && this._session.listenerOwnership;
+      return ownership ? ownership.owner() : undefined;
+    }
+    _isLive(listener) {
+      const ownership = this._session && this._session.listenerOwnership;
+      return listener.owner === undefined || !ownership || !ownership.isCancelled(listener.owner);
+    }
     on(event, handler) {
       if (!this._listeners.has(event)) this._listeners.set(event, []);
-      this._listeners.get(event).push({ handler, once: false });
+      this._listeners.get(event).push({ handler, once: false, owner: this._listenerOwner() });
       return this;
     }
     addListener(event, handler) {
@@ -559,7 +578,7 @@
     }
     once(event, handler) {
       if (!this._listeners.has(event)) this._listeners.set(event, []);
-      this._listeners.get(event).push({ handler, once: true });
+      this._listeners.get(event).push({ handler, once: true, owner: this._listenerOwner() });
       return this;
     }
     off(event, handler) {
@@ -576,12 +595,15 @@
       return this;
     }
     listenerCount(event) {
-      return (this._listeners.get(event) || []).length;
+      return (this._listeners.get(event) || []).filter((l) => this._isLive(l)).length;
     }
     emit(event, ...args) {
-      const list = this._listeners.get(event);
-      if (!list || !list.length) return false;
+      const all = this._listeners.get(event);
+      if (!all || !all.length) return false;
+      // A cancelled cell's listeners go now, unrun.
+      const list = all.filter((l) => this._isLive(l));
       this._listeners.set(event, list.filter((l) => !l.once));
+      if (!list.length) return false;
       for (const l of list) {
         try {
           const r = l.handler(...args);
@@ -861,6 +883,10 @@
       return page;
     }
     _materialize(page) {
+      // `background: false` neither shows nor focuses the tab (a session's
+      // tabs.open never does; WebKit loads it the same either way): it makes
+      // the tab the session's current one, which a lazy page is, also when an
+      // unbound fetch is what opens it.
       if (!page._materializing) {
         page._materializing = this.driver.call("tabs.open", { background: false }).then(({ targetId }) => {
           this.pages.delete(page._targetId);
@@ -923,6 +949,10 @@
 
   // Polls `fn` until it returns { done: true, value }, with Playwright's
   // backoff. Driver errors with code "stale" (navigation) are retried.
+  // The page agent's `stale` error for a handle or ref issued by another
+  // document of the frame (page-agent.js, `PREVIOUS_DOCUMENT`).
+  const isPreviousDocumentError = (e) => driverErrorCode(e) === "stale" && /^Element handle is from a previous document\b/.test(String(e && e.message));
+
   async function poll(session, timeout, description, fn) {
     const delays = [0, 20, 50, 100, 100, 500];
     const deadline = timeout ? session.now() + timeout : Infinity;
@@ -946,6 +976,9 @@
         }
       } catch (e) {
         if (!["stale", "not_found"].includes(driverErrorCode(e))) throw e;
+        // A handle or ref of a previous document never names an element of
+        // this one; waiting cannot change that.
+        if (isPreviousDocumentError(e)) throw e;
         lastLog = e.message;
       }
       if (session.now() >= deadline) {
@@ -966,6 +999,8 @@
       this._url = "";
       this._name = "";
       this._detached = false;
+      // The <iframe> handle in the parent this frame was last found through.
+      this._ownerHint = null;
     }
     page() {
       return this._page;
@@ -990,18 +1025,32 @@
     }
     // Script cannot run while a JavaScript dialog is open, so calls fail fast
     // with the way out instead of hanging until the evaluation timeout.
-    _call(world, source, args, handles) {
+    //
+    // Every agent-world reply goes through the page agent's reply budget
+    // (page-agent.js, `reply`): the call's function runs inside it, and a
+    // reply past the budget comes back as a cut marker, which fails the
+    // call with core.readCutNote's words. `what` names the read in them.
+    _call(world, source, args, handles, what) {
       const blocked = this._page._blockedError();
       if (blocked) return Promise.reject(blocked);
-      return this._page._raceDialog(this._session.call("frame.evaluate", {
+      const limit = this._session._replyLimit;
+      const sealed = world !== "agent" ? source
+        : `(...a) => { const A = ${AGENT}; if (!A || typeof A.reply !== "function") throw new Error("the cmux page agent is not in this frame"); ` +
+          `return A.reply((${source})(...a), ${typeof limit === "number" ? limit : "undefined"}); }`;
+      const call = this._page._raceDialog(this._session.call("frame.evaluate", {
         targetId: this._page._targetId,
         frameId: this._id || undefined,
         world,
-        source,
+        source: sealed,
         args: args || [],
         handles: handles || [],
         awaitPromise: true,
       }), true);
+      if (world !== "agent") return call;
+      return call.then((r) => {
+        if (r && typeof r === "object" && !Array.isArray(r) && r[REPLY_CUT]) throw new Error(`Error: ${readCutNote(what || "the page reply", r[REPLY_CUT])}`);
+        return r;
+      });
     }
     // A user function in the page world. JSON has no undefined, so a function
     // that returns undefined sends a marker the result turns back into it,
@@ -1012,13 +1061,15 @@
       return r && typeof r === "object" && !Array.isArray(r) && r[UNDEFINED_MARK] === 1 && Object.keys(r).length === 1 ? undefined : r;
     }
     _agent(method, ...args) {
-      return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args]);
+      return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args], undefined, method);
     }
     async _contentFrame(handle) {
       try {
         const r = await this._session.call("frame.contentFrame", { targetId: this._page._targetId, frameId: this._id || undefined, element: handle });
         if (!r) return null;
-        return this._page._frameFor(r.frameId, this);
+        const child = this._page._frameFor(r.frameId, this);
+        child._ownerHint = handle;
+        return child;
       } catch (e) {
         if (driverErrorCode(e) !== "unsupported") throw e;
       }
@@ -1027,12 +1078,74 @@
       // one) and could read or act in the wrong frame, so there is none.
       return null;
     }
+    // The child frames the <iframe> handles of this frame show, in order
+    // (null where none), in one driver call where the driver has it.
+    async _contentFrames(handles) {
+      if (!handles.length) return [];
+      try {
+        const found = await this._session.call("frame.contentFrames", { targetId: this._page._targetId, frameId: this._id || undefined, elements: handles });
+        return found.map((f, i) => {
+          if (!f) return null;
+          const child = this._page._frameFor(f.frameId, this);
+          child._ownerHint = handles[i];
+          return child;
+        });
+      } catch (e) {
+        if (driverErrorCode(e) !== "unsupported") throw e;
+      }
+      const out = [];
+      for (const h of handles) out.push(await this._contentFrame(h));
+      return out;
+    }
+    // This frame's <iframe> (or <frame>) element, as a handle in the parent
+    // frame, which the driver confirms shows this frame. The element a
+    // locator entered the frame through is tried first, then the one the
+    // frame's own place in window.frames names; both that lookup and, for a
+    // frame in a shadow tree, the walk stay within the parent's node budget
+    // (the page sets the parent's size).
+    async _ownerHandle() {
+      const parent = this._parent;
+      if (this._ownerHint && (await parent._contentFrame(this._ownerHint).catch(() => null)) === this) return this._ownerHint;
+      const position = await this._agent("framePosition");
+      const found = await parent._agent("iframeHandles", position);
+      const frames = await parent._contentFrames(found.handles);
+      const i = frames.indexOf(this);
+      if (i >= 0) return found.handles[i];
+      const name = this._url || this._id;
+      throw Object.assign(new Error(found.truncated
+        ? `The <iframe> of frame ${name} is past the parent frame's node budget (250000 elements), so it is not looked for`
+        : `The <iframe> of frame ${name} is not in its parent frame`), { code: "stale" });
+    }
+    // `point` of this frame in tab viewport coordinates, through each
+    // owner <iframe>'s content box. Input goes to the tab at that point, so
+    // the sum must be where the frame's content is: an <iframe> or an
+    // ancestor that is scaled, rotated, zoomed or otherwise transformed
+    // beyond a translation is refused (the point would be another
+    // element's, maybe in another frame). With `check`, each parent frame
+    // must also have the <iframe> itself at the point, not an element over
+    // it; else { log } says what is there. `owners`, when given, gets each
+    // parent frame's <iframe> and the point in that frame, innermost first:
+    // what a press there must reach (input.mouse `expect`).
+    async _tabPoint(point, check, title, owners) {
+      let frame = this;
+      let at = { x: point.x, y: point.y };
+      while (frame._parent) {
+        const owner = await frame._ownerHandle();
+        const r = await frame._parent._agent("ownerPoint", owner, at, !!check);
+        if (r.error) throw Object.assign(new Error("The frame's <iframe> was detached from the DOM"), { code: "stale" });
+        if (r.transformed) {
+          throw new Error(`${title || "frame"}: the element is in a frame whose <iframe> is transformed (${r.transformed}), so its position in the tab is not known and input could reach another element; cmux maps points into frames only through translations`);
+        }
+        if (check && r.hit !== "done") return { log: `${r.hit} intercepts pointer events` };
+        at = { x: r.x, y: r.y };
+        frame = frame._parent;
+        if (owners) owners.push({ frameId: frame._id || null, handle: owner, x: at.x, y: at.y });
+      }
+      return at;
+    }
     // Offset of this frame's viewport inside the tab viewport.
-    async _viewportOffset() {
-      if (!this._parent) return { x: 0, y: 0 };
-      const box = await this._session.call("frame.ownerBox", { targetId: this._page._targetId, frameId: this._id });
-      const parent = await this._parent._viewportOffset();
-      return { x: parent.x + box.x, y: parent.y + box.y };
+    async _viewportOffset(title) {
+      return this._tabPoint({ x: 0, y: 0 }, false, title);
     }
     async evaluate(fn, arg) {
       return this._evalPage(functionSource(fn), [arg]);
@@ -1040,12 +1153,12 @@
     async evaluateHandle(fn, arg) {
       return this.evaluate(fn, arg);
     }
+    // The document's HTML, read within the page-read budget in the page
+    // agent (see Locator._read).
     async content() {
-      return this.evaluate(() => {
-        let doctype = "";
-        if (document.doctype) doctype = new XMLSerializer().serializeToString(document.doctype);
-        return doctype + (document.documentElement ? document.documentElement.outerHTML : "");
-      });
+      const r = await this._agent("documentHTML");
+      if (r.cut) this._page._printReadCut("page.content", r.cut, "the HTML ends where it stopped");
+      return r.value;
     }
     async title() {
       return this.evaluate(() => document.title);
@@ -1255,7 +1368,11 @@
       const ref = /^aria-ref=((f\d+)?e\d+)(?=$|\s)/.exec(selector);
       if (ref) {
         frame = await this._page._checkRef(ref[1]);
-        selector = selector.replace(/^aria-ref=f\d+/, "aria-ref=");
+        // Pinned to the document the ref came from (`e5@<token>`), so a
+        // navigation after the check fails stale instead of matching there.
+        const local = /e\d+$/.exec(ref[1])[0];
+        const doc = this._page._refDocFor(frame, local);
+        selector = selector.replace(/^aria-ref=(f\d+)?e\d+/, `aria-ref=${local}${doc ? "@" + doc : ""}`);
       }
       const hops = await frame._agent("splitFrames", selector);
       for (let i = 0; i < hops.length - 1; i++) {
@@ -1289,15 +1406,7 @@
       await frame._agent("scrollIntoViewIfNeeded", handle);
       // Bring each owner <iframe> into its parent's viewport too.
       for (let child = frame; child._parent; child = child._parent) {
-        const parent = child._parent;
-        const iframes = await parent._agent("iframeHandles");
-        for (const h of iframes) {
-          const f = await parent._contentFrame(h);
-          if (f === child) {
-            await parent._agent("scrollIntoViewIfNeeded", h);
-            break;
-          }
-        }
+        await child._parent._agent("scrollIntoViewIfNeeded", await child._ownerHandle());
       }
     }
 
@@ -1333,8 +1442,12 @@
             return { log: `${hit} intercepts pointer events` };
           }
         }
-        const offset = await frame._viewportOffset();
-        return { done: true, value: { frame, handle, local: point, x: point.x + offset.x, y: point.y + offset.y } };
+        // The point in the tab, with each parent frame's <iframe> checked
+        // to be at it too (an element over it would take the input).
+        const owners = [];
+        const at = await frame._tabPoint(point, !options.force && !options.trial, title, owners);
+        if (at.log) return { log: at.log };
+        return { done: true, value: { frame, handle, local: point, x: at.x, y: at.y, owners } };
       });
     }
 
@@ -1352,6 +1465,24 @@
         await this._page.mouse.move(target.x, target.y);
         if (options.force) break;
         const hit = await target.frame._agent("hitTarget", target.handle, target.local, "button-link").catch(() => "error:notconnected");
+        if (hit === "done" && target.frame._parent) {
+          // The move can change the parent frames too (a :hover overlay, a
+          // re-layout): each <iframe> must still be what is at the point,
+          // and the point where the pointer is.
+          const owners = [];
+          const at = await target.frame._tabPoint(target.local, true, title, owners).catch((e) => {
+            if (driverErrorCode(e) !== "stale") throw e;
+            return { log: e.message };
+          });
+          const why = at.log || (at.x !== target.x || at.y !== target.y ? "the frame's <iframe> moved" : null);
+          if (!why) {
+            target = { ...target, owners };
+            break;
+          }
+          if (this._session.now() >= deadline) throw new TimeoutError(`${title}: Timeout ${this._timeout(options)}ms exceeded.\n  - ${why}`);
+          await this._session.sleep([20, 50, 100, 100, 500][Math.min(attempt, 4)]);
+          continue;
+        }
         if (hit === "done") break;
         // The page re-rendered the target since the check. When the locator
         // now matches the element under the pointer, that element is the
@@ -1374,11 +1505,11 @@
     }
 
     async click(options = {}) {
-      return this._pointer(options, "locator.click", ["visible", "enabled", "stable"], (t) => this._page._clickAt(t, options));
+      return this._pointer(options, "locator.click", ["visible", "enabled", "stable"], (t) => this._page._clickAt(t, options, "locator.click"));
     }
     async dblclick(options = {}) {
       return this._pointer(options, "locator.dblclick", ["visible", "enabled", "stable"], (t) =>
-        this._page._clickAt(t, { ...options, clickCount: 2 }));
+        this._page._clickAt(t, { ...options, clickCount: 2 }, "locator.dblclick"));
     }
     async tap(options = {}) {
       return this.click(options);
@@ -1388,13 +1519,32 @@
         await this._page.mouse.move(t.x, t.y, { modifiers: options.modifiers });
       });
     }
+    // The press binds to the source and the release to the target, as a
+    // click's press does (Page._clickAt): each names its element and each
+    // parent frame's <iframe> (`expect`, `dropExpect`), and the driver
+    // checks them right before it presses and right before it drops, so a
+    // page that puts another element or frame at either point after the
+    // runtime's checks (or during the drag) gets no press or no drop.
     async dragTo(target, options = {}) {
       const from = await this._actionPoint({ ...options, position: options.sourcePosition }, "locator.dragTo", ["visible", "stable"]);
       const to = await target._actionPoint({ ...options, position: options.targetPosition, force: true }, "locator.dragTo", ["visible", "stable"]);
       const steps = options.steps || 1;
       const path = [{ x: from.x, y: from.y }];
       for (let i = 1; i <= steps; i++) path.push({ x: from.x + ((to.x - from.x) * i) / steps, y: from.y + ((to.y - from.y) * i) / steps });
-      await this._page._input("input.drag", { targetId: this._page._targetId, path, button: "left", modifiers: normalizeModifiers(options.modifiers) });
+      const bind = (t) => !options.force && t.handle !== undefined
+        ? { frameId: t.frame._id || null, handle: t.handle, x: t.local.x, y: t.local.y, owners: t.owners || [] }
+        : null;
+      const expect = bind(from);
+      const dropExpect = bind(to);
+      try {
+        await this._page._input("input.drag", {
+          targetId: this._page._targetId, path, button: "left", modifiers: normalizeModifiers(options.modifiers),
+          ...(expect ? { expect } : {}), ...(dropExpect ? { dropExpect } : {}),
+        });
+      } catch (e) {
+        if ((expect || dropExpect) && /^no (press was sent|drop was made): /.test((e && e.message) || "")) throw new Error(`locator.dragTo: ${e.message}`);
+        throw e;
+      }
       this._page.mouse._x = to.x;
       this._page.mouse._y = to.y;
       await this._page._afterAction();
@@ -1550,7 +1700,7 @@
     async _box(frame, handle) {
       const rect = await frame._agent("rect", handle);
       if (!rect) return null;
-      const offset = await frame._viewportOffset();
+      const offset = await frame._viewportOffset("locator.boundingBox");
       return { x: rect.x + offset.x, y: rect.y + offset.y, width: rect.width, height: rect.height };
     }
     async boundingBox(options = {}) {
@@ -1567,8 +1717,15 @@
       });
       return this._page.screenshot({ ...options, clip: box, fullPage: false });
     }
+    // String reads (textContent, innerText, innerHTML, getAttribute,
+    // inputValue) run within the page-read budget in the page agent: a
+    // value past it is cut there, ends with "…", and a note says where it
+    // stopped.
     async _read(what, arg, options, title) {
-      return this._withElement(options || {}, title, [], (frame, handle) => frame._agent("read", handle, what, arg));
+      if (!BOUNDED_READS.has(what)) return this._withElement(options || {}, title, [], (frame, handle) => frame._agent("read", handle, what, arg));
+      const r = await this._withElement(options || {}, title, [], (frame, handle) => frame._agent("readBounded", handle, what, arg));
+      if (r.cut) this._page._printReadCut(title, r.cut, "the value ends where it stopped");
+      return r.value;
     }
     textContent(options) {
       return this._read("textContent", undefined, options, "locator.textContent");
@@ -1647,11 +1804,20 @@
       const handles = r ? r.handles : [];
       return frame._evalPage(`(...xs) => (${functionSource(fn)})(xs.slice(0, ${handles.length}), xs[${handles.length}])`, [arg], handles);
     }
+    // Read in the page agent within one page-read budget for all the
+    // elements, as _read.
+    async _readAll(what, title) {
+      const r = await this._resolveAll();
+      if (!r || !r.handles.length) return [];
+      const out = await r.frame._agent("readAllBounded", r.handles, what);
+      if (out.cut) this._page._printReadCut(title, out.cut, "the values after it are cut or empty");
+      return out.values;
+    }
     async allTextContents() {
-      return this.evaluateAll((els) => els.map((e) => e.textContent || ""));
+      return this._readAll("textContent", "locator.allTextContents");
     }
     async allInnerTexts() {
-      return this.evaluateAll((els) => els.map((e) => e.innerText));
+      return this._readAll("innerText", "locator.allInnerTexts");
     }
     async count() {
       const r = await this._resolveAll();
@@ -1840,8 +2006,17 @@
     }
     async down(key) {
       const desc = describeKey(key, this._modifiers);
-      if (MODIFIERS.includes(desc.key)) this._modifiers.add(desc.key);
-      await this._send("down", desc);
+      // The modifier counts as held only once its down was delivered: a
+      // down the driver refused (a blocked frame has focus) must not ride
+      // on the next key or click.
+      const added = MODIFIERS.includes(desc.key) && !this._modifiers.has(desc.key);
+      if (added) this._modifiers.add(desc.key);
+      try {
+        await this._send("down", desc);
+      } catch (e) {
+        if (added) this._modifiers.delete(desc.key);
+        throw e;
+      }
     }
     async up(key) {
       const desc = describeKey(key, this._modifiers);
@@ -1856,13 +2031,34 @@
     async press(combo, options = {}) {
       const tokens = splitKeyCombo(combo);
       const key = tokens.pop();
-      for (const t of tokens) await this.down(t);
-      await this.down(key);
+      // The modifiers this press holds, released on every exit: a shortcut
+      // the driver refuses (Undo in a tab that shows a blocked frame, Copy
+      // in a user's tab), a timeout or any other error must not leave Meta
+      // held, which would turn the next key into Meta+key. A key-down the
+      // driver delivered and then refused is released by the driver.
+      const held = [];
+      let pressed = false;
+      try {
+        for (const t of tokens) {
+          await this.down(t);
+          held.push(t);
+        }
+        await this.down(key);
+        pressed = true;
+      } finally {
+        if (!pressed) {
+          const detached = !!this._page._heldDialog;
+          for (const t of held.reverse()) await this._release(t, detached).catch(() => {});
+        }
+      }
       // A key that opened a dialog is released once the dialog is answered.
       const detached = !!this._page._heldDialog;
       if (options.delay && !detached) await this._page._session.sleep(options.delay);
-      await this._release(key, detached);
-      for (const t of tokens.reverse()) await this._release(t, detached);
+      try {
+        await this._release(key, detached);
+      } finally {
+        for (const t of held.reverse()) await this._release(t, detached).catch(() => {});
+      }
     }
     async _release(key, detached) {
       const desc = describeKey(key, this._modifiers);
@@ -1919,15 +2115,31 @@
       const fromX = this._x;
       const fromY = this._y;
       for (let i = 1; i <= steps; i++) {
+        // The pointer is where the last delivered move put it: a move the
+        // driver refused is not the point the next press is sent at.
+        const deliveredX = this._x;
+        const deliveredY = this._y;
         this._x = fromX + ((x - fromX) * i) / steps;
         this._y = fromY + ((y - fromY) * i) / steps;
-        await this._event("move", options.modifiers ? { modifiers: normalizeModifiers(options.modifiers) } : {});
+        try {
+          await this._event("move", options.modifiers ? { modifiers: normalizeModifiers(options.modifiers) } : {});
+        } catch (e) {
+          this._x = deliveredX;
+          this._y = deliveredY;
+          throw e;
+        }
       }
     }
     async down(options = {}) {
       const button = options.button || "left";
+      const added = !this._buttons.has(button);
       this._buttons.add(button);
-      await this._event("down", { button, clickCount: options.clickCount || 1 });
+      try {
+        await this._event("down", { button, clickCount: options.clickCount || 1 });
+      } catch (e) {
+        if (added) this._buttons.delete(button);
+        throw e;
+      }
     }
     async up(options = {}) {
       const button = options.button || "left";
@@ -2011,20 +2223,38 @@
     isMultiple() {
       return !!this._p.multiple;
     }
-    _settle() {
+    // The chooser is answered once the driver confirms the answer. One the
+    // driver refuses (its frame is blocked or stale by now) stays open in
+    // the page, so it stays pending here to be answered again (cancel);
+    // one the driver no longer has (`not_found`) is settled.
+    async _answer(params) {
       if (this._handled) throw new Error("File chooser was already answered");
+      if (this._answering) throw new Error("File chooser is being answered");
+      this._answering = true;
+      try {
+        await this._page._session.call("filechooser.respond", { targetId: this._page._targetId, chooserId: this._p.chooserId, ...params });
+        this._settle();
+      } catch (e) {
+        if (driverErrorCode(e) === "not_found") this._settle();
+        throw e;
+      } finally {
+        this._answering = false;
+      }
+    }
+    _settle() {
       this._handled = true;
       if (this._page._heldChooser === this) this._page._heldChooser = null;
     }
+    // As Playwright's, the files are read first, so a path the REPL may
+    // not read fails with its file error whatever the chooser's state;
+    // _answer refuses an answered chooser.
     async setFiles(files) {
       const payloads = await this._page._filePayloads(files);
       if (payloads.length > 1 && !this.isMultiple()) throw new Error("Error: Non-multiple file input can only accept single file");
-      this._settle();
-      await this._page._session.call("filechooser.respond", { targetId: this._page._targetId, chooserId: this._p.chooserId, files: payloads });
+      await this._answer({ files: payloads });
     }
     async cancel() {
-      this._settle();
-      await this._page._session.call("filechooser.respond", { targetId: this._page._targetId, chooserId: this._p.chooserId, cancel: true });
+      await this._answer({ cancel: true });
     }
   }
 
@@ -2044,6 +2274,7 @@
       return this._p.suggestedFilename;
     }
     async path() {
+      if (this._dropped) throw new Error(this._dropped);
       // A finished download's path is state: use it when the event came.
       const done = this._outcome;
       const { path } = done && done.path ? done : await this._page._session.call("download.path", { downloadId: this._p.downloadId });
@@ -2062,6 +2293,12 @@
     }
     async cancel() {}
     async delete() {}
+    // The tab had too many downloads running; this one is no longer
+    // tracked, and never stands for another.
+    _drop(limit) {
+      this._dropped = `download ${this._p.downloadId} is gone: its tab had more than ${limit} downloads running, and the oldest are no longer tracked`;
+      this._resolveFinished({ error: this._dropped });
+    }
   }
 
   class ConsoleMessage {
@@ -2190,6 +2427,22 @@
 
   // Unfinished requests a page keeps to pair with their later events.
   const MAX_OPEN_REQUESTS = 1000;
+  // Downloads of a tab still running: a page can start them without end,
+  // so past this the oldest is dropped and reads as gone (a finished one
+  // is dropped when it finishes; its Download keeps its outcome).
+  const MAX_RUNNING_DOWNLOADS = 1000;
+  // Ref provenance a Page keeps (Page._noteRefDocs, Page._forgetFrame): the
+  // document of at most MAX_REF_DOCS issued refs in all (twice the largest
+  // snapshot, so one snapshot never drops its own refs), and the prefixes of
+  // at most MAX_FRAME_TOMBSTONES detached frames. A ref whose record is
+  // dropped fails stale; a prefix is never reused, so a dropped prefix's ref
+  // fails as one that does not exist. Neither resolves to another element.
+  const MAX_REF_DOCS = 500000;
+  const MAX_FRAME_TOMBSTONES = 1024;
+  // The document a dropped ref record reads as: no page agent's token
+  // (16 hex digits) equals it, so the agent refuses the ref as another
+  // document's.
+  const DROPPED_REF_DOC = "dropped";
 
   class Page extends EventEmitter {
     constructor(session, targetId) {
@@ -2204,11 +2457,23 @@
       this._requests = new Map();
       this._testIdAttribute = "data-testid";
       // Frame prefixes are assigned once per frame, in DOM order of first
-      // sight, so a frame's refs keep their prefix.
-      this._framePrefixes = new Map();
+      // sight, so a frame's refs keep their prefix. A detached frame's
+      // prefix maps to null (a tombstone, so its refs fail stale), for the
+      // newest MAX_FRAME_TOMBSTONES detached frames.
+      this._framePrefixes = new WeakMap();
       this._prefixFrames = new Map([["", this._mainFrame]]);
+      this._prefixTombstones = new Set();
       this._prefixCounter = 0;
-      this._refMax = new Map();
+      this._refMax = new WeakMap();
+      // Per frame, the document (the page agent's token) each ref this
+      // session received came from. A frame keeps its identity when it
+      // navigates and refs restart in each document, so a ref is checked
+      // against the document that issued it (`_checkRef`). At most
+      // MAX_REF_DOCS records in all; the least recently issued go first,
+      // and `_refFloors` keeps, per frame, the highest ref number dropped.
+      this._refDocs = new Map();
+      this._refDocCount = 0;
+      this._refFloors = new Map();
       this._heldDialog = null;
       this._listenedDialog = null;
       this._dismissedDialogs = [];
@@ -2258,11 +2523,12 @@
       return r;
     }
     _syncHandledEvents(event) {
-      if (event !== undefined && !HANDLED_EVENTS.includes(event)) return;
+      if (event !== undefined && !HANDLED_EVENTS.includes(event) && !NETWORK_EVENTS.includes(event)) return;
       // A tab not opened yet will be one this session opened; those route
       // every event to the session anyway.
       if (this._closed || this._targetId.startsWith("lazy:")) return;
       const events = HANDLED_EVENTS.filter((e) => this.listenerCount(e) > 0);
+      if (NETWORK_EVENTS.some((e) => this.listenerCount(e) > 0)) events.push("network");
       const key = events.join(",");
       if (key === (this._handledKey === undefined || this._handledKey === null ? "" : this._handledKey)) return;
       this._handledKey = key;
@@ -2314,11 +2580,33 @@
       }
       for (const [id, frame] of this._frames) {
         if (!alive.has(frame)) {
-          frame._detached = true;
+          this._forgetFrame(frame);
           this._frames.delete(id);
         }
       }
       return list;
+    }
+    // A frame left the tab: its prefix becomes a tombstone (its refs fail
+    // stale), and its ref records go.
+    _forgetFrame(frame) {
+      frame._detached = true;
+      const prefix = this._framePrefixes.get(frame);
+      if (prefix) this._tombstone(prefix);
+      const docs = this._refDocs.get(frame);
+      if (docs) this._refDocCount -= docs.size;
+      this._refDocs.delete(frame);
+      this._refFloors.delete(frame);
+      this._refMax.delete(frame);
+    }
+    _tombstone(prefix) {
+      this._prefixFrames.delete(prefix);
+      this._prefixFrames.set(prefix, null);
+      this._prefixTombstones.add(prefix);
+      for (const old of this._prefixTombstones) {
+        if (this._prefixTombstones.size <= MAX_FRAME_TOMBSTONES) break;
+        this._prefixTombstones.delete(old);
+        this._prefixFrames.delete(old);
+      }
     }
     _prefixFor(frame) {
       if (frame === this._mainFrame) return "";
@@ -2326,7 +2614,8 @@
       if (!prefix) {
         prefix = `f${++this._prefixCounter}`;
         this._framePrefixes.set(frame, prefix);
-        this._prefixFrames.set(prefix, frame);
+        if (frame._detached) this._tombstone(prefix);
+        else this._prefixFrames.set(prefix, frame);
       }
       return prefix;
     }
@@ -2340,6 +2629,38 @@
     _noteRefMax(frame, max) {
       if (typeof max === "number" && max > this._refMaxFor(frame)) this._refMax.set(frame, max);
     }
+    // Records that `doc` (a page agent's document token) issued `refs` (local
+    // refs, `e5`) in `frame`; a later issue of the same ref rebinds it.
+    // At most MAX_REF_DOCS records are kept: past that the least recently
+    // issued go (the oldest frame's first), and a dropped ref reads as
+    // DROPPED_REF_DOC (`_refDocFor`). A detached frame records nothing.
+    _noteRefDocs(frame, doc, refs) {
+      if (typeof doc !== "string" || frame._detached) return;
+      let docs = this._refDocs.get(frame);
+      if (!docs) this._refDocs.set(frame, (docs = new Map()));
+      for (const ref of refs) {
+        if (typeof ref !== "string") continue;
+        if (docs.delete(ref)) this._refDocCount--;
+        docs.set(ref, doc);
+        this._refDocCount++;
+      }
+      for (const [f, held] of this._refDocs) {
+        for (const ref of held.keys()) {
+          if (this._refDocCount <= MAX_REF_DOCS) return;
+          held.delete(ref);
+          this._refDocCount--;
+          const n = Number(ref.slice(1));
+          if (n > (this._refFloors.get(f) || 0)) this._refFloors.set(f, n);
+        }
+        if (!held.size) this._refDocs.delete(f);
+      }
+    }
+    _refDocFor(frame, local) {
+      const docs = this._refDocs.get(frame);
+      const doc = docs ? docs.get(local) : undefined;
+      if (doc !== undefined) return doc;
+      return Number(local.slice(1)) <= (this._refFloors.get(frame) || 0) ? DROPPED_REF_DOC : undefined;
+    }
     // Returns the frame that owns a live ref, or throws: a ref whose element
     // is gone never rebinds to another element.
     async _checkRef(ref) {
@@ -2352,7 +2673,7 @@
       }
       let state;
       try {
-        state = await frame._agent("refState", local, this._refMaxFor(frame));
+        state = await frame._agent("refState", local, this._refMaxFor(frame), this._refDocFor(frame, local));
       } catch (e) {
         if (driverErrorCode(e) === "stale" || driverErrorCode(e) === "not_found") {
           await this._refreshFrames().catch(() => {});
@@ -2360,6 +2681,9 @@
         }
         throw e;
       }
+      // The ref came from an earlier document of this frame: its number may
+      // name an element of the document shown now, which it never meant.
+      if (state.foreignDoc) throw new StaleRefError(`ref ${ref} is stale: the element is from a previous document; take a new snapshot`);
       if (state.live) return frame;
       if (Number(local.slice(1)) <= Math.max(state.max, this._refMaxFor(frame))) throw stale();
       throw new StaleRefError(`ref ${ref} does not exist; take a new snapshot`);
@@ -2367,6 +2691,7 @@
     async _refForHandle(frame, handle) {
       const r = await frame._agent("refForHandle", handle, this._refMaxFor(frame));
       this._noteRefMax(frame, r.max);
+      this._noteRefDocs(frame, r.doc, [r.ref]);
       return this._prefixFor(frame) + r.ref;
     }
     _pendingDialog() {
@@ -2451,10 +2776,26 @@
       this._viewport = info.viewport;
       return info;
     }
-    async _clickAt(target, options) {
+    // A note for a page read the page-read budget cut.
+    _printReadCut(title, cut, rest) {
+      try {
+        this._session.host.print("warn", `# ${title}: ${readCutNote("it", cut)}; ${rest}`);
+      } catch {}
+    }
+    // The press binds to the target checked last: the move here, and the
+    // page's handlers for it (or for the press before a second one), can
+    // put another element or another frame at the point. Each press names
+    // the target and each parent frame's <iframe> (`expect`), and the
+    // driver checks them in the web content process right before it sends
+    // the press, so a page that changed the point after the runtime's own
+    // check (in the driver round trip) gets no press either.
+    async _clickAt(target, options, title) {
       const button = options.button || "left";
       const count = options.clickCount || 1;
       const modifiers = normalizeModifiers(options.modifiers);
+      const expect = !options.force && target.handle !== undefined
+        ? { frameId: target.frame._id || null, handle: target.handle, x: target.local.x, y: target.local.y, owners: target.owners || [] }
+        : null;
       const call = (type, extra, detached) => this._input("input.mouse", {
         targetId: this._targetId, type, x: target.x, y: target.y, button, clickCount: 0, modifiers, ...extra,
       }, detached);
@@ -2463,7 +2804,12 @@
       this.mouse._y = target.y;
       const activeBefore = await target.frame._agent("activeHandle").catch(() => undefined);
       for (let i = 1; i <= count; i++) {
-        await call("down", { clickCount: i });
+        try {
+          await call("down", expect ? { clickCount: i, expect } : { clickCount: i });
+        } catch (e) {
+          if (expect && /^no press was sent: /.test((e && e.message) || "")) throw new Error(`${title || "locator.click"}: ${e.message}`);
+          throw e;
+        }
         const opened = !!this._heldDialog;
         if (i === 1 && !opened) await target.frame._agent("emulateClickFocus", target.handle, activeBefore).catch(() => {});
         if (options.delay && !opened) await this._session.sleep(options.delay);
@@ -2497,7 +2843,7 @@
       // The next web process has new frame ids; address the main frame by
       // default until frames are read again.
       this._mainFrame._id = null;
-      for (const [, frame] of this._frames) frame._detached = true;
+      for (const [, frame] of this._frames) this._forgetFrame(frame);
       this._frames.clear();
       this.emit("crash", this);
     }
@@ -2505,7 +2851,7 @@
     // to save memory, or recovered a crashed one): frames have new ids.
     _onReplaced() {
       this._mainFrame._id = null;
-      for (const [, frame] of this._frames) frame._detached = true;
+      for (const [, frame] of this._frames) this._forgetFrame(frame);
       this._frames.clear();
     }
     _onClosed() {
@@ -2558,12 +2904,19 @@
     }
     _onDownload(p) {
       const download = new Download(this, p);
-      (this._downloads || (this._downloads = new Map())).set(p.downloadId, download);
+      const running = this._downloads || (this._downloads = new Map());
+      running.set(p.downloadId, download);
+      if (running.size > MAX_RUNNING_DOWNLOADS) {
+        const [oldestId, oldest] = running.entries().next().value;
+        running.delete(oldestId);
+        oldest._drop(MAX_RUNNING_DOWNLOADS);
+      }
       this.emit("download", download);
     }
     _onDownloadFinished(p) {
       const d = this._downloads && this._downloads.get(p.downloadId);
       if (d) {
+        this._downloads.delete(p.downloadId);
         d._outcome = p;
         d._resolveFinished(p);
       }
@@ -2668,6 +3021,7 @@
           continue;
         }
         this._noteRefMax(frame, r.max);
+        this._noteRefDocs(frame, r.doc, [r.ref]);
         const b = r.box;
         return { ref: this._prefixFor(frame) + r.ref, role: r.role, name: r.name, box: { x: b.x + ox, y: b.y + oy, width: b.width, height: b.height } };
       }
@@ -2701,18 +3055,22 @@
     }
     // The tab's cookie calls name it: its cookies live in its own data store
     // (a private tab's, or the session's proxy store, is not the user's
-    // profile). A lazy page has no tab yet, and a closed page none any
-    // more (Playwright's context outlives its pages); their store is the
-    // session's default one.
-    _cookieScope() {
-      return this._closed || String(this._targetId).startsWith("lazy:") ? {} : { targetId: this._targetId };
+    // profile), and a clear covers its site. A lazy page has no tab yet:
+    // its cookie calls name its lazy id, which opens its tab first
+    // (Session.call), so the driver uses that tab's store and site; if the
+    // tab cannot open, the call fails with that error. A closed page has
+    // no store or site any more, so its cookie calls fail with `closed`.
+    // A call without its tab would reach the active tab's store and site.
+    _cookieScope(method) {
+      if (this._closed) throw Object.assign(new Error(`${method}: Target page, context or browser has been closed`), { code: "closed" });
+      return { targetId: this._targetId };
     }
     context() {
       const session = this._session;
       return {
         pages: () => [...session.pages.values()],
-        cookies: (urls) => session.call("cookies.get", { ...this._cookieScope(), urls: urls === undefined ? undefined : [].concat(urls) }),
-        addCookies: (cookies) => session.call("cookies.set", { ...this._cookieScope(), cookies }),
+        cookies: async (urls) => session.call("cookies.get", { ...this._cookieScope("browserContext.cookies"), urls: urls === undefined ? undefined : [].concat(urls) }),
+        addCookies: async (cookies) => session.call("cookies.set", { ...this._cookieScope("browserContext.addCookies"), cookies }),
         clearCookies: (options) => this._clearCookies(options),
       };
     }
@@ -2733,7 +3091,9 @@
         if (typeof v !== "string" && !isRegExp(v)) throw new Error(`${title}: ${key}: expected a string or a RegExp, got ${JSON.stringify(v)}`);
         filters[key] = v;
       }
-      const scope = this._cookieScope();
+      const scope = this._cookieScope(title);
+      // A lazy page's tab opens now, so every call below names that tab.
+      if (String(scope.targetId).startsWith("lazy:")) scope.targetId = await this._session._materialize(this);
       if (options.all) scope.all = true;
       // The driver refuses a tab with no site, and { all: true }, on the
       // user's profile, and knows which store this is.
@@ -2757,7 +3117,7 @@
         v.lastIndex = 0;
         return v.test(String(cookie[key]));
       };
-      const cookies = await this._session.call("cookies.get", scope.targetId ? { targetId: scope.targetId } : {});
+      const cookies = await this._session.call("cookies.get", { targetId: scope.targetId });
       for (const cookie of cookies) {
         if (!["name", "domain", "path"].every((key) => matches(cookie, key))) continue;
         await clear({ ...scope, name: cookie.name, domain: cookie.domain, path: cookie.path });
@@ -3079,8 +3439,24 @@
     return MIME[ext] || "application/octet-stream";
   }
 
+  // The note for a page read cut at the page-read budget (page-agent.js,
+  // readBudget): `cut` is { truncated: "nodes" | "size" | "time" |
+  // "frames", maxNodes, maxSize, frames }. Every read that stops there says
+  // so in these words.
+  const groupDigits = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const BOUNDED_READS = new Set(["textContent", "innerText", "innerHTML", "getAttribute", "inputValue"]);
+  function readCutNote(what, cut) {
+    const why =
+      cut.truncated === "time" ? "after 8 s of reading"
+      : cut.truncated === "size" ? `after ${groupDigits(cut.maxSize)} characters`
+      : cut.truncated === "frames" ? `after ${groupDigits(cut.frames)} frames`
+      : `after ${groupDigits(cut.maxNodes)} nodes`;
+    return `the page is too large to read whole: ${what} stopped ${why}`;
+  }
+
   ns.core = {
     Session,
+    readCutNote,
     Page,
     Frame,
     Locator,

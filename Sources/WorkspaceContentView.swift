@@ -18,10 +18,32 @@ enum WorkspacePanelVisibilityPolicy {
         isWorkspaceVisible: Bool,
         paneHasSelectedTab: Bool,
         isSelectedInPane: Bool,
-        isFocused: Bool
+        isFocused: Bool,
+        isFallbackInPane: Bool = false
     ) -> Bool {
         guard isWorkspaceVisible else { return false }
-        return isSelectedInPane || (isFocused && !paneHasSelectedTab)
+        return isSelectedInPane
+            || (isFocused && !paneHasSelectedTab)
+            || (isFallbackInPane && !paneHasSelectedTab)
+    }
+
+    /// Returns the first tab Bonsplit keeps visible while a pane has no selection.
+    nonisolated static func fallbackTabId(
+        selectedTabId: UUID?,
+        tabIds: [UUID]
+    ) -> UUID? {
+        guard selectedTabId == nil else { return nil }
+        return tabIds.first
+    }
+
+    /// Bonsplit can briefly retain a selected ID for a tab that is being moved
+    /// or closed. Treat that ID as a selection gap until the split state settles.
+    nonisolated static func effectiveSelectedTabId(
+        selectedTabId: UUID?,
+        tabIds: [UUID]
+    ) -> UUID? {
+        guard let selectedTabId, tabIds.contains(selectedTabId) else { return nil }
+        return selectedTabId
     }
 
     nonisolated static func visiblePanelIdForRenderedPane(
@@ -202,6 +224,11 @@ struct WorkspaceContentView: View {
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
 
+    private struct BonsplitPaneRenderSnapshot {
+        let tabIds: [UUID]
+        let selectedTabId: UUID?
+    }
+
     var body: some View {
 #if DEBUG
         let _ = {
@@ -213,25 +240,12 @@ struct WorkspaceContentView: View {
 #endif
         let appearance = PanelAppearance.fromConfig(config)
         let isSplit = workspace.hasMultipleSplitSurfaces
+        let isCanvas = workspace.layoutMode == .canvas
         let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
-
-        // Inactive workspaces are kept alive in a ZStack (for state preservation) but their
-        // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
-        let _ = { workspace.bonsplitController.isInteractive = isWorkspaceInputActive }()
-
-        // Wire up file drop handling so bonsplit's PaneDragContainerView can forward
-        // Finder file drops to the correct terminal panel.
-        let _ = {
-            workspace.bonsplitController.onFileDrop = { [weak workspace] urls, paneId in
-                guard let workspace else { return false }
-                // Find the focused panel in this pane and drop the files into it.
-                guard let tabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id,
-                      let panelId = workspace.panelIdFromSurfaceId(tabId),
-                      let panel = workspace.terminalInputTarget(forPanelID: panelId)?.panel else { return false }
-                return panel.hostedView.handleDroppedURLs(urls)
-            }
-        }()
+        let bonsplitPaneRenderSnapshots: [UUID: BonsplitPaneRenderSnapshot] = isCanvas
+            ? [:]
+            : Self.bonsplitPaneRenderSnapshots(for: workspace.bonsplitController)
 
         let bonsplitView = BonsplitView(controller: workspace.bonsplitController) { tab, paneId in
             // Content for each tab in bonsplit
@@ -246,13 +260,23 @@ struct WorkspaceContentView: View {
                 // Gated focus for the ring/active state only: the main pane yields
                 // its focus ring while the right sidebar (Dock) owns focus.
                 let isFocused = isFocusedPanel && !rightSidebarOwnsInputFocus
-                let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
-                let isSelectedInPane = selectedTab?.id == tab.id
+                // This content builder only needs selection identity. Building a
+                // full Tab snapshot also reads its title and icon metadata, which
+                // subscribes pane content to unrelated tab-bar changes.
+                let paneSnapshot = bonsplitPaneRenderSnapshots[paneId.id]
+                    ?? BonsplitPaneRenderSnapshot(tabIds: [], selectedTabId: nil)
+                let selectedTabId = paneSnapshot.selectedTabId
+                let isSelectedInPane = selectedTabId == tab.id.uuid
+                let isFallbackInPane = WorkspacePanelVisibilityPolicy.fallbackTabId(
+                    selectedTabId: selectedTabId,
+                    tabIds: paneSnapshot.tabIds
+                ) == tab.id.uuid
                 let isVisibleInUI = Self.panelVisibleInUI(
                     isWorkspaceVisible: isWorkspaceVisible,
-                    paneHasSelectedTab: selectedTab != nil,
+                    paneHasSelectedTab: selectedTabId != nil,
                     isSelectedInPane: isSelectedInPane,
-                    isFocused: isFocusedPanel
+                    isFocused: isFocusedPanel,
+                    isFallbackInPane: isFallbackInPane
                 )
                 let showsNotificationRing = Workspace.shouldShowUnreadIndicator(
                     hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
@@ -361,6 +385,8 @@ struct WorkspaceContentView: View {
         .id(splitZoomRenderIdentity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
+            syncBonsplitInteractivity()
+            installBonsplitFileDropHandler()
             updateAgentHibernationPresentationVisibility()
             syncBonsplitNotificationBadges()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
@@ -374,7 +400,16 @@ struct WorkspaceContentView: View {
             )
         }
         .onChange(of: isWorkspaceInputActive) { _, _ in
+            syncBonsplitInteractivity()
             updateAgentHibernationPresentationVisibility()
+        }
+        .onChange(of: ObjectIdentifier(workspace)) { _, _ in
+            // A restored tab can replace its Workspace instance without changing
+            // the ForEach identity. Rebind handlers to the live controller when
+            // that happens instead of leaving the old instance captured by the
+            // drop callback.
+            syncBonsplitInteractivity()
+            installBonsplitFileDropHandler()
         }
         .onDisappear {
             workspace.setAgentHibernationAutoResumePresentationVisible(false)
@@ -428,7 +463,7 @@ struct WorkspaceContentView: View {
         }
 
         Group {
-            if workspace.layoutMode == .canvas {
+            if isCanvas {
                 WorkspaceCanvasHostView(
                     workspace: workspace,
                     isWorkspaceVisible: isWorkspaceVisible,
@@ -455,6 +490,58 @@ struct WorkspaceContentView: View {
             sourceView: workspace.cloudPaneCreationFailureSourceView
         ))
     }
+
+    /// Captures the selection identity needed by each pane before Bonsplit
+    /// invokes its content closure once for every tab.
+    private static func bonsplitPaneRenderSnapshots(
+        for controller: BonsplitController
+    ) -> [UUID: BonsplitPaneRenderSnapshot] {
+        var snapshots: [UUID: BonsplitPaneRenderSnapshot] = [:]
+        for paneId in controller.allPaneIds {
+            let tabIds = controller.tabIds(inPane: paneId).map(\.uuid)
+            let selectedTabId = WorkspacePanelVisibilityPolicy.effectiveSelectedTabId(
+                selectedTabId: controller.selectedTabId(inPane: paneId)?.uuid,
+                tabIds: tabIds
+            )
+            snapshots[paneId.id] = BonsplitPaneRenderSnapshot(
+                tabIds: tabIds,
+                selectedTabId: selectedTabId
+            )
+        }
+        return snapshots
+    }
+
+    /// Keeps inactive workspaces from accepting AppKit drops without mutating
+    /// Bonsplit's observable state while SwiftUI is evaluating `body`.
+    private func syncBonsplitInteractivity() {
+        Self.syncBonsplitInteractivity(
+            workspace.bonsplitController,
+            isInputActive: isWorkspaceInputActive
+        )
+    }
+
+    /// Applies the active workspace input state only when Bonsplit needs a new value.
+    static func syncBonsplitInteractivity(
+        _ controller: BonsplitController,
+        isInputActive: Bool
+    ) {
+        guard controller.isInteractive != isInputActive else { return }
+        controller.isInteractive = isInputActive
+    }
+
+    /// Routes Finder drops to the focused terminal without rebuilding the
+    /// closure during every Bonsplit body evaluation.
+    private func installBonsplitFileDropHandler() {
+        workspace.bonsplitController.onFileDrop = { [weak workspace] urls, paneId in
+            guard let workspace else { return false }
+            // Find the focused panel in this pane and drop the files into it.
+            guard let tabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id,
+                  let panelId = workspace.panelIdFromSurfaceId(tabId),
+                  let panel = workspace.terminalInputTarget(forPanelID: panelId)?.panel else { return false }
+            return panel.hostedView.handleDroppedURLs(urls)
+        }
+    }
+
     private func syncBonsplitNotificationBadges() {
         let manualUnread = workspace.manualUnreadPanelIds
         let restoredUnread = workspace.restoredUnreadPanelIds

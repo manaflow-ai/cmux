@@ -1,6 +1,7 @@
 import CmuxSettings
 import Foundation
 import Testing
+import CmuxMemoryPressure
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

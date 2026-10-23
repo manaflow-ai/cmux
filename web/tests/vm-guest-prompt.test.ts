@@ -252,6 +252,36 @@ print("named", ready.wait(2.0))
     expect(result.stdout.trim().split("\n")).toEqual(["default False", "named True"]);
   });
 
+  test("prompt sync never polls faster after a failure than after a success", async () => {
+    // Every success waits 30 s. A refused credential used to retry every 8 s
+    // forever, so a machine whose credential stopped working polled almost
+    // four times as often as a healthy one.
+    const script = path.join(import.meta.dirname, "../services/vms/images/devbox/cmux-prompt-sync");
+    const result = await runChild("python3", ["-c", String.raw`
+import importlib.util, importlib.machinery, io, sys, urllib.error
+sys.dont_write_bytecode = True
+loader = importlib.machinery.SourceFileLoader("prompt_sync", sys.argv[1])
+spec = importlib.util.spec_from_loader("prompt_sync", loader)
+module = importlib.util.module_from_spec(spec); loader.exec_module(module)
+def run(error, count):
+    delay, delays = None, []
+    for _ in range(count):
+        delay = module.retry_delay(delay, error)
+        delays.append(delay)
+    return delays
+refused = urllib.error.HTTPError("https://reflection.cmux.internal/name", 401, "Unauthorized", {}, io.BytesIO())
+print("refused", run(refused, 11))
+print("transport", run(urllib.error.URLError("timed out"), 8))
+`, script]);
+    expect(result.stderr).toBe("");
+    // Boot still retries fast while the edge activates (~20-30 s), then a
+    // refusal backs off to 5 minutes and a transport failure to the 30 s cadence.
+    expect(result.stdout.trim().split("\n")).toEqual([
+      "refused [1, 2, 4, 8, 16, 32, 64, 128, 256, 300, 300]",
+      "transport [1, 2, 4, 8, 16, 30, 30, 30]",
+    ]);
+  });
+
   test("prompt sync creates the first workspace only after the daemon answers with no terminal", async () => {
     // A warm clone's daemon is still adopting the template terminal when the
     // prompt sync starts. An unanswered list must not fall through to a
@@ -311,7 +341,36 @@ module.seed_terminal(ready, pathlib.Path(sys.argv[2]))
 print(json.dumps(calls))
 `, script, fixture()], { env: { ...process.env, CMUX_PROMPT_RUN_DIR: run } });
     expect(result.stderr).toBe("");
-    expect(JSON.parse(result.stdout)).toEqual(["terminal term_adopted history clear --quiet", "terminal term_adopted keys ctrl+c --quiet"]);
+    expect(JSON.parse(result.stdout)).toEqual(["terminal term_adopted history clear --quiet", "terminal term_adopted keys ctrl+l --quiet"]);
+  });
+
+  test("prompt sync clears the baked prompt even after the clone prompt is named", async () => {
+    const script = path.join(import.meta.dirname, "../services/vms/images/devbox/cmux-prompt-sync");
+    const run = path.join(fixture(), "run");
+    mkdirSync(run);
+    writeFileSync(path.join(run, "bound"), "CMUX_TUI_SESSION_ID=session_clone\nCMUX_TUI_TERMINAL_ID=term_adopted\n");
+    writeFileSync(path.join(run, "first-prompt-named"), "");
+    const result = await runChild("python3", ["-c", String.raw`
+import importlib.util, importlib.machinery, json, pathlib, sys, threading, types
+sys.dont_write_bytecode = True
+loader = importlib.machinery.SourceFileLoader("prompt_sync", sys.argv[1])
+spec = importlib.util.spec_from_loader(loader.name, loader)
+module = importlib.util.module_from_spec(spec); loader.exec_module(module)
+module.time = types.SimpleNamespace(sleep=lambda _: None, monotonic=module.time.monotonic)
+calls = []
+def tui(*args):
+    calls.append(" ".join(args))
+    return types.SimpleNamespace(returncode=0, stdout="")
+module.tui = tui
+ready = threading.Event(); ready.set()
+module.seed_terminal(ready, pathlib.Path(sys.argv[2]))
+print(json.dumps(calls))
+`, script, run], { env: { ...process.env, CMUX_PROMPT_RUN_DIR: run } });
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toEqual([
+      "terminal term_adopted history clear --quiet",
+      "terminal term_adopted keys ctrl+l --quiet",
+    ]);
   });
 
   test("the armed template shell waits for its clone binding and replaces the builder's ids", async () => {

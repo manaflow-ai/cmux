@@ -1,7 +1,17 @@
 #!/bin/bash
-# gh-merge-green REPO#PR [--main-fix] [--override "reason"] [gh pr merge flags...]
-# Merges only when the PR head's required-in-practice checks are green.
-# main has no required status checks, so `gh pr merge --auto` merges at once; agents use this instead.
+# gh-merge-green REPO#PR [--full] [--wait SECONDS] [--dry-run] [--sha SHA] [--main-fix] [--override "reason"] [--trust-fork-head SHA] [gh pr merge flags...]
+# gh-merge-green --revert REPO#PR: open a revert PR for a merged PR and land it (scripts/ci/revert_pr.py).
+# Optional helper: merges only when the PR head's checks are green.
+# Into feat-cmux-next it applies a FAST gate by default (scripts/ci/merge_fast_gate.py):
+# it waits up to --wait seconds (default 2400) for path routing, the fast tier and the touched
+# compiles on the exact head, waits for lint and risk evidence (a red risk evidence is never waived),
+# and refuses a completed red in those, in the web, app size or crash families, or in a
+# full-gate lane (ci-status, Release compile, swift test). It also checks conflict markers and freezes. The full suites run after
+# the merge; the culprit bot and the base sheriff revert or fix forward.
+# --full keeps the wait for every check (main, classic), as does every base other than
+# feat-cmux-next. Every feat-cmux-next merge, on either gate, also needs an independent review's SHIP
+# receipt for the exact head (scripts/ci/review_receipt.py), which nothing waives.
+# One `gh-merge-green:` line at exit says what was checked and how long it waited.
 set -Eeuo pipefail
 
 repair_note='see cmuxterm-hq REPAIR.md#merging'
@@ -11,22 +21,72 @@ print_repair() {
   printf 'fix: %s\n%s\n' "$1" "$repair_note" >&2
 }
 
+# bash 3.2 (macOS /bin/bash) runs the ERR trap inside $(...) even under `if !`;
+# a subshell only hands its status back, and the caller decides what it means.
+# (2026-10-19: every refusal that went through base_red_excuse.py printed this
+# trap's generic line first.) In the main shell an unexpected failure names itself.
 on_error() {
-  local status=$?
+  local status="$1" line="$2" command="$3"
+  [ "${BASH_SUBSHELL:-0}" -gt 0 ] && exit "$status"
   if [ "$refusal_reported" -eq 0 ]; then
+    refusal_reported=1
+    printf 'not green: an unexpected command failed (exit %s) at gh-merge-green line %s: %s\n' "$status" "$line" "$command" >&2
     print_repair "inspect the failed GitHub query or command, then retry after it is healthy"
   fi
   exit "$status"
 }
 
+install_error_trap() {
+  trap 'on_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
+}
+
 refuse() {
   refusal_reported=1
   printf '%s\n' "$1" >&2
+  rate_limit_caused
   print_repair "$2"
   exit 1
 }
 
-trap on_error ERR
+# A fallback answered for a rate-limited read: that hit cost nothing, so a later red is a red.
+fallback_answered() {
+  [ -z "${rate_limit_seen:-}" ] || : >"$rate_limit_seen"
+}
+
+# A refusal after a read GitHub rate-limited (gh() below noted it, even where the caller
+# discarded its stderr) is the rate limit's: say so, with the reset time, and exit 75.
+rate_limit_caused() {
+  if [ -n "${rate_limit_seen:-}" ] && [ -s "$rate_limit_seen" ]; then
+    refuse_rate_limited "GitHub rate-limited $(sort -u "$rate_limit_seen" | paste -sd ';' - | sed 's/;/, /g'), so the refusal above may be the rate limit's"
+  fi
+}
+
+# Details first, then the one-line reason, so `| tail -5` still shows the reason.
+refuse_with_details() {
+  refusal_reported=1
+  [ -n "$2" ] && printf '%s\n' "$2" | sed 's/^/  /' >&2
+  printf '%s\n' "$1" >&2
+  rate_limit_caused
+  print_repair "$3"
+  exit 1
+}
+
+install_error_trap
+
+case "${1:-}" in
+  -h|--help)
+    printf '%s\n' \
+      'usage: gh-merge-green OWNER/REPO#PR [--full] [--wait SECONDS] [--dry-run] [--sha SHA] [--main-fix] [--override "reason"] [--trust-fork-head SHA] [gh pr merge flags...]' \
+      '       gh-merge-green --revert OWNER/REPO#PR' \
+      'Merges only when the PR head'"'"'s required-in-practice checks are green.' \
+      'Into feat-cmux-next it waits only for the fast gate (scripts/ci/merge_fast_gate.py); --full waits for every check.' \
+      '--dry-run runs every gate, then posts and merges nothing.' \
+      '--sha SHA (or --match-head-commit SHA) refuses unless SHA is the current head.' \
+      'gh pr merge flags passed on: --squash --merge --rebase --delete-branch --subject --body --body-file --author-email --auto --disable-auto --admin' \
+      "$repair_note"
+    exit 0
+    ;;
+esac
 
 [ "$#" -gt 0 ] || refuse \
   'not green: missing OWNER/REPO#NUMBER' \
@@ -58,12 +118,15 @@ maybe_update_checkout() {
   if ! checkout_root=$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null); then
     return 0
   fi
-  if ! status=$(git -C "$checkout_root" status --porcelain --untracked-files=all 2>/dev/null); then
+  # Only tracked edits block the update. An untracked file (Spotlight's .metadata_never_index
+  # stalled cosmic-gray's checkout for 14 h) can't be lost: the fast-forward below refuses one
+  # it would overwrite.
+  if ! status=$(git -C "$checkout_root" status --porcelain --untracked-files=no 2>/dev/null); then
     warn_checkout "cannot inspect helper checkout $checkout_root; not auto-updating"
     return 0
   fi
   if [ -n "$status" ]; then
-    warn_checkout "helper checkout $checkout_root is dirty; not auto-updating (commit or stash its changes)"
+    warn_checkout "helper checkout $checkout_root is dirty (tracked files changed); not auto-updating (commit or stash its changes)"
     return 0
   fi
   if ! branch=$(git -C "$checkout_root" branch --show-current 2>/dev/null) || [ "$branch" != main ]; then
@@ -101,15 +164,138 @@ maybe_update_checkout() {
 
 maybe_update_checkout "$ref" "$@"
 
+# --revert: one-command rollback. The revert PR lands through this same tool.
+if [ "$ref" = --revert ]; then
+  exec python3 "$script_dir/ci/revert_pr.py" "$@"
+fi
+
+# One line at exit, merged or refused: what was checked and how long it waited.
+# outcome becomes merged only after the merge succeeds; the gate is unknown until
+# the base is read. The trap also removes the temp files a refusal or Ctrl-C
+# leaves behind (tmp_files).
+gate_mode=unknown
+gate_checked=''
+waited_seconds=0
+outcome=refused
+started_at=$(date +%s)
+tmp_files=()
+gate_waiting_since=''
+print_summary() {
+  local took=$(( $(date +%s) - started_at ))
+  [ "${#tmp_files[@]}" -eq 0 ] || rm -rf -- "${tmp_files[@]}"
+  # Stopped (a signal, or the caller's timeout) while the gate still waited: say so, and for how
+  # long, rather than "nothing reported; waited 0m00s".
+  if [ -n "$gate_waiting_since" ]; then
+    waited_seconds=$(( $(date +%s) - gate_waiting_since ))
+    gate_checked="still waiting for the gate's lanes when stopped"
+  fi
+  printf 'gh-merge-green: %s %s (%s gate: %s; waited %dm%02ds, %ds in all)\n' "$outcome" "$ref" "$gate_mode" \
+    "${gate_checked:-nothing reported}" $((waited_seconds / 60)) $((waited_seconds % 60)) "$took" >&2
+}
+trap print_summary EXIT
+
+# Every gh call notes a rate-limited response in $rate_limit_seen, even one whose caller
+# discards stderr and takes a fallback: a spent REST pool otherwise reads as "the base's
+# paths filter is unreadable", and the fast gate then waited out --wait for routing that
+# never comes (2026-10-20: GraphQL and REST both spent, refused about 30 minutes later).
+rate_limit_seen=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-rate.XXXXXX")
+tmp_files+=("$rate_limit_seen")
+# By path: bash 3.2 runs the ERR trap for a failing `command gh` even under `||`.
+gh_bin=$(type -P gh || true)
+gh_bin=${gh_bin:-/nonexistent/gh}
+gh() {
+  local errors status=0
+  errors=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-gh.XXXXXX")
+  "$gh_bin" "$@" 2>"$errors" || status=$?
+  if [ "$status" -ne 0 ] && graphql_quota_error "$errors"; then
+    printf 'gh %s %s\n' "${1:-}" "${2:-}" >>"$rate_limit_seen"
+  fi
+  cat "$errors" >&2
+  rm -f "$errors"
+  return "$status"
+}
+trap 'outcome="stopped by SIGINT (check the PR)"; exit 130' INT
+trap 'outcome="stopped by SIGTERM (check the PR)"; exit 143' TERM
+
 # --main-fix delegates to the existing compile/test evidence validator. That
 # path posts the required audit comment before merging a red-main fix-forward.
 fix=0
+full=0
+wait_seconds=2400
 override_reason=''
+trust_fork_head=''
+expected_head=''
+dry_run=0
 args=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --main-fix)
       fix=1
+      ;;
+    --full)
+      full=1
+      ;;
+    --dry-run)
+      dry_run=1
+      ;;
+    --sha|--match-head-commit|--sha=*|--match-head-commit=*)
+      # The helper always pins gh pr merge to the head it checked; a caller's
+      # SHA is an assertion about that head (cmuxterm-hq#2554 passed --sha, which
+      # reached gh pr merge after every gate and died in its usage text).
+      case "$1" in
+        *=*) value="${1#*=}" ;;
+        *)
+          [ "$#" -ge 2 ] || refuse \
+            "not green: $1 requires the head commit SHA" \
+            "pass $1 followed by the head SHA you reviewed"
+          value="$2"
+          shift
+          ;;
+      esac
+      value=$(tr '[:upper:]' '[:lower:]' <<<"$value")
+      [[ "$value" =~ ^[0-9a-f]{7,40}$ ]] || refuse \
+        "not green: '$value' is not a commit SHA" \
+        'pass the head commit SHA (7 to 40 hex characters)'
+      expected_head="$value"
+      ;;
+    -s|--squash|-m|--merge|-r|--rebase|-d|--delete-branch|--auto|--disable-auto|--admin)
+      args+=("$1")
+      ;;
+    -t|--subject|-b|--body|-F|--body-file|-A|--author-email)
+      [ "$#" -ge 2 ] || refuse \
+        "not green: $1 requires a value" \
+        "pass $1 followed by its value, or drop it"
+      args+=("$1" "$2")
+      shift
+      ;;
+    --subject=*|--body=*|--body-file=*|--author-email=*)
+      args+=("$1")
+      ;;
+    --wait)
+      [ "$#" -ge 2 ] && [[ "$2" =~ ^[0-9]+$ ]] || refuse \
+        'not green: --wait requires a number of seconds' \
+        'pass --wait followed by the most seconds the fast gate may wait, for example --wait 1800'
+      wait_seconds="$2"
+      shift
+      ;;
+    --freeze-token|--window-token)
+      # Retired with the WINDOW file on cmux-lawrence: freezes are merge-freeze
+      # issues now (docs/ci/merge-freeze.md). Old callers still parse.
+      [ "$#" -ge 2 ] || refuse \
+        "not green: $1 requires a value" \
+        "drop $1; freezes are merge-freeze issues now (docs/ci/merge-freeze.md)"
+      echo "warning: $1 is retired and ignored; a freeze's owner lets a PR through with the freeze-ok label (docs/ci/merge-freeze.md)" >&2
+      shift
+      ;;
+    --trust-fork-head)
+      [ "$#" -ge 2 ] || refuse \
+        'not green: --trust-fork-head requires the full reviewed commit SHA' \
+        'review the fork code that merged-head checks execute, then pass its exact head'
+      [[ "$2" =~ ^[0-9a-f]{40}$ ]] || refuse \
+        'not green: --trust-fork-head requires a full lowercase 40-character SHA' \
+        'pass the exact reviewed head, not a branch or an abbreviated SHA'
+      trust_fork_head="$2"
+      shift
       ;;
     --override)
       [ "$#" -ge 2 ] || refuse \
@@ -119,7 +305,11 @@ while [ "$#" -gt 0 ]; do
       shift
       ;;
     *)
-      args+=("$1")
+      # Checked before any GitHub query: gh pr merge would otherwise refuse
+      # only after every gate ran, its usage text burying the reason.
+      refuse \
+        "not green: unknown option '$1' for $ref; nothing was checked or merged" \
+        'drop it; gh-merge-green --help lists its options and the gh pr merge flags it passes on'
       ;;
   esac
   shift
@@ -133,12 +323,177 @@ if [ -n "$override_reason" ]; then
       'explain the concrete red check and why this exact head is safe to merge'
   fi
 fi
+vercel_gate='required'
+if [ -n "$override_reason" ] && [[ "$override_reason" =~ [Vv]ercel ]]; then
+  # An explicit, auditable override may waive Vercel-family statuses when they
+  # are pending or red; all other pending statuses remain merge blockers.
+  vercel_gate='override'
+fi
 if [ "$fix" -eq 1 ] && [ -n "$override_reason" ]; then
   refuse \
     'not green: --override cannot be combined with --main-fix' \
     'use --main-fix for its evidence path, or run the normal exact-head merge with --override'
 fi
+
+# gh pr view/merge use GraphQL internally. Keep the REST escape hatch narrow:
+# only an explicit GraphQL rate-limit response may fall back, and all other
+# transport/auth/query failures remain hard refusals. REST metadata is
+# normalized to the fields used below so fork and exact-head checks are kept.
+graphql_quota_error() {
+  grep -Eiq '(^|[^[:alnum:]])(api[[:space:]]+rate[[:space:]]+limit[[:space:]]+exceeded|secondary[[:space:]]+rate[[:space:]]+limit|rate[[:space:]]+limit[[:space:]]+exceeded|graphql[^[:cntrl:]]*(api[[:space:]]+rate[[:space:]]+limit|secondary[[:space:]]+rate[[:space:]]+limit|quota))([^[:alnum:]]|$)' "$1"
+}
+
+# A GitHub read that hit the API rate limit refuses at once, with each pool's reset time
+# (scripts/ci/gh_rate_limit.py; `gh api rate_limit` costs no quota), and exits 75, not 1:
+# a rate limit is not a red, and the caller retries after the reset (2026-10-20: GraphQL
+# and its REST fallback were both spent and the refusal came about 30 minutes later).
+refuse_rate_limited() {
+  local limits
+  limits=$(python3 "$script_dir/ci/gh_rate_limit.py" --after-limit 2>/dev/null) || limits='the reset time is unknown'
+  outcome='refused (GitHub rate limit)'
+  refusal_reported=1
+  printf 'rate-limited: %s; %s\n' "$1" "$limits" >&2
+  print_repair 'wait for the reset above, then rerun the same command; nothing was merged'
+  exit 75
+}
+
+rest_pull_request_metadata() {
+  local raw
+  raw=$(gh api "repos/$repo/pulls/$num") || return 1
+  jq -c '{headRefOid:(.head.sha // ""), baseRefName:(.base.ref // ""), labels:(.labels // []), isCrossRepository:(((.head.repo.full_name // "") != (.base.repo.full_name // ""))), headRepositoryOwnerLogin:(.head.repo.owner.login // ""), headRepositoryNameWithOwner:(.head.repo.full_name // ""), title:(.title // ""), body:(.body // "")}' <<<"$raw"
+}
+
+graphql_error_file=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-graphql.XXXXXX")
+if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,labels,isCrossRepository,headRepositoryOwner,headRepository,title,body 2>"$graphql_error_file"); then
+  if graphql_quota_error "$graphql_error_file"; then
+    if ! pr_json=$(rest_pull_request_metadata 2>"$graphql_error_file"); then
+      if graphql_quota_error "$graphql_error_file"; then
+        rm -f "$graphql_error_file"
+        refuse_rate_limited "GraphQL and its REST fallback are both rate-limited reading $ref"
+      fi
+      rm -f "$graphql_error_file"
+      refuse \
+        "not green: GraphQL metadata was rate-limited and REST metadata failed for $ref" \
+        'restore GitHub API access, then retry the same exact head'
+    fi
+  else
+    rm -f "$graphql_error_file"
+    refuse \
+      "not green: cannot read $ref" \
+      'check the repository, pull request number, GitHub login, and network access'
+  fi
+fi
+rm -f "$graphql_error_file"
+# A rate-limited metadata read was handled above (its REST fallback answered).
+: >"$rate_limit_seen"
+if ! fields=$(jq -r '[.headRefOid // "", .baseRefName // ""] | @tsv' <<<"$pr_json" 2>/dev/null); then
+  refuse \
+    "not green: GitHub returned invalid metadata for $ref" \
+    'retry after GitHub returns headRefOid and baseRefName'
+fi
+IFS=$'\t' read -r sha base <<<"$fields"
+
+# Owner-controlled cmux forks are trusted for the local merged-head checks.
+# Keep this allowlist narrow and repository-specific: arbitrary forks remain
+# fail-closed unless an operator supplies --trust-fork-head for the exact SHA.
+trusted_fork_owner='teamleaderleo'
+trusted_fork_repo='teamleaderleo/cmux'
+fork_trusted=0
+if jq -e --arg owner "$trusted_fork_owner" --arg repo "$trusted_fork_repo" \
+    '.isCrossRepository == true and
+     ((.headRepositoryOwnerLogin // .headRepositoryOwner.login // "") | ascii_downcase == ($owner | ascii_downcase)) and
+     ((.headRepositoryNameWithOwner // .headRepository.nameWithOwner // "") | ascii_downcase == ($repo | ascii_downcase))' \
+    <<<"$pr_json" >/dev/null 2>&1; then
+  fork_trusted=1
+  printf 'note: trusting owner-controlled fork %s for %s; exact-head and merged-tree checks still run\n' \
+    "$trusted_fork_repo" "$ref" >&2
+fi
+if [ -n "$trust_fork_head" ] && [ "$trust_fork_head" != "$sha" ]; then
+  refuse \
+    "not merged: reviewed fork head $trust_fork_head does not match current head $sha" \
+    'review the current fork head before rerunning with --trust-fork-head'
+fi
+if [ -z "$sha" ] || [ -z "$base" ]; then
+  refuse \
+    "not green: GitHub metadata for $ref has no head SHA or base branch" \
+    'refresh the pull request metadata and retry'
+fi
+if [ -n "$expected_head" ] && [ "${sha#"$expected_head"}" = "$sha" ]; then
+  refuse \
+    "not green: $ref head is $sha, not the expected $expected_head; nothing was checked or merged" \
+    'review the current head, then retry with its SHA'
+fi
+if jq -e 'any(.labels[]?; .name == "exploration")' <<<"$pr_json" >/dev/null 2>&1; then
+  refuse \
+    'exploration PR, needs a decision from Leo or the team before merging.' \
+    'remove the exploration label only after Leo or the team decides to merge'
+fi
+# Advisory only: a bug-fix PR should carry an Observed / Not run proof
+# section. The checker always exits 0 and a missing python3 is ignored.
+if [ -f "$script_dir/ci/pr_proof_section.py" ]; then
+  python3 "$script_dir/ci/pr_proof_section.py" <<<"$pr_json" || true
+fi
 [ $# -gt 0 ] || set -- --squash
+fast=0
+[ "$base" = feat-cmux-next ] && [ "$full" -eq 0 ] && [ "$fix" -eq 0 ] && fast=1
+gate_mode=full
+[ "$fast" -eq 1 ] && gate_mode=fast
+[ "$fix" -eq 1 ] && gate_mode=main-fix
+# The full gate refuses an untrusted fork in merged_head_checks; the fast gate
+# may skip those, so it refuses the fork here, before it reads or waits for
+# anything (#21587). The freeze check still runs after the gate for a trusted fork.
+if [ "$fast" -eq 1 ] && jq -e '.isCrossRepository == true' <<<"$pr_json" >/dev/null 2>&1 &&
+   [ "$fork_trusted" -ne 1 ] && [ -z "$trust_fork_head" ]; then
+  refuse \
+    "not merged: $ref is from an untrusted fork; the fast gate does not merge unreviewed fork code" \
+    "review that code, then rerun with --trust-fork-head $sha; only teamleaderleo/cmux is owner-trusted"
+fi
+# Before any gate reads or waits: a spent REST pool fails every check-run, file and log read
+# below, and the fast gate polls GraphQL. Refuse now with the reset time rather than after a
+# chain of fallbacks. An unreadable rate_limit counts as not spent.
+if [ "$(python3 "$script_dir/ci/gh_rate_limit.py" --exhausted core 2>/dev/null || true)" = spent ]; then
+  refuse_rate_limited "GitHub's REST quota is spent, and every gate reads check runs through it"
+fi
+if [ "$fast" -eq 1 ] && [ "$(python3 "$script_dir/ci/gh_rate_limit.py" --exhausted graphql 2>/dev/null || true)" = spent ]; then
+  refuse_rate_limited "GitHub's GraphQL quota is spent, and the fast gate polls the pull request through it"
+fi
+# Into feat-cmux-next a head merges only with an independent review's SHIP receipt for that
+# exact commit (scripts/ci/review_receipt.py), the rule next-autoland applies: cmux#22899 merged
+# before its re-review, which then found cmux#22988 (2026-10-21). Like a red risk evidence,
+# nothing waives a missing receipt, --override included. It is read before the gate waits and
+# again before the merge, ahead of any merge-override comment, so a BLOCK posted during the
+# wait stops it. Pass `final` for that second read.
+review_receipt_gate() {
+  local receipt_args=("$repo" "$num" "$sha") receipt_out receipt_err receipt_status=0 fixture
+  # Tests hand the checker a recorded read. GH_MERGE_GREEN_TEST left set in a real shell
+  # without the fixture refuses, rather than reading as no reviews.
+  if [ -n "${GH_MERGE_GREEN_TEST:-}" ]; then
+    if [ -z "${GH_MERGE_GREEN_REVIEWS:-}" ]; then
+      refuse \
+        "not merged: review receipt unknown for $ref (GH_MERGE_GREEN_TEST is set without GH_MERGE_GREEN_REVIEWS)" \
+        'unset GH_MERGE_GREEN_TEST for a real merge; tests set the reviews fixture'
+    fi
+    fixture=$GH_MERGE_GREEN_REVIEWS
+    # A test's reviews may change while the gate waits: the second read takes the _FINAL fixture.
+    [ "${1:-}" != final ] || fixture=${GH_MERGE_GREEN_REVIEWS_FINAL:-$GH_MERGE_GREEN_REVIEWS}
+    receipt_args+=(--pr-file "$fixture")
+  fi
+  receipt_err=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-receipt.XXXXXX")
+  tmp_files+=("$receipt_err")
+  receipt_out=$(python3 "$script_dir/ci/review_receipt.py" "${receipt_args[@]}" 2>"$receipt_err") || receipt_status=$?
+  if [ "$receipt_status" -eq 3 ]; then
+    refuse_rate_limited "reading the reviews of $ref: $(sed 's/^rate-limited: //' "$receipt_err")"
+  fi
+  if [ "$receipt_status" -ne 0 ]; then
+    refuse \
+      "not merged: $ref: $(cat "$receipt_err")" \
+      'get an independent review of the exact head and post its receipt (after a base merge, of the new head); --override cannot waive the review receipt'
+  fi
+  printf 'note: review receipt on %s: %s\n' "$sha" "${receipt_out#receipt=}" >&2
+}
+if [ "$base" = feat-cmux-next ]; then
+  review_receipt_gate
+fi
 if [ "$fix" -eq 1 ]; then
   validator="$script_dir/ci/main_fix_evidence.py"
   if [ ! -f "$validator" ]; then
@@ -159,70 +514,219 @@ if [ "$fix" -eq 1 ]; then
       'not green: --main-fix validator is unavailable' \
       'set CMUX_REPO_ROOT to a cmux checkout containing scripts/ci/main_fix_evidence.py'
   fi
-  if ! python3 "$validator" "$ref" "$@"; then
+  gate_checked='main-fix compile and test evidence'
+  check_only=()
+  [ "$dry_run" -eq 0 ] || check_only=(--check-only)
+  validator_status=0
+  python3 "$validator" "$ref" "${check_only[@]+"${check_only[@]}"}" "$@" || validator_status=$?
+  if [ "$validator_status" -ne 0 ]; then
+    [ "$validator_status" -eq 3 ] && refuse_rate_limited "--main-fix evidence for $ref (its reason is printed above)"
     refuse \
       "not green: --main-fix evidence refused $ref" \
       'read the validator evidence and repair the failing or missing exact-head checks'
   fi
+  outcome=merged
   exit 0
 fi
 
-if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName 2>/dev/null); then
-  refuse \
-    "not green: cannot read $ref" \
-    'check the repository, pull request number, GitHub login, and network access'
-fi
-if ! fields=$(jq -r '[.headRefOid // "", .baseRefName // ""] | @tsv' <<<"$pr_json" 2>/dev/null); then
-  refuse \
-    "not green: GitHub returned invalid metadata for $ref" \
-    'retry after GitHub returns headRefOid and baseRefName'
-fi
-IFS=$'\t' read -r sha base <<<"$fields"
-if [ -z "$sha" ] || [ -z "$base" ]; then
-  refuse \
-    "not green: GitHub metadata for $ref has no head SHA or base branch" \
-    'refresh the pull request metadata and retry'
-fi
+# The files of $2 (one per line) inside the on.pull_request.paths filter of the
+# cmux-next.yml text $1. Exit 2 when the filter cannot be read.
+next_paths_covered() {
+  python3 -c '
+import re, sys
+def pull_request_paths(text):
+    # The on.pull_request.paths list, by indentation; the workflow is ours.
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if re.match(r"^\s+pull_request:\s*$", line):
+            base = len(line) - len(line.lstrip())
+            paths, in_paths = [], False
+            for line in lines[i + 1:]:
+                if not line.strip() or line.lstrip().startswith("#"):
+                    continue
+                indent = len(line) - len(line.lstrip())
+                if indent <= base:
+                    break
+                if re.match(r"^\s+paths:\s*$", line):
+                    in_paths = True
+                    continue
+                item = re.match(r"^\s+-\s+(.+?)\s*$", line)
+                if in_paths and item:
+                    paths.append(item.group(1).strip("\"\x27"))
+                elif in_paths and not item:
+                    in_paths = False
+            return paths
+    return None
+def glob(pattern):
+    out, i = "", 0
+    while i < len(pattern):
+        if pattern.startswith("**", i):
+            out, i = out + ".*", i + 2
+        elif pattern[i] == "*":
+            out, i = out + "[^/]*", i + 1
+        elif pattern[i] == "?":
+            out, i = out + "[^/]", i + 1
+        else:
+            out, i = out + re.escape(pattern[i]), i + 1
+    return re.compile(out + r"\Z")
+paths = pull_request_paths(open(sys.argv[1]).read())
+if not paths:
+    sys.exit(2)
+rules = [(p.startswith("!"), glob(p.lstrip("!"))) for p in paths]
+for name in open(sys.argv[2]).read().split():
+    included = False
+    for negated, rule in rules:
+        if rule.match(name):
+            included = not negated
+    if included:
+        print(name)
+' <(printf '%s' "$1") <(printf '%s\n' "$2")
+}
 
-# Require aggregate checks only when their workflow exists on the base. Otherwise
-# every reported exact-head check and status context must be completed successfully.
+# GitHub readers with their GraphQL and Git fallbacks (#21529), shared by both
+# gates and by the conflict-marker and freeze checks below.
+workflow_response=''
+graphql_workflow_response() {
+  local file="$1" owner="${repo%/*}" name="${repo#*/}" response text
+  response=$(gh api graphql \
+    -f query='query($owner:String!,$name:String!,$expr:String!){repository(owner:$owner,name:$name){object(expression:$expr){... on Blob{text}}}}' \
+    -f owner="$owner" -f name="$name" -f expr="$base:.github/workflows/$file" 2>/dev/null) || return 2
+  if jq -e '.errors? and (.errors | length > 0)' >/dev/null 2>&1 <<<"$response"; then
+    return 2
+  fi
+  text=$(jq -r '.data.repository.object.text // empty' <<<"$response" 2>/dev/null) || return 2
+  if [ -z "$text" ]; then
+    return 1
+  fi
+  workflow_response=$(jq -n --arg text "$text" '{content:($text|@base64),encoding:"base64"}') || return 2
+  echo "note: used GraphQL fallback to inspect $base:.github/workflows/$file" >&2
+  fallback_answered
+  return 0
+}
+graphql_check_runs_response() {
+  local owner="${repo%/*}" name="${repo#*/}" response
+  response=$(gh api graphql \
+    -f query='query($owner:String!,$name:String!,$expr:String!){repository(owner:$owner,name:$name){object(expression:$expr){... on Commit{checkSuites(first:100){nodes{id app{slug} checkRuns(first:100){nodes{databaseId name status conclusion} pageInfo{hasNextPage}}} pageInfo{hasNextPage}}}}}}' \
+    -f owner="$owner" -f name="$name" -f expr="$sha" 2>/dev/null) || return 1
+  if jq -e '.errors? and (.errors | length > 0)' >/dev/null 2>&1 <<<"$response"; then
+    return 1
+  fi
+  jq -e 'any(.data.repository.object.checkSuites.pageInfo.hasNextPage; . == true) or any(.data.repository.object.checkSuites.nodes[].checkRuns.pageInfo.hasNextPage; . == true)' <<<"$response" >/dev/null 2>&1 && return 1
+  jq '[{check_runs: [.data.repository.object.checkSuites.nodes[] as $suite | $suite.checkRuns.nodes[] | . + {id:(.databaseId // 0),status:(.status // "")|ascii_downcase,conclusion:(.conclusion // "")|ascii_downcase,app:{slug:$suite.app.slug},check_suite:{id:$suite.id}}]}]' <<<"$response" 2>/dev/null
+}
+graphql_pr_files_response() {
+  local owner="${repo%/*}" name="${repo#*/}" response
+  response=$(gh api graphql \
+    -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){files(first:100){nodes{path} pageInfo{hasNextPage}}}}}' \
+    -f owner="$owner" -f name="$name" -F number="$num" 2>/dev/null) || return 1
+  if jq -e '.errors? and (.errors | length > 0)' >/dev/null 2>&1 <<<"$response"; then return 1; fi
+  if jq -e '.data.repository.pullRequest.files.pageInfo.hasNextPage == true' >/dev/null 2>&1 <<<"$response"; then return 1; fi
+  jq -c '.data.repository.pullRequest.files.nodes' <<<"$response" 2>/dev/null
+}
+graphql_changed_files() { graphql_pr_files_response | jq -r '.[].path'; }
+git_patches() {
+  local repo_dir="${GH_MERGE_GREEN_REPO_DIR:-$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null || true)}" remote
+  [ -n "$repo_dir" ] || return 1
+  if ! git -C "$repo_dir" cat-file -e "$sha^{commit}" 2>/dev/null; then
+    remote=$(git -C "$repo_dir" remote -v | awk '$2 ~ /github.com[/:]manaflow-ai\/cmux([.]git)?/ {print $1; exit}')
+    [ -n "$remote" ] || return 1
+    timeout "${GH_MERGE_GREEN_GIT_TIMEOUT:-20}" git -C "$repo_dir" fetch -q "$remote" "refs/pull/$num/head" || return 1
+    git -C "$repo_dir" cat-file -e "$sha^{commit}" 2>/dev/null || return 1
+  fi
+  git -C "$repo_dir" show --format= --find-renames "$sha"
+}
 workflow_on_base() {
   local file="$1" response
-  if response=$(gh api --include "repos/$repo/contents/.github/workflows/$file" -X GET -f "ref=$base" 2>/dev/null); then
+  # A missing optional workflow is a normal negative result.  Disable the
+  # global ERR trap just for this expected nonzero API response; otherwise
+  # Bash fires the trap before the 404 branch below can classify it.
+  local status
+  trap - ERR
+  response=$(gh api --include "repos/$repo/contents/.github/workflows/$file" -X GET -f "ref=$base" 2>/dev/null)
+  status=$?
+  install_error_trap
+  if [ "$status" -eq 0 ]; then
+    workflow_response="$response"
     return 0
   fi
   if grep -qE '^HTTP/[^ ]+ 404([[:space:]]|$)' <<<"$response"; then
     return 1
   fi
+  graphql_workflow_response "$file"
+  case "$?" in
+    0) return 0 ;;
+    1) return 1 ;;
+  esac
   refuse \
     "not green: cannot probe $file on $repo base $base" \
     'restore GitHub contents API access; only HTTP 404 means the workflow is absent'
 }
 
+# ci-status is required only when ci.yml or ci-macos.yml defines that job;
+# a ci.yml with only other jobs (bonsplit's `tests`) gets the all-checks path. Fails closed: a body that is missing, too large for the
+# contents API, or unreadable still requires ci-status.
+reports_ci_status() {
+  python3 -c '
+import base64, json, re, sys
+raw = sys.stdin.read()
+try:
+    data = json.loads(raw)
+except Exception:
+    body = re.split(r"\r?\n\r?\n", raw, maxsplit=1)
+    try:
+        data = json.loads(body[1])
+    except Exception:
+        sys.exit(0)
+try:
+    text = base64.b64decode(data["content"]).decode() if data.get("encoding") == "base64" else ""
+except Exception:
+    sys.exit(0)
+if not text.strip():
+    sys.exit(0)
+sys.exit(0 if re.search(r"(?m)^\s+[\x22\x27]?ci-status[\x22\x27]?\s*:", text) else 1)
+' <<<"$workflow_response"
+}
+
+# The full gate: every check (--full, and every base but feat-cmux-next). Its body
+# keeps the indentation it had before the fast gate split it out.
+full_gate() {
+# Require aggregate checks only when their workflow exists on the base. Otherwise
+# every reported exact-head check and status context must be completed successfully.
 has_ci=0
 has_app_compile=0
-if workflow_on_base ci.yml; then has_ci=1; fi
-if workflow_on_base ci-macos.yml; then has_app_compile=1; fi
+if workflow_on_base ci.yml && reports_ci_status; then has_ci=1; fi
+if workflow_on_base ci-macos.yml; then
+  has_app_compile=1
+  if reports_ci_status; then has_ci=1; fi
+fi
 must=()
+excuse_runs=()
+red_lanes=()
 if [ "$has_ci" -eq 1 ]; then must+=("ci-status"); fi
 
-# Compile admission only runs when the PR touches the app; docs/web-only routes never schedule it.
-# Require it only if it was scheduled or the diff touches app code.
+# Use a conservative path fallback until the exact-head CI routing is available.
+needs_app_compile=0
 if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ]; then
   # The files API paginates, unlike `gh pr diff` (HTTP 406 past 20000 lines); fail closed if it errors.
   if ! files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
-    refuse \
-      "not green: cannot list changed files for $ref" \
-      'restore GitHub API access, then retry the exact-head check'
+    if ! files=$(graphql_changed_files); then
+      refuse "not green: cannot list changed files for $ref" 'restore GitHub API access or GraphQL access, then retry the exact-head check'
+    fi
+    echo "note: used GraphQL fallback to inspect changed files for $ref" >&2
+    fallback_answered
   fi
   if grep -qE '\.(swift|m|mm|h|c|cpp|xcconfig|plist|entitlements|xcstrings)$|\.xcodeproj/|^(Sources|Packages|cmuxTests|cmuxUITests|ghostty|vendor)/|^Package\.(swift|resolved)$' <<<"$files"; then
-    must+=("macos / macOS compile admission")
+    needs_app_compile=1
   fi
 fi
 if ! check_runs_json=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" --paginate --slurp 2>/dev/null); then
-  refuse \
-    "not green: cannot read checks for $sha" \
-    'restore GitHub API access, then retry the exact-head check'
+  if ! check_runs_json=$(graphql_check_runs_response); then
+    refuse \
+      "not green: cannot read checks for $sha" \
+      'restore GitHub API access or GraphQL access, then retry the exact-head check'
+  fi
+  echo "note: used GraphQL fallback to inspect check runs for $sha" >&2
+  fallback_answered
 fi
 if ! runs=$(jq -r '
   (map(.check_runs) | add)
@@ -231,23 +735,189 @@ if ! runs=$(jq -r '
   | last
   | [.name,.status,(.conclusion // "")]
   | @tsv
-' <<<"$check_runs_json" 2>/dev/null); then
+  ' <<<"$check_runs_json" 2>/dev/null); then
   refuse \
     "not green: cannot parse checks for $sha" \
     'retry after GitHub returns valid check-run metadata'
 fi
+
+# CI's package graph can exclude iOS-only Swift changes that the path fallback
+# includes. Accept an explicit skip only from GitHub Actions in the same suite
+# as the latest successful ci-status. Missing or unrelated routing stays closed.
+# A reported compile-admission check is still required below, even with a skip.
+if [ "$needs_app_compile" -eq 1 ] && ! jq -e '
+  (map(.check_runs) | add | sort_by(.name, (.id // 0))
+   | group_by(.name) | map(last)) as $latest
+  | ($latest[] | select(.name == "ci-status")) as $ci
+  | $ci.status == "completed" and $ci.conclusion == "success"
+    and $ci.app.slug == "github-actions" and $ci.check_suite.id != null
+    and any($latest[];
+      .name == "macos" and .status == "completed" and .conclusion == "skipped"
+      and .app.slug == "github-actions" and .check_suite.id == $ci.check_suite.id)
+' <<<"$check_runs_json" >/dev/null 2>&1; then
+  must+=("macos / macOS compile admission")
+fi
+
+# God-file, localization and concurrency lint reported on the exact head must
+# complete. A red one merges when the base fails it with every finding the head
+# printed (base_red_excuse.py compares them line by line), since the cmux-next
+# checks job bundles many lints and the base can be red in one, or when a human
+# waives it with --override, whose reason is posted on the PR before the merge.
+# `risk evidence` (risk-tier.yml on feat-cmux-next) must be green: it reads only
+# the description, so it is never base-red, and a maintainer waives it with the
+# risk:waived label instead (docs/ci/risk-tiers.md on feat-cmux-next).
+lint_reds=()
+while IFS=$'\t' read -r name st co; do
+  [ -n "$name" ] || continue
+  lowered=$(tr '[:upper:]' '[:lower:]' <<<"$name")
+  [[ "$lowered" =~ god[\ -]?files?|l10n|locali[sz]ation|concurrency|^risk\ evidence$ ]] || continue
+  if [ "$st" != completed ]; then
+    refuse \
+      "not green: '$name' is $st/$co on $sha; --override cannot bypass a lint or risk evidence check that has not finished" \
+      "wait for '$name' to complete on the exact head, then retry"
+  fi
+  case "$co" in
+    success|neutral|skipped) ;;
+    failure)
+      if [ "$lowered" = "risk evidence" ]; then
+        refuse \
+          "not green: '$name' is $co on $sha; --override cannot bypass risk evidence" \
+          "fix what '$name' reports on the exact head, then retry"
+      fi
+      if [ -n "$override_reason" ]; then
+        printf 'note: --override waives %s on %s\n' "$name" "$sha" >&2
+        continue
+      fi
+      lint_reds+=("$name")
+      ;;
+    *)
+      refuse \
+        "not green: '$name' is $co on $sha; --override cannot bypass a lint or risk evidence check with no verdict" \
+        "fix what '$name' reports on the exact head, then retry"
+      ;;
+  esac
+done <<<"$runs"
+
+# Pull requests into feat-cmux-next also run the branch's dedicated cmux-next
+# workflow. Its Release and native app checks are separate check runs, so the
+# legacy ci-status job on that branch cannot stand in for them. Require each
+# one that reported on this exact head; a skipped lane remains a passing
+# conclusion, while a pending or red lane blocks the merge.
+if [ "$base" = feat-cmux-next ]; then
+  # A check run that has not been created yet (native jobs still queued behind
+  # the Linux lanes) or a rerun after a runner loss leaves the old verdict in
+  # place, so also wait for every cmux-next.yml run on this exact head to finish.
+  # --override cannot bypass this: a pending run has no verdict to waive.
+  if ! next_runs_json=$(gh api "repos/$repo/actions/workflows/cmux-next.yml/runs?head_sha=$sha&per_page=20" 2>/dev/null) \
+    || ! next_pending=$(jq -r '
+      (if type == "object" then (.workflow_runs // []) else [] end)[]
+      | select(.head_sha == null or .head_sha == $sha)
+      | select(.status != "completed")
+      | "\(.id) attempt \(.run_attempt // 1) is \(.status)"
+      ' --arg sha "$sha" <<<"$next_runs_json" 2>/dev/null); then
+    refuse \
+      "not green: cannot read cmux-next workflow runs for $sha" \
+      'restore GitHub API access, then retry the exact-head check'
+  fi
+  if [ -n "$next_pending" ]; then
+    refuse \
+      "not green: cmux-next run still pending on $sha ($(tr '\n' ';' <<<"$next_pending" | sed 's/;$//')); --override cannot bypass a run that has not finished" \
+      "wait for the cmux-next workflow run to complete on the exact head, then retry"
+  fi
+  # A cancelled run is completed too: heads merged between cancelling stale runs
+  # and rerunning them (#17653, #18079, #18080, #18083) with no native job run.
+  # Routing skips happen inside a run that concludes success, so the newest run
+  # per event must succeed. A failed run is a red lane --override may waive;
+  # one cancelled, skipped or timed out has no verdict to waive.
+  if ! next_verdicts=$(jq -r '
+      (if type == "object" then (.workflow_runs // []) else [] end)
+      | map(select(.head_sha == null or .head_sha == $sha))
+      | group_by(.event // "")[]
+      | max_by(.id)
+      | "\(.id) attempt \(.run_attempt // 1) (\(.event // "unknown")) is \(.conclusion // "unknown")"
+      ' --arg sha "$sha" <<<"$next_runs_json" 2>/dev/null); then
+    refuse \
+      "not green: cannot parse cmux-next workflow runs for $sha" \
+      'retry after GitHub returns valid workflow run metadata'
+  fi
+  # No run is fine only for a pull request outside the workflow's pull_request
+  # paths filter; ci-status on the exact head still gates it. A change the filter
+  # covers gets a run, so none yet means GitHub has not created it (#18100 merged
+  # seconds after a push). Read the filter from this head and fail closed.
+  if [ -z "$next_verdicts" ]; then
+    if ! next_workflow=$(gh api "repos/$repo/contents/.github/workflows/cmux-next.yml?ref=$sha" \
+        -H 'Accept: application/vnd.github.raw' 2>/dev/null) || [ -z "$next_workflow" ] \
+      || ! next_files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
+      refuse \
+        "not green: no cmux-next run on $sha, and its paths filter or changed files cannot be read" \
+        'restore GitHub API access, then retry the exact-head check'
+    fi
+    if ! next_covered=$(next_paths_covered "$next_workflow" "$next_files" 2>/dev/null); then
+      refuse \
+        "not green: no cmux-next run on $sha, and its pull_request paths filter cannot be parsed" \
+        'check .github/workflows/cmux-next.yml on the exact head, then retry'
+    fi
+    if [ -n "$next_covered" ]; then
+      refuse \
+        "not green: no cmux-next run on $sha yet, but it changes paths the workflow covers ($(head -n 3 <<<"$next_covered" | tr '\n' ' ' | sed 's/ $//')); --override cannot bypass a run that does not exist" \
+        "wait for GitHub to create and finish the cmux-next run on the exact head, then retry"
+    fi
+  fi
+  while IFS= read -r verdict; do
+    [ -n "$verdict" ] || continue
+    case "$verdict" in
+      *" is success") ;;
+      *" is failure")
+        # Judged below: a failure the base branch also has is excused.
+        if [ -z "$override_reason" ]; then
+          excuse_runs+=(--run "${verdict%% *}")
+          red_lanes+=("cmux-next run $verdict")
+        fi
+        ;;
+      *)
+        refuse \
+          "not green: cmux-next run $verdict on $sha; its native jobs did not all run, and --override cannot bypass that" \
+          "rerun the cmux-next workflow on the exact head and wait for it to succeed, then retry"
+        ;;
+    esac
+  done <<<"$next_verdicts"
+  for next_check in \
+    "cmux-next Release compile (Xcode 26)" \
+    "cmux app scheme compile (Debug)" \
+    "cmux-next swift test"; do
+    if awk -F '\t' -v expected="$next_check" '$1 == expected { found = 1 } END { exit !found }' <<<"$runs"; then
+      must+=("$next_check")
+    fi
+  done
+fi
+
 if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ] && grep -q '^macos / macOS compile admission'$'\t' <<<"$runs"; then
   has_admission=0
-  for required in "${must[@]}"; do
+  for required in "${must[@]+"${must[@]}"}"; do
     [ "$required" = 'macos / macOS compile admission' ] && has_admission=1
   done
   [ "$has_admission" -eq 0 ] && must+=("macos / macOS compile admission")
 fi
+is_vercel_context() {
+  local lowered
+  lowered=$(LC_ALL=C printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  [[ "$lowered" == vercel || "$lowered" == vercel\ preview* || "$lowered" == vercel\ production* ||
+     "$lowered" == vercel-* || "$lowered" == vercel/* || "$lowered" == vercel\ -* || "$lowered" == vercel\ –* ]]
+}
+
 if [ "$has_ci" -eq 0 ]; then
   # Include legacy commit status contexts (for example review services), not
   # only Actions check runs. Both endpoints are pinned to the evaluated head.
   if ! statuses_json=$(gh api "repos/$repo/commits/$sha/statuses?per_page=100" --paginate --slurp 2>/dev/null); then
-    refuse "not green: cannot read status contexts for $sha" 'restore GitHub status API access and retry'
+    owner="${repo%/*}"; name="${repo#*/}"
+    if ! statuses_json=$(gh api graphql \
+      -f query='query($owner:String!,$name:String!,$expr:String!){repository(owner:$owner,name:$name){object(expression:$expr){... on Commit{status{contexts{context state description targetUrl}}}}}}' \
+      -f owner="$owner" -f name="$name" -f expr="$sha" \
+      --jq '[[.data.repository.object.status.contexts[] | {context,state:(.state|ascii_downcase),description,targetUrl}]]' 2>/dev/null); then
+      refuse "not green: cannot read status contexts for $sha" 'restore GitHub API access or GraphQL access, then retry'
+    fi
+    echo "note: used GraphQL fallback to inspect legacy status contexts for $sha" >&2
+    fallback_answered
   fi
   if ! statuses=$(jq -r '
     (add // []) | sort_by(.context, .id) | group_by(.context)[] | last
@@ -255,11 +925,46 @@ if [ "$has_ci" -eq 0 ]; then
   ' <<<"$statuses_json" 2>/dev/null); then
     refuse "not green: cannot parse status contexts for $sha" 'retry after GitHub returns valid status metadata'
   fi
+  vercel_reported=0
+  while IFS=$'\t' read -r name _ _; do
+    [ -n "$name" ] || continue
+    if is_vercel_context "$name"; then
+      vercel_reported=1
+      break
+    fi
+  done <<<"$statuses"
+  while IFS=$'\t' read -r name _ _; do
+    [ -n "$name" ] || continue
+    if is_vercel_context "$name"; then
+      vercel_reported=1
+      break
+    fi
+  done <<<"$runs"
+  if [ "$vercel_reported" -eq 1 ] && [ "$vercel_gate" = required ]; then
+    if ! changed_files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
+      refuse \
+        "not green: cannot list changed files for $ref" \
+        'restore GitHub API access, then retry the exact-head check'
+    fi
+    if ! python3 "$script_dir/ci/vercel_merge_gate.py" "$repo" <<<"$changed_files" >/dev/null 2>&1; then
+      # Vercel is a preview convenience for non-web changes. Keep it required
+      # for web inputs, but never let an unrelated deployment block a merge.
+      vercel_gate='advisory'
+    fi
+  fi
   all_verdicts="$runs"$'\n'"$statuses"
   reported=0
   while IFS=$'\t' read -r name st co; do
     [ -n "$name" ] || continue
     reported=$((reported + 1))
+    if is_vercel_context "$name" && [ "$vercel_gate" != required ]; then
+      if [ "$vercel_gate" = advisory ]; then
+        echo "note: Vercel $st/$co is advisory for non-web changes on $sha" >&2
+      else
+        echo "note: --override waived Vercel $st/$co status" >&2
+      fi
+      continue
+    fi
     if [ "$st" != completed ]; then
       refuse \
         "not green: '$name' is $st/$co on $sha (no ci-status workflow on base $base)" \
@@ -267,6 +972,17 @@ if [ "$has_ci" -eq 0 ]; then
     fi
     case "$co" in
       success|neutral|skipped) ;;
+      failure)
+        # The lint loop above already printed the --override waiver for a red
+        # god-file, l10n or concurrency check (risk evidence refused there).
+        lowered=$(tr '[:upper:]' '[:lower:]' <<<"$name")
+        if [ -n "$override_reason" ] && [[ "$lowered" =~ god[\ -]?files?|l10n|locali[sz]ation|concurrency ]]; then
+          continue
+        fi
+        refuse \
+          "not green: '$name' is $st/$co on $sha (no ci-status workflow on base $base)" \
+          "wait for or repair '$name'; success, neutral, and skipped pass without the aggregate workflow"
+        ;;
       *)
         refuse \
           "not green: '$name' is $st/$co on $sha (no ci-status workflow on base $base)" \
@@ -305,26 +1021,440 @@ for name in "${must[@]+"${must[@]}"}"; do
       ;;
   esac
 done
-if [ "${#bad_required[@]}" -gt 0 ] && [ -z "$override_reason" ]; then
-  for name in "${bad_required[@]}"; do
-    fix="repair '$name' on the exact head, then retry"
-    if [ "$name" = ci-status ]; then
-      fix='repair CI for the pull request head, then retry the exact-head check'
-    fi
-    refuse "not green: '$name' is not successful on $sha" "$fix"
+# A red lane that fails the same way on the base branch's latest completed run
+# (same failed steps, test names and error lines) is excused and named; any
+# failure the base does not have, and any runner refusal, still blocks.
+if [ -z "$override_reason" ] && { [ "${#bad_required[@]}" -gt 0 ] || [ "${#excuse_runs[@]}" -gt 0 ] || [ "${#lint_reds[@]}" -gt 0 ]; }; then
+  excuse_args=("${excuse_runs[@]+"${excuse_runs[@]}"}")
+  for name in "${bad_required[@]+"${bad_required[@]}"}" "${lint_reds[@]+"${lint_reds[@]}"}"; do
+    excuse_args+=(--check "$name")
+    red_lanes+=("'$name'")
   done
+  excuse_errors=$(mktemp)
+  tmp_files+=("$excuse_errors")
+  excuse_status=0
+  excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" \
+      "${excuse_args[@]}" 2>"$excuse_errors") || excuse_status=$?
+  if [ "$excuse_status" -ne 0 ]; then
+    why=$(sed 's/^not excused: //' "$excuse_errors")
+    rm -f "$excuse_errors"
+    [ "$excuse_status" -eq 3 ] && refuse_rate_limited "comparing $(printf '%s; ' "${red_lanes[@]}" | sed 's/; $//') with $base: ${why#rate-limited: }"
+    refuse_with_details \
+      "not green: $(printf '%s; ' "${red_lanes[@]}" | sed 's/; $//') on $sha, not excused by $base (what it was compared with is listed above)" \
+      "${why:-the base comparison failed without saying why}" \
+      "fix the failure on the exact head; a runner refusal needs a re-run, not a waiver"
+  fi
+  rm -f "$excuse_errors"
+  printf '%s\n' "$excused" | sed 's/^/note: /' >&2
 fi
 failing=$(printf '%s\n' "$runs" | awk -F'\t' '$3=="failure"||$3=="timed_out"||$3=="cancelled"{print $1}' | sort -u)
-if [ -n "$failing" ]; then echo "note: other failing checks on $sha (${must[*]} decides):" >&2; printf '%s\n' "$failing" | sed 's/^/  /' >&2; fi
+if [ -n "$failing" ]; then
+  echo "note: other failing checks on $sha (${must[*]:-every reported check} decides):" >&2
+  printf '%s\n' "$failing" | sed 's/^/  /' >&2
+fi
+gate_checked="${must[*]:-every reported check}"
+}
+
+# The fast gate (scripts/ci/merge_fast_gate.py): routing, the fast tier and the
+# touched compiles on the exact head, plus completed reds in the gating families.
+fast_gate() {
+  local files files_list workflow covered=x gate_out gate_err reds excuse_errors excused
+  local covered_flag=()
+  if ! files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
+    if ! files=$(graphql_changed_files); then
+      refuse \
+        "not green: cannot list changed files for $ref" \
+        'restore GitHub API access or GraphQL access, then retry the exact-head check'
+    fi
+    echo "note: used GraphQL fallback to inspect changed files for $ref" >&2
+    fallback_answered
+  fi
+  # The gate keys on job names, so it reads the workflows that name them on the exact
+  # head and refuses when one is gone. An unreadable one refuses (fail closed).
+  local workflow_dir workflow_file
+  workflow_dir=$(mktemp -d)
+  tmp_files+=("$workflow_dir")
+  for workflow_file in cmux-next.yml ci.yml ci-web.yml; do
+    if ! workflow=$(gh api "repos/$repo/contents/.github/workflows/$workflow_file?ref=$sha" \
+        -H 'Accept: application/vnd.github.raw' 2>/dev/null) || [ -z "$workflow" ]; then
+      rm -rf "$workflow_dir"
+      refuse \
+        "not green: cannot read .github/workflows/$workflow_file on $sha, which names the fast gate's lanes" \
+        'restore GitHub contents API access, then retry (or merge with --full)'
+    fi
+    printf '%s\n' "$workflow" >"$workflow_dir/$workflow_file"
+  done
+  # The paths filter that decides the routing wait is the base's: a PR that drops
+  # its own files from the head's filter still waits for routing. An unreadable or
+  # unparsable filter counts as covered, so the gate waits for routing.
+  local base_next_workflow
+  if base_next_workflow=$(gh api "repos/$repo/contents/.github/workflows/cmux-next.yml?ref=$base" \
+      -H 'Accept: application/vnd.github.raw' 2>/dev/null) && [ -n "$base_next_workflow" ]; then
+    covered=$(next_paths_covered "$base_next_workflow" "$files" 2>/dev/null) || covered=x
+  else
+    echo "note: cannot read the $base paths filter of cmux-next.yml; waiting for path routing" >&2
+    covered=x
+  fi
+  [ -n "$covered" ] && covered_flag=(--next-covered)
+  gate_err=$(mktemp)
+  tmp_files+=("$gate_err")
+  # The paginated list: gh pr view --json files, the gate's own read, stops at 100.
+  files_list=$(mktemp)
+  tmp_files+=("$files_list")
+  printf '%s\n' "$files" >"$files_list"
+  # A read above was rate-limited and fell back: the wait would poll a spent quota, or wait
+  # for routing a misread paths filter promised. Refuse now with the reset time.
+  if [ -s "$rate_limit_seen" ]; then
+    refuse_rate_limited "GitHub rate-limited $(sort -u "$rate_limit_seen" | paste -sd ';' - | sed 's/;/, /g') before the fast gate's wait"
+  fi
+  gate_waiting_since=$(date +%s)
+  local gate_status=0 still_waiting
+  gate_out=$(python3 "$script_dir/ci/merge_fast_gate.py" "$repo" "$num" "$sha" --base "$base" \
+      --next-workflow "$workflow_dir/cmux-next.yml" --ci-workflow "$workflow_dir/ci.yml" \
+      --web-workflow "$workflow_dir/ci-web.yml" --files-from "$files_list" \
+      "${covered_flag[@]+"${covered_flag[@]}"}" --timeout "$wait_seconds" 2>"$gate_err") || gate_status=$?
+  if [ "$gate_status" -ne 0 ]; then
+    # The summary line says how long the gate really waited and, when --wait ran out, on what
+    # (2026-10-20: "nothing reported; waited 0m00s, 898s in all" with a lane still QUEUED).
+    waited_seconds=$(( $(date +%s) - gate_waiting_since ))
+    gate_waiting_since=''
+    still_waiting=$(sed -n 's/^waiting=//p' <<<"$gate_out" | paste -sd ';' - | sed 's/;/, /g')
+    [ -z "$still_waiting" ] || gate_checked="--wait ran out with $still_waiting not done"
+    rm -rf "$workflow_dir"
+    local why
+    why=$(cat "$gate_err")
+    rm -f "$gate_err"
+    [ "$gate_status" -eq 3 ] && refuse_rate_limited "the fast gate's poll: ${why#rate-limited: }"
+    refuse \
+      "not green: fast gate on $sha: ${why:-merge_fast_gate.py failed}" \
+      'wait for the named lane on the exact head (or pass --wait with more seconds), then retry'
+  fi
+  gate_waiting_since=''
+  rm -f "$gate_err"
+  rm -rf "$workflow_dir"
+  waited_seconds=$(sed -n 's/^waited=//p' <<<"$gate_out")
+  waited_seconds=${waited_seconds:-0}
+  gate_checked="$(sed -n 's/^checked=//p' <<<"$gate_out")"
+  gate_checked="${gate_checked:-no fast lane reported}, conflict markers, freezes"
+  reds=$(sed -n 's/^red=//p' <<<"$gate_out")
+  [ -n "$reds" ] || return 0
+  # merge_fast_gate.py itself refuses a red risk evidence check. Any other red,
+  # lint included, is waived by --override, whose reason is posted on the PR.
+  if [ -n "$override_reason" ]; then
+    printf 'note: --override waives %s on %s\n' "$(paste -sd ';' - <<<"$reds" | sed 's/;/; /g')" "$sha" >&2
+    return 0
+  fi
+  local excuse_args=()
+  while IFS= read -r name; do excuse_args+=(--check "$name"); done <<<"$reds"
+  excuse_errors=$(mktemp)
+  tmp_files+=("$excuse_errors")
+  local excuse_status=0
+  excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" \
+      "${excuse_args[@]}" 2>"$excuse_errors") || excuse_status=$?
+  if [ "$excuse_status" -ne 0 ]; then
+    local why
+    why=$(sed 's/^not excused: //' "$excuse_errors")
+    rm -f "$excuse_errors"
+    [ "$excuse_status" -eq 3 ] && refuse_rate_limited "comparing $(paste -sd ';' - <<<"$reds" | sed 's/;/, /g') with $base: ${why#rate-limited: }"
+    refuse_with_details \
+      "not green: $(paste -sd ';' - <<<"$reds" | sed 's/;/; /g') red on $sha, not excused by $base (what it was compared with is listed above)" \
+      "${why:-the base comparison failed without saying why}" \
+      "fix the failure on the exact head; a runner refusal needs a re-run, not a waiver"
+  fi
+  rm -f "$excuse_errors"
+  printf '%s\n' "$excused" | sed 's/^/note: /' >&2
+}
+
+# The check-path gate (scripts/ci/merge_check_paths.py), into feat-cmux-next: when a
+# check path (the base's scripts/ci/check-paths.txt) changed after the PR's
+# cmux-next/fast-gates base, it dispatches the fast gates against the current tip and
+# waits for a fresh success. 2026-10-21: #22967, #22975 and #23094 merged after a
+# new check landed, never ran it, and turned it red on the base.
+check_paths_gate() {
+  local out err status=0 why check_only=()
+  [ "$dry_run" -eq 0 ] || check_only=(--check-only)
+  err=$(mktemp)
+  tmp_files+=("$err")
+  # Its wait (a rerun, up to 900s) adds to the fast gate's in the summary, and in a SIGTERM's.
+  gate_waiting_since=$(( $(date +%s) - waited_seconds ))
+  out=$(python3 "$script_dir/ci/merge_check_paths.py" "$repo" "$num" "$sha" --base "$base" \
+      --interval "${GH_MERGE_GREEN_CHECK_PATHS_INTERVAL:-20}" "${check_only[@]+"${check_only[@]}"}" 2>"$err") || status=$?
+  waited_seconds=$(( $(date +%s) - gate_waiting_since ))
+  gate_waiting_since=''
+  sed -n '/^note: /p' "$err" >&2
+  if [ "$status" -ne 0 ]; then
+    why=$(sed '/^note: /d' "$err")
+    rm -f "$err"
+    [ "$status" -eq 3 ] && refuse_rate_limited "the check-path gate: ${why#rate-limited: }"
+    if [ -n "$override_reason" ]; then
+      printf 'note: --override waives the check-path gate on %s: %s\n' "$sha" "${why:-merge_check_paths.py failed}" >&2
+      return 0
+    fi
+    refuse \
+      "not green: check-path gate on $sha: ${why:-merge_check_paths.py failed}" \
+      'fix what the fast gates found on the current tip (their run is linked above), or retry once they report'
+  fi
+  rm -f "$err"
+  gate_checked="${gate_checked:+$gate_checked, }$(sed -n 's/^checked=//p' <<<"$out")"
+}
+
+if [ "$fast" -eq 1 ]; then
+  fast_gate
+else
+  full_gate
+fi
+# gate_mode, not $fix: full_gate reuses `fix` for a refusal's advice.
+if [ "$base" = feat-cmux-next ] && [ "$gate_mode" != main-fix ]; then
+  check_paths_gate
+fi
 if ! patches=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].patch // empty' 2>/dev/null); then
-  refuse \
-    "not green: cannot read the diff for $ref" \
-    'restore GitHub API access, then retry the exact-head check'
+  if ! patches=$(git_patches); then
+    refuse "not green: cannot read the diff for $ref" 'restore GitHub API access or provide a verified cmux checkout for Git fallback'
+  fi
+  echo "note: used verified Git fallback to inspect the diff for $ref" >&2
+  fallback_answered
 fi
 if grep -qE '^\+(<<<<<<<|>>>>>>>|=======$)' <<<"$patches"; then
   refuse \
     "not green: conflict markers are present in $ref" \
     'resolve the conflict markers, push the repaired head, and rerun the checks'
+fi
+# A merge stops at a frozen path: an open merge-freeze issue names the paths,
+# an owner and an expiry, and only that owner's freeze-ok label on the PR lets
+# it through (docs/ci/merge-freeze.md). --override never lifts a freeze, and a
+# freeze state that cannot be read refuses. merge_freeze.py lists the changed
+# files itself, with both ends of a rename, and refuses a list GitHub cut short.
+if ! changed=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
+  if ! changed=$(graphql_changed_files); then
+    refuse "not merged: cannot list changed files for $ref" 'restore GitHub API access or GraphQL access, then retry'
+  fi
+  echo "note: used GraphQL fallback to inspect changed files for $ref" >&2
+  fallback_answered
+fi
+freeze_args=(check --repo "$repo" --pr "$num" --base "$base")
+# Tests hand the checker recorded issues and events. GH_MERGE_GREEN_TEST left set
+# in a real shell without both fixtures refuses, rather than reading as no freezes.
+if [ -n "${GH_MERGE_GREEN_TEST:-}" ]; then
+  if [ -z "${GH_MERGE_GREEN_FREEZE_ISSUES:-}" ] || [ -z "${GH_MERGE_GREEN_FREEZE_EVENTS:-}" ]; then
+    refuse \
+      "not merged: freeze state unknown for $ref (GH_MERGE_GREEN_TEST is set without GH_MERGE_GREEN_FREEZE_ISSUES and GH_MERGE_GREEN_FREEZE_EVENTS)" \
+      'unset GH_MERGE_GREEN_TEST for a real merge; tests set both freeze fixtures'
+  fi
+  freeze_args+=(--files /dev/stdin --issues-file "$GH_MERGE_GREEN_FREEZE_ISSUES" --events-file "$GH_MERGE_GREEN_FREEZE_EVENTS")
+fi
+freeze_status=0
+frozen=$(python3 "$script_dir/ci/merge_freeze.py" "${freeze_args[@]}" <<<"$changed") || freeze_status=$?
+if [ "$freeze_status" -eq 1 ]; then
+  refuse \
+    "not merged: $ref touches frozen paths: $(printf '%s\n' "$frozen" | paste -sd ';' - | sed 's/;/; /g')" \
+    "wait for the freeze to lift, or ask its owner to add the freeze-ok label to $ref"
+elif [ "$freeze_status" -ne 0 ]; then
+  refuse \
+    "not merged: freeze state unknown for $ref (merge_freeze.py check exited $freeze_status)" \
+    "restore GitHub API access, then retry; python3 scripts/ci/merge_freeze.py list --repo $repo shows the open freezes"
+fi
+# The merged head passes the checks a red lint job can hide (#18326 grew a god
+# type while an unrelated lint red masked the god-file step): the Swift god-file
+# check when CmuxNext changes, vp check when webviews changes. They run here on
+# base + head merged locally, with the base branch's copy of the god-file script
+# and baseline, so a pull request cannot loosen its own check.
+# The files a vp check report names, sorted (ANSI colors stripped).
+# Paths are made relative to the checked tree (the merged and base trees sit in
+# different temp folders), so a red the base already has compares equal.
+vp_flagged_files() {
+  sed -E 's/\x1b\[[0-9;]*m//g; s#[^[:space:]'"'"'"(]*/(merged|base)/(webviews|config)/#\2/#g' | grep -oE '[A-Za-z0-9_./-]+\.(tsx|ts|jsx|js|mjs|cjs|css|md|json)' | LC_ALL=C sort -u || true
+}
+# Files outside webviews/ that its vp check loads: vite.config.ts imports
+# ../config/vite-plus/check and resolves ../Resources/markdown-viewer through
+# its dev-server plugins. Listed only when the tree has them.
+web_shared_paths() {
+  local path
+  for path in config/vite-plus Resources/markdown-viewer; do
+    git -C "$repo_dir" cat-file -e "$1:$path" 2>/dev/null && printf '%s\n' "$path"
+  done
+  return 0
+}
+merged_head_checks() {
+  # $1=force: run the merged-tree checks (merge cleanliness, fork trust) even when
+  # no CmuxNext Swift or webviews file changed; the fast gate passes it for a PR
+  # touching a protected gate path.
+  local force="${1:-0}"
+  local repo_dir tmp merged base_sha head_sha merged_tree status=0 output bun changed_path
+  local swift_changed=0 web_changed=0
+  local -a swift_file_args=()
+  # The god-file checker supports repeatable --file arguments. Restrict the
+  # merged-head check to changed Swift files: source files still select their
+  # entire module inside check-no-godfiles.sh, preserving extension/type
+  # accounting without rescanning unrelated modules for every small PR.
+  while IFS= read -r changed_path; do
+    [[ "$changed_path" =~ ^Packages/macOS/CmuxNext/(Sources|Tests)/.+\.swift$ ]] || continue
+    swift_changed=1
+    swift_file_args+=(--file "$changed_path")
+  done <<<"$changed"
+  grep -q '^webviews/' <<<"$changed" && web_changed=1
+  [ "$swift_changed" -eq 1 ] || [ "$web_changed" -eq 1 ] || [ "$force" -eq 1 ] || return 0
+  # Trust concerns the reviewed source, not whether its branch is in our repo.
+  # Pin explicit trust to this exact head; CI and all merged-tree checks still run.
+  if jq -e '.isCrossRepository == true' <<<"$pr_json" >/dev/null 2>&1 &&
+     [ "$fork_trusted" -ne 1 ] && [ -z "$trust_fork_head" ]; then
+    refuse \
+      "not merged: $ref is from an untrusted fork, and its merged-head checks would run its code here" \
+      "review that code, then rerun with --trust-fork-head $sha; only teamleaderleo/cmux is owner-trusted"
+  fi
+  repo_dir="${GH_MERGE_GREEN_REPO_DIR:-$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null || true)}"
+  if [ -z "$repo_dir" ] || ! git -C "$repo_dir" fetch --quiet origin \
+      "+refs/heads/$base:refs/gh-merge-green/base" "+refs/pull/$num/head:refs/gh-merge-green/head" 2>/dev/null; then
+    refuse \
+      "not merged: cannot fetch $base and $ref to check the merged head" \
+      'run gh-merge-green from its cmux checkout with network access, or set GH_MERGE_GREEN_REPO_DIR to a cmux clone'
+  fi
+  base_sha=$(git -C "$repo_dir" rev-parse refs/gh-merge-green/base)
+  head_sha=$(git -C "$repo_dir" rev-parse refs/gh-merge-green/head)
+  if [ "$head_sha" != "$sha" ]; then
+    refuse \
+      "not merged: $ref moved to $head_sha while checking $sha" \
+      'retry on the current head'
+  fi
+  tmp=$(mktemp -d)
+  merged="$tmp/merged"
+  mkdir -p "$merged"
+  # The helper checkout is commonly a blob:none partial clone. Materializing a
+  # full worktree here can block while Git lazily fetches unrelated history.
+  # Compute the exact merged tree first, then archive only the trees checked
+  # below. This preserves merge-conflict detection without the worktree stall.
+  if ! merged_tree=$(git -C "$repo_dir" merge-tree --write-tree "$base_sha" "$head_sha" 2>/dev/null); then
+    refuse \
+      "not merged: $ref does not merge cleanly into $base ($base_sha)" \
+      'merge the base into the PR (scripts/merge-main.sh), push, and retry'
+  fi
+  if ! git -C "$repo_dir" archive "$merged_tree" -- \
+      Packages/macOS/CmuxNext webviews scripts/cmux-next/check-no-godfiles.sh \
+      scripts/cmux-next/godfile-baseline.tsv $(web_shared_paths "$merged_tree") | tar -x -C "$merged"; then
+    rm -rf "$tmp"
+    refuse \
+      "not merged: cannot materialize the checked merged tree for $ref" \
+      'restore the required tree objects and retry the guarded merge'
+  fi
+  if [ "$swift_changed" -eq 1 ]; then
+    # --file silently ignores paths absent from the merged checkout. Refuse
+    # instead so deleted/renamed Swift paths cannot make the scoped guard a
+    # false green result.
+    for ((i = 1; i < ${#swift_file_args[@]}; i += 2)); do
+      changed_path="${swift_file_args[i]}"
+      if [ ! -f "$merged/$changed_path" ]; then
+        rm -rf "$tmp"
+        refuse \
+          "not merged: changed Swift path $changed_path is missing from the merged head of $ref" \
+          'repair the rename or deletion metadata, then retry the exact head'
+      fi
+    done
+    git -C "$repo_dir" show "$base_sha:scripts/cmux-next/check-no-godfiles.sh" > "$merged/scripts/cmux-next/check-no-godfiles.sh"
+    git -C "$repo_dir" show "$base_sha:scripts/cmux-next/godfile-baseline.tsv" > "$merged/scripts/cmux-next/godfile-baseline.tsv"
+    if ! output=$(bash "$merged/scripts/cmux-next/check-no-godfiles.sh" --only swift --base "$base_sha" \
+        "${swift_file_args[@]}" "$merged/Packages/macOS/CmuxNext" 2>&1); then
+      status=1
+      printf '%s\n' "$output" | grep -E 'FAIL|god|split' | sed 's/^/  /' >&2 || true
+      printf 'not merged: the merged head of %s fails the Swift god-file check\n' "$ref" >&2
+    fi
+  fi
+  if [ "$web_changed" -eq 1 ] && [ "$status" -eq 0 ]; then
+    if ! bun=$(command -v bun); then
+      status=2
+      printf 'not merged: bun is not on PATH, so vp check cannot run on the merged head of %s\n' "$ref" >&2
+    elif ! output=$(cd "$merged/webviews" && "$bun" install --frozen-lockfile --ignore-scripts 2>&1 && "$bun" x vp check 2>&1); then
+      # A red the base already has is not this PR's: check the base tree with
+      # the same install, and refuse only for files the base does not flag.
+      local base_output new_files base_tree
+      base_tree="$tmp/base"
+      mkdir -p "$base_tree"
+      # The merged tree is an archive, not a Git worktree. Materialize the
+      # base webviews separately for the red-base comparison instead of trying
+      # to checkout the base in the archive (which exits 128 and hides the
+      # actual vp diagnostic).
+      if ! git -C "$repo_dir" archive "$base_sha" -- webviews $(web_shared_paths "$base_sha") | tar -x -C "$base_tree"; then
+        base_output=''
+      elif base_output=$(cd "$base_tree/webviews" && "$bun" install --frozen-lockfile --ignore-scripts >/dev/null 2>&1 && "$bun" x vp check 2>&1); then
+        new_files=$(vp_flagged_files <<<"$output")
+      else
+        new_files=$(LC_ALL=C comm -23 <(vp_flagged_files <<<"$output") <(vp_flagged_files <<<"$base_output"))
+      fi
+      if [ -z "$base_output" ] || [ -n "$new_files" ] || [ -z "$(vp_flagged_files <<<"$output")" ]; then
+        status=1
+        printf '%s\n' "$output" | grep -vE '^\s*$' | tail -n 15 | sed 's/^/  /' >&2
+        printf 'not merged: the merged head of %s fails vp check in webviews/%s\n' "$ref" \
+          "${new_files:+ (not on the base: $(printf '%s\n' "$new_files" | python3 -c 'import sys; print(" ".join(line.strip() for line in sys.stdin if line.strip()))'))}" >&2
+      else
+        printf 'note: vp check is red on the base (%s) too (%s), not by %s\n' "$base" \
+          "$(vp_flagged_files <<<"$base_output" | python3 -c 'import sys; print(" ".join(line.strip() for line in sys.stdin if line.strip()))')" "$ref" >&2
+      fi
+    fi
+  fi
+  rm -rf "$tmp"
+  if [ "$status" -ne 0 ]; then
+    refusal_reported=1
+    print_repair 'fix the merged head (split the god type, or run vp check --fix in webviews/), push, and retry'
+    exit 1
+  fi
+}
+# The changed files under a protected gate path: workflows, shared CI scripts,
+# gh-merge-green itself and gate config. The list is read from the base, so a PR
+# cannot shrink it; before the base carries the file, the helper checkout's copy
+# (origin/main) applies, and with neither every file counts as protected.
+protected_gate_paths() {
+  local list_file="scripts/ci/merge-fast-gate-protected-paths.txt" list
+  if ! list=$(gh api "repos/$repo/contents/$list_file?ref=$base" -H 'Accept: application/vnd.github.raw' 2>/dev/null) ||
+     [ -z "$list" ]; then
+    if [ -f "$script_dir/ci/merge-fast-gate-protected-paths.txt" ]; then
+      echo "note: $base has no readable $list_file; using the helper checkout's copy" >&2
+      list=$(cat "$script_dir/ci/merge-fast-gate-protected-paths.txt")
+    else
+      echo "note: no readable $list_file; every changed file counts as protected" >&2
+      printf '%s\n' "$changed"
+      return 0
+    fi
+  fi
+  python3 -c '
+import sys
+prefixes = [line.strip() for line in open(sys.argv[1]) if line.strip() and not line.lstrip().startswith("#")]
+for name in open(sys.argv[2]).read().split():
+    if any(name == p or (p.endswith("/") and name.startswith(p)) for p in prefixes):
+        print(name)
+' <(printf '%s\n' "$list") <(printf '%s\n' "$changed")
+}
+# The full gate runs the merged-tree checks on every feat-cmux-next PR. The fast gate
+# leaves vp check and the god-file check to the post-merge suites (they take minutes
+# on a cold install), except for a PR touching a protected gate path (leoli-f6,
+# 2026-10-19): that one gets every merged-tree check back.
+if [ "$base" = feat-cmux-next ] && [ "$fast" -eq 0 ]; then
+  merged_head_checks
+elif [ "$fast" -eq 1 ]; then
+  if ! protected=$(protected_gate_paths); then
+    refuse "not merged: cannot match $ref against the protected gate paths" 'retry; python3 is required'
+  fi
+  if [ -n "$protected" ]; then
+    printf 'note: %s touches protected gate paths (%s); running the merged-tree checks\n' "$ref" \
+      "$(paste -sd ';' - <<<"$protected" | sed 's/;/; /g')" >&2
+    gate_checked="$gate_checked, merged-tree checks"
+    merged_head_checks 1
+  fi
+fi
+[ "$base" != feat-cmux-next ] || review_receipt_gate final
+if [ "$dry_run" -eq 1 ]; then
+  printf 'dry-run: every gate passes for %s at %s; would run: gh pr merge %s --repo %s --match-head-commit %s%s\n' \
+    "$ref" "$sha" "$num" "$repo" "$sha" "$(printf ' %q' "$@")"
+  [ -z "$trust_fork_head" ] || echo "dry-run: would first comment merge-source-trust for $trust_fork_head" >&2
+  [ -z "$override_reason" ] || echo "dry-run: would first comment merge-override: $override_reason" >&2
+  outcome='dry-run passed'
+  exit 0
+fi
+if [ -n "$trust_fork_head" ]; then
+  trust_scope='local merged-tree checks; normal CI, freeze, and merged-tree gates apply'
+  [ "$fast" -eq 1 ] && trust_scope='the fast gate; its lanes, freezes and conflict markers apply, and the full suites run after the merge'
+  if ! gh pr comment "$num" --repo "$repo" --body "merge-source-trust: reviewed fork head $trust_fork_head for $trust_scope." >/dev/null; then
+    refuse \
+      "not merged: could not record reviewed fork head $trust_fork_head on $ref" \
+      'restore GitHub comment access, then retry the same reviewed head'
+  fi
 fi
 if [ -n "$override_reason" ]; then
   if ! gh pr comment "$num" --repo "$repo" --body "merge-override: $override_reason" >/dev/null; then
@@ -332,21 +1462,105 @@ if [ -n "$override_reason" ]; then
       "not green: could not post the --override reason on $ref" \
       'restore GitHub comment permission or network access, then retry without changing the head'
   fi
-  if ! posted=$(gh pr view "$num" --repo "$repo" --json headRefOid,state 2>/dev/null); then
+fi
+
+# Re-read the pull request right before merging, on both gates. --match-head-commit
+# pins the head but not the base, and the gate, the merged-head checks and the
+# freeze check were all chosen for $base: a PR retargeted since then (for example
+# from feat-cmux-next to main during the fast gate's wait) must not merge on them.
+graphql_error_file=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-graphql.XXXXXX")
+if ! current=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,state 2>"$graphql_error_file"); then
+  if graphql_quota_error "$graphql_error_file"; then
+    # Handled here: only the REST fallback's own rate limit (gh() records it) makes this a rate limit.
+    fallback_answered
+    if ! current_raw=$(gh api "repos/$repo/pulls/$num" 2>"$graphql_error_file") || \
+       ! current=$(jq -c '{headRefOid:(.head.sha // ""),baseRefName:(.base.ref // ""),state:(.state // "")}' <<<"$current_raw"); then
+      rm -f "$graphql_error_file"
+      refuse \
+        "not merged: GraphQL verification was rate-limited and REST verification failed for $ref" \
+        'restore GitHub API access, then retry the same exact head'
+    fi
+  else
+    rm -f "$graphql_error_file"
     refuse \
-      "not green: could not verify $ref after posting --override" \
-      'check the pull request is still open at the same head, then retry'
-  fi
-  posted_sha=$(jq -r '.headRefOid // ""' <<<"$posted")
-  posted_state=$(jq -r '.state // ""' <<<"$posted" | tr '[:upper:]' '[:lower:]')
-  if [ "$posted_sha" != "$sha" ] || [ "$posted_state" != open ]; then
-    refuse \
-      "not green: pull request head moved while posting --override on $ref" \
-      'retry the exact current head with a fresh reason'
+      "not merged: could not re-read $ref before merging" \
+      'check the pull request is still open at the same head and base, then retry'
   fi
 fi
-if ! gh pr merge "$num" --repo "$repo" --match-head-commit "$sha" "$@"; then
+rm -f "$graphql_error_file"
+current_sha=$(jq -r '.headRefOid // ""' <<<"$current")
+current_base=$(jq -r '.baseRefName // ""' <<<"$current")
+current_state=$(jq -r '.state // ""' <<<"$current" | tr '[:upper:]' '[:lower:]')
+if [ "$current_sha" != "$sha" ]; then
   refuse \
-    "not green: GitHub refused to merge $ref" \
-    'read the GitHub refusal, repair the named issue, and retry the exact head'
+    "not merged: $ref head moved from $sha to ${current_sha:-unknown} before the merge" \
+    'retry the exact current head'
 fi
+if [ "$current_base" != "$base" ]; then
+  refuse \
+    "not merged: $ref base moved from $base to ${current_base:-unknown} before the merge" \
+    'retry, so the gate for the current base runs'
+fi
+if [ -n "$current_state" ] && [ "$current_state" != open ]; then
+  refuse \
+    "not merged: $ref is $current_state, not open" \
+    'reopen the pull request, then retry'
+fi
+
+rest_merge_method() {
+  local method='' arg
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --squash|--merge|--rebase)
+        [ -z "$method" ] || return 1
+        method="${arg#--}"
+        ;;
+      --match-head-commit)
+        [ "$#" -ge 2 ] && [ "$2" = "$sha" ] || return 1
+        shift
+        ;;
+      --match-head-commit=*)
+        [ "${arg#*=}" = "$sha" ] || return 1
+        ;;
+      *)
+        return 1
+        ;;
+    esac
+    shift
+  done
+  [ -n "$method" ] || method=squash
+  printf '%s\n' "$method"
+}
+
+merge_error_file=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-graphql.XXXXXX")
+if ! gh pr merge "$num" --repo "$repo" --match-head-commit "$sha" "$@" 2>"$merge_error_file"; then
+  if graphql_quota_error "$merge_error_file"; then
+    # Handled here: only the REST merge's own rate limit (gh() records it) makes this a rate limit.
+    fallback_answered
+    if ! merge_method=$(rest_merge_method "$@" --match-head-commit "$sha"); then
+      rm -f "$merge_error_file"
+      refuse \
+        "not green: GraphQL merge was rate-limited and REST fallback has unsupported merge flags" \
+        'retry after the GraphQL quota resets, or use only --squash, --merge, or --rebase'
+    fi
+    if ! merge_response=$(gh api --method PUT "repos/$repo/pulls/$num/merge" \
+        -f "sha=$sha" -f "merge_method=$merge_method" 2>"$merge_error_file") || \
+       ! jq -e '.merged == true and (.sha // "") != ""' <<<"$merge_response" >/dev/null 2>&1; then
+      rm -f "$merge_error_file"
+      refuse \
+        "not green: GraphQL merge was rate-limited and REST merge failed for $ref" \
+        'restore GitHub API access, then retry the same exact head'
+    fi
+  else
+    merge_error=$(cat "$merge_error_file")
+    rm -f "$merge_error_file"
+    merge_reason=$(grep -v '^[[:space:]]*$' <<<"$merge_error" | head -n 1 || true)
+    refuse_with_details \
+      "not merged: gh pr merge refused $ref at $sha: ${merge_reason:-no error text}" \
+      "$merge_error" \
+      'repair what gh pr merge names, then retry the exact head'
+  fi
+fi
+rm -f "$merge_error_file"
+outcome=merged

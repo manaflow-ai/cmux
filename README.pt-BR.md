@@ -69,7 +69,7 @@ A barra lateral mostra o branch do git, status/número do PR vinculado, diretór
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> cria um workspace para uma máquina remota. Painéis do navegador são roteados pela rede remota, então localhost simplesmente funciona. Arraste uma imagem para uma sessão remota para fazer upload via scp.
+<code>cmux ssh user@remote</code> cria um workspace para uma máquina remota. Passe <code>--command 'omp "investigate auth"'</code> para rodar um comando inicial uma única vez no primeiro terminal remoto dele. Painéis do navegador são roteados pela rede remota, então localhost simplesmente funciona. Arraste uma imagem para uma sessão remota para fazer upload via scp.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -120,6 +120,25 @@ brew upgrade --cask cmux
 
 Na primeira execução, o macOS pode pedir para você confirmar a abertura de um app de um desenvolvedor identificado. Clique em **Abrir** para continuar.
 
+### Autocompletar no shell
+
+O cask do Homebrew instala o autocompletar para zsh, bash e fish. Abra um shell novo depois de instalar. Se não carregar, verifique se os diretórios de autocompletar do Homebrew estão ligados ao seu shell (veja [a documentação de autocompletar do Homebrew](https://docs.brew.sh/Shell-Completion)).
+
+Se você instalou o cmux de outra forma, adicione a linha correspondente ao arquivo de inicialização do seu shell e abra um shell novo:
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
+
 ## Por que o cmux?
 
 Eu executo muitas sessões de Claude Code e Codex em paralelo. Eu estava usando o Ghostty com vários painéis divididos e contando com as notificações nativas do macOS para saber quando um agente precisava de mim. Mas o corpo da notificação do Claude Code é sempre apenas "Claude is waiting for your input" sem contexto, e com abas suficientes abertas eu não conseguia nem ler os títulos mais.
@@ -152,7 +171,9 @@ Para mais informações sobre como configurar o cmux, [acesse nossa documentaç�
 
 | Atalho | Ação |
 |----------|--------|
-| ⌘ N | Novo workspace |
+| ⌘ N | Novo workspace local |
+| ⌘ Y | Novo workspace Cloud no último contexto Cloud utilizável; abre o New Cloud Machine quando não há nenhum |
+| ⌘ ⇧ Y | Nova máquina Cloud |
 | ⌘ 1–8 | Ir para workspace 1–8 |
 | ⌘ 9 | Ir para último workspace |
 | ⌃ ⌘ ] | Próximo workspace |

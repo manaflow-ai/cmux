@@ -5,11 +5,18 @@ import Foundation
 /// One request owns its receipt and native reservation until the graph adopts them.
 @MainActor
 final class CloudWorkspaceCreationOperation {
+    /// Nil means a successfully read graph has no workspace to reuse; failures throw.
+    typealias ResolveExistingWorkspace = @MainActor () async throws -> (
+        workspace: SurfaceRemoteWorkspace, terminal: SurfaceResource?, remoteView: SurfaceRemoteView?
+    )?
+
     let id = UUID()
     let provider: any SurfaceProvider
-    let host: CloudWorkspaceCreationHost?
+    var host: CloudWorkspaceCreationHost?
     let allowsActionRetry: Bool
     var validateOperation: @MainActor () throws -> Void
+    /// Discovery runs after local admission and repeats on retry until a receipt is retained.
+    var resolveExistingWorkspace: ResolveExistingWorkspace?
     let terminalRequest = CloudTerminalCreationRequest()
     var receipt: SurfaceWorkspaceCreationReceipt?
     /// The exact daemon tab selected by an existing-workspace row, when the
@@ -38,6 +45,8 @@ final class CloudWorkspaceCreationOperation {
     /// attach/materialization error. New workspace creates retain a live pane
     /// for the established reconnect affordance.
     var isExistingWorkspaceOpen = false
+    /// The host admitted this pane before provider lookup; do not restart its receipt attempt.
+    var wasPreAdmitted = false
 
     init(
         provider: any SurfaceProvider,

@@ -4,7 +4,10 @@
     "get-blocked-url": "blocked",
     "get-hides-blocked-site": 0,
     "set-blocked-site": "blocked",
-    "clear-blocked-tab": "blocked",
+    "clear-blocked-tab": "refused",
+    "primary-kept-after-blocked-clear": [
+      "parity"
+    ],
     "peer-cookies-after-policy": [
       "parity"
     ],

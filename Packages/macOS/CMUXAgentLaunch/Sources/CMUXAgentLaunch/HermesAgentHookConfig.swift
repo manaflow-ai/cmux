@@ -40,8 +40,8 @@ public enum HermesAgentHookConfig {
             } else {
                 hooksRestoreLine = nil
             }
-            let childIndent = leadingWhitespace(lines[hooksIndex]) + "  "
-            let existingEvents = directEventLineIndexes(in: lines, hooksIndex: hooksIndex)
+            let childIndent = hooksChildIndent(in: lines, hooksIndex: hooksIndex)
+            let existingEvents = directEventLineIndexes(in: lines, hooksIndex: hooksIndex, childIndent: childIndent)
             var missingEventGroups: [EventGroup] = []
             var matchedEventGroups: [(eventGroup: EventGroup, eventIndex: Int)] = []
 
@@ -63,7 +63,7 @@ public enum HermesAgentHookConfig {
                 } else {
                     eventRestoreLine = nil
                 }
-                let entryIndent = leadingWhitespace(lines[eventIndex]) + "  "
+                let entryIndent = eventEntryIndent(in: lines, eventIndex: eventIndex)
                 let block = hookListBlock(events: eventGroup.events, itemIndent: entryIndent, restoreLine: eventRestoreLine)
                 lines.insert(contentsOf: block, at: eventIndex + 1)
             }
@@ -176,6 +176,12 @@ public enum HermesAgentHookConfig {
         return eventGroups
     }
 
+    /// Removes cmux's marked blocks, keeping whatever another tool wrote inside them.
+    ///
+    /// When `hooks:` or an event key is missing, the block cmux writes holds
+    /// the key itself, so an entry a tool later adds under that key lands
+    /// between the markers. Only cmux's entries are dropped, along with a key
+    /// they leave with nothing under it.
     private static func removingMarkedBlocks(_ lines: [String]) -> [String] {
         var result = lines
         var index = 0
@@ -188,6 +194,12 @@ public enum HermesAgentHookConfig {
                 $0.trimmingCharacters(in: .whitespaces) == endMarker
             }) else {
                 index += 1
+                continue
+            }
+            let foreignLines = linesFromOtherTools(in: Array(result[(index + 1)..<endIndex]))
+            if !foreignLines.isEmpty {
+                result.replaceSubrange(index...endIndex, with: foreignLines)
+                index += foreignLines.count
                 continue
             }
             if let restoreLine = restoreLine(fromBeginMarkerLine: result[index]),
@@ -204,6 +216,107 @@ public enum HermesAgentHookConfig {
             index = removalStart
         }
         return result
+    }
+
+    /// The lines of a marked block that cmux did not write, or none when the
+    /// block holds nothing but cmux's entries and the keys above them.
+    private static func linesFromOtherTools(in block: [String]) -> [String] {
+        var kept: [String] = []
+        // Keys that lost a cmux entry. Only these may be dropped when empty,
+        // so a line inside another tool's entry is never read as a key.
+        var emptiedKeys: Set<Int> = []
+        var keyStack: [(indent: Int, keptIndex: Int)] = []
+
+        var index = 0
+        while index < block.count {
+            let line = block[index]
+            let indent = leadingWhitespace(line).count
+            guard isListItemLine(line) else {
+                if isSignificantLine(line) {
+                    keyStack.removeAll { $0.indent >= indent }
+                    if isEmptyKeyLine(line) {
+                        keyStack.append((indent, kept.count))
+                    }
+                }
+                kept.append(line)
+                index += 1
+                continue
+            }
+
+            // An entry runs to its last deeper line; a comment or blank line
+            // in the middle belongs to it.
+            var end = index + 1
+            var scan = end
+            while scan < block.count {
+                if isSignificantLine(block[scan]) {
+                    guard leadingWhitespace(block[scan]).count > indent else { break }
+                    end = scan + 1
+                }
+                scan += 1
+            }
+            let item = block[index..<end]
+            keyStack.removeAll { $0.indent > indent }
+            if isCmuxHookEntry(item) {
+                if let parent = keyStack.last {
+                    emptiedKeys.insert(parent.keptIndex)
+                }
+            } else {
+                kept.append(contentsOf: item)
+            }
+            index = end
+        }
+
+        // Bottom up, so an event key dropped here can also empty `hooks:`.
+        var dropped: Set<Int> = []
+        for keyIndex in kept.indices.reversed() where emptiedKeys.contains(keyIndex) {
+            let keyIndent = leadingWhitespace(kept[keyIndex]).count
+            let child = kept.indices[(keyIndex + 1)...]
+                .first { !dropped.contains($0) && isSignificantLine(kept[$0]) }
+                .map { kept[$0] }
+            let hasChild = child.map { line in
+                let indent = leadingWhitespace(line).count
+                return indent > keyIndent || (indent == keyIndent && isListItemLine(line))
+            } ?? false
+            guard !hasChild else { continue }
+            dropped.insert(keyIndex)
+            if let parent = kept.indices[..<keyIndex].last(where: {
+                !dropped.contains($0) && isEmptyKeyLine(kept[$0])
+                    && leadingWhitespace(kept[$0]).count < keyIndent
+            }) {
+                emptiedKeys.insert(parent)
+            }
+        }
+        let remaining = kept.indices.filter { !dropped.contains($0) }.map { kept[$0] }
+        return remaining.contains(where: isSignificantLine) ? remaining : []
+    }
+
+    /// Whether a hook entry inside the markers is cmux's.
+    ///
+    /// Every command cmux has written here runs its CLI, so an entry that
+    /// names cmux anywhere counts. Reading it that broadly means a cmux entry
+    /// in an older or newer form is never kept as another tool's and then
+    /// written a second time.
+    private static func isCmuxHookEntry(_ item: ArraySlice<String>) -> Bool {
+        item.contains { $0.range(of: "cmux", options: .caseInsensitive) != nil }
+    }
+
+    private static func isListItemLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed == "-" || trimmed.hasPrefix("- ")
+    }
+
+    /// Whether a line holds YAML content, not just whitespace or a comment.
+    private static func isSignificantLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return !trimmed.isEmpty && !trimmed.hasPrefix("#")
+    }
+
+    /// Whether a line is a mapping key with no value on its own line.
+    private static func isEmptyKeyLine(_ line: String) -> Bool {
+        guard isSignificantLine(line), !isListItemLine(line) else { return false }
+        let uncommented = line.range(of: #"\s+#.*$"#, options: .regularExpression)
+            .map { line[..<$0.lowerBound] } ?? line[...]
+        return uncommented.hasSuffix(":")
     }
 
     private static func beginMarkerLine(restoreLine: String?) -> String {
@@ -254,9 +367,38 @@ public enum HermesAgentHookConfig {
         return trimmed.isEmpty || trimmed == "{}" || trimmed == "[]"
     }
 
-    private static func directEventLineIndexes(in lines: [String], hooksIndex: Int) -> [String: Int] {
+    /// The indent the children of `hooks:` already use, or two spaces past it.
+    private static func hooksChildIndent(in lines: [String], hooksIndex: Int) -> String {
         let hooksIndent = leadingWhitespace(lines[hooksIndex])
-        let childIndent = hooksIndent + "  "
+        if let child = lines[(hooksIndex + 1)...].first(where: isSignificantLine),
+           !isListItemLine(child) {
+            let indent = leadingWhitespace(child)
+            if indent.count > hooksIndent.count, indent.hasPrefix(hooksIndent) {
+                return indent
+            }
+        }
+        return hooksIndent + "  "
+    }
+
+    /// The indent the entries under an event key already use, or two spaces
+    /// past the key. A list may sit at the same indent as its key.
+    private static func eventEntryIndent(in lines: [String], eventIndex: Int) -> String {
+        let eventIndent = leadingWhitespace(lines[eventIndex])
+        if let child = lines[(eventIndex + 1)...].first(where: isSignificantLine),
+           isListItemLine(child) {
+            let indent = leadingWhitespace(child)
+            if indent.hasPrefix(eventIndent) {
+                return indent
+            }
+        }
+        return eventIndent + "  "
+    }
+
+    private static func directEventLineIndexes(
+        in lines: [String],
+        hooksIndex: Int,
+        childIndent: String
+    ) -> [String: Int] {
         var indexes: [String: Int] = [:]
 
         var index = hooksIndex + 1

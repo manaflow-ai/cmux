@@ -328,3 +328,27 @@ export function parsePendingOAuth(raw: string | null, now: number = Date.now()):
 export function demoteRememberedMethod(history: RememberedAccount[], accountId: string): RememberedAccount[] {
   return history.map((entry) => (entry.id === accountId ? { ...entry, signInMethod: null } : entry));
 }
+
+export type EmailCodeRefusal = "unverified-account" | "sign-up-disabled" | "generic";
+
+/**
+ * Why sending a sign-in code failed. An account whose email is not verified
+ * (made with a password and never verified) can't take a code until it is:
+ * the auth service answers USER_EMAIL_ALREADY_EXISTS with
+ * would_work_if_email_was_verified, and the page points to the method used
+ * to sign up instead of a generic error.
+ */
+export function emailCodeRefusal(error: unknown): EmailCodeRefusal {
+  if (typeof error !== "object" || error === null) return "generic";
+  const { errorCode, details } = error as { errorCode?: unknown; details?: unknown };
+  if (errorCode === "SIGN_UP_NOT_ENABLED") return "sign-up-disabled";
+  if (
+    errorCode === "USER_EMAIL_ALREADY_EXISTS" &&
+    typeof details === "object" &&
+    details !== null &&
+    (details as Record<string, unknown>).would_work_if_email_was_verified === true
+  ) {
+    return "unverified-account";
+  }
+  return "generic";
+}

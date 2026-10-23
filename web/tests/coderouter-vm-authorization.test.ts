@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { randomBytes } from "node:crypto";
 import { SignJWT } from "jose";
 import { vmToken } from "./vm-authorization-fixture";
-import { authenticateRequestRouteToken } from "../services/coderouter/routeTokenAuth";
+import { authenticateRequestRouteToken, ROUTE_TOKEN_HEADER } from "../services/coderouter/routeTokenAuth";
 import { verifyVmAuthorization, VM_AUTHORIZATION_LIFETIME_SECONDS } from "../services/coderouter/vmAuthorization";
 import { renderVmGuestModelPlaneEnvFile } from "../services/coderouter/vmGuestEnv";
 import { scrubSentryEvent } from "../services/sentry";
@@ -31,6 +31,33 @@ describe("signed VM authorization", () => {
     if (result.ok) expect(result.identity.vmId).toBe("vm-1");
   });
 
+  test("accepts the same signed token through the edge compatibility bearer header", async () => {
+    const token = await vmToken();
+    const req = new Request("https://coderouter.test/v1/models", {
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    });
+    const result = await authenticateRequestRouteToken(req, async t => t === token ? identity : null);
+    expect(result).toMatchObject({ ok: true, identity: { vmId: "vm-1", token } });
+  });
+
+  test("keeps signed-token diagnostics for invalid bearer and route headers", async () => {
+    const unknownKey = await arbitraryToken({}, { kid: "other-deployment" });
+    for (const [header, value, detail] of [
+      ["authorization", `Bearer ${unknownKey}`, "signed_unknown_key"],
+      [ROUTE_TOKEN_HEADER, "a.b.c", "signed_unverified"],
+    ] as const) {
+      let lookups = 0;
+      const result = await authenticateRequestRouteToken(
+        new Request("https://coderouter.test/v1/models", { headers: { [header]: value } }),
+        async () => { lookups++; return identity; },
+      );
+      expect(result).toMatchObject({ ok: false, reason: "invalid_route_token", detail });
+      expect(lookups).toBe(0);
+    }
+  });
+
   test("malformed/unsigned headers fail closed without fallback or database access", async () => {
     for (const header of ["", "Basic abc", "Bearer", "Bearer crt_unsigned", "Bearer a.b.", "Bearer a.b.c, a.b.c", "a.b.c", `Bearer ${"x".repeat(4097)}`]) {
       const req = request("unused");
@@ -48,7 +75,7 @@ describe("signed VM authorization", () => {
     const tokens = [
       valid.slice(0, valid.lastIndexOf(".") + 1) + "A".repeat(43),
       await arbitraryToken({ aud: "other" }), await arbitraryToken({ iss: "other" }),
-      await arbitraryToken({ exp: now - 1 }), await arbitraryToken({ iat: now + 60 }),
+      await arbitraryToken({ iat: now + 60 }),
       await arbitraryToken({ exp: now + VM_AUTHORIZATION_LIFETIME_SECONDS + 1 }),
       await arbitraryToken({ iat: null }), await arbitraryToken({ exp: null }),
       await arbitraryToken({ vm_id: "" }), await arbitraryToken({ team_id: null }),
@@ -61,6 +88,20 @@ describe("signed VM authorization", () => {
       expect((await authenticateRequestRouteToken(request(token), async () => { lookups++; return identity; })).ok).toBe(false);
       expect(lookups).toBe(0);
     }
+  });
+
+  test("a machine's credential outlives its exp claim; only the database row ends it", async () => {
+    // The edge injects this header from a rule fixed at create, so a running
+    // machine can never receive a fresh token. Expiry by clock cut every
+    // machine older than the lifetime off coderouter and its reflection API.
+    const token = await arbitraryToken({ iat: now - 40 * 24 * 60 * 60, exp: now - 10 * 24 * 60 * 60 });
+    expect((await verifyVmAuthorization(token))?.vm_id).toBe("vm-1");
+    let lookups = 0;
+    const live = await authenticateRequestRouteToken(request(token), async () => { lookups++; return identity; });
+    expect(live.ok).toBe(true);
+    expect(lookups).toBe(1);
+    // Revoked, or the machine is no longer live: the lookup finds no row.
+    expect((await authenticateRequestRouteToken(request(token), async () => null)).ok).toBe(false);
   });
 
   test("a VM A token cannot authorize a VM B or different-owner database row", async () => {

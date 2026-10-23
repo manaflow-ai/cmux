@@ -34,6 +34,8 @@ protocol SurfaceProvider: AnyObject {
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource
     /// Retries of one UI intent carry the same id so a remote mutation can replay its receipt.
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource
+    /// Create a browser in a remote workspace and return its committed daemon resource.
+    func createBrowser(url: URL, name: String?, remoteWorkspaceID: String?, screenID: String?, paneID: String?, idempotencyKey: String?, correlationKey: String?) async throws -> SurfaceResource
     /// Read the live working directory of a terminal's foreground process. Remote
     /// providers use this when a shortcut creates a sibling terminal; providers that
     /// cannot inspect a process return nil and preserve their normal daemon fallback.
@@ -93,6 +95,10 @@ extension SurfaceProvider {
 
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource {
         try await createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID)
+    }
+
+    func createBrowser(url: URL, name: String?, remoteWorkspaceID: String?, screenID: String?, paneID: String?, idempotencyKey: String?, correlationKey: String?) async throws -> SurfaceResource {
+        throw SurfaceCatalogError.unsupported("browsers on \(machine)")
     }
 
     /// Legacy providers predate the capability bit and are assumed to support

@@ -325,7 +325,6 @@ public final class BrowserOffscreenRenderHost {
 /// the pane reflects what the phone shows instead of going blank; click-through
 /// because the phone owns interaction. Removed on teardown when the web view
 /// returns to the pane.
-@MainActor
 final class BrowserStreamMacMirrorView: NSView {
     private let imageView = NSImageView()
 
@@ -351,7 +350,7 @@ final class BrowserStreamMacMirrorView: NSView {
         imageView.image = image
     }
 
-    public override func hitTest(_ point: NSPoint) -> NSView? {
+    public nonisolated override func hitTest(_ point: NSPoint) -> NSView? {
         nil
     }
 }

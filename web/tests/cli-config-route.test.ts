@@ -203,4 +203,28 @@ describe("CLI config route", () => {
     );
   });
 
+  test("omits the hosted Subrouter when it isn't configured", async () => {
+    await withCliConfigEnvironment(
+      { ...testEnvironment, SUBROUTER_HOSTED_URL: undefined, VERCEL_ENV: "production" },
+      async () => {
+        const response = GET(new Request("https://cmux.com/api/cli/config"));
+        expect(response.status).toBe(200);
+        const body = await response.json();
+        expect(body).not.toHaveProperty("subrouter");
+      },
+    );
+  });
+
+  test("returns 503 for an invalid hosted Subrouter URL", async () => {
+    await withCliConfigEnvironment(
+      { ...testEnvironment, SUBROUTER_HOSTED_URL: "http://subrouter.example.test" },
+      async () => {
+        const response = GET(new Request("https://cmux.com/api/cli/config"));
+        expect(response.status).toBe(503);
+        expect(await response.json()).toEqual({
+          error: "cli_auth_unavailable",
+        });
+      },
+    );
+  });
 });

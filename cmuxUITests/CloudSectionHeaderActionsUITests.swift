@@ -4,33 +4,12 @@ import XCTest
 /// New Machine sheet as Cmd-Y, once per click, and My Devices no longer
 /// explains its ⋯ menu in a hint line.
 final class CloudSectionHeaderActionsUITests: XCTestCase {
-    private let flagKeys = [
-        "cmux.flags.override.cloud-machines-enabled-release",
-    ]
-    private var savedFlags: [String: Any] = [:]
-    private var fixtureDefaults: UserDefaults?
-
     override func setUpWithError() throws {
         try super.setUpWithError()
         continueAfterFailure = false
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "com.cmuxterm.app.debug"))
-        fixtureDefaults = defaults
-        // The flag reader accepts typed Booleans; launch-argument strings do not
-        // force the effective flag on.
-        for key in flagKeys {
-            savedFlags[key] = defaults.object(forKey: key)
-            defaults.set(true, forKey: key)
-        }
-        defaults.synchronize()
     }
 
     override func tearDown() {
-        for key in flagKeys {
-            fixtureDefaults?.set(savedFlags[key], forKey: key)
-        }
-        fixtureDefaults?.synchronize()
-        fixtureDefaults = nil
-        savedFlags.removeAll()
         super.tearDown()
     }
 
@@ -126,7 +105,7 @@ final class CloudSectionHeaderActionsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
         app.launchArguments += [
             "-workspacePresentationMode", "standard",
-            "-cloud.beta.machines.enabled", "YES",
+            "-cloud.beta.machines.enabled", "<true/>",
             "-fileExplorer.isVisible", "YES",
             "-rightSidebar.mode", "files",
             "-menuBarOnly", "false",

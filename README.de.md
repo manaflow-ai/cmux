@@ -69,7 +69,7 @@ Die Seitenleiste zeigt Git-Branch, verknüpften PR-Status/Nummer, Arbeitsverzeic
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> erstellt einen Arbeitsbereich für eine entfernte Maschine. Browser-Bereiche werden über das entfernte Netzwerk geleitet, sodass localhost einfach funktioniert. Ziehen Sie ein Bild in eine entfernte Sitzung, um es per scp hochzuladen.
+<code>cmux ssh user@remote</code> erstellt einen Arbeitsbereich für eine entfernte Maschine. Übergeben Sie <code>--command 'omp "investigate auth"'</code>, um einmalig einen ersten Befehl im ersten entfernten Terminal auszuführen. Browser-Bereiche werden über das entfernte Netzwerk geleitet, sodass localhost einfach funktioniert. Ziehen Sie ein Bild in eine entfernte Sitzung, um es per scp hochzuladen.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -120,6 +120,25 @@ brew upgrade --cask cmux
 
 Beim ersten Start fordert macOS Sie möglicherweise auf, das Öffnen einer App von einem identifizierten Entwickler zu bestätigen. Klicken Sie auf **Öffnen**, um fortzufahren.
 
+### Shell-Vervollständigung
+
+Das Homebrew-Cask installiert die Vervollständigung für zsh, bash und fish. Starten Sie nach der Installation eine neue Shell. Falls die Vervollständigung nicht geladen wird, stellen Sie sicher, dass die Vervollständigungsverzeichnisse von Homebrew in Ihrer Shell eingebunden sind (siehe [Homebrews Dokumentation zur Shell-Vervollständigung](https://docs.brew.sh/Shell-Completion)).
+
+Wenn Sie cmux anders installiert haben, fügen Sie die passende Zeile zur Startdatei Ihrer Shell hinzu und starten Sie eine neue Shell:
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
+
 ## Warum cmux?
 
 Ich führe viele Claude Code- und Codex-Sitzungen parallel aus. Ich habe Ghostty mit einer Menge geteilter Bereiche verwendet und mich auf die nativen macOS-Benachrichtigungen verlassen, um zu wissen, wann ein Agent mich braucht. Aber der Benachrichtigungstext von Claude Code ist immer nur „Claude is waiting for your input" ohne Kontext, und bei genügend offenen Tabs konnte ich nicht einmal mehr die Titel lesen.
@@ -152,7 +171,9 @@ Weitere Informationen zur Konfiguration von cmux finden Sie in [unserer Dokument
 
 | Tastenkürzel | Aktion |
 |----------|--------|
-| ⌘ N | Neuer Arbeitsbereich |
+| ⌘ N | Neuer lokaler Arbeitsbereich |
+| ⌘ Y | Neuer Cloud-Arbeitsbereich im zuletzt nutzbaren Cloud-Kontext; öffnet New Cloud Machine, wenn keiner verfügbar ist |
+| ⌘ ⇧ Y | Neue Cloud-Maschine |
 | ⌘ 1–8 | Zu Arbeitsbereich 1–8 springen |
 | ⌘ 9 | Zum letzten Arbeitsbereich springen |
 | ⌃ ⌘ ] | Nächster Arbeitsbereich |

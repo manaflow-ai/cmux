@@ -85,6 +85,7 @@ struct RemoteSessionSSHDestinationArgumentTests {
         #expect(arguments.count >= 3)
         #expect(arguments.dropLast(2).last == "--")
         #expect(arguments.last?.hasPrefix("user@example.test:") == true)
+        #expect(arguments.last?.contains(":/home/test user/.cache/cmux/paste/") == true)
     }
 
     @Test("Reverse relay fallback ends option parsing and keeps its forward")

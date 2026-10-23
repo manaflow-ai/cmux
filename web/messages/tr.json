@@ -30,6 +30,39 @@
       "message": "Bu makine bir Cloud güncellemesinden önce oluşturuldu ve bağlanılamıyor.",
       "action": "Yeni bir makine oluşturun, dosyalarınızı cmux vm pull ve cmux vm push ile aktarın, ardından bunu silin."
     },
+    "guestUnresponsive": {
+      "title": "Makine yanıt vermiyor",
+      "message": "Bu makine zamanında yanıt vermediği için istek tamamlanamadı.",
+      "action": "Yeni bir makine oluşturmadan önce izleme kimliğiyle desteğe başvurun."
+    },
+    "inProgress": {
+      "title": "Hâlâ devam ediyor",
+      "message": "Bulut sağlayıcısı bu değişikliği henüz tamamlamadı. Değişiklik yine de tamamlanabilir.",
+      "action": "Tekrar denemeden önce makinenin durumunu cmux vm ls ile veya makine listesinde kontrol edin."
+    },
+    "providerTimeout": {
+      "title": "Bulut sağlayıcısı yavaş",
+      "message": "Bulut sağlayıcısı zamanında yanıt vermedi.",
+      "action": "Biraz sonra tekrar deneyin."
+    },
+    "providerCapacity": {
+      "title": "Şu anda Cloud kapasitesi yok",
+      "message": "Cloud hizmetinde şu anda bu makine için yer yok. Hiçbir şey değiştirilmedi.",
+      "action": "Bir dakika sonra tekrar deneyin."
+    },
+    "stateConflict": {
+      "title": "Makine meşgul",
+      "message": "Bu makine başlatılıyor, duraklatılıyor veya çalışmıyor; bu yüzden şu anda bunu yapamıyor.",
+      "action": "Biraz bekleyip tekrar deneyin. Makinenin durumunu cmux vm ls ile kontrol edin ve duraklatılmışsa önce sürdürün."
+    },
+    "networkRuleCapacity": {
+      "title": "Ağ kuralları kapasitede",
+      "message": "Ağ politikanız kaydedildi ancak uygulanmadı: cmux Cloud ağ kuralı kapasitesine ulaştı.",
+      "action": "cmux ekibi bilgilendirildi. Bu makinenin artık ihtiyaç duymadığı alan adlarını kaldırın veya destek ekibiyle iletişime geçin. O zamana kadar bu makinenin ağ erişimi kaydedilen politikayla eşleşmeyebilir."
+    },
+    "networkPolicyStatus": {
+      "applyFailed": "Ağ politikası kaydedildi ancak uygulanmadı. Yeniden denemek için tekrar kaydedin."
+    },
     "unsupported": {
       "title": "Cloud VM işlemi kullanılamıyor",
       "reason": "Bu makine türü bu işlemi sağlamıyor.",
@@ -81,12 +114,27 @@
       "shapeMessage": "Go, 2 vCPU, 4 GiB RAM ve 16 GiB disk destekler.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
+    "planBudget": {
+      "computeTitle": "{plan} işlem kotası doldu",
+      "computeMessage": "{plan} planınız bu fatura dönemindeki {included} işlem saatini kullandı. Bir işlem saati, 2 GB bellekli 1 vCPU'nun bir saat çalışmasıdır. Makineleriniz {resetDate} tarihinde yeniden başlatılabilir.",
+      "computeAction": "Duraklatılan makineler dosyalarını korur. {resetDate} tarihinden önce daha fazla işlem gücüne ihtiyacınız varsa destekle iletişime geçin.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "{plan} disk kotası doldu",
+      "storageMessage": "{plan} planınız, kayıtlı tüm makineler için toplam {included} GB disk içerir. Kayıtlı makineler {used} GB kullanıyor ve bu istek {requested} GB gerektiriyor.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+    },
     "resourcePool": {
       "title": "Yeterli Cloud VM kaynağı yok",
       "memoryMessage": "VM'leriniz zaten {pool} GB RAM'in {used} GB'ını kullanıyor. Bu VM'nin {requested} GB'a ihtiyacı var.",
       "vcpuMessage": "VM'leriniz zaten {pool} vCPU'nun {used} tanesini kullanıyor. Bu VM'nin {requested} vCPU'ya ihtiyacı var.",
       "upgradeAction": "Bir VM'yi duraklatın veya silin ya da Max'e yükseltin.",
       "action": "Bir VM'yi duraklatın veya silin."
+    },
+    "activeLimit": {
+      "counted": "Şu anda sayılanlar: {machines}. Duraklatılmış makineler sayılmaz.",
+      "provisioning": "{name} (hazırlanıyor)",
+      "separator": ", "
     }
   },
   "billingRecovery": {
@@ -180,6 +228,7 @@
     "copyright": "© {year} Manaflow",
     "language": "Dil",
     "assets": "Varlıklar",
+    "art": "Sanat",
     "openSource": "Açık kaynak",
     "guides": "Kılavuzlar",
     "compare": "Karşılaştır"
@@ -475,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Değiştirmek için planınızı sürdürün.",
           "granted": "cmux tarafından verildi. Değiştirilecek bir şey yok.",
+          "grantedNoCancel": "cmux tarafından verildi, bu yüzden iptal edilecek bir şey yok.",
+          "paymentFailed": "Planı değiştirmeden önce ödeme yönteminizi güncelleyin.",
+          "foundersLifetime": "Founder's Edition ömür boyu Pro içerir.",
           "adminOnly": "Planı yalnızca ekip yöneticileri değiştirebilir."
         },
         "names": {
@@ -497,11 +549,11 @@
           ],
           "pro": [
             "Cloud VMs üzerinde bulut ajanları",
-            "20 vCPU ve 40 GB RAM'i paylaşan en fazla 5 Cloud VM",
+            "20 vCPU ve 40 GB RAM'i paylaşan en fazla 5 Cloud VM. Tek bir VM en fazla 16 GB RAM / 8 vCPU kullanabilir. 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları Max gerektirir.",
             "cmux iOS uygulaması"
           ],
           "max": [
-            "80 vCPU ve 160 GB RAM'i paylaşan en fazla 5 Cloud VM",
+            "80 vCPU ve 160 GB RAM'i paylaşan en fazla 5 Cloud VM. Max, 24 GB / 12 vCPU, 32 GB / 16 vCPU ve en fazla 64 GB / 32 vCPU sunar.",
             "Daha büyük makine boyutları",
             "Pro'daki her şey"
           ],
@@ -517,6 +569,7 @@
       "change": {
         "title": "{plan} planına geçilsin mi?",
         "upgradeBody": "{plan} şimdi başlar. Bu fatura döneminin kalanı için bugün {amount} ödersiniz. {date} tarihinden itibaren aylık {price} ödersiniz.",
+        "upgradeBodyYearly": "{plan} şimdi başlar. Bu fatura döneminin kalanı için bugün {amount} ödersiniz. {date} tarihinden itibaren yıllık {price} ödersiniz.",
         "downgradeBody": "{plan} şimdi başlar. Mevcut planınızın kullanılmayan kısmı olan {credit}, sonraki faturalarınıza alacak olarak yansıtılır. {date} tarihindeki sonraki faturanız {amount}.",
         "confirm": "{plan} planına geç",
         "keep": "Mevcut planı koru",
@@ -529,6 +582,8 @@
         "title": "{plan} iptal edilsin mi?",
         "body": "{plan} planı {date} tarihine kadar sizde kalır. Sonrasında şunları kaybedersiniz:",
         "bodyNoDate": "{plan} planı bu fatura döneminin sonuna kadar sizde kalır. Sonrasında şunları kaybedersiniz:",
+        "foundersBody": "{plan} aboneliğiniz {date} tarihinde sona erer. Sonrasında Founder's Edition'ın ömür boyu içerdiği Pro'ya sahip olursunuz.",
+        "foundersBodyNoDate": "{plan} aboneliğiniz bu fatura döneminin sonunda sona erer. Sonrasında Founder's Edition'ın ömür boyu içerdiği Pro'ya sahip olursunuz.",
         "reasonLabel": "Neden iptal ediyorsunuz? (isteğe bağlı)",
         "otherPlaceholder": "Bize daha fazlasını anlatın (isteğe bağlı)",
         "confirm": "Planı iptal et",
@@ -1114,7 +1169,7 @@
       "transferUnavailableError": "Aktarımlar geçici olarak kullanılamıyor veya hesap yenileniyor. Birazdan tekrar deneyin.",
       "shareWithTeam": "Ekiple paylaş",
       "makePrivate": "Özel yap",
-      "privateImportHint": "Yeni hesaplar özeldir. Bu ekibin Cloud VM makinelerinde kullanmak için bir hesabı paylaşın.",
+      "privateImportHint": "Bir kuruluşta yeni hesaplar ekiple ve ekibin Cloud VM'leriyle paylaşılır. Kişisel ekibinizde özel kalır. Bir hesabı değiştirmek için Özel yap veya Ekiple paylaş seçeneğini kullanın.",
       "description": "Paylaşılan hesaplar bu ekibin Cloud VM’leri tarafından kullanılabilir. Özel hesaplar yalnızca onları ekleyen kişi tarafından kullanılabilir.",
       "cancelAction": "İptal",
       "apiKeysTitle": "API anahtarları",
@@ -2157,6 +2212,7 @@
           "defaultSearchEngine": "Tarayıcı adres çubuğundaki URL olmayan sorgular için varsayılan arama motoru. Diğer sağlayıcılar için custom ile customSearchEngineURLTemplate kullanın.",
           "customSearchEngineName": "defaultSearchEngine custom olduğunda kullanılan görünen ad.",
           "customSearchEngineURLTemplate": "defaultSearchEngine custom olduğunda kullanılan arama URL’si. Kodlanmış sorgu için sorgu yer tutucusunu veya %s ekleyin. Yer tutucu yoksa cmux URL’ye q= ekler.",
+          "showLinkHoverURL": "İmleç bağlantının üzerindeyken veya bağlantı klavye odağındayken bağlantının hedefini tarayıcı panelinin sol alt köşesinde gösterir.",
           "urlAllowlist": "Yerleşik tarayıcıda gezinmeyi kısıtlayan ana bilgisayar veya URL kalıpları. Ayarlar yerel geliştirme kaynaklarını önerir; bir listeyi kaydetmek isteğe bağlı kısıtlamayı etkinleştirir. Girişleri kaldırarak engelleyin veya yönetilen bir politika yoksa kısıtlamayı devre dışı bırakmak için kullanıcı değerini boş bırakın."
         },
         "workspaceGroups": {
@@ -2176,6 +2232,7 @@
           "notificationMessageLineLimit": "Her çalışma alanı başlığının altında en son bildirim için gösterilen en fazla satır sayısı.",
           "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır.",
           "showAgentUsage": "Claude Code veya Codex durum girdisine kodlama aracısının kullanımını ekler: model ve kullanılan bağlam penceresi, ayrıca Claude Code için Anthropic’in yayımlanan liste fiyatlarına göre tahmini API maliyeti (ana iş parçacığı ve alt aracılar). Bu maliyet bir tahmindir, abonelik faturanız değildir; toplu ve öncelikli katmanlar, iş ortağı fiyatlandırması, hızlı mod ve sunucu aracı ücretleri hesaba katılmaz.",
+          "showCloudDeviceIcons": "Cloud makinesi ve cihaz simgelerini, Git dalı ve dizin ayrıntılarından bağımsız olarak uzak çalışma alanı başlıklarının yanında göster.",
           "beta": {
             "conversations": {
               "enabled": "Kenar çubuğu seçicisinde birleştirilmiş konuşma görünümünü göster."
@@ -2200,6 +2257,21 @@
           "indentGuides": "Yerleşik dosya düzenleyicide her girinti düzeyini ince bir dikey çizgiyle işaretler.",
           "currentLineHighlight": "Hiçbir şey seçili değilken metin imlecinin bulunduğu satırı renklendirir.",
           "tabWidth": "Bir sekme durağının kaç sütun kapladığı. Girinti kılavuzları da aynı aralığı kullanır."
+        },
+        "actions": "Komut paleti, kısayollar, sekme çubuğu düğmeleri ve artı düğmesi menüsü için yeniden kullanılabilir eylemler. builtin, command, agent, workspaceCommand, workspace, setting, settingPreset ve text desteklenir. Metin eylemleri satır sonlarını koruyarak odaklanmış terminale yapıştırır; submit: true Enter tuşuna basar. Ayar eylemleri genel yapılandırma gerektirir.",
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "Uzak bir tmux çalışma alanı seçildiğinde “Yeni çalışma alanı”, o çalışma alanının ana bilgisayarında bir tmux oturumu başlatır."
+            }
+          }
+        },
+        "chief": {
+          "description": "Chief, Ana Sayfa aracısı: gösterilip gösterilmediği ve hangi altyapıyı, modeli ve çabayı kullandığı.",
+          "enabled": "Ana Sayfa satırını ve Chief giriş noktalarını gösterir. false olduğunda Ana Sayfa satırı, Chief'i Aç kısayolu, menü öğesi ve komut paleti girdileri gizlenir.",
+          "harness": "Chief'in çalıştığı aracı altyapısı: claude (Claude Code) veya codex (Codex).",
+          "model": "Altyapıya iletilen model. Altyapının varsayılanını kullanmak için boş bırakın.",
+          "effort": "Altyapıya iletilen akıl yürütme çabası; örneğin low, medium veya high. Altyapının varsayılanını kullanmak için boş bırakın."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -2270,7 +2342,7 @@
       "plusButtonScreenshotAlt": "cmux artı düğmesinin sağ tık menüsünde Worktree Agents, New Terminal ve New Browser görünüyor",
       "plusButtonScreenshotCaption": "Sağ tık menüsü ui.newWorkspace.contextMenu sırasını izler.",
       "newWorkspaceButton": "Artı düğmesi için özel eylemler",
-      "newWorkspaceButtonDesc": "Artı düğmesinin ne yaptığını geçersiz kılmak için <action>ui.newWorkspace.action</action> kullanın. Sıralı sağ tık menüsünü tanımlamak için <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (veya <rightClick>rightClick</rightClick> alias’ı) kullanın. Menü girdileri eylem ID’leri, eylem nesneleri veya <separator>{ \"type\": \"separator\" }</separator> olabilir. Ayarlanmadığında menü, geçerli kısayollarıyla cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) öğelerini listeler. Bulut öğeleri yalnızca Cloud Machines etkin olduğunda görünür. New Cloud Workspace son seçilen Cloud çalışma alanının makinesini, ardından sağ kenar çubuğundaki ilk makineyi kullanır; New Cloud Machine ise bilerek bir makine sağlar.",
+      "newWorkspaceButtonDesc": "Artı düğmesinin ne yaptığını geçersiz kılmak için <action>ui.newWorkspace.action</action> kullanın. Sıralı sağ tık menüsünü tanımlamak için <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (veya <rightClick>rightClick</rightClick> alias’ı) kullanın. Menü girdileri eylem ID’leri, eylem nesneleri veya <separator>{ \"type\": \"separator\" }</separator> olabilir. Ayarlanmadığında menü, geçerli kısayollarıyla cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) öğelerini listeler. Bulut öğeleri yalnızca Cloud Machines etkin olduğunda görünür. New Cloud Workspace en son seçilen Cloud çalışma alanının makinesini, ardından sağ kenar çubuğundaki ilk makineyi kullanır; kullanılabilir makine yoksa New Cloud Machine açılır.",
       "newWorkspaceWorktreeNote": "Bu örnek, normal artı tıklamasının <action>worktree-agents</action> eylemini çalıştırmasını sağlar. <commands>commands</commands> içindeki çalışma alanı komutu, önce Git <worktree>worktree</worktree> oluşturmak için görünür bir kurulum terminali kullanır. Codex ve Claude aynı anda başlar, çalışma alanına özgü durum dosyasını bekler ve sonra exec öncesinde oluşturulan dizine geçer.",
       "simpleCommands": "Kabuk komutları",
       "simpleCommandsDesc": "En küçük girdi bir ad ve bir command dizesinden oluşur. Command Palette'te seçildiğinde bu dize odaktaki terminale yazılır ve çalıştırılır.",
@@ -2874,7 +2946,7 @@
       "metaTitle": "cmux Cloud",
       "metaDescription": "cmux üzerinden kalıcı Linux bulut makineleri çalıştırın ve Mac'inizi kapattıktan sonra bile kodlama aracılarının çalışmaya devam etmesini sağlayın.",
       "intro": "cmux Cloud, normal cmux çalışma alanları olarak açılan kalıcı Linux bulut makineleri sunar. Bir bölmeyi kapattığınızda, ağ bağlantınız koptuğunda veya dizüstü bilgisayarınızı kapattığınızda terminaller çalışmaya devam eder. Böylece kodlama aracıları çalışmayı sürdürür ve siz de oturum açılmış herhangi bir Mac'ten yeniden bağlanabilirsiniz.",
-      "betaNote": "cmux Cloud erken erişim aşamasındadır ve Mac'lerde kademeli olarak etkinleştirilmektedir. Kullanmak için Mac'inizin dağıtıma dahil olması ve Settings › Beta Features › Cloud Machines'i etkinleştirmeniz gerekir. Mac'iniz henüz dağıtıma dahil değilse Cloud komutları \"Cloud Machines geçici olarak kullanılamıyor\" mesajını gösterir.",
+      "betaNote": "cmux Cloud erken erişim aşamasındadır ve kuruluşunuz devre dışı bırakmadığı sürece kullanılabilir. Kullanmak için Settings › Beta Features › Cloud Machines’i etkinleştirin.",
       "whatTitle": "Makine nedir",
       "whatDesc": "Makine, size veya ekibinize ait kalıcı bir bulut bilgisayarıdır. Dosyalarını, kurulu araçlarını ve çalışan terminallerini korur. Ona sürüdeki bir hayvan gibi değil, evcil bir hayvan gibi davranın: ihtiyacınız olanı bir kez kurar, daha sonra ona geri dönersiniz.",
       "whatDaemon": "Her makinede cmux TUI arka plan hizmeti çalışır. Bu hizmet makinenin çalışma alanlarını ve terminallerini tutar. Mac'inizdeki bir cmux bölmesi yalnızca makinede yaşayan bir terminali gösterir, bu nedenle bölmeyi kapatmak işlemi asla durdurmaz.",
@@ -2883,18 +2955,18 @@
       "requirementsTitle": "Neye ihtiyacınız var",
       "reqMac": "Çalışan ve oturum açılmış cmux macOS uygulaması. cmux CLI uygulamayla konuşur ve kimlik bilgilerinizi uygulama tutar.",
       "reqPlan": "Ücretli bir cmux planı. Ücretsiz hesaplar makine oluşturamaz. Güncel planlar için fiyatlandırma sayfasına bakın.",
-      "reqBeta": "Cloud erken erişim dağıtımına dahil olan ve Settings › Beta Features içinde Cloud Machines'in etkin olduğu bir Mac.",
+      "reqBeta": "Settings › Beta Features içinde Cloud Machines etkin olmalı ve Cloud’u devre dışı bırakan bir kuruluş ilkesi bulunmamalıdır.",
       "reqNoVpn": "VPN, SSH anahtarı veya bağlantı noktası yönlendirme kurulumu gerekmez. cmux, otomatik olarak başlayan özel bir ağ üzerinden makinelerinize bağlanır.",
       "quickstartTitle": "Hızlı başlangıç",
       "stepSignIn": "Oturum açın. Sağ kenar çubuğundaki Cloud sekmesini kullanın veya bir terminalde oturum açma komutunu çalıştırın.",
-      "stepCreate": "File › New Cloud Machine veya ⌘Y ile bir makine oluşturun. Bir boyut ve isteğe bağlı bir etiket seçin. Oluşturma arka planda devam eder ve makine hazır olduğunda cmux bir bildirim gösterir.",
-      "stepWorkspace": "⇧⌘Y (New Cloud Workspace) ile makinede bir çalışma alanı açın. Bir Cloud çalışma alanının içinde ⌘N aynı makinede başka bir çalışma alanı oluşturur.",
+      "stepCreate": "File › New Cloud Machine veya ⇧⌘Y ile bir makine oluşturun. Bir boyut ve isteğe bağlı bir etiket seçin. Oluşturma arka planda devam eder ve makine hazır olduğunda cmux bir bildirim gösterir.",
+      "stepWorkspace": "⌘Y (New Cloud Workspace) ile makinede bir çalışma alanı açın. Bir Cloud çalışma alanının içinde ⌘N bu Mac'te her zaman yerel bir çalışma alanı oluşturur.",
       "stepAgent": "Bir aracı çalıştırın. Claude Code, Codex, OpenCode ve Pi makinede zaten kuruludur.",
       "stepCli": "Aynısını CLI'dan da yapabilirsiniz:",
       "appTitle": "Uygulamada Cloud",
       "appSidebar": "Sağ kenar çubuğundaki Cloud sekmesi makinelerinizi listeler. Her makinenin altında çalışma alanlarını, yönlendirilen bağlantı noktalarını, VNC ekranlarını ve terminalleri görürsünüz. Açmak için bir öğeye tıklayın. Cloud ağacını komut paletinden Open Cloud as Pane ile bir bölme olarak da açabilirsiniz.",
       "appMenu": "Bir makineye sağ tıklayarak kabuk açabilir, çalışma alanı oluşturabilir, masaüstünü açabilir, tam cmux TUI istemcisini açabilir, boyutunu değiştirebilir, yeniden adlandırabilir, IP adresini kopyalayabilir, durumunu görebilir, kontrol noktası oluşturabilir, çatallayabilir veya silebilirsiniz. Makineleri sabitleyebilir ve sıralarını da değiştirebilirsiniz.",
-      "appShortcuts": "New Cloud Machine (⌘Y) ve New Cloud Workspace (⇧⌘Y), File menüsünde, artı düğmesi menüsünde ve komut paletinde bulunur. Her iki kısayolu da Ayarlar'da veya cmux.json içinde newCloudMachine ve newCloudWorkspace anahtarlarıyla değiştirebilirsiniz.",
+      "appShortcuts": "New Cloud Machine (⇧⌘Y) ve New Cloud Workspace (⌘Y), File menüsünde, artı düğmesi menüsünde ve komut paletinde bulunur. Her iki kısayolu da Ayarlar'da veya cmux.json içinde newCloudMachine ve newCloudWorkspace anahtarlarıyla değiştirebilirsiniz.",
       "cliIntroTitle": "CLI'dan Cloud",
       "cliIntroDesc": "cmux vm ve cmux cloud aynı komuttur. Makinelerinizi listelemek için cmux vm'i fiil olmadan çalıştırın. Her fiilin uygulama olmadan çalışan bir --help sayfası vardır ve cmux vm guide eksiksiz bir Markdown kılavuzu yazdırır. Makinece okunabilir çıktı için herhangi bir fiile --json ekleyin.",
       "baseTitle": "Temel makineniz",
@@ -2912,11 +2984,11 @@
       "metaDescription": "cmux Cloud makinelerini oluşturun, boyutlandırın, büyütün, duraklatın, anlık görüntülerini alın, çatallayın ve artık gerekmediğinde silin.",
       "intro": "Bu sayfa bir cmux Cloud makinesinin yaşam döngüsünü açıklar: nasıl oluşturulacağı, hangi boyutları seçebileceğiniz, plan sınırlarının nasıl uygulandığı ve makinenin nasıl duraklatılacağı, anlık görüntüsünün alınacağı, çatallanacağı ve silineceği.",
       "createTitle": "Makine oluşturma",
-      "createApp": "Uygulamada File › New Cloud Machine (⌘Y), artı düğmesi menüsü, komut paleti veya Cloud kenar çubuğundaki artı düğmesini kullanın. Açılan sayfa bir boyut ve isteğe bağlı bir etiket ister.",
+      "createApp": "Uygulamada File › New Cloud Machine (⇧⌘Y), artı düğmesi menüsü, komut paleti veya Cloud kenar çubuğundaki artı düğmesini kullanın. Açılan sayfa bir boyut ve isteğe bağlı bir etiket ister.",
       "createCli": "CLI'da cmux vm new bir makine oluşturur ve üzerinde bir çalışma alanı açar. Hiçbir şey açmadan oluşturmak için --detach kullanın. Bir oluşturma isteği yeniden denenirse cmux aynı isteği yeniden kullanır, böylece iki makine elde etmezsiniz.",
       "createFailed": "Oluşturma başarısız olursa bildirim; yeniden denemenize, hatayı göstermenize veya destek talebi için kopyalamanıza olanak tanır.",
       "sizesTitle": "Boyutlar",
-      "sizesDesc": "Her boyut belleği, vCPU'yu ve diski birlikte belirler. Boyutu oluşturma sayfasında veya --size ile seçin.",
+      "sizesDesc": "Her boyut belleği, vCPU'yu ve diski birlikte belirler. Boyutu oluşturma sayfasında veya --size ile seçin. Pro ve Team 4g, 8g ve 16g (2, 4 ve 8 vCPU) destekler. Max ayrıca 24g ve 32g (12 ve 16 vCPU) ile 64g (32 vCPU) boyutlarının kilidini açar.",
       "sizeColumn": "Boyut",
       "memoryColumn": "Bellek",
       "cpuColumn": "vCPU",
@@ -2930,7 +3002,7 @@
       "limitsFree": "Ücretsiz hesaplar makine oluşturamaz.",
       "limitsPaid": "Pro ve Founder's Edition hesaplarında 20 vCPU ve 40 GB belleği paylaşan en fazla 5 etkin makine olabilir. Bir makine çalışırken veya başlatılırken etkin sayılır.",
       "limitsTeam": "Ekip hesaplarında her ücretli koltuk için en fazla 5 etkin makine olabilir. Her ücretli koltuk ekibin havuzuna 20 vCPU ve 40 GB bellek ekler.",
-      "limitsMax": "Max hesaplarında 80 vCPU ve 160 GB belleği paylaşan en fazla 5 etkin makine olabilir. Tek bir makine Pro ve Team'de en fazla 32 GB ve 16 vCPU'ya, Max'te en fazla 64 GB ve 32 vCPU'ya çıkabilir.",
+      "limitsMax": "Max hesaplarında 80 vCPU ve 160 GB belleği paylaşan en fazla 5 etkin makine olabilir. Tek bir Max makinesi, 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları dahil olmak üzere 64 GB ve 32 vCPU'ya kadar kullanabilir; Pro ve Team 16 GB ve 8 vCPU ile sınırlıdır.",
       "limitsPoolFull": "Yeni, sürdürülen, büyütülen veya çatallanan bir makine havuzu aşacaksa cmux isteği reddeder ve havuzun ne kadarının kullanıldığını gösterir. Kaynak açmak için bir makineyi duraklatın veya silin ya da Max'e yükseltin.",
       "limitsPricing": "Güncel fiyatlar için fiyatlandırma sayfasına bakın. Kullanım ölçümü ve aşım ücreti yoktur.",
       "agentUpdatesTitle": "Kodlama ajanlarını güncel tut",
@@ -2940,7 +3012,7 @@
       "agentUpdatesToggle": "New Machine sayfası bu ayarı varsayılan olarak açar. Mevcut bir makinede değiştirmek için makineye sağ tıklayıp Keep Agents Up to Date seçeneğini seçin veya cmux vm agent-updates komutunu çalıştırın. cmux vm new, --agent-updates latest geçmediğiniz sürece imajdaki sürümleri korur. Güncellemeleri kapatmak, kurulu sürümleri korur.",
       "agentUpdatesNetwork": "Güncellemeler yalnızca github.com, api.github.com, objects.githubusercontent.com ve release-assets.githubusercontent.com kullanır. cmux bu sunuculara Allowlist ve No internet dahil her ağ modunda izin verir, bu yüzden bir ağ politikası güncellemeleri asla engellemez.",
       "resizeTitle": "Yeniden boyutlandırma",
-      "resizeDesc": "Bir makineyi veri kaybı olmadan büyütebilirsiniz. Makineye sağ tıklayıp Resize machine'i seçin veya cmux vm resize kullanın. Yeniden boyutlandırma yalnızca büyütebilir. Disk 4 GB'lık adımlarla 256 GB'a kadar büyür. Bellek Pro ve Team'de 32 GB'a, CPU 16 vCPU'ya; Max'te 64 GB'a ve 32 vCPU'ya kadar büyür. Daha büyük bir makine havuzunuzdan daha fazla kullanır. Gerçek üst sınırı planınız belirler.",
+      "resizeDesc": "Bir makineyi veri kaybı olmadan büyütebilirsiniz. Makineye sağ tıklayıp Resize machine'i seçin veya cmux vm resize kullanın. Yeniden boyutlandırma yalnızca büyütebilir. Disk Pro ve Team'de 4 GB'lık adımlarla 128 GB'a, Max'te 256 GB'a kadar büyür (Go 16 GB ile sınırlıdır). Bellek Pro ve Team'de 16 GB'a, CPU 8 vCPU'ya; Max'te 64 GB'a ve 32 vCPU'ya kadar büyür. Daha büyük bir makine havuzunuzdan daha fazla kullanır. Gerçek üst sınırı planınız belirler.",
       "pauseTitle": "Duraklatma ve sürdürme",
       "pauseDesc": "cmux vm pause makinenin işlem kaynaklarını durdurur. Disk, çalışma alanları ve terminal geçmişi korunur. Çalışan işlemler durur. cmux vm resume makineyi yeniden başlatır. Duraklatılmış bir makineyi açmak veya üzerinde komut çalıştırmak da onu başlatır.",
       "pauseIdle": "Makineler boşta kaldıklarında kendiliğinden duraklamaz. Bir makine siz onu duraklatana veya silene kadar çalışmaya devam eder.",
@@ -3083,15 +3155,15 @@
       "symptomColumn": "Sorun",
       "fixColumn": "Çözüm",
       "errNotSeen": "Cloud sekmesi veya New Cloud Machine komutu yok",
-      "fixNotSeen": "Settings › Beta Features › Cloud Machines'i etkinleştirin. Cloud hâlâ görünmüyorsa Mac'iniz henüz dağıtıma dahil değildir. Cloud Machines'in yöneticiniz tarafından devre dışı bırakıldığı yazıyorsa yöneticinize başvurun.",
-      "errUnavailable": "Cloud Machines geçici olarak kullanılamıyor",
-      "fixUnavailable": "Mac'iniz henüz Cloud dağıtımına dahil değil veya Cloud geçici olarak kapalı. Settings'teki anahtar tek başına Cloud'u etkinleştirmez. Daha sonra yeniden deneyin.",
+      "fixNotSeen": "Settings › Beta Features › Cloud Machines’i etkinleştirin. Cloud hâlâ görünmüyorsa yöneticinizin Cloud Machines’i devre dışı bırakıp bırakmadığını kontrol edin.",
+      "errUnavailable": "Cloud Machines devre dışı veya kullanılamıyor",
+      "fixUnavailable": "Cloud Machines, Settings’teki yerel anahtar kapalı olduğu veya yöneticiniz Cloud’u devre dışı bıraktığı için kapalı. Anahtarı açın ya da yöneticinizden Cloud’a izin vermesini isteyin.",
       "errSignIn": "Cloud VM erişimi için oturum açmak gerekir",
       "fixSignIn": "cmux auth login komutunu çalıştırın, ardından yeniden deneyin. Oturumunuz reddedildiyse önce cmux auth logout komutunu çalıştırın.",
       "errPlan": "Cloud VM'ler için ücretli plan gerekir",
       "fixPlan": "Ücretsiz hesaplar makine oluşturamaz. Fiyatlandırma sayfasından planınızı yükseltin.",
       "errSize": "Bir boyut daha büyük bir plan gerektiriyor",
-      "fixSize": "32 GB'tan büyük makineler için cmux Max gerekir. Daha küçük bir boyut seçin veya planınızı yükseltin.",
+      "fixSize": "16 GB'tan büyük makineler için cmux Max gerekir. Daha küçük bir boyut seçin veya planınızı yükseltin.",
       "errLimit": "Etkin makine sınırına ulaşıldı",
       "fixLimit": "Bir makineyi duraklatın veya silin, ardından yeniden deneyin.",
       "errPool": "Yeterli Cloud VM kaynağı yok",
@@ -3183,8 +3255,8 @@
       "cloudLink": "Aracıların Cloud makinelerinde nasıl yapılandırıldığı",
       "teamsTitle": "Ekipler ve paylaşım",
       "teamsScope": "Hesaplar, oturum açtığınız ekibe aittir. cr org list ekiplerinizi gösterir, cr org switch ise cr'ın kullandığı ekibi değiştirir. cmux coderouter komutları --team '<id>' alır.",
-      "teamsPrivate": "Yeni bir hesap, onu ekleyen kişiye özeldir. Panelde \"Ekiple paylaş\" hesabı her üyenin ve ekibin Cloud makinelerinin kullanımına açar, \"Özel yap\" ise bunu geri alır.",
-      "teamsPersonal": "Kişisel ekibinizde özel hesaplarınız kendi Cloud makinelerinize de hizmet verir. Bir kuruluşun Cloud makineleri yalnızca paylaşılan hesapları kullanır, bu nedenle bir makinenin hesabı kullanmasını beklemeden önce hesabı paylaşın.",
+      "teamsPrivate": "Bir kuruluşa eklenen hesap ekiple paylaşılır; tüm üyeler ve ekibin Cloud makineleri onu kullanabilir. Panoda Özel yap, hesabı ekleyen kişiyle sınırlar; Ekiple paylaş bunu geri alır.",
+      "teamsPersonal": "Kişisel ekibinizde yeni hesaplar özeldir ve özel hesaplarınız kendi Cloud makinelerinize de hizmet eder. Bir kuruluşun Cloud makineleri yalnızca paylaşılan hesapları kullanır; bu nedenle bir makinenin kullanabilmesi için özel hesabın paylaşılması gerekir.",
       "teamsManage": "Her ekip üyesi ekibin paylaşılan hesaplarını ekleyebilir, yeniden adlandırabilir, devre dışı bırakabilir, aktarabilir ve kaldırabilir. cr transfer, onayınızdan sonra bir hesabı başka bir ekibe taşır.",
       "usageTitle": "Kullanım ve sınırlar",
       "usageLimits": "Her sağlayıcı, isteğe hizmet veren hesabı o hesabın kendi planı ve sınırlarına göre ölçer. CodeRouter işi hesaplara dağıtır ancak tek bir hesabın sınırını artırmaz.",
@@ -3224,12 +3296,13 @@
       "apiKeyScope": "Bir kuruluşun API anahtarı yalnızca ekibin paylaşılan hesaplarını kullanır. Kişisel ekibinizdeki bir anahtar özel hesaplarınızı da kullanabilir. CodeRouter, Chat Completions'a değil OpenAI Responses API'ye hizmet verir.",
       "apiKeyLogin": "Tarayıcı açamayan bir makinede cr login --api-key, cr'da bir anahtarla oturum açar; CODEROUTER_API_KEY ise tek bir komut için anahtar sağlar. Bir anahtarı panelden iptal edin veya onu kullanan makinede cr logout çalıştırın.",
       "cloudTitle": "cmux Cloud makinelerinde",
-      "cloudDesc": "Cloud makineleri kurulum gerektirmez. Makinenin ortamı OPENAI_BASE_URL ve ANTHROPIC_BASE_URL değerlerini özel bir CodeRouter adresine yönlendirir ve cmux, bir kabuk veya aracı ilk kez başladığında her aracının yapılandırmasını yazar:",
-      "cloudClaude": "Claude Code, ANTHROPIC_BASE_URL'i ve yer tutucu bir ANTHROPIC_API_KEY'i ortamdan okur. İlk çalıştırma istemleri zaten yanıtlanmıştır.",
+      "cloudDesc": "Cloud makineleri kurulum gerektirmez. Her aracı, ekibinizin CodeRouter hesaplarını özel bir CodeRouter adresi üzerinden kullanır ve cmux, bir kabuk veya aracı ilk kez başladığında aracının yapılandırmasını yazar:",
+      "cloudClaude": "Claude Code, ANTHROPIC_BASE_URL'i ve yer tutucu bir ANTHROPIC_API_KEY'i her kabuktan değil, her başladığında alır; bu nedenle bunlar hiçbir zaman kendi oturum açmanızın önüne geçmez. İlk çalıştırma istemleri zaten yanıtlanmıştır.",
       "cloudCodex": "Codex, ~/.codex/config.toml içinde bir cmux model sağlayıcısı alır.",
       "cloudPi": "Pi, ~/.pi/agent/models.json içinde bir sağlayıcı geçersiz kılması alır.",
-      "cloudOpencode": "OpenCode ilk başladığında sağlayıcı listesini CodeRouter'dan indirir ve ~/.config/opencode/opencode.json dosyasına kaydeder.",
+      "cloudOpencode": "OpenCode ilk başladığında sağlayıcı listesini CodeRouter'dan indirir, ~/.config/cmux/opencode-team.json dosyasına kaydeder ve her çalıştırmada kendi yapılandırmanıza ekler.",
       "cloudYours": "cmux her dosyayı yalnızca eksik olduğunda yazar, bu nedenle düzenlemeleriniz korunur. Zaten başka bir model sağlayıcısını belirten bir Codex yapılandırmasına dokunulmaz.",
+      "cloudOwnLogin": "Bunun yerine kendi hesabınızı kullanmak için makinede cr use own komutunu çalıştırın, ardından aracının normalde yaptığı şekilde oturum açın: Claude Code'da /login, codex login veya opencode auth login. cr use team geri döndürür, cr use own codex tek bir aracıyı değiştirir ve cr use her aracının nasıl oturum açtığını gösterir. Bir seçim yapılmazsa, makinede oturum açtığınız bir aracı kendi hesabınızı kullanır; ekibinizin hesabı olmayan bir aracı ise normal oturum açma ekranını gösterir. Bir değişiklik, aracı bir sonraki başlatılışında uygulanır.",
       "cloudRun": "Aracıları her zamanki gibi çalıştırın. cmux coderouter agent, yalın bir istemi aracının tek seferlik biçimine dönüştürür; makinenin içinde geçerli terminalde çalışır, Mac'inizde ise cmux vm agent gibi aracıyı belirttiğiniz makinede başlatır.",
       "cloudAccounts": "Cloud makineleri, sahibi olan ekibin hesaplarını kullanır. Bir aracı kullanılabilir hesap olmadığını bildirirse bir hesap ekleyin veya mevcut bir hesabı o ekiple paylaşın.",
       "modelsTitle": "Modeller",
@@ -3304,6 +3377,23 @@
     "title": "Sevgi Duvarı",
     "description": "cmux hakkında söylenenler."
   },
+  "art": {
+    "metaTitle": "cmux arka planları için sanat",
+    "metaDescription": "cmux'ın pencere arka planı olarak sunduğu kamu malı tablolara göz atın: Van Gogh, Friedrich, Goya, Doré ve daha fazlası, kaynakları ve lisanslarıyla birlikte.",
+    "title": "Sanat",
+    "description": "Terminallerinizin arkasına koyabileceğiniz ünlü kamu malı tablolar ve baskılar. Tüm eserlerin sanatçıları 70 yıldan uzun süre önce öldü ve her eser 1931'den önce yayımlandı.",
+    "howToUse": "Yakında cmux'ta: Bu eserlerden herhangi birini terminallerinizin arkasına arka plan olarak koyun.",
+    "loading": "Koleksiyon yükleniyor…",
+    "unavailable": "Koleksiyon yüklenemedi. Birkaç dakika sonra tekrar deneyin.",
+    "collectionsLabel": "Koleksiyonlar",
+    "source": "Kamu malı · Kaynak",
+    "collections": {
+      "darkArt": "Karanlık Sanat",
+      "museumIcons": "Müze İkonları",
+      "calm": "Sakin",
+      "dore": "Doré"
+    }
+  },
   "testimonials": {
     "mitchellh": "Bir gün daha, bir libghostty tabanlı proje daha, bu sefer dikey sekmeli, daha iyi düzenleme/bildirimli, gömülü/betiklenebilir tarayıcılı, özellikle terminal tabanlı ajan iş akışlarını çok kullanan kişilere yönelik bir macOS terminali.",
     "steipete": "Partiye geç kaldım ama cmux harika. Mevcut ayrım: bilgi çalışması, öğrenme ve okuma için Codex Mac uygulaması; kodlama için cmux + Codex CLI.",
@@ -3359,6 +3449,7 @@
     "unsupportedParams": "Bu bağlantı cmux'un reddedeceği desteklenmeyen parametreler içeriyor: {params}",
     "conflictingParams": "Bu bağlantı birlikte kullanılamayan parametreleri içerir: {params}",
     "invalidParams": "Bu bağlantı geçersiz parametre değerleri içeriyor: {params}",
+    "ignoredParams": "cmux kullanmadığı parametreleri yok sayar: {params}. Oturum yine de açılır.",
     "fixParams": "URL parametrelerini düzeltin ve ardından bu sayfayı yeniden yükleyin.",
     "examplePrefix": "Bir gör",
     "exampleLink": "örnek bağlantı",
@@ -3382,6 +3473,16 @@
       "title": "Kuralları cmux'ta açın",
       "intro": "Bu sayfa geçerli cmux çalışma alanındaki kuralları açar.",
       "fallback": "cmux önce kuralları gösterir ve bunları geçerli çalışma alanına yapıştırmadan önce sorar. cmux açılmazsa cmux'u yükleyin ve cmux'da aç'a tekrar tıklayın."
+    },
+    "agent": {
+      "metaTitle": "Ajan oturumunu cmux'ta aç",
+      "metaDescription": "cmux kullanılamadığında kurulum seçeneğiyle, bir ajan oturumuna giden cmux derin bağlantısını web'den açın.",
+      "title": "Ajan oturumunu aç",
+      "intro": "Bu Mac oturuma zaten erişebiliyorsa bu bağlantı ajanın oturumunu cmux'ta açar. Bağlantının kendisi hiçbir erişim izni vermez.",
+      "fallback": "cmux açılmazsa cmux'u yükleyin ve cmux'ta Aç'a yeniden tıklayın. cmux oturumu yalnızca bu Mac ona zaten erişebiliyorsa açar.",
+      "nameLabel": "Ad: {value}",
+      "hostLabel": "Ana makine: {value}",
+      "harnessLabel": "Çalıştırıcı: {value}"
     }
   },
   "download": {
@@ -3415,7 +3516,10 @@
     "title": "cmux oturumu açıldı",
     "body": "cmux otomatik olarak açılmadıysa aşağıdaki düğmeyi kullanın.",
     "button": "cmux’a dön",
-    "switchAccountButton": "Farklı bir hesap kullan"
+    "switchAccountButton": "Farklı bir hesap kullan",
+    "rateLimitedTitle": "Oturum açma yoğun",
+    "rateLimitedBody": "Oturum açma sağlayıcımız çok fazla istek alıyor. Birkaç saniye bekleyin, ardından devam edin. Yeniden oturum açmanız gerekmez.",
+    "retryButton": "Oturum açmaya devam et"
   },
   "landing": {
     "bestTerminal": {
@@ -5341,7 +5445,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro etkin",
     "title": "cmux Pro’ya hoş geldin",
-    "body": "Pro özellikleri hâlâ geliştiriliyor. Bulut erişimi yakında geliyor ve abone kaldığın her ay için kullanım kredisi birikecek. Pro şu anda TestFlight üzerinden cmux iOS erişimini içeriyor.",
+    "body": "Pro, 20 vCPU ve 40 GB RAM paylaşan en fazla 5 Cloud VM'in yanı sıra TestFlight üzerinden cmux iOS erişimini içerir. Tek bir VM en fazla 16 GB RAM / 8 vCPU kullanabilir. 24 GB / 12 vCPU ve 32 GB / 16 vCPU boyutları Max gerektirir.",
     "done": "Kontrol paneline git",
     "steps": {
       "iosApp": {
@@ -5417,6 +5521,8 @@
     "errorInvalidCode": "Bu kod geçersiz. E-postanı kontrol edip tekrar dene.",
     "errorInvalidTotp": "Bu iki adımlı doğrulama kodu geçersiz.",
     "errorSignUpNotAllowed": "Şu anda yeni hesap oluşturulamıyor.",
+    "errorEmailUnverified": "Bu e-postanın zaten bir hesabı var, ancak adres henüz doğrulanmadı. Kaydolduğun yöntemle giriş yap, ardından giriş kodlarını kullanmak için e-postanı doğrula.",
+    "useEmailPasswordInstead": "E-posta ve şifreyle giriş yap",
     "errorPasskey": "Geçiş anahtarıyla giriş tamamlanmadı. Tekrar dene veya başka bir yöntem kullan.",
     "errorGeneric": "Bir sorun oluştu. Tekrar dene."
   },
@@ -5450,6 +5556,9 @@
     "switchFailed": "Çıkış yapılamadı. Tekrar deneyin.",
     "invalidTitle": "Bu davet artık geçerli değil",
     "invalidBody": "Davetin süresi dolmuş, iptal edilmiş veya zaten kullanılmış. Bir ekip yöneticisinden yeni bir davet isteyin.",
-    "goToTeams": "Ekiplerinize git"
+    "goToTeams": "Ekiplerinize git",
+    "unavailableTitle": "Oturum açmanız doğrulanamadı",
+    "unavailableBody": "Oturum açma sağlayıcımız yoğun. Birkaç saniye bekleyin, ardından daveti yeniden açın. Yeniden oturum açmanız gerekmez.",
+    "retry": "Tekrar dene"
   }
 }

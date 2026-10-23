@@ -8,11 +8,20 @@ extension Workspace {
         _ snapshot: SessionPanelSnapshot,
         snapshotWorkspaceId: UUID,
         excludingStableIdentities: Set<UUID>,
-        restorableAgentIndex: RestorableAgentSessionIndex?
+        restorableAgentIndex: RestorableAgentSessionIndex?,
+        claudeBackgroundRestores: [UUID: ClaudeBackgroundAttachRestore]? = nil
     ) -> DetachedSurfaceTransfer? {
         guard let paneId = bonsplitController.allPaneIds.first else { return nil }
         sessionRestoreIdentityExclusions.beginRestore(excluding: excludingStableIdentities)
         defer { sessionRestoreIdentityExclusions.endRestore() }
+        // A Dock restore pass already chose one pane per Claude background
+        // session across the whole Dock; this panel follows that plan rather
+        // than planning itself alone.
+        let previousClaudeBackgroundRestores = claudeBackgroundAttachRestoresByStablePanelID
+        if let claudeBackgroundRestores {
+            claudeBackgroundAttachRestoresByStablePanelID = claudeBackgroundRestores
+        }
+        defer { claudeBackgroundAttachRestoresByStablePanelID = previousClaudeBackgroundRestores }
         guard let panelId = createPanel(
             from: snapshot,
             inPane: paneId,

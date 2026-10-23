@@ -99,10 +99,37 @@ struct BrowserScreenshotCropTests {
 
         #expect(bitmap.pixelsWide == 200)
         #expect(bitmap.pixelsHigh == 100)
-        try expectColor(testRed, atX: 25, y: 25, in: bitmap)
-        try expectColor(testGreen, atX: 175, y: 25, in: bitmap)
-        try expectColor(testBlue, atX: 25, y: 75, in: bitmap)
-        try expectColor(testYellow, atX: 175, y: 75, in: bitmap)
+        // The crop rect is in AppKit's bottom-left space, so the source's upper
+        // blue/yellow band stays on top of the encoded PNG.
+        try expectColor(testBlue, atX: 25, y: 25, in: bitmap)
+        try expectColor(testYellow, atX: 175, y: 25, in: bitmap)
+        try expectColor(testRed, atX: 25, y: 75, in: bitmap)
+        try expectColor(testGreen, atX: 175, y: 75, in: bitmap)
+    }
+
+    /// Regression for #18793: bitmap-backed Design Mode crops were written to
+    /// PNG upside down while WebKit-backed page captures stayed upright.
+    @Test(arguments: [
+        BrowserScreenshotPasteboardWriter.maximumOrdinaryClipboardPixelCount,
+        // Forces the downscaling branch as well as the native-size branch.
+        2_000,
+    ])
+    func bitmapBackedImageEncodesTopRowFirst(maximumPixelCount: Int) async throws {
+        let image = try makeTopBottomBitmapImage(width: 80, height: 60)
+
+        let pngData = try await BrowserScreenshotPasteboardWriter(
+            maximumPixelCount: maximumPixelCount,
+            oversizedImagePolicy: .downscale
+        ).pngData(for: image)
+        let bitmap = try #require(NSBitmapImageRep(data: pngData))
+
+        try expectColor(testRed, atX: bitmap.pixelsWide / 2, y: 2, in: bitmap)
+        try expectColor(
+            testBlue,
+            atX: bitmap.pixelsWide / 2,
+            y: bitmap.pixelsHigh - 3,
+            in: bitmap
+        )
     }
 
     @Test
@@ -1476,6 +1503,37 @@ struct BrowserScreenshotCropTests {
         NSRect(x: 100, y: 100, width: 100, height: 50).fill()
         testYellow.setFill()
         NSRect(x: 200, y: 100, width: 100, height: 50).fill()
+        NSGraphicsContext.restoreGraphicsState()
+
+        let size = NSSize(width: width, height: height)
+        bitmap.size = size
+        let image = NSImage(size: size)
+        image.addRepresentation(bitmap)
+        return image
+    }
+
+    /// Red over the top half, blue over the bottom half, drawn the way the
+    /// capture paths draw: through a bottom-left AppKit bitmap context.
+    private func makeTopBottomBitmapImage(width: Int, height: Int) throws -> NSImage {
+        let bitmap = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width,
+            pixelsHigh: height,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ))
+        let context = try #require(NSGraphicsContext(bitmapImageRep: bitmap))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        testBlue.setFill()
+        NSRect(x: 0, y: 0, width: width, height: height / 2).fill()
+        testRed.setFill()
+        NSRect(x: 0, y: height / 2, width: width, height: height - height / 2).fill()
         NSGraphicsContext.restoreGraphicsState()
 
         let size = NSSize(width: width, height: height)

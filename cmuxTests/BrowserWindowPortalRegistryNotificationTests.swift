@@ -12,13 +12,20 @@ import WebKit
 @MainActor
 @Suite(.serialized)
 struct BrowserWindowPortalRegistryNotificationTests {
+    /// Counts explicit flushes even when AppKit has no dirty layout to apply.
     private final class CountingContentView: NSView {
-        var layoutPassCount = 0
+        var layoutFlushCount = 0
 
-        override func layout() {
-            layoutPassCount += 1
-            super.layout()
+        override func layoutSubtreeIfNeeded() {
+            layoutFlushCount += 1
+            super.layoutSubtreeIfNeeded()
         }
+    }
+
+    /// Supplies visibility to the workspace's window selection for the isolated
+    /// fixture without depending on the test runner's active display state.
+    private final class VisibleLayoutWindow: NSWindow {
+        override var isVisible: Bool { true }
     }
 
     private final class LayoutCallbackView: NSView {
@@ -167,9 +174,10 @@ struct BrowserWindowPortalRegistryNotificationTests {
         )
     }
 
-    @Test func unchangedPortalVisibilityDoesNotDriveWorkspaceLayoutFollowUp() throws {
-        let contentView = CountingContentView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
-        let window = NSWindow(
+    /// A split-zoom retry flushes its host window without touching peers.
+    @Test func browserSplitZoomRetriesFlushOnlyOwningWindow() async throws {
+        let contentView = CountingContentView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        let window = VisibleLayoutWindow(
             contentRect: contentView.frame,
             styleMask: [.titled, .closable],
             backing: .buffered,
@@ -177,57 +185,90 @@ struct BrowserWindowPortalRegistryNotificationTests {
         )
         window.contentView = contentView
         defer { window.orderOut(nil) }
-        realizeWindowLayout(window)
-        contentView.layoutPassCount = 0
+        window.orderFrontRegardless()
 
-        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
-        contentView.addSubview(anchor)
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
-        defer { BrowserWindowPortalRegistry.detach(webView: webView) }
-
-        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
-        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
-        advanceAnimations()
-
-        let workspace = Workspace()
-        let panelId = try #require(workspace.focusedPanelId)
-        let panel = try #require(workspace.terminalPanel(for: panelId))
-        let layoutObserver = NotificationCenter.default.addObserver(
-            forName: .browserPortalRegistryDidChange,
-            object: webView,
-            queue: nil
-        ) { _ in
-            MainActor.assumeIsolated {
-                contentView.needsLayout = true
-                workspace.debugBeginReparentFocusSuppressionForTesting(
-                    panel.hostedView,
-                    reason: "workspace.browserPortalLayoutHotpathTest"
-                )
-                workspace.debugAttemptEventDrivenLayoutFollowUpForTesting()
-            }
-        }
-        defer { NotificationCenter.default.removeObserver(layoutObserver) }
-
-        NotificationCenter.default.post(name: .browserPortalRegistryDidChange, object: webView)
-        #expect(
-            contentView.layoutPassCount == 1,
-            "A browser portal registry notification should drive a Workspace layout follow-up pass"
+        let unrelatedContentView = CountingContentView(frame: contentView.frame)
+        let unrelatedWindow = VisibleLayoutWindow(
+            contentRect: unrelatedContentView.frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
         )
+        unrelatedWindow.contentView = unrelatedContentView
+        defer { unrelatedWindow.orderOut(nil) }
+        unrelatedWindow.orderFrontRegardless()
+        #expect(NSApp.windows.contains { $0 === unrelatedWindow })
 
-        let layoutCountBeforeNoOpBurst = contentView.layoutPassCount
-        for _ in 0..<50 {
-            BrowserWindowPortalRegistry.updateEntryVisibility(for: webView, visibleInUI: true, zPriority: 0)
+        let manager = TabManager()
+        manager.window = window
+        let workspace = try #require(manager.selectedWorkspace)
+        defer { workspace.setPortalRenderingEnabled(false, reason: "test.cleanup") }
+        let browserID = try #require(manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true))
+        let browser = try #require(workspace.browserPanel(for: browserID))
+        defer { BrowserWindowPortalRegistry.detach(webView: browser.webView) }
+
+        // Use the product's zoom entry point. Only the browser is visible after
+        // zoom, so terminal geometry converges on the first attempt. Its anchor
+        // is deliberately unattached, leaving a real browser retry outstanding.
+        #expect(browser.portalAnchorView.window == nil)
+        #expect(workspace.toggleSplitZoom(panelId: browserID))
+        #expect(workspace.bonsplitController.zoomedPaneId == workspace.paneId(forPanelId: browserID))
+        contentView.layoutFlushCount = 0
+        unrelatedContentView.layoutFlushCount = 0
+
+        for _ in 0..<8 where contentView.layoutFlushCount < 2 {
+            await waitForNextMainTurn()
         }
-        advanceAnimations()
         #expect(
-            contentView.layoutPassCount == layoutCountBeforeNoOpBurst,
-            "Reapplying unchanged browser portal visibility snapshots must not force Workspace layout passes"
+            contentView.layoutFlushCount >= 2,
+            "The geometry pass and the later browser-only retry must each flush the owner"
         )
-
-        BrowserWindowPortalRegistry.updateEntryVisibility(for: webView, visibleInUI: false, zPriority: 0)
         #expect(
-            contentView.layoutPassCount == layoutCountBeforeNoOpBurst + 1,
-            "A real browser portal visibility change should still wake Workspace layout follow-up"
+            unrelatedContentView.layoutFlushCount == 0,
+            "Workspace retries must not flush an unrelated visible window"
+        )
+    }
+
+    /// A browser visibility retry still flushes after terminal geometry settles.
+    @Test func browserVisibilityRetryAfterGeometryPassFlushesOwningWindow() async throws {
+        let contentView = CountingContentView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        let window = VisibleLayoutWindow(
+            contentRect: contentView.frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = contentView
+        defer { window.orderOut(nil) }
+        window.orderFrontRegardless()
+
+        let manager = TabManager()
+        manager.window = window
+        let workspace = try #require(manager.selectedWorkspace)
+        let initialTerminalID = try #require(workspace.focusedPanelId)
+        let browserID = try #require(manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true))
+        let browser = try #require(workspace.browserPanel(for: browserID))
+        #expect(workspace.closePanel(initialTerminalID, force: true))
+        #expect(workspace.panels[initialTerminalID] == nil)
+        defer {
+            workspace.setPortalRenderingEnabled(false, reason: "test.cleanup")
+            BrowserWindowPortalRegistry.detach(webView: browser.webView)
+        }
+
+        // Reset any setup follow-up, then enter through the geometry-only path.
+        // The browser is the only rendered panel, so geometry converges while
+        // its unattached anchor keeps browser visibility pending. That pending
+        // browser retry must trigger a second scoped flush.
+        workspace.setPortalRenderingEnabled(false, reason: "test.reset")
+        contentView.layoutFlushCount = 0
+        workspace.setPortalRenderingEnabled(true, reason: "test.geometryOnly")
+
+        for _ in 0..<8 where contentView.layoutFlushCount < 2 {
+            await waitForNextMainTurn()
+        }
+        #expect(
+            contentView.layoutFlushCount >= 2,
+            "A browser visibility retry after geometry convergence must flush its owner"
         )
     }
 

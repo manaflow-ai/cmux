@@ -16,6 +16,10 @@ public enum ControlSurfaceReorderResolution: Sendable, Equatable {
     /// The reorder call failed (legacy `internal_error` / "Failed to reorder
     /// surface").
     case reorderFailed
+    /// The surface is a browser tab a browser REPL session drives or typed a
+    /// secret into, which other socket clients may not close, move or
+    /// reload (legacy `denied`). Carries the surface id and the message.
+    case denied(UUID, message: String)
     /// The surface was reordered. Carries the echoed identity (window and pane are
     /// present from the located surface).
     case reordered(windowID: UUID, workspaceID: UUID, paneID: UUID, surfaceID: UUID)

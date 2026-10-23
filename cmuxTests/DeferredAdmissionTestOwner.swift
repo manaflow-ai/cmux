@@ -21,8 +21,8 @@ final class DeferredAdmissionTestOwner: DeferredAgentResumeAdmissionOwner {
 
     deinit { deinitialization?.yield() }
 
-    var deferredAgentResumeIndexProvider: @MainActor @Sendable () async -> SharedLiveAgentIndexRefreshOutcome {
-        { .index(.empty) }
+    var deferredAgentResumeIndexProvider: @MainActor @Sendable (UInt64) async -> SharedLiveAgentIndexRefreshOutcome {
+        { _ in .index(.empty) }
     }
 
     var deferredAgentResumeEvidenceWait: @Sendable ([AgentPIDProcessIdentity]) async -> Void {

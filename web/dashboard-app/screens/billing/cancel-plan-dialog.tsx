@@ -35,6 +35,7 @@ export function CancelPlanDialog({
   plan,
   endsOn,
   teamId,
+  keepsPro = false,
 }: {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
@@ -42,6 +43,8 @@ export function CancelPlanDialog({
   /** Formatted period end, or null when Stripe sent none. */
   readonly endsOn: string | null;
   readonly teamId?: string;
+  /** Founder's Edition keeps Pro after the subscription ends, so nothing listed is lost. */
+  readonly keepsPro?: boolean;
 }) {
   const t = useTranslations("dashboard.billing");
   const cancel = useCancelPlan();
@@ -64,10 +67,16 @@ export function CancelPlanDialog({
       title={t("cancelDialog.title", { plan: name })}
       description={
         <>
-          <p>{endsOn ? t("cancelDialog.body", { plan: name, date: endsOn }) : t("cancelDialog.bodyNoDate", { plan: name })}</p>
-          <ul className="mt-2 list-disc space-y-0.5 pl-4">
-            {lose.map((line) => <li key={line}>{line}</li>)}
-          </ul>
+          {keepsPro ? (
+            <p>{endsOn ? t("cancelDialog.foundersBody", { plan: name, date: endsOn }) : t("cancelDialog.foundersBodyNoDate", { plan: name })}</p>
+          ) : (
+            <>
+              <p>{endsOn ? t("cancelDialog.body", { plan: name, date: endsOn }) : t("cancelDialog.bodyNoDate", { plan: name })}</p>
+              <ul className="mt-2 list-disc space-y-0.5 pl-4">
+                {lose.map((line) => <li key={line}>{line}</li>)}
+              </ul>
+            </>
+          )}
         </>
       }
       confirmLabel={t("cancelDialog.confirm")}

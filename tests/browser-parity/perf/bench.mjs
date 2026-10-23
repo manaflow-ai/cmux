@@ -11,7 +11,7 @@
 //   reference-a  reference A's REPL (PARITY_REFERENCE_A_CLI, lib/references.mjs),
 //             one one-shot call per page (never its exec command).
 //   chrome    headless Google Chrome with a throwaway profile: Playwright's
-//             `_snapshotForAI()`, its AI snapshot.
+//             AI snapshot (perf/chrome-refs.mjs).
 //
 // Every page gets one program: navigate, take `runs` full snapshots, change
 // one element and take one more (the diff), resolve a ref, and for cmux read

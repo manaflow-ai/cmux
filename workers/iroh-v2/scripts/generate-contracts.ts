@@ -5,12 +5,16 @@ import { dirname, resolve } from "node:path";
 import * as common from "../src/contracts/common";
 import * as requests from "../src/contracts/requests";
 import * as responses from "../src/contracts/responses";
+import * as account from "../src/contracts/account";
 
 const check = process.argv.includes("--check");
 const packageRoot = resolve(import.meta.dir, "..");
 const registry = z.registry<z.core.JSONSchemaMeta>();
 const schemas = new Map<string, z.ZodType>();
-const moduleEntries = [common, requests, responses];
+// Order fixes the M0..M3 aliases in generated-compatibility.ts. Account
+// contracts are additive and named V2Account*, so existing schemas are unchanged.
+const moduleEntries = [common, requests, responses, account];
+const moduleFiles = ["common", "requests", "responses", "account"];
 for (const exports of moduleEntries) {
   for (const [name, value] of Object.entries(exports)) {
     if (name.endsWith("Schema") && value instanceof z.ZodType) {
@@ -82,7 +86,7 @@ for (const [index,exports] of moduleEntries.entries()) {
     }
   }
 }
-await emit("src/contracts/generated-compatibility.ts", `// Generated. Both directions must preserve every operation's wire shape.\nimport type { z } from "zod";\nimport type * as W from "../../generated/wire";\nimport type * as M0 from "./common";\nimport type * as M1 from "./requests";\nimport type * as M2 from "./responses";\ntype Assert<T extends true> = T;\n// JSON omits undefined object properties. Array cardinality remains a server\n// validation constraint; Swift arrays and Zod inference represent element types.\ntype WireShape<T> = T extends readonly (infer Item)[] ? WireShape<Item>[] : T extends object ? { [K in keyof T]: WireShape<Exclude<T[K], undefined>> } : T;\n${assertions.join("\n")}\n`);
+await emit("src/contracts/generated-compatibility.ts", `// Generated. Both directions must preserve every operation's wire shape.\nimport type { z } from "zod";\nimport type * as W from "../../generated/wire";\n${moduleFiles.map((file, index) => `import type * as M${index} from "./${file}";\n`).join("")}type Assert<T extends true> = T;\n// JSON omits undefined object properties. Array cardinality remains a server\n// validation constraint; Swift arrays and Zod inference represent element types.\ntype WireShape<T> = T extends readonly (infer Item)[] ? WireShape<Item>[] : T extends object ? { [K in keyof T]: WireShape<Exclude<T[K], undefined>> } : T;\n${assertions.join("\n")}\n`);
 const wanted = new Set(Object.keys(exported.schemas).map(name => name + ".schema.json"));
 for (const name of await readdir(resolve(packageRoot,"generated"))) {
   if (name.endsWith(".schema.json") && !wanted.has(name)) {

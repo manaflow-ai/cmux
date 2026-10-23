@@ -21,6 +21,7 @@ type ReadStatsOptions = {
   readonly resourceOutput?: unknown;
 };
 
+/** Run the stats workflow with a controlled provider and optional guest sample. */
 async function readStats(
   state: string,
   sample: Record<string, unknown> | undefined,
@@ -108,7 +109,7 @@ describe("Freestyle live machine stats", () => {
     const receivedAt = Date.now();
     const { result, resourceCalls } = await readStats("running", { ...gauges, receivedAt, providerVmId: "vm-stats", diskTotalMb: 1 });
     expect(resourceCalls).toHaveLength(0);
-    expect(result).toEqual({ state: "awake", sampledAt: receivedAt, resourceSampledAt: receivedAt, cpus: 2, memoryTotalMb: 4096, diskTotalMb: 16384, ...gauges });
+    expect(result).toEqual({ state: "awake", health: "healthy", sampledAt: receivedAt, resourceSampledAt: receivedAt, cpus: 2, memoryTotalMb: 4096, diskTotalMb: 16384, ...gauges });
   });
 
   test("direct dev backends sample an awake guest when callback telemetry is unavailable", async () => {
@@ -135,7 +136,9 @@ describe("Freestyle live machine stats", () => {
   ])("$label keeps stats on the reporter path", async ({ env }) => {
     const { result, resourceCalls } = await readStats("running", undefined, { directBackend: true, environment: env });
     expect(resourceCalls).toEqual([]);
+    expect(result.state).toBe("unknown");
     expect(result.cpuPercent).toBeUndefined();
+    expect(result.health).toBe("unknown");
   });
 
   test("the explicit operator override still enables direct sampling", async () => {
@@ -162,12 +165,12 @@ describe("Freestyle live machine stats", () => {
     { label: "a failed probe", resourceExitCode: 1 },
     { label: "malformed output", resourceOutput: "not json" },
     { label: "invalid gauges", resourceOutput: { cpuPercent: 101 } },
-  ])("$label keeps provisioned capacity without inventing usage", async ({ resourceExitCode, resourceOutput }) => {
+  ])("$label reports an unknown/unresponsive guest while keeping provisioned capacity", async ({ resourceExitCode, resourceOutput }) => {
     const { result, resourceCalls } = await readStats("running", undefined, {
       directBackend: true, resourceExitCode, resourceOutput,
     });
     expect(resourceCalls).toHaveLength(1);
-    expect(result).toMatchObject({ state: "awake", cpus: 2, memoryTotalMb: 4096, diskTotalMb: 16384 });
+    expect(result).toMatchObject({ state: "unknown", health: "unresponsive", cpus: 2, memoryTotalMb: 4096, diskTotalMb: 16384 });
     expect(result.cpuPercent).toBeUndefined();
     expect(result.memoryUsedMb).toBeUndefined();
     expect(result.diskUsedMb).toBeUndefined();
@@ -186,6 +189,7 @@ describe("Freestyle live machine stats", () => {
   test.each([undefined, { ...gauges, receivedAt: 0, providerVmId: "vm-stats" },
     { ...gauges, receivedAt: Date.now(), providerVmId: "replaced-vm" }])("missing, stale, and replaced-VM samples remain unavailable", async (sample) => {
     const { result } = await readStats("running", sample);
+    expect(result.state).toBe("unknown");
     expect(result.cpuPercent).toBeUndefined();
     expect(result.diskTotalMb).toBe(16384);
   });

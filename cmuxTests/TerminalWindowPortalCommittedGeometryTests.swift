@@ -1,4 +1,6 @@
 import AppKit
+import CMUXAgentLaunch
+import CmuxMobileHost
 import CmuxTerminal
 import CmuxTerminalCore
 import GhosttyKit
@@ -130,6 +132,48 @@ struct TerminalWindowPortalCommittedGeometryTests {
         #expect(scrollView.frame.width == outerFrame.width)
         try await fixture.requireCommit()
         #expect(fixture.surface.committedPaneGeometry?.size == scrollView.contentView.bounds.size)
+    }
+
+    /// A terminal running a live agent session (for example one resumed after
+    /// a relaunch) lays out its text exactly like a plain terminal: no gutter
+    /// pushes the content right of the pane's leading edge.
+    @Test func liveAgentSessionKeepsTerminalContentAtLeadingEdge() async throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-geometry-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(hookStore: AgentChatHookSessionStore(homeDirectory: home)),
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:]),
+            hasEventSubscribers: { false },
+            emitEventPayload: { _ in },
+            // No transcript scan: the session is recognized in one hop.
+            fallbackTranscriptPathResolver: { _, _ in nil }
+        )
+        let previousService = TerminalController.shared.agentChatTranscriptService
+        TerminalController.shared.agentChatTranscriptService = service
+        defer {
+            TerminalController.shared.agentChatTranscriptService = previousService
+            service.shutdown()
+        }
+
+        let fixture = TerminalPortalGeometryFixture()
+        defer { fixture.close() }
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: "claude-session",
+            hookEventName: .sessionStart,
+            source: "claude",
+            surfaceId: fixture.surface.id.uuidString
+        ))
+        fixture.bind()
+        try await fixture.requireCommit()
+        // Scrollbar updates are where agent-session presentation attaches.
+        try await fixture.requireScrollback()
+        try await fixture.requireCommit()
+
+        let scrollView = try #require(fixture.hosted.subviews.compactMap { $0 as? GhosttyScrollView }.first)
+        #expect(scrollView.frame.minX == fixture.hosted.bounds.minX)
+        #expect(scrollView.frame.width == fixture.hosted.bounds.width)
     }
 
     @Test func legacyScrollerCommitsClipWidthWithoutPaneResize() async throws {

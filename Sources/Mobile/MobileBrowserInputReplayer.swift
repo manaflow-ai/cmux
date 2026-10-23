@@ -68,7 +68,7 @@ struct MobileBrowserInputReplayer {
         ) {
         case .delivered:
             break
-        case .unsupported:
+        case .unsupported, .shortcutOutcomeUnavailable:
             throw MobileBrowserInputReplayError.invalidKey
         case .eventCreationFailed:
             throw MobileBrowserInputReplayError.eventCreationFailed
@@ -100,7 +100,7 @@ struct MobileBrowserInputReplayer {
                 ) {
                 case .delivered:
                     break
-                case .unsupported:
+                case .unsupported, .shortcutOutcomeUnavailable:
                     throw MobileBrowserInputReplayError.invalidKey
                 case .eventCreationFailed:
                     throw MobileBrowserInputReplayError.eventCreationFailed

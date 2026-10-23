@@ -110,7 +110,7 @@ cmux browser --surface <surface> wait --function "document.readyState === 'compl
 ## Design mode
 
 ```bash
-cmux browser --surface <surface> design-mode enable|status|disable --json
+cmux browser --surface <surface> design-mode enable|disable|toggle|status --json
 ```
 
 Design mode lets a user select page elements and copy their DOM, style, URL,
@@ -183,10 +183,18 @@ sizing.
 
 ## Known WKWebView gaps (`not_supported`)
 
-`browser.geolocation.set`, `browser.offline.set`, `browser.trace.start|stop`,
+`browser.trace.start|stop`,
 `browser.network.route|unroute|requests`, `browser.screencast.start|stop`, and
 `browser.input_mouse|input_keyboard|input_touch` are not supported by the
 WKWebView engine.
+
+`browser.geolocation.set` (`latitude`, `longitude`, optional `accuracy`, or
+`clear: true`) and `browser.offline.set` (`enabled`) work on WebKit. The
+override reaches the loaded page's main frame at once and every later
+document in all frames (an iframe already loaded keeps its old values until
+it reloads, though offline blocks its loads at once). It survives a web
+content crash or a hidden tab discard. A popup the page opens shares the
+opener's emulation.
 
 See also [snapshot-refs.md](snapshot-refs.md),
 [authentication.md](authentication.md), and

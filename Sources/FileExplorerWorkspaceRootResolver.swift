@@ -37,7 +37,7 @@ struct FileExplorerWorkspaceRootResolver {
                 return .remoteSSH(
                     workspaceId: workspace.id,
                     connection: SSHFileExplorerConnection(destination: configuration.destination,
-                        port: configuration.port, identityFile: configuration.identityFile, sshOptions: configuration.sshOptions),
+                        port: configuration.port, identityFile: configuration.identityFile, sshOptions: configuration.fileOperationSSHOptions),
                     displayTarget: configuration.displayTarget,
                     rootPath: workspace.trustedRemoteCurrentDirectory,
                     isAvailable: workspace.remoteConnectionState == .connected,
@@ -107,7 +107,7 @@ struct FileExplorerWorkspaceRootResolver {
             return .remoteSSH(
                 workspaceId: workspace.id,
                 connection: SSHFileExplorerConnection(destination: configuration.destination,
-                    port: configuration.port, identityFile: configuration.identityFile, sshOptions: configuration.sshOptions),
+                    port: configuration.port, identityFile: configuration.identityFile, sshOptions: configuration.fileOperationSSHOptions),
                 displayTarget: configuration.displayTarget,
                 rootPath: workspace.trustedRemoteCurrentDirectory,
                 isAvailable: workspace.remoteConnectionState == .connected,

@@ -30,7 +30,8 @@ struct AgentFeedStoreView: View {
             refreshesOnAppear: true,
             isActive: isActive,
             actions: actions,
-            searchText: searchCoordinator.searchDestinationText(for: .feed)
+            searchText: searchCoordinator.searchDestinationText(for: .feed),
+            performanceObserver: store.feedPerformanceObserver
         )
         .onAppear {
             updateFeedVisibility(isActive)

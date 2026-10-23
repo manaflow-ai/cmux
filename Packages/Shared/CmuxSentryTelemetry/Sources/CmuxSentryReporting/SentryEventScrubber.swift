@@ -101,9 +101,11 @@ public struct SentryEventScrubber: Sendable {
         }
 
         if let breadcrumbs = event.breadcrumbs {
-            for breadcrumb in breadcrumbs {
-                scrub(breadcrumb)
-            }
+            // Sentry fills this array with the scope's own breadcrumb objects,
+            // which concurrent captures share and read without a lock. Scrub
+            // copies so one event never rewrites, and releases, a value another
+            // capture is reading.
+            event.breadcrumbs = breadcrumbs.map(scrubbedCopy(of:))
         }
 
         // Attribute after scrubbing: watchdog attribution reads the SDK's
@@ -126,6 +128,19 @@ public struct SentryEventScrubber: Sendable {
             breadcrumb.replaceData(scrubber.scrub(dictionary: data))
         }
         return breadcrumb
+    }
+
+    /// Returns a scrubbed copy of a breadcrumb the scope may still share.
+    private func scrubbedCopy(of breadcrumb: Breadcrumb) -> Breadcrumb {
+        let copy = Breadcrumb(level: breadcrumb.level, category: breadcrumb.category)
+        copy.timestamp = breadcrumb.timestamp
+        copy.type = breadcrumb.type
+        copy.origin = breadcrumb.origin
+        copy.message = breadcrumb.message
+        if let data = breadcrumb.data {
+            copy.replaceData(data)
+        }
+        return scrub(copy)
     }
 
     /// Redacts the description, data, and tags of a performance span in place.

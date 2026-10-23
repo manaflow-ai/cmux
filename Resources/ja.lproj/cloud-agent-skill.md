@@ -30,13 +30,14 @@ cmux vm tree [<machine>|local] [--refresh]
 ## 作成と名前
 
 ```bash
-cmux vm new [--base] [--size <2g|4g|8g|16g|32g>] [--detach|-d]
+cmux vm new [--base] [--size <4g|8g|16g|24g|32g|64g>] [--detach|-d]
 cmux vm rename <id> <new-label>
 cmux vm base
 cmux vm base reset [--reason <text>]
 ```
 
 `vm new` は位置引数を受け付けません。タイプミスで有料マシンを作成しないためです。
+Pro と Team は 4g、8g、16g（2、4、8 vCPU）に対応します。Max では 24g と 32g（12、16 vCPU）、さらに 64g（32 vCPU）も利用できます。
 Base のリセットは新しい世代を作り、古いマシンを保持します。
 
 ## 接続と表示
@@ -85,10 +86,10 @@ cmux surface new-terminal --machine <id> --no-open -- <cmd>
 
 ```bash
 cmux vm exec [--timeout <s>] <id> -- <command...>   # 既定 30 秒、最大 900 秒
-cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <s>] [--timeout <seconds>] [--wait [--output]] -- <command...>
+cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <4g|8g|16g|24g|32g|64g|MB>] [--timeout <seconds>] [--wait [--output]] -- <command...>
 cmux vm route [--cwd <dir>]
 cmux vm wait <id> [--timeout <seconds>] [--wake]
-cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--new] [--size <s>] [--wait [--output] [--timeout <s>]] -- <prompt or args...>
+cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--new] [--size <4g|8g|16g|24g|32g|64g|MB>] [--wait [--output] [--timeout <s>]] -- <prompt or args...>
 cmux vm dev <id> [<folder>] [--name <ws>] [--layout <file>] [--command "<cmd>"] [--port <n>] [--remote <path>] [--no-sync] [--no-open]
 cmux vm self <id> [<path>] [--json]   # マシンのリフレクション（名前、所有者、チーム、peers、integrations）
 ```

@@ -231,7 +231,8 @@ extension CMUXCLI {
             processEnvironment: environment,
             client: client,
             socketPassword: socketPassword,
-            resolvesProcessRoute: !agentExited
+            resolvesProcessRoute: !agentExited,
+            runsInHookProcess: false
         )
     }
 }

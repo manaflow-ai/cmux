@@ -10,6 +10,8 @@ private final class FakeTextTarget: BrowserReplTextCommitTarget {
     var originAfterPreparation: String?
     var richText = true
     var hasMarkedText = false
+    /// Whether the tab still shows this client's web view.
+    var isCurrent = true
     private(set) var log: [String] = []
 
     func prepareComposition() async -> Bool {

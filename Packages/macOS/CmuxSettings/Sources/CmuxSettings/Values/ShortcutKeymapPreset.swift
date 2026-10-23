@@ -35,6 +35,7 @@ public enum ShortcutKeymapPreset: String, CaseIterable, Sendable {
                 .selectSurfaceByNumber: .stroke("cmd+1"),
                 .selectWorkspaceByNumber: .stroke("cmd+opt+1"),
                 .toggleTerminalCopyMode: .stroke("cmd+shift+c"),
+                .openChief: .unbound,
                 .resizePaneLeft: .stroke("cmd+ctrl+left"),
                 .resizePaneRight: .stroke("cmd+ctrl+right"),
                 .resizePaneUp: .stroke("cmd+ctrl+up"),

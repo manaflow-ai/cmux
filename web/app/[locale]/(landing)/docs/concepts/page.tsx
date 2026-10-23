@@ -4,6 +4,7 @@ import { DocsSchema } from "../docs-schema";
 import { DocsLink as Link } from "@/app/[locale]/components/docs-link";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
+import { shortcutComboText } from "@/data/cmux-shortcuts";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -76,7 +77,7 @@ export default function ConceptsPage() {
             new: "⌘N",
             jump: "⌘1–⌘9",
             close: "⌘⇧W",
-            prevNext: "⌃⌘[ / ⌃⌘]",
+            prevNext: `${shortcutComboText("prevSidebarTab")} / ${shortcutComboText("nextSidebarTab")}`,
           })}
         </strong>
       </p>
@@ -95,8 +96,8 @@ export default function ConceptsPage() {
       <p>
         {t("surfaceDesc", {
           new: "⌘T",
-          prev: "⌘[",
-          next: "⌘]",
+          prev: shortcutComboText("prevSurface"),
+          next: shortcutComboText("nextSurface"),
           jump: "⌃1–⌃9",
         })}
       </p>

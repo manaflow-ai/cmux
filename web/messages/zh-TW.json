@@ -30,6 +30,39 @@
       "message": "這台機器建立於 Cloud 更新之前，無法連線。",
       "action": "請建立一台新機器，用 cmux vm pull 和 cmux vm push 複製檔案，然後刪除這台機器。"
     },
+    "guestUnresponsive": {
+      "title": "機器沒有回應",
+      "message": "這台機器未能及時回應，因此無法完成請求。",
+      "action": "建立新機器前，請附上追蹤 ID 聯絡支援團隊。"
+    },
+    "inProgress": {
+      "title": "仍在進行中",
+      "message": "雲端服務供應商尚未完成此變更，它稍後仍可能完成。",
+      "action": "重試之前，請使用 cmux vm ls 或在機器列表中查看機器狀態。"
+    },
+    "providerTimeout": {
+      "title": "雲端服務供應商回應緩慢",
+      "message": "雲端服務供應商未能及時回應。",
+      "action": "請稍後重試。"
+    },
+    "providerCapacity": {
+      "title": "Cloud 目前沒有可用容量",
+      "message": "Cloud 服務目前沒有空間執行這台機器。沒有進行任何變更。",
+      "action": "請一分鐘後再試一次。"
+    },
+    "stateConflict": {
+      "title": "機器忙碌中",
+      "message": "這台機器正在啟動、暫停或未執行，因此現在無法執行此操作。",
+      "action": "請稍候再試。用 cmux vm ls 查看機器狀態；如果已暫停，請先繼續執行它。"
+    },
+    "networkRuleCapacity": {
+      "title": "網路規則已達上限",
+      "message": "網路政策已儲存，但未套用：cmux Cloud 的網路規則已達上限。",
+      "action": "已通知 cmux 團隊。請移除這台機器不再需要的網域，或聯絡支援團隊。在此之前，這台機器的網路存取可能與已儲存的政策不一致。"
+    },
+    "networkPolicyStatus": {
+      "applyFailed": "網路政策已儲存，但未套用。請再次儲存以重試。"
+    },
     "unsupported": {
       "title": "雲端虛擬機操作無法使用",
       "reason": "此機器類型不提供這項操作。",
@@ -81,12 +114,27 @@
       "shapeMessage": "Go 支援 2 vCPU、4 GiB 記憶體和 16 GiB 磁碟。",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
+    "planBudget": {
+      "computeTitle": "{plan} 運算額度已用完",
+      "computeMessage": "你的 {plan} 方案已用完本計費週期的 {included} 運算小時。1 運算小時是 1 個 vCPU 搭配 2 GB 記憶體執行一小時。你的機器可在 {resetDate} 再次啟動。",
+      "computeAction": "已暫停的機器會保留其檔案。如需在 {resetDate} 之前取得更多運算資源，請聯絡支援團隊。",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "{plan} 磁碟額度已用完",
+      "storageMessage": "你的 {plan} 方案為所有已儲存的機器總共提供 {included} GB 磁碟。已儲存的機器使用了 {used} GB，此請求需要 {requested} GB。",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+    },
     "resourcePool": {
       "title": "Cloud VM 資源不足",
       "memoryMessage": "你的 VM 已使用 {pool} GB RAM 中的 {used} GB。這台 VM 需要 {requested} GB。",
       "vcpuMessage": "你的 VM 已使用 {pool} 個 vCPU 中的 {used} 個。這台 VM 需要 {requested} 個 vCPU。",
       "upgradeAction": "暫停或刪除一台 VM，或升級到 Max。",
       "action": "暫停或刪除一台 VM。"
+    },
+    "activeLimit": {
+      "counted": "目前計入：{machines}。已暫停的機器不計入。",
+      "provisioning": "{name}（正在佈建）",
+      "separator": "、"
     }
   },
   "billingRecovery": {
@@ -180,6 +228,7 @@
     "copyright": "© {year} Manaflow",
     "language": "語言",
     "assets": "素材",
+    "art": "藝術",
     "openSource": "開源",
     "guides": "指南",
     "compare": "比較"
@@ -475,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "請先恢復方案再進行變更。",
           "granted": "由 cmux 授予，沒有可變更的項目。",
+          "grantedNoCancel": "由 cmux 授予，因此沒有可取消的項目。",
+          "paymentFailed": "變更方案前，請先更新付款方式。",
+          "foundersLifetime": "Founder's Edition 永久包含 Pro。",
           "adminOnly": "只有團隊管理員可以變更方案。"
         },
         "names": {
@@ -497,11 +549,11 @@
           ],
           "pro": [
             "在 Cloud VM 上執行雲端代理",
-            "最多 5 台 Cloud VM，共用 20 個 vCPU 和 40 GB RAM",
+            "最多 5 台 Cloud VM，共用 20 個 vCPU 和 40 GB RAM. 單台 VM 最多可使用 16 GB 記憶體 / 8 vCPU。24 GB / 12 vCPU 和 32 GB / 16 vCPU 規格需要 Max。",
             "cmux iOS App"
           ],
           "max": [
-            "最多 5 台 Cloud VM，共用 80 個 vCPU 和 160 GB RAM",
+            "最多 5 台 Cloud VM，共用 80 個 vCPU 和 160 GB RAM. Max 可使用 24 GB / 12 vCPU、32 GB / 16 vCPU，最高可達 64 GB / 32 vCPU。",
             "更大的機器規格",
             "Pro 的所有功能"
           ],
@@ -517,6 +569,7 @@
       "change": {
         "title": "切換至 {plan}？",
         "upgradeBody": "{plan} 立即生效。今天為本計費週期的剩餘時間支付 {amount}。自 {date} 起，每月支付 {price}。",
+        "upgradeBodyYearly": "{plan} 立即生效。今天為本計費週期的剩餘時間支付 {amount}。自 {date} 起，每年支付 {price}。",
         "downgradeBody": "{plan} 立即生效。目前方案未使用的部分 {credit} 會抵扣後續帳單。{date} 的下一張帳單為 {amount}。",
         "confirm": "切換至 {plan}",
         "keep": "保留目前方案",
@@ -529,6 +582,8 @@
         "title": "取消 {plan}？",
         "body": "你可以使用 {plan} 至 {date}。之後你將失去：",
         "bodyNoDate": "你可以使用 {plan} 至本計費週期結束。之後你將失去：",
+        "foundersBody": "你的 {plan} 訂閱將於 {date} 結束。之後你將使用 Founder's Edition 永久包含的 Pro。",
+        "foundersBodyNoDate": "你的 {plan} 訂閱將在本計費週期結束時結束。之後你將使用 Founder's Edition 永久包含的 Pro。",
         "reasonLabel": "為什麼取消？（選填）",
         "otherPlaceholder": "告訴我們更多（選填）",
         "confirm": "取消方案",
@@ -1114,7 +1169,7 @@
       "transferUnavailableError": "轉移暫時無法使用，或帳號正在更新。請稍後再試。",
       "shareWithTeam": "與團隊共用",
       "makePrivate": "設為私人",
-      "privateImportHint": "新帳戶預設為私人。共用帳戶後，此團隊的雲端虛擬機即可使用。",
+      "privateImportHint": "在組織中，新帳號會與團隊及其 Cloud VM 共用。在你的個人團隊中，新帳號僅限你本人使用。可用「設為私人」或「與團隊共用」變更某個帳號。",
       "description": "共享帳戶可供此團隊的 Cloud VM 使用。私人帳戶僅供新增它們的人使用。",
       "cancelAction": "取消",
       "apiKeysTitle": "API 金鑰",
@@ -2157,6 +2212,7 @@
           "defaultSearchEngine": "瀏覽器位址列輸入不是 URL 時使用的預設搜尋引擎。任意提供者請使用 custom 與 customSearchEngineURLTemplate。",
           "customSearchEngineName": "defaultSearchEngine 為 custom 時使用的顯示名稱。",
           "customSearchEngineURLTemplate": "defaultSearchEngine 為 custom 時使用的搜尋 URL。使用查詢佔位符或 %s 表示已編碼的查詢。若沒有佔位符，cmux 會將 q= 加到 URL。",
+          "showLinkHoverURL": "指標停留在連結上或連結取得鍵盤焦點時，在瀏覽器面板左下角顯示連結的目的地。",
           "urlAllowlist": "限制內建瀏覽器導覽的主機或 URL 模式。設定介面會建議本機開發來源；儲存清單後會啟用選用限制。刪除項目即可封鎖這些來源；沒有受管理政策時，將使用者值留白可停用限制。"
         },
         "workspaceGroups": {
@@ -2176,6 +2232,7 @@
           "notificationMessageLineLimit": "每個工作區標題下方顯示的最新通知最大行數。",
           "rightMaxWidth": "右側邊欄的最大寬度（點）。省略時使用內建動態上限。",
           "showAgentUsage": "在 Claude Code 或 Codex 的狀態項目後附加程式碼代理的用量：所用模型與已佔用的脈絡視窗，並在 Claude Code 上依 Anthropic 公布的標價估算 API 費用（主執行緒與子代理）。該費用僅為估算，並非你的訂閱帳單；批次／優先等級、合作夥伴定價、快速模式以及伺服器工具費用皆未計入。",
+          "showCloudDeviceIcons": "無論 Git 分支和目錄詳細資訊為何，都在遠端工作區標題旁顯示 Cloud 電腦和裝置圖示。",
           "beta": {
             "conversations": {
               "enabled": "在側邊欄選擇器中顯示整合的對話檢視。"
@@ -2200,6 +2257,21 @@
           "indentGuides": "在內建檔案編輯器中，以一條細直線標示每一層縮排。",
           "currentLineHighlight": "在沒有選取任何內容時，為游標所在的那一列上色。",
           "tabWidth": "一個定位點所佔的欄數。縮排參考線使用相同的間距。"
+        },
+        "actions": "供命令面板、快捷鍵、分頁列按鈕和加號按鈕選單使用的可重複使用操作。支援 builtin、command、agent、workspaceCommand、workspace、setting、settingPreset 和 text。text 操作會向目前聚焦的終端機貼上文字並保留換行；submit: true 會按下 Enter。設定操作需要全域設定。",
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "選取遠端 tmux 工作區後，「新增工作區」會在該工作區的主機上啟動 tmux 工作階段。"
+            }
+          }
+        },
+        "chief": {
+          "description": "Chief（首頁代理）：是否顯示，以及使用的執行框架、模型和推理強度。",
+          "enabled": "顯示首頁列和 Chief 入口。設為 false 時，會隱藏首頁列、打開 Chief 快捷鍵、選單項目和命令面板項目。",
+          "harness": "Chief 使用的代理執行框架：claude（Claude Code）或 codex（Codex）。",
+          "model": "傳遞給執行框架的模型。留空則使用執行框架的預設值。",
+          "effort": "傳遞給執行框架的推理強度，例如 low、medium 或 high。留空則使用執行框架的預設值。"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -2270,7 +2342,7 @@
       "plusButtonScreenshotAlt": "cmux 加號按鈕右鍵選單顯示 Worktree Agents、New Terminal 與 New Browser",
       "plusButtonScreenshotCaption": "右鍵選單會依照 ui.newWorkspace.contextMenu 的順序。",
       "newWorkspaceButton": "加號按鈕的自訂動作",
-      "newWorkspaceButtonDesc": "使用 <action>ui.newWorkspace.action</action> 覆寫加號按鈕的行為。使用 <contextMenu>ui.newWorkspace.contextMenu</contextMenu>（或別名 <rightClick>rightClick</rightClick>）定義有順序的右鍵選單。選單項目可以是動作 ID、動作物件，或 <separator>{ \"type\": \"separator\" }</separator>。 未設定時，選單會列出 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)，並顯示各自目前的快速鍵。僅在啟用 Cloud Machines 時顯示雲端選單項目。 New Cloud Workspace 會使用最近選取的 Cloud 工作區所屬機器，接著使用右側邊欄的第一台機器；New Cloud Machine 會主動佈建機器。",
+      "newWorkspaceButtonDesc": "使用 <action>ui.newWorkspace.action</action> 覆寫加號按鈕的行為。使用 <contextMenu>ui.newWorkspace.contextMenu</contextMenu>（或別名 <rightClick>rightClick</rightClick>）定義有順序的右鍵選單。選單項目可以是動作 ID、動作物件，或 <separator>{ \"type\": \"separator\" }</separator>。 未設定時，選單會列出 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)，並顯示各自目前的快速鍵。僅在啟用 Cloud Machines 時顯示雲端選單項目。 New Cloud Workspace 會使用最近選取的 Cloud 工作區所屬機器，接著使用右側邊欄中第一台機器；若沒有可用機器，則開啟 New Cloud Machine。",
       "newWorkspaceWorktreeNote": "此範例讓一般加號點擊執行 <action>worktree-agents</action> 動作。來自 <commands>commands</commands> 的工作區命令會先使用可見的設定終端機建立 Git <worktree>worktree</worktree>。Codex 與 Claude 同時啟動，等待該工作區專用的狀態檔，然後在 exec 前進入建立的目錄。",
       "simpleCommands": "shell 命令",
       "simpleCommandsDesc": "最簡單的項目只需一個名稱和一個命令字串。在 Command Palette 中選取它，就會把該字串輸入到目前聚焦的終端機並執行。",
@@ -2875,7 +2947,7 @@
       "metaTitle": "cmux Cloud",
       "metaDescription": "在 cmux 中執行持久的 Linux 雲端機器，即使闔上 Mac，程式設計代理仍會在雲端持續工作，並可從任何 Mac 重新連線。",
       "intro": "cmux Cloud 為你提供雲端上的持久 Linux 機器，並以一般 cmux 工作區的形式開啟。關閉窗格、網路中斷或闔上筆電時，終端機都會繼續執行，因此程式設計代理可以持續工作，你也能從任何已登入的 Mac 重新連線。",
-      "betaNote": "cmux Cloud 目前為搶先體驗階段，並分批向 Mac 開放。若要使用，你的 Mac 必須在開放範圍內，且你需要啟用 Settings › Beta Features › Cloud Machines。如果你的 Mac 尚未在開放範圍內，Cloud 指令會顯示「Cloud Machines 暫時無法使用」。",
+      "betaNote": "cmux Cloud 目前為搶先體驗階段，除非你的組織將其停用，否則皆可使用。若要使用，請啟用 Settings › Beta Features › Cloud Machines。",
       "whatTitle": "什麼是機器",
       "whatDesc": "機器是一台屬於你或你團隊的持久雲端電腦。它會保留檔案、已安裝的工具和執行中的終端機。請把它當成長期使用的機器，而不是用完即丟的資源：需要的工具只要安裝一次，之後隨時回來繼續使用。",
       "whatDaemon": "每台機器都會執行 cmux TUI 常駐程式。常駐程式保存機器上的工作區和終端機。Mac 上的 cmux 窗格只是顯示位於機器上的終端機，因此關閉窗格絕不會停止程序。",
@@ -2884,18 +2956,18 @@
       "requirementsTitle": "你需要準備什麼",
       "reqMac": "已執行並登入的 cmux macOS 應用程式。cmux CLI 會與應用程式通訊，你的憑證由應用程式保存。",
       "reqPlan": "cmux 付費方案。免費帳號無法建立機器。目前的方案請參閱定價頁面。",
-      "reqBeta": "一台已進入 Cloud 搶先體驗開放範圍的 Mac，並已在 Settings › Beta Features 中啟用 Cloud Machines。",
+      "reqBeta": "已在 Settings › Beta Features 中啟用 Cloud Machines，且組織原則未停用 Cloud。",
       "reqNoVpn": "不需要設定 VPN、SSH 金鑰或連接埠轉送。cmux 會透過自動啟動的私人網路連線到你的機器。",
       "quickstartTitle": "快速入門",
       "stepSignIn": "登入。使用右側邊欄的 Cloud 分頁，或在終端機中執行登入指令。",
-      "stepCreate": "透過 File › New Cloud Machine 或 ⌘Y 建立機器。選擇規格和選用的標籤。建立過程會在背景進行，機器就緒時 cmux 會顯示通知。",
-      "stepWorkspace": "使用 ⇧⌘Y（New Cloud Workspace）在機器上開啟工作區。在 Cloud 工作區中，按 ⌘N 可在同一台機器上建立另一個工作區。",
+      "stepCreate": "透過 File › New Cloud Machine 或 ⇧⌘Y 建立機器。選擇規格和選用的標籤。建立過程會在背景進行，機器就緒時 cmux 會顯示通知。",
+      "stepWorkspace": "使用 ⌘Y（New Cloud Workspace）在機器上開啟工作區。在 Cloud 工作區中，按 ⌘N 一律會在這台 Mac 上建立本機工作區。",
       "stepAgent": "執行代理。機器上已預先安裝 Claude Code、Codex、OpenCode 和 Pi。",
       "stepCli": "也可以透過 CLI 完成相同的操作：",
       "appTitle": "在應用程式中使用 Cloud",
       "appSidebar": "右側邊欄的 Cloud 分頁會列出你的機器。每台機器下方會顯示其工作區、已轉送的連接埠、VNC 顯示器和終端機。點選項目即可開啟。你也可以在指令面板中使用 Open Cloud as Pane，將 Cloud 樹狀結構開啟為窗格。",
       "appMenu": "在機器上按右鍵，即可開啟 shell、建立工作區、開啟桌面、開啟完整的 cmux TUI 用戶端、調整規格、重新命名、拷貝 IP 位址、查看狀態、建立檢查點、分叉或刪除機器。你也可以釘選機器並調整它們的順序。",
-      "appShortcuts": "New Cloud Machine（⌘Y）和 New Cloud Workspace（⇧⌘Y）位於 File 選單、加號按鈕選單和指令面板中。這兩個快捷鍵都可以在設定中變更，或在 cmux.json 中透過 newCloudMachine 和 newCloudWorkspace 鍵變更。",
+      "appShortcuts": "New Cloud Machine（⇧⌘Y）和 New Cloud Workspace（⌘Y）位於 File 選單、加號按鈕選單和指令面板中。這兩個快捷鍵都可以在設定中變更，或在 cmux.json 中透過 newCloudMachine 和 newCloudWorkspace 鍵變更。",
       "cliIntroTitle": "透過 CLI 使用 Cloud",
       "cliIntroDesc": "cmux vm 和 cmux cloud 是同一個指令。不帶子指令執行 cmux vm 會列出你的機器。每個子指令都有不需應用程式即可使用的 --help 頁面，cmux vm guide 會輸出完整的 Markdown 指南。為任何子指令加上 --json 即可取得機器可讀的輸出。",
       "baseTitle": "你的基礎機器",
@@ -2913,11 +2985,11 @@
       "metaDescription": "了解如何建立 cmux Cloud 機器、選擇與調整規格，以及如何暫停、建立快照、分叉和刪除機器，並查看方案限制。",
       "intro": "本頁說明 cmux Cloud 機器的生命週期：如何建立、可選擇哪些規格、方案限制如何套用，以及如何暫停、建立快照、分叉和刪除機器。",
       "createTitle": "建立機器",
-      "createApp": "在應用程式中，使用 File › New Cloud Machine（⌘Y）、加號按鈕選單、指令面板，或 Cloud 側邊欄中的加號按鈕。出現的面板會要求你選擇規格並填寫選用的標籤。",
+      "createApp": "在應用程式中，使用 File › New Cloud Machine（⇧⌘Y）、加號按鈕選單、指令面板，或 Cloud 側邊欄中的加號按鈕。出現的面板會要求你選擇規格並填寫選用的標籤。",
       "createCli": "在 CLI 中，cmux vm new 會建立機器並在其上開啟工作區。使用 --detach 可只建立而不開啟任何內容。如果建立要求被重試，cmux 會沿用同一個要求，因此不會產生兩台機器。",
       "createFailed": "如果建立失敗，你可以從通知中重試、顯示錯誤，或拷貝錯誤以提交支援要求。",
       "sizesTitle": "規格",
-      "sizesDesc": "每種規格會同時決定記憶體、vCPU 和磁碟。可以在建立面板中或透過 --size 選擇規格。",
+      "sizesDesc": "每種規格會同時決定記憶體、vCPU 和磁碟。可以在建立面板中或透過 --size 選擇規格。 Pro 和 Team 支援 4g、8g 和 16g（2、4 和 8 vCPU）。Max 也會解鎖 24g 和 32g（12 和 16 vCPU），以及 64g（32 vCPU）。",
       "sizeColumn": "規格",
       "memoryColumn": "記憶體",
       "cpuColumn": "vCPU",
@@ -2931,7 +3003,7 @@
       "limitsFree": "免費帳號無法建立機器。",
       "limitsPaid": "Pro 和 Founder's Edition 帳號最多可擁有 5 台使用中的機器，共用 20 個 vCPU 和 40 GB 記憶體。正在執行或正在啟動的機器即為使用中的機器。",
       "limitsTeam": "Team 帳號每個付費席位最多可擁有 5 台使用中的機器。每個付費席位會為團隊資源池增加 20 個 vCPU 和 40 GB 記憶體。",
-      "limitsMax": "Max 帳號最多可擁有 5 台使用中的機器，共用 80 個 vCPU 和 160 GB 記憶體。在 Pro 和 Team 中，單台機器最高 32 GB 和 16 vCPU；在 Max 中最高 64 GB 和 32 vCPU。",
+      "limitsMax": "Max 帳號最多可擁有 5 台使用中的機器，共用 80 個 vCPU 和 160 GB 記憶體。單台 Max 機器最多可使用 64 GB 和 32 個 vCPU，包含 24 GB / 12 vCPU 與 32 GB / 16 vCPU 規格；Pro 和 Team 的上限為 16 GB 和 8 個 vCPU。",
       "limitsPoolFull": "如果新建、恢復、擴充或分叉的機器會超出資源池，cmux 會拒絕該請求，並顯示資源池的已用量。暫停或刪除一台機器以釋出資源，或升級到 Max。",
       "limitsPricing": "目前的價格請參閱定價頁面。不依用量計費，也沒有超額費用。",
       "agentUpdatesTitle": "讓程式碼代理保持最新",
@@ -2941,7 +3013,7 @@
       "agentUpdatesToggle": "「新增機器」面板預設開啟此設定。若要為現有機器變更，請在機器上按右鍵並選擇「讓代理保持最新」，或執行 cmux vm agent-updates。除非傳入 --agent-updates latest，否則 cmux vm new 會保留映像檔中的版本。關閉更新後，已安裝的版本會保留。",
       "agentUpdatesNetwork": "更新只使用 github.com, api.github.com, objects.githubusercontent.com 和 release-assets.githubusercontent.com。cmux 在所有網路模式下都允許這些主機，包括「允許清單」和「不連網」，因此網路政策不會阻擋更新。",
       "resizeTitle": "調整規格",
-      "resizeDesc": "你可以在不遺失資料的情況下擴大機器。在機器上按右鍵並選擇 Resize machine，或使用 cmux vm resize。調整規格只能擴大機器。磁碟以 4 GB 為單位最多擴充到 256 GB。在 Pro 和 Team 中，記憶體最多 32 GB，CPU 最多 16 vCPU；在 Max 中，記憶體最多 64 GB，CPU 最多 32 vCPU。機器越大，占用的資源池越多。實際上限由你的方案決定。",
+      "resizeDesc": "你可以在不遺失資料的情況下擴大機器。在機器上按右鍵並選擇 Resize machine，或使用 cmux vm resize。調整規格只能擴大機器。磁碟以 4 GB 為單位，在 Pro 和 Team 中最多擴充到 128 GB，在 Max 中最多擴充到 256 GB（Go 限制為 16 GB）。在 Pro 和 Team 中，記憶體最多 16 GB，CPU 最多 8 vCPU；在 Max 中，記憶體最多 64 GB，CPU 最多 32 vCPU。機器越大，占用的資源池越多。實際上限由你的方案決定。",
       "pauseTitle": "暫停與繼續",
       "pauseDesc": "cmux vm pause 會停止機器的運算資源。磁碟、工作區和終端機歷史記錄會保留，執行中的程序則會停止。cmux vm resume 會再次啟動機器。開啟已暫停的機器或在其上執行指令也會啟動它。",
       "pauseIdle": "機器閒置時不會自動暫停。機器會持續執行，直到你暫停或刪除它。",
@@ -3084,15 +3156,15 @@
       "symptomColumn": "問題",
       "fixColumn": "解決方法",
       "errNotSeen": "沒有 Cloud 分頁或 New Cloud Machine 指令",
-      "fixNotSeen": "啟用 Settings › Beta Features › Cloud Machines。如果 Cloud 仍未顯示，表示你的 Mac 尚未在開放範圍內。如果顯示 Cloud Machines 已被管理員停用，請聯絡你的管理員。",
-      "errUnavailable": "Cloud Machines 暫時無法使用",
-      "fixUnavailable": "你的 Mac 尚未在 Cloud 開放範圍內，或 Cloud 暫時已關閉。僅啟用 Settings 中的開關並不會啟用 Cloud。請稍後再試。",
+      "fixNotSeen": "啟用 Settings › Beta Features › Cloud Machines。如果 Cloud 仍未顯示，請檢查管理員是否停用了 Cloud Machines。",
+      "errUnavailable": "Cloud Machines 已停用或無法使用",
+      "fixUnavailable": "Cloud Machines 已關閉，因為 Settings 中的本機切換開關已關閉，或管理員停用了 Cloud。請開啟開關，或請管理員允許 Cloud。",
       "errSignIn": "存取 Cloud VM 需要登入",
       "fixSignIn": "執行 cmux auth login 後再試一次。如果工作階段被拒絕，請先執行 cmux auth logout。",
       "errPlan": "Cloud VM 需要付費方案",
       "fixPlan": "免費帳號無法建立機器。請在定價頁面升級。",
       "errSize": "所選規格需要更高階的方案",
-      "fixSize": "大於 32 GB 的機器需要 cmux Max。請選擇較小的規格或升級。",
+      "fixSize": "大於 16 GB 的機器需要 cmux Max。請選擇較小的規格或升級。",
       "errLimit": "已達使用中機器數量上限",
       "fixLimit": "暫停或刪除一台機器後再試一次。",
       "errPool": "Cloud VM 資源不足",
@@ -3184,8 +3256,8 @@
       "cloudLink": "Cloud 機器上的代理如何設定",
       "teamsTitle": "團隊與共用",
       "teamsScope": "帳號屬於你目前登入的團隊。cr org list 會顯示你的團隊，cr org switch 會切換 cr 使用的團隊。cmux coderouter 指令接受 --team '<id>'。",
-      "teamsPrivate": "新帳號只供加入它的人使用。在儀表板中，「與團隊共用」會讓所有成員和團隊的 Cloud 機器都能使用它，「設為私人」則取消共用。",
-      "teamsPersonal": "在你的個人團隊中，你的私人帳號也會服務你自己的 Cloud 機器。組織的 Cloud 機器只使用共用帳號，因此在希望機器使用某個帳號之前，請先共用它。",
+      "teamsPrivate": "新增到組織的帳號會與團隊共用，所有成員和團隊的 Cloud 機器都能使用。在控制台中，「設為私人」會限制為新增者本人使用，「與團隊共用」則恢復共用。",
+      "teamsPersonal": "在你的個人團隊中，新帳號是私人的，你的私人帳號也供你自己的 Cloud 機器使用。組織的 Cloud 機器只使用共用帳號，因此私人帳號必須先共用，機器才能使用。",
       "teamsManage": "任何團隊成員都可以加入、重新命名、停用、轉移和移除團隊的共用帳號。cr transfer 會在你確認後將帳號轉移到另一個團隊。",
       "usageTitle": "用量與限制",
       "usageLimits": "每個供應商會依照處理請求的帳號本身的方案和限制來計量。CodeRouter 會把工作分散到多個帳號，但不會提高任何單一帳號的上限。",
@@ -3225,12 +3297,13 @@
       "apiKeyScope": "組織的 API 金鑰只會使用團隊的共用帳號。個人團隊中的金鑰還能使用你的私人帳號。CodeRouter 提供的是 OpenAI Responses API，而不是 Chat Completions。",
       "apiKeyLogin": "在無法開啟瀏覽器的機器上，cr login --api-key 會用金鑰登入 cr，CODEROUTER_API_KEY 則可為單一指令提供金鑰。若要撤銷金鑰，請在儀表板中操作，或在使用該金鑰的機器上執行 cr logout。",
       "cloudTitle": "在 cmux Cloud 機器上",
-      "cloudDesc": "Cloud 機器不需要任何設定。機器環境會把 OPENAI_BASE_URL 和 ANTHROPIC_BASE_URL 指向 CodeRouter 的私人位址，cmux 會在 shell 或代理第一次啟動時寫入每個代理的設定：",
-      "cloudClaude": "Claude Code 會從環境讀取 ANTHROPIC_BASE_URL 和預留位置的 ANTHROPIC_API_KEY。它的首次執行提示已經預先回答。",
+      "cloudDesc": "Cloud 機器不需要任何設定。每個代理會透過 CodeRouter 的私人位址使用你團隊的 CodeRouter 帳號，cmux 會在 shell 或代理第一次啟動時寫入它的設定：",
+      "cloudClaude": "Claude Code 會在每次啟動時取得 ANTHROPIC_BASE_URL 和預留位置的 ANTHROPIC_API_KEY，而不是從每個 shell 取得，因此它們永遠不會蓋過你自己的登入。它的首次執行提示已經預先回答。",
       "cloudCodex": "Codex 會在 ~/.codex/config.toml 中取得 cmux 模型供應商。",
       "cloudPi": "Pi 會在 ~/.pi/agent/models.json 中取得供應商覆寫設定。",
-      "cloudOpencode": "OpenCode 第一次啟動時會從 CodeRouter 下載供應商清單，並儲存到 ~/.config/opencode/opencode.json。",
+      "cloudOpencode": "OpenCode 第一次啟動時會從 CodeRouter 下載供應商清單，儲存到 ~/.config/cmux/opencode-team.json，並在每次執行時將其加入你自己的設定。",
       "cloudYours": "cmux 只在檔案不存在時才會寫入，因此你的修改會被保留。已經指定其他模型供應商的 Codex 設定不會被變更。",
+      "cloudOwnLogin": "若要改用你自己的帳號，請在機器上執行 cr use own，然後依代理平常的方式登入：在 Claude Code 中使用 /login，或使用 codex login、opencode auth login。cr use team 會切換回團隊帳號，cr use own codex 只變更一個代理，cr use 會顯示每個代理的登入方式。如果沒有做選擇，你已在機器上登入的代理會使用你自己的帳號，而你的團隊沒有對應帳號的代理會顯示其一般登入。變更會在代理下次啟動時生效。",
       "cloudRun": "照常執行代理即可。cmux coderouter agent 會把單獨的提示轉換為代理的一次性執行形式；在機器內部，它會在目前的終端機中執行；在 Mac 上，它會像 cmux vm agent 一樣在你指定的機器上啟動代理。",
       "cloudAccounts": "Cloud 機器會使用擁有它的團隊的帳號。如果代理回報沒有可用的帳號，請加入一個帳號，或將現有帳號共用給該團隊。",
       "modelsTitle": "模型",
@@ -3305,6 +3378,23 @@
     "title": "使用者好評",
     "description": "大家對 cmux 的評價。"
   },
+  "art": {
+    "metaTitle": "cmux 背景藝術",
+    "metaDescription": "瀏覽 cmux 提供作為視窗背景的公有領域畫作：梵谷、弗里德里希、哥雅、多雷等，附來源與授權資訊。",
+    "title": "藝術",
+    "description": "可以放在終端機背後的公有領域名畫與版畫。每件作品的作者均已過世 70 年以上，且作品發表於 1931 年之前。",
+    "howToUse": "即將登陸 cmux：可將其中任一作品設為終端機背後的背景。",
+    "loading": "正在載入作品集…",
+    "unavailable": "無法載入作品集。請幾分鐘後再試一次。",
+    "collectionsLabel": "作品集",
+    "source": "公有領域 · 來源",
+    "collections": {
+      "darkArt": "暗黑藝術",
+      "museumIcons": "博物館名作",
+      "calm": "寧靜",
+      "dore": "多雷"
+    }
+  },
   "testimonials": {
     "mitchellh": "又一個基於 libghostty 的專案，這次是一個帶垂直分頁、更好的組織/通知、內建可編寫腳本瀏覽器的 macOS 終端機，專門針對大量使用終端機 agent 工作流程的使用者。",
     "steipete": "來晚了，但 cmux 很棒。目前分工：Codex Mac App 用於知識工作、學習和閱讀；cmux + Codex CLI 用於寫程式。",
@@ -3360,6 +3450,7 @@
     "unsupportedParams": "此連結包含 cmux 將拒絕的不受支援的參數：{params}",
     "conflictingParams": "此連結包含不能一起使用的參數：{params}",
     "invalidParams": "此連結包含無效參數值：{params}",
+    "ignoredParams": "cmux 會忽略它不使用的參數：{params}。工作階段仍會開啟。",
     "fixParams": "修復 URL 參數，然後重新載入此頁面。",
     "examplePrefix": "參見",
     "exampleLink": "範例連結",
@@ -3383,6 +3474,16 @@
       "title": "在 cmux 中開啟規則",
       "intro": "此頁面開啟目前 cmux 工作區中的規則。",
       "fallback": "cmux 首先顯示規則並在將它們貼到目前工作區之前進行詢問。如果 cmux 未開啟，請安裝 cmux 並再次按一下「在 cmux 中開啟」。"
+    },
+    "agent": {
+      "metaTitle": "在 cmux 中開啟代理工作階段",
+      "metaDescription": "從網頁開啟 cmux 代理工作階段深層連結，cmux 無法使用時提供安裝引導。",
+      "title": "開啟代理工作階段",
+      "intro": "如果這台 Mac 已能存取該工作階段，此連結會在 cmux 中開啟代理的工作階段。連結本身不授予任何存取權限。",
+      "fallback": "如果 cmux 沒有開啟，請安裝 cmux，然後再次點按「在 cmux 中開啟」。只有當這台 Mac 已能存取該工作階段時，cmux 才會開啟它。",
+      "nameLabel": "名稱：{value}",
+      "hostLabel": "主機：{value}",
+      "harnessLabel": "工具：{value}"
     }
   },
   "download": {
@@ -3416,7 +3517,10 @@
     "title": "已登入 cmux",
     "body": "如果 cmux 沒有自動開啟，請使用下方按鈕。",
     "button": "返回 cmux",
-    "switchAccountButton": "使用其他帳號"
+    "switchAccountButton": "使用其他帳號",
+    "rateLimitedTitle": "登入忙碌中",
+    "rateLimitedBody": "我們的登入服務收到太多要求。請稍候幾秒鐘後繼續。你不需要重新登入。",
+    "retryButton": "繼續登入"
   },
   "landing": {
     "bestTerminal": {
@@ -5342,7 +5446,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro 已啟用",
     "title": "歡迎加入 cmux Pro",
-    "body": "Pro 功能仍在開發中。Cloud 存取即將推出，訂閱期間每個月都會累積使用額度。目前，Pro 包含透過 TestFlight 存取 cmux iOS 版的權益。",
+    "body": "Pro 包含最多 5 台共用 20 個 vCPU 與 40 GB 記憶體的 Cloud VM，以及 cmux iOS TestFlight 存取權。 單台 VM 最多可使用 16 GB 記憶體 / 8 vCPU。24 GB / 12 vCPU 和 32 GB / 16 vCPU 規格需要 Max。",
     "done": "前往控制面板",
     "steps": {
       "iosApp": {
@@ -5418,6 +5522,8 @@
     "errorInvalidCode": "驗證碼無效。請檢查電子郵件後再試一次。",
     "errorInvalidTotp": "雙重驗證碼無效。",
     "errorSignUpNotAllowed": "目前無法建立新帳號。",
+    "errorEmailUnverified": "此電子郵件已有帳號，但地址尚未驗證。請使用註冊時的方式登入，然後驗證電子郵件，即可使用登入驗證碼。",
+    "useEmailPasswordInstead": "使用電子郵件和密碼登入",
     "errorPasskey": "通行密鑰登入未完成。請再試一次或改用其他方式。",
     "errorGeneric": "發生問題，請再試一次。"
   },
@@ -5451,6 +5557,9 @@
     "switchFailed": "無法登出，請再試一次。",
     "invalidTitle": "此邀請已失效",
     "invalidBody": "邀請已過期、已撤銷或已被使用。請向團隊管理員索取新的邀請。",
-    "goToTeams": "前往你的團隊"
+    "goToTeams": "前往你的團隊",
+    "unavailableTitle": "無法確認你的登入",
+    "unavailableBody": "我們的登入服務忙碌中。請稍候幾秒鐘後再次開啟邀請。你不需要重新登入。",
+    "retry": "重試"
   }
 }

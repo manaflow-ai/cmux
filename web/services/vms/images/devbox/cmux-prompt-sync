@@ -10,6 +10,7 @@ import tempfile
 import time
 import subprocess
 import threading
+import urllib.error
 import urllib.request
 
 NAME = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
@@ -41,6 +42,22 @@ def publish(directory, payload):
             if os.path.lexists(temporary):
                 os.unlink(temporary)
         return True
+
+
+# A success re-fetches every SUCCESS_INTERVAL seconds. Failures retry fast at
+# first, because the platform edge starts injecting the credential ~20-30 s
+# after boot, then back off: a transport or server failure to the success
+# cadence, a refusal (4xx: credential refused, machine gone) to five minutes.
+# No failure ever polls faster than a success.
+SUCCESS_INTERVAL = 30
+TRANSIENT_RETRY_CAP = SUCCESS_INTERVAL
+REFUSED_RETRY_CAP = 300
+
+
+def retry_delay(previous, error):
+    refused = isinstance(error, urllib.error.HTTPError) and 400 <= error.code < 500
+    cap = REFUSED_RETRY_CAP if refused else TRANSIENT_RETRY_CAP
+    return 1 if previous is None else min(previous * 2, cap)
 
 
 def fetch_name(url):
@@ -170,16 +187,16 @@ def seed_terminal(ready, directory):
             time.sleep(1)
     if terminal and ready.wait(timeout=60):
         # The snapshot can resume with the builder's prompt already rendered.
-        # Clear that bytes/history and interrupt it after the clone identity is
-        # published. These two calls are deliberately detached from the name
-        # refresh loop, so New Machine never waits on them.
-        # A warm template shell draws its first prompt only after the name
-        # arrives (cmux-prompt.bash) and records that here. Clearing and
-        # interrupting it then would only drop what the user already typed.
-        if (RUN_DIR / "first-prompt-named").exists():
-            return
+        # Always clear that bytes/history and redraw it after the clone
+        # identity is published. The first-prompt marker only says that the
+        # clone hook ran; it cannot remove prompt bytes captured in the
+        # snapshot, so skipping this cleanup leaves a stale `cmux@cmux` line
+        # above the real machine prompt. Ctrl-L redraws without discarding
+        # input typed while the identity was arriving. These calls are
+        # deliberately detached from the name refresh loop, so New Machine
+        # never waits on them.
         tui("terminal", terminal, "history", "clear", "--quiet")
-        tui("terminal", terminal, "keys", "ctrl+c", "--quiet")
+        tui("terminal", terminal, "keys", "ctrl+l", "--quiet")
 
 
 # The bake leaves this default in vm-name. A clone's real name arrives either
@@ -224,22 +241,22 @@ def main():
     threading.Thread(target=seed_terminal, args=(ready, args.directory), daemon=True).start()
     if not args.once:
         threading.Thread(target=watch_local_name, args=(args.directory, ready), daemon=True).start()
-    delay = 1
+    delay = None
     while True:
         try:
             publish(args.directory, fetch_name(args.url))
             ready.set()
-            delay = 1
+            delay = None
             if args.once:
                 return
             # Display-only state; no network request runs from a shell prompt.
-            time.sleep(30)
-        except (OSError, ValueError):
+            time.sleep(SUCCESS_INTERVAL)
+        except (OSError, ValueError) as error:
             if args.once:
                 raise
             # Never publish a fallback as success or clear an existing name.
+            delay = retry_delay(delay, error)
             time.sleep(delay)
-            delay = min(delay * 2, 8)
 
 
 if __name__ == "__main__":

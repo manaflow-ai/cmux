@@ -21,11 +21,15 @@ type TestStackAuthUser = {
 let handoffCookie: string | undefined;
 let rawRefreshCookie: string;
 let rawAccessCookie: string;
-let getUserResponses: Array<TestStackAuthUser | null> = [];
+let getUserResponses: Array<TestStackAuthUser | null | Error> = [];
 let promotionShouldFail = false;
 const claimVerifiedBilling = mock(async () => undefined);
 const applyAdminGrants = mock(async () => undefined);
-const getUser = mock(async (): Promise<TestStackAuthUser | null> => getUserResponses.shift() ?? null);
+const getUser = mock(async (): Promise<TestStackAuthUser | null> => {
+  const next = getUserResponses.shift() ?? null;
+  if (next instanceof Error) throw next;
+  return next;
+});
 const signOut = mock((options?: unknown) => {
   void options;
   return Promise.resolve();
@@ -180,6 +184,21 @@ describe("after sign-in native handoff", () => {
     expect(callbackURL.protocol).toBe("cmux-rc:");
     expect(callbackURL.hostname).toBe("auth-callback");
     expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-rc");
+  });
+
+  test("redirects verified cmux NEXT handoffs directly to cmux-next", async () => {
+    // nightly-next installs beside classic NIGHTLY as cmux NEXT with its own
+    // scheme, so its sign-in never lands in the NIGHTLY app.
+    handoffCookie = "handoff-nonce";
+    const nativeReturnTo = "cmux-next://auth-callback?cmux_auth_state=state-next";
+
+    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+
+    expect(response.status).toBe(307);
+    const callbackURL = new URL(response.headers.get("location")!);
+    expect(callbackURL.protocol).toBe("cmux-next:");
+    expect(callbackURL.hostname).toBe("auth-callback");
+    expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-next");
   });
 
   test("keeps the manual return page when the handoff nonce is not verified", async () => {
@@ -391,6 +410,28 @@ describe("after sign-in native handoff", () => {
     expect(await response.text()).toContain(
       "If we found an account, check your email for next steps",
     );
+  });
+
+  test("a Stack throttle answers a localized retry page that resumes the same callback", async () => {
+    const throttled = Object.assign(new Error("Stack Auth rate limited"), { status: 429 });
+    for (const [language, title] of [["en", "Sign-in is busy"], ["ja", "サインインが混み合っています"]] as const) {
+      getUserResponses = [throttled];
+      const request = signInRequest("cmux://auth-callback", "nonce-1");
+      request.headers.set("accept-language", language);
+      const response = await GET(request);
+
+      expect(response.status).toBe(503);
+      expect(response.headers.get("retry-after")).toBe("30");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      const html = await response.text();
+      expect(html).toContain(title);
+      const retry = html.match(/<a href="([^"]+)">/)?.[1]?.replaceAll("&amp;", "&");
+      expect(retry).toBe(`${request.nextUrl.pathname}${request.nextUrl.search}`);
+      // Nothing ran against the old cookie session.
+      expect(promoteVerifiedAnonymousUser).not.toHaveBeenCalled();
+      expect(claimVerifiedBilling).not.toHaveBeenCalled();
+      expect(response.headers.get("location")).toBeNull();
+    }
   });
 
   test("accepts only signed tagged purchase callbacks on the deployed host", async () => {
