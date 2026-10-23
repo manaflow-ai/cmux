@@ -152,6 +152,8 @@ public final class MainThreadWatchdog: Sendable {
     let afterSampleForTesting = Mutex<(@Sendable () -> Void)?>(nil)
     /// The heartbeat sequence (tests wait for it to move).
     var currentBeat: UInt64 { beatSequence.load(ordering: .acquiring) }
+    /// Times the watchdog thread returned from a wait (tests count its idle wakeups).
+    let watchdogWakes = Atomic<UInt64>(0)
     #endif
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hangs")
 
@@ -303,6 +305,7 @@ public final class MainThreadWatchdog: Sendable {
                 }
                 // concurrency-allow: dedicated watchdog thread parks while the main run loop sleeps; never the main thread.
                 wake.wait()
+                noteWake()
                 continue
             }
             let beat = beatSequence.load(ordering: .acquiring)
@@ -311,6 +314,7 @@ public final class MainThreadWatchdog: Sendable {
             if now < due {
                 // concurrency-allow: dedicated watchdog thread; bounded wait until the next heartbeat check.
                 _ = wake.wait(timeout: .now() + .nanoseconds(Int(clamping: due - now)))
+                noteWake()
                 continue
             }
             // The heartbeat is old enough that the main thread may be stalling.
@@ -332,8 +336,16 @@ public final class MainThreadWatchdog: Sendable {
             // Check again one threshold later (or when the stall ends and the loop sleeps).
             // concurrency-allow: dedicated watchdog thread; bounded wait between stall checks.
             _ = wake.wait(timeout: .now() + .nanoseconds(Int(clamping: thresholdNanos)))
+            noteWake()
         }
         if let event = hang.episodes.finish() { handle(event) } // stopped mid-hang: the duration so far
+    }
+
+    /// Counts one return from a wait of the watchdog thread (debug builds: tests read it).
+    private func noteWake() {
+        #if DEBUG
+        watchdogWakes.add(1, ordering: .relaxed)
+        #endif
     }
 
     /// The watchdog thread's hang bookkeeping.
