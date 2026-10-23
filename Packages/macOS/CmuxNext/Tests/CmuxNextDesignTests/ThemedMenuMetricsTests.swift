@@ -42,21 +42,30 @@ import Testing
         #expect(ThemedMenuRowView.radius <= 6, "the highlight is a small rounded rect, not a pill")
     }
 
+    private static func row(_ item: NSMenuItem) throws -> ThemedMenuRowView {
+        try #require(item.view as? ThemedMenuRowView, "\(item.title) is a themed row")
+    }
+
+    /// Where `item`'s icon, or its title without one, starts in its themed row.
+    private static func leading(_ item: NSMenuItem) throws -> CGFloat {
+        let columns = try row(item).columns
+        return ThemedMenuRowView.leading(of: item, in: columns)
+    }
+
     /// No row has a checkmark, so no row leaves room for one: the icon starts at AppKit's leading,
     /// where the native separators start.
     @Test func noEmptyStateColumn() throws {
         let menu = Self.selectionMenu()
         let copy = menu.items[0]
-        #expect(!ThemedMenuRowView.hasStateColumn(copy))
-        #expect(ThemedMenuRowView.leading(of: copy) == 15)
+        #expect(try !Self.row(copy).columns.state)
+        #expect(try Self.leading(copy) == 15)
         let titleWidth = NSAttributedString(string: copy.title, attributes: [.font: ThemedMenuRowView.font(of: copy)]).size().width
-        let row = try #require(copy.view)
-        #expect(row.frame.width == ceil(15 + 14 + 6 + titleWidth + 12), "leading 15, icon 14, gap 6, title, trailing 12")
+        #expect(try Self.row(copy).frame.width == ceil(15 + 14 + 6 + titleWidth + 12), "leading 15, icon 14, gap 6, title, trailing 12")
 
         // A menu with a checkmark keeps the state column, as a native menu does.
         let checked = Self.selectionMenu(checked: true)
-        #expect(ThemedMenuRowView.hasStateColumn(checked.items[4]))
-        #expect(ThemedMenuRowView.leading(of: checked.items[4]) == ThemedMenuRowView.stateTitleX)
+        #expect(try Self.row(checked.items[4]).columns.state)
+        #expect(try Self.leading(checked.items[4]) == ThemedMenuRowView.stateTitleX)
 
         // A hidden checked row (the device menu's search hides its browse rows) leaves no column
         // in the rows that show, measured and drawn alike.
@@ -66,10 +75,48 @@ import Testing
         result.image = .menuSymbol("magnifyingglass")
         searching.addItem(result)
         searching.themeAddedRows()
-        #expect(!ThemedMenuRowView.hasStateColumn(result))
-        #expect(ThemedMenuRowView.leading(of: result) == 15)
-        let withColumn = try #require(checked.items[4].view).frame.width
-        #expect(try #require(result.view).frame.width == withColumn - (ThemedMenuRowView.stateTitleX - 15))
+        #expect(try !Self.row(result).columns.state)
+        #expect(try Self.leading(result) == 15)
+        #expect(try Self.leading(searching.items[4]) == 15, "a row themed before the search drops the column too")
+        let withColumn = try Self.row(checked.items[4]).frame.width
+        #expect(try Self.row(result).frame.width == withColumn - (ThemedMenuRowView.stateTitleX - 15))
+    }
+
+    /// A row's draw reads the columns measured when its menu was themed, never the menu's other
+    /// rows (Codex on #24036: a scan per row draw is O(rows²) per redraw of a long device menu).
+    /// A checked row added to the open menu and themed into it moves every row into the state column.
+    @Test func columnsAreMeasuredOncePerTheming() throws {
+        let menu = NSMenu()
+        for index in 0..<200 {
+            let item = NSMenuItem(title: "Device \(index)", action: #selector(NSText.copy(_:)), keyEquivalent: "")
+            item.image = .menuSymbol("iphone")
+            menu.addItem(item)
+        }
+        let beforeTheming = ThemedMenuColumns.measurements
+        menu.themeRows(in: ThemeScope(level: .room))
+        #expect(ThemedMenuColumns.measurements == beforeTheming + 1, "theming measures the menu once, not once per row")
+        let rows = try menu.items.map { try Self.row($0) }
+        #expect(rows.allSatisfy { $0.columns == ThemedMenuColumns(state: false, icon: true) })
+
+        let beforeDrawing = ThemedMenuColumns.measurements
+        for row in rows.prefix(20) {
+            row.frame.size.width = 240
+            let rep = try #require(row.bitmapImageRepForCachingDisplay(in: row.bounds))
+            row.cacheDisplay(in: row.bounds, to: rep)
+        }
+        #expect(ThemedMenuColumns.measurements == beforeDrawing, "a row's draw measures no menu")
+
+        let checked = NSMenuItem(title: "iPhone 17", action: #selector(NSText.copy(_:)), keyEquivalent: "")
+        checked.state = .on
+        menu.addItem(checked)
+        menu.themeAddedRows()
+        #expect(ThemedMenuColumns.measurements == beforeDrawing + 1)
+        let checkedRow = try Self.row(checked)
+        for row in rows + [checkedRow] {
+            #expect(row.columns == ThemedMenuColumns(state: true, icon: true))
+        }
+        #expect(try Self.leading(menu.items[0]) == ThemedMenuRowView.stateTitleX)
+        #expect(try Self.leading(checked) == ThemedMenuRowView.stateTitleX)
     }
 
     /// An icon fits the 14pt box with its shape kept, scaled down and never up: an SF Symbol is
