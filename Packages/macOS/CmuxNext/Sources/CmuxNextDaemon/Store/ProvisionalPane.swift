@@ -7,6 +7,8 @@ import Foundation
 public struct ProvisionalPane: Sendable, Hashable {
     /// Daemon pane handles count up from 1; provisional ones live far above them.
     private static let handleBase: UInt64 = 1 << 62
+    /// The lowest stand-in handle: a pane handle at or above it is a stand-in.
+    static let firstHandle: UInt64 = handleBase
     @MainActor private static var next: UInt64 = 0
 
     /// The provisional pane's handle in the store.

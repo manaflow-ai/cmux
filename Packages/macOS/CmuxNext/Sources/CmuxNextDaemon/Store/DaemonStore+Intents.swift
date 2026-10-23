@@ -140,6 +140,17 @@ extension DaemonStore {
             return nil
         })
         provisionalPanes = provisionalPanes.filter { pending.contains($0.key) }
+        releaseStandInTargets()
+    }
+
+    /// A stand-in handle stays resolvable while a pending create names it as its target.
+    private func releaseStandInTargets() {
+        guard !standInTargets.isEmpty else { return }
+        let targets = Set(intentLog.entries.compactMap { entry -> PaneID? in
+            if case .splitPane(let target, _, _, _) = entry.kind { return target }
+            return nil
+        })
+        standInTargets = standInTargets.filter { targets.contains($0.key) }
     }
 
     /// The record of a pane the daemon reports: the provisional pane's own model when a pending
