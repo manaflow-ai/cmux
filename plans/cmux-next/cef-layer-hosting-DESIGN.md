@@ -125,7 +125,10 @@ misses, the wait buys nothing and the deadline should apply only to discrete res
 `cef-resize-sync-bench.py` measures it (commit time and missed frames, hosting off / on / on with 0, light and
 STRESS, one run per build for API 26 against API 27). With API 27 a page that is not hosted gets 0 outside the
 window's live resize; during it `CEFLayerHosting.windowLiveResize` gives every page `browserResize.liveResizeDeadline`
-(16 ms), capped at half a display frame like every deadline, and 0 (or its pane deadline) after it.
+(16 ms), capped at half a display frame like every deadline, and 0 (or its pane deadline) after it. AppKit tells only
+the views in the window when its live resize starts and ends, so a host view that changes windows
+(`CEFLayerHosting.windowDidChange`) takes the new window's `inLiveResize` (review 3: a view parked during a live
+resize kept the live-resize wait for every later pane resize).
 
 ## 3. Features, status
 
