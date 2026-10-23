@@ -32,7 +32,7 @@ import argparse, glob, importlib.util, json, os, re, shutil, subprocess, sys, th
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from bench_launch import BenchApp, LaunchError, crash_reports, crash_summary, rpc_at  # noqa: E402
+from bench_launch import BenchApp, LaunchError, account_home, crash_reports, crash_summary, rpc_at  # noqa: E402
 
 
 def load(name, file):
@@ -118,10 +118,13 @@ class GateRun:
             if not alive(self.pid):
                 if not self.done and self.crash is None:
                     time.sleep(3)  # the crash report lands a moment after the process ends
-                    reports = crash_reports(self.started - 1)
-                    self.crash = {"after_line": self.last_text[-200:],
-                                  "report": reports[-1] if reports else None,
-                                  "summary": crash_summary(reports[-1]) if reports else None}
+                    reports = all_reports(self.started - 1)
+                    self.crash = {"after_line": self.last_text[-200:], "reports": [ips_frames(p) for p in reports]}
+                    try:
+                        self.crash["app_log_tail"] = open(os.path.join(self.out, "app.log"), errors="replace").read()[-4000:]
+                    except OSError:
+                        pass
+                    note("gate: crash " + json.dumps(self.crash)[:6000])
                     note(f"gate: the app (pid {self.pid}) ended during perf-gate after `{self.last_text[-120:]}`")
                 continue
             if time.monotonic() - self.last_line < self.silent_s or len(self.hangs) >= 4:
@@ -318,6 +321,175 @@ class StressRun:
         return result
 
 
+# -- crash: the heavy activation session, with the app's resources logged and lldb waiting for its stop -----------
+
+def ips_frames(path, count=40):
+    """Exception, termination and the crashing thread's top frames of an .ips report."""
+    try:
+        text = open(path, errors="replace").read()
+        body = json.loads(text.split("\n", 1)[1])
+    except (OSError, ValueError, IndexError) as error:
+        return {"path": path, "error": str(error)}
+    images = body.get("usedImages") or []
+    index = body.get("faultingThread", 0)
+    thread = (body.get("threads") or [{}])[index] if body.get("threads") else {}
+    frames = []
+    for frame in (thread.get("frames") or [])[:count]:
+        image = images[frame.get("imageIndex", 0)] if images else {}
+        frames.append(f"{image.get('name')} {frame.get('symbol') or hex(frame.get('imageOffset', 0))} +{frame.get('symbolLocation', 0)}")
+    return {"path": path, "exception": body.get("exception"), "termination": body.get("termination"), "asi": body.get("asi"),
+            "faulting_thread": index, "thread_name": thread.get("name") or thread.get("queue"), "frames": frames,
+            "simulated": '"is_simulated":1' in text.split("\n", 1)[0]}
+
+
+def report_dirs():
+    dirs = [os.path.join(os.environ.get("HOME", ""), "Library/Logs/DiagnosticReports"),
+            os.path.join(account_home(), "Library/Logs/DiagnosticReports"), "/Library/Logs/DiagnosticReports"]
+    return list(dict.fromkeys(d for d in dirs if d))
+
+
+def all_reports(since):
+    found = []
+    for folder in report_dirs():
+        for path in glob.glob(os.path.join(folder, "*cmux DEV*")):
+            try:
+                if os.path.getmtime(path) >= since:
+                    found.append(path)
+            except OSError:
+                pass
+    return sorted(found, key=os.path.getmtime)
+
+
+def resources(pid):
+    """Open file descriptors, threads, child processes, resident MB and mach ports of `pid` (best effort)."""
+    out = {"t": time.strftime("%H:%M:%S")}
+    try:
+        lsof = subprocess.run(["/usr/sbin/lsof", "-n", "-P", "-a", "-p", str(pid), "-d", "0-1000000", "-F", "ft"],
+                              capture_output=True, text=True, timeout=30).stdout.splitlines()
+        types = {}
+        for line in lsof:
+            if line.startswith("t"):
+                types[line[1:]] = types.get(line[1:], 0) + 1
+        out["fds"] = sum(1 for line in lsof if line.startswith("f"))
+        out["fd_types"] = dict(sorted(types.items(), key=lambda kv: -kv[1])[:6])
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    try:
+        out["threads"] = max(0, len(subprocess.run(["ps", "-M", "-p", str(pid)], capture_output=True, text=True, timeout=10).stdout.splitlines()) - 1)
+        out["rss_mb"] = round(int(subprocess.run(["ps", "-o", "rss=", "-p", str(pid)], capture_output=True, text=True, timeout=10).stdout.strip() or 0) / 1024)
+        out["children"] = len(subprocess.run(["pgrep", "-P", str(pid)], capture_output=True, text=True, timeout=10).stdout.split())
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        pass
+    try:
+        lsmp = subprocess.run(["/usr/bin/lsmp", "-p", str(pid)], capture_output=True, text=True, timeout=20).stdout
+        match = re.search(r"(\d+)\s+(?:entries|ports)", lsmp)
+        out["mach_ports"] = int(match.group(1)) if match else len(lsmp.splitlines())
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return out
+
+
+class CrashRun:
+    def __init__(self, app, out, hang_ms, activation_module, lldb=True):
+        self.app_path, self.out, self.hang_ms, self.activation, self.lldb = app, out, hang_ms, activation_module, lldb
+
+    def run(self):
+        import resource
+        os.makedirs(self.out, exist_ok=True)
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        result = {"rlimit_nofile": [soft, hard], "samples": []}
+        note(f"crash: RLIMIT_NOFILE of the step (the app inherits it) soft {soft} hard {hard}; launchctl maxfiles "
+             + subprocess.run(["launchctl", "limit", "maxfiles"], capture_output=True, text=True).stdout.strip())
+        app = self.activation.App(self.app_path, self.out, self.hang_ms)
+        started = time.time()
+        debugger = None
+        try:
+            app.launch()
+            pid = app.process.pid
+            result["pid"] = pid
+            if self.lldb:
+                lldb_out = open(os.path.join(self.out, "lldb.txt"), "w")
+                debugger = subprocess.Popen(
+                    ["xcrun", "lldb", "--batch", "-p", str(pid),
+                     "-o", "process handle SIGPIPE SIGUSR1 SIGUSR2 SIGALRM SIGCHLD SIGWINCH -n false -p true -s false",
+                     "-o", "continue",
+                     "-k", "process status", "-k", "thread backtrace -c 60", "-k", "thread backtrace all -c 25", "-k", "quit"],
+                    stdout=lldb_out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+                time.sleep(5)  # test script: lldb attaches and continues before the session build
+            session = self.activation.Session(app, app.scratch)
+            box = {}
+            builder = threading.Thread(target=lambda: box.update(sizes=session.build(150, 100, 50, 100)), daemon=True)
+            builder.start()
+            last = 0
+            while builder.is_alive() and alive(pid) and app.process.poll() is None:
+                builder.join(5)
+                if time.monotonic() - last >= 15:
+                    last = time.monotonic()
+                    sample_row = resources(pid)
+                    tabs = app.rpc("snapshot.get", timeout=10)
+                    if isinstance(tabs, dict) and not tabs.get("error"):
+                        topology = tabs.get("topology") or {}
+                        kinds = {}
+                        for w in topology.get("workspaces") or []:
+                            for s in w.get("screens") or []:
+                                for p in s.get("panes") or []:
+                                    for t in p.get("tabs") or []:
+                                        kinds[t.get("kind")] = kinds.get(t.get("kind"), 0) + 1
+                        sample_row["workspaces"], sample_row["tabs"] = len(topology.get("workspaces") or []), kinds
+                    else:
+                        sample_row["rpc"] = str((tabs or {}).get("error"))[:80]
+                    result["samples"].append(sample_row)
+                    note("crash: " + json.dumps(sample_row))
+            ended = app.process.poll() is not None or not alive(pid)
+            result["ended"] = ended
+            result["sizes"] = box.get("sizes")
+            if ended:
+                time.sleep(8)  # test script: ReportCrash writes the report a few seconds after the process ends
+                result["exit"] = app.process.poll()
+                result["last_samples"] = result["samples"][-3:]
+                note(f"crash: the app ended (exit {result['exit']}) after {round(time.time() - started)} s; last resources "
+                     + json.dumps(result["samples"][-1:] or None))
+            else:
+                rows, hangs = self.activation.cycles(app, 20)
+                result["heavy"] = self.activation.summarize(rows, hangs)
+                note("crash: the heavy session held; heavy " + json.dumps(result["heavy"])[:800])
+        except Exception as error:  # noqa: BLE001 - recorded, the step still returns its report
+            result["error"] = repr(error)[:600]
+        finally:
+            if debugger:
+                try:
+                    debugger.wait(60 if result.get("ended") else 1)
+                except subprocess.TimeoutExpired:
+                    debugger.terminate()  # the lldb this run started
+                try:
+                    text = open(os.path.join(self.out, "lldb.txt"), errors="replace").read()
+                    stop = text.find("stop reason")
+                    result["lldb"] = text[max(0, stop - 400):stop + 9000] if stop >= 0 else text[-3000:]
+                    note("crash: lldb\n" + result["lldb"][:9000])
+                except OSError:
+                    pass
+            reports = all_reports(started - 1)
+            result["reports"] = [ips_frames(path) for path in reports]
+            for item in result["reports"]:
+                note("crash: report " + json.dumps(item)[:4000])
+            try:
+                result["app_log_tail"] = open(os.path.join(self.out, "app.log"), errors="replace").read()[-6000:]
+                note("crash: app.log tail\n" + result["app_log_tail"][-3000:])
+            except OSError:
+                pass
+            if result.get("ended") and result.get("pid"):
+                logs = subprocess.run(["/usr/bin/log", "show", "--last", "10m", "--style", "compact", "--predicate",
+                                       f"processID == {result['pid']} AND messageType >= 16"],
+                                      capture_output=True, text=True, timeout=300).stdout.splitlines()
+                result["unified_log_tail"] = logs[-60:]
+                note("crash: unified log (errors and faults) tail\n" + "\n".join(l[:300] for l in logs[-40:]))
+            try:
+                app.stop()
+            except Exception as error:  # noqa: BLE001
+                result["stop_error"] = repr(error)[:300]
+        return result
+
+
 def base_app(sha, out):
     cache = os.environ.get("CI_SHARED_CACHE_DIR")
     if not cache:
@@ -340,7 +512,7 @@ def main():
     parser.add_argument("--tag")
     parser.add_argument("--out", required=True)
     parser.add_argument("--json", required=True)
-    parser.add_argument("--base-sha", required=True, help="the base commit whose app is in the worker's app cache")
+    parser.add_argument("--base-sha", default="", help="the base commit whose app is in the worker's app cache")
     parser.add_argument("--base-app", help="the base app (instead of the cache)")
     parser.add_argument("--order", default="BH", help="B and H in the run order (BH, HB, BHHB, ...)")
     parser.add_argument("--parts", default="gate,stress")
@@ -360,7 +532,9 @@ def main():
             json.dump(report, f, indent=1)
 
     try:
-        apps = {"H": os.path.abspath(opts.app), "B": opts.base_app or base_app(opts.base_sha, opts.out)}
+        apps = {"H": os.path.abspath(opts.app)}
+        if "B" in opts.order:
+            apps["B"] = opts.base_app or base_app(opts.base_sha, opts.out)
     except SystemExit as error:
         report["error"] = str(error)
         write()
@@ -372,6 +546,11 @@ def main():
         name = f"{index + 1}-{'base' if which == 'B' else 'head'}"
         run = {"run": name, "app": "base" if which == "B" else "head", "sha": opts.base_sha if which == "B" else head_sha}
         report["runs"].append(run)
+        if "crash" in parts:
+            note(f"{name}: heavy activation session with lldb and resource samples")
+            run["crash"] = CrashRun(apps[which], os.path.join(opts.out, name, "crash"), opts.hang_ms, activation_module,
+                                    lldb="nolldb" not in parts).run()
+            write()
         if "gate" in parts:
             note(f"{name}: perf-gate")
             start = time.monotonic()
