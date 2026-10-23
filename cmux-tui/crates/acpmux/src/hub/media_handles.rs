@@ -179,4 +179,3 @@ async fn sweep<O>(state: Weak<Mutex<State<O>>>) {
         tokio::time::sleep_until(deadline).await;
     }
 }
-
