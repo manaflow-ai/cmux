@@ -1,0 +1,128 @@
+/* The context ring's hover card (ContextCard.tsx; Leo 2026-10-21). It is a glass hover card
+   (.ui-card.ui-glass, pages/shared/desktop.css), as a session's hover card is: its fill, frost, rim
+   and Reduce Transparency fallback are the liquid glass's (ui/glass/glass.css). This sheet sets only
+   its size and type. The bar's colors are the Inspector Context meter's (inspector/inspector.css):
+   the theme accent over a faint text-color track. */
+.acpmux-context-card.ui-card {
+  width: 260px;
+  max-width: min(260px, calc(100vw - 24px));
+  box-sizing: border-box;
+  padding: 12px;
+  border-radius: var(--ui-popup-radius, 10px);
+  color: var(--agent-text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  pointer-events: auto;
+}
+
+.acpmux-context-card-title {
+  font-size: var(--text-detail);
+  color: var(--agent-muted);
+}
+
+.acpmux-context-card-line {
+  margin-top: 2px;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: var(--weight-emphasis);
+  font-variant-numeric: tabular-nums;
+}
+
+.acpmux-context-card-bar {
+  display: flex;
+  gap: 2px;
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  overflow: hidden;
+}
+
+.acpmux-context-card-bar > span {
+  flex: none;
+  height: 100%;
+}
+
+.acpmux-context-card [data-segment="used"],
+.acpmux-context-card [data-segment="conversation"] {
+  --acpmux-context-segment: var(--agent-accent);
+}
+
+.acpmux-context-card [data-segment="setup"] {
+  --acpmux-context-segment: color-mix(in srgb, var(--agent-accent) 50%, transparent);
+}
+
+.acpmux-context-card.acpmux-context-full [data-segment] {
+  --acpmux-context-segment: var(--acpmux-warning);
+}
+
+.acpmux-context-card-bar > span,
+.acpmux-context-card-swatch {
+  background: var(--acpmux-context-segment);
+}
+
+.acpmux-context-card-parts {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  font-size: var(--text-detail);
+}
+
+.acpmux-context-card-part {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  column-gap: 8px;
+  align-items: center;
+}
+
+.acpmux-context-card-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.acpmux-context-card-part-tokens {
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.acpmux-context-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.acpmux-context-card-compact,
+.acpmux-context-card-details {
+  height: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-detail);
+}
+
+.acpmux-context-card-details {
+  margin-inline-start: auto;
+}
+
+.acpmux-context-card-compact:hover:not(:disabled),
+.acpmux-context-card-details:hover {
+  background: var(--acpmux-menu-hover);
+  color: var(--agent-text);
+}
+
+.acpmux-context-card-compact:disabled {
+  opacity: 0.5;
+}
+
+.acpmux-context-card-compact:focus-visible,
+.acpmux-context-card-details:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
