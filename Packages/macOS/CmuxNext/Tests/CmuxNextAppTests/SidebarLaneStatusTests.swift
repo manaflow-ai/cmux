@@ -46,9 +46,11 @@ import Testing
             }
         }
 
-        func sections(_ rows: SidebarMapping.RowSource? = nil) -> [SidebarRowSection] {
+        func sections(_ rows: SidebarMapping.RowSource? = nil,
+                      workspaceFilter: (WorkspaceModel) -> Bool = { _ in true }) -> [SidebarRowSection] {
             SidebarMapping.shared.sections(store.sidebarSections, machine: SidebarMachine(id: .local, name: "This Mac", kind: .local),
-                                           rowSource: SidebarLaneStatus.applying(rows, lanes: lanes, turns: turns))
+                                           rowSource: SidebarLaneStatus.applying(rows, lanes: lanes, turns: turns),
+                                           workspaceFilter: workspaceFilter)
         }
     }
 
@@ -107,5 +109,17 @@ import Testing
             #expect(Self.activity(model.sections)["idle"] == .error)
             #expect(Self.activity(model.sections)["working"] == .working)
         }
+    }
+
+    @Test func aPurgedSessionStopsKeepingItsWorkspaceRow() throws {
+        let fixture = try Fixture()
+        fixture.lanes.live = true
+        let filter: (WorkspaceModel) -> Bool = { fixture.lanes.keepsWorkspace($0, turns: fixture.turns) }
+        #expect(Self.activity(fixture.sections(workspaceFilter: filter)).count == 4)
+
+        fixture.lanes.lanes["s-idle"] = nil
+        let shown = Self.activity(fixture.sections(workspaceFilter: filter))
+        #expect(shown["idle"] == nil, "a purged acpmux session does not linger as a row")
+        #expect(shown.count == 3)
     }
 }

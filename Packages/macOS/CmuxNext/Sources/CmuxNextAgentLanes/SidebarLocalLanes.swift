@@ -19,3 +19,20 @@ enum SidebarLocalLanes {
         }
     }
 }
+
+public extension AgentLaneStore {
+    /// Whether a workspace still has a live local acpmux session. A purged
+    /// session can leave its conversation tab in the daemon tree for a short
+    /// time; it must not keep a sidebar row alive. While the watch is down,
+    /// keep rows until the next complete page so a transport gap never hides
+    /// live work.
+    func keepsWorkspace(_ workspace: WorkspaceModel, turns: AgentTurnStateStore) -> Bool {
+        guard live, let host = turns.localHost else { return true }
+        let localSessions = workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab -> String? in
+            guard let ref = tab.agentSession, ref.host == host else { return nil }
+            return ref.session
+        }
+        guard !localSessions.isEmpty else { return true }
+        return localSessions.contains { lane($0) != nil }
+    }
+}
