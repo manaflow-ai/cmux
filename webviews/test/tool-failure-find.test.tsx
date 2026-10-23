@@ -99,3 +99,11 @@ for (const grouped of [false, true])
     for (const query of ["Exit code 1", "build failed"])
       expect([query, count(painted, query)]).toEqual([query, count(indexed(item, grouped), query)]);
   });
+
+for (const grouped of [false, true])
+  test(`a coloured shell output is counted without its colour codes (${grouped ? "command row" : "lone call"})`, async () => {
+    const item = command(`d${grouped}`, "\u001b[31merror\u001b[0m: could not compile", { exitCode: 101 });
+    const painted = await paintedText(item, grouped);
+    for (const query of ["error: could not compile", "31m"])
+      expect([query, count(painted, query)]).toEqual([query, count(indexed(item, grouped), query)]);
+  });

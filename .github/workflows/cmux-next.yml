@@ -1898,6 +1898,12 @@ jobs:
         with:
           persist-credentials: false
 
+      # runs-on can resolve to vars.LINUX_RUNNER, which may name a self-hosted
+      # host that reuses its workspace; drop the submodule checkouts a previous
+      # job left there (a no-op on Blacksmith, which starts with none).
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:

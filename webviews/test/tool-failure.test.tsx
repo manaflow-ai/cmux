@@ -318,3 +318,15 @@ test("a long result whose last line outgrows the tail window still reads that li
   const failure = toolFailure(call(`Exit code 1\n${"x".repeat(5_000)}\nfatal: ${"q".repeat(5_000)}`));
   expect(failure?.cause).toBe(`${"q".repeat(299)}…`);
 });
+
+test("a lone shell that ended in the background keeps its background mark, not a failure", () => {
+  const tool = call("error: port in use", {
+    status: "completed",
+    exitCode: 1,
+    background: { state: "failed", endedAt: 0 },
+  });
+  const html = renderToStaticMarkup(<ToolRow item={item(tool)} />);
+  expect(html).toContain('data-state="failed"');
+  expect(html).not.toContain("cv-tool__failed");
+  expect(html).not.toContain("cv-tool-error");
+});

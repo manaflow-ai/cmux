@@ -204,8 +204,10 @@ export function toolFailure(tool: Tool): ToolFailure | undefined {
   return { kind: "error", cause, exitCode, output, detail: full };
 }
 
-/// A shell call's output as its Shell block draws it: without Claude Code's leading "Exit code N"
-/// line, which the block says once at its end. Find in Chat counts this text (chatFind.ts).
+/// A shell call's output as its Shell block draws it: without colour codes (toolOutput.tsx
+/// useOutput), and without Claude Code's leading "Exit code N" line, which the block says once at
+/// its end. Find in Chat counts this text (chatFind.ts).
 export function shellOutput(tool: Tool): string | undefined {
-  return toolFailure(tool)?.output ?? tool.output;
+  const output = toolFailure(tool)?.output ?? tool.output;
+  return output === undefined ? undefined : stripAnsi(output);
 }
