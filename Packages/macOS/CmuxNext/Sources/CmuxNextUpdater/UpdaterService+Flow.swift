@@ -145,13 +145,13 @@ extension UpdaterService {
 }
 
 extension UpdaterService {
-    /// Applies `updates.checkAutomatically`, `checkIntervalSeconds`,
+    /// Applies `updates.checkAutomatically`, `checkIntervalSeconds`, `offerDevBuilds`,
     /// `downloadAutomatically`, `meteredNetwork` and, when given, `channel`
     /// (``follow(ring:)``) to Sparkle, and when given the idle install's wait cap and quiet window
     /// (`idleInstallMaxWaitSeconds`, `idleInstallQuietSeconds`). The ring is kept without a driver
     /// too (the probe reads it).
     public func configure(checkAutomatically: Bool, checkInterval: TimeInterval, downloadAutomatically: Bool,
-                          metered: UpdateMeteredMode = .deferLowData, ring: String? = nil,
+                          metered: UpdateMeteredMode = .deferLowData, ring: String? = nil, offerDevBuilds: Bool = false,
                           idleInstall: (maxWait: TimeInterval, quiet: TimeInterval)? = nil) {
         if let ring { follow(ring: ring) }
         if let idleInstall {
@@ -159,7 +159,7 @@ extension UpdaterService {
             controller?.idleInstallWaitCap = .seconds(idleInstall.maxWait)
         }
         downloadSetting = (downloadAutomatically, metered)
-        stagedRefresh.reschedule(automatic: checkAutomatically, interval: checkInterval, updater: self)
+        stagedRefresh.reschedule(automatic: checkAutomatically, interval: checkInterval, offerDevBuilds: offerDevBuilds, updater: self)
         if automaticUpdates != downloadAutomatically { automaticUpdates = downloadAutomatically }
         guard let controller else { return }
         controller.setSchedule(automaticChecks: checkAutomatically, interval: checkInterval)

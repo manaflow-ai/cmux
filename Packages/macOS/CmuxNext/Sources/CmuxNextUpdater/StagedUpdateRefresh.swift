@@ -47,9 +47,12 @@ final class StagedUpdateRefresh {
     /// A click on Install took the staged update: nothing probes or cancels until Update Ready ends.
     private var installing = false
     let timer: DemandTimer
+    /// Offers new Dev builds on the card by itself (`updates.offerDevBuilds`); its list is the Dev picker's.
+    let devBuilds: DevBuildWatch
 
     init(clock: any Clock<Duration>) {
         timer = DemandTimer(owner: "UpdaterService.stagedRefresh", clock: clock)
+        devBuilds = DevBuildWatch(clock: clock)
     }
 
     /// Follows the flow's phase: an update waiting arms the next probe; anything else ends it.
@@ -74,7 +77,9 @@ final class StagedUpdateRefresh {
     }
 
     /// A changed schedule replaces the pending deadline: off ends it, a new interval counts from now.
-    func reschedule(automatic: Bool, interval: TimeInterval, updater: UpdaterService) {
+    /// The Dev build watch follows `updates.offerDevBuilds` and the ring on every call.
+    func reschedule(automatic: Bool, interval: TimeInterval, offerDevBuilds: Bool = false, updater: UpdaterService) {
+        devBuilds.follow(enabled: offerDevBuilds, updater: updater)
         guard schedule.automatic != automatic || schedule.interval != interval else { return }
         schedule = (automatic, interval)
         timer.cancel()

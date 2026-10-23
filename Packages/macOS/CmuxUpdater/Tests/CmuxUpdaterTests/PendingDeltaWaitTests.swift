@@ -85,6 +85,13 @@ import Testing
         #expect(find(item(deltas: false), harness) == .install)
     }
 
+    /// A Dev build never gets deltas: the background check the Dev build watch starts offers it at once.
+    @Test func aBackgroundCheckForADevBuildNeverWaits() {
+        let harness = harness(minutesAfterPublication: 8)
+        harness.controller.checkInBackground(waitsForDeltas: false)
+        #expect(find(item(deltas: false), harness) == .install)
+    }
+
     @Test func withoutAWindowEveryUpdateDownloadsAtOnce() {
         let harness = Harness()
         harness.controller.installsUpdatesInBackground = true

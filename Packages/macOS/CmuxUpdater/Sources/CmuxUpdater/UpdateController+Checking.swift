@@ -229,7 +229,9 @@ extension UpdateController: UpdateDriverEventDelegate {
         }
         if pendingBackgroundCheck {
             pendingBackgroundCheck = false
-            checkInBackground()
+            let waitsForDeltas = pendingBackgroundCheckWaitsForDeltas
+            pendingBackgroundCheckWaitsForDeltas = true
+            checkInBackground(waitsForDeltas: waitsForDeltas)
             return
         }
 

@@ -46,6 +46,8 @@ public final class UpdateController {
     var activeCheckIntent: UpdateCheckIntent?
     /// A ``checkInBackground()`` that waits for the running session to end.
     var pendingBackgroundCheck = false
+    /// Whether the queued background check holds a fresh update for its deltas (``checkInBackground(waitsForDeltas:)``).
+    var pendingBackgroundCheckWaitsForDeltas = true
     /// The wake observer and the pending check after a wake (`UpdateController+Wake.swift`).
     var wakeObservation: Task<Void, Never>?
     var wakeCheckTask: Task<Void, Never>?

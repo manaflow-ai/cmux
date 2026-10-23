@@ -146,6 +146,7 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     func handleDidFinishUpdateCycle(_ updateCheck: SPUUpdateCheck, error: (any Error)?) {
         let errorText = error.map(formatErrorForLog) ?? "none"
         log.append("update cycle finished (check=\(updateCheck.rawValue), error=\(errorText))")
+        skipsDeltaWait = false
         relaunchGate.cancel()
         relaunchIsAutomatic = false
         eventDelegate?.updateDriverDidFinishCycle(updateCheck, error: error.map { $0 as NSError })

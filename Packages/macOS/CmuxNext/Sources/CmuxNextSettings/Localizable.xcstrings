@@ -55422,6 +55422,268 @@
         }
       }
     },
+    "settings.updates.offerDevBuilds": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offer New Dev Builds Automatically"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اعرض إصدارات Dev الجديدة تلقائيًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski ponudi nove Dev verzije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilbyd nye Dev-builds automatisk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Dev-Builds automatisch anbieten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ofrecer nuevas compilaciones Dev automáticamente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proposer automatiquement les nouvelles versions Dev"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proponi automaticamente le nuove build Dev"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい Dev ビルドを自動で提案"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ដល់ជូន Dev build ថ្មីដោយស្វ័យប្រវត្តិ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 Dev 빌드 자동으로 제안"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilby nye Dev-bygg automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatycznie proponuj nowe kompilacje Dev"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oferecer novas builds Dev automaticamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматически предлагать новые сборки Dev"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เสนอบิลด์ Dev ใหม่โดยอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Dev derlemelerini otomatik olarak sun"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматично пропонувати нові збірки Dev"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự động đề xuất bản Dev mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动提供新的 Dev 版本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動提供新的 Dev 版本"
+          }
+        }
+      }
+    },
+    "settings.updates.offerDevBuilds.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On the Dev channel, cmux looks for a new Dev build every few minutes while it is in front and offers it on the update card."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "على قناة Dev، يبحث cmux عن إصدار Dev جديد كل بضع دقائق أثناء وجوده في المقدمة ويعرضه على بطاقة التحديث."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na Dev kanalu cmux svakih nekoliko minuta, dok je u prvom planu, traži novu Dev verziju i nudi je na kartici ažuriranja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "På Dev-kanalen leder cmux efter et nyt Dev-build med få minutters mellemrum, mens det er forrest, og tilbyder det på opdateringskortet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Dev-Kanal sucht cmux alle paar Minuten, solange es im Vordergrund ist, nach einem neuen Dev-Build und bietet ihn auf der Update-Karte an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En el canal Dev, cmux busca una nueva compilación Dev cada pocos minutos mientras está en primer plano y la ofrece en la tarjeta de actualización."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur le canal Dev, cmux cherche une nouvelle version Dev toutes les quelques minutes tant qu’il est au premier plan et la propose sur la carte de mise à jour."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sul canale Dev, cmux cerca una nuova build Dev ogni pochi minuti mentre è in primo piano e la propone nella scheda di aggiornamento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev チャンネルでは、cmux が前面にある間、数分ごとに新しい Dev ビルドを確認し、アップデートカードで提案します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅលើប៉ុស្តិ៍ Dev cmux ស្វែងរក Dev build ថ្មីរៀងរាល់ប៉ុន្មាននាទីម្ដង ពេលវានៅខាងមុខ ហើយផ្ដល់ជូនវានៅលើកាតអាប់ដេត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev 채널에서 cmux가 앞에 있는 동안 몇 분마다 새 Dev 빌드를 찾아 업데이트 카드에 제안합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "På Dev-kanalen ser cmux etter et nytt Dev-bygg med noen minutters mellomrom mens det er i forgrunnen, og tilbyr det på oppdateringskortet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na kanale Dev cmux co kilka minut, gdy jest na pierwszym planie, szuka nowej kompilacji Dev i proponuje ją na karcie aktualizacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No canal Dev, o cmux procura uma nova build Dev a cada poucos minutos enquanto está em primeiro plano e a oferece no cartão de atualização."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На канале Dev cmux каждые несколько минут, пока он на переднем плане, ищет новую сборку Dev и предлагает её на карточке обновления."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ในช่อง Dev cmux จะมองหาบิลด์ Dev ใหม่ทุกไม่กี่นาทีขณะที่อยู่ด้านหน้า และเสนอบนการ์ดอัปเดต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev kanalında cmux, öndeyken birkaç dakikada bir yeni bir Dev derlemesi arar ve güncelleme kartında sunar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На каналі Dev cmux кожні кілька хвилин, поки він на передньому плані, шукає нову збірку Dev і пропонує її на картці оновлення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trên kênh Dev, cmux tìm bản Dev mới vài phút một lần khi đang ở phía trước và đề xuất nó trên thẻ cập nhật."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Dev 频道上，cmux 在前台时每隔几分钟查找一次新的 Dev 版本，并在更新卡片上提供。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Dev 頻道上，cmux 在前景時每隔幾分鐘尋找一次新的 Dev 版本，並在更新卡片上提供。"
+          }
+        }
+      }
+    },
     "settings.choice.updatesChannelStable": {
       "extractionState": "manual",
       "localizations": {

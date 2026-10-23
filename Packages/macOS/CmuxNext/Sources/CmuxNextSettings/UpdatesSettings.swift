@@ -8,6 +8,8 @@
 public nonisolated struct UpdatesSettings: Sendable, Equatable {
     /// The release ring this Mac follows in the cmux NEXT appcast (release rings).
     public var channel = UpdatesSettings.channelDefault
+    /// On the Dev channel, look for new Dev builds every few minutes while cmux is in front and offer them on the card.
+    public var offerDevBuilds = UpdatesSettings.offerDevBuildsDefault
     public var checkAutomatically = UpdatesSettings.checkAutomaticallyDefault
     /// Seconds between automatic checks.
     public var checkIntervalSeconds = UpdatesSettings.checkIntervalDefault
@@ -33,6 +35,7 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
         var settings = Self()
         guard var reader = ConfigFieldReader(root, at: ["updates"], diagnostics: &diagnostics) else { return settings }
         if let value = reader.choice("channel", UpdatesChannelSetting.self) { settings.channel = value }
+        if let value = reader.bool("offerDevBuilds") { settings.offerDevBuilds = value }
         if let value = reader.bool("checkAutomatically") { settings.checkAutomatically = value }
         if let value = reader.number("checkIntervalSeconds", range: checkIntervalRange) { settings.checkIntervalSeconds = value }
         if let value = reader.bool("downloadAutomatically") { settings.downloadAutomatically = value }

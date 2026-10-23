@@ -5,6 +5,9 @@ extension UpdatesSettings {
     /// `updates.channel`: Release ring inside the one cmux NEXT appcast: each choice allows its own sparkle:channel tag plus every slower one (stable < nightly < canary < dev). Design: cmuxterm-hq docs/release-rings.md.
     public nonisolated static let channelPath = ["updates", "channel"]
     public nonisolated static let channelDefault: UpdatesChannelSetting = .nightly
+    /// `updates.offerDevBuilds`: Dev channel only: while cmux is in front it reads dev-builds.json beside the appcast (a conditional GET) every few minutes and offers a newer Dev build on the bottom-left update card. Off: Dev builds arrive with Sparkle's scheduled check or Check for Updates.
+    public nonisolated static let offerDevBuildsPath = ["updates", "offerDevBuilds"]
+    public nonisolated static let offerDevBuildsDefault = false
     /// `updates.checkAutomatically`.
     public nonisolated static let checkAutomaticallyPath = ["updates", "checkAutomatically"]
     public nonisolated static let checkAutomaticallyDefault = true
@@ -73,6 +76,16 @@ nonisolated enum UpdateSettingsSchema {
                 ]),
                 default: .string(UpdatesSettings.channelDefault.rawValue),
                 keywords: ["update", "channel", "ring", "release", "stable", "nightly", "canary", "beta", "dev"]
+            ),
+            SettingDescriptor(
+                UpdatesSettings.offerDevBuildsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.updates.offerDevBuilds", "Offer New Dev Builds Automatically"),
+                help: SettingsText.keyed("settings.updates.offerDevBuilds.help", "On the Dev channel, cmux looks for a new Dev build every few minutes while it is in front and offers it on the update card."),
+                kind: .toggle,
+                default: .bool(UpdatesSettings.offerDevBuildsDefault),
+                keywords: ["update", "dev", "channel", "automatic", "offer", "build"]
             ),
             SettingDescriptor(
                 UpdatesSettings.checkAutomaticallyPath,

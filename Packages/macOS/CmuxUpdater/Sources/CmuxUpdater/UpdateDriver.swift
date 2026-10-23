@@ -42,6 +42,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// Holds back a fresh update without deltas for one scheduled check
     /// (``UpdateController/pendingDeltaWindow``); nil offers every update at once.
     var pendingDeltaWait: PendingDeltaWait?
+    /// The next background check offers its update without ``pendingDeltaWait`` (cleared when the check ends).
+    var skipsDeltaWait = false
     /// The current time, for ``pendingDeltaWait`` (replaced by tests).
     var now: () -> Date = Date.init
     /// The update a background check accepted, and its held install once it is ready.
@@ -123,7 +125,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             setState(.idle)
             return reply(.dismiss)
         }
-        if !isUserInitiatedCheck, pendingDeltaWait?.shouldHold(appcastItem, now: now()) == true {
+        if !isUserInitiatedCheck, !skipsDeltaWait, pendingDeltaWait?.shouldHold(appcastItem, now: now()) == true {
             log.append("not offering \(appcastItem.versionString) yet: its deltas are not listed; the next check takes it")
             setState(.idle)
             return reply(.dismiss)

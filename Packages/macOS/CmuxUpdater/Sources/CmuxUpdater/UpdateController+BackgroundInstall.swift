@@ -38,14 +38,17 @@ extension UpdateController {
 
     /// Sparkle's scheduled background check, now: with `SUAutomaticallyUpdate` on it downloads
     /// through Sparkle's own silent driver, not this app's driver (the update harness's
-    /// `background` run, and what a scheduled check does).
-    public func checkInBackground() {
+    /// `background` run, and what a scheduled check does). `waitsForDeltas: false` offers a fresh
+    /// update that lists no deltas at once (a Dev build, which never gets deltas).
+    public func checkInBackground(waitsForDeltas: Bool = true) {
         guard !updater.sessionInProgress else {
             // Sparkle ignores a check while a session runs (the launch probe): run it after.
             log.append("background check queued behind the running session")
             pendingBackgroundCheck = true
+            pendingBackgroundCheckWaitsForDeltas = pendingBackgroundCheckWaitsForDeltas && waitsForDeltas
             return
         }
+        driver.skipsDeltaWait = !waitsForDeltas
         log.append("background check requested")
         updater.checkForUpdatesInBackground()
     }

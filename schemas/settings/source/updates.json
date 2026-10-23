@@ -66,6 +66,28 @@
           ]
         },
         {
+          "key": "updates.offerDevBuilds",
+          "note": "Dev channel only: while cmux is in front it reads dev-builds.json beside the appcast (a conditional GET) every few minutes and offers a newer Dev build on the bottom-left update card. Off: Dev builds arrive with Sparkle's scheduled check or Check for Updates.",
+          "title": {
+            "key": "settings.updates.offerDevBuilds",
+            "text": "Offer New Dev Builds Automatically"
+          },
+          "help": {
+            "key": "settings.updates.offerDevBuilds.help",
+            "text": "On the Dev channel, cmux looks for a new Dev build every few minutes while it is in front and offers it on the update card."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "update",
+            "dev",
+            "channel",
+            "automatic",
+            "offer",
+            "build"
+          ]
+        },
+        {
           "key": "updates.checkAutomatically",
           "title": {
             "key": "settings.updates.checkAutomatically",
