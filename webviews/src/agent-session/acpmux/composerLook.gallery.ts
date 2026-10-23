@@ -24,30 +24,6 @@ const startedChat = () =>
 /// A new chat before its first send: the folder and computer strip heads the composer.
 const newChat = () => noChat(manySessions(4), { summary: { sessionId: "", cwd: CWD, harness: "codex" } });
 
-const speedNewTab = () => {
-  const snapshot = newChat();
-  snapshot.summary = { ...snapshot.summary!, model: "gpt-6.1-sol" };
-  snapshot.catalog = snapshot.catalog.map((entry) =>
-    entry.id === "codex"
-      ? {
-          ...entry,
-          models: [
-            {
-              id: "gpt-6.1-sol",
-              name: "GPT-6.1 Sol",
-              fast: true,
-              serviceTiers: [
-                { id: "priority", name: "Fast" },
-                { id: "ultrafast", name: "Ultrafast" },
-              ],
-            },
-          ],
-        }
-      : entry,
-  );
-  return snapshot;
-};
-
 const newTab = (fields: Record<string, unknown> = {}) => ({
   newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude", ...fields },
   newSession: true,
@@ -97,13 +73,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/StyleSwitch.tsx#DotSwitch",
   ],
   variants: {
-    "newtab-codex-speed": {
-      note: "Fast and Ultrafast are available before the first prompt, from the model's advertised tiers.",
-      height: 520,
-      ready: newTab(),
-      snapshot: speedNewTab(),
-      play: (ctx) => look(ctx, "codex"),
-    },
     "claude-chat": {
       note: "The first dot, Claude's look (the default): the composer as it was, the mode, model and effort in the quiet row under the box.",
       snapshot: startedChat(),
