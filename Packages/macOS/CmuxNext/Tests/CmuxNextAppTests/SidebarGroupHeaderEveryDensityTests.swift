@@ -21,6 +21,17 @@ import Testing
     private static let member = WorkspaceID("ws-member")
     private static let loose = WorkspaceID("ws-loose")
     private static let rich = WorkspaceID("ws-rich")
+    /// Rows with the badges a workspace row can carry: none of them may change its height
+    /// (Lawrence 2026-10-22: headers match rows with any badge at every density).
+    private static let badged: [(String, SidebarWorkspace)] = [
+        ("unread dot", SidebarWorkspace(id: WorkspaceID("ws-dot"), title: "dot", directory: "~/fun/cmux", unread: .dot)),
+        ("unread count", SidebarWorkspace(id: WorkspaceID("ws-count"), title: "count", directory: "~/fun/cmux", unread: .count(12))),
+        ("pull request", SidebarWorkspace(id: WorkspaceID("ws-pr"), title: "pr", directory: "~/fun/cmux", branch: "feat-cmux-next", pullRequest: "#24413")),
+        ("ports", SidebarWorkspace(id: WorkspaceID("ws-ports"), title: "ports", directory: "~/fun/cmux", ports: ":3000")),
+        ("agent working", SidebarWorkspace(id: WorkspaceID("ws-agent"), title: "agent", directory: "~/fun/cmux", agentWorking: true, kind: .harness, activity: .busy(progress: nil))),
+        ("muted", SidebarWorkspace(id: WorkspaceID("ws-muted"), title: "muted", directory: "~/fun/cmux", unread: .count(3), muted: true)),
+        ("browser", SidebarWorkspace(id: WorkspaceID("ws-web"), title: "web", kind: .browser)),
+    ]
 
     enum Case: String, CaseIterable, Sendable {
         case open, collapsed, loading
@@ -44,7 +55,7 @@ import Testing
                 .group(nested),
                 .workspace(SidebarWorkspace(id: loose, title: "loose")),
                 .workspace(SidebarWorkspace(id: rich, title: "rich", directory: "~/fun/cmux", branch: "feat-cmux-next")),
-            ]),
+            ] + badged.map { .workspace($0.1) }),
         ])
         let design = DesignSettings()
         design.sidebarSections.minimal = minimal
@@ -119,6 +130,11 @@ import Testing
         // Expanded two, Minimal Mode one; a group header matches it at each.
         let header = try #require(list.displayed.row(for: .group(group))).height
         #expect(abs(rich - header) <= 0.5, "\(label): a workspace row is \(rich) pt, its group header \(header) pt")
+        for (name, ws) in Self.badged {
+            let h = try #require(list.displayed.row(for: .workspace(ws.id)), "\(label): no \(name) row").height
+            parts.append("\(name) \(h)")
+            #expect(abs(h - header) <= 0.5, "\(label): a workspace row with \(name) is \(h) pt, its group header \(header) pt")
+        }
         print("HEIGHTS|\(label)|" + parts.joined(separator: "|"))
     }
 
