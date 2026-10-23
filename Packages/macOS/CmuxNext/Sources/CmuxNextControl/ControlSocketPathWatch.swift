@@ -66,7 +66,13 @@ final class ControlSocketPathWatch: Sendable {
 
     func start() {
         stopped.withLock { $0 = false }
-        queue.async { [weak self] in self?.watch() }
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.watch()
+            // Gone before the watch existed: no event will say so.
+            var info = stat()
+            if lstat(self.path, &info) != 0, errno == ENOENT, self.checkPath() { self.watch() }
+        }
     }
 
     func stop() {
