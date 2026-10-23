@@ -81,12 +81,11 @@ extension PaneController {
         DebugTabSwitch.shown(self, in: view.window)
     }
 
-    /// Selects the neighbor `offset` tabs away, wrapping.
+    /// Selects the visible neighbor `offset` tabs away, wrapping; a tab
+    /// inside a collapsed group is skipped, as the strip does not show it.
     func selectAdjacent(_ offset: Int) {
-        let ids = orderedIDs
-        guard !ids.isEmpty else { return }
-        let current = stripModel.selectedID.flatMap(ids.firstIndex(of:)) ?? 0
-        select(ids[(current + offset % ids.count + ids.count) % ids.count])
+        guard let next = stripModel.adjacentVisibleTab(from: stripModel.selectedID, offset: offset) else { return }
+        select(next)
     }
 
     /// New terminal tab in this pane. `typing` is sent to the new shell
