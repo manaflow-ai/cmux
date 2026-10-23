@@ -53,6 +53,19 @@ import Testing
             try await Task.sleep(for: .milliseconds(50)) // test: one resize per turn, as a drag frame
         }
         #expect(misses.isEmpty, "\(misses)")
+
+        // Resized while hidden (another tab took the pane), then shown again: the reveal's commit
+        // carries the frame at the new size, not the old one clipped or nothing.
+        session.view.isHidden = true
+        session.view.frame = NSRect(x: 0, y: 0, width: 560, height: 260)
+        session.view.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(200)) // test: the hidden state settles
+        session.view.isHidden = false
+        session.view.layoutSubtreeIfNeeded()
+        let wanted = session.surfaceView.convertToBacking(session.surfaceView.bounds.size)
+        let revealed = await Self.afterCommit { session.surfaceView.presentedFrame.map { ($0.width, $0.height) } }
+        #expect(revealed?.0 == Int(wanted.width) && revealed?.1 == Int(wanted.height),
+                "the reveal's commit carried \(revealed.map { "\($0.0)x\($0.1)" } ?? "none"), size \(Int(wanted.width))x\(Int(wanted.height))")
     }
 
     /// Runs `read` in a one-shot observer just after this turn's Core Animation commit (order
