@@ -216,7 +216,8 @@ const SHELL_LONG_LOG = Array.from({ length: 6 }, (_, index) => shellLogLine(inde
 /// A log past the eight-line preview, every line wider than the column.
 const SHELL_LONG_LOG_CUT = Array.from({ length: 14 }, (_, index) => shellLogLine(index)).join("\n");
 
-/// A command still running, its output streaming in.
+/// A command still running, its output streaming in, in its own row: the turn went on past it
+/// (a lone running call reads only on the turn's live line).
 const liveShellRows = (id: string, output: string) => [
   user("Follow the retry log", 1, { id: `${id}-user` }),
   activity(
@@ -224,17 +225,19 @@ const liveShellRows = (id: string, output: string) => [
       tool("tail -f logs/retry.log", "execute", "in_progress", {
         command: "tail -f logs/retry.log",
         output,
-        startedAt: minutesAgo(0.3),
+        startedAt: minutesAgo(0.9),
       }),
     ],
     0.8,
     { id: `${id}-activity` },
   ),
+  activity([tool("Read retryPolicy.ts", "read", "in_progress")], 0.5, { id: `${id}-read` }),
 ];
 
-/// Opens the one call's row (inside the turn's fold once it is done) and turns its Wrap lines off.
+/// Opens the one call's row (inside the turn's fold once it is done; a running turn shows it) and
+/// turns its Wrap lines off.
 const unwrapCall = (body: string, actions: string) => async (ctx: PlayContext) => {
-  if (ctx.document.querySelector(".cv-worked")) await openWorked(ctx);
+  if (!ctx.document.querySelector(".cv-tool.is-toggle")) await openWorked(ctx);
   await ctx.click({ selector: ".cv-tool.is-toggle" });
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(body)));
   await ctx.click({ selector: `${actions} button[aria-label="Wrap lines"]` });

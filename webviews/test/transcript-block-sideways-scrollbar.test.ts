@@ -89,7 +89,6 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
   const settled: Block[] = [shell("shell-unwrapped-long-line", false), shell("shell-unwrapped-long-cut", true), output];
   /// Wrapped diffs, cut and whole.
   const wrapped: Block[] = [diff("edit-long-line-prose", true), diff("edit-preview-open", false)];
-  const variants = new Set([...blocks, ...steady, ...settled, ...wrapped].map(({ variant }) => variant));
 
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
@@ -104,8 +103,8 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
     });
     await vite.listen();
     for (const [name, launch] of launchers) browsers.set(name, await launch());
-    for (const variant of variants)
-      await warmGalleryFrame(vite, ENTRY, { browser: browsers.get("chromium"), params: { variant } });
+    // One load compiles the entry's modules for every state of it.
+    await warmGalleryFrame(vite, ENTRY, { browser: browsers.get("chromium"), params: { variant: blocks[0]!.variant } });
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
