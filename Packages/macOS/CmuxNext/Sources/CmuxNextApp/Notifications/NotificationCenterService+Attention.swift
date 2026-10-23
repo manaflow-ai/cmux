@@ -64,10 +64,9 @@ extension NotificationCenterService {
         var arrival = NotificationPolicy.Arrival(source: .agent)
         arrival.appActive = NSApp.isActive
         // The row key names the tab's machine (tabs on two machines can share an id).
-        if let (machine, tab) = AttentionTabsWatch.split(item.tabId), let services {
-            arrival.paneIsViewed = isViewed(tab, onMachine: machine)
-            if let daemon = services.machines.daemons.first(where: { $0.machineID == machine }),
-               let model = daemon.store.tab(idOrResource: tab), let pane = daemon.store.pane(holding: model),
+        if let services, let (daemon, tab) = AttentionTabsWatch.locate(item.tabId, in: services.machines.daemons) {
+            arrival.paneIsViewed = isViewed(tab, onMachine: daemon.machineID)
+            if let model = daemon.store.tab(idOrResource: tab), let pane = daemon.store.pane(holding: model),
                let workspace = daemon.store.workspace(containing: pane.handle) {
                 arrival.workspaceMuted = preferences.mutedWorkspaces.contains(workspace.id)
             }
@@ -87,10 +86,17 @@ extension NotificationCenterService {
         }
     }
 
-    /// A Needs you banner's Show (or click): the tab, as a user's jump (``AgentPaneAttentionTabs/open(_:)``).
+    /// A Needs you banner's Show (or click): the tab, as a user's jump (``AgentPaneAttentionTabs/open(_:)``),
+    /// only while the banner's own request is the tab's live mark. A banner from an earlier launch,
+    /// or one a newer request on the tab replaced, opens nothing.
     func showAttention(banner: String) -> Bool {
         guard let tab = Self.attentionTab(banner: banner) else { return false }
-        if !AgentPaneAttentionTabs.shared.open(tab) { note("attention banner \(banner): the mark is gone") }
+        let shared = AgentPaneAttentionTabs.shared
+        guard shared.items.contains(where: { Self.attentionBannerID($0) == banner }) else {
+            note("attention banner \(banner): its request is gone")
+            return true
+        }
+        if !shared.open(tab) { note("attention banner \(banner): the tab is gone") }
         return true
     }
 }

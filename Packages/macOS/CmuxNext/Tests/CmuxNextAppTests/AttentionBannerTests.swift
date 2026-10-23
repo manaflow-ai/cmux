@@ -41,21 +41,33 @@ struct AttentionBannerTests {
         }
     }
 
-    @Test func showGoesToTheMarkedTabThroughGoTo() {
+    @Test func showGoesToTheMarkedTabThroughGoToOnlyForItsOwnRequest() {
         _ = NSApplication.shared
         let shared = AgentPaneAttentionTabs.shared
         let (items, onOpen) = (shared.items, shared.onOpen)
         defer { shared.items = items; shared.onOpen = onOpen }
         var shown: [String] = []
         shared.onOpen = { id in shown.append(id); return true }
-        shared.items = [Self.item("tab_1", at: 1_000)]
+        let key = AttentionTabsWatch.key(machine: "local", tab: "tab_1")
+        let first = Self.item(key, at: 1_000)
+        shared.items = [first]
         let service = NotificationCenterService()
         service.desktopPostingEnabled = false
         service.attentionMarksChanged([])
         service.attentionMarksChanged(shared.items)
         #expect(shown.isEmpty, "a mark and its banner move nothing")
-        #expect(service.showAttention(banner: "cmux-attention.1000.tab_1"))
-        #expect(shown == ["tab_1"])
+        let banner = NotificationCenterService.attentionBannerID(first)
+        #expect(NotificationCenterService.attentionTab(banner: banner) == key, "the banner names the machine-qualified key")
+        #expect(service.showAttention(banner: banner))
+        #expect(shown == [key])
+        // A newer request on the same tab replaces the banner's: the old banner opens nothing.
+        shared.items = [Self.item(key, at: 2_000, reason: "Approve the scopes")]
+        #expect(service.showAttention(banner: banner), "the banner is still the attention kind")
+        #expect(shown == [key], "a replaced request's banner went to the tab")
+        // A cleared mark, or a banner from an earlier launch, opens nothing either.
+        shared.items = []
+        #expect(service.showAttention(banner: NotificationCenterService.attentionBannerID(Self.item(key, at: 2_000))))
+        #expect(shown == [key], "a cleared mark's banner went to the tab")
         #expect(!service.showAttention(banner: "cmux-notification-3"), "other banners keep their own path")
     }
 
