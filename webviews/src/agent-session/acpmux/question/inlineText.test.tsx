@@ -83,7 +83,10 @@ test("the question card draws marks in the prompt, the labels and the descriptio
   const card = renderToStaticMarkup(<QuestionCard question={question} onReply={() => undefined} />);
   const answered = renderToStaticMarkup(
     <QuestionCard
-      question={{ ...question, state: { kind: "answered", answer: { selections: { q0: { optionIDs: ["`Temporal`"] } } } } }}
+      question={{
+        ...question,
+        state: { kind: "answered", answer: { selections: { q0: { optionIDs: ["`Temporal`"] } } } },
+      }}
       onReply={() => undefined}
     />,
   );
