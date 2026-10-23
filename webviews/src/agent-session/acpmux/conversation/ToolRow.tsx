@@ -22,7 +22,8 @@ import { BackgroundMark } from "./BackgroundMark";
 import { toolDuration } from "./toolGroups";
 import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
 import { useBlockWrap } from "./blockWrap";
-import { Lines, lineCount, PreviewMore, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
+import { Lines, lineCount, PreviewMore, usePreview, useSidewaysRef, useWrapsPast, WrapButton } from "./BlockParts";
+import { collapseLook } from "./toolOutputCollapse.experiment";
 import { cleanText } from "./mcpCalls";
 import { useFold } from "./fold";
 import { WriteLabel, writeCall } from "./WriteLabel";
@@ -182,17 +183,22 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
 /// A call's output when it is not a shell's: copyable whole from its right-click menu (Copy Output;
 /// the `hover-actions` experiment's "all" arm adds a Copy in its corner on hover), the end of a long
 /// one shown. Wrap lines sits in its corner on hover; past eight lines it shows its first ones under
-/// a fade, with Show all N lines (BlockParts.tsx).
+/// a fade, with Show all N lines, and past eight rows of a few wrapped lines, with Show more
+/// (BlockParts.tsx).
 function ToolOutput({ id, output, reveal }: { id: string; output: string; reveal: number }) {
   const t = useT();
   const raw = useOutput(output, reveal);
   const [wrap] = useBlockWrap("output");
-  // All the output's lines, though a long one draws only its end until opened.
-  const preview = usePreview(lineCount(raw.text), reveal);
-  const shown = previewedOutput(raw, preview);
   const body = useSidewaysRef<HTMLPreElement>();
+  // All the output's lines, though a long one draws only its end until opened; a few lines that
+  // wrap past the preview's rows (a one-line result) are cut too.
+  const lines = lineCount(raw.text);
+  const look = collapseLook();
+  const wraps = useWrapsPast(body, raw.text, wrap, lines, look.rows);
+  const preview = usePreview(lines, reveal, wraps, look.rows);
+  const shown = previewedOutput(raw, preview);
   return (
-    <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: shown.text })}>
+    <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: shown.text })} {...look.card}>
       <div className="cv-tool-output__box">
         <span className="cv-tool-output__actions">
           <WrapButton kind="output" />

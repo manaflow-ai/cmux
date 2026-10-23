@@ -7,7 +7,8 @@
 import type { ReactNode } from "react";
 import { useT } from "../i18n";
 import { useBlockWrap } from "./blockWrap";
-import { Lines, lineCount, PreviewMore, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
+import { Lines, lineCount, PreviewMore, usePreview, useSidewaysRef, useWrapsPast, WrapButton } from "./BlockParts";
+import { collapseLook } from "./toolOutputCollapse.experiment";
 import { commandFolder } from "./commandFolder";
 import { CopyButton } from "./CopyButton";
 import { menuPartRef } from "./menuParts";
@@ -40,13 +41,22 @@ export function ShellBlock({
   const raw = useOutput(output, reveal);
   const { folder, rest } = command ? commandFolder(command) : { folder: undefined, rest: undefined };
   const [wrap] = useBlockWrap("output");
-  // The command's lines and all the output's, though a long output draws only its end until opened
-  // (none to cut when whole).
-  const preview = usePreview(whole ? 0 : (rest ? lineCount(rest) : 0) + lineCount(raw.text), reveal);
-  const shown = previewedOutput(raw, preview);
   const body = useSidewaysRef<HTMLPreElement>();
+  // The command's lines and all the output's, though a long output draws only its end until opened
+  // (none to cut when whole); a few lines that wrap past the preview's rows are cut too.
+  const lines = whole ? 0 : (rest ? lineCount(rest) : 0) + lineCount(raw.text);
+  const look = collapseLook();
+  const wraps = useWrapsPast(
+    body,
+    whole ? undefined : rest ? `${rest}\n${raw.text ?? ""}` : raw.text,
+    wrap,
+    lines,
+    look.rows,
+  );
+  const preview = usePreview(lines, reveal, wraps, look.rows);
+  const shown = previewedOutput(raw, preview);
   return (
-    <div className="cv-shell" id={id} ref={menuPartRef({ command, output: shown.text })}>
+    <div className="cv-shell" id={id} ref={menuPartRef({ command, output: shown.text })} {...look.card}>
       <div className="cv-shell__label">
         <span className="cv-shell__title">
           {t("shell.label")}
