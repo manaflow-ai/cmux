@@ -41,6 +41,6 @@ public extension AgentLaneStore {
             guard let ref = tab.agentSession, ref.host == host, ref.session != nil else { return true }
             return false
         }) { return true }
-        return localSessions.contains { lane($0) != nil }
+        return localSessions.contains { sessionIsLive($0) }
     }
 }

@@ -3,9 +3,9 @@ import CmuxNextIcons
 import Foundation
 
 /// The task lane a person pinned a workspace to (Mark as Done, Set Workspace
-/// Status, Cycle Workspace Status), as the sidebar draws it: classic cmux's
-/// lanes, a glyph before the row's title and a line on the hover card. A
-/// workspace without a pinned lane (automatic) draws none.
+/// Status, Cycle Workspace Status), as the sidebar draws it: a trailing status
+/// dot and a line on the hover card. A workspace without a pinned lane (automatic)
+/// draws none.
 public nonisolated enum SidebarTaskStatus: String, CaseIterable, Hashable, Sendable {
     /// Not started.
     case todo
@@ -18,7 +18,7 @@ public nonisolated enum SidebarTaskStatus: String, CaseIterable, Hashable, Senda
     /// Finished.
     case done
 
-    /// The SF Symbol the row draws before its title.
+    /// The SF Symbol used by the hover card and status presentation.
     public var symbol: String {
         switch self {
         case .todo: "circle"
@@ -29,7 +29,7 @@ public nonisolated enum SidebarTaskStatus: String, CaseIterable, Hashable, Senda
         }
     }
 
-    /// The glyph's tint: the loudest for needs attention, muted once done.
+    /// The tint for status presentation: the loudest for needs attention, muted once done.
     public var tint: GroupColor {
         switch self {
         case .todo, .done: .grey
@@ -39,7 +39,7 @@ public nonisolated enum SidebarTaskStatus: String, CaseIterable, Hashable, Senda
         }
     }
 
-    /// The row's leading glyph.
+    /// The status glyph retained for status presentation and gallery fixtures.
     public var glyph: WorkspaceIcon { .symbol(symbol, tint: tint) }
 
     /// The hover card's icon for the lane.
