@@ -8,7 +8,7 @@ import Darwin
 /// browser window in that work: in a macOS 26 VM the window alone held the
 /// main thread for about 0.8 s, after a CefInitialize of about 0.8 s, and an
 /// `action.run` that opened the first Chromium tab missed its 2 s deadline
-/// although nothing it waited for was slow (Tart launch checks, 2026-10-18).
+/// although nothing it waited for was slow (os-smoke, 2026-10-18).
 final class CEFStartSteps {
     static let shared = CEFStartSteps()
 
