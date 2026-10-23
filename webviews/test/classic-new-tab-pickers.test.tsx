@@ -182,13 +182,26 @@ async function mount(
   };
 }
 
-const popup = () => [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu")].at(-1)!;
-const items = () => [...popup().querySelectorAll<HTMLElement>('[role^="menuitem"]')];
+/** The menu open last (a submenu opens over its menu): the newest element whose role is menu. */
+const popup = () => {
+  const menu = [...dom.window.document.querySelectorAll<HTMLElement>('[role="menu"]')].at(-1);
+  expect(menu, "an open menu").toBeDefined();
+  return menu!;
+};
+/** That menu's own rows a click can pick: not a nested menu's, not a disabled one. */
+const items = () =>
+  [...popup().querySelectorAll<HTMLElement>('[role^="menuitem"]')].filter(
+    (row) =>
+      row.closest('[role="menu"]') === popup() &&
+      row.getAttribute("aria-disabled") !== "true" &&
+      !row.hasAttribute("disabled"),
+  );
 const label = (item: Element) => item.querySelector(".acpmux-menu-label")?.textContent ?? "";
+/** Clicks the one enabled row named `name`; two rows of that name fail rather than pick either. */
 async function pick(name: string) {
-  const item = items().find((entry) => label(entry) === name);
-  expect(item, `menu item ${name}`).toBeDefined();
-  await act(async () => item!.click());
+  const matches = items().filter((entry) => label(entry) === name);
+  expect(matches.length, `one enabled menu row named ${name}`).toBe(1);
+  await act(async () => matches[0]!.click());
 }
 async function open() {
   await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
