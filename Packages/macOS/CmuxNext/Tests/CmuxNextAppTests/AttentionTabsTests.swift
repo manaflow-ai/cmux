@@ -61,8 +61,8 @@ struct AttentionTabsTests {
     @Test func anAgentsRunOpensNoPalette() throws {
         _ = NSApplication.shared
         let shared = AgentPaneAttentionTabs.shared
-        let (items, onOpen) = (shared.items, shared.onOpen)
-        defer { shared.items = items; shared.onOpen = onOpen }
+        let (items, onOpen, onChange) = (shared.items, shared.onOpen, shared.onChange)
+        defer { shared.items = items; shared.onOpen = onOpen; shared.onChange = onChange }
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         shared.items = [AgentPaneAttentionTabs.Item(tabId: "tab_1", reason: "Log in to GitHub", workspaceTitle: "cmux next",
@@ -71,6 +71,19 @@ struct AttentionTabsTests {
             _ = services.registry.perform(AttentionPalettePage.id, invocation: ActionInvocation(origin: .cli))
         }
         #expect(refusal == AttentionPaletteStrings.needsFocus, "an agent's run must not take the person's focus")
+    }
+
+    /// The page reads the marks at each load, so an open page's reload on a change drops a
+    /// cleared mark's row and shows a new one.
+    @Test func thePagesRowsFollowTheMarks() throws {
+        let tabs = AgentPaneAttentionTabs()
+        let provider = try #require(AttentionPalettePage(tabs: tabs).page().providers.first)
+        #expect(provider.immediateItems?.isEmpty == true)
+        tabs.items = [AgentPaneAttentionTabs.Item(tabId: "tab_1", reason: "Log in to GitHub", workspaceTitle: "cmux next",
+                                                  tabTitle: "GitHub", atMs: 1_000)]
+        #expect(provider.immediateItems?.map(\.title) == ["Log in to GitHub"], "a new mark is missing from the open page")
+        tabs.items = []
+        #expect(provider.immediateItems?.isEmpty == true, "a cleared mark's row stayed on the open page")
     }
 
     @Test func theActionIsInThePaletteAndTakesNoKey() throws {

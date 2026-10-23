@@ -19,10 +19,13 @@ public final class AgentPaneAttentionTabs {
         didSet {
             guard items != oldValue else { return }
             for view in views.allObjects { send(to: view) }
+            onChange?()
         }
     }
     /// Shows a marked tab as a user's jump does; false when no connected machine has it.
     public var onOpen: ((String) -> Bool)?
+    /// Hears each change of ``items`` (the App reloads an open Go to What Needs Me page).
+    public var onChange: (() -> Void)?
     /// The pages pushed so far, held weakly, for the pushes on a change.
     private let views = NSHashTable<AgentPaneView>.weakObjects()
 

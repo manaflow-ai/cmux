@@ -34,10 +34,6 @@ final class NotificationCenterService {
     /// Marked-unread rings the user dismissed: per tab id, the
     /// ``TabModel/markedUnreadGeneration`` hidden. Marking the tab again rings again.
     var dismissedMarks: [String: UInt64] = [:]
-    /// Attention rings (tab-attention-v1) hidden: per tab id, the lowest `at_ms` that rings again.
-    /// Going into the tab or Dismiss Highlight hides the ring; the mark and its dot stay until the
-    /// agent clears it, the page changes or the tab closes. A new request rings again.
-    var dismissedAttention: [String: UInt64] = [:]
     /// The marked tabs at the last change, for their banners (`+Attention`); nil before the first list.
     @ObservationIgnored var attentionSeen: [AgentPaneAttentionTabs.Item]?
     @ObservationIgnored weak var services: AppServices?
@@ -205,7 +201,7 @@ final class NotificationCenterService {
         guard let tab = focusedTab(in: window) else { return }
         lastKeystroke[tab] = .now
         if isTerminalFocused(in: window) { clearUnreadMark(ofTab: tab) }
-        interacted(.keystroke, tabID: tab)
+        interacted(.keystroke, tabID: tab, in: window)
     }
 
     /// A mouse-down landed in `window` at `location` (window coordinates,
@@ -214,7 +210,7 @@ final class NotificationCenterService {
     /// outside the panes (sidebar, titlebar, tab bar gaps) reads nothing.
     func noteMouseDown(in window: NSWindow?, at location: NSPoint) {
         guard let tab = clickedTab(in: window, at: location) else { return }
-        interacted(.click, tabID: tab)
+        interacted(.click, tabID: tab, in: window)
     }
 
     /// The selected tab of the pane under `location` in `window`. A child
@@ -286,19 +282,44 @@ final class NotificationCenterService {
 
     /// Opening from a verb (jump to unread): reads it unless the policy is `never`.
     func opened(_ tab: TabModel) {
-        interacted(.open, tabID: tab.id)
+        guard let services else { return }
+        interacted(.open, tab: tab, local: services.machines.daemon(forTab: tab).isLocal)
     }
 
     func interacted(_ trigger: NotificationTrigger, tabID: String) {
-        guard let services else { return }
-        if let tab = Self.tab(id: tabID, in: services.daemon.store) {
-            interacted(trigger, tab: tab)
-        } else if let (tab, _) = services.locateTab(tabID) {
-            // A remote (Cloud or SSH) tab: an agent's mark rings there too (``attentionMarks(for:shownTab:)``
-            // reads every machine), and its ring is this app's own state. Its notifications and Mark
-            // as Unread stay with their daemon's own paths.
-            dismissAttention(trigger, tab: tab)
+        guard let services, let tab = Self.tab(id: tabID, in: services.daemon.store) else { return }
+        interacted(trigger, tab: tab)
+    }
+
+    /// A click or a key in `window` went into tab `tabID`: the tab is found in the workspace that
+    /// window shows, on the machine that owns it, never by id alone (tabs on two machines can
+    /// share an id). A window that shows no workspace reads this Mac's tab, as does a tab outside
+    /// a local workspace; a tab outside a remote one reads nothing rather than a guess.
+    func interacted(_ trigger: NotificationTrigger, tabID: String, in window: NSWindow?) {
+        let host = window.map { CmuxApplication.accessibilityWindow(for: $0) ?? $0 }
+        guard let host, let content = services?.windows.controllers.first(where: { $0.window === host })?.content else {
+            return interacted(trigger, tabID: tabID)
         }
+        let local = content.daemon.isLocal
+        if !interacted(trigger, tabID: tabID, in: content.workspace, local: local), local { interacted(trigger, tabID: tabID) }
+    }
+
+    /// Tab `tabID` of `workspace` (held by this Mac's daemon when `local`); false when the
+    /// workspace has no such tab.
+    @discardableResult
+    func interacted(_ trigger: NotificationTrigger, tabID: String, in workspace: WorkspaceModel, local: Bool) -> Bool {
+        let tabs = workspace.screens.lazy.flatMap(\.panes).flatMap(\.tabs)
+        guard let tab = tabs.first(where: { $0.id == tabID }) else { return false }
+        interacted(trigger, tab: tab, local: local)
+        return true
+    }
+
+    /// `tab` on the machine that holds it: this Mac's tab reads per policy. A remote (Cloud or
+    /// SSH) tab only hides its attention ring, this app's own state (an agent's mark rings there
+    /// too, ``attentionMarks(for:shownTab:)`` reads every machine); its notifications and Mark
+    /// as Unread stay with their daemon's own paths.
+    private func interacted(_ trigger: NotificationTrigger, tab: TabModel, local: Bool) {
+        if local { interacted(trigger, tab: tab) } else { dismissAttention(trigger, tab: tab) }
     }
 
     func interacted(_ trigger: NotificationTrigger, tab: TabModel) {
@@ -323,7 +344,7 @@ final class NotificationCenterService {
     /// the mark stays until the agent clears it or the page changes.
     func dismissAttention(_ trigger: NotificationTrigger, tab: TabModel) {
         guard let attention = tab.attention, trigger == .click || trigger == .keystroke else { return }
-        dismissedAttention[tab.id] = attention.atMs &+ 1
+        tab.attentionRingHiddenThrough = attention.atMs
     }
 
     /// Going into a pane (a click or a key) reads its tab's Mark as Unread, as it reads an unread
