@@ -173,8 +173,8 @@ import Foundation
         case .guessedTab(let hidden, let provisional):
             if let provisional { self.undo(provisional, in: store) }
             CancelledCreation.unhide(.hiddenTab(hidden), in: store)
-        case .splitPane(let screen, let layout, let columns, let pane):
-            ProvisionalSplit.undo(screen: screen, layout: layout, columns: columns, pane: pane, in: store)
+        case .splitPane(let screen, let layout, let columns, let zoomedPane, let pane):
+            ProvisionalSplit.undo(screen: screen, layout: layout, columns: columns, zoomedPane: zoomedPane, pane: pane, in: store)
         case .createdWorkspace(let key, let inserted):
             ProvisionalWorkspaceOverlay.undo(key: key, inserted: inserted, in: store)
         case .createdTab(let surface, let pane):

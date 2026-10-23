@@ -249,6 +249,45 @@ struct InstantCreateIntentTests {
         #expect(store.mirrorViolations.isEmpty)
     }
 
+    // MARK: Zoomed screens
+
+    /// New Column, New Row and Cmd-D on a zoomed screen (review 2 of PL-motion-core): every pane
+    /// create unzooms the screen in the daemon (cmux-tui `effect_add_pane`), so the overlay does
+    /// too. Before, a zoomed screen with columns got its New Column inserted behind the zoomed
+    /// pane (and the daemon's unzoom jumped later), while New Row and a tree screen's New Column
+    /// showed nothing until the daemon. A refusal gives the zoom back exactly.
+    @Test(arguments: ["column", "columnOnTree", "row", "split"])
+    func aCreateOnAZoomedScreenUnzoomsItAndARefusalZoomsItBack(_ kind: String) throws {
+        let store = DaemonStore()
+        let other = PaneID(rawValue: 5)
+        var tree = Self.base
+        tree.screens[0].layout = .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(Self.pane), b: .leaf(other))
+        tree.screens[0].panes.append(PaneSnapshot(id: other, tabs: [TabSnapshot(surface: SurfaceID(rawValue: 6))]))
+        if kind == "column" {
+            tree.screens[0].columns = [ColumnSnapshot(id: ColumnID(rawValue: 1), width: 0.5, layout: .leaf(Self.pane)),
+                                       ColumnSnapshot(id: ColumnID(rawValue: 2), width: 0.5, layout: .leaf(other))]
+        }
+        tree.screens[0].zoomedPane = Self.pane
+        store.apply(snapshot: DaemonTree(workspaceRevision: 1, workspaces: [tree]))
+        let provisional = switch kind {
+        case "column": ProvisionalPane(columnWidth: 0.4)
+        case "columnOnTree": ProvisionalPane(columnWidth: 0.5, treeWidth: 0.5)
+        case "row": ProvisionalPane(rowHeight: 400)
+        default: ProvisionalPane()
+        }
+        let transaction = ClientTransactionID.generate()
+        store.intend(.splitPane(pane: Self.pane, direction: kind == "row" ? .down : .right, ratio: 0.5, provisional: provisional),
+                     transaction: transaction)
+        let screen = try #require(store.workspace(id: Self.baseKey.rawValue)?.screens.first)
+        #expect(screen.panes.map(\.handle).contains(provisional.handle), "the create showed nothing on the zoomed screen")
+        #expect(screen.zoomedPane == nil, "the create showed behind the zoomed pane")
+        store.rejectIntent(transaction)
+        let after = try #require(store.workspace(id: Self.baseKey.rawValue)?.screens.first)
+        #expect(after.zoomedPane == Self.pane)
+        #expect(after.panes.map(\.handle) == [Self.pane, other])
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
     /// A fast second New Column (Cmd-Shift-N twice): the second press targets the first's stand-in,
     /// which the daemon's pane then takes over under a new handle. The second column keeps showing
     /// right after it, and its command goes to the daemon's pane (`daemonHandle(showing:)`), never to
