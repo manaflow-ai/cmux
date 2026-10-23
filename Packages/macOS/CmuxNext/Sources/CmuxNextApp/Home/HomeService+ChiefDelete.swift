@@ -27,7 +27,7 @@ extension HomeService {
         }
         guard !isCloudConversation(row.id),
               let agent = row.summary.participants.first(where: { $0.id != me && $0.isChief }),
-              agent.id.rawValue != HomeChiefName.muxID, !directory.archivedChiefs.contains(agent.id.rawValue) else { return nil }
+              agent.id.rawValue != Self.mux.id, !directory.archivedChiefs.contains(agent.id.rawValue) else { return nil }
         return DeletableChief(id: agent.id.rawValue, name: agent.displayName, cloud: false)
     }
 
@@ -40,7 +40,7 @@ extension HomeService {
     /// its question named): one that is not resolved is refused, never deleted unasked.
     func deleteChief(_ id: String) async -> String? {
         guard let chief = deletableChief(id: id) else {
-            return id == HomeChiefName.muxID || directory.chief(for: ParticipantID(id))?.isDefault == true
+            return id == Self.mux.id || directory.chief(for: ParticipantID(id))?.isDefault == true
                 ? HomeStrings.deleteDefaultChief : HomeStrings.deleteFailed
         }
         return chief.cloud ? await deleteCloudChief(id) : await deleteLocalChief(id)
