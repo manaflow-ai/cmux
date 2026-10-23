@@ -47,6 +47,27 @@ class StandInApp:
                 "visible_ms": ms + 40.0, "frames": {"max_ms": ms + 16.7, "missed": 0, "refresh_ms": 16.7}}
 
 
+class FirstReplyApp(StandInApp):
+    """Gives `first` as the answer to the session's first open, then answers as ``StandInApp``."""
+
+    def __init__(self, first):
+        super().__init__()
+        self.first = first
+
+    def rpc(self, method, params=None, timeout=60):
+        if self.opens:
+            return super().rpc(method, params, timeout)
+        self.opens += 1
+        return {"mode": params["mode"], **self.first}
+
+
+# What `debug.open_panel_bench` (DebugOpenPanelBench.swift) answers for a panel that came back dead: no times, no frames.
+DEAD_REPLY = {"error": "the panel came back dead (no prompt)"}
+# A live first open whose panel was not made ahead (the warm-up had not run): times, and made_ahead_before false.
+NOT_MADE_AHEAD_REPLY = {"made_ahead_before": False, "prompt_nil": False, "init_ms": 310.0, "begin_ms": 280.0,
+                        "sync_ms": 590.0, "visible_ms": 640.0, "frames": {"max_ms": 330.0, "missed": 18, "refresh_ms": 16.7}}
+
+
 class FirstOpenTests(unittest.TestCase):
     def setUp(self):
         self.bench = load_bench()
@@ -80,6 +101,18 @@ class FirstOpenTests(unittest.TestCase):
         self.assertTrue(all(row["init_ms"]["max"] == 5.0 for row in report["summary"]),
                         "a first open went into a session's percentiles")
 
+    def test_a_first_open_that_failed_or_was_not_made_ahead_says_so_on_its_own_row(self):
+        """The first open is outside every OPEN-PANEL row, so its own row is the only place a failed one shows
+        (fix review of deep-fleet-gui): the row copied only the times, so a dead or not-made-ahead first open after a
+        launch or the STRESS build printed nulls or large times with no cause while the made row looked healthy."""
+        report = {"runs": [], "summary": []}
+        self.measure(FirstReplyApp(DEAD_REPLY), "light", report)
+        self.measure(FirstReplyApp(NOT_MADE_AHEAD_REPLY), "stress", report)
+        dead, cold = report["first_opens"]
+        self.assertEqual(dead.get("error"), DEAD_REPLY["error"], f"the dead first open's error is missing: {dead}")
+        self.assertIs(cold.get("made_ahead_before"), False, f"the first open does not say it was not made ahead: {cold}")
+        self.assertIs(cold.get("prompt_nil"), False, f"the first open does not carry its prompt read: {cold}")
+        self.assertEqual(cold.get("missed"), 18, f"the first open does not carry its missed frames: {cold}")
 
 if __name__ == "__main__":
     unittest.main()
