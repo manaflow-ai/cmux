@@ -21,49 +21,66 @@ const sideways = (box: Element) => box.clientWidth < box.scrollWidth - 0.5;
 /// each scroll and size change of one, and once a frame for the boxes whose lines changed.
 ///
 /// Only mount walks the whole block. A change (a streamed token, a new line, Pierre drawing) marks
-/// the box it is in and takes in only the nodes it added: no work per change grows with the
-/// block's lines (Codex review of #23967). Its frame, its observers and its listeners end with the
-/// returned stop function.
+/// the box it is in, takes in only the nodes it added and lets go of those it removed, a removed
+/// host's shadow root and all: no work per change grows with the block's lines, and nothing it
+/// watched outlives its place in the block (Codex review of #23967). Its frame, its observers and
+/// its listeners end with the returned stop function.
 export function watchSideways(container: HTMLElement): () => void {
   // The page's desktop layer installs it at start (installScrollers); a page without one gets it here.
   installSidewaysScrollers(container.ownerDocument);
   const view = container.ownerDocument.defaultView;
-  const watched = new Map<Element, () => void>();
+  /// Each watched box: its update, and what of it the size observer watches.
+  const watched = new Map<Element, { update: () => void; sized: Element[] }>();
   /// Boxes whose lines changed since the last frame.
   const dirty = new Set<Element>();
   /// Custom elements without their shadow root yet: Pierre attaches it as it draws.
   const hosts = new Set<Element>();
-  const shadows = new Set<ShadowRoot>();
+  /// The change observer of `container` and of each shadow root in it, so one leaves with its host.
+  const observers = new Map<Node, MutationObserver>();
   let frame: number | undefined;
   const resize = view?.ResizeObserver
     ? new view.ResizeObserver((entries) =>
         entries.forEach(({ target }) => {
-          watched.get(target)?.();
+          watched.get(target)?.update();
           if (hosts.has(target)) adopt(target);
         }),
       )
     : undefined;
-  const mutations = view?.MutationObserver ? new view.MutationObserver((records) => changed(records)) : undefined;
+  const observe = (root: Node) => {
+    if (!view?.MutationObserver || observers.has(root)) return;
+    const observer = new view.MutationObserver((records) => changed(records));
+    observer.observe(root, { childList: true, subtree: true, characterData: true });
+    observers.set(root, observer);
+  };
   const watch = (box: Element) => {
     if (watched.has(box)) return;
     const update = () => {
       box.toggleAttribute(MORE_RIGHT, moreRight(box));
       box.toggleAttribute(SIDEWAYS_ATTRIBUTE, sideways(box));
     };
-    watched.set(box, update);
+    const sized = [box, ...box.children];
+    watched.set(box, { update, sized });
     box.addEventListener("scroll", update, { passive: true });
-    resize?.observe(box);
-    for (const child of box.children) resize?.observe(child);
+    for (const element of sized) resize?.observe(element);
     update();
   };
-  const unwatch = (box: Element) => {
-    const update = watched.get(box);
-    if (!update) return;
-    box.removeEventListener("scroll", update);
-    resize?.unobserve(box);
-    watched.delete(box);
-    dirty.delete(box);
-  };
+  /// Stops watching `element`, and everything in its shadow root if it hosts one.
+  function forget(element: Element) {
+    const box = watched.get(element);
+    if (box) {
+      element.removeEventListener("scroll", box.update);
+      for (const sized of box.sized) resize?.unobserve(sized);
+      watched.delete(element);
+      dirty.delete(element);
+    }
+    if (hosts.delete(element)) resize?.unobserve(element);
+    const shadow = element.shadowRoot;
+    const observer = shadow && observers.get(shadow);
+    if (!observer) return;
+    observer.disconnect();
+    observers.delete(shadow);
+    for (const inner of shadow.querySelectorAll("*")) forget(inner);
+  }
   /// A shadow host: its root's code boxes, and the root's own changes. One without a root yet
   /// waits in `hosts` until it resizes or the next frame.
   function adopt(host: Element) {
@@ -75,10 +92,9 @@ export function watchSideways(container: HTMLElement): () => void {
       }
       return;
     }
-    hosts.delete(host);
-    if (shadows.has(shadow)) return;
-    shadows.add(shadow);
-    mutations?.observe(shadow, { childList: true, subtree: true, characterData: true });
+    if (hosts.delete(host)) resize?.unobserve(host);
+    if (observers.has(shadow)) return;
+    observe(shadow);
     take(shadow);
   }
   const visit = (element: Element) => {
@@ -91,11 +107,11 @@ export function watchSideways(container: HTMLElement): () => void {
     else if (node.nodeType !== 11) return;
     for (const element of (node as ParentNode).querySelectorAll("*")) visit(element);
   }
+  /// A removed node and what lies under it, shadow roots too.
   function drop(node: Node) {
     if (node.nodeType !== 1) return;
-    hosts.delete(node as Element);
-    unwatch(node as Element);
-    for (const box of (node as Element).querySelectorAll("[data-code]")) unwatch(box);
+    forget(node as Element);
+    for (const element of (node as Element).querySelectorAll("*")) forget(element);
   }
   function changed(records: MutationRecord[]) {
     for (const record of records) {
@@ -110,17 +126,18 @@ export function watchSideways(container: HTMLElement): () => void {
   function flush() {
     frame = undefined;
     for (const host of hosts) adopt(host);
-    for (const box of dirty) watched.get(box)?.();
+    for (const box of dirty) watched.get(box)?.update();
     dirty.clear();
   }
   watch(container);
-  mutations?.observe(container, { childList: true, subtree: true, characterData: true });
+  observe(container);
   take(container);
   return () => {
     if (frame !== undefined) view?.cancelAnimationFrame(frame);
-    mutations?.disconnect();
+    for (const observer of observers.values()) observer.disconnect();
+    observers.clear();
     resize?.disconnect();
-    for (const [box, update] of watched) box.removeEventListener("scroll", update);
+    for (const [box, { update }] of watched) box.removeEventListener("scroll", update);
     watched.clear();
     dirty.clear();
     hosts.clear();

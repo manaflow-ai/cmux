@@ -22,6 +22,7 @@ export function ShellBlock({
   whole = false,
   cut,
   footer,
+  live = false,
 }: {
   id?: string;
   /** Bumped when Find in Chat reveals the call: shows the whole output, not only its end. */
@@ -35,6 +36,8 @@ export function ShellBlock({
   cut?: boolean;
   /** The card's last line, under the exit code (a background task's Open in terminal). */
   footer?: ReactNode;
+  /** The command still runs: its output may yet run past the right edge (conversation.css `data-live`). */
+  live?: boolean;
 }) {
   const t = useT();
   const raw = useOutput(output, reveal);
@@ -71,6 +74,7 @@ export function ShellBlock({
         className="cv-shell__body selectable"
         data-wrap={wrap}
         data-preview={preview.attribute}
+        data-live={live || undefined}
         {...SIDEWAYS_SCROLLER}
       >
         {rest && (

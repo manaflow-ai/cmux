@@ -146,7 +146,14 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
       {fold.present && (shell || files.length > 0 || body) && (
         <div ref={fold.ref} className="cv-fold">
           {shell ? (
-            <ShellBlock id={detailsId} command={tool.command} output={body} exitCode={tool.exitCode} reveal={reveal} />
+            <ShellBlock
+              id={detailsId}
+              command={tool.command}
+              output={body}
+              exitCode={tool.exitCode}
+              reveal={reveal}
+              live={running}
+            />
           ) : files.length > 0 ? (
             <div id={detailsId}>
               {files.map((file) => (
