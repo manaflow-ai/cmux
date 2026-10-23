@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextTerminal
 import os
@@ -128,12 +127,7 @@ enum SettingsHandlers {
     private static func setDefaultEngine(_ engine: BrowserDefaultEngine, _ context: AppActionContext) throws {
         try AppearanceHandlers.requireUnmanaged(BrowserDefaultEngine.configPath, context)
         context.services.cache.browserTabs.preference.defaultEngine = engine
-        if engine == .chromium {
-            context.services.chromiumWarmup.chromiumLikely(.defaultEngine)
-        } else {
-            // Pages leave Chromium: its spare page goes with them.
-            (PageWebView.chromiumHosting as? ChromiumPageHost)?.dropSpare()
-        }
+        if engine == .chromium { context.services.chromiumWarmup.chromiumLikely(.defaultEngine) }
         guard let settings = context.services.settings else { return }
         Task {
             do { try await settings.setBrowserDefaultEngine(engine) } catch {
