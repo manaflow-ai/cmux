@@ -694,11 +694,18 @@ export function ComposerPickers({
     !reported && awaiting
       ? reasoningChoices(heldOption?.options ?? (heldModel?.efforts ?? []).map((value) => ({ value })), heldModel, t)
       : [];
+  // With nothing kept or answered yet (the launch's first page), the chip model's own default level:
+  // what acpmux starts the chat on when no setting names one (its curated catalog's default for the
+  // model, hub/start_defaults.rs), so the chip names it from the first frame and acpmux's answer
+  // replaces it only when it differs (Lucas 2026-10-24).
   const heldValue =
     (heldPick?.harness === chipHarness ? heldPick.value : undefined) ??
     startEffort ??
     heldLevels.find((choice) => choice.name === lastChips?.effort)?.id ??
-    heldOption?.currentValue;
+    heldOption?.currentValue ??
+    (snapshot.catalog.length === 0
+      ? heldLevels.find((choice) => choice.id === heldModel?.defaultEffort)?.id
+      : undefined);
   // The held chip steps down as the reported one does: "Med" in a narrow row (composerRowFit.ts).
   const heldChoice = heldLevels.find((choice) => choice.id === heldValue);
   const heldShort = heldChoice && heldChoice.id !== "ultracode" ? shortLevel(heldChoice, t) : undefined;
