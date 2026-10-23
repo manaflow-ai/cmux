@@ -95,6 +95,19 @@ impl Daemon {
     }
 }
 
+/// The holder that runs `surface`'s shell (holder model): the shell's
+/// parent, when that is not the daemon itself.
+fn holder_of(daemon: &Daemon, surface: u64) -> Option<u32> {
+    let resources = request(
+        &daemon.socket,
+        serde_json::json!({"id": 5, "cmd": "terminal-resources", "surfaces": [surface]}),
+    )?;
+    let shell = resources["terminals"][0]["pid"].as_u64()?;
+    let out = Command::new("ps").args(["-o", "ppid=", "-p", &shell.to_string()]).output().ok()?;
+    let parent: u32 = String::from_utf8_lossy(&out.stdout).trim().parse().ok()?;
+    (parent > 1 && parent != daemon.child.id()).then_some(parent)
+}
+
 impl Drop for Daemon {
     fn drop(&mut self) {
         let hosts = self.host_pids();
@@ -390,19 +403,24 @@ fn assert_idle(daemon: &Daemon, during: impl FnOnce() + Send + 'static) {
         serde_json::json!({"id": 4, "cmd": "attach-surface", "surface": surface, "cols": 80, "rows": 24}),
     );
 
+    // The terminal's process: its host (a record each), or the holder that
+    // runs every terminal of the session (the shell's parent).
     let deadline = Instant::now() + Duration::from_secs(10);
     let hosts = loop {
-        let hosts = daemon.host_pids();
+        let mut hosts = daemon.host_pids();
+        if hosts.is_empty() {
+            hosts.extend(holder_of(&daemon, surface));
+        }
         if !hosts.is_empty() {
             break hosts;
         }
-        assert!(Instant::now() < deadline, "no terminal host record appeared");
+        assert!(Instant::now() < deadline, "no terminal host record or holder appeared");
         std::thread::sleep(Duration::from_millis(25));
     };
     std::thread::sleep(SETTLE);
 
     let processes: Vec<(String, u32)> = std::iter::once(("daemon".to_string(), daemon.child.id()))
-        .chain(hosts.iter().map(|pid| (format!("terminal host {pid}"), *pid)))
+        .chain(hosts.iter().map(|pid| (format!("terminal process {pid}"), *pid)))
         .collect();
     let mut marks = vec![processes.iter().map(|(_, pid)| usage(*pid)).collect::<Vec<Usage>>()];
     let started = Instant::now();

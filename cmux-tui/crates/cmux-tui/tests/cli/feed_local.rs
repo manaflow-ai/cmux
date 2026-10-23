@@ -19,15 +19,22 @@ struct Daemon {
     dir: PathBuf,
     socket: PathBuf,
     session: String,
+    /// The terminal host model the owner runs (`None`: its default).
+    host_model: Option<&'static str>,
 }
 
 impl Daemon {
     fn start(name: &str) -> Self {
+        Self::start_with_model(name, None)
+    }
+
+    fn start_with_model(name: &str, host_model: Option<&'static str>) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir =
             PathBuf::from("/tmp").join(format!("cmux-feed-{name}-{}-{stamp}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
-        let daemon = Self { socket: dir.join("mux.sock"), session: format!("feed-{name}"), dir };
+        let daemon =
+            Self { socket: dir.join("mux.sock"), session: format!("feed-{name}"), dir, host_model };
         daemon.ensure();
         daemon
     }
@@ -38,7 +45,8 @@ impl Daemon {
             .args(["server", action, "--json", "--session", &self.session, "--socket"])
             .arg(&self.socket)
             .env("CMUX_TUI_STATE_DIR", self.dir.join("state"))
-            .env("CMUX_TUI_CONFIG", self.dir.join("config.json"));
+            .env("CMUX_TUI_CONFIG", self.dir.join("config.json"))
+            .envs(self.host_model.map(|model| ("CMUX_TUI_TERMINAL_HOST_MODEL", model)));
         command
     }
 
@@ -343,7 +351,9 @@ impl Drop for StoppedHost {
 /// after a restart.
 #[test]
 fn cmux_next_feed_a_ring_shows_while_its_terminal_adopts_after_a_restart() {
-    let daemon = Daemon::start("adopting");
+    // It holds a terminal host's adoption handshake (SIGSTOP of the host):
+    // a terminal host process, the opt-out of the holder model.
+    let daemon = Daemon::start_with_model("adopting", Some("hosts"));
     let surface = new_workspace(&daemon);
     let (_, before) = tab(&daemon.tree(), surface);
     let terminal = before["terminal_id"].as_str().unwrap().to_string();

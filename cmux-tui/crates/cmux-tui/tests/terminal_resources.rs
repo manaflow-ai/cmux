@@ -30,6 +30,12 @@ struct Daemon {
 
 impl Daemon {
     fn start(name: &str) -> Self {
+        Self::start_with_model(name, None)
+    }
+
+    /// `model`: the terminal host model (`CMUX_TUI_TERMINAL_HOST_MODEL`);
+    /// `None` runs the daemon's default.
+    fn start_with_model(name: &str, model: Option<&str>) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir = PathBuf::from("/tmp")
             .join(format!("cmux-resources-{name}-{}-{stamp}", std::process::id()));
@@ -42,6 +48,7 @@ impl Daemon {
             .arg("--state")
             .arg(&state)
             .env("CMUX_TUI_CONFIG", dir.join("config.json"))
+            .envs(model.map(|model| ("CMUX_TUI_TERMINAL_HOST_MODEL", model)))
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -195,15 +202,21 @@ fn cmux_next_terminal_resources_reports_shell_and_children() {
         assert_eq!(sleep["ppid"], shell, "each sleep is a child of the shell: {terminal}");
     }
 
-    // The shell runs under its terminal host, not under the daemon.
+    // The shell runs under its terminal host (a record each), or under the
+    // session's holder (the holder model, the default): never under the
+    // daemon.
     let hosts = daemon.host_pids();
-    assert_eq!(hosts.len(), 1, "one terminal host record: {hosts:?}");
-    let host = &terminal["host"];
-    assert_eq!(host["pid"], hosts[0], "host: {terminal}");
-    assert_eq!(processes[0]["ppid"], hosts[0], "the shell's parent is its host: {terminal}");
-    assert_ne!(host["pid"], daemon.child.id());
-    assert!(host["cpu_ns"].is_u64(), "{host}");
-    assert!(host["memory_bytes"].as_u64().is_some_and(|bytes| bytes > 0), "{host}");
+    assert_ne!(processes[0]["ppid"], daemon.child.id(), "the shell runs under the daemon");
+    if let [host_pid] = hosts[..] {
+        let host = &terminal["host"];
+        assert_eq!(host["pid"], host_pid, "host: {terminal}");
+        assert_eq!(processes[0]["ppid"], host_pid, "the shell's parent is its host: {terminal}");
+        assert_ne!(host["pid"], daemon.child.id());
+        assert!(host["cpu_ns"].is_u64(), "{host}");
+        assert!(host["memory_bytes"].as_u64().is_some_and(|bytes| bytes > 0), "{host}");
+    } else {
+        assert!(hosts.is_empty(), "more than one host record for one terminal: {hosts:?}");
+    }
 
     // Without `surfaces`, every PTY surface is reported and nothing is missing.
     let all = request(&daemon.socket, serde_json::json!({"cmd": "terminal-resources"})).unwrap();
@@ -225,7 +238,8 @@ fn cmux_next_terminal_resources_reports_shell_and_children() {
 /// daemon file (registry database, daemon state outside the host records).
 #[test]
 fn cmux_next_terminal_host_owns_its_session_limit_and_descriptors() {
-    let daemon = Daemon::start("spawn");
+    // A terminal host process: the opt-out of the holder model.
+    let daemon = Daemon::start_with_model("spawn", Some("hosts"));
     let created = request(
         &daemon.socket,
         serde_json::json!({

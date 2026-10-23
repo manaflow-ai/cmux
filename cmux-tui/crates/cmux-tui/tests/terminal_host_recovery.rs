@@ -195,6 +195,9 @@ impl RecoveryHarness {
             // daemon's orphan grace, cx-t2sqm).
             .env_remove("CMUX_BUNDLE_ID")
             .env_remove("CMUX_TAG")
+            // This suite tests the terminal host process per terminal, the
+            // opt-out of the holder model (kept for one release).
+            .env("CMUX_TUI_TERMINAL_HOST_MODEL", "hosts")
             .args(["--headless", "--session", &self.session, "--socket"])
             .arg(&self.socket)
             .arg("--state")

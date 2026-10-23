@@ -192,6 +192,16 @@ processes and ~2,000 threads fewer.
    timing in holder mode (`debug_spans::output_marks`, new-terminal-100x `host_model=`).
 3. G5 binary attach frames and the in-band resize marker (with PL-ghostty's decode).
 4. Default on; old `__terminal-host` processes keep their client until none is left (pty-holder 2.2).
+   Built 2026-10-23 (holder item 5): new session-owned terminals run on the holder unless
+   `CMUX_TUI_TERMINAL_HOST_MODEL=hosts` (the opt-out, kept for one release; the daemon library's
+   own unit tests keep the hosts unless they name the holder). Hosted terminals an older build
+   started are adopted as before. Before the flip: a holder of a DEV build, debug build or test
+   gets its hosts' orphan grace (`CMUX_HOLDER_ORPHAN_GRACE_MS` from `spawned_orphan_grace`, 10 min;
+   none in normal installs, D1), else test daemons kept shells for ever (a default-on suite ran out
+   of PTYs: ENXIO 334 times, peak 521 of 511); and clear-history hands the holder the cleared
+   screen as its prologue and journals `screen_cleared`, else a restart brought the history back.
+   Suites that test a host process itself (`terminal_host_recovery`, the host's session and
+   descriptors, a held host adoption) ask for `hosts`; the others run the default.
 
 ## 7. Durability of replies (decided 2026-10-23, perf lead)
 
