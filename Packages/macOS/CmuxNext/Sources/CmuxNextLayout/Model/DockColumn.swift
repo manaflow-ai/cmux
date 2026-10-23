@@ -26,9 +26,10 @@ public nonisolated struct DockColumn: Hashable, Sendable {
     public var mode: DockMode
     public var role: DockRole?
     /// `pinned-dock-v1`: the Home dock. Its first tab shows no close button
-    /// and its strip no new-tab button unless ``allowsTabs``.
+    /// and its strip no new-tab button: what Home opens goes beside it.
     public var isPinned: Bool
-    /// `pinned-dock-v1`: a pinned column takes more tabs.
+    /// `pinned-dock-v1`: a pinned column takes more tabs (the app turns it on
+    /// for Home's dock: tabs drag into and out of it).
     public var allowsTabs: Bool
 
     public init(edge: DockEdge = .right, mode: DockMode = .docked, role: DockRole? = nil,

@@ -22,11 +22,11 @@ import { BackgroundMark } from "./BackgroundMark";
 import { toolDuration } from "./toolGroups";
 import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
 import { useBlockWrap } from "./blockWrap";
-import { Lines, lineCount, PreviewMore, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
+import { Lines, lineCount, PreviewMore, SIDEWAYS_SCROLLER, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
 import { cleanText } from "./mcpCalls";
+import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { toolResult, type ToolResult } from "./toolResult";
 import { Markdown } from "./Markdown";
-import { useFold } from "./fold";
 import { WriteLabel, writeCall } from "./WriteLabel";
 import { rowFailed, toolFailure } from "./toolFailure";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
@@ -68,7 +68,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
       setReveal((count) => count + 1);
     },
   );
-  const fold = useFold(open);
+  const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const detailsId = useId();
   const tool = item.tool!;
   const hasDiff = Boolean(tool.diffs?.length);
@@ -148,7 +148,8 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
           className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
           aria-expanded={open}
           aria-controls={open ? detailsId : undefined}
-          onClick={() => setOpen((value) => !value)}
+          ref={fold.headerRef}
+          onClick={fold.toggle}
         >
           {content}
           <ChevronRight
@@ -163,7 +164,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
       <ToolFailureCause failure={failure} />
       {images.length > 0 && <ToolImages sources={images} />}
       {fold.present && (shell || files.length > 0 || body) && (
-        <div ref={fold.ref} className="cv-fold">
+        <div {...fold.bodyProps}>
           {shell ? (
             <ShellBlock
               id={detailsId}
@@ -171,6 +172,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
               output={failure?.output?.replace(/\n$/, "") ?? body}
               exitCode={failure?.exitCode ?? tool.exitCode}
               reveal={reveal}
+              live={running}
             />
           ) : files.length > 0 ? (
             <div id={detailsId}>
@@ -224,6 +226,7 @@ function ToolOutput({ id, result, reveal }: { id: string; result: ToolResult; re
           data-wrap={wrap}
           data-preview={preview.attribute}
           data-lang={result.lang === "json" ? "json" : undefined}
+          {...SIDEWAYS_SCROLLER}
         >
           {shown.cut && (
             <span className="cv-output-cut" aria-hidden="true">

@@ -34,6 +34,7 @@ mod idle;
 mod launch_roots;
 mod launchers;
 mod live_models;
+pub mod media_read;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 mod hosts;
 mod lifecycle;
@@ -55,8 +56,7 @@ mod prompt_line;
 mod queue;
 mod queue_edit;
 pub use digest::declared_sender;
-pub use queue::QueuedPrompt;
-pub use queue::supersede::key as supersede_key;
+pub use queue::{QueuedPrompt, supersede::key as supersede_key};
 mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
@@ -107,7 +107,7 @@ mod permissions;
 pub mod person;
 mod processes;
 mod pull_requests;
-mod questions;
+pub(crate) mod questions;
 mod remote_floor;
 mod remote_sandbox;
 pub use remote_sandbox::vm_host_peer_approves;
@@ -891,6 +891,11 @@ impl Hub {
                 false
             }
         };
+        // A closed session's log is not held open: its last records (`status`,
+        // then the agent's `stopped`) each close it again (`store.rs` Writers).
+        if session.status() == SessionStatus::Closed {
+            self.store.close_log(&session.id);
+        }
         {
             let mut m = session.meta.lock().unwrap();
             m.last_seq = seq;

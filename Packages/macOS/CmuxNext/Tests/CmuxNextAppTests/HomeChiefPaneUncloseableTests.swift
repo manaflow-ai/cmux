@@ -5,10 +5,10 @@ import CmuxNextTabs
 import Testing
 
 /// The Home Chief pane (the pinned left chat dock, `pinned-dock-v1`) cannot close (Lawrence 2026-10-20:
-/// "make it impossible to close home chief left hand side."). Its tab bar shows like every agent pane's
-/// (Leo 2026-10-21, HomeChiefPaneShowsTabBarTests). plans/cmux-next/home-chief-pane.md. The daemon
-/// refuses every close, move and new tab (cmux-tui `pinned_columns_tests.rs`); these cover what the
-/// app shows and asks.
+/// "make it impossible to close home chief left hand side"). Its tab bar shows like every agent pane's
+/// (HomeChiefPaneShowsTabBarTests), and it takes tabs dragged into it (Leo 2026-10-21: "JUST MAKE THE
+/// TAB THING SHOW UP ON THE MAIN PANE TOO"). plans/cmux-next/home-chief-pane.md. The daemon keeps the
+/// pinned tab (cmux-tui `pinned_columns_tests.rs`); these cover what the app shows and asks.
 @MainActor
 struct HomeChiefPaneUncloseableTests {
     static let home = DockColumn(edge: .left, mode: .docked, role: .agentChat, isPinned: true)
@@ -57,6 +57,23 @@ struct HomeChiefPaneUncloseableTests {
         guard case .pane("dock", _)? = allowed.view.dropTarget(at: CGPoint(x: dock.midX, y: dock.midY))?.target else {
             Issue.record("a pinned dock with allow_tabs refused a drop")
             return
+        }
+    }
+
+    /// Home's dock as the app makes it (`allow_tabs` on) takes a dragged tab, and every zone over it
+    /// joins the tab to the dock: the pinned dock never splits, so no edge previews a split there.
+    @Test func homesDockJoinsADroppedTabAndNeverSplits() throws {
+        var open = Self.home
+        open.allowsTabs = true
+        let screen = Screen(dock: open)
+        let dock = try #require(screen.view.geometry.panes["dock"])
+        for point in [CGPoint(x: dock.midX, y: dock.midY), CGPoint(x: dock.maxX - 4, y: dock.midY),
+                      CGPoint(x: dock.minX + 4, y: dock.midY), CGPoint(x: dock.midX, y: dock.maxY - 6)] {
+            let target = screen.view.dropTarget(at: point)?.target
+            guard case .pane("dock", .center)? = target else {
+                Issue.record("Home's dock did not join a drop at \(point): \(String(describing: target))")
+                continue
+            }
         }
     }
 

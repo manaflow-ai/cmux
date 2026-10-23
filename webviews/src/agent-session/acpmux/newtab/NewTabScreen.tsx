@@ -13,7 +13,12 @@ import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
 import { useSavedEnvironments } from "./savedEnvironments";
 import type { ComposerAttachment, DroppedKind, LinkItem } from "../attachments";
-import { AttachmentStrip, useAttachmentIntake, useSendWhenAttached } from "../composer/attachmentIntake";
+import {
+  AttachmentStrip,
+  backspacedAttachment,
+  useAttachmentIntake,
+  useSendWhenAttached,
+} from "../composer/attachmentIntake";
 import { DropOverlay } from "../composer/DropOverlay";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
@@ -225,12 +230,17 @@ export function NewTabScreen(props: Props) {
   const sections = screenSections(template);
   const widgets = props.pageWidgets ?? shownPageWidgets(template);
   // Claude Code desktop's new-session page (templates.ts stage, the Default template): the composer
-  // at the foot, the environment and suggestions cards over it. On Minimal with none of the stage's
-  // widgets on, the page is the plain one: the greeting and the composer.
-  const stage = sections.stage && (widgets.has("projects") || widgets.has("actions") || widgets.has("chats"));
-  // Nothing but the greeting and the composer (Minimal, Leo 2026-10-20): the composer sits about the
-  // window's middle.
-  const minimal = !stage && !widgets.has("actions") && !widgets.has("chats");
+  // at the foot, the environment and suggestions cards over it. On Minimal with neither the project
+  // card nor the chats on, the page is the plain one: the greeting and the composer, and with the
+  // quick actions on (the second dot, PageDots.tsx) New terminal, New browser tab and New chat as
+  // pills under it (Lucas 2026-10-22: "add the pills for "New terminal", "New browser", "New chat"
+  // back"), never the stage's card. Default, which always shows its cards, keeps its stage.
+  const stage =
+    sections.stage &&
+    (widgets.has("projects") || widgets.has("chats") || (template !== "minimal" && widgets.has("actions")));
+  // The greeting and the composer, and the pills when on (Minimal, Leo 2026-10-20): the composer sits
+  // about the window's middle.
+  const minimal = !stage && !widgets.has("chats");
   // Minimal's edit mode (right-click > Edit New Tab): its widgets wiggle, move and close.
   const onEditWidgets = template === "minimal" ? props.onEditWidgets : undefined;
   const editing = useWidgetEditing(onEditWidgets);
@@ -779,6 +789,12 @@ export function NewTabScreen(props: Props) {
         event.preventDefault();
         setShell(false);
       }
+      return;
+    }
+    const backspaced = backspacedAttachment(event, input.selectionStart === 0 && input.selectionEnd === 0, attachments);
+    if (backspaced) {
+      event.preventDefault();
+      setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
       return;
     }
     wholeSelection.current =
