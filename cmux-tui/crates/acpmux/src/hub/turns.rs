@@ -514,7 +514,7 @@ impl Hub {
                 turn_id: &turn_id,
                 control,
                 trust_gate,
-                error: agent_error.as_deref().unwrap_or(&e.message),
+                error: super::turn_errors::continuation_error(agent_error.as_deref(), &e.message),
             }),
             _ => None,
         };
@@ -558,7 +558,8 @@ impl Hub {
         if self.settled_by_shutdown.lock().unwrap().contains(turn_id) {
             return result;
         }
-        // A process that died without answering: say what it printed last.
+        // Apply queued stderr before classifying a dead process (a limit never resumes).
+        Self::drain_inbound(session).await;
         if let Err(e) = &mut result {
             let bare = e.message == "agent process closed"
                 || e.message == "Internal error"
@@ -619,10 +620,6 @@ impl Hub {
                 Some(_) => {}
             }
         }
-        // The agent's notifications before this answer (the reply text, the
-        // preview) are applied before the turn settles, so every record below
-        // and the chat activity it sends see them.
-        Self::drain_inbound(session).await;
         let git = super::turn_git::turn_git(session).await;
         match &result {
             Ok(v) => {
