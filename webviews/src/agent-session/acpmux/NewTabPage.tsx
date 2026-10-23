@@ -641,7 +641,7 @@ export function NewTabPage({
         {rows.length > 0 && (
           <div
             ref={attachList}
-            className="acpmux-omni"
+            className="acpmux-omni ui-popup ui-glass"
             id="acpmux-omni"
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="listbox"

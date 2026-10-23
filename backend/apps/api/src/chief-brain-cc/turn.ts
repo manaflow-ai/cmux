@@ -234,6 +234,9 @@ export async function ccTurn(b: ChiefBrainDO, id: string, blocks: ReadonlyArray<
     }
     // Counted from the turn's first start (a resumed turn does not get a new deadline).
     const deadline = (markAt(b, id, "submit") ?? Date.now()) + RUN_MS + 30_000
+    // Nothing keeps this object in memory while the machine works: a job at the deadline brings an evicted
+    // object back (onStart resumes this turn), so the turn always ends, with the reply when it is ready.
+    await b.schedule(`cc-wake:${id}`, "drain", deadline + 5_000)
     let r: CcResult | null = null
     while (r === null && Date.now() < deadline) {
       let timer: ReturnType<typeof setTimeout> | undefined
@@ -246,6 +249,9 @@ export async function ccTurn(b: ChiefBrainDO, id: string, blocks: ReadonlyArray<
       // The notes post may be lost (or this object restarted): the result file is the truth.
       r = await Promise.race([result, readOut(b, vm, id)])
     }
+    // A turn resumed after its deadline (the object was evicted and came back late) never polled: the machine
+    // may have finished long ago, so its result file is read once before the turn counts as timed out.
+    r ??= await readOut(b, vm, id)
     if (r === null) return { ok: false, reason: "timeout" }
     return finishTurn(b, id, r)
   } catch (e) {
