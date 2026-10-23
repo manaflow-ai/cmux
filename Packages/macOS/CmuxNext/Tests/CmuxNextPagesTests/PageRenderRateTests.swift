@@ -105,7 +105,11 @@ struct PageRenderRateTests {
         lowPowerMode.override = true
         #expect(try rendersNear60(full) == false)
     }
+}
 
+/// The rate rule alone: no page and no file root (the suite above makes a root per test).
+@MainActor
+struct PageRenderRateRuleTests {
     @Test(arguments: [(PageRenderRate.display, false, true), (.display, true, false), (.full, true, true),
                       (.full, false, true), (.capped, false, false), (.capped, true, false)])
     func theRateRule(rate: PageRenderRate, lowPowerMode: Bool, fullRate: Bool) {
