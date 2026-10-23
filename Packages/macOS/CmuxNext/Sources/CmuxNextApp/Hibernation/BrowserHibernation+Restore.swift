@@ -70,7 +70,12 @@ extension BrowserHibernation {
         }
         // The new page starts unmuted: a tab muted when it slept wakes muted.
         if asleep.state.isAudioMuted, let muting = page as? BrowserAudioMuting { muting.setAudioMuted(true) }
+        // The picture the placeholder shows (decoded) stays over the new page until it draws: a
+        // WebKit page is swapped in the turn its tab shows, before any frame of the placeholder.
+        // Read before the swap takes the placeholder out of its window.
+        let picture = asleep.wakePicture
         cache.swapPage(key, with: page, asleep: asleep.state)
+        cache.browsers[key]?.chrome.holdPicture(whileWaking: picture)
         cache.dormantTabs.set(key, false)
         // The live page now; a later sleep takes a new picture.
         snapshots.remove(key)
