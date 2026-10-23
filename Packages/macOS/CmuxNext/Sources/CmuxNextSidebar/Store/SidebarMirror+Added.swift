@@ -1,9 +1,11 @@
 import Foundation
 
 extension SidebarMirror {
-    /// The items `ops` (a JSON array, as the mirror stamped it) add, each as its record: `item.add` names the id and
+    /// The built-ins `ops` (a JSON array, as the mirror stamped it) add, each as its record: `item.add` names the id and
     /// the body; where it sits comes from the rows (`SidebarDocRecords.adding`). A change's rows hold such an item at
-    /// once; the confirmed records only after its batch.
+    /// once; the confirmed records only after its batch. Only a built-in (the Chief) draws before its echo: its record
+    /// takes no edit until then (`LayoutOpPlanner` plans edits over the confirmed records), so it is never stale. Any
+    /// other item draws at its echo, as before.
     nonisolated static func addedItems(in ops: Data) -> [String: SidebarDocItem] {
         guard let list = (try? JSONSerialization.jsonObject(with: ops)) as? [[String: Any]] else { return [:] }
         var items: [String: SidebarDocItem] = [:]
@@ -12,7 +14,8 @@ extension SidebarMirror {
             item["section"] = ""
             guard let data = try? JSONSerialization.data(withJSONObject: item),
                   let wire = try? JSONDecoder().decode(SidebarDocWire.Item.self, from: data) else { continue }
-            items[id] = wire.record
+            let record = wire.record
+            if case .builtin = record.body { items[id] = record }
         }
         return items
     }
@@ -43,8 +46,8 @@ extension SidebarDocRecords {
 }
 
 extension SidebarDocStore {
-    /// The records as the sidebar draws them (`SidebarDocRecords.adding`): an action finds a Chief dragged in before
-    /// the daemon answered. One mirror call while a change that added an item is in flight; none otherwise.
+    /// The records as the sidebar draws them (`SidebarDocRecords.adding`): an action finds, moves and removes a Chief
+    /// dragged in before the daemon answered. One mirror call while a change that added an item is in flight; none otherwise.
     var drawnRecords: SidebarDocRecords {
         guard let pending = mirror?.added, !pending.isEmpty, let rows = rows(SidebarViewRequest(live: Array(lastLive))) else { return records }
         return records.adding(pending: pending, drawnIn: rows)

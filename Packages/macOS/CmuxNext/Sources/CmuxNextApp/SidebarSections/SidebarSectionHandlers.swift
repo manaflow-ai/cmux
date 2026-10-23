@@ -91,6 +91,8 @@ enum SidebarSectionHandlers {
             guard let builtIn = SidebarBuiltIn(rawValue: name) else { throw ActionFailure(message: SidebarSectionStrings.noSuchItem) }
             // Home and the App Store are apps now (R63/R64).
             let ref = SidebarLayoutDocument.firstPartyApps[builtIn].map(LayoutItemRef.app) ?? LayoutItemRef.builtIn(builtIn)
+            // One Chief: one placed already, drawn before its echo too (a second quick drag in, Get in another window), is kept.
+            if ref == .builtIn(.chief), SidebarDocStore.current?.placesItem(with: ref) == true { return nil }
             if let sectionName = invocation["section"]?.stringValue, !sectionName.isEmpty {
                 let section = try SidebarSectionResolve.section(sectionName, in: doc)
                 return .itemAdd(LayoutItem(id: .mint(), ref: ref), section: section.id, index: Int.max)
