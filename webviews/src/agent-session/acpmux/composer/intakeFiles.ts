@@ -5,7 +5,6 @@
 // host's record of the drop or paste, `chat.attach.dropped`), else to the copy the chat's host
 // saves when it saves files (`chat.upload`, cloudUploads.ts). A folder has no copy.
 import {
-  MAX_ATTACHMENTS,
   linkAttachment,
   linkItems,
   readAttachments,
@@ -22,8 +21,6 @@ import { MAX_UPLOAD_FILE_BYTES, MAX_UPLOAD_TOTAL_BYTES, type UploadResult } from
 const LINKABLE = new Set<AttachmentError["reason"]>(["unsupported", "tooLarge", "imagesUnsupported"]);
 
 export type IntakeOptions = {
-  /// The chips the composer already holds.
-  held: number;
   allowImages: boolean;
   /// Where each file of the batch is on this Mac, in order, for a chat on this Mac (`chat.attach.dropped`);
   /// undefined or another count: the host does not know (the batch is not its drop or paste).
@@ -41,23 +38,20 @@ export async function intakeFiles(
   // Asked before the files are read (decoding and scaling photos can take seconds): the host's
   // record of the drop or paste lasts only a few.
   const paths = options.localPaths?.(files).catch(() => undefined);
-  const read = await readAttachments(files, options.held, options.allowImages);
-  const local = await localLinks(files, read.errors, MAX_ATTACHMENTS - options.held - read.attachments.length, paths);
+  const read = await readAttachments(files, options.allowImages);
+  const local = await localLinks(files, read.errors, Number.POSITIVE_INFINITY, paths);
   const errors = read.errors.filter((refused) => !local.linked.has(refused));
-  const room = MAX_ATTACHMENTS - options.held - read.attachments.length - local.linked.size;
+  const room = Number.POSITIVE_INFINITY;
   const sendable = options.upload ? savable(errors, room) : [];
   const sent = sendable.length > 0 ? await options.upload?.(sendable.map((refused) => refused.file)) : undefined;
   const linked = [...local.linked.values()];
   if (sent && "error" in sent) return { attachments: [...read.attachments, ...linked], error: { text: sent.error } };
   const saved = sent ? sent.paths.map((path, index) => savedAttachment(path, sendable[index]?.file.name ?? "")) : [];
-  // What the host did not link or save keeps its refusal; one it would have linked or saved but for
-  // the composer's chip limit is refused for that limit.
-  const full = sent !== undefined && saved.length >= room;
+  // What the host did not link or save keeps its refusal.
   const [first] = errors.filter((refused) => !sent || !sendable.includes(refused));
   const attachments = [...read.attachments, ...linked, ...saved];
   if (!first) return { attachments };
-  const overLimit = (local.full && links(first)) || (full && saves(first));
-  return { attachments, error: { name: first.name, reason: overLimit ? "tooMany" : first.reason } };
+  return { attachments, error: { name: first.name, reason: first.reason } };
 }
 
 /// The refused files of the batch that go as links to where they are on this Mac, by the host's
