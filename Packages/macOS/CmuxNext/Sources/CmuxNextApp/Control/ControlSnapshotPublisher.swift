@@ -10,15 +10,22 @@ import os
 ///
 /// The build runs inside Observation tracking, so any daemon record,
 /// window state, focus, or settings property it read schedules the next
-/// publish; key-window changes (not observable) and every main-actor work
-/// queue frame invalidate explicitly. Readers never touch main-actor state:
-/// they get the last published value.
+/// publish; every main-actor work queue frame and a window closing
+/// invalidate explicitly. Key and activation changes (not observable) move
+/// only the window facts (which window is key, the focus): they republish
+/// those, O(windows), never every workspace (a Cmd-Tab, the palette's panel
+/// taking the keys; perf-lead.md cause 6). Readers never touch main-actor
+/// state: they get the last published value.
 @MainActor
 final class ControlSnapshotPublisher {
     private let router: ControlRouter
     private unowned let services: AppServices
     private let frames: any ControlFrameSource
     private var isScheduled = false
+    /// The scheduled frame rebuilds everything (`publishNow`).
+    private var needsFull = false
+    /// The scheduled frame republishes the window facts (`publishWindows`).
+    private var needsWindows = false
     /// A model-change publish waits until then (`modelChanged`); nil publishes on the next frame.
     private var notBefore: ContinuousClock.Instant?
     private var lastPublish = ContinuousClock.now
@@ -43,10 +50,14 @@ final class ControlSnapshotPublisher {
         // or selection is in the snapshot before the next request is read.
         router.workQueue.setAfterFrame { [weak self] in self?.publishNow() }
         let center = NotificationCenter.default
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.willCloseNotification,
+        // A window that closes leaves the window list: everything.
+        observers.append(center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.invalidate() } // main-proof: observer on queue: .main
+        })
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
                      NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.invalidate() } // main-proof: observer on queue: .main
+                MainActor.assumeIsolated { self?.invalidateWindows() } // main-proof: observer on queue: .main
             })
         }
         publishNow()
@@ -62,14 +73,30 @@ final class ControlSnapshotPublisher {
     /// Schedules one publish on the next frame (coalesced); with `notBefore`,
     /// on the first frame from then on, unless a plain invalidate comes first.
     func invalidate(notBefore: ContinuousClock.Instant? = nil) {
-        self.notBefore = notBefore.flatMap { new in isScheduled ? self.notBefore.map { min($0, new) } : new }
+        self.notBefore = notBefore.flatMap { new in isScheduled && needsFull ? self.notBefore.map { min($0, new) } : new }
+        needsFull = true
+        scheduleFrame()
+    }
+
+    /// Schedules the window facts (key window, focus) on the next frame, coalesced with any
+    /// other publish: what a key or activation notice changes.
+    private func invalidateWindows() {
+        needsWindows = true
+        scheduleFrame()
+    }
+
+    private func scheduleFrame() {
         guard !isScheduled, !isStopped else { return }
         isScheduled = true
         frames.scheduleFrame { [weak self] in
             guard let self else { return }
             self.isScheduled = false
-            if let wait = self.notBefore, ContinuousClock.now < wait, !self.router.snapshots.hasWaiters { return self.invalidate(notBefore: wait) }
-            self.publishNow()
+            if self.needsFull, let wait = self.notBefore, ContinuousClock.now < wait, !self.router.snapshots.hasWaiters {
+                // The model publish waits; a key change in the meantime still shows on this frame.
+                if self.needsWindows { self.publishWindows() }
+                return self.invalidate(notBefore: wait)
+            }
+            if self.needsFull { self.publishNow() } else if self.needsWindows { self.publishWindows() }
         }
     }
 
@@ -85,6 +112,7 @@ final class ControlSnapshotPublisher {
         guard !isStopped else { return }
         let started = ContinuousClock.now
         (lastPublish, notBefore) = (started, nil)
+        (needsFull, needsWindows) = (false, false)
         let (topology, settings, tabSearch) = withObservationTracking {
             (Self.topology(services, cache: workspaceInfos), services.settings?.snapshot.root, TabSearchFactsBuilder.facts(services))
         } onChange: { [weak self] in
@@ -104,10 +132,28 @@ final class ControlSnapshotPublisher {
         }
     }
 
+    /// Republishes the window facts only (``windowInfos(_:cache:)``, ``focus(_:)``): which window
+    /// is key or visible and where the focus is, O(windows). The workspaces, Search Tabs facts and
+    /// settings stay as the last full publish built them; their tracking from that publish is still
+    /// armed, so a change of anything they read schedules a full one. A window that came or went
+    /// since then publishes everything; unchanged facts publish nothing.
+    private func publishWindows() {
+        needsWindows = false
+        guard !isStopped else { return }
+        let current = router.snapshots.current.topology
+        let windows = Self.windowInfos(services, cache: workspaceInfos)
+        guard windows.map(\.id) == current.windows.map(\.id) else { return publishNow() }
+        let focus = Self.focus(services)
+        guard windows != current.windows || focus != current.focus else { return }
+        router.snapshots.publish { snapshot in
+            snapshot.topology.windows = windows
+            snapshot.topology.focus = focus
+        }
+    }
+
     /// The topology of every machine, window and focus as of now (also
     /// what Search Tabs lists in the palette).
     static func topology(_ services: AppServices, cache: ControlWorkspaceInfoCache? = nil) -> ControlTopology {
-        let windows: WindowManager = services.windows
         var topology = ControlTopology(store: services.daemon.store, selectedTab: { [services] pane in
             services.paneController(for: pane)?.selectedTab?.id
         }, pages: services.controlPageFacts, cache: cache)
@@ -135,7 +181,19 @@ final class ControlSnapshotPublisher {
         if !topology.isLoaded, topology.daemonFailure != nil, machines.remoteDaemons.contains(where: { $0.store.isLoaded }) {
             topology.isLoaded = true
         }
-        topology.windows = windows.controllers.map { controller in
+        topology.windows = windowInfos(services, cache: cache)
+        topology.focus = focus(services)
+        cache?.retain(services.daemon.store.workspaces
+            + machines.remoteDaemons.filter { $0.store.isLoaded }.flatMap { $0.store.workspaces })
+        return topology
+    }
+
+    /// Every window's control facts: its workspaces, whether it is key, visible or kept off
+    /// screen, its focused pane, the workspaces its sidebar shows. O(windows) when the memos hold.
+    static func windowInfos(_ services: AppServices, cache: ControlWorkspaceInfoCache?) -> [ControlWindowInfo] {
+        let windows: WindowManager = services.windows
+        let machines = services.machines
+        let infos: [ControlWindowInfo] = windows.controllers.map { controller in
             let members = windows.registry.members(of: controller.state.id)
             var info = ControlWindowInfo(
                 id: controller.state.id,
@@ -160,16 +218,17 @@ final class ControlSnapshotPublisher {
             return info
         }
         cache?.retainMemos(Set(windows.controllers.map { "window:" + $0.state.id }))
-        if let active = windows.active {
-            let pane = active.focusedPane
-            // The strip's selected tab: a daemon tab, or an internal page
-            // (Settings, Keyboard Shortcuts) or session browser tab the
-            // daemon does not hold, as debug.focus reports it (nxdog53).
-            topology.focus = ControlFocus(windowID: active.state.id, workspaceID: active.state.workspaceID,
-                                          paneID: pane?.pane.id, tabID: pane?.selectedTab?.id ?? pane?.stripModel.selectedID?.rawValue)
-        }
-        cache?.retain(services.daemon.store.workspaces
-            + machines.remoteDaemons.filter { $0.store.isLoaded }.flatMap { $0.store.workspaces })
-        return topology
+        return infos
+    }
+
+    /// Where the keyboard is: the active window, its workspace, focused pane and selected tab.
+    static func focus(_ services: AppServices) -> ControlFocus {
+        guard let active = services.windows.active else { return ControlFocus() }
+        let pane = active.focusedPane
+        // The strip's selected tab: a daemon tab, or an internal page
+        // (Settings, Keyboard Shortcuts) or session browser tab the
+        // daemon does not hold, as debug.focus reports it (nxdog53).
+        return ControlFocus(windowID: active.state.id, workspaceID: active.state.workspaceID,
+                            paneID: pane?.pane.id, tabID: pane?.selectedTab?.id ?? pane?.stripModel.selectedID?.rawValue)
     }
 }
