@@ -78,6 +78,9 @@ const RUNS_ENV: &[&str] = &[
     "LESSCLOSE",
 ];
 
+/// How long the repository probe may take before the command asks instead.
+pub(crate) const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// The environment the harness runs its shell commands with.
 pub(crate) type Env = BTreeMap<String, String>;
 
@@ -90,6 +93,23 @@ fn env_runs_nothing(env: &Env) -> bool {
             || matches!(k.as_str(), "LD_PRELOAD" | "LD_AUDIT" | "DYLD_INSERT_LIBRARIES")
             || (k.starts_with("GIT_") && !HARMLESS_GIT_ENV.contains(&k.as_str())))
     })
+}
+
+/// Whether the shell that runs the script is a system one. Claude Code runs `$SHELL`, and Codex
+/// a bare `bash` (or `sh`, `zsh`) that its PATH finds, whose `-c` script cmux-codex-acp unwraps
+/// before this sees it: `$SHELL` must name a system shell, and each of those names must be
+/// found first in a system directory, or not at all.
+fn shells_are_system(env: &Env) -> bool {
+    let system = |p: &str| {
+        Path::new(p).parent().and_then(Path::to_str).is_some_and(|d| TRUSTED_DIRS.contains(&d))
+    };
+    env.get("SHELL").is_none_or(|s| system(s))
+        && ["bash", "sh", "zsh"].iter().all(|name| {
+            let first = env.get("PATH").and_then(|path| {
+                std::env::split_paths(path).map(|dir| dir.join(name)).find(|p| p.exists())
+            });
+            first.is_none_or(|p| p.to_str().is_some_and(system))
+        })
 }
 
 /// Where the shell finds the bare command `name` with `env`'s PATH: the first executable
@@ -161,7 +181,7 @@ pub(crate) fn request_is_read_only(request: &Value, session_cwd: &Path, env: &En
         },
         _ => return false,
     };
-    if !env_runs_nothing(env) {
+    if !env_runs_nothing(env) || !shells_are_system(env) {
         return false;
     }
     let found = |name: &str| BUILTINS.contains(&name) || resolve(name, env).is_some();
@@ -923,6 +943,21 @@ mod tests {
         assert!(reads("ls", &with_path(&tools)));
         assert!(reads("pwd", &Env::new()), "a builtin needs no PATH");
         assert!(!reads("ls", &Env::new()), "no PATH finds no ls");
+        // The shell itself: an agent bash found first on PATH, or a $SHELL outside the system
+        // directories, asks even for a builtin.
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let fake = tools.join("bash");
+            std::fs::write(&fake, "#!/bin/sh\n").unwrap();
+            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(!reads("pwd", &with_path(&tools)));
+            std::fs::remove_file(&fake).unwrap();
+        }
+        let mut shell = system_env();
+        shell.insert("SHELL".to_owned(), tools.join("zsh").display().to_string());
+        assert!(!reads("pwd", &shell));
+        shell.insert("SHELL".to_owned(), "/bin/sh".to_owned());
+        assert!(reads("pwd", &shell));
         {
             use std::os::unix::fs::PermissionsExt;
             let fake = tools.join("ls");

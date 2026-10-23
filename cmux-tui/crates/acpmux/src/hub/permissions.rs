@@ -440,11 +440,14 @@ impl Hub {
                     env.insert("PATH".to_owned(), path.to_string_lossy().into_owned());
                 }
                 let (request, cwd) = (request.clone(), meta.cwd);
-                tokio::task::spawn_blocking(move || {
+                // A probe that takes too long asks; its thread finishes on its own.
+                let probe = tokio::task::spawn_blocking(move || {
                     super::shell_readonly::request_is_read_only(&request, &cwd, &env)
-                })
-                .await
-                .unwrap_or(false)
+                });
+                matches!(
+                    tokio::time::timeout(super::shell_readonly::PROBE_TIMEOUT, probe).await,
+                    Ok(Ok(true))
+                )
             };
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
@@ -502,7 +505,12 @@ impl Hub {
                             || (edits && tool_kind == "edit")
                         {
                             pick(&["allow_once", "allow_always"])
-                        } else if tool_kind == "execute" && shell_reads {
+                        } else if tool_kind == "execute"
+                            && shell_reads
+                            && policy == PermissionPolicy::ApproveReads
+                        {
+                            // Judged under approve-reads before the lock; the policy read here
+                            // must still be it.
                             // A shell command that only reads (`shell_readonly.rs`), once:
                             // allow_always would widen later asks and set the harness grant.
                             pick(&["allow_once"])
