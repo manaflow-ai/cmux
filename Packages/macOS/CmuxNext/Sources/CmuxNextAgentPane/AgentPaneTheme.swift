@@ -37,7 +37,7 @@ enum AgentPaneTheme {
             "borders": Borders.current.mode.rawValue,
             // Transcript response focus outlines follow the same optional focus-ring setting.
             "focusRingEnabled": DesignSettings.shared.focusRing.enabled,
-            // Debug Settings agent.chatWidth; AppServices.observeBorders pushes it again on a change.
+            // Debug Settings agent.chatWidth; AppServices.observeWindowRepaints pushes it again on a change.
             "chatWidth": AgentPaneTunables.chatWidth.value.rawValue,
             // Debug Settings agentPane.debug.codexToolRuns, pushed again on a change as chatWidth is.
             "codexToolRuns": AgentPaneTunables.codexToolRuns.value,
