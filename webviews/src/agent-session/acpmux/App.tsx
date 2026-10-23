@@ -45,7 +45,7 @@ import { postNative } from "./native";
 import { NativeError } from "./nativeError";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
-import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost } from "./NewTabPage";
+import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabChat, type NewTabHost } from "./NewTabPage";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
@@ -7272,7 +7272,7 @@ function AcpmuxPane() {
     }
   }, []);
   /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
-  const chatFromNewTab = (text: string, cwd?: string, attachments: ComposerAttachment[] = []) => {
+  const chatFromNewTab = (text: string, cwd?: string, attachments: ComposerAttachment[] = [], chat?: NewTabChat) => {
     const inherited = newTab?.cwd;
     setNewTab(undefined);
     const start = (folder?: string) =>
@@ -7283,11 +7283,47 @@ function AcpmuxPane() {
           heldBack.current = holdNewTabAttachments(heldBack.current, attachments);
           return setProjectDraft(folder);
         }
-        const started = folder ? await callNative("chat.new", { cwd: folder }) : undefined;
+        const asks = text.length > 0 || attachments.length > 0;
+        const message = { text, ...(attachments.length ? { attachments } : {}) };
         // A chat the person started here with a prompt makes its project the default.
-        if (started && text && !directClient.current?.startsOnSend) rememberStartedProject(folder, callNative);
-        if (text || attachments.length)
-          await callNative("chat.send", { text, ...(attachments.length ? { attachments } : {}) });
+        const remembers = !!folder && !!text && !directClient.current?.startsOnSend;
+        if (chat) {
+          // The page's harness and model go with it: the picks it made sit on the deferred chat
+          // that harness opened, and a bare `chat.new {cwd}` would start the default one instead.
+          // As on the New Tab screen (screenActions.ts), the prompt goes in the same turn as the
+          // switch, which queues it: sent after `chat.new` settled, a folder trust refusal left the
+          // switch with nothing queued.
+          void callNative("chat.new", { ...chat, ...(folder ? { cwd: folder } : {}) })
+            .then((started) => {
+              if (started && remembers) rememberStartedProject(folder, callNative);
+            })
+            .catch(() => undefined);
+          if (asks) await callNative("chat.send", message);
+          return;
+        }
+        // No agent named (acpmux listed none yet): a bare start in the folder, then the prompt into
+        // the chat it started. Not in the same turn: with no switch to queue on, a send while the
+        // start is refused would start another chat outside the folder. A refused start gives the
+        // prompt to the chat composer, in that folder, as a fresh chat's own first send keeps it:
+        // a trust refusal asks the folder's question and Trust sends it, once (cx-nn3e P0b).
+        let started: unknown;
+        try {
+          started = folder ? await callNative("chat.new", { cwd: folder }) : undefined;
+        } catch (error) {
+          if (!asks) return;
+          if (folder) setProjectDraft(folder);
+          // Back in the chat composer ahead of anything typed there while the start was out, never
+          // in its place (Composer `restore`); a composer not mounted yet gets it when it mounts.
+          if (composerHandle.current) composerHandle.current.restore(text, attachments);
+          else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
+          if (isTrustRefusal(error)) {
+            holdPrompt.current?.();
+            trustRefused.current?.(error, () => composerHandle.current?.send());
+          }
+          return;
+        }
+        if (started && remembers) rememberStartedProject(folder, callNative);
+        if (asks) await callNative("chat.send", message);
       })().catch(() => undefined);
     // The page's own folder is inherited (`~` in a fresh workspace): the chat starts in its start
     // folder. Another project the user picked there goes through the host first.
@@ -8474,7 +8510,10 @@ function AcpmuxPane() {
               location={newTab.location}
               omnibar={newTab.omnibar}
               projects={newTabProjects}
-              chips={ComposerChips}
+              // The same deferred chips as the other templates: a pick before the chat starts opens
+              // the page's chat behind it, as on the New Tab screen, never the active chat's path.
+              chips={registryChips ?? NewTabComposerChips}
+              {...(newTab.lastAgent ? { lastAgent: newTab.lastAgent } : {})}
               // A terminal or browser tab opens at once; a chat waits for acpmux (cx-hnpxh).
               onSubmit={newTabPageSubmit({ callNative, whenHandshaken, startChat: chatFromNewTab })}
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
