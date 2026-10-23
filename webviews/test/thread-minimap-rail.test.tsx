@@ -147,13 +147,9 @@ const pointer = (type: string, target: Element, init: Record<string, unknown> = 
 const enter = (index: number) => pointer("pointerover", tick(index), { relatedTarget: document.body });
 const leave = (index: number) => pointer("pointerout", tick(index), { relatedTarget: document.body });
 const advance = (ms: number) => act(async () => void jest.advanceTimersByTime(ms));
-/// The top of a mounted row in the thread, from its transform.
+/// The place of a mounted row in the thread: its `top` less the thread's 16 px top padding.
 const rowTop = (id: string) =>
-  Number(
-    /translateY\(([\d.]+)px\)/.exec(
-      document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${id}"]`)!.style.transform,
-    )?.[1],
-  );
+  Number.parseFloat(document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${id}"]`)!.style.top) - 16;
 /// Where a jump to turn `index` leaves the scroller: the prompt's bubble 35 px below the viewport
 /// top (the thread pads its rows 16 px down).
 const landing = (index: number) => {
