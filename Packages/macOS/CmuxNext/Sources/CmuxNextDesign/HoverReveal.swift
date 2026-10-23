@@ -54,11 +54,13 @@ public final class HoverReveal {
         }
 
         // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+        // Reads Sendable state only; the reveal's change runs on the main thread, inline when the hold is
+        // dropped there (as before), a hop from any other thread (that release was skipped before, and
+        // the views stayed shown).
         nonisolated deinit {
-            guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-            MainActor.assumeIsolated {
-                release()
-            }
+            guard !isReleased, let owner else { return }
+            let generation = generation
+            MainDelivery().run { owner.endHold(generation: generation) }
         }
     }
 
@@ -90,6 +92,8 @@ public final class HoverReveal {
     public var onStateChange: ((HoverRevealState) -> Void)?
 
     public private(set) weak var region: NSView?
+    /// The region's identity, kept for the deinit (the weak `region` may read nil by then).
+    private let regionKey: ObjectIdentifier
     private var views: [ObjectIdentifier: Weak] = [:]
     /// Views whose keyboard focus reveals this region, without this reveal
     /// owning their alpha (`watchFocus(in:)`).
@@ -110,8 +114,9 @@ public final class HoverReveal {
     ///   `setPointerInside`; focus and window tracking still apply.
     public init(region: NSView, tracking: NSTrackingArea.Options = .activeAlways, tracksPointer: Bool = true) {
         self.region = region
-        probe = HoverRevealProbe(tracking: tracking, tracksPointer: tracksPointer)
         let key = ObjectIdentifier(region)
+        regionKey = key
+        probe = HoverRevealProbe(tracking: tracking, tracksPointer: tracksPointer)
         if let other = Self.regionOwners[key]?.value, other !== self {
             Self.conflict("region already has a HoverReveal")
         } else {
@@ -124,18 +129,38 @@ public final class HoverReveal {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Reads Sendable state only (the probe and the registry keys); the view and registry work runs on the
+    // main thread, inline when the reveal is released there (as before), a hop from any other thread
+    // (skipped before: the probe stayed in the region). By now every weak reference to this reveal reads
+    // nil, so under its keys the released entries are the ones whose reveal reads nil (an entry another
+    // reveal claimed since then stays).
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
+        let probe = probe
+        let keys = RegistryKeys(views: Array(views.keys), focusViews: Array(focusViews.keys), region: regionKey)
+        MainDelivery().run {
             probe.removeFromSuperview()
-            for key in views.keys where Self.viewOwners[key]?.value === self { Self.viewOwners[key] = nil }
-            for key in focusViews.keys {
-                Self.focusWatchers[key]?.removeAll { $0.value == nil || $0.value === self }
-                if Self.focusWatchers[key]?.isEmpty == true { Self.focusWatchers[key] = nil }
-            }
-            if let region, Self.regionOwners[ObjectIdentifier(region)]?.value === self {
-                Self.regionOwners[ObjectIdentifier(region)] = nil
-            }
+            HoverReveal.dropReleasedEntries(under: keys)
+        }
+    }
+
+    /// The registry keys a reveal claimed, read in its deinit.
+    private struct RegistryKeys: Sendable {
+        let views: [ObjectIdentifier]
+        let focusViews: [ObjectIdentifier]
+        let region: ObjectIdentifier
+    }
+
+    /// Drops the view, region and focus-watcher entries under `keys` whose reveal is gone (a reveal's
+    /// deinit). The view and region registries had no other removal for a released reveal, so they grew
+    /// with every pane and tab strip that closed.
+    private static func dropReleasedEntries(under keys: RegistryKeys) {
+        for key in keys.views where viewOwners[key].map({ $0.value == nil }) == true { viewOwners[key] = nil }
+        if regionOwners[keys.region].map({ $0.value == nil }) == true { regionOwners[keys.region] = nil }
+        for key in keys.focusViews {
+            guard let watchers = focusWatchers[key] else { continue }
+            let live = watchers.filter { $0.value != nil }
+            guard live.count != watchers.count else { continue }
+            focusWatchers[key] = live.isEmpty ? nil : live
         }
     }
 
@@ -251,7 +276,7 @@ public final class HoverReveal {
         if assertsOnConflict { assertionFailure("HoverReveal: \(message)") }
     }
 
-    private struct Weak {
+    private struct Weak: Sendable {
         weak var value: NSView?
         init(_ value: NSView) { self.value = value }
     }
@@ -360,11 +385,9 @@ private final class HoverRevealProbe: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Sendable cleanup only (`Task.cancel()`), so it runs on whatever thread releases the probe.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            closeObserver?.cancel()
-        }
+        closeObserver?.cancel()
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }

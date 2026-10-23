@@ -17,7 +17,9 @@ public final class LowPowerMode {
 
     private var systemEnabled: Bool
     private let read: () -> Bool
-    fileprivate var handlers: [UUID: (Bool) -> Void] = [:]
+    /// The registered observations, weakly: one that is released stops its calls without a deinit
+    /// (it deallocates with its handler; its entry reads nil and goes at the next change).
+    private var observations: [ObjectIdentifier: WeakObservation] = [:]
     private var notifications: Task<Void, Never>?
 
     /// Follows `read` each time `center` posts a power state change.
@@ -42,50 +44,52 @@ public final class LowPowerMode {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Sendable cleanup only (`Task.cancel()`), so it runs on whatever thread releases this object.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            notifications?.cancel()
-        }
+        notifications?.cancel()
     }
 
     /// Calls `handler` with the new value each time Low Power Mode turns on
     /// or off, until the returned observation is released or cancelled.
     public func observe(_ handler: @escaping (Bool) -> Void) -> LowPowerModeObservation {
-        let id = UUID()
-        handlers[id] = handler
-        return LowPowerModeObservation(source: self, id: id)
+        let observation = LowPowerModeObservation(source: self, handler: handler)
+        observations[ObjectIdentifier(observation)] = WeakObservation(value: observation)
+        return observation
+    }
+
+    fileprivate func stop(_ observation: LowPowerModeObservation) {
+        observations[ObjectIdentifier(observation)] = nil
     }
 
     private func update() {
         let enabled = override ?? systemEnabled
         guard enabled != isEnabled else { return }
         isEnabled = enabled
-        for handler in handlers.values { handler(enabled) }
+        observations = observations.filter { $0.value.value != nil }
+        // Every live observation, held for the whole pass: a handler that cancels another one does not
+        // skip it in this pass.
+        for observation in observations.values.compactMap(\.value) { observation.handler(enabled) }
     }
 }
 
-/// One `LowPowerMode.observe` registration; releasing it stops the calls.
+/// One `LowPowerMode.observe` registration; releasing it (on any thread) or ``cancel()`` stops the calls.
 @MainActor
 public final class LowPowerModeObservation {
     private weak var source: LowPowerMode?
-    private let id: UUID
+    fileprivate let handler: (Bool) -> Void
 
-    fileprivate init(source: LowPowerMode, id: UUID) {
+    fileprivate init(source: LowPowerMode, handler: @escaping (Bool) -> Void) {
         self.source = source
-        self.id = id
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            cancel()
-        }
+        self.handler = handler
     }
 
     /// Stops the calls.
     public func cancel() {
-        source?.handlers[id] = nil
+        source?.stop(self)
     }
+}
+
+/// A registered observation, held weakly by its ``LowPowerMode``.
+private struct WeakObservation {
+    weak var value: LowPowerModeObservation?
 }
