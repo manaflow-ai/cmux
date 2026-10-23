@@ -108,8 +108,8 @@ export class SubagentFold {
     if (owner) {
       // What it does now is its newest call: a later update of an older call (its end) keeps it.
       const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
-      // A nested subagent's Agent call answers with its agentId too.
-      if (call && this.spawnCalls.has(call)) this.readAgentId(call, update);
+      // A nested subagent's Agent call says its agentId and worktree too.
+      if (call && this.spawnCalls.has(call)) this.readSpawnCall(call, update);
       // A call met first through its update (a harness that sends no tool_call) is new too.
       const tool = update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update";
       if (tool && call && (update.sessionUpdate === "tool_call" || !this.calls.has(`${owner.id}\u0000${call}`))) {
