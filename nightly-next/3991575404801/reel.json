@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "build": "3991575404801",
+  "notes": "notes/3991575404801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24352,
+      "title": "cmux NEXT: no \"Bring your stuff to cmux\" import cards on the New Tab page",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/24352/ba9f8682/next-chief-settings-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "ba9f8682",
+      "tour": "chief-settings"
+    }
+  ]
+}
