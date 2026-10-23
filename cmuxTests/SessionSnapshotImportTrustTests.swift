@@ -422,7 +422,121 @@ struct SessionSnapshotImportTrustTests {
             restored.windows.first?.tabManager.workspaces.reduce(0) { $0 + $1.panels.count }
                 == SessionPersistencePolicy.maxPanelsPerSnapshot
         )
-        #expect(report.droppedPanelCount == 512)
+        // Every panel that won't restore is counted, including the ones the
+        // per-workspace cap cut: 9 x 4,097 offered, 4,096 kept.
+        #expect(report.droppedPanelCount == 9 * (SessionPersistencePolicy.maxPanelsPerSnapshot + 1)
+            - SessionPersistencePolicy.maxPanelsPerSnapshot)
+    }
+
+    @Test("panels the per-workspace cap cuts are reported as dropped")
+    func perWorkspaceCapCountsDroppedPanels() throws {
+        let panels = (0..<(SessionPersistencePolicy.maxPanelsPerWorkspace + 88)).map { _ in
+            Self.panel(terminal: SessionTerminalPanelSnapshot())
+        }
+        var workspace = Self.workspace(panels: panels, layout: Self.balancedLayout(panels.map(\.id)))
+        let original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
+
+        let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.channelImport
+        )
+
+        #expect(restored.windows.first?.tabManager.workspaces.first?.panels.count
+            == SessionPersistencePolicy.maxPanelsPerWorkspace)
+        // Without this count no session.restore.bounded breadcrumb is written.
+        #expect(report.droppedPanelCount == 88)
+    }
+
+    @Test("crash and phantom windows are pruned before the window cap is spent")
+    func importPrunesPhantomWindowsBeforeBounding() throws {
+        var workspace = Self.workspace(
+            panels: [Self.panel(terminal: SessionTerminalPanelSnapshot())],
+            layout: nil
+        )
+        var original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
+        let realWindow = try #require(original.windows.first)
+        let phantom = SessionWindowSnapshot(
+            frame: nil,
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: []),
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 240)
+        )
+        original.windows = Array(repeating: phantom, count: SessionPersistencePolicy.maxWindowsPerSnapshot)
+            + [realWindow]
+
+        let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.fileImport
+        )
+
+        #expect(restored.windows.count == 1)
+        #expect(restored.windows.first?.tabManager.workspaces.count == 1)
+        #expect(report.droppedWindowCount == 0)
+    }
+
+    @Test("a layout over the node cap with distinct leaves is cut, and its panels still restore")
+    func nodeCapWithDistinctLeavesKeepsPanels() throws {
+        let panels = (0..<SessionPersistencePolicy.maxPanelsPerWorkspace).map { _ in
+            Self.panel(terminal: SessionTerminalPanelSnapshot())
+        }
+        // Leaves that name no panel still cost nodes. The real panels sit
+        // after the cap, so only the fallback can keep them.
+        let unknownLeaves = (0..<SessionPersistencePolicy.maxLayoutNodes).map { _ in UUID() }
+        var workspace = Self.workspace(
+            panels: panels,
+            layout: Self.balancedLayout(unknownLeaves + panels.map(\.id))
+        )
+        let original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
+
+        let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.channelImport
+        )
+
+        let layout = try #require(restored.windows.first?.tabManager.workspaces.first?.layout)
+        #expect(Self.layoutNodeCount(layout) == 1)
+        #expect(Set(Self.layoutPanelIDs(layout)) == Set(panels.map(\.id)))
+        #expect(Self.layoutPanelIDs(layout).count == panels.count)
+        #expect(report.droppedPanelCount == 0)
+    }
+
+    @Test("the layout node budget is shared across workspaces")
+    func layoutNodeBudgetIsGlobal() throws {
+        // Each workspace's layout is 5,999 nodes, well under the cap alone;
+        // three of them are not. The third must fall back.
+        func workspace() -> SessionWorkspaceSnapshot {
+            let panels = (0..<400).map { _ in Self.panel(terminal: SessionTerminalPanelSnapshot()) }
+            let unknownLeaves = (0..<2_600).map { _ in UUID() }
+            return Self.workspace(panels: panels, layout: Self.balancedLayout(unknownLeaves + panels.map(\.id)))
+        }
+        var first = workspace()
+        var original = Self.finish(workspace: &first, workspaceHasRemote: false)
+        original.windows[0].tabManager.workspaces = [first, workspace(), workspace()]
+
+        let (restored, _) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.channelImport
+        )
+
+        let workspaces = try #require(restored.windows.first?.tabManager.workspaces)
+        #expect(workspaces.count == 3)
+        #expect(Self.layoutNodeCount(workspaces[0].layout) > 1)
+        #expect(Self.layoutPanelIDs(workspaces[0].layout).count == 400)
+        #expect(Self.layoutNodeCount(workspaces[2].layout) == 1)
+        #expect(Self.layoutPanelIDs(workspaces[2].layout).count == 400)
+    }
+
+    @Test("scrollback emptied by stripping is not counted as truncated")
+    func strippedEmptyScrollbackIsNotTruncated() throws {
+        let terminal = SessionTerminalPanelSnapshot(scrollback: "\u{1b}]0;title\u{07}")
+
+        let (_, report) = SessionSnapshotImportTrust.snapshotForRestore(
+            Self.snapshot(terminal: terminal),
+            source: Self.fileImport
+        )
+
+        #expect(report.sanitizedScrollbackCount == 1)
+        #expect(report.truncatedScrollbackCount == 0)
     }
 
     @Test("plain scrollback with SGR color is unchanged")
@@ -551,7 +665,8 @@ struct SessionSnapshotImportTrustTests {
         let restoredWorkspaces = try #require(restored.windows.first?.tabManager.workspaces)
         #expect(restoredWorkspaces.reduce(0) { $0 + $1.panels.count } ==
             SessionPersistencePolicy.maxPanelsPerSnapshot)
-        #expect(report.droppedPanelCount == SessionPersistencePolicy.maxPanelsPerWorkspace)
+        #expect(report.droppedPanelCount == 9 * (SessionPersistencePolicy.maxPanelsPerSnapshot + 1)
+            - SessionPersistencePolicy.maxPanelsPerSnapshot)
         #expect(restoredWorkspaces.first?.panels.first?.terminal?.resumeBinding?.command ==
             workspace.panels.first?.terminal?.resumeBinding?.command)
     }
@@ -849,6 +964,44 @@ struct SessionSnapshotImportTrustTests {
             first: repeatedLayout(firstCount, panelID: panelID),
             second: repeatedLayout(leaves - firstCount, panelID: panelID)
         ))
+    }
+
+    private static func balancedLayout(_ leafIDs: [UUID]) -> SessionWorkspaceLayoutSnapshot {
+        guard leafIDs.count > 1 else {
+            let id = leafIDs.first ?? UUID()
+            return .pane(SessionPaneLayoutSnapshot(panelIds: [id], selectedPanelId: id))
+        }
+        let middle = leafIDs.count / 2
+        return .split(SessionSplitLayoutSnapshot(
+            orientation: .horizontal,
+            dividerPosition: 0.5,
+            first: balancedLayout(Array(leafIDs[..<middle])),
+            second: balancedLayout(Array(leafIDs[middle...]))
+        ))
+    }
+
+    private static func workspace(
+        panels: [SessionPanelSnapshot],
+        layout: SessionWorkspaceLayoutSnapshot?
+    ) -> SessionWorkspaceSnapshot {
+        let firstID = panels.first?.id
+        return SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: "Bounded",
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp/project",
+            focusedPanelId: firstID,
+            layout: layout ?? .pane(SessionPaneLayoutSnapshot(
+                panelIds: panels.map(\.id),
+                selectedPanelId: firstID
+            )),
+            panels: panels,
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
     }
 
     private static func layoutNodeCount(_ layout: SessionWorkspaceLayoutSnapshot) -> Int {
