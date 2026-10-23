@@ -108,7 +108,9 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
     [shell, tool.output, fold.present],
   );
   const body = shell ? tool.output?.replace(/\n$/, "") : result?.text;
-  const opens = shell ? Boolean(body) : Boolean(tool.output && cleanText(tool.output).trim());
+  // Whether a closed call has anything to open, read once per output, not on every render.
+  const hasOutput = useMemo(() => Boolean(tool.output && cleanText(tool.output).trim()), [tool.output]);
+  const opens = shell ? Boolean(body) : hasOutput;
   const images = useMemo(() => toolImages(tool), [tool]);
   const content = (
     <>
