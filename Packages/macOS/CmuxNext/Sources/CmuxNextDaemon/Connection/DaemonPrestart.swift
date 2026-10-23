@@ -29,15 +29,23 @@ public final class DaemonPrestart: Sendable {
     /// The session's launch snapshot, read and decoded off the main thread meanwhile
     /// (``LaunchRead``): the first window draws the last layout from it.
     public let launchSnapshot: LaunchRead<LaunchSnapshot.Found>
+    /// Where the launch snapshot's path is recorded: the snapshot above was found through it, and
+    /// the service started with this prestart records each handshake's path through it too, so
+    /// the read and the record never use two places.
+    public let launchSnapshotLocation: LaunchSnapshotLocation
 
     /// Starts the attempt now. `configuration.retryWake` is replaced by `wake`.
+    /// - Parameter launchSnapshotLocation: Where the snapshot's path is recorded (tests pass
+    ///   their own defaults); the service started with this prestart uses it as well.
     public init(launcher: DaemonLauncher, configuration: DaemonConnection.Configuration,
-                wake: RetryWake = RetryWake(owner: "DaemonService.retry local")) {
+                wake: RetryWake = RetryWake(owner: "DaemonService.retry local"),
+                launchSnapshotLocation: LaunchSnapshotLocation = LaunchSnapshotLocation()) {
         self.launcher = launcher
         self.wake = wake
+        self.launchSnapshotLocation = launchSnapshotLocation
         let (session, stateDirectory) = (launcher.configuration.session, launcher.configuration.stateDirectory)
         launchSnapshot = LaunchRead("launch_snapshot", readOnMain: { DaemonLaunchTimings.shared.mark($0) }) {
-            LaunchSnapshot.find(session: session, stateDirectory: stateDirectory)
+            LaunchSnapshot.find(session: session, stateDirectory: stateDirectory, location: launchSnapshotLocation)
         }
         var configuration = configuration
         configuration.retryWake = wake

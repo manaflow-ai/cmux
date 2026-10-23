@@ -133,6 +133,8 @@ public final class DaemonService {
         if let prestart {
             launcher = prestart.launcher
             retryWake = prestart.wake
+            // The snapshot the prestart read was found through its location: record through the same one.
+            launchSnapshotLocation = prestart.launchSnapshotLocation
         } else {
             do {
                 launcher = try DaemonLauncher.forApp(build: launch.build,
