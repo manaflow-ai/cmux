@@ -140764,6 +140764,270 @@
         }
       }
     },
+    "settings.ui.reducedBackgrounds": {
+      "comment": "Settings row title: draw windows in the plain theme color, without background pictures or glass.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plain Backgrounds"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خلفيات بسيطة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obične pozadine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enkle baggrunde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schlichte Hintergründe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fondos sencillos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrière-plans unis"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sfondi semplici"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シンプルな背景"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទៃខាងក្រោយធម្មតា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단순한 배경"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enkle bakgrunner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwykłe tła"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fundos simples"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Простые фоны"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นหลังแบบเรียบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sade Arka Planlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прості тла"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nền đơn giản"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "纯色背景"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "純色背景"
+          }
+        }
+      }
+    },
+    "settings.ui.reducedBackgrounds.help": {
+      "comment": "Settings row help for Plain Backgrounds.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Draws windows in the plain theme color, without paintings, wallpapers or glass. Your background choices stay as they are and come back when you turn it off."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ترسم النوافذ بلون السمة البسيط، بلا لوحات أو خلفيات أو زجاج. تبقى اختياراتك للخلفية كما هي وتعود عند إيقاف هذا الخيار."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prozori se crtaju u običnoj boji teme, bez slika, pozadina ili stakla. Vaši izbori pozadine ostaju kakvi jesu i vraćaju se kada ovo isključite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tegner vinduer i temaets ensfarvede baggrund uden malerier, skrivebordsbaggrunde eller glas. Dine baggrundsvalg forbliver som de er og vender tilbage, når du slår det fra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeichnet Fenster in der schlichten Themenfarbe, ohne Gemälde, Hintergrundbilder oder Glas. Deine Hintergrundauswahl bleibt erhalten und kehrt zurück, wenn du es ausschaltest."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dibuja las ventanas con el color liso del tema, sin pinturas, fondos de pantalla ni cristal. Tus elecciones de fondo se conservan y vuelven al desactivarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dessine les fenêtres dans la couleur unie du thème, sans peintures, fonds d'écran ni verre. Vos choix d'arrière-plan restent tels quels et reviennent quand vous le désactivez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disegna le finestre con il colore semplice del tema, senza dipinti, sfondi o vetro. Le tue scelte di sfondo restano invariate e tornano quando lo disattivi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウをテーマの単色で描画し、絵画・壁紙・ガラスを使いません。背景の選択はそのまま残り、オフにすると元に戻ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គូរបង្អួចដោយពណ៌ធម្មតារបស់រូបរាង ដោយគ្មានគំនូរ រូបផ្ទៃតុ ឬកញ្ចក់។ ជម្រើសផ្ទៃខាងក្រោយរបស់អ្នកនៅដដែល ហើយត្រឡប់មកវិញនៅពេលអ្នកបិទវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창을 그림, 배경 화면, 유리 효과 없이 테마의 단색으로 그립니다. 배경 선택은 그대로 유지되며 끄면 다시 돌아옵니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tegner vinduer i temaets ensfargede bakgrunn, uten malerier, skrivebordsbakgrunner eller glass. Bakgrunnsvalgene dine blir som de er og kommer tilbake når du slår det av."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rysuje okna w jednolitym kolorze motywu, bez obrazów, tapet i szkła. Twoje wybory tła pozostają bez zmian i wracają po wyłączeniu tej opcji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desenha as janelas na cor lisa do tema, sem pinturas, papéis de parede ou vidro. Suas escolhas de fundo continuam como estão e voltam quando você desativa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рисует окна однотонным цветом темы, без картин, обоев и стекла. Выбранные фоны сохраняются и вернутся, когда вы выключите этот параметр."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วาดหน้าต่างด้วยสีพื้นของธีม โดยไม่มีภาพวาด ภาพพื้นหลัง หรือกระจก ตัวเลือกพื้นหลังของคุณยังคงอยู่และจะกลับมาเมื่อคุณปิดตัวเลือกนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pencereleri tablolar, duvar kâğıtları veya cam olmadan temanın düz renginde çizer. Arka plan seçimleriniz olduğu gibi kalır ve bunu kapattığınızda geri gelir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Малює вікна однотонним кольором теми, без картин, шпалер і скла. Вибрані тла зберігаються й повернуться, коли ви вимкнете цей параметр."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vẽ cửa sổ bằng màu trơn của chủ đề, không có tranh, hình nền hay hiệu ứng kính. Các lựa chọn nền của bạn vẫn giữ nguyên và trở lại khi bạn tắt tùy chọn này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以主题的纯色绘制窗口，不显示画作、墙纸或玻璃效果。你的背景选择保持不变，关闭后即恢复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以主題的純色繪製視窗，不顯示畫作、桌布或玻璃效果。你的背景選擇保持不變，關閉後即恢復。"
+          }
+        }
+      }
+    },
     "settings.appearance.paneBackgrounds": {
       "comment": "Settings row title: whether the window has one background or each pane its own.",
       "extractionState": "manual",
