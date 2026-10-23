@@ -4193,10 +4193,18 @@ export class AcpmuxDirectClient {
   /// the choice and says when it applies; its reply's tools replace the chat's (its
   /// session_changed says so too, later).
   async setTool(id: string, enabled: boolean): Promise<ToolApplied> {
-    const sessionId = this.selectedSessionId;
+    // The chat on screen: during a switch's hold the menu clicked is still the chat before's.
+    const sessionId = this.actingSessionId;
     if (!sessionId) throw new Error(translate("error.notOpen"));
+    const generation = this.selectionGeneration;
     const result = await this.request("_acpmux/set_tools", { sessionId, id, enabled });
-    if (this.selectedSessionId === sessionId && Array.isArray(result?.tools)) {
+    // `summary` is the selected chat's: after a switch (even back to this chat) the reply is stale.
+    if (
+      generation === this.selectionGeneration &&
+      this.selectedSessionId === sessionId &&
+      this.summary &&
+      Array.isArray(result?.tools)
+    ) {
       this.summary = { ...this.summary, tools: result.tools, toolsMutable: result.toolsMutable };
       this.emit("session changed");
     }
