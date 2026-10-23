@@ -192,7 +192,7 @@ extension SidebarModel {
 extension SidebarDocStore {
     /// The document's item `id` at any depth (in a group or a machine section too), as a layout item.
     public func placedItem(_ id: LayoutItemID) -> LayoutItem? {
-        records.items[id.rawValue].map { LayoutItem(id: id, ref: SidebarDocProjection.ref($0.body, id: $0.id)) }
+        drawnRecords.items[id.rawValue].map { LayoutItem(id: id, ref: SidebarDocProjection.ref($0.body, id: $0.id)) }
     }
 
     /// Whether the document as the sidebar draws it (the confirmed document and the changes not yet echoed, the
@@ -204,13 +204,13 @@ extension SidebarDocStore {
         guard let rows = rows(SidebarViewRequest(live: Array(lastLive))) else { return false }
         return rows.contains { row in
             guard let id = row.item else { return false }
-            return (records.items[id].map { SidebarDocProjection.ref($0.body, id: id) } ?? mirror?.added[id]) == ref
+            return (records.items[id] ?? mirror?.added[id]).map { SidebarDocProjection.ref($0.body, id: id) } == ref
         }
     }
 
     /// The first document item (by id) showing `ref` at any depth, as a layout item.
     public func placedItem(with ref: LayoutItemRef) -> LayoutItem? {
-        records.items.values.sorted { $0.id < $1.id }.lazy
+        drawnRecords.items.values.sorted { $0.id < $1.id }.lazy
             .first { SidebarDocProjection.ref($0.body, id: $0.id) == ref }
             .map { LayoutItem(id: LayoutItemID($0.id), ref: ref) }
     }

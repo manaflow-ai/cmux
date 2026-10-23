@@ -15,6 +15,8 @@ final class SidebarRegionDrag {
     var dropsToList = false
     /// An item the App removes on a drag out, beside the sidebar: the drop removes it.
     var removesOnDrop = false
+    /// The app's release monitor while this drag is the region's (`followPointerEnd`).
+    var pointerEnd: Any?
 
     init(subject: SidebarRegionDragSubject, lift: DragLiftView, grab: CGPoint, followsBothAxes: Bool, hidden: [NSView]) {
         self.subject = subject

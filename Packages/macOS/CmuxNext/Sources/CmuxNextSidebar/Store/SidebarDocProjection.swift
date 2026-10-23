@@ -247,7 +247,9 @@ extension SidebarDocStore {
         guard isActive else { return nil }
         if let cached = projectionCache, cached.version == version, cached.live == live { return cached.projection }
         guard let rows = rows(SidebarViewRequest(live: live)) else { return nil }
-        let projection = SidebarDocProjection(rows: rows, records: records, revision: records.revision)
+        mirror?.keepAdded(drawnIn: rows, confirmed: records)
+        let projection = SidebarDocProjection(rows: rows, records: records.adding(pending: mirror?.added ?? [:], drawnIn: rows),
+                                              revision: records.revision)
         projectionCache = (version, live, projection)
         return projection
     }
