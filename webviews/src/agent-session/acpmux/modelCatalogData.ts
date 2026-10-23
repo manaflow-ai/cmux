@@ -273,6 +273,7 @@ export function buildPickerCatalog({
   const layered = applyUserLayer(catalog, user);
   const join: Join = {
     catalog: layered,
+    sourceCatalog: catalog,
     session,
     worked,
     overrides: userOverrides(user),
@@ -297,6 +298,8 @@ export function buildPickerCatalog({
 
 type Join = {
   catalog: ModelCatalog;
+  /** The unlayered catalog keeps alias declarations that hidden overrides remove from `catalog`. */
+  sourceCatalog: ModelCatalog;
   session: PickerInputs["session"];
   worked: string[];
   overrides: Record<string, Record<string, unknown>>;
@@ -372,17 +375,20 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
     members[0];
   const probed = chosen?.models ?? [];
   const listed = harness.modelSource === "catalog" ? harness.models : [];
+  const live = session?.harness !== undefined && chosen?.id === session.harness ? session.configOptions : undefined;
+  const reported = reportedNames(probed, live);
+  const hiddenReleases = hiddenReleaseIds(harness.id, harness.id, reported, join);
   const models: PickerModel[] = listed.map((model) => listedModel(model, harness.id, probed, join));
   for (const probe of probed) {
     if (listed.some((model) => model.id === probe.id)) continue;
     if (isHiddenByUser(harness.id, probe.id, join)) continue;
+    if (hiddenReleases.has(probe.id)) continue;
     models.push(probedModel(probe, harness.id, join));
   }
-  const live = session?.harness !== undefined && chosen?.id === session.harness ? session.configOptions : undefined;
   addSessionModels(models, live, harness.id, listed, join);
   const releases = models.filter((model) => listed.some((pinned) => pinned.id === model.id));
   const runs = chosen?.id === session?.harness ? runningModel(session, live) : undefined;
-  const offered = foldAliases(models, releases, runs, reportedNames(probed, live), join, (release, alias) =>
+  const offered = foldAliases(models, releases, runs, reported, join, (release, alias) =>
     aliasRow(listed, release, alias, harness.id, probed, join),
   );
   return {
@@ -413,6 +419,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
     (harness) => harness.modelSource === "catalog" && key !== undefined && harness.families.includes(key),
   );
   const reported = reportedNames(entry.models, live);
+  const hiddenReleases = hiddenReleaseIds(entry.id, kin?.id, reported, join);
   // A release the user hid here, by its id, a catalog alias or an alias the harness reports as it,
   // is not one of this profile's releases (applyUserLayer drops it so from its own harness).
   const listed = (kin?.models ?? []).filter(
@@ -421,7 +428,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
       ![...reported].some(([id, name]) => isHiddenByUser(entry.id, id, join) && namesRelease(name, model, join)),
   );
   const models = entry.models
-    .filter((probe) => !isHiddenByUser(entry.id, probe.id, join))
+    .filter((probe) => !isHiddenByUser(entry.id, probe.id, join) && !hiddenReleases.has(probe.id))
     .map((probe) => probedModel(probe, entry.id, join));
   addSessionModels(models, live, entry.id, listed, join);
   const releases = listed.map((model) => listedModel(model, entry.id, entry.models, join));
@@ -669,6 +676,29 @@ function probedModel(probe: AcpmuxModel, harnessId: string, join: Join): PickerM
 
 function isHiddenByUser(harnessId: string, modelId: string, join: Join): boolean {
   return join.overrides[`${harnessId}/${modelId}`]?.hidden === true || join.overrides[`*/${modelId}`]?.hidden === true;
+}
+
+/**
+ * Hidden catalog aliases must also hide a concrete release probe that is reported alongside them.
+ * The layered catalog has already removed that release, so use the source catalog's aliases here
+ * before the probe loop can re-add it as an unlisted model.
+ */
+function hiddenReleaseIds(
+  harnessId: string,
+  sourceHarnessId: string | undefined,
+  reported: Map<string, string>,
+  join: Join,
+): Set<string> {
+  const source = join.sourceCatalog.harnesses.find((harness) => harness.id === sourceHarnessId);
+  const hidden = new Set<string>();
+  for (const model of source?.models ?? []) {
+    const hiddenById = [...(model.aliases ?? []), model.id].some((id) => isHiddenByUser(harnessId, id, join));
+    const hiddenByReportedAlias = [...reported].some(
+      ([id, name]) => isHiddenByUser(harnessId, id, join) && namesRelease(name, model, join),
+    );
+    if (hiddenById || hiddenByReportedAlias) hidden.add(model.id);
+  }
+  return hidden;
 }
 
 /** A host-served icon file: an http(s) or cmux page URL, or an absolute path the host serves. */
