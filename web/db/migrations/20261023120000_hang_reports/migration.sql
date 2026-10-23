@@ -19,6 +19,20 @@ CREATE TABLE IF NOT EXISTS "hang_reports" (
 	"payload" jsonb NOT NULL
 );
 --> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "hang_reports_install_day_idx" ON "hang_reports" USING btree ("install_id","received_day");
+-- Production's table was created by hand (owner postgres) before this file
+-- reached main, and the migrator's role only has DML grants. CREATE INDEX
+-- checks table ownership before IF NOT EXISTS, so each index is created only
+-- when no relation of its name exists: the replay is then a real no-op.
+DO $$
+BEGIN
+	IF to_regclass('hang_reports_install_day_idx') IS NULL THEN
+		CREATE INDEX "hang_reports_install_day_idx" ON "hang_reports" USING btree ("install_id","received_day");
+	END IF;
+END $$;
 --> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "hang_reports_received_at_idx" ON "hang_reports" USING btree ("received_at");
+DO $$
+BEGIN
+	IF to_regclass('hang_reports_received_at_idx') IS NULL THEN
+		CREATE INDEX "hang_reports_received_at_idx" ON "hang_reports" USING btree ("received_at");
+	END IF;
+END $$;
