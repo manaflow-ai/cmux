@@ -97,8 +97,9 @@ import Testing
     }
 
     @Test func quotingIsUnwrappedTheWayAPOSIXShellWould() throws {
-        // A single-quoted backslash is literal, so this names a different key.
-        #expect(router.providerEvidence(inShellCommand: "codex -c 'model\\_provider=subrouter'") == .ambiguous)
+        // A single-quoted backslash is literal, so this names a different
+        // key and records no provider at all.
+        #expect(router.providerEvidence(inShellCommand: "codex -c 'model\\_provider=subrouter'") == .absent)
         // Inside double quotes a backslash only escapes ", \, $ and `.
         let doubleQuoted = try #require(SubrouterCodexResumeRouting.shellCommandTokens("\"a\\\"b\" \"c\\d\""))
         #expect(doubleQuoted == ["a\"b", "c\\d"])

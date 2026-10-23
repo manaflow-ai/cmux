@@ -216,6 +216,109 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         return providerEvidence(inConfigToml: config)
     }
 
+    /// Largest legacy shell command read as provider evidence.
+    static let maxShellCommandBytes = 16 * 1024
+    /// Largest number of words in a legacy shell command read as evidence.
+    static let maxShellCommandTokens = 256
+
+    /// Returns provider evidence from the shell command an older snapshot
+    /// persisted in its hook binding. The command is evidence only and is
+    /// never run: the caller resumes through the fixed `sr codex resume`
+    /// route. Only a plain Codex invocation (`codex …`, `sr codex …` or
+    /// `subrouter codex …`) made of literal words counts. Any shell operator,
+    /// expansion, substitution, glob, comment, unterminated quote, line break,
+    /// control character, prefix (including `cd … &&` or `VAR=value`), or an
+    /// oversized command makes the evidence `ambiguous`, which never routes.
+    public func providerEvidence(inShellCommand shellCommand: String?) -> SubrouterCodexProviderEvidence {
+        guard let shellCommand,
+              !shellCommand.trimmingCharacters(in: .whitespaces).isEmpty else {
+            return .absent
+        }
+        guard shellCommand.utf8.count <= Self.maxShellCommandBytes,
+              let tokens = Self.shellCommandTokens(shellCommand),
+              !tokens.isEmpty,
+              tokens.count <= Self.maxShellCommandTokens,
+              isCodexInvocation(tokens) else {
+            // A non-empty command that cannot be read as a plain Codex
+            // invocation is damaged evidence, not proof of no provider.
+            return .ambiguous
+        }
+        return providerEvidenceFromAssignments(in: tokens)
+    }
+
+    /// Splits a legacy persisted command into words the way a POSIX shell
+    /// would for literal text, or returns nil for anything that is not
+    /// literal: operators `; & | < > ( )`, `$` and backquote expansion, globs
+    /// `* ? [ ] { }`, a leading `~`, `!`, `#`, an unterminated quote, a
+    /// trailing backslash, or any control character other than space and
+    /// tab between words.
+    static func shellCommandTokens(_ command: String) -> [String]? {
+        var tokens: [String] = []
+        var token = ""
+        var inToken = false
+        var quote: Character?
+        var escaped = false
+        var escapedInDoubleQuotes = false
+        for character in command {
+            if character.unicodeScalars.contains(where: { scalar in
+                CharacterSet.controlCharacters.contains(scalar) && scalar != "\t"
+            }) {
+                return nil
+            }
+            if escaped {
+                // Outside quotes a backslash makes the next character literal.
+                token.append(character)
+                escaped = false
+                continue
+            }
+            switch quote {
+            case "'":
+                if character == "'" { quote = nil } else { token.append(character) }
+                continue
+            case "\"":
+                if escapedInDoubleQuotes {
+                    // Inside double quotes a backslash escapes only these;
+                    // before anything else it stays literal.
+                    if !"\"\\$`".contains(character) { token.append("\\") }
+                    token.append(character)
+                    escapedInDoubleQuotes = false
+                } else if character == "\\" {
+                    escapedInDoubleQuotes = true
+                } else if character == "\"" {
+                    quote = nil
+                } else if character == "$" || character == "`" {
+                    return nil
+                } else {
+                    token.append(character)
+                }
+                continue
+            default:
+                break
+            }
+            if character == "\\" {
+                escaped = true
+                inToken = true
+            } else if character == "'" || character == "\"" {
+                quote = character
+                inToken = true
+            } else if character == " " || character == "\t" {
+                if inToken {
+                    tokens.append(token)
+                    token = ""
+                    inToken = false
+                }
+            } else if ";&|<>()$`*?[]{}!#".contains(character) || (character == "~" && !inToken) {
+                return nil
+            } else {
+                token.append(character)
+                inToken = true
+            }
+        }
+        guard !escaped, quote == nil else { return nil }
+        if inToken { tokens.append(token) }
+        return tokens
+    }
+
     /// Parses only top-level `model_provider` assignments from a bounded TOML
     /// document. A malformed provider assignment is ambiguous and never
     /// upgrades a restore into a routed launch.
