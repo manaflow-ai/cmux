@@ -18,8 +18,9 @@ the module refuses it over both ranges (matched by the refusal's key, not its te
 landed never refuses a push.
 
 When a count drops, it passes, and prints `lower plans/cmux-next/arch-ratchet.json:
-scripts/cmux-next/arch-ratchet.py --update` with the rows the pushed json does not yet lower by the drop
-(none when the push carries the `--update`). Escape for one push (say it in your report):
+scripts/cmux-next/arch-ratchet.py --update` with the rows the pushed json leaves stale, judged over the
+range the drop came from (none when the push carries the `--update` or brings the first record; see
+stale_rows for the one case it can still name wrongly). Escape for one push (say it in your report):
 ARCH_RATCHET_SKIP_REASON="<row>[,<row>]: <why>". A dated entry the push adds to the json's `exceptions`
 ({"date": "YYYY-MM-DD", "row": "<row>", "allow": <n>, "why": "..."}) lets that push raise the row by n.
 An internal error prints a warning and lets the push through (fail open). Never runs under GitHub
@@ -117,18 +118,34 @@ class Changes:
     files: list
     delta: object
     counts: object
+    # {rev: parsed json or None}; check_range shares one across the ranges of a push (same head).
+    cache: dict = dataclasses.field(default_factory=dict, repr=False, compare=False)
 
     def read(self, items):
         return self.counts.Git(self.repo).read(items)
 
     def record(self, rev: str) -> dict | None:
-        text = self.read([(rev, self.counts.RATCHET_JSON)])[(rev, self.counts.RATCHET_JSON)]
-        if text is None:
-            return None
-        try:
-            return json.loads(text)
-        except ValueError:
-            return None
+        """plans/cmux-next/arch-ratchet.json at REV as a dict, or None; read once per push."""
+        if rev not in self.cache:
+            self._load([rev])
+        return self.cache[rev]
+
+    def records(self) -> tuple[dict | None, dict | None]:
+        """The json at base and at head, read in one `git cat-file --batch` and kept for the push."""
+        missing = [rev for rev in dict.fromkeys((self.base, self.head)) if rev not in self.cache]
+        if missing:
+            self._load(missing)
+        return self.cache[self.base], self.cache[self.head]
+
+    def _load(self, revs: list[str]) -> None:
+        rel = self.counts.RATCHET_JSON
+        texts = self.read([(rev, rel) for rev in revs])
+        for rev in revs:
+            try:
+                data = json.loads(texts[(rev, rel)]) if texts[(rev, rel)] is not None else None
+            except ValueError:
+                data = None
+            self.cache[rev] = data if isinstance(data, dict) else None
 
 
 def git(repo: Path, *args: str) -> tuple[int, str]:
@@ -170,8 +187,7 @@ def added_exceptions(changes: Changes) -> tuple[dict[str, int], list[str]]:
     rel = changes.counts.RATCHET_JSON
     if not any(path == rel for _, path in changes.files):
         return {}, []
-    old = changes.record(changes.base) or {}
-    new = changes.record(changes.head) or {}
+    old, new = (record or {} for record in changes.records())
     seen = {json.dumps(e, sort_keys=True) for e in old.get("exceptions", []) if isinstance(e, dict)}
     allow: dict[str, int] = {}
     notes = []
@@ -193,15 +209,19 @@ def fmt_packages(by_package: dict[str, int]) -> str:
     return ", ".join(f"{k} {v:+d}" for k, v in sorted(by_package.items(), key=lambda kv: (-kv[1], kv[0])))
 
 
-def count_rule(changes: Changes, deltas: list) -> tuple[list[tuple[str, str]], list[str]]:
-    """The built-in rule: a ratcheted row's total may not rise (moves pass)."""
-    counts = changes.counts
-    allow, notes = added_exceptions(changes)
+def count_rule(per_range: list[Changes]) -> tuple[list[tuple[str, str]], list[str]]:
+    """The built-in rule: a ratcheted row's total may not rise (moves pass).
+
+    PER_RANGE holds one Changes per range of ranges_to_count; the first is the pushed range.
+    """
+    counts = per_range[0].counts
+    allow, notes = added_exceptions(per_range[0])
     refusals: list[tuple[str, str]] = []
-    dropped: dict[str, int] = {}
+    dropped: dict[int, dict[str, int]] = {}  # {index into PER_RANGE: {row: drop}}
     for row in counts.ROWS:
         # A merge of upstream counts only what rises over both ends (see ranges_to_count).
-        delta = min(deltas, key=lambda d: d.total(row.id))
+        chosen = min(range(len(per_range)), key=lambda i: per_range[i].delta.total(row.id))
+        delta = per_range[chosen].delta
         total = delta.total(row.id)
         if total == 0:
             continue
@@ -211,7 +231,7 @@ def count_rule(changes: Changes, deltas: list) -> tuple[list[tuple[str, str]], l
                          + ("; the app-size rule owns that refusal" if row.id == "app_lines" else ""))
             continue
         if total < 0:
-            dropped[row.id] = total
+            dropped.setdefault(chosen, {})[row.id] = total
             notes.append(f"arch-ratchet: {row.id} {total:+d} ({where})")
             continue
         if total <= allow.get(row.id, 0):
@@ -223,17 +243,30 @@ def count_rule(changes: Changes, deltas: list) -> tuple[list[tuple[str, str]], l
         lines.append(f"  Right pattern: {FIX.get(row.id, 'see arch_counts.py')}.")
         lines.append(f'  Escape for this push only: {SKIP_ENV}="{row.id}: <why>" (say it in your report).')
         refusals.append((row.id, "\n".join(lines)))
-    stale = stale_rows(changes, dropped)
+    # Each drop is compared with the json over the range the drop came from.
+    stale = {row for i, rows in dropped.items() for row in stale_rows(per_range[i], rows)}
     if stale:
-        notes.append(f"arch-ratchet: {UPDATE_HINT} ({', '.join(stale)})")
+        notes.append(f"arch-ratchet: {UPDATE_HINT} ({', '.join(r for r in counts.ROW_IDS if r in stale)})")
     return refusals, notes
 
 
 def stale_rows(changes: Changes, dropped: dict[str, int]) -> list[str]:
-    """The DROPPED rows whose recorded total the push did not lower by the drop.
+    """The DROPPED rows (row: drop over CHANGES' range) whose recorded total the push leaves stale.
 
-    The pushed json is current for a row when its total is at most the base json's total plus the
-    drop (an `--update` in the push wrote it); a push that leaves the json alone keeps every drop stale.
+    No full count (the pre-push budget is ~1 s), so this reads the json at both ends:
+    - a push that leaves the json alone keeps every drop stale; so does a pushed json that is missing,
+      unparsable or of another method_version (`--update` rewrites it);
+    - a base with no valid record (or without that row) means the push brings the first full record
+      (only `--update` writes one): that row is current;
+    - otherwise a row is current when the pushed total is at most the base total plus the drop.
+    That last test assumes the base record was accurate. When a skip left it low (recorded 10, true
+    11), a push that drops 1 and runs `--update` writes 10, above 10 - 1, and would look stale. So a
+    row it calls stale is cleared when the pushed record's measured_sha is a commit of this range and
+    no counted file (Swift sources, Package.swift, architecture-layers.json, arch_counts.py) changes
+    after it: that record is then a full count of HEAD. Known false positive left: a record measured
+    in the range with counted changes after it, or measured outside the range, over an inaccurate
+    base record. Rerunning `--update` and committing only the json clears it (its measured_sha is then
+    the json commit's parent, in the range, with nothing counted after it).
     """
     if not dropped:
         return []
@@ -241,18 +274,41 @@ def stale_rows(changes: Changes, dropped: dict[str, int]) -> list[str]:
     if not any(path == counts.RATCHET_JSON for _, path in changes.files):
         return list(dropped)
 
-    def totals(rev: str) -> dict:
-        data = changes.record(rev) or {}
-        found = data.get("totals") if data.get("method_version") == counts.METHOD_VERSION else None
-        return found if isinstance(found, dict) else {}
+    def totals(data: dict | None) -> dict | None:
+        found = data.get("totals") if data and data.get("method_version") == counts.METHOD_VERSION else None
+        return found if isinstance(found, dict) else None
 
-    old, new = totals(changes.base), totals(changes.head)
+    base_record, head_record = changes.records()
+    old, new = totals(base_record), totals(head_record)
+    if new is None:
+        return list(dropped)
     stale = []
     for row, total in dropped.items():
-        was, now = old.get(row), new.get(row)
-        if not isinstance(was, int) or not isinstance(now, int) or now > was + total:
+        was, now = (old or {}).get(row), new.get(row)
+        if not isinstance(now, int):
             stale.append(row)
+        elif isinstance(was, int) and now > was + total:
+            stale.append(row)
+    if stale and measured_in_range(changes, head_record):
+        return []
     return stale
+
+
+METHOD_FILE = "scripts/cmux-next/arch_counts.py"
+
+
+def measured_in_range(changes: Changes, record: dict) -> bool:
+    """True when RECORD's measured_sha is a commit of CHANGES' range and nothing counted changes after it."""
+    counts = changes.counts
+    sha = record.get("measured_sha")
+    if not isinstance(sha, str) or not counts.SHA.fullmatch(sha):
+        return False
+    git = counts.Git(changes.repo)
+    if sha not in git.run("rev-list", f"{changes.base}..{changes.head}", check=False).split():
+        return False
+    later = git.run("diff", "--name-only", "--no-renames", "-z", sha, changes.head, "--", check=False)
+    counted = (counts.MANIFEST, counts.LAYERS_JSON, METHOD_FILE)
+    return not any(counts.is_source(p) or p in counted for p in later.split("\0") if p)
 
 
 def keyed_refusal(item, rule_id: str) -> tuple[str, str, tuple]:
@@ -273,8 +329,9 @@ def check_range(repo: Path, base: str, head: str, rules=None,
     counts = load_counts()
     ranges = ranges_to_count(repo, base, head, upstream_ref)
     deltas = [counts.delta_count(repo, b, h) for b, h in ranges]
-    per_range = [Changes(repo, d.base, d.head, d.files, d, counts) for d in deltas]
-    refusals, notes = count_rule(per_range[0], deltas)
+    records: dict = {}
+    per_range = [Changes(repo, d.base, d.head, d.files, d, counts, records) for d in deltas]
+    refusals, notes = count_rule(per_range)
     loaded, warnings = load_rules() if rules is None else (rules, [])
     notes += [f"arch-ratchet: WARNING: {w}" for w in warnings]
     for rule_id, module in loaded:

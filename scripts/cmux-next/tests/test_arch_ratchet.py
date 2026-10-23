@@ -388,6 +388,48 @@ class RatchetTests(Repo):
         self.assertEqual(refusals, [])
         self.assertIn(f"arch-ratchet: {ratchet.UPDATE_HINT} (stateful_singletons)", notes)
 
+    def test_a_drop_with_the_first_json_the_push_adds_prints_no_hint(self):
+        base = self.add_singleton()  # the base has no arch-ratchet.json
+        self.remove(f"{SRC}/CmuxNextDomain/Store+Shared.swift")
+        self.record_singletons(0)
+        self.commit("removes it and adds the first record")
+        refusals, notes = self.check(base=base)
+        self.assertEqual(refusals, [])
+        self.assertTrue(any(n.startswith("arch-ratchet: stateful_singletons -1 ") for n in notes), notes)
+        self.assertFalse(any(ratchet.UPDATE_HINT in n for n in notes), notes)
+
+    def test_an_update_measured_in_the_push_over_a_low_base_record_prints_no_hint(self):
+        self.record_singletons(0)  # low: a skip landed the singleton without an --update
+        base = self.add_singleton()
+        self.remove(f"{SRC}/CmuxNextDomain/Store+Shared.swift")
+        measured = self.commit("removes it")
+        self.record_singletons(0, sha=measured)  # what --update writes at that commit
+        self.commit("--update at its parent")
+        refusals, notes = self.check(base=base)
+        self.assertEqual(refusals, [])
+        self.assertFalse(any(ratchet.UPDATE_HINT in n for n in notes), notes)
+
+    def test_a_merge_push_compares_the_json_over_the_range_the_drop_came_from(self):
+        self.record_singletons(1)
+        self.add_singleton()
+        self.git("checkout", "--quiet", "-b", "upstream")
+        self.write(f"{SRC}/CmuxNextDomain/Store+Other.swift", "extension Store {\n    static let other = Store()\n}\n")
+        self.record_singletons(2)
+        self.commit("upstream adds a singleton and its --update")
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.write("README", "pushed branch\n")
+        base = self.commit("already on the pushed branch")
+        self.remove(f"{SRC}/CmuxNextDomain/Store+Shared.swift")
+        self.commit("removes the first singleton")
+        self.git("merge", "--quiet", "--no-edit", "--no-ff", "upstream")
+        self.record_singletons(1, sha="2" * 40)  # true at HEAD: upstream's singleton is left
+        head = self.commit("lowers the record")
+        self.assertNotEqual(self.git("merge-base", base, "upstream"), base)  # two ranges: base..head, upstream..head
+        refusals, notes = ratchet.check_range(self.repo, base, head, [], upstream_ref="upstream")
+        self.assertEqual(refusals, [])
+        self.assertTrue(any(n.startswith("arch-ratchet: stateful_singletons -1 ") for n in notes), notes)
+        self.assertFalse(any(ratchet.UPDATE_HINT in n for n in notes), notes)
+
     def test_app_lines_are_report_only(self):
         self.write(f"{SRC}/CmuxNextApp/Big.swift", "let a = 1\n" * 50)
         self.commit("app lines")

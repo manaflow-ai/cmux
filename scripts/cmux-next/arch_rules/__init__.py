@@ -19,7 +19,8 @@ is printed. `changes` carries:
     changes.delta        arch_counts.Delta of the range: .total(row), .by_package(row), .new_sites(row)
     changes.counts       the arch_counts module (ROWS, ROW_IDS, strip(), analyze(), ...)
     changes.read(items)  {(rev, path): text or None} for [(rev, path)] in one `git cat-file --batch`
-    changes.record(rev)  plans/cmux-next/arch-ratchet.json at REV as a dict, or None
+    changes.record(rev)  plans/cmux-next/arch-ratchet.json at REV as a dict, or None (read once per push)
+    changes.records()    (record(base), record(head)) through one `git cat-file --batch`
 
 A refusal is `(row_id, text)` or `(row_id, text, key)`: ROW_ID names it in
 ARCH_RATCHET_SKIP_REASON="<row>[,<row>]: <why>" (use a row id of arch_counts.ROWS, or the module's own id),
