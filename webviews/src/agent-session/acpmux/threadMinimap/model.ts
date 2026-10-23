@@ -248,7 +248,8 @@ export function minimapTurns(
     }
     keep = Math.max(0, Math.min(reuse.turns.length - 1, low - 1));
   }
-  const turns: MinimapTurn[] = reuse ? reuse.turns.slice(0, keep) : [];
+  // The turns read again, from `keep` on. The ones before are `reuse.turns`' own, never copied.
+  const tail: MinimapTurn[] = [];
   let user: AcpmuxRow | undefined;
   let userIndex = 0;
   let reply: AcpmuxRow | undefined;
@@ -256,12 +257,12 @@ export function minimapTurns(
     if (!user) return;
     const kept = turnsByPrompt.get(user);
     const same = kept && kept.sessionId === sessionId && kept.turn.index === userIndex;
-    if (same && kept.reply === reply) turns.push(kept.turn);
+    if (same && kept.reply === reply) tail.push(kept.turn);
     else if (same && reply?.text && kept.reply?.text && samePreview(kept.turn.reply, replyPreview(reply.text))) {
       // A reply streamed on past its preview (replyPreview stops once the preview is full): the
       // turn is the same, so the list of turns can be too.
       kept.reply = reply;
-      turns.push(kept.turn);
+      tail.push(kept.turn);
     } else {
       const turn: MinimapTurn = {
         index: userIndex,
@@ -271,7 +272,7 @@ export function minimapTurns(
         reply: reply?.text ? replyPreview(reply.text) : [],
       };
       turnsByPrompt.set(user, { turn, sessionId, reply });
-      turns.push(turn);
+      tail.push(turn);
     }
     user = undefined;
     reply = undefined;
@@ -289,20 +290,30 @@ export function minimapTurns(
   close();
   const old = reuse?.turns;
   const oldTicks = reuse?.ticks;
-  let sameTurns = old !== undefined && old.length === turns.length;
-  let sameTicks = oldTicks !== undefined && oldTicks.length === turns.length;
-  for (let index = keep; index < turns.length && (sameTurns || sameTicks); index += 1) {
-    const turn = turns[index]!;
-    if (old?.[index] !== turn) sameTurns = false;
-    const tick = oldTicks?.[index];
+  const length = keep + tail.length;
+  let sameTurns = old !== undefined && old.length === length;
+  let sameTicks = oldTicks !== undefined && oldTicks.length === length;
+  for (let at = 0; at < tail.length && (sameTurns || sameTicks); at += 1) {
+    const turn = tail[at]!;
+    if (old?.[keep + at] !== turn) sameTurns = false;
+    const tick = oldTicks?.[keep + at];
     if (tick?.key !== turn.key || tick.prompt !== turn.prompt || tick.id !== turn.id) sameTicks = false;
   }
-  return {
-    rows,
-    sessionId,
-    turns: sameTurns ? old! : turns,
-    ticks: sameTicks ? oldTicks! : ticksOf(turns, oldTicks),
-  };
+  // The previous list is the one this returns, changed in place from `keep` on: a streamed token
+  // whose reply preview is still filling replaces the live turn alone, not a copy of every turn
+  // (#24058 review round 5). `previous` is spent once it is passed in; read the result instead.
+  // What reads the turns follows the rows (ThreadMinimap renders on each snapshot), and `ticks`
+  // keeps its own identity rule.
+  let turns: MinimapTurn[];
+  if (!old) turns = tail;
+  else {
+    turns = old;
+    if (!sameTurns) {
+      turns.length = keep;
+      for (const turn of tail) turns.push(turn);
+    }
+  }
+  return { rows, sessionId, turns, ticks: sameTicks ? oldTicks! : ticksOf(turns, oldTicks) };
 }
 
 /// Whether two reply previews are the same blocks and spans.

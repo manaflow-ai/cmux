@@ -156,6 +156,9 @@ export function ThreadMinimap({
   /// A press is under way: the focus it brings is not keyboard focus.
   const pressing = useRef(false);
   const scrub = useRef<{ pointer: number; y: number; moved: boolean; at?: number } | undefined>(undefined);
+  /// Where the pointer last was over the list (its clientY), while it is on the rail: when the list
+  /// scrolls under a still pointer, the hovered row is the one now under it.
+  const pointerY = useRef<number | undefined>(undefined);
   const swallowClick = useRef(false);
   const windowHeight = globalThis.innerHeight || viewportHeight;
   /// The scroller's offset as of its last scroll event. The transcript hands `scrollTop` down a
@@ -193,6 +196,7 @@ export function ThreadMinimap({
     onScreen,
     sessionId,
     shown,
+    hovered,
   });
   useLayoutEffect(() => {
     live.current = {
@@ -204,6 +208,7 @@ export function ThreadMinimap({
       onScreen,
       sessionId,
       shown,
+      hovered,
     };
   });
 
@@ -449,6 +454,17 @@ export function ThreadMinimap({
     if (Math.abs(next - node.scrollTop) < 0.5) return;
     node.scrollTop = next;
     setListTop(node.scrollTop);
+    // The list moved under a pointer that did not (the reader wheels the chat with the pointer on
+    // the rail): no pointerenter comes, so the magnified row would stay the old one while another
+    // sits under the pointer (#24058 review round 5). The hovered row is the one under it now.
+    const over = live.current.hovered;
+    const y = pointerY.current;
+    if (over === undefined || y === undefined) return;
+    const under = Math.floor((y - node.getBoundingClientRect().top + node.scrollTop) / ROW_PITCH);
+    const index = Math.max(0, Math.min(live.current.turns.length - 1, under));
+    if (index === over) return;
+    setHovered(index);
+    setCardRow(index);
   }, [onScreen.first, onScreen.last, turns.length, overflow, height, scrubbing]);
 
   /// The rows' actions: stable for the memoized rows, reading the latest state through `live`.
@@ -556,6 +572,7 @@ export function ThreadMinimap({
         data-reduce={reduce || undefined}
         onPointerLeave={(event) => {
           if (scrub.current?.moved) return;
+          pointerY.current = undefined;
           setHovered(undefined);
           // Into the card keeps it; anywhere else it goes on this frame.
           if (!within(card.current, event.relatedTarget)) intend(null);
@@ -574,6 +591,9 @@ export function ThreadMinimap({
           data-fade-bottom={(overflow && fades.bottom) || undefined}
           style={{ "--acpmux-minimap-fade": `${railFade(height)}px` } as React.CSSProperties}
           onScroll={(event) => setListTop(event.currentTarget.scrollTop)}
+          onPointerOver={(event) => {
+            pointerY.current = event.clientY;
+          }}
           onPointerDown={(event) => {
             if (event.button !== 0 || event.pointerType === "touch") return;
             pressing.current = true;
@@ -596,6 +616,7 @@ export function ThreadMinimap({
             page.addEventListener("pointercancel", released);
           }}
           onPointerMove={(event) => {
+            pointerY.current = event.clientY;
             const state = scrub.current;
             if (!state) return;
             if (!state.moved) {
