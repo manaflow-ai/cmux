@@ -157,14 +157,19 @@ extension SidebarListViewComponents {
         // that the next update moves (appended, then placed below) opens again there, in a new view:
         // the old one's retargeted spring would carry its stale open on through the rows (cx-ai79).
         let now = CACurrentMediaTime()
-        openingRows = openingRows.filter { now - $0.value < Motion.sidebar.spring(.move).settlingTime() }
-        let reopened = animate ? Set(layout.rows.filter { openingRows[$0.key] != nil && old.row(for: $0.key)?.y != $0.y }.map(\.key)) : []
-        for row in layout.rows where animate && (old.row(for: row.key) == nil || reopened.contains(row.key)) { openingRows[row.key] = now } // only animated applies open rows (hq-1d)
-        let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
-        // How the rows make room for the new workspace row (`sidebar.insertMotion`, Leo 2026-10-21: "when you create a
-        // workspace at the top it's a huge cascade"); other changes keep `.move` over the whole distance.
-        let insertMotion = animate && insertsWorkspace ? SidebarInsertMotion.tunable.value : nil
+        // How the rows make room for a new workspace row (`sidebar.insertMotion`, Leo 2026-10-21: "when you create a
+        // workspace at the top it's a huge cascade"). Only for workspaces new to the model: one a group's expand, a
+        // filter or a "Show more" brings back into the list moves as before, on `.move` over the whole distance.
+        let insertMotion = animate && insertsWorkspace && opensOnlyNewWorkspaces(layout, from: old) ? SidebarInsertMotion.tunable.value : nil
         let nudge = SidebarInsertMotion.nudgeDistance.value
+        appliedSections = model.sections
+        // A row is opening until the spring it opens on settles (`.move`, or the insert motion's shorter one): past that
+        // a later move moves it, it does not open it again.
+        openingRows = openingRows.filter { $0.value > now }
+        let reopened = animate ? Set(layout.rows.filter { openingRows[$0.key] != nil && old.row(for: $0.key)?.y != $0.y }.map(\.key)) : []
+        let opensUntil = now + Motion.sidebar.spring(insertMotion?.token ?? .move).settlingTime()
+        for row in layout.rows where animate && (old.row(for: row.key) == nil || reopened.contains(row.key)) { openingRows[row.key] = opensUntil } // only animated applies open rows (hq-1d)
+        let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
         // Without motion the rows that leave park first (as they would after the loop), so the rows that
         // come take their views: a space switch reuses the old space's views, it makes none (space-switch-fast).
         if !animate, !adopting {
@@ -270,6 +275,18 @@ extension SidebarListViewComponents {
         RowMotion(targets: targets, appearing: appearing, leaving: leaving, lines: lines, companions: history, insert: insertMotion)
             .run(in: self, from: old, to: layout, animated: animate)
     }
+    /// Every workspace row `layout` lists and `old` does not is a workspace the model did not hold at the last apply
+    /// (`appliedSections`): a new one, not one a group's expand, a filter or "Show more" lists again. Reads the model's
+    /// workspaces only when such a row exists, and then once.
+    func opensOnlyNewWorkspaces(_ layout: SidebarLayout, from old: SidebarLayout) -> Bool {
+        var known: Set<WorkspaceID>?
+        for row in layout.rows {
+            guard case let .workspace(id) = row.key, old.row(for: row.key) == nil else { continue }
+            if known == nil { known = Set(appliedSections.flatMap(\.workspaces).map(\.id)) }
+            if known?.contains(id) == true { return false }
+        }
+        return true
+    }
     func configure(_ view: SidebarRowView, row: SidebarRow, animated: Bool) {
         SidebarPerfCounters.add(.rowConfigures)
         view.isHovered = hoveredKey == row.key && drag == nil
@@ -360,7 +377,7 @@ extension SidebarListViewComponents {
             guard rowViews[row.key] == nil else { continue }
             let target = frame(for: row)
             guard target.intersects(realize) else { continue }
-            let opening = openingRows[row.key] != nil
+            let opening = openingRows[row.key].map { $0 > CACurrentMediaTime() } ?? false
             let view = dequeue(row.key, rebinding: !opening)
             view.targetSize = target.size
             configure(view, row: row, animated: false)

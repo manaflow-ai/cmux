@@ -87,7 +87,10 @@ final class SidebarListView: NSView {
     var drag: Drag?
     /// Rows kept invisible while a lifted view stands in for them.
     var suppressed: Set<SidebarRowKey> = []
-    var openingRows: [SidebarRowKey: CFTimeInterval] = [:] // Rows still opening their slot, by start time.
+    var openingRows: [SidebarRowKey: CFTimeInterval] = [:] // Rows still opening their slot, by the media time their open settles.
+    /// The model's sections at the last `apply`, so an apply can tell a workspace new to the model from one listed again
+    /// (`opensOnlyNewWorkspaces`).
+    var appliedSections: [SidebarSection] = []
     /// Whether the pointer is over the list's visible rows now (`showModelChange` holds a change then).
     /// Tests inject an answer; the default asks the window where its pointer is.
     var pointerIsOverList: @MainActor (SidebarListView) -> Bool = { $0.pointerIsOverVisibleRows }
