@@ -121,8 +121,8 @@ jobs:
     permissions:
       contents: read
     outputs:
-      # pass, fail or skipped; `fail` also when the feed's DMG fails its
-      # Gatekeeper, ticket or build-number check (a download error is none).
+      # pass or fail; every download, Gatekeeper, ticket or build-number error
+      # is recorded as fail so the scheduled verdict cannot disappear.
       verdict: ${{ steps.run.outputs.verdict }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
@@ -170,7 +170,7 @@ jobs:
 
       - name: Record the static artifact verdict
         id: run
-        if: always() && steps.app.outcome != 'skipped'
+        if: always()
         run: |
           set -euo pipefail
           if [ "${{ steps.app.outcome }}" = success ]; then
