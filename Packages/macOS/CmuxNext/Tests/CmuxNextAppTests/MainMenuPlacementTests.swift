@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextPalette
 @testable import CmuxNextApp
 import Testing
 
@@ -35,26 +36,48 @@ import Testing
         return bar.items.first { $0.title == title }?.submenu
     }
 
-    @Test func everyMainMenuPlacementIsInItsTopMenu() {
+    @Test func compactMainMenuPlacementsStayInTheirTopMenu() {
         _ = NSApplication.shared
         let registry = ActionRegistry.standard()
         let bar = MainMenu.make(registry: registry)
         var missing: [String] = []
-        for descriptor in registry.descriptors {
-            guard let placement = descriptor.mainMenu else { continue }
-            if placement == .debug, !DevTools.isEnabled { continue }
-            // Edit placements stay out of the bar until their key equivalents can't take keys
-            // from a user's Ghostty keybinds or a panel (cmuxterm-hq#2015 C11).
-            if placement == .edit { continue }
+        for (placement, ids) in MainMenu.compactActionIDs {
             guard let menu = Self.topMenu(placement, in: bar) else {
-                missing.append("\(descriptor.id.rawValue): no \(placement) menu")
+                missing.append("no \(placement) menu")
                 continue
             }
-            if !Self.actionIDs(in: menu).contains(descriptor.id.rawValue) {
-                missing.append("\(descriptor.id.rawValue) not in the \(placement) menu")
+            let shown = Set(Self.actionIDs(in: menu))
+            for id in ids where !shown.contains(id.rawValue) {
+                missing.append("\(id) not in the \(placement) menu")
             }
         }
-        #expect(missing.isEmpty, "\(missing.count) placements not in the menu bar:\n\(missing.joined(separator: "\n"))")
+        #expect(missing.isEmpty, "\(missing.count) compact placements missing:\n\(missing.joined(separator: "\n"))")
+    }
+
+    @Test func removedMainMenuActionsResolveFromPaletteSearch() {
+        let registry = ActionRegistry.standard()
+        let items = RegistryPaletteProvider(registry: registry, includeUnbound: true).makeItems()
+        let actionIDs = Set(items.compactMap(\.actionID))
+        for id in MainMenu.removedMainMenuActionIDs {
+            #expect(actionIDs.contains(id), "removed menu action \(id) is not palette-searchable")
+        }
+    }
+
+    @Test func compactMenuCountsMatchAudit() {
+        _ = NSApplication.shared
+        let registry = ActionRegistry.standard()
+        let bar = MainMenu.make(registry: registry)
+        let counts = ActionMainMenu.allCases.reduce(into: [ActionMainMenu: Int]()) { result, menu in
+            result[menu] = Self.topMenu(menu, in: bar)?.items.filter { !$0.isSeparatorItem }.count ?? 0
+        }
+        #expect(counts[.app] == 8)
+        #expect(counts[.file] == 15)
+        #expect(counts[.edit] == 7)
+        #expect(counts[.view] == 12)
+        #expect(counts[.server] == 2)
+        #expect(counts[.window] == 9)
+        #expect(counts[.help] == 5)
+        #expect(counts[.debug] == 0 || DevTools.isEnabled)
     }
 
     @Test func appMenuStartsWithOneAbout() throws {
