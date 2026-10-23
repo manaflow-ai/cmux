@@ -13,6 +13,13 @@
 //! 4. SIGKILL the daemon again: the new holder's terminals come back with
 //!    their whole screen: the daemon handed the new holder a VT replay of
 //!    each screen (its prologue) with the master, and the output since.
+//!
+//! Run them with `--workspace`: the daemon starts the standalone
+//! `cmux-holder` from beside its own executable, and only a workspace run
+//! builds it (and the `cmux-holder-v3` fixture) there. A package-scoped run
+//! (`cargo test -p cmux-tui`) runs these tests on the holder built into
+//! `cmux-tui` instead (or on a stale `cmux-holder` an earlier workspace run
+//! left there), and skips the older-holder adoption test.
 
 #![cfg(unix)]
 
@@ -449,6 +456,8 @@ fn a_restart_after_two_mib_of_output_keeps_the_alternate_screen() {
 fn a_holder_killed_holding_unparsed_output_or_mid_sequence_loses_no_byte() {
     let mut daemon = Daemon::start();
     let gate = daemon.dir.join("gate");
+    let tty = daemon.dir.join("tty");
+    let flooded = daemon.dir.join("flooded");
     let flood = daemon.dir.join("flood.txt");
     let script = daemon.dir.join("flood.sh");
     let mut lines = String::new();
@@ -461,11 +470,13 @@ fn a_holder_killed_holding_unparsed_output_or_mid_sequence_loses_no_byte() {
         &script,
         format!(
             r#"stty -echo
+tty > '{tty}'
 printf 'ready\n'
 while [ ! -e '{gate}' ]; do sleep 0.05; done
 cat '{flood}'
 printf 'flood-end\n'
 printf 'X\033[38;5;1'
+: > '{flooded}'
 read a
 printf '96mRED\303'
 read b
@@ -475,6 +486,8 @@ while [ $i -lt 30 ]; do printf 'tail %02d\n' "$i"; i=$((i + 1)); done
 exec sleep 3600
 "#,
             gate = gate.display(),
+            tty = tty.display(),
+            flooded = flooded.display(),
             flood = flood.display(),
         ),
     )
@@ -498,10 +511,7 @@ exec sleep 3600
     // SAFETY: SIGSTOP of the daemon this test started.
     unsafe { libc::kill(daemon_pid, libc::SIGSTOP) };
     fs::write(&gate, b"").unwrap();
-    // `cat` writes the whole file in well under a millisecond of PTY
-    // turns; nothing a test can wait on shows the holder's ring, so this
-    // bounded wait covers it with a wide margin.
-    std::thread::sleep(Duration::from_millis(1500));
+    holder_read_everything(&flooded, &tty);
     // SAFETY: SIGKILL of the holder this test's daemon started.
     unsafe { libc::kill(holder, libc::SIGKILL) };
     // SAFETY: SIGCONT of the daemon this test stopped.
@@ -563,8 +573,48 @@ exec sleep 3600
     }
 }
 
-/// Lines of the replay-race flood: more than the holder's credit window and
-/// unsent limit together hold, fewer than the history keeps.
+/// Wait until the replay-race program wrote its whole flood and the holder
+/// read every byte of it from the PTY into its ring: the program created
+/// `flooded` after its last write, and the PTY's output queue is empty. On
+/// macOS a pty's output queue holds what the master has not read yet; on
+/// Linux the bytes move to the master's side at once and the queue always
+/// reads empty, so there the program's marker alone is the signal.
+fn holder_read_everything(flooded: &Path, tty: &Path) {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::OpenOptionsExt;
+    #[cfg(target_vendor = "apple")]
+    const TIOCOUTQ: libc::c_ulong = 0x4004_7473; // _IOR('t', 115, int), <sys/ttycom.h>
+    #[cfg(not(target_vendor = "apple"))]
+    const TIOCOUTQ: libc::Ioctl = libc::TIOCOUTQ;
+    let path = fs::read_to_string(tty).expect("the program wrote its tty");
+    let slave = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(libc::O_NOCTTY)
+        .open(path.trim())
+        .unwrap_or_else(|error| panic!("open the program's tty {}: {error}", path.trim()));
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let mut queued: libc::c_int = -1;
+        // SAFETY: TIOCOUTQ writes one int into a live local.
+        let asked = unsafe { libc::ioctl(slave.as_raw_fd(), TIOCOUTQ, &raw mut queued) };
+        assert_eq!(asked, 0, "TIOCOUTQ: {}", std::io::Error::last_os_error());
+        if flooded.exists() && queued == 0 {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the holder never read the whole flood ({queued} bytes still in the PTY): \
+             FLOOD_LINES must fit the credit window plus UNSENT_HIGH_WATER"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// Lines of the replay-race flood (75 bytes each): more than the holder's
+/// credit window, so the holder holds read-but-unsent bytes when it dies,
+/// and less than that window plus its unsent limit (768 KiB), so it reads
+/// the whole flood into its ring; fewer than the history keeps.
 const FLOOD_LINES: u64 = 10_000;
 const FLOOD_LETTERS: &str = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwx";
 
@@ -698,7 +748,17 @@ fn flood_rows(rows: &[Value]) -> Vec<u64> {
 /// screen.
 #[test]
 fn a_new_daemon_adopts_an_older_holder_by_its_wire_version() {
-    let fixture = built_binary("cmux-holder-v3");
+    // Both holders are other packages' binaries: a package-scoped run
+    // (`cargo test -p cmux-tui`) builds neither, and then this test cannot
+    // say anything.
+    let (Some(fixture), Some(_)) = (built_binary("cmux-holder-v3"), built_binary("cmux-holder"))
+    else {
+        eprintln!(
+            "SKIPPED a_new_daemon_adopts_an_older_holder_by_its_wire_version: cmux-holder-v3 or \
+             cmux-holder is not built beside cmux-tui; run the tests with --workspace"
+        );
+        return;
+    };
     let mut daemon = Daemon::start_with_env(&[("CMUX_TUI_HOLDER_EXE", fixture.as_path())]);
     let mut terminals = Vec::new();
     for index in 0..2 {
@@ -774,11 +834,11 @@ fn a_new_daemon_adopts_an_older_holder_by_its_wire_version() {
 }
 
 /// A binary cargo built beside this package's `cmux-tui` (another
-/// workspace package's, built for its own integration tests).
-fn built_binary(name: &str) -> PathBuf {
+/// workspace package's, built for its own integration tests); `None` when
+/// this run did not build it (no `--workspace`).
+fn built_binary(name: &str) -> Option<PathBuf> {
     let path = Path::new(env!("CARGO_BIN_EXE_cmux-tui")).with_file_name(name);
-    assert!(path.is_file(), "{} is not built: run the tests with --workspace", path.display());
-    path
+    path.is_file().then_some(path)
 }
 
 /// The file name of `pid`'s executable.
