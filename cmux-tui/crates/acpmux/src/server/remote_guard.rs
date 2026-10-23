@@ -62,7 +62,7 @@
 use crate::no_panic::JsonExt;
 use crate::rpc::{RpcError, method};
 use serde_json::Value;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Whether a session method acpmux does not handle itself goes on to the
 /// harness from `origin`: anything from the unix socket, and from the app only
@@ -764,9 +764,11 @@ fn folder_refused(field: &str) -> RpcError {
     ))
 }
 
-/// The folder a proven peer's `session/new` with no `cwd` runs in: `scratch/<name>`
-/// under acpmux's home, one per session name (a lane's `-n`), else one per request.
-/// Made owner-only if missing; never the home folder, never a path of the caller's.
+/// The folder a proven peer's `session/new` with no `cwd` runs in: an owner-only
+/// temporary `scratch/<name>` directory, one per session name (a lane's `-n`),
+/// else one per request. It must stay outside `~/.acpmux`: remote Claude's
+/// Seatbelt rejects hidden children of the home directory as settings or
+/// programs, even though the peer is trusted.
 async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
     let name = params
         .pointer("/_meta/acpmux/name")
@@ -775,7 +777,7 @@ async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
         .map(scratch_name)
         .filter(|n| !n.is_empty())
         .unwrap_or_else(|| format!("session-{}", uuid::Uuid::now_v7().simple()));
-    let dir = crate::config::home().join("scratch").join(name);
+    let dir = peer_scratch_root().join(name);
     let made = {
         let dir = dir.clone();
         tokio::task::spawn_blocking(move || {
@@ -792,6 +794,19 @@ async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
     };
     made.map_err(|e| failed(e.to_string()))?.map_err(|e| failed(e.to_string()))?;
     canonical_dir(&dir.to_string_lossy()).await.ok_or_else(|| folder_refused("cwd"))
+}
+
+fn peer_scratch_root() -> PathBuf {
+    let root = std::env::temp_dir().join("acpmux-peer-scratch");
+    #[cfg(unix)]
+    {
+        // Keep different users' temporary roots separate when /tmp is shared.
+        root.join(unsafe { libc::getuid() }.to_string())
+    }
+    #[cfg(not(unix))]
+    {
+        root
+    }
 }
 
 /// A session name as one folder name: letters, digits, `.`, `-` and `_`; anything

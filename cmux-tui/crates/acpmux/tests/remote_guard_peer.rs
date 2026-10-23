@@ -103,7 +103,12 @@ async fn a_proven_peer_with_no_folder_gets_a_scratch_folder_named_after_the_sess
     .await;
     let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}"));
     let cwd = hub.resolve(id).unwrap().meta().cwd.clone();
-    let scratch = std::fs::canonicalize(acpmux::config::home().join("scratch")).unwrap();
+    let scratch = std::fs::canonicalize(
+        std::env::temp_dir()
+            .join("acpmux-peer-scratch")
+            .join(unsafe { libc::getuid() }.to_string()),
+    )
+    .unwrap();
     assert_eq!(cwd, scratch.join(format!("lane-x-{}", std::process::id())), "{r}");
     assert!(cwd.is_dir());
     let mode =
