@@ -11,9 +11,10 @@
 // Two looks, two tables:
 //   - The quiet row (the default plain footer, #22285; Leo 2026-10-19, as Claude Code's): +, the
 //     mic and Send in the box, the mode and the model button in a row of their own under it. That
-//     row takes no composer-width step (composerRowFit.ts paneWidth): it holds only the mode, the
-//     model button and the ring, so it keeps "Opus 5.5  Medium" and "Auto" while they fit (live-qa
-//     2026-10-21 read "Opus Med" with about 250 px of the row free).
+//     row takes no composer-width step (composerRowFit.ts paneWidth): it holds the harness, the mode,
+//     the model button and the ring, so it keeps "Opus 5.5  Medium" and "Auto" while they fit (live-qa
+//     2026-10-21 read "Opus Med" with about 250 px of the row free), and shortens the effort, then the
+//     harness's name, only when they do not.
 //   - The in-box row (Debug Settings' plain footer off): every control in the box's one row, where
 //     the width steps still apply. First the button's effort shows the level's short name ("Med"),
 //     then the model its family ("Opus"), the access label goes, then the model its harness mark
@@ -107,14 +108,20 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
   }
 
   type Expected = { model: string; effort: string; access: string; mic: boolean };
-  /** The quiet row under the box (the default look): no width takes a step, so every pane down to
-   *  280 px keeps the whole labels. */
-  const QUIET: Record<number, Expected> = Object.fromEntries(
-    [760, 520, 500, 460, 440, 400, 360, 300, 280].map((width) => [
-      width,
-      { model: "Opus 5.5", effort: "Medium", access: "Auto", mic: true },
-    ]),
-  );
+  /** The quiet row under the box (the default look): no width takes a step; the row's measured room
+   *  does. With the harness's name in it (Claude Code), it keeps every whole label down to 400 px
+   *  (about 35 px spare), and at 300 and 280 px it has run out: the effort shows "Med" and the harness
+   *  its mark. 360 px sits within a few px of that boundary, so the fonts decide it; it is left out. */
+  const QUIET: Record<number, Expected> = {
+    ...Object.fromEntries(
+      [760, 520, 500, 460, 440, 400].map((width) => [
+        width,
+        { model: "Opus 5.5", effort: "Medium", access: "Auto", mic: true },
+      ]),
+    ),
+    300: { model: "Opus 5.5", effort: "Med", access: "Auto", mic: true },
+    280: { model: "Opus 5.5", effort: "Med", access: "Auto", mic: true },
+  };
   /** The in-box row (plain footer off): what each pane width shows (the composer is the pane less
    *  36 px): the model button's name, its effort (Fast on never adds a word to it), the access
    *  label, the mic (always). */

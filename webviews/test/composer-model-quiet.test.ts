@@ -257,8 +257,10 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
       };
     });
 
-  // Frame widths: the composer is 36 px narrower (410, 324, 264 px), and 204 and 164 px.
-  for (const width of [446, 360, 300])
+  // Frame widths: the composer is 36 px narrower (484 and 410 px; 264, 204 and 164 px). The row
+  // holds the harness's name too (ComposerHarness.tsx), so it has room for every whole label at 410
+  // px (about 65 px spare) and has run out at 264 px; 324 px sits on the boundary and is left out.
+  for (const width of [520, 446])
     test(`a ${width - 36} px composer keeps "Opus 5.5  Medium" and the mode's name: the row has room`, async () => {
       const page = await open("quiet-chips", width);
       const shown = await row(page);
@@ -274,7 +276,7 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
       expect([shown.overlap, shown.outside, shown.overflow]).toEqual([false, false, false]);
     });
 
-  for (const width of [240, 200])
+  for (const width of [300, 240, 200])
     test(`a ${width - 36} px composer shortens whole units, only as the row runs out, and nothing overlaps`, async () => {
       const page = await open("quiet-chips", width);
       const shown = await row(page);

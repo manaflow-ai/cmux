@@ -684,9 +684,11 @@
   }
 }
 /* The harness's name goes after effort's short name and before the model's family: its mark alone
-   still says which harness runs (ComposerHarness.tsx), its name then in its tooltip. */
+   still says which harness runs (ComposerHarness.tsx), its name then in its tooltip. The quiet row
+   takes no width step here either: composerRowFit.ts drops the name there only when the row runs
+   out of room (data-fit-harness), and it counts the name while the name shows. */
 @container composer (max-width: 460px) {
-  .acpmux-composer-bar [data-fit-part="harness"]:not([data-fit-forms~="icon"]) {
+  .acpmux-composer-bar:not(.acpmux-composer-foot) [data-fit-part="harness"]:not([data-fit-forms~="icon"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
