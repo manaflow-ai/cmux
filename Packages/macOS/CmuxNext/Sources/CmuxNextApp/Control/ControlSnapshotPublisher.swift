@@ -57,7 +57,6 @@ final class ControlSnapshotPublisher {
         isStopped = true
         router.workQueue.setAfterFrame(nil)
         observers.removeAll()
-        observers.removeAll()
     }
 
     /// Schedules one publish on the next frame (coalesced); with `notBefore`,
@@ -87,7 +86,7 @@ final class ControlSnapshotPublisher {
         let started = ContinuousClock.now
         (lastPublish, notBefore) = (started, nil)
         let (topology, settings, tabSearch) = withObservationTracking {
-            (Self.topology(services, cache: workspaceInfos), services.settings?.snapshot.root, TabSearchFactsBuilder.facts(services))
+            (Self.topology(services, cache: workspaceInfos), services.settings?.snapshot.root, TabSearchFactsBuilder.facts(services, cache: workspaceInfos))
         } onChange: { [weak self] in
             // Runs synchronously inside the mutation; publish after it lands.
             Task { @MainActor in self?.modelChanged() }
@@ -98,10 +97,11 @@ final class ControlSnapshotPublisher {
             snapshot.tabSearch = tabSearch
         }
         let elapsed = ContinuousClock.now - started
-        // The tab count walks every tab: only when a timing slot or the debug log wants it.
-        DebugTimings.controlPublished(tabs: topology.tabCount, elapsed)
+        // The cache keeps the tab count as entries change: no walk of every tab per publish.
+        let tabs = workspaceInfos.tabCount
+        DebugTimings.controlPublished(tabs: tabs, elapsed)
         if elapsed > .milliseconds(2) {
-            logger.debug("control snapshot took \(elapsed.components.attoseconds / 1_000_000_000_000_000) ms for \(topology.tabCount) tabs")
+            logger.debug("control snapshot took \(elapsed.components.attoseconds / 1_000_000_000_000_000) ms for \(tabs) tabs")
         }
     }
 
@@ -109,9 +109,13 @@ final class ControlSnapshotPublisher {
     /// what Search Tabs lists in the palette).
     static func topology(_ services: AppServices, cache: ControlWorkspaceInfoCache? = nil) -> ControlTopology {
         let windows: WindowManager = services.windows
-        var topology = ControlTopology(store: services.daemon.store, selectedTab: { [services] pane in
-            services.paneController(for: pane)?.selectedTab?.id
-        }, pages: services.controlPageFacts, cache: cache)
+        let selectedTab: (PaneModel) -> String? = { [services] pane in services.paneController(for: pane)?.selectedTab?.id }
+        let pages = services.controlPageFacts
+        // With the cache, map only changed workspaces and the panes whose app facts can be set: those a window
+        // mounts (`paneController(for:)`) and those with page tabs (9% of main at 400 workspaces, a576 churn bench).
+        let scope = cache.map { _ in ControlAppFactScope(paneIDs: services.pages.paneKeys
+            + windows.controllers.flatMap { $0.content?.panes.values.map(\.pane.id) ?? [] }) }
+        var topology = ControlTopology(store: services.daemon.store, selectedTab: selectedTab, pages: pages, cache: cache, scope: scope)
         if case .unavailable(let error) = services.daemon.startup { topology.daemonFailure = error.description }
         // Read inside tracking: every applied batch republishes, so a compat
         // read waiting on its write barrier wakes (CompatWriteBarrier).
@@ -119,18 +123,17 @@ final class ControlSnapshotPublisher {
         let machines = services.machines
         // Remote sessions' workspaces, qualified by session (data-model.md 1.3).
         topology.sessions = ControlSessions.sessions(machines: machines)
+        var slots: Set<String> = [ControlWorkspaceInfoCache.homeSlot]
         for daemon in machines.remoteDaemons where daemon.store.isLoaded {
-            let session = ControlSessions.key(daemon)
+            let (session, machine) = (ControlSessions.key(daemon), daemon.machineID)
             topology.sessionSequences[session] = daemon.store.appliedSequence
-            topology.workspaces += daemon.store.workspaces.map { model in
-                var info = ControlWorkspaceInfo(model, cache: cache, selectedTab: { [services] pane in
-                    services.paneController(for: pane)?.selectedTab?.id
-                }, pages: services.controlPageFacts)
-                info.sessionID = session
-                info.machine = daemon.machineID
-                return info
+            let slot = slots.insert("\(session)|\(machine)").memberAfterInsert
+            topology.workspaces += ControlTopology.workspaces(of: daemon.store, cache: cache, slot: slot, scope: scope,
+                                                              selectedTab: selectedTab, pages: pages) { info in
+                (info.sessionID, info.machine) = (session, machine)
             }
         }
+        cache?.retainLists(slots)
         // With the local daemon down, the remote sessions' workspaces are the
         // whole tree: resolve their public ids instead of passing them through.
         if !topology.isLoaded, topology.daemonFailure != nil, machines.remoteDaemons.contains(where: { $0.store.isLoaded }) {
@@ -160,7 +163,7 @@ final class ControlSnapshotPublisher {
                                                    build: visible) ?? visible()
             return info
         }
-        cache?.retainMemos(Set(windows.controllers.map { "window:" + $0.state.id }))
+        cache?.retainMemos(Set(windows.controllers.map { "window:" + $0.state.id } + [TabSearchFactsBuilder.closedSlot]))
         if let active = windows.active {
             let pane = active.focusedPane
             // The strip's selected tab: a daemon tab, or an internal page
@@ -169,8 +172,6 @@ final class ControlSnapshotPublisher {
             topology.focus = ControlFocus(windowID: active.state.id, workspaceID: active.state.workspaceID,
                                           paneID: pane?.pane.id, tabID: pane?.selectedTab?.id ?? pane?.stripModel.selectedID?.rawValue)
         }
-        cache?.retain(services.daemon.store.workspaces
-            + machines.remoteDaemons.filter { $0.store.isLoaded }.flatMap { $0.store.workspaces })
         return topology
     }
 }

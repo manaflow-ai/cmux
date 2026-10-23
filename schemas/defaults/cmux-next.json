@@ -406,6 +406,7 @@
     "setting.chief.reactionsCanWake": true,
     "setting.computerUse.driver": "legacy",
     "setting.computerUse.enabled": false,
+    "setting.diagnostics.hangReports": false,
     "setting.diff.colors": "theme",
     "setting.diff.diffIndicators": "bars",
     "setting.diff.expandUnchanged": false,

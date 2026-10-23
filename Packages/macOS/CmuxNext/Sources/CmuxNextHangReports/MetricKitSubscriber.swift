@@ -7,9 +7,14 @@ public import MetricKit
 /// after a hang or CPU exception for diagnostics; it costs nothing between deliveries.
 public final class MetricKitSubscriber: NSObject, MXMetricManagerSubscriber, Sendable {
     private let deliver: @Sendable (MetricKitInput) -> Void
+    private let since: Date
 
-    /// - Parameter deliver: Receives each delivery (``HangReportService/receive(_:)``).
-    public init(deliver: @escaping @Sendable (MetricKitInput) -> Void) {
+    /// - Parameters:
+    ///   - since: The person's consent time: payloads that began earlier (MetricKit keeps
+    ///     undelivered ones and hands them over at the first subscription) are dropped.
+    ///   - deliver: Receives each delivery (``HangReportService/receive(_:)``).
+    public init(since: Date, deliver: @escaping @Sendable (MetricKitInput) -> Void) {
+        self.since = since
         self.deliver = deliver
     }
 
@@ -21,7 +26,7 @@ public final class MetricKitSubscriber: NSObject, MXMetricManagerSubscriber, Sen
 
     /// A MetricKit delivery (MetricKit's queue).
     public func didReceive(_ payloads: [MXMetricPayload]) {
-        for payload in payloads {
+        for payload in payloads where payload.timeStampBegin >= since {
             let input = Self.input(payload)
             if !input.isEmpty { deliver(input) }
         }
@@ -29,7 +34,7 @@ public final class MetricKitSubscriber: NSObject, MXMetricManagerSubscriber, Sen
 
     /// A MetricKit delivery (MetricKit's queue).
     public func didReceive(_ payloads: [MXDiagnosticPayload]) {
-        for payload in payloads {
+        for payload in payloads where payload.timeStampBegin >= since {
             let hangs = (payload.hangDiagnostics ?? []).map {
                 MetricKitInput.Hang(durationMs: Self.ms($0.hangDuration), callStackTree: $0.callStackTree.jsonRepresentation())
             }
