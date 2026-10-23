@@ -223,6 +223,19 @@ for (const harness of ["claude-sr2", "claude"])
       );
     });
 
+for (const harness of ["claude-sr2", "claude"])
+  test(`${harness}: hiding an alias also hides a simultaneously reported release`, () => {
+    const models = rowsFor(
+      harness,
+      [
+        { id: "opus", name: "Opus 5.5" },
+        { id: "claude-opus-5-5", name: "Opus 5.5" },
+      ],
+      { [`${harness}/opus`]: { hidden: true } },
+    );
+    expect(opusRows(models).map((model) => model.id), models.map((model) => model.id).join(", ")).toEqual([]);
+  });
+
 test("an alias the user renamed still folds into its release: one row", () => {
   const models = rowsFor(
     "claude-sr2",
