@@ -83,6 +83,7 @@ fn a_new_workspace_answers_after_at_most_one_discovery_file_sync() {
         .arg(dir.join("state"))
         .env("CMUX_TUI_CONFIG", dir.join("config.json"))
         .env("CMUX_TUI_DEBUG_SLOW_DISCOVERY_SYNC_MS", SLOW_SYNC_MS.to_string())
+        .env("CMUX_TUI_DEBUG_SPANS", dir.join("spans.jsonl"))
         .env("SHELL", &quiet)
         .env_remove("SSH_CONNECTION")
         .env_remove("SSH_CLIENT")
@@ -127,6 +128,8 @@ fn a_new_workspace_answers_after_at_most_one_discovery_file_sync() {
     client.call(json!({"cmd": "shutdown-daemon", "pid": identity["pid"],
         "generation": identity["generation"], "force": true, "end_terminals": true}));
     let _ = daemon.wait();
+    // The creates' marks, for a failure message.
+    eprintln!("{}", fs::read_to_string(dir.join("spans.jsonl")).unwrap_or_default());
     let _ = fs::remove_dir_all(&dir);
     assert!(
         move_ms < SLOW_SYNC_MS,

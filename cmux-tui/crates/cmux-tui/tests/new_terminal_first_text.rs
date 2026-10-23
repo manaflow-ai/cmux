@@ -161,6 +161,10 @@ fn new_tab_first_text(debug_env: &[(&str, String)]) -> (u64, u64, u64) {
             .filter(|trace| trace["terminal"] == terminal_id)
             .find_map(|trace| mark(&trace, "first_printable_output"));
         if let Some(first) = first {
+            // The create's marks, for a failure message.
+            let traces: Vec<&str> =
+                lines.lines().filter(|line| line.contains(terminal_id.as_str())).collect();
+            eprintln!("traces of {terminal_id}:\n{}", traces.join("\n"));
             break first;
         }
         assert!(Instant::now() < deadline, "no first_printable_output mark:\n{lines}");
