@@ -48,7 +48,13 @@ extension ActionRegistry {
             // The palette opening is a gate, not a run of the action.
             gated(id, invocation) { stamped in
                 settle()
-                argumentCollector(id, stamped)
+                // The gate has read the press. The palette asks a question, so the run with the
+                // collected invocation answers the palette's Return (the event being dispatched)
+                // or reports -1, never the press's age with the person's typing in it, as a
+                // confirmation after a question does (`proceed(asked: true)`).
+                var asking = stamped
+                asking.inputTimestamp = nil
+                argumentCollector(id, asking)
             }
             return true
         }
