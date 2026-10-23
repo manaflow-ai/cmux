@@ -32,10 +32,10 @@ public final class HoverCardCoordinator {
     /// A card its owner shows in the one card window (`presentOwned`), nil while none does.
     var owned: HoverCardOwned?
     private var activated: HoverTargetID?
-    private var monitor: Any?
+    private var monitor: LocalEventMonitor?
     /// Pointer moves while a card shows: the card ignores the mouse, so over it no source
     /// sees the pointer leave it; this sees it at once (no wait for a deadline).
-    private var moveMonitor: Any?
+    private var moveMonitor: LocalEventMonitor?
     /// The card's parent and whether it took mouse moves before the card showed: while a
     /// card shows, the parent takes them everywhere, so moves over the card reach `moveMonitor`.
     private var movesParent: (window: NSWindow, accepted: Bool)?
@@ -119,12 +119,13 @@ public final class HoverCardCoordinator {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Reads Sendable state only: the timer cancels on any thread; the event monitors leave on the main
+    // thread (inline when released there, as before; a release elsewhere skipped them before).
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            if let monitor { NSEvent.removeMonitor(monitor) }
-            timer.cancel()
-        }
+        timer.cancel()
+        let monitors = [monitor, moveMonitor].compactMap { $0 }
+        guard !monitors.isEmpty else { return }
+        MainDelivery().run { for monitor in monitors { monitor.remove() } }
     }
 
     // MARK: Sources
@@ -345,12 +346,12 @@ public final class HoverCardCoordinator {
     private func updateMonitor() {
         let needed = machine.activeTarget != nil
         if needed, monitor == nil {
-            monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]) { [weak self] event in
+            monitor = LocalEventMonitor(NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]) { [weak self] event in
                 guard let self else { return event }
                 return self.handleMonitoredEvent(event)
-            }
+            })
         } else if !needed, let monitor {
-            NSEvent.removeMonitor(monitor)
+            monitor.remove()
             self.monitor = nil
         }
         updateMoveMonitor()
@@ -391,12 +392,12 @@ public final class HoverCardCoordinator {
             parent?.acceptsMouseMovedEvents = true
         }
         if parent != nil, moveMonitor == nil {
-            moveMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { [weak self] event in
+            moveMonitor = LocalEventMonitor(NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { [weak self] event in
                 self?.cardPointerMoved(event.window.map { $0.convertPoint(toScreen: event.locationInWindow) })
                 return event
-            }
+            })
         } else if parent == nil, let moveMonitor {
-            NSEvent.removeMonitor(moveMonitor)
+            moveMonitor.remove()
             self.moveMonitor = nil
             pointerWasOnCard = false
         }
@@ -480,7 +481,8 @@ public final class HoverCardCoordinator {
     /// shows what the machine says.
     public func singleCardViolations() -> [String] {
         var bad: [String] = []
-        if HoverCardPanel.liveInstances > 1 { bad.append("\(HoverCardPanel.liveInstances) hover card windows exist") }
+        let windows = HoverCardPanel.liveInstances.load(ordering: .relaxed)
+        if windows > 1 { bad.append("\(windows) hover card windows exist") }
         let showing = panel?.isShowingCard == true
         if showing, machine.shownTarget == nil, owned == nil { bad.append("a card shows while the machine has none") }
         if owned != nil, machine.shownTarget != nil { bad.append("an owner's card and \(machine.shownTarget?.id.rawValue ?? "-") share the window") }
@@ -499,7 +501,7 @@ public final class HoverCardCoordinator {
             "pending_target": { if case .pending(let target, _) = machine.phase { target.id.rawValue } else { "-" } }(),
             "shown_target": machine.shownTarget?.id.rawValue ?? "-",
             "quiet": "\(machine.quiet)",
-            "card_windows": "\(HoverCardPanel.liveInstances)",
+            "card_windows": "\(HoverCardPanel.liveInstances.load(ordering: .relaxed))",
             "card_showing": "\(panel?.isShowingCard == true)",
             "card_frame": panel.map { NSStringFromRect($0.cardFrame) } ?? "-",
             "anchor_frame": panel.map { NSStringFromRect($0.anchorFrame) } ?? "-",
