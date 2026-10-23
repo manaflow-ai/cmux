@@ -9,7 +9,7 @@ import Testing
 /// The field grows to the left when it takes focus, while the button is
 /// still down. On macOS 15 AppKit's text tracking maps the press in the old
 /// layout and the release in the new one, so a click that never moved ends
-/// with a few characters selected (`[5, 13]` in the os-smoke Tart VM) where
+/// with a few characters selected (`[5, 13]` in a Tart VM) where
 /// macOS 26 ends with a caret. Chrome selects all on the release of a
 /// focusing click unless the pointer dragged past the drag threshold
 /// (`OmniboxViewViews::OnMouseReleased`, `select_all_on_mouse_release_`);

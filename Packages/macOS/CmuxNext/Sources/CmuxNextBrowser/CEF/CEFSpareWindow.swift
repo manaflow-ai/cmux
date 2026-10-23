@@ -4,7 +4,7 @@ import Foundation
 /// one, so the first tab joins a live window (`cmux_tab_add`) instead of
 /// building one. Building Chromium's first browser window holds the main
 /// thread for about 0.8 s in a macOS 26 VM (mostly `-[NSWindow
-/// initWithContentRect:]` waiting on the window server; os-smoke,
+/// initWithContentRect:]` waiting on the window server; Tart launch checks,
 /// 2026-10-18), which the first tab then showed as a stall.
 ///
 /// The spare is a host of the default profile's own store with an

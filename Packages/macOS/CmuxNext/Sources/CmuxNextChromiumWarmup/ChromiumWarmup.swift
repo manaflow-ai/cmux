@@ -28,7 +28,7 @@ public import Foundation
 /// - Once Chromium runs, the next idle moment builds a spare Chromium window
 ///   (`CEFEngine.prepareSpareWindow`), so the first tab joins a live window.
 ///   In a macOS 26 VM `CefInitialize` and the first window each held the main
-///   thread for about 0.8 s (os-smoke, 2026-10-18): two idle steps, none at
+///   thread for about 0.8 s (Tart launch checks, 2026-10-18): two idle steps, none at
 ///   the first tab.
 @MainActor
 public final class ChromiumWarmup {
@@ -81,7 +81,7 @@ public final class ChromiumWarmup {
     /// Whether new browser tabs open in Chromium (`browser.defaultEngine`).
     private var defaultIsChromium: @MainActor () -> Bool = { false }
     /// Whether a Chromium page is being created: it builds its own window,
-    /// and a spare built meanwhile would race it (os-smoke 2026-10-18).
+    /// and a spare built meanwhile would race it (Tart launch checks, 2026-10-18).
     private var pagesPending: @MainActor () -> Bool = { false }
     private var stopped = false
 

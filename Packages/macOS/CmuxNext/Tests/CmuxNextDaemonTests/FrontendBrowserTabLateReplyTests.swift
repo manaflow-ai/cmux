@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// The os-smoke WebKit flake (macOS 26 guests, about 1 run in 6): cmux-tui
+/// The WebKit flake (macOS 26 guests, about 1 run in 6): cmux-tui
 /// answers `new-frontend-browser-tab` only after the tab's record is durable
 /// (a full device flush under the registry lock), and on a guest whose disk
 /// is busy (fsck_apfs, 118 MB/s) that took past the app's 2 s request
