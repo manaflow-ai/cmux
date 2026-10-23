@@ -167,6 +167,18 @@ struct AgentPageProviderEventsTests {
         #expect(provider.publish(Self.command("after-reconnect")))
     }
 
+    @Test func transportReconnectKeepsARecoverableBridgeGapQueue() async throws {
+        let provider = AgentPageProvider { _ in nil }
+        provider.publish(Self.command("kept"))
+        provider.transportDidOpen(1)
+        let page = Received()
+        let subscription = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null,
+                                                         context: Self.context) { event in page.append(event) }
+        defer { subscription.cancel() }
+        await page.waitFor(1)
+        #expect(Self.names(page.events) == ["kept"])
+    }
+
     @Test func aPageResetRequeuesAnEnvelopeDroppedByTheScriptPipeline() async throws {
         let provider = AgentPageProvider { _ in nil }
         let page = Received()

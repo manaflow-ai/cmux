@@ -135,8 +135,13 @@ public final class AgentPageProvider: PageProvider {
     public func transportDidOpen(_ connection: Int) {
         guard transportConnection != connection else { return }
         transportConnection = connection
+        // Keep a bounded, recoverable bridge-gap queue. Only an already-full queue belongs to
+        // the overflowed socket's authoritative resync; a partial queue may contain commands or
+        // chrome updates that the new socket cannot recreate.
+        if deliveryOverflowed, bufferedEvents.count >= Self.maximumBufferedEvents {
+            bufferedEvents.removeAll(keepingCapacity: true)
+        }
         deliveryOverflowed = false
-        bufferedEvents.removeAll(keepingCapacity: true)
     }
 
     public var eventsAfterSubscribeReply: Bool { true }
