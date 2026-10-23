@@ -43,4 +43,13 @@ struct PageRenderRateTests {
                                                  documentAttributes: [:], options: .standard)
         #expect(try rendersNear60(host.configuration.preferences) == false)
     }
+
+    /// The one page that may cap: the agent pane under its debug `capped` render rate.
+    @Test func aPageThatCapsItsRateRendersNear60() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [],
+                                            options: PageEngineOptions(capsFrameRate: true), chromium: nil))
+        defer { view.close() }
+        #expect(try rendersNear60(view.webKitView.configuration.preferences))
+    }
 }

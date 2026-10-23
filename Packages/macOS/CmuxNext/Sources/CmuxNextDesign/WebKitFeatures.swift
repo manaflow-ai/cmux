@@ -37,7 +37,9 @@ public extension WKPreferences {
 
 /// WebKit's page render rate (one path for browser tabs, React pages and
 /// the agent pane). WebKit renders near 60 fps by default; full rate follows
-/// the display (120 Hz on ProMotion).
+/// the display (120 Hz on ProMotion). Every cmux page asks for full rate
+/// (`PageEngineOptions`; only the agent pane's debug `capped` rate opts out);
+/// browser tabs ask for it outside Low Power Mode.
 public struct WebKitRenderRate {
     public init() {}
     /// WebKit's feature that renders a page at the display-rate divisor nearest 60 fps.
