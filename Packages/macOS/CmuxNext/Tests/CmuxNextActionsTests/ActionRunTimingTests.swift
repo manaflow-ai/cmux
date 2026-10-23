@@ -269,6 +269,26 @@ private final class RunTimingRecorder: ActionRunTiming {
         }
     }
 
+    /// An unasked confirmation that resumes while AppKit dispatches an unrelated event (a menu or
+    /// a drag the person opened during a TabCloseGuard round trip, whose nested tracking loop runs
+    /// the main-actor job) reports the carried press's age, not that event's: a carried stamp
+    /// always belongs to the run.
+    @Test func aCarriedPressWinsOverAnUnrelatedEventBeingDispatched() throws {
+        let recorder = RunTimingRecorder()
+        let registry = Self.gatedRegistry(recorder) { _, _ in }
+        var pending: (@MainActor (Bool) -> Void)?
+        registry.confirmationPresenter = { _, _, proceed in pending = proceed }
+        let now = ProcessInfo.processInfo.systemUptime
+        var dispatching: NSEvent? = try Self.key(at: now - 0.3)  // the press
+        registry.dispatchingInputEvent = { dispatching }
+        #expect(registry.perform("tabGroup.close"))
+        dispatching = try Self.key(at: now - 0.001)  // an unrelated key inside a menu's tracking loop
+        let proceed = try #require(pending)
+        proceed(false)
+        let age: Double = try #require(recorder.runs.last?.inputAge)
+        #expect(age >= 300, "the run reported \(age) ms: the unrelated event's age, not the press's")
+    }
+
     /// A confirmation that asked nothing (a slow TabCloseGuard or process-info round trip) and
     /// comes back more than a second later, outside any dispatch, still reports the press's age:
     /// that wait is the person's latency. Before 3f9a1c0c4ce a 1 s cap reported -1.
