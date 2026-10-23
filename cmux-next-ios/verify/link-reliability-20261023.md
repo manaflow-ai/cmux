@@ -129,4 +129,43 @@ laptop, 22:01:55 on the rig).
 
 ## Rig
 
-(Filled in below.)
+Setup:
+
+- **Phone.** A TestFlight-configuration simulator app (`dev.cmux.app.internal`, production Worker `mobile-api.cmux.dev`, Cloudflare TURN) in one headless iPhone 17 Pro (iOS 26.5) on mini-cmux8s. It signs in to the production test account B with the simulator-only password sign-in.
+- **Macs.** Two hidden rig Macs, fleet builds `--production` of this branch's base (`lrbase`) and head (`lrfix`), on mini-cmux11s (`lr-mac-a`) and mini-cmux9s (`lr-mac-b`). They are signed in to the same account, and their settings go in only through `open --env`.
+- **Link.** No local socket, loopback or direct shortcut.
+- **Drivers.** `verify/e2e/link_soak.py`, run through `link_soak_relay.py`, which forwards the rig commands from the laptop because the minis can't ssh to each other. `verify/e2e/chief_foreground.py`. Each run streams a terminal (`date` every 200 ms). Every minute it types a marker on the phone and reads it back from that Mac's own CLI.
+
+| Run | Build | Network | Minutes | Echoes reached | Link ready (ms) | Drops (reason → next link up) | Media |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| base, 2 Macs, events | base | rig LAN (TURN path) | 30 | 7/13 before the driver lost the app | 120–330 | bg 20 s: mini11s link dropped at 21:38:42 after a signaling reset (21:38:18) and was not back for 98 s; kill: back in 2 s | — |
+| base, relay only, 2 Macs, events | base | relay only | 16 | 16/16 | 113–331 | only after kill and hostd restart (links 4–8 min) | — |
+| base, browser | base | rig LAN | 12 | — | 126, 388 | none while open | WebRTC Direct in 80 ms, up to 20 Mbit/s, 12 min |
+| fix, 2 Macs, events | head | rig LAN (TURN path) | 30 | 24/28 (the 4 misses: rig B's app quit at 23:07 and was relaunched) | 112–135 | bg 20 s: no drop; kill: back in 10 s; hostd kill: the phone's presence probe closed the dead link and redialed in 1 s; signaling resets at 23:30 (both Macs): no drop | — |
+
+The rig cannot recreate a slow relay that queues a pong for 8 s. Its links all ran at
+125 ms through Cloudflare TURN. So the drop that matters most is proven by the tests
+above and the user's logs, not by a before-and-after on the rig.
+
+### Chief after the background
+
+`chief_foreground.py`, Mac Chief on `lr-mac-a`, base build:
+
+| Away | Usable after the foreground | Message round trip |
+| --- | --- | --- |
+| 10 s | 0.69 s | sent, answered |
+| 60 s | 0.82 s | sent, answered |
+| 300 s | 1.92 s | — (the driver's keyboard tap failed) |
+| 10 s, process stopped (`--freeze`) | 1.68 s | — |
+| 60 s, process stopped | 1.25 s | — |
+
+The rig does not show minutes of "connecting". On the real phone, the time Chief spends
+connecting is the link's time: a redial of 4–9 s, then the phone closing the new link at
+22–24 s (fix 1) and redialing again.
+
+## Not done
+
+- **Real iPhone.** The user asked to skip it. A signed Production ipa is left for them.
+- **The other MacBook's stale cmux NEXT** (`331e2e901ce`, no #23829). Restarting it into a current build is the user's call.
+- **WireGuard direct on the same Wi-Fi.** Not explained yet. It needs a phone-side trace.
+- **No Worker change, so no deploy.**
