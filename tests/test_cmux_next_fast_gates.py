@@ -730,6 +730,9 @@ class WebviewsChecksGate(unittest.TestCase):
                                            red + "Finished in 2057ms on 2479 files using 4 threads.\n"), [])
         self.assertEqual(self.module.added("src/b.ts (1ms)\n" + red + "Finished in 5ms on 2481 files using 4 threads.\n",
                                            red + "Finished in 9ms on 2479 files using 4 threads.\n"), ["src/b.ts (1ms)"])
+        # Only the whole closing line is noise: a file whose name starts like it is still a finding.
+        self.assertEqual(self.module.added("Finished in 1ms on 2 files.ts (1ms)\n" + red, red),
+                         ["Finished in 1ms on 2 files.ts (1ms)"])
 
     def test_replay_of_24252_unicode_frames_in_another_order_add_nothing(self):
         # #24252's fast gates: Oxlint printed its Unicode frame (`╭─[`, `│`, `·`, `╰`), and with 4 threads the

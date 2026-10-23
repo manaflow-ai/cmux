@@ -51,7 +51,7 @@ HELP = re.compile(r"^\s*help:")
 # and `vp fmt`'s closing `Finished in 528ms on 2481 files using 4 threads.`, whose file count moves whenever the
 # change adds or removes a file (#24274's fast gates read it as the one finding the merge added).
 NOISE = re.compile(r"^(?:error: (?:Type errors|Formatting issues|Lint issues) found$|Found \d+ errors? and \d+ warnings?\b"
-                   r"|Finished in \S+ on \d+ files?\b|note: You are running)")
+                   r"|Finished in \S+ on \d+ files? using \d+ threads?\.$|note: You are running)")
 
 
 def run_check(webviews: Path, check: str) -> tuple[int, str]:
