@@ -528,7 +528,7 @@ fn a_snapshot_becomes_the_prologue_a_restarted_daemon_starts_from() {
     client.write(1, b"next\n").unwrap();
     match expect_event(&mut client, "output after the snapshot") {
         Event::Data { offset, .. } => {
-            assert_eq!(offset, end, "the ring before the snapshot replayed")
+            assert_eq!(offset, end, "the ring before the snapshot replayed");
         }
         other => panic!("unexpected {other:?}"),
     }

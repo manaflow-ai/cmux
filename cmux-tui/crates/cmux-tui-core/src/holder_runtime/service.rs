@@ -21,8 +21,11 @@ use crate::panic_free::RecoverPoison;
 #[derive(Default)]
 struct LinkSlot {
     link: Option<Arc<HolderLink>>,
-    /// CLOSEs asked for while no link was open (`grace_ms` by channel):
-    /// the next link sends them once it re-adopted every terminal.
+    /// Every CLOSE asked for (`grace_ms` by channel), kept until the
+    /// terminal is untracked: each new link sends them again once it
+    /// re-adopted every terminal. A CLOSE written to a holder that was
+    /// already dying (killed, its link not yet seen closed) is lost, and a
+    /// new holder would otherwise keep the closed tab's shell running.
     pending_close: HashMap<u32, u32>,
 }
 
@@ -145,7 +148,7 @@ impl HolderService {
         let pending: Vec<(u32, u32)> = {
             let mut slot = self.link.lock().recover_poison();
             slot.link = Some(link.clone());
-            slot.pending_close.drain().collect()
+            slot.pending_close.iter().map(|(chan, grace_ms)| (*chan, *grace_ms)).collect()
         };
         for (chan, grace_ms) in pending {
             if let Err(error) = link.close(chan, grace_ms) {
@@ -235,16 +238,16 @@ impl HolderService {
 
     /// Hang up `chan`'s terminal; SIGKILL its groups after `grace_ms`.
     /// Never connects or starts a holder, so a surface may call it under
-    /// its own locks: without an open link the CLOSE waits for the next
-    /// one (a holder restart) and this returns an error, so the caller can
-    /// signal the shell itself.
+    /// its own locks. The CLOSE is kept until `chan` is untracked and each
+    /// new link (a holder restart) sends it again; without an open link
+    /// this returns an error, so the caller can signal the shell itself.
     pub(crate) fn close(&self, chan: u32, grace_ms: u32) -> io::Result<()> {
         let link = {
             let mut slot = self.link.lock().recover_poison();
+            slot.pending_close.insert(chan, grace_ms);
             match slot.link.clone().filter(|link| link.is_open()) {
                 Some(link) => link,
                 None => {
-                    slot.pending_close.insert(chan, grace_ms);
                     return Err(io::Error::new(
                         io::ErrorKind::NotConnected,
                         "no terminal holder link: the close waits for the next one",
@@ -252,9 +255,7 @@ impl HolderService {
                 }
             }
         };
-        link.close(chan, grace_ms).inspect_err(|_| {
-            self.link.lock().recover_poison().pending_close.insert(chan, grace_ms);
-        })
+        link.close(chan, grace_ms)
     }
 
     /// The daemon leaves `chan` running on the holder for its shutdown.
@@ -268,7 +269,11 @@ impl HolderService {
     /// Stop tracking `chan` (its terminal ended or its surface left).
     pub(crate) fn untrack(&self, chan: u32) {
         self.live.lock().recover_poison().remove(&chan);
-        let link = self.link.lock().recover_poison().link.clone();
+        let link = {
+            let mut slot = self.link.lock().recover_poison();
+            slot.pending_close.remove(&chan);
+            slot.link.clone()
+        };
         if let Some(link) = link {
             link.forget(chan);
         }

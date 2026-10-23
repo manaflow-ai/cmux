@@ -370,7 +370,7 @@ mod tests {
         sink.set_acker(Box::new(move |offset| recorded.lock().unwrap().push(offset)));
         // Nothing parsed yet: the first acknowledgement is the base.
         assert_eq!(*acks.lock().unwrap(), vec![0]);
-        let mut reader = SinkReader(sink.clone());
+        let mut reader = SinkReader(sink);
         let mut buf = vec![0u8; 64 * 1024];
         let mut read = 0;
         while read < 4 + 2 * chunk.len() {
@@ -426,7 +426,7 @@ mod tests {
         sink.data(100, b"tail");
         sink.exit(ExitStatus::Exited(0), 104);
         let mut out = Vec::new();
-        SinkReader(sink.clone()).read_to_end(&mut out).unwrap();
+        SinkReader(sink).read_to_end(&mut out).unwrap();
         assert_eq!(out, b"<screen>\x18tail");
         // A current prologue sets where the stream continues.
         let sink = HolderSink::new(100);

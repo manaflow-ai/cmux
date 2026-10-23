@@ -46,6 +46,8 @@ fn request(socket: &Path, mut body: Value) -> Value {
 
 struct Daemon {
     child: Option<Child>,
+    /// Extra daemon arguments, kept for every restart.
+    args: Vec<String>,
     dir: PathBuf,
     socket: PathBuf,
     /// Holder and shell pids this test made, ended at drop: a holder
@@ -55,6 +57,10 @@ struct Daemon {
 
 impl Daemon {
     fn start() -> Self {
+        Self::start_with(&[])
+    }
+
+    fn start_with(args: &[&str]) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir = PathBuf::from("/tmp").join(format!(
             "cmux-holder-{}-{}",
@@ -62,8 +68,13 @@ impl Daemon {
             stamp % 1_000_000_000
         ));
         fs::create_dir_all(&dir).unwrap();
-        let mut daemon =
-            Self { child: None, socket: dir.join("mux.sock"), dir, cleanup: Vec::new() };
+        let mut daemon = Self {
+            child: None,
+            args: args.iter().map(ToString::to_string).collect(),
+            socket: dir.join("mux.sock"),
+            dir,
+            cleanup: Vec::new(),
+        };
         daemon.restart();
         daemon
     }
@@ -75,6 +86,7 @@ impl Daemon {
             .arg(&self.socket)
             .arg("--state")
             .arg(self.dir.join("state"))
+            .args(&self.args)
             .env("CMUX_TUI_CONFIG", self.dir.join("config.json"))
             .env("CMUX_TUI_TERMINAL_HOST_MODEL", "holder")
             .env("SHELL", "/bin/sh")
@@ -305,7 +317,9 @@ fn a_holder_shell_that_exits_ends_its_terminal_with_its_status() {
 /// the closed shell ends.
 #[test]
 fn a_tab_closed_right_after_a_holder_crash_ends_without_a_lock_rank_panic() {
-    let mut daemon = Daemon::start();
+    // Reap at once, as the app's close does after its grace: the reaper
+    // ends the closed tab's terminal under its surface's runtime lock.
+    let mut daemon = Daemon::start_with(&["--terminal-reap-grace-seconds", "0"]);
     let mut surfaces = Vec::new();
     for index in 0..2 {
         let created = request(

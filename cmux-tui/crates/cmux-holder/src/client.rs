@@ -280,7 +280,14 @@ impl HolderClient {
             if left.is_zero() {
                 return Err(io::Error::new(io::ErrorKind::TimedOut, "holder did not answer"));
             }
-            self.stream.set_read_timeout(Some(left))?;
+            match self.stream.set_read_timeout(Some(left)) {
+                Ok(()) => {}
+                // macOS fails setsockopt with EINVAL once the peer closed
+                // the link; a read then never blocks, and it still returns
+                // the frames the holder sent before it closed (SUPERSEDED).
+                Err(error) if error.raw_os_error() == Some(libc::EINVAL) => {}
+                Err(error) => return Err(error),
+            }
             match self.reader.fill(self.stream.as_raw_fd()) {
                 Ok(true) => {}
                 Ok(false) => {

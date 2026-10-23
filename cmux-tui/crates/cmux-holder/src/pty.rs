@@ -54,7 +54,8 @@ pub fn spawn(request: &SpawnRequest, open_file_limit: Option<u64>) -> io::Result
             &mut slave,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
-            &mut size,
+            // A raw pointer: macOS takes `*mut winsize`, Linux `*const`.
+            &raw mut size,
         )
     };
     if opened != 0 {
