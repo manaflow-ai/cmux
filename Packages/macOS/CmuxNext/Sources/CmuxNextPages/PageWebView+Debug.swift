@@ -91,15 +91,29 @@ extension PageWebView {
     /// control router's 2 s deadline; a bench calls it again for more frames), as
     /// ``PageFrameCadence``. `scrollPixels` > 0 scrolls the element matching `selector` (default the
     /// document's scroller) by that many CSS pixels each frame, turning at either end, so the frames
-    /// measured carry the page's scroll work. A page that renders nothing in the window (hidden,
-    /// covered) reports 0 frames. Either engine; nil when the page did not answer.
+    /// measured carry the page's scroll work; the cadence's ``PageFrameCadence/scrolledPixels`` says
+    /// how far it really moved (0: the element does not scroll, and the window measured an idle
+    /// page). A page that renders nothing in the window (hidden, covered) reports 0 frames. Either
+    /// engine.
+    ///
+    /// - Throws: ``PageFrameCadence/ProbeError/notLoaded`` when the page did not answer, and
+    ///   ``PageFrameCadence/ProbeError/scroller(_:)`` when `selector` is invalid or matches nothing
+    ///   (or the document has no scroller) while `scrollPixels` > 0.
     public func debugFrameCadence(windowMs: Double, scrollPixels: Double, selector: String?,
-                                  displayFPS: Double?) async -> PageFrameCadence? {
+                                  displayFPS: Double?) async throws(PageFrameCadence.ProbeError) -> PageFrameCadence {
         let window = min(max(windowMs, 100), 1500)
         let script = """
-        const scroller = selector ? document.querySelector(selector) : document.scrollingElement;
+        let scroller = null;
+        try {
+          scroller = selector ? document.querySelector(selector) : document.scrollingElement;
+        } catch (error) {
+          return JSON.stringify({ error: `invalid selector ${selector}: ${error.message}` });
+        }
+        if (pixels > 0 && !scroller) {
+          return JSON.stringify({ error: selector ? `no element matches ${selector}` : 'the document has no scroller' });
+        }
         const intervals = [];
-        let last = null, done = false, direction = 1;
+        let last = null, done = false, direction = 1, scrolled = 0;
         const step = (now) => {
           if (done) { return; }
           if (last !== null) { intervals.push(now - last); }
@@ -108,7 +122,9 @@ extension PageWebView {
             const end = scroller.scrollHeight - scroller.clientHeight;
             if (end > 0) {
               if ((direction > 0 && scroller.scrollTop >= end) || (direction < 0 && scroller.scrollTop <= 0)) { direction = -direction; }
-              scroller.scrollTop += direction * pixels;
+              const top = scroller.scrollTop;
+              scroller.scrollTop = top + direction * pixels;
+              scrolled += Math.abs(scroller.scrollTop - top);
             }
           }
           requestAnimationFrame(step);
@@ -116,12 +132,15 @@ extension PageWebView {
         requestAnimationFrame(step);
         await new Promise((resolve) => setTimeout(resolve, windowMs)); // the probe window itself
         done = true;
-        return JSON.stringify(intervals);
+        return JSON.stringify({ intervals, scrolled });
         """
         let arguments: [String: Any] = ["selector": selector ?? NSNull(), "pixels": scrollPixels, "windowMs": window]
         guard let text = await callPageFunction(script, arguments: arguments) as? String,
-              case .array(let values)? = try? JSONValue.parse(Data(text.utf8)) else { return nil }
-        return PageFrameCadence(intervalsMs: values.compactMap(\.doubleValue), windowMs: window, displayFPS: displayFPS)
+              case .object(let reply)? = try? JSONValue.parse(Data(text.utf8)) else { throw .notLoaded }
+        if let message = reply["error"]?.stringValue { throw .scroller(message) }
+        guard case .array(let values)? = reply["intervals"] else { throw .notLoaded }
+        return PageFrameCadence(intervalsMs: values.compactMap(\.doubleValue), windowMs: window,
+                                displayFPS: displayFPS, scrolledPixels: reply["scrolled"]?.doubleValue ?? 0)
     }
 
     /// Clicks the first element that matches the CSS `selector` (live GUI proofs drive a page
