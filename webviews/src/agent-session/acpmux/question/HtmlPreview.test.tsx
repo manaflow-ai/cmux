@@ -121,6 +121,8 @@ test("the frame's document drops what runs, loads or navigates", () => {
       `<a href="https://example.com">away</a>`,
       `<a href="#here">here</a>`,
       `<img src="https://example.com/x.png"><img src="data:image/png;base64,AAAA">`,
+      // A list whose first candidate is a data: image still names a remote one.
+      `<img srcset="data:image/png;base64,BBBB 1x, https://example.com/2x.png 2x">`,
       `<svg><a xlink:href="https://example.com"><text>s</text></a></svg>`,
       // An SVG animation would set the link's href after the cleaning.
       `<svg><a href="#safe"><set attributeName="href" to="http://127.0.0.1:8080/x"/>`,
@@ -144,6 +146,7 @@ test("the frame's document drops what runs, loads or navigates", () => {
     "<set",
     "<animate",
     "127.0.0.1",
+    "srcset",
   ])
     expect(body).not.toContain(gone);
   expect(body).not.toContain("example.com");

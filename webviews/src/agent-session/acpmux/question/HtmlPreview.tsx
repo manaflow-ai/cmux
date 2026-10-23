@@ -37,7 +37,9 @@ const DROPPED = new Set([
   ..."set,animate,animatemotion,animatetransform,animatecolor,discard".split(","),
 ]);
 /// Attributes that name a URL. Only fragment links and data: URLs stay.
-const URL_ATTRIBUTES = ["href", "xlink:href", "src", "srcset", "action", "formaction", "poster", "background", "ping"];
+const URL_ATTRIBUTES = ["href", "xlink:href", "src", "action", "formaction", "poster", "background", "ping"];
+/// Attributes that list several URLs, any of which could load: always dropped (a `src` is enough).
+const URL_LIST_ATTRIBUTES = ["srcset", "imagesrcset"];
 
 /// The frame's whole document: the policy, the pane's theme and base styles (renderBase.ts, the
 /// same ones a render card gets), then the cleaned fragment. `theme` is the stylesheet text.
@@ -52,7 +54,7 @@ export function previewDocument(fragment: string, theme: string, inset = 0): str
     }
     for (const attribute of Array.from(element.attributes)) {
       const name = attribute.name.toLowerCase();
-      if (name.startsWith("on")) element.removeAttribute(attribute.name);
+      if (name.startsWith("on") || URL_LIST_ATTRIBUTES.includes(name)) element.removeAttribute(attribute.name);
       else if (URL_ATTRIBUTES.includes(name) && !/^\s*(#|data:image\/)/i.test(attribute.value))
         element.removeAttribute(attribute.name);
     }
