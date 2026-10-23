@@ -78,6 +78,11 @@ if "--suite=app-perf" in sys.argv:
 if "--suite=sidebar-churn" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sidebar-churn-typing.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=sidebar-churn"])
+# `--suite=automation-typing`: terminal typing idle and while agents automate the app (terminal writes, a Chromium page
+# driven through the control socket, optional AX walks), scripts/cmux-next/automation-typing-bench.py.
+if "--suite=automation-typing" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "automation-typing-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=automation-typing"])
 # `--suite=pane-bench`: the layout's own pane motion benches, no app window (PaneMotionBench: frame time of
 # split/close/New Column/zoom at 2, 8 and 30 panes; PaneMotionWorkTests: panes touched per frame). Run
 # yourself (perf lead, not a CI gate); --config=release|debug picks the build (default release).
