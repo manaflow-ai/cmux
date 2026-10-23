@@ -434,21 +434,24 @@ class CmuxBrowser(Browser):
         raise RuntimeError("cmux: no control socket within 90 s")
 
     def hide(self) -> bool:
-        """NSRunningApplication.hide, else the app's own Hide (Cmd-H: NSApp.hide).
+        """NSRunningApplication.hide, else the app's own NSApp.hide.
 
         hide() is refused for an app `open -g` started on some fleet hosts (budget.py rows
-        'the app did not hide' on cmux20 and mac26). showHideAllWindows hides only an active
-        app (otherwise it shows the main window), so it runs with focus; a visible app is
-        never reported hidden: the caller checks the result."""
+        'the app did not hide' on cmux20 and mac26). showHideAllWindows with `hidden` hides
+        whether or not cmux is active and never shows or focuses a window (a build older than
+        the argument ignores it and toggles, which shows the window). The caller checks the
+        result: a visible app is never reported hidden."""
         if super().hide():
             return True
-        self.app.action("showHideAllWindows", focus=True)
+        if self.app.action("showHideAllWindows", hidden=True).get("error"):
+            return False
         return self.wait_hidden(True)
 
     def unhide(self):
         super().unhide()
         if not self.wait_hidden(False):
-            self.app.action("showHideAllWindows", focus=False)  # hidden: it unhides and shows the main window
+            # Unhides without activating cmux or raising a window, so the next phase starts as before.
+            self.app.action("showHideAllWindows", hidden=False)
             self.wait_hidden(False)
 
     def act(self, action: str, **args) -> dict:
