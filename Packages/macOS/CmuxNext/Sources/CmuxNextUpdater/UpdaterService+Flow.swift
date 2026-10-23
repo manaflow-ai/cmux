@@ -29,7 +29,7 @@ extension UpdaterService {
     /// agents and running commands (the quiet-input and daemon-mirror holds are
     /// for idle installs); `willRelaunch` records keep sessions.
     public func installClicked() {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("install_clicked")
         #endif
         syncFlowPhase()
@@ -79,7 +79,7 @@ extension UpdaterService {
     /// Hands the staged update to Sparkle: preflight, the What's New record, the windows, the install.
     private func installStagedNow() {
         log.append("gate: installing the staged update")
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("install_started")
         #endif
         let failure = if let preflightOverride { preflightOverride() } else { installPreflightFailure() }
@@ -90,7 +90,7 @@ extension UpdaterService {
         recordBeforeInstall()
         willInstallStaged?()
         installStaged()
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("install_handed_to_sparkle")
         #endif
     }
@@ -119,7 +119,7 @@ extension UpdaterService {
         let phase = indicatorPhase
         guard phase != flow.phase else { return }
         if userCheckRunning, phase != .checking { userCheckRunning = false }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if phase.harnessName != flow.phase.harnessName { UpdateHarness.mark("phase.\(phase.harnessName)") }
         if case .note = phase, let controller,
            let content = UpdateSheetContent.sparkle(controller.model.effectiveState, current: identity) {
@@ -150,7 +150,7 @@ extension UpdaterService {
             log.append("install ended without a relaunch")
             installAbandoned?()
             presentUpdateUI?()
-            #if DEBUG
+            #if DEBUG || CMUX_BENCH_HOOKS
             UpdateHarness.mark("failure_sheet_presented")
             #endif
         case .note(let note) where !flow.userAsked:
@@ -246,7 +246,7 @@ extension UpdaterService {
     }
 }
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 extension UpdateIndicatorPhase {
     /// The phase's case name for the update harness's timeline.
     var harnessName: String {

@@ -86,7 +86,7 @@ extension DaemonStringID where Kind == StringIDKind.Terminal {
     public static func generate() -> Self {
         let uuid = DaemonCommandScope.current?.nextDerivedUUID("terminal-id") ?? UUID()
         let id = Self(rawValue: uuid.uuidString.lowercased().replacingOccurrences(of: "-", with: ""))
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         // The first id minted after a traced new terminal action keys its trace.
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.bind(terminal: id.rawValue) }
         #endif

@@ -155,7 +155,7 @@ public final class AgentPaneLoadingView: NSView {
     private func left(_ page: NSView?) {
         page?.alphaValue = 1
         leaving = false
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         // Still in its pane: the pane's trace takes it.
         ChatOpenTrace.shared.mark(.loadingLeft, view: self)
         #endif
@@ -188,7 +188,7 @@ extension AgentPaneView {
         themeLoadingState(themeTokens)
         loadingView.showMarkLater()
         model.whenPainted { [weak self] in self?.endLoadingState() }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         ChatOpenTrace.shared.bind(view: self, page: page, surface: { [weak self] in self?.traceSurface ?? .gone },
                                   engine: { [weak self] in self?.engineName ?? "gone" })
         #endif
@@ -201,7 +201,7 @@ extension AgentPaneView {
 
     /// The page shows and the loading state goes (``AgentPaneLoadingView/leave(over:fades:)``).
     func endLoadingState() {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         // The handshake's painted answer ends the loading state in the same turn.
         ChatOpenTrace.shared.mark(.panePainted, view: self)
         ChatOpenTrace.shared.mark(.loadingLeave, view: self)
@@ -229,7 +229,7 @@ extension AgentPaneView {
     }
 }
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 extension AgentPaneView {
     /// What this pane shows now, for ``ChatOpenTrace``: a hold keeping the content it replaces, its
     /// loading cover, the launch image, or the page before or after its first contentful paint.

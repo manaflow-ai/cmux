@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// How a `debug.new_tab {action: "frame_strip"}` recording moved outside the content and the
 /// tab strip (motion proofs, scripts/cmux-next/motion-proof.py, hq-1d). Each frame's `progress`
 /// (0 = before, 1 = final, from its pixel shares) never goes back (`reversals`) or leaps (`jumps`

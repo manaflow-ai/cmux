@@ -190,7 +190,7 @@ final class WindowOverlayLayer {
             updateInteractiveRects()
             evaluate()
         }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         for plane in planes { recordRingLag(plane) }
         #endif
         guard pageUpdateAfterLayout else { return }
@@ -399,7 +399,7 @@ final class WindowOverlayLayer {
 
     // MARK: Diagnostics
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// Layout passes of the root (window resize, sidebar, divider, column
     /// scroll) that ended with a focus ring off its pane, and the last such
     /// mismatch (`debug.layers`). The ring must move in the pass that places
