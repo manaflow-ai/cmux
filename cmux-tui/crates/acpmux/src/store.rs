@@ -650,8 +650,11 @@ struct SegmentWriter {
 }
 
 impl SegmentWriter {
-    /// Closes the log, durable first as `flush` would have made it. Called off
-    /// the writers' lock: a sync must not hold up every other session's append.
+    /// Closes the log, durable first as `flush` would have made it. Called under the
+    /// writers' lock, so the cache never holds more than [`OPEN_LOGS`] and a session's
+    /// records stay in order. A failed sync is logged: its records were written (an append is
+    /// never synced on its own), so only a machine crash before the kernel writes them back
+    /// loses them, as it would any append since the last `flush`.
     fn close(self, id: &str) {
         if let Err(e) = self.file.sync_data() {
             tracing::warn!(session = %id, "sync event log on close: {e}");
@@ -974,21 +977,19 @@ impl Store for LocalStore {
     }
 
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
-        // The least recently written log is closed before this one opens, so the cache never
-        // holds more than `OPEN_LOGS`; its sync runs off the lock.
-        let mut writers = loop {
-            let mut writers = self.writers.lock_or_recover();
-            if writers.open.contains_key(id) || writers.open.len() < OPEN_LOGS {
-                break writers;
-            }
-            let oldest = writers.open.iter().min_by_key(|(_, w)| w.used).map(|(k, _)| k.clone());
-            let evicted = oldest.and_then(|k| writers.open.remove(&k).map(|w| (k, w)));
-            drop(writers);
-            match evicted {
-                Some((oldest, w)) => w.close(&oldest),
-                None => break self.writers.lock_or_recover(),
-            }
-        };
+        // One lock hold from the eviction to the write: the least recently written log is
+        // closed before this one opens, so no more than `OPEN_LOGS` are ever open, and no other
+        // append comes between (a session's records stay in order). Its sync runs under the lock,
+        // once per eviction: only while more than `OPEN_LOGS` sessions are written.
+        let mut writers = self.writers.lock_or_recover();
+        if !writers.open.contains_key(id)
+            && writers.open.len() >= OPEN_LOGS
+            && let Some(oldest) =
+                writers.open.iter().min_by_key(|(_, w)| w.used).map(|(k, _)| k.clone())
+            && let Some(w) = writers.open.remove(&oldest)
+        {
+            w.close(&oldest);
+        }
         if !writers.open.contains_key(id) {
             let writer = self.open_writer(id)?;
             writers.open.insert(id.to_owned(), writer);
@@ -1180,8 +1181,8 @@ impl Store for LocalStore {
     }
 
     fn close_log(&self, id: &str) {
-        let writer = self.writers.lock_or_recover().open.remove(id);
-        if let Some(w) = writer {
+        let mut writers = self.writers.lock_or_recover();
+        if let Some(w) = writers.open.remove(id) {
             w.close(id);
         }
     }
