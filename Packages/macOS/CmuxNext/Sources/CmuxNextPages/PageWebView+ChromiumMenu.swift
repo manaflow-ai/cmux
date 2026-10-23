@@ -53,7 +53,7 @@ extension PageWebView {
 
     /// Copies the Chromium page's selection, as WebKit's Copy does.
     private func copyChromiumSelection() {
-        guard let page = chromiumSession?.page else { return }
+        guard let page = awakeChromiumPage else { return }
         // task-owner: one copy per menu choice; ends with the page's answer
         Task { _ = try? await page.devTools("Runtime.evaluate", params: ["expression": "document.execCommand('copy')", "userGesture": true]) }
     }
@@ -61,8 +61,8 @@ extension PageWebView {
     /// The page's selected text, in whichever engine shows it (empty for none).
     public func selectedText() async -> String {
         let script = "String(getSelection())"
-        guard let page = chromiumSession?.page else {
-            return (try? await webView.evaluateJavaScript(script)) as? String ?? ""
+        guard let page = awakeChromiumPage else {
+            return (try? await documentWebView?.evaluateJavaScript(script)) as? String ?? ""
         }
         guard let json = try? await page.devTools("Runtime.evaluate", params: ["expression": script, "returnByValue": true]) else { return "" }
         return ChromiumPageHostWire.evaluationString(json) ?? ""

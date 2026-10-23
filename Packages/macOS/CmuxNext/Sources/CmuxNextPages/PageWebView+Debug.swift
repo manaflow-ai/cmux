@@ -146,7 +146,7 @@ extension PageWebView {
         }
         return JSON.stringify({ x, y, w: r.width, h: r.height, hit });
         """
-        let page = chromiumSession?.page
+        let page = awakeChromiumPage
         let native = page != nil
         guard let text = await callPageFunction(script, arguments: ["selector": selector, "native": native]) as? String,
               case .object(let point)? = try? JSONValue.parse(Data(text.utf8)),
@@ -184,7 +184,7 @@ extension PageWebView {
     /// activates (a capture slot), where no AppKit click reaches the page. False on a WebKit page,
     /// which the caller clicks with AppKit events, or when DevTools refuses either half.
     public func debugPress(x: Double, y: Double) async -> Bool {
-        guard let page = chromiumSession?.page else { return false }
+        guard let page = awakeChromiumPage else { return false }
         for type in ["mousePressed", "mouseReleased"] {
             guard (try? await page.devTools("Input.dispatchMouseEvent", params: [
                 "type": type, "x": x, "y": y, "button": "left", "buttons": type == "mousePressed" ? 1 : 0,
@@ -222,7 +222,7 @@ extension PageWebView {
 
     /// Writes the page as WebKit rendered it to `url` as PNG.
     public func debugSnapshot(to url: URL) async -> Bool {
-        if let page = chromiumSession?.page {
+        if let page = awakeChromiumPage {
             guard let json = try? await page.devTools("Page.captureScreenshot", params: ["format": "png"]),
                   let object = ChromiumPageHostWire.object(json), let base64 = object["data"] as? String,
                   let png = Data(base64Encoded: base64) else { return false }
