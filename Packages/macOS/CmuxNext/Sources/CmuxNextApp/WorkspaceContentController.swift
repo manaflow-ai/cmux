@@ -119,6 +119,11 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
         // Observation applies the first snapshot synchronously, including the empty-state view.
         observe()
+        // A Home with no pane yet is still being made (its dock, then the Chief conversation, over
+        // several daemon replies): it stays clear until its conversation is in, never in pieces.
+        if workspace.kind == "home", layoutModel.screens.allSatisfy({ $0.layout.panes.isEmpty }) {
+            services.launchReveal.hold(contentView, until: .home)
+        }
     }
 
     func teardown() {
