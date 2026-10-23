@@ -45,14 +45,15 @@ final class TabFaviconStore {
     }
 
     /// `image` as the inline image a cmux page may draw (its CSP allows `img-src data:` only),
-    /// encoded once per icon: a New Tab page, built on the key's turn of every Cmd-T and Cmd-N,
-    /// lists every open browser tab's icon and up to 40 recent pages' icons, and each was a PNG
-    /// encode per build. An icon's `TabImage` is the same object while it is cached, so its
-    /// encoding is too.
+    /// encoded once per icon and at the size the page draws it (``inlined(_:)``): a New Tab
+    /// page, built on the key's turn of every Cmd-T and Cmd-N, lists every open browser tab's
+    /// icon and up to 40 recent pages' icons, and its context (these images included) is
+    /// encoded and sent into the page in that turn. An icon's `TabImage` is the same object
+    /// while it is cached, so its encoding is too.
     func dataURL(_ image: TabImage?) -> String? {
         guard let image else { return nil }
         if let known = dataURLs.peek(ObjectIdentifier(image)), known.image === image { return known.url }
-        guard let png = encode(image.cgImage) else { return nil }
+        guard let png = encode(Self.inlined(image.cgImage)) else { return nil }
         let url = "data:image/png;base64," + png.base64EncodedString()
         dataURLs.set((image: image, url: url), for: ObjectIdentifier(image))
         return url
@@ -61,6 +62,29 @@ final class TabFaviconStore {
     /// `image`'s PNG bytes.
     nonisolated static func png(_ image: CGImage) -> Data? {
         NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
+    }
+
+    /// The long side, in pixels, of an icon a cmux page draws: its 16 pt icon box (the New Tab
+    /// page's `.nt-row-glyph`) at 2x.
+    nonisolated static let inlinePixels = 32
+
+    /// `image` with its long side at most ``inlinePixels``, its shape kept; a smaller image as it
+    /// is. A site serves its icon at any size (a 180 px touch icon, a 256 px `favicon.ico` layer;
+    /// the loader allows 1 MiB), 10 to 100 times the bytes of the one drawn, and a page gets
+    /// every listed icon on the key's turn of the create that opens it.
+    nonisolated static func inlined(_ image: CGImage) -> CGImage {
+        let long = max(image.width, image.height)
+        guard long > inlinePixels else { return image }
+        let scale = Double(inlinePixels) / Double(long)
+        let width = max(1, Int((Double(image.width) * scale).rounded()))
+        let height = max(1, Int((Double(image.height) * scale).rounded()))
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return image }
+        context.interpolationQuality = .high
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return context.makeImage() ?? image
     }
 
     /// The icon at `address` for a page of `profile`, or nil while it loads
