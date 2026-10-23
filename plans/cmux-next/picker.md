@@ -20,8 +20,9 @@ Diff: `DiffPageService` conforms to `DiffViewerOpening` and is `ViewerService.di
 
 ## The system open panel on the click path (PL-fleet-gui, 2026-10-23)
 
-Home's "+", an agent composer's Add Files / Attach and a page's `<input type="file">` still use `NSOpenPanel` (the made-ahead
-`MadeAheadOpenPanel`, one instance made at the composition root). What of it can block the main thread, measured with
+Home's "+", an agent composer's Add Files / Attach and every web view's `<input type="file">` (cmux pages and WebKit browser
+tabs, one path: `WebFileInputAnswering`) still use `NSOpenPanel` (the made-ahead `MadeAheadOpenPanel`, one instance made at
+the composition root). What of it can block the main thread, measured with
 `debug.open_panel_bench` (`scripts/cmux-next/open-panel-bench.py`; `split-spring.sh --suite=open-panel` on the fleet):
 
 | Where | Panel | Getting it (`init_ms`) | `beginSheetModal` call | Sheet on screen |
@@ -43,14 +44,17 @@ The options:
 - `begin` / `beginSheetModal` instead of `runModal`: already so.
 - A panel kept warm once the service answered: already so. `MadeAheadPanelStore` keeps one panel and resets its choices and
   texts after each use, off the click; the click then pays 0.2 ms to get it. The warm-up runs only while this account is
-  the console user and the person is idle, and stops after a dead panel.
+  the console user and the person is idle, and stops after a dead panel. Every hand-out, of a kept panel too, first
+  checks that the panel reads a prompt (a dead one is dropped). The warm-up is not bounded: it is the same
+  `NSOpenPanel()` on the main thread, so for a console user whose panel service hangs or respawns slowly it freezes
+  the main thread once, up to about 40 s, before the dead panel stops it. No deadline is possible around it (below).
 - A light in-app placeholder while the panel comes up: it cannot help the one case left, a click with no panel made ahead
   (before the first warm-up, after a dead panel). That wait is the `NSOpenPanel()` init on the main thread, and a placeholder
   needs the same main thread to draw. AppKit has no public way to make an `NSOpenPanel` off the main thread or to ask its
   view service ahead without making one.
 
-So AppKit leaves no non-blocking path for a click that has to make its panel: about 300 ms on a working host, 40 s with no
-view service. The made-ahead panel removes it for every click after the warm-up. The way to remove it for every click is
+So AppKit leaves no non-blocking path for a click or a warm-up that has to make its panel: about 300 ms on a working
+host, 40 s with no view service or a hung one. The made-ahead panel removes it for every click after the warm-up. The way to remove it for every click is
 the decision at the top of this file: cmux's own picker (`CmuxPicker`, no XPC service) for these three entry points too.
 
 Open: the STRESS rows and a rerun with the display link running into the click (frames from 120 ms before it) are fleet
