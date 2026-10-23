@@ -490,11 +490,11 @@ export type AcpmuxSnapshot = {
     sessionId: string;
     cwd?: string;
     turnCount?: number;
-    /// Context-window tokens used of the session's window, from the agent's last usage update.
-    usage?: { used: number; size: number };
-    /// What the context holds by category, as Claude Code's /context said after the last turn
-    /// (acpmux `contextBreakdown`); unset for other harnesses. Each list holds at most 50 rows,
-    /// the largest.
+    /// Context-window tokens used of the session's window, from the agent's last usage update, and
+    /// `setup`, the part the agent took before the conversation (its system prompt, tools and
+    /// memory), when the harness reports it (`_meta.acpmux.setup`).
+    usage?: { used: number; size: number; setup?: number };
+    /// What the context holds by category, as Claude Code's /context reports it.
     contextBreakdown?: AcpmuxContextBreakdown;
     host?: string;
     peer?: string;

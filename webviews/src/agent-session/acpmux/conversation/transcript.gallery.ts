@@ -8,7 +8,7 @@ import { childRows } from "../subagents/childRows";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { workedTurnRows } from "../workedTurn";
-import { minutesAgo } from "../../../gallery/clock";
+import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import {
   BUILD_REPORT_PDF_PAGE_PNG,
   BUILD_TIMES_PNG,
@@ -57,6 +57,43 @@ function toolSearchTurn(): AcpmuxRow[] {
     summary(1.1, { id: "gallery-toolsearch-summary", status: "completed", toolCount, durationMs: 54_000 }),
   ];
 }
+
+/// Pull requests a leo-workspace chat names by bare number, as the App's cache has them
+/// (`pr.inspect`): five of manaflow-ai/cmux, and #843 in both repositories.
+const LANE_NUMBERS = [24175, 23959, 24197, 23880, 23027];
+const LANE_LIST = "gh pr list -R manaflow-ai/cmux --author @me";
+const LANE_OUTPUT = "https://github.com/manaflow-ai/cmux/pull/24100\tagent pane: chips\n";
+const cached = (repo: string, number: number, title: string) => [
+  `https://github.com/${repo}/pull/${number}`,
+  {
+    pullRequest: {
+      url: `https://github.com/${repo}/pull/${number}`,
+      number,
+      title,
+      state: "merged",
+      author: "teamleaderleo",
+    },
+    fetchedAt: GALLERY_NOW / 1000,
+  },
+];
+const LANE_PULL_REQUESTS = Object.fromEntries([
+  ...LANE_NUMBERS.map((number) => cached("manaflow-ai/cmux", number, `Agent pane fix ${number}`)),
+  cached("teamleaderleo/leo-workspace", 843, "rulebook: a bare #N links by evidence"),
+  cached("manaflow-ai/cmux", 843, "Agent pane: older fix with the same number"),
+]);
+/// Hovers the chip whose address ends `/<number>` and waits for `card` in its card.
+const hoverReference = (number: number, card: string) => async (ctx: PlayContext) => {
+  const chip = `a.cv-chip.is-ref[href$="/${number}"]`;
+  await ctx.waitFor(() => ctx.document.querySelector(chip), { capMs: 10_000 });
+  await ctx.hover({ selector: chip });
+  await ctx.waitFor(() => ctx.document.querySelector(card), { capMs: 10_000 });
+};
+/// A chat whose folder is leo-workspace.
+const LEO_WORKSPACE = {
+  ready: { githubRepository: "teamleaderleo/leo-workspace" },
+  native: { "git.githubRepository": { repository: "teamleaderleo/leo-workspace" } },
+  chipHost: { pullRequests: LANE_PULL_REQUESTS },
+};
 
 const selectionRows = [
   user("Select this prompt to copy it into a bug report", 5, { id: "gallery-selection-user" }),
@@ -862,6 +899,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/conversation/icons.tsx#DoubleCheck",
     "agent-session/acpmux/PermissionCard.tsx",
+    "agent-session/acpmux/chips/BareReferenceChip.tsx#BareReferenceChip",
   ],
   variants: {
     conversation: {
@@ -892,6 +930,33 @@ export default agentPaneEntry({
         ),
         summary(2, { status: "completed", durationMs: 12_000 }),
       ]),
+    },
+    "github-references-other-repo": {
+      note: "A chat whose folder is leo-workspace names cmux pull requests by bare number: each chip links to the repository the transcript and the App's pull request cache say has it, not the folder's. Hover #24175 for its card.",
+      ...LEO_WORKSPACE,
+      snapshot: chat([
+        user("Where are the agent pane fixes?", 6),
+        activity(
+          [tool(LANE_LIST, "execute", "completed", { command: LANE_LIST, output: LANE_OUTPUT, exitCode: 0 })],
+          5.8,
+        ),
+        assistant(
+          `Merged ${LANE_NUMBERS.map((number) => `#${number}`).join(", ")}. The rulebook change is still open.`,
+          5.6,
+        ),
+        summary(5.6, { status: "completed", durationMs: 14_000 }),
+      ]),
+      play: hoverReference(24175, ".cv-link-preview.acpmux-pr-card"),
+    },
+    "github-references-same-number": {
+      note: "A bare #843 is a pull request in both leo-workspace (the folder's) and cmux (which the chat linked): the chip names its repository.",
+      ...LEO_WORKSPACE,
+      snapshot: chat([
+        user("Compare with https://github.com/manaflow-ai/cmux/pull/24175", 4),
+        assistant("#843 has the rule; the app change follows it.", 3.8),
+        summary(3.8, { status: "completed", durationMs: 6_000 }),
+      ]),
+      play: hoverReference(843, ".cv-link-preview.acpmux-pr-card"),
     },
     tasks: {
       note: "Checked, unchecked, nested and wrapping task-list items.",
@@ -1502,7 +1567,7 @@ export default agentPaneEntry({
       ),
     },
     "agent-messages": {
-      note: "Messages to other agents say how far they got (Sending…, Sent, Delivered to …) without the receipt's id; a shell call reads without its leading cd and, opened, names its folder beside Shell.",
+      note: "Messages to other agents say how far they got in one word at the line's end (Sent, Queued, Delivered, or why not) without the receipt's id; a shell call reads without its leading cd and, opened, names its folder beside Shell.",
       snapshot: chat(
         [
           user("Tell the coordinator the fix is pushed, then check the branch.", 2),
