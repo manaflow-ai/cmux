@@ -1,4 +1,4 @@
-public import CmuxNextDaemon
+import CmuxNextDaemon
 import Foundation
 
 /// The name a workspace made from dragged or moved tabs takes (Lawrence,
