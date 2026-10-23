@@ -3,6 +3,45 @@ import CmuxNextSettings
 import Foundation
 
 extension AgentPaneRequest {
+    private static let maximumUploadStageChunk = 512 * 1024
+    private static let maximumUploadStageFile = 32 * 1024 * 1024
+
+    private static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
+        guard let params else { return .unsupported(method) }
+        switch method {
+        case "chat.upload.begin":
+            guard let name = params["name"] as? String, AgentPaneUpload.isFileName(name),
+                  let size = (params["size"] as? NSNumber)?.intValue, size >= 0, size <= maximumUploadStageFile else { return .unsupported(method) }
+            let batchToken = params["batchToken"] as? String
+            var batch: [(name: String, size: Int)]?
+            if let list = params["batch"] as? [[String: Any]] {
+                guard !list.isEmpty, list.count <= 64 else { return .unsupported(method) }
+                let parsed = list.compactMap { item -> (String, Int)? in
+                    guard let n = item["name"] as? String, AgentPaneUpload.isFileName(n), let s = (item["size"] as? NSNumber)?.intValue,
+                          s >= 0, s <= maximumUploadStageFile else { return nil }
+                    return (n, s)
+                }
+                guard parsed.count == list.count else { return .unsupported(method) }
+                batch = parsed.map { (name: $0.0, size: $0.1) }
+            }
+            return .uploadStage(.begin(name: name, size: size, batchToken: batchToken, batch: batch))
+        case "chat.upload.chunk":
+            guard let token = params["token"] as? String, (1...128).contains(token.utf8.count),
+                  let offset = (params["offset"] as? NSNumber)?.intValue, offset >= 0,
+                  let text = params["data"] as? String,
+                  text.utf8.count <= (maximumUploadStageChunk / 3 + 1) * 4,
+                  let data = Data(base64Encoded: text), data.count <= maximumUploadStageChunk else { return .unsupported(method) }
+            return .uploadStage(.chunk(token: token, offset: offset, data: data))
+        case "chat.upload.finish":
+            guard let token = params["token"] as? String, (1...128).contains(token.utf8.count) else { return .unsupported(method) }
+            return .uploadStage(.finish(token: token))
+        case "chat.upload.cancel":
+            guard let token = params["token"] as? String, (1...128).contains(token.utf8.count) else { return .unsupported(method) }
+            return .uploadStage(.cancel(token: token))
+        default: return .unsupported(method)
+        }
+    }
+
     /// `pane.action {id: "preview"}`: its `url` comes from transcript text, so only a local page
     /// (``Foundation/URL/isAgentPanePreview``, as the preview card's `browser.open`) reaches the App.
     private static func preview(_ params: [String: Any]?, method: String) -> AgentPaneRequest {
@@ -289,6 +328,8 @@ extension AgentPaneRequest {
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .offerOpen(id, sender: params?["sender"] as? Bool == true) } else { self = .unsupported(method) }
         case "chat.upload":
             if let files = AgentPaneUpload.files(params) { self = .upload(files) } else { self = .unsupported(method) }
+        case "chat.upload.begin", "chat.upload.chunk", "chat.upload.finish", "chat.upload.cancel":
+            self = Self.uploadStage(method, params)
         case "chat.toolCard.respond":
             if let answer = AgentPaneToolCard.answer(params) { self = .toolCard(card: answer.card, action: answer.action, value: answer.value) } else { self = .unsupported(method) }
         case "shortcut.edit":

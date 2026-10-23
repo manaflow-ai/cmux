@@ -257,6 +257,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)
     /// `chat.upload {files: [{name, data}]}`: files the person dropped or pasted, for the chat's Cloud machine (``AgentPaneUpload``).
     case upload([AgentPaneUpload])
+    case uploadStage(AgentPaneUploadStageRequest)
     case unsupported(String)
 
     /// Most frames in one `transport.send` (the page sends what one task wrote).
@@ -279,6 +280,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// An upload: the person's files, never logged.
     public var carriesFiles: Bool {
         if case .upload = self { return true }
+        if case .uploadStage = self { return true }
         return false
     }
 
