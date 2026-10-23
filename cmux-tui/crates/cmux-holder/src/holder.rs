@@ -227,6 +227,12 @@ pub struct Holder {
     /// No terminal and no link since this time.
     idle_since: Option<Instant>,
     idle_exit: Duration,
+    /// End every terminal once no daemon was linked for this long (a DEV
+    /// build's, debug build's or test's grace, as its terminal hosts get);
+    /// `None`: never (normal installs, decision D1).
+    orphan_grace: Option<Duration>,
+    /// Terminals and no daemon link since this time.
+    orphan_since: Option<Instant>,
     sigchld: OwnedFd,
 }
 
@@ -317,6 +323,8 @@ impl Holder {
             child_open_file_limit: None,
             idle_since: Some(Instant::now()),
             idle_exit: IDLE_EXIT,
+            orphan_grace: None,
+            orphan_since: None,
             sigchld,
         })
     }
@@ -331,6 +339,12 @@ impl Holder {
     /// (default [`IDLE_EXIT`]).
     pub fn set_idle_exit(&mut self, idle: Duration) {
         self.idle_exit = idle;
+    }
+
+    /// End every terminal after `grace` with no daemon link (`None`, the
+    /// default: never).
+    pub fn set_orphan_grace(&mut self, grace: Option<Duration>) {
+        self.orphan_grace = grace;
     }
 
     /// Serve until launchd ends the holder or it has been idle for its idle
@@ -435,9 +449,32 @@ impl Holder {
         self.kill_overdue();
         self.pump();
         self.retire_closed();
+        self.end_orphans(now);
         let idle = self.terminals.is_empty() && self.link.is_none();
         self.idle_since = if idle { Some(self.idle_since.unwrap_or(now)) } else { None };
         Ok(())
+    }
+
+    /// With an orphan grace: once no daemon was linked for that long, hang
+    /// up every terminal (a CLOSE each, its 2 s SIGKILL grace too); the
+    /// ended ones are forgotten and the holder exits idle.
+    fn end_orphans(&mut self, now: Instant) {
+        let orphaned = self.link.is_none() && !self.terminals.is_empty();
+        self.orphan_since = if orphaned { Some(self.orphan_since.unwrap_or(now)) } else { None };
+        let (Some(grace), Some(since)) = (self.orphan_grace, self.orphan_since) else { return };
+        if now.saturating_duration_since(since) < grace {
+            return;
+        }
+        let open: Vec<u32> = self
+            .terminals
+            .iter()
+            .filter(|(_, terminal)| !terminal.closing)
+            .map(|(chan, _)| *chan)
+            .collect();
+        for chan in open {
+            let _ = self.close(chan, &2000u32.to_le_bytes());
+        }
+        self.retire_closed();
     }
 
     /// Whether some attached terminal has output (or its EXIT) the link may
@@ -451,7 +488,14 @@ impl Holder {
         let kill = self.terminals.values().filter_map(|terminal| terminal.kill_at).min();
         let handshake = self.pending.iter().map(|pending| pending.deadline).min();
         let idle = self.idle_since.map(|since| since + self.idle_exit);
-        kill.into_iter().chain(handshake).chain(idle).min()
+        // Only while some terminal is still to be hung up: a past deadline
+        // must not spin `poll` while the closed ones end.
+        let orphan = self
+            .orphan_since
+            .zip(self.orphan_grace)
+            .filter(|_| self.terminals.values().any(|terminal| !terminal.closing))
+            .map(|(since, grace)| since + grace);
+        kill.into_iter().chain(handshake).chain(idle).chain(orphan).min()
     }
 
     /// Take new connections. They wait in `pending` until they authenticate;
