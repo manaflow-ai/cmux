@@ -23,8 +23,13 @@ import CmuxNextRemoteBrowser
 /// it survives relaunch like any tab.
 final class HistoryPageService: HistoryPageSource {
     private unowned let services: AppServices
-    /// The Stashed page's stashes (stash-v1), History's sibling page.
-    private(set) lazy var stash = StashService(host: stashHost)
+    /// The Stashed page's stashes (stash-v1), History's sibling page: the page's one model (every
+    /// page view reads it) and its source on this Mac's daemon, which reloads it. Made together on
+    /// first use, so the model never shows without its source.
+    private(set) lazy var stash: (page: StashPageModel, service: StashService) = {
+        let page = StashPageModel()
+        return (page, StashService(host: self.stashHost, page: page))
+    }()
     private(set) lazy var stashHost = StashAppHost(services)
 
     init(services: AppServices) {

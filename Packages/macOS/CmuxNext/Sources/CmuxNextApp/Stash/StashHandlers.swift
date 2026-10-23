@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
+import CmuxNextHistory
 import CmuxNextStash
 
 /// Save and Close (Stash, a native OneTab; StashActionCatalog): browser tabs, whole workspaces
@@ -36,7 +37,7 @@ enum StashHandlers {
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
-        let stash = services.historyPage.stash
+        let (page, stash) = services.historyPage.stash
         for (id, scope) in tabScopes {
             registry.bind(id, unavailable: { stash.unavailableReason() }, run: { invocation in
                 guard let tabs = try pages(scope, invocation, context) else { return }
@@ -77,7 +78,7 @@ enum StashHandlers {
             _ = try show(services, focus: invocation.allowsViewChange)
         })
         registry.bind("stash.importOneTab", unavailable: { stash.unavailableReason() }, run: { invocation in
-            stash.draft(for: try show(services, focus: invocation.allowsViewChange)).open()
+            page.draft(for: try show(services, focus: invocation.allowsViewChange)).open()
         })
     }
 
@@ -194,7 +195,7 @@ enum StashHandlers {
         let handle = CmuxToastCenter.shared.show(toast, in: window)
         handle.onAction = { [weak services] in
             guard let services else { return }
-            let stash = services.historyPage.stash
+            let stash = services.historyPage.stash.service
             report(services.registry, Task { @MainActor in
                 do { try await stash.restoreAll(stashID, workspaces: workspaces) } catch { return ActionWorkFailure(RefusalStrings.describe(error)) }
                 return nil
