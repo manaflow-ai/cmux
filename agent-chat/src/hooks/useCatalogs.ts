@@ -1,7 +1,21 @@
 import { preferenceStorage } from "../browser-storage";
 import { useEffect, useRef } from "react";
-import type { CommandGroup, Provider, SessionOption } from "../session";
-import type { CwdCheck, CwdHarnessRequest } from "../session";
+import type { CommandGroup, CwdCheck, CwdHarnessRequest, Provider, SessionOption, SessionState } from "../session";
+
+/** Check restored sessions once per cwd on each connection, independently of composer edits. */
+export function useSessionCwdCheck({ ready, connectionEpoch, phase, session, checkCwd }: Pick<SessionState,
+  "ready" | "connectionEpoch" | "phase" | "session" | "checkCwd"
+>) {
+  const requested = useRef({ epoch: connectionEpoch, cwds: new Set<string>() });
+  const cwd = session?.cwd;
+  useEffect(() => {
+    if (requested.current.epoch !== connectionEpoch) {
+      requested.current = { epoch: connectionEpoch, cwds: new Set() };
+    }
+    if (!ready || phase !== "chat" || !cwd || requested.current.cwds.has(cwd)) return;
+    if (checkCwd(cwd)) requested.current.cwds.add(cwd);
+  }, [checkCwd, connectionEpoch, cwd, phase, ready]);
+}
 
 export function useDefaultCwd(
   defaultCwd: string,

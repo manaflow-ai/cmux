@@ -83,10 +83,6 @@ export function decodeFileDiffRequest(value: string): { key: string; path: strin
   return { key: value, path: value.slice(index + diffKeySeparator.length) };
 }
 
-export function sessionCwdRequestKey(connectionEpoch: number, cwd: string): string {
-  return `${connectionEpoch}\0${cwd}`;
-}
-
 function nextFilesRevision(blocks: Block[]): string {
   let count = 0;
   for (const block of blocks) {

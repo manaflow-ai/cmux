@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
-import React, { createElement } from "react";
+import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
-import { useCwdValidation } from "../src/hooks/useCatalogs";
+import { useCwdValidation, useSessionCwdCheck } from "../src/hooks/useCatalogs";
 import {
   applyCwdCheckResult,
-  sessionCwdRequestKey,
   type CwdCheck,
   type CwdHarnessRequest,
 } from "../src/session";
@@ -39,6 +38,17 @@ function probeElement(props: ProbeProps) {
   return createElement(CwdValidationProbe, props);
 }
 
+function SessionProbe({ epoch, checkCwd }: { epoch: number; checkCwd: ProbeProps["checkCwd"] }) {
+  useSessionCwdCheck({
+    ready: true,
+    connectionEpoch: epoch,
+    phase: "chat",
+    session: { id: "test", cwd: "/repo", provider: "codex", title: "test", status: "idle" },
+    checkCwd,
+  });
+  return null;
+}
+
 let renderer: ReactTestRenderer | undefined;
 try {
   const requests: string[] = [];
@@ -68,7 +78,7 @@ try {
   assert.deepEqual(requests, [initial, final], "committing the cwd must validate the final value");
 
   const current: CwdHarnessRequest = { requestId: "current", cwd: final, connectionEpoch: 2 };
-  let accepted = applyCwdCheckResult(checks, current, {
+  const accepted = applyCwdCheckResult(checks, current, {
     requestId: current.requestId,
     cwd: current.cwd,
     connectionEpoch: current.connectionEpoch,
@@ -87,7 +97,8 @@ try {
   const failedCommitted = "/missing";
   const draftAfterCommit = "/new-draft";
   const fallbackCalls: string[] = [];
-  const failedChecks: Record<string, CwdCheck> = {};
+  let failedChecks: Record<string, CwdCheck> = {};
+  const recordFallback = (cwd: string) => fallbackCalls.push(cwd);
   let failedRequest: CwdHarnessRequest | undefined;
   const failedCheckCwd = (cwd: string): CwdHarnessRequest => {
     failedRequest = { requestId: "failed-commit", cwd, connectionEpoch: 1 };
@@ -107,26 +118,33 @@ try {
       committed: failedCommitted,
       checks: failedChecks,
       checkCwd: failedCheckCwd,
-      setCwd: (cwd) => fallbackCalls.push(cwd),
+      setCwd: recordFallback,
+      setCommittedCwd: recordFallback,
     }));
   });
-  failedChecks[failedCommitted] = {
+  failedChecks = { [failedCommitted]: {
     ok: false,
     requestId: failedRequest!.requestId,
     connectionEpoch: failedRequest!.connectionEpoch,
-  };
+  } };
   act(() => {
     renderer!.update(probeElement({
       draft: draftAfterCommit,
       committed: failedCommitted,
       checks: failedChecks,
       checkCwd: failedCheckCwd,
-      setCwd: (cwd) => fallbackCalls.push(cwd),
+      setCwd: recordFallback,
+      setCommittedCwd: recordFallback,
     }));
   });
   assert.deepEqual(fallbackCalls, [], "a committed cwd failure must not reset a newer draft");
-  assert.equal(sessionCwdRequestKey(2, "/repo"), `2\0/repo`, "cwd request keys include the connection epoch");
-  console.log("cwd draft validation stays local during typing, validates on commit, and rejects stale failures: OK");
+  requests.length = 0;
+  act(() => { renderer!.update(createElement(SessionProbe, { epoch: 1, checkCwd })); });
+  act(() => { renderer!.update(createElement(SessionProbe, { epoch: 1, checkCwd })); });
+  assert.deepEqual(requests, ["/repo"], "session checks run once for the current connection");
+  act(() => { renderer!.update(createElement(SessionProbe, { epoch: 2, checkCwd })); });
+  assert.deepEqual(requests, ["/repo", "/repo"], "reconnect revalidates the same session directory");
+  console.log("cwd validation: 30-character burst, commit, stale failure, newer draft and reconnect: OK");
 } finally {
   if (renderer) act(() => renderer!.unmount());
 }

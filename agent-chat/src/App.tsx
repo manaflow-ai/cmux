@@ -1,6 +1,6 @@
-import { useEffect, useRef } from "react";
 import { Tooltip } from "@base-ui-components/react/tooltip";
-import { sessionCwdRequestKey, useSession, type SessionState } from "./session";
+import { useSession } from "./session";
+import { useSessionCwdCheck } from "./hooks/useCatalogs";
 import { RepositorySlugContext, SessionContext } from "./context";
 import { Composer } from "./components/Composer";
 import { Chat } from "./components/Chat";
@@ -26,25 +26,4 @@ export function App() {
       </SessionContext.Provider>
     </Tooltip.Provider>
   );
-}
-
-/// Asks the server about the session's working directory once, so the
-/// transcript knows which repository a bare `#847` belongs to.
-///
-/// The composer runs this check for a directory someone types; a session
-/// started elsewhere, or restored on a reconnect, never passed through it. The
-/// requested directories are held in a ref rather than read back out of
-/// `cwdChecks`, because that map's identity changes on every check the composer
-/// makes and the session's own answer takes a round trip to arrive.
-function useSessionCwdCheck(state: SessionState) {
-  const { ready, connectionEpoch, phase, session, checkCwd } = state;
-  const requested = useRef(new Set<string>());
-  const cwd = session?.cwd;
-  useEffect(() => {
-    if (!ready || phase !== "chat" || !cwd) return;
-    const requestKey = sessionCwdRequestKey(connectionEpoch, cwd);
-    if (requested.current.has(requestKey)) return;
-    requested.current.add(requestKey);
-    checkCwd(cwd);
-  }, [checkCwd, connectionEpoch, cwd, phase, ready]);
 }
