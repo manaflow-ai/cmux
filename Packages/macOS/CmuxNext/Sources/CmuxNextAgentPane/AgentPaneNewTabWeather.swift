@@ -46,12 +46,18 @@ nonisolated extension AgentPaneNewTabWeather {
 
     /// The place the widget shows without a city setting: the city of this Mac's time zone
     /// ("America/Los_Angeles" is "Los Angeles"), so it needs no location permission. nil for a
-    /// zone with no city (UTC, GMT, Etc/...).
+    /// zone with no city: UTC, GMT, Etc/..., and the old aliases whose last part is a region, not a
+    /// city ("US/Pacific", "Canada/Eastern"), which would find the wrong place.
     public static func timeZoneCity(_ zone: TimeZone) -> String? {
         let parts = zone.identifier.split(separator: "/")
-        guard parts.count >= 2, parts[0] != "Etc", let last = parts.last else { return nil }
+        guard parts.count >= 2, cityRegions.contains(String(parts[0])), let last = parts.last else { return nil }
         return last.replacingOccurrences(of: "_", with: " ")
     }
+
+    /// The IANA areas whose zones end in a city.
+    private static let cityRegions: Set<String> = [
+        "Africa", "America", "Antarctica", "Arctic", "Asia", "Atlantic", "Australia", "Europe", "Indian", "Pacific",
+    ]
 
     /// Open-Meteo's geocoding search for `city`: its first match.
     public static func geocodingURL(city: String) -> URL? {
