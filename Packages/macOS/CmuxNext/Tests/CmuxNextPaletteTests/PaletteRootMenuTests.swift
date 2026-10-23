@@ -43,7 +43,8 @@ struct PaletteRootMenuTests {
         let registry = ActionRegistry.standard()
         let provider = RegistryPaletteProvider(registry: registry, includeUnbound: true)
         provider.curatesEmptyRoot = true
-        #expect(provider.makeItems().allSatisfy(\.hidesWhenQueryEmpty))
+        let allHidden = provider.makeItems().allSatisfy { $0.hidesWhenQueryEmpty }
+        #expect(allHidden)
         registry.bind("newSurface") {}
         let visible = provider.makeItems().filter { !$0.hidesWhenQueryEmpty }
         #expect(Set(visible.map(\.id)) == ["action:newSurface", "rootFamily:tab"])
