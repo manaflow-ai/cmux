@@ -94,7 +94,7 @@ nonisolated extension ColumnScrollState {
         // A column that only changed its id (an optimistic New Column's, or a split-tree screen's
         // lone column, handed over to the daemon's) is the same column: the camera, the restore
         // point and the remembered focus follow it under its new id.
-        let renames = strip.map { ColumnStrip.renames(from: $0, to: new) } ?? [:]
+        let renames: [ColumnID: ColumnID] = [:]
         if !renames.isEmpty { rename(renames) }
         let old = strip.map { renames.isEmpty ? $0 : $0.renamingColumns(renames) }
         let oldPane = focusedPane
