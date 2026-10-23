@@ -118,14 +118,14 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "codex", ALT_TEXT_ROW),
     },
     "newtab-claude": {
-      note: "New Tab, the first dot (Claude's look, the default): the Minimal page as it was, with the two dots under it.",
+      note: "New Tab, the first dot (Claude Minimal, the default): the Minimal page as it was, with the three dots under it.",
       height: 520,
       ready: newTab(),
       snapshot: noChat(manySessions(6)),
       play: (ctx) => look(ctx, "claude"),
     },
     "newtab-codex": {
-      note: "New Tab, the second dot: the same page with Codex's composer, the second dot marked.",
+      note: "New Tab, the third dot (Codex Minimal): the same page with Codex's composer, the third dot marked.",
       height: 520,
       ready: newTab(),
       snapshot: noChat(manySessions(6)),

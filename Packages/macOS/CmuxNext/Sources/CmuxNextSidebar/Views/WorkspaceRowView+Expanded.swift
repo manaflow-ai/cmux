@@ -35,15 +35,15 @@ extension WorkspaceRowView {
         return trailing - w - Metrics.space2
     }
 
-    /// The pin button of an expanded row, on hover with the row's menu (not
-    /// renaming): in `slot` at the end of the name's line, Pin or Unpin by the
-    /// row's section, fading in and out in place. Returns its minX while it shows.
-    func layoutPin(showMore: Bool, slot: NSRect, fades: Bool) -> CGFloat? {
+    /// The pin button of an expanded row, with the menu button (hover, not
+    /// renaming): left of it, Pin or Unpin by the row's section, fading in
+    /// and out in place with it. Returns its minX while it shows.
+    func layoutPin(showMore: Bool, control: CGFloat, fades: Bool) -> CGFloat? {
         let pinned = isExpanded ? isPinned?() : nil
         setHoverShown(pinButton, showMore && pinned != nil, fades: fades)
         guard let pinned else { return nil }
         (pinButton.icon, pinButton.label) = pinned ? (.statePinned, Strings.unpinWorkspace) : (.actionPin, Strings.pinWorkspace)
-        pinButton.frame = slot
+        pinButton.frame = moreButton.frame.offsetBy(dx: -(control + Metrics.space1), dy: 0)
         return showMore ? pinButton.frame.minX : nil
     }
 
