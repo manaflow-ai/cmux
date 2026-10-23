@@ -137,4 +137,11 @@ public final class OverflowButton: NSButton {
         super.viewDidUnhide()
         hover.pointer?.refresh()
     }
+
+    /// Moved to another window under a still pointer (Move Tab or Pane to New Window): no enter
+    /// arrives there, so this one target recomputes (`PointerHover`).
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        hover.pointer?.refresh()
+    }
 }

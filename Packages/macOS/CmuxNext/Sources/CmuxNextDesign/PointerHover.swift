@@ -17,14 +17,18 @@ public import AppKit
 /// A refresh costs what is under the pointer, not what exists: it reads the
 /// targets whose views lie under the pointer (a walk down the window's view
 /// tree along the point) and the few that hover now (perf-lead.md cause 6).
-/// So a target hovers only where AppKit would deliver its clicks: inside its
-/// own bounds and every ancestor's, with no hidden ancestor.
+/// So a target hovers only inside its own and every ancestor's frame, with no
+/// hidden ancestor. That is not hit-test parity: a view whose `hitTest(_:)`
+/// override takes clicks outside its own frame shows no hover there.
 ///
 /// A view that moves to another window under a still pointer lights on that
 /// window's next refresh (an enter or exit there, a geometry refresh, a key
-/// change), not at once: no index of windows is kept to notice the move. An
-/// owner that re-parents a view under the pointer (a fullscreen titlebar
-/// accessory, a re-hosted toast) calls `refresh(in:)` for the new window.
+/// change), not at once: no index of windows is kept to notice the move.
+/// `TitlebarBandButton` and `OverflowButton` recompute their own target from
+/// `viewDidMoveToWindow` (one target per moved view), so the band buttons that
+/// move into fullscreen's toolbar window, and the strip and chrome buttons that
+/// move with Move Tab or Pane to New Window, light at once. Other owners light
+/// on the new window's next refresh.
 ///
 /// The layout's divider hover (`ScreenDividers`) reads the same pointer.
 @MainActor
