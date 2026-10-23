@@ -128,7 +128,10 @@ public final class WebPopupHost {
     public func update(_ model: Model) {
         // A menu closing here stays closed: the page may still post an update for it.
         guard self.model != nil, panel?.isVisible == true else { return }
-        if model.items != self.model?.items || model.anchor != self.model?.anchor { show(model); return }
+        if model.items != self.model?.items || model.anchor != self.model?.anchor ||
+            model.tooltip != self.model?.tooltip || model.width != self.model?.width ||
+            model.side != self.model?.side || model.trailing != self.model?.trailing ||
+            model.instant != self.model?.instant { show(model); return }
         self.model = model
         panel?.rows.update(model.items, highlighted: model.highlighted)
     }
