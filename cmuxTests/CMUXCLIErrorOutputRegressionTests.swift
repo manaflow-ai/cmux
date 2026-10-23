@@ -988,7 +988,7 @@ import Testing
         XCTAssertFalse(result.combinedOutput.contains("unexpected agent launch"), result.diagnostics)
     }
 
-    @Test func testRestoreRetargetsPreparedCwdWhenPersistedDirectoryIsMissing() throws {
+    @Test func testRestoreRejectsMissingPersistedCwdBeforeLaunch() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux missing cwd \(UUID().uuidString)", isDirectory: true)
@@ -1052,26 +1052,21 @@ import Testing
             timeout: 5
         )
 
+        // The saved directory is gone. Restoring from the caller's directory
+        // instead would resume the agent against a different checkout, and a
+        // provider that keys sessions by directory would report the session
+        // missing, so restore refuses before launching anything.
         XCTAssertFalse(result.timedOut, result.diagnostics)
-        XCTAssertEqual(result.status, 0, result.diagnostics)
-        let outputLines = result.stdout.components(separatedBy: .newlines)
-        let observedPWD = try XCTUnwrap(outputLines.first(where: { $0.hasPrefix("pwd=") }))
-            .dropFirst("pwd=".count)
-        let observedArguments = outputLines.compactMap { line -> String? in
-            guard line.hasPrefix("arg=") else { return nil }
-            return String(line.dropFirst("arg=".count))
-        }
-        let cwdFlagIndex = try XCTUnwrap(observedArguments.firstIndex(of: "--cwd"))
-        let sessionFlagIndex = try XCTUnwrap(observedArguments.firstIndex(of: "--session"))
-        let observedCwdArgument = try XCTUnwrap(observedArguments.dropFirst(cwdFlagIndex + 1).first)
-        let observedSessionID = try XCTUnwrap(observedArguments.dropFirst(sessionFlagIndex + 1).first)
-        let canonicalRoot = try XCTUnwrap(canonicalExistingPath(root.path))
-
-        XCTAssertEqual(cwdFlagIndex, 0, result.diagnostics)
-        XCTAssertEqual(sessionFlagIndex, 2, result.diagnostics)
-        XCTAssertEqual(try XCTUnwrap(canonicalExistingPath(String(observedPWD))), canonicalRoot, result.diagnostics)
-        XCTAssertEqual(try XCTUnwrap(canonicalExistingPath(observedCwdArgument)), canonicalRoot, result.diagnostics)
-        XCTAssertEqual(observedSessionID, checkpointID, result.diagnostics)
+        XCTAssertEqual(result.status, 1, result.diagnostics)
+        XCTAssertTrue(
+            result.stderr.contains(
+                "restore: the saved working directory no longer exists. "
+                    + "Recreate or remount it, then retry."
+            ),
+            result.diagnostics
+        )
+        XCTAssertFalse(result.stdout.contains("pwd="), result.diagnostics)
+        XCTAssertFalse(result.stdout.contains("arg="), result.diagnostics)
     }
 
     @Test func testRestoreRunsCommandOnlyLegacyRecordThroughCompatibilityShell() throws {
