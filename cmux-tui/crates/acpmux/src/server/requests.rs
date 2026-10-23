@@ -102,6 +102,229 @@ pub(super) async fn handle_notification(
     }
 }
 
+fn dispatch_text(params: &Value) -> Result<String, RpcError> {
+    let text = params
+        .get("brief")
+        .or_else(|| params.get("text"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("dispatch requires brief text"))?;
+    if text.trim().is_empty() {
+        return Err(RpcError::invalid_params("brief text is empty"));
+    }
+    if text.len() > 1_000_000 {
+        return Err(RpcError::invalid_params("brief exceeds 1 MB"));
+    }
+    Ok(text.to_owned())
+}
+
+fn dispatch_name(params: &Value, brief: &str) -> String {
+    let title = params
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| brief.lines().next().unwrap_or("dispatch"));
+    let mut out = title
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
+        .collect::<String>();
+    out = out.trim_matches('-').chars().take(60).collect();
+    if out.is_empty() {
+        out = format!("dispatch-{}", &uuid::Uuid::now_v7().to_string()[..8]);
+    }
+    out
+}
+
+fn peer_allowed(name: &str, brief: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    if ["air-blue", "cosmic-gray", "big-red"].contains(&n.as_str()) {
+        return false;
+    }
+    if n == "cmux16" {
+        let text = brief.to_ascii_lowercase();
+        return text.contains("capture") || text.contains("build");
+    }
+    true
+}
+
+fn auto_peer(hub: &Arc<Hub>, brief: &str) -> Option<String> {
+    hub.peers()
+        .into_iter()
+        .filter(|p| p.get("connected").and_then(Value::as_bool) == Some(true))
+        .filter_map(|p| {
+            let name = p.get("name").and_then(Value::as_str)?.to_owned();
+            peer_allowed(&name, brief)
+                .then_some((p.get("sessions").and_then(Value::as_u64).unwrap_or(0), name))
+        })
+        .min_by_key(|(sessions, _)| *sessions)
+        .map(|(_, name)| name)
+}
+
+async fn dispatch_brief(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    mut params: Value,
+) -> Result<Value, RpcError> {
+    let brief = dispatch_text(&params)?;
+    let selected = params
+        .get("host")
+        .or_else(|| params.get("target"))
+        .and_then(Value::as_str)
+        .unwrap_or("auto")
+        .to_owned();
+    let forwarded = params.get("forwarded").and_then(Value::as_bool) == Some(true);
+    let host = if forwarded || selected == "local" {
+        None
+    } else if selected == "auto" {
+        auto_peer(hub, &brief).ok_or_else(|| RpcError::not_found("no allowed connected agent host for dispatch; use --host HOST or connect a peer")) .map(Some)?
+    } else {
+        if !peer_allowed(&selected, &brief) {
+            return Err(RpcError::invalid_params(format!(
+                "host {selected:?} is not allowed for this dispatch; choose an agent host (cmux16 is capture/build only)"
+            )));
+        }
+        Some(selected.clone())
+    };
+    if let Some(peer_name) = host {
+        let peer = hub.peer_by_name(&peer_name).ok_or_else(|| {
+            RpcError::not_found(format!(
+                "no peer {peer_name:?}; run `acpmux host ls` and connect it"
+            ))
+        })?;
+        if !peer.connected.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(RpcError::internal(format!(
+                "peer {peer_name:?} is not connected; retry after it reconnects"
+            )));
+        }
+        params["forwarded"] = json!(true);
+        params["host"] = json!(peer_name);
+        let result = peer.request(method::MUX_DISPATCH, params).await.map_err(|e| {
+            RpcError::internal(format!(
+                "dispatch to {peer_name} failed: {e}; recovery: reconnect the peer and retry"
+            ))
+        })?;
+        return Ok(result);
+    }
+
+    let title = params
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| brief.lines().next().unwrap_or("dispatch"))
+        .to_owned();
+    // Sender attribution comes from the authenticated connection, never a
+    // caller supplied field (cx3-s30).
+    let from = conn.caller().map(|id| hub.session_name(id)).unwrap_or_else(|| "agent".into());
+    let to = params.get("to").and_then(Value::as_str).unwrap_or("local").to_owned();
+    let stop = params
+        .get("stopCondition")
+        .or_else(|| params.get("stop_condition"))
+        .and_then(Value::as_str)
+        .unwrap_or("report when the task is complete")
+        .to_owned();
+    let id = params
+        .get("briefId")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("brief-{}", uuid::Uuid::now_v7()));
+    let name = dispatch_name(&params, &brief);
+    let pick = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);
+    let policy = pick("policy")
+        .map(|p| p.parse::<PermissionPolicy>().map_err(RpcError::invalid_params))
+        .transpose()?;
+    let (harness, model) = pick("model")
+        .map(|m| {
+            m.split_once('/').map_or((Some(m.clone()), None), |(h, model)| {
+                (Some(h.to_owned()), Some(model.to_owned()))
+            })
+        })
+        .unwrap_or((pick("harness"), None));
+    let req = crate::hub::NewRequest {
+        harness,
+        preset: pick("preset"),
+        name: Some(name),
+        cwd: pick("cwd").map(PathBuf::from),
+        policy,
+        model,
+        effort: pick("effort"),
+        remote: conn.origin.web_class(),
+        adopt: None,
+        env: Default::default(),
+        workspace_id: None,
+        keep_harness_mode: false,
+        route: None,
+        subsession: None,
+        disallowed_tools: Vec::new(),
+    };
+    let session = hub.new_session(req).await?;
+    if conn.origin.web_class() {
+        super::remote_guard::settle_web_session_mode(hub, &session).await?;
+    } else {
+        hub.start_in_mode(conn.is_person(), conn.caller(), &params, &session, false).await?;
+    }
+    attach(hub, conn, &session.id);
+    let row = hub.briefs.put(json!({"briefId":id,"title":title,"brief":brief,"from":from,"to":to,"target":selected,"host":params.get("host").cloned().unwrap_or(json!("local")),"stopCondition":stop,"status":"running","sessionId":session.id,"harness":session.meta().harness,"model":session.meta().model_request}));
+    let prompt = json!({"sessionId":session.id,"text":row.get("brief"),"_meta":{"acpmux":{"briefId":id,"fromAgent":row.get("from")}}});
+    // Use the same prompt path as every ACP client; this makes steer/report
+    // attribution independent of Claude, Codex or any other harness.
+    Box::pin(dispatch_request(hub, conn, method::SESSION_PROMPT, prompt, Some(session))).await?;
+    Ok(json!({"brief":row,"event":crate::hub::dispatch::event("dispatch", &row)}))
+}
+
+async fn steer_brief(hub: &Arc<Hub>, conn: &Arc<Conn>, params: Value) -> Result<Value, RpcError> {
+    let id = params
+        .get("briefId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("briefId is required"))?;
+    let row = hub.briefs.get(id).ok_or_else(|| RpcError::not_found(format!("no brief {id:?}")))?;
+    let sid = row
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::not_found("brief has no session"))?;
+    let text = params
+        .get("text")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("steer text is required"))?;
+    let p = json!({"sessionId":sid,"text":text,"steer":true,"_meta":{"acpmux":{"briefId":id,"steer":true}}});
+    Box::pin(dispatch_request(hub, conn, method::SESSION_PROMPT, p, None)).await?;
+    let row = hub
+        .briefs
+        .update(id, |r| {
+            r["status"] = json!("running");
+        })
+        .unwrap_or(row);
+    Ok(json!({"brief":row,"event":crate::hub::dispatch::event("steer", &row)}))
+}
+
+fn list_briefs(hub: &Arc<Hub>, params: Value) -> Result<Value, RpcError> {
+    let status = params.get("status").and_then(Value::as_str);
+    let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(100) as usize;
+    Ok(json!({"briefs":hub.briefs.list(status, limit)}))
+}
+
+fn report_brief(hub: &Arc<Hub>, params: Value) -> Result<Value, RpcError> {
+    let id = params
+        .get("briefId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("briefId is required"))?;
+    let summary = params
+        .get("summary")
+        .or_else(|| params.get("details"))
+        .cloned()
+        .ok_or_else(|| RpcError::invalid_params("summary is required"))?;
+    let status = params.get("status").and_then(Value::as_str).unwrap_or("reported");
+    if !["reported", "merged", "running"].contains(&status) {
+        return Err(RpcError::invalid_params("status must be running, reported or merged"));
+    }
+    let row = hub
+        .briefs
+        .update(id, |r| {
+            r["status"] = json!(status);
+            r["report"] = summary.clone();
+            r["reportedAt"] = json!(crate::store::now_ms());
+        })
+        .ok_or_else(|| RpcError::not_found(format!("no brief {id:?}")))?;
+    Ok(json!({"brief":row,"event":crate::hub::dispatch::event("report", &row)}))
+}
+
 /// The tag the chat lists hide a session by (webviews sessionList.ts `ARCHIVED_TAG`).
 const ARCHIVED_TAG: &str = "archived";
 // The tag that marks a side chat, valued with its chat's session (`hub/btw.rs`).
@@ -169,6 +392,10 @@ async fn dispatch_request(
         return reply;
     }
     match m {
+        method::MUX_DISPATCH => dispatch_brief(hub, conn, params).await,
+        method::MUX_STEER => steer_brief(hub, conn, params).await,
+        method::MUX_BRIEFS => list_briefs(hub, params),
+        method::MUX_REPORT => report_brief(hub, params),
         method::INITIALIZE => {
             if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
                 *conn.name.lock_or_recover() = name.to_owned();
