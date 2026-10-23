@@ -612,6 +612,8 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
     assert_eq!(rd3.control(&mut mac_tab).await["t"], "welcome");
     rd3.control(&mut mac_tab).await;
     rd3.control(&mut mac_tab).await;
+    // A new host of a file page starts blank, gets its file policy, then the page.
+    assert_eq!(rd3.control(&mut mac_tab).await["body"]["url"], "about:blank");
     assert_eq!(rd3.control(&mut mac_tab).await["body"]["url"], mac_page.as_str());
     mac_tab.close("eof", "").await;
     let mut bad_tab = link.open("browser", serde_json::json!({"tab": "../x"})).await.unwrap();
