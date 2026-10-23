@@ -117,13 +117,15 @@ function measure(scroller: HTMLElement, thread: HTMLElement): GutterGeometry | u
 /// otherwise unmount as the view moves (it virtualizes rows, and a selection whose end unmounts
 /// loses it): the row the selection starts in from the drag's first move, then both end rows once the
 /// button lifts, until the selection is cleared or no longer starts there. It is called when the drag
-/// starts, when it ends and when the selection lets go, never per move. Returns the uninstaller.
+/// starts, when it ends and when the selection lets go, never per move. Returns `release`, which ends
+/// any drag and lets its rows go (the transcript calls it when it shows another chat), and `remove`,
+/// the uninstaller.
 export function installGutterSelect(
   scroller: HTMLElement,
   thread: HTMLElement,
   onReaderScroll: () => void = () => {},
   hold: (rows: HeldRow[] | undefined) => void = () => {},
-): () => void {
+): { release(): void; remove(): void } {
   const doc = scroller.ownerDocument;
   const win = doc.defaultView ?? window;
   type Drag = {
@@ -175,7 +177,8 @@ export function installGutterSelect(
   function onSelectionChange() {
     const selection = doc.getSelection();
     const anchor = selection?.anchorNode;
-    if (!held || !selection || selection.isCollapsed || !anchor || !held.row.contains(anchor)) release();
+    if (!held || !held.row.isConnected || !selection || selection.isCollapsed || !anchor || !held.row.contains(anchor))
+      release();
   }
   /// Ends the drag. A selection it made keeps its end rows mounted until it lets go (`release`).
   const stop = () => {
@@ -268,11 +271,18 @@ export function installGutterSelect(
     scroller.addEventListener("scroll", onScroll, { passive: true });
   };
   scroller.addEventListener("mousedown", onDown);
-  return () => {
-    scroller.removeEventListener("mousedown", onDown);
+  /// Ends a drag without extending it, and lets every held row go.
+  const end = () => {
     drag = undefined;
     stop();
     release();
+  };
+  return {
+    release: end,
+    remove: () => {
+      scroller.removeEventListener("mousedown", onDown);
+      end();
+    },
   };
 }
 

@@ -267,6 +267,68 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       await page.close();
     });
 
+    test(`${name}: showing another chat lets the held rows go`, async () => {
+      const page = await browsers.get(name)!.newPage({ viewport: { width: 1280, height: 360 } });
+      await installPaintedFrames(page);
+      const { port } = vite!.httpServer!.address() as { port: number };
+      await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
+      await page.waitForFunction(() => "__showSession" in window);
+      const chat = (prefix: string) =>
+        Array.from({ length: 120 }, (_, index) =>
+          row(
+            `${prefix}${index}`,
+            "assistant",
+            `Entry ${index}. The keeper wrote the hour and the height of the tide.`,
+          ),
+        );
+      const first = chat("s");
+      const showSession = (id: string, shown: unknown) =>
+        page.evaluate(
+          ([sessionId, list]) =>
+            (window as unknown as { __showSession(id: string, rows: unknown): void }).__showSession(
+              sessionId as string,
+              list,
+            ),
+          [id, shown] as const,
+        );
+      const paint = (count: number) =>
+        page.evaluate(async (n) => {
+          for (let left = n; left > 0; left--) await window.cmuxPaintFrame();
+        }, count);
+      await showSession("session-1", first);
+      await paint(10);
+      await page.evaluate(() => (document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 0));
+      await paint(6);
+      const top = await box(page, "s0");
+      const x = top.left / 2;
+      await page.mouse.move(x, top.top + 4);
+      await page.mouse.down();
+      await page.mouse.move(x, 200);
+      await paint(1);
+      await page.evaluate(async () => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        for (let step = 0; step < 12; step += 1) {
+          scroller.scrollTop += 400;
+          for (let left = 3; left > 0; left--) await window.cmuxPaintFrame();
+        }
+      });
+      await page.mouse.move(x, 210);
+      await paint(1);
+      await page.mouse.up();
+      await paint(4);
+      const mounted = () => page.evaluate(() => !!document.querySelector('.acpmux-row[data-row-id="s0"]'));
+      expect(await mounted()).toBe(true);
+      // Another chat, then back: the first chat's held row is virtualized again.
+      await showSession("session-2", chat("t"));
+      await paint(6);
+      await showSession("session-1", first);
+      await paint(6);
+      await page.evaluate(() => (document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 1e6));
+      await paint(6);
+      expect(await mounted()).toBe(false);
+      await page.close();
+    });
+
     test(`${name}: a held row stays mounted when older history pages in above it`, async () => {
       const page = await browsers.get(name)!.newPage({ viewport: { width: 1280, height: 360 } });
       await installPaintedFrames(page);

@@ -2003,6 +2003,8 @@ export function VirtualTranscript({
   const [heldRows, setHeldRows] = useState<{ session: string; rows: (HeldRow & { fromEnd: number })[] } | undefined>();
   /// The chat a hold is for: a hold from another chat (sessions reuse row ids) mounts nothing.
   const heldSession = useRef("");
+  /// Ends a margin drag and lets its held rows go (gutterSelect.ts `release`).
+  const gutterRelease = useRef<(() => void) | undefined>(undefined);
   const pendingFocus = useRef<string | undefined>(undefined);
   const sessionKey = sessionId ?? "";
   heldSession.current = sessionKey;
@@ -2018,6 +2020,9 @@ export function VirtualTranscript({
       setSelectionSessionKey(sessionKey);
       setActiveRowId(rows[0]?.id);
       setTranscriptRange(undefined);
+      // A margin drag, or the selection it left, belongs to the chat it was made in.
+      gutterRelease.current?.();
+      setHeldRows(undefined);
       pendingFocus.current = undefined;
       return;
     }
@@ -3240,7 +3245,8 @@ export function VirtualTranscript({
     const removeWheel = node && main ? installWheelPassThrough(node, main) : undefined;
     // A drag from the empty margins either side of the column selects text (gutterSelect.ts); the
     // view it scrolls past an edge is the reader's scroll.
-    const removeGutter =
+    // A chat change ends any drag first (`gutterRelease`, below), so a hold is always this chat's.
+    const gutter =
       node && thread.current
         ? installGutterSelect(node, thread.current, reader, (held) =>
             setHeldRows(
@@ -3253,13 +3259,15 @@ export function VirtualTranscript({
             ),
           )
         : undefined;
+    gutterRelease.current = gutter?.release;
     return () => {
       clearTimeout(settle.current);
       for (const name of inputs) node?.removeEventListener(name, reader);
       node?.removeEventListener("click", holdClicked, { capture: true });
       for (const name of releases) node?.removeEventListener(name, release);
       removeWheel?.();
-      removeGutter?.();
+      gutterRelease.current = undefined;
+      gutter?.remove();
     };
   }, []);
   // A turn's footer (TurnFooter) shows for the turn the reader points at: anywhere after its prompt
