@@ -165,7 +165,9 @@ mod tests {
             Path::new("/h/daemon.log"),
         );
         assert!(p.contains("<key>LimitLoadToSessionType</key><string>Aqua</string>"));
-        assert!(p.contains("<string>/Apps/a&amp;b/acpmux</string><string>daemon</string><string>run</string>"));
+        assert!(p.contains(
+            "<string>/Apps/a&amp;b/acpmux</string><string>daemon</string><string>run</string>"
+        ));
         assert!(p.contains("<key>ACPMUX_HOME</key><string>/h/&lt;x&gt;</string>"));
         assert!(p.contains("<key>KeepAlive</key><false/>"));
     }
