@@ -105,6 +105,7 @@ public final class HangEpisodeRecorder: Sendable {
 
     /// One element after each change of ``entries``, yielded on the recorder's queue right after
     /// the change (a hang file written or enriched, or the earlier launches' files loaded).
+    /// Changes the subscriber has not taken yet fold into one pending element.
     ///
     /// Only this recorder's subscribers hear it, and only while they iterate: the stream ends,
     /// and the recorder forgets it, when the iterating task is cancelled. Subscribe before the
@@ -117,7 +118,9 @@ public final class HangEpisodeRecorder: Sendable {
     /// ```
     public func changes() -> AsyncStream<Void> {
         let id = UUID()
-        let (stream, continuation) = AsyncStream<Void>.makeStream()
+        // One pending element is enough: it only says "read entries again", so changes a slow
+        // subscriber has not taken yet fold into one.
+        let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         continuation.onTermination = { [weak self] _ in
             guard let self else { return }
             state.withLock { _ = $0.subscribers.removeValue(forKey: id) }
