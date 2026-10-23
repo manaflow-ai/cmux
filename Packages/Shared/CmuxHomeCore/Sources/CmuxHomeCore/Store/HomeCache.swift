@@ -33,7 +33,10 @@ public actor HomeCache {
     private var lastSequence: [UUID: UInt64] = [:]
 
     private struct Written {
-        var index: Data?
+        /// The index as a value, not as bytes: `JSONEncoder` writes a struct's keys and a
+        /// non-`String`-keyed dictionary's entries in hash order, so two encodes of one state can
+        /// differ byte for byte. Comparing bytes rewrote `home.json` for an equal state.
+        var index: HomeCacheSnapshot?
         /// Each window file's messages (the kept tail), compared with a new state's tail.
         var windows: [ConversationID: [Message]] = [:]
     }
@@ -60,7 +63,7 @@ public actor HomeCache {
     /// owner answers). Nil when there is none or it does not decode; a window whose file is
     /// gone or does not decode is left out.
     public nonisolated func load() -> HomeCacheSnapshot? {
-        guard var snapshot = readIndex()?.snapshot else { return nil }
+        guard var snapshot = readIndex() else { return nil }
         for id in snapshot.windowIDs ?? [] where snapshot.windows[id] == nil {
             if let messages = readWindow(id) { snapshot.windows[id] = messages }
         }
@@ -120,19 +123,20 @@ public actor HomeCache {
         for (id, messages) in state.windows {
             let kept = Array(messages.suffix(Self.windowLimit))
             if written.windows[id] == kept { continue }
-            if (try? Self.writeFile(JSONEncoder().encode(kept), to: windowURL(id))) != nil {
+            if (try? Self.writeFile(Self.encoder().encode(kept), to: windowURL(id))) != nil {
                 written.windows[id] = kept
             } else {
                 written.windows[id] = nil
                 complete = false
             }
         }
-        if let index = try? JSONEncoder().encode(state.index) {
-            if index != written.index {
-                if (try? Self.writeFile(index, to: url)) != nil { written.index = index } else { complete = false }
+        let index = state.index
+        if index != written.index {
+            if let data = try? Self.encoder().encode(index), (try? Self.writeFile(data, to: url)) != nil {
+                written.index = index
+            } else {
+                complete = false
             }
-        } else {
-            complete = false
         }
         for id in written.windows.keys where state.windows[id] == nil {
             try? FileManager.default.removeItem(at: windowURL(id))
@@ -141,13 +145,13 @@ public actor HomeCache {
         return complete
     }
 
-    /// What is on disk before this launch's first write: the index's bytes and its windows. A
+    /// What is on disk before this launch's first write: the index and its windows. A
     /// window file the index does not name (left by an older build) is removed.
     private func readWritten() -> Written {
         var written = Written()
         let index = readIndex()
-        written.index = index?.data
-        let named = Set(index?.snapshot.windowIDs ?? [])
+        written.index = index
+        let named = Set(index?.windowIDs ?? [])
         for id in named {
             if let messages = readWindow(id) { written.windows[id] = messages }
         }
@@ -159,11 +163,18 @@ public actor HomeCache {
         return written
     }
 
-    private nonisolated func readIndex() -> (data: Data, snapshot: HomeCacheSnapshot)? {
+    private nonisolated func readIndex() -> HomeCacheSnapshot? {
         guard let data = try? Data(contentsOf: url),
               let snapshot = try? JSONDecoder().decode(HomeCacheSnapshot.self, from: data),
               snapshot.version == HomeCacheSnapshot.currentVersion else { return nil }
-        return (data, snapshot)
+        return snapshot
+    }
+
+    /// Sorted keys, so equal files hold equal bytes on disk (the change test itself compares values).
+    private static func encoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
     }
 
     private nonisolated func readWindow(_ id: ConversationID) -> [Message]? {
