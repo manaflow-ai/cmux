@@ -12,7 +12,7 @@
   "observability": { "enabled": true },
   "vars": {
     "ENVIRONMENT": "local",
-    "API_VERSION": "0.12.0",
+    "API_VERSION": "0.13.0",
     "APNS_TOPICS": "dev.cmux.mobile,dev.cmux.mobile.prod",
     // Stack projects whose users are accepted, primary first (src/auth.ts StackProject).
     "STACK_PROJECTS": "[{\"id\":\"454ecd03-1db2-4050-845e-4ce5b0cd9895\",\"label\":\"dev\",\"publishableClientKey\":\"pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g\",\"inviteCallbackUrl\":\"http://localhost:8102/handler/team-invitation\"},{\"id\":\"9790718f-14cd-4f7e-824d-eaf527a82b82\",\"label\":\"prod\",\"publishableClientKey\":\"\",\"inviteCallbackUrl\":\"https://cmux.com/handler/team-invitation\"}]"
@@ -28,7 +28,7 @@
       "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } },
       "vars": {
         "ENVIRONMENT": "dev",
-        "API_VERSION": "0.12.0",
+        "API_VERSION": "0.13.0",
         // Bundle ids phones may register push tokens for: Debug/Demo, Production and the TestFlight app.
         "APNS_TOPICS": "dev.cmux.mobile,dev.cmux.mobile.demo,dev.cmux.mobile.prod,dev.cmux.app.internal",
         // Dev (primary) and production Stack users: production mobile builds use this dev Worker too.
@@ -61,7 +61,7 @@
       "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } },
       "vars": {
         "ENVIRONMENT": "prod",
-        "API_VERSION": "0.12.0",
+        "API_VERSION": "0.13.0",
         "APNS_TOPICS": "dev.cmux.mobile.prod,dev.cmux.app.internal",
         "STACK_PROJECTS": "[{\"id\":\"9790718f-14cd-4f7e-824d-eaf527a82b82\",\"label\":\"prod\",\"publishableClientKey\":\"\",\"inviteCallbackUrl\":\"https://cmux.com/handler/team-invitation\"}]"
       },
