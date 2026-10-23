@@ -842,7 +842,10 @@ select {
   stroke-linecap: round;
 }
 
-/* The packets sit along the link; with motion allowed they travel it, one after another. */
+/* The packets sit along the link; with motion allowed they travel it, one after another, for three
+   passes, then rest delivered (faded out at the cloud) and the page renders nothing more. Animated
+   `offset-distance` on SVG content is not composited: an endless loop made the page run main-thread
+   rendering on every display refresh (120 Hz) for as long as the storefront was on screen. */
 .cloud-store-art-packet {
   fill: var(--cloud-ok);
   offset-path: path("M92 60 C 120 30, 140 30, 164 52");
@@ -863,7 +866,7 @@ select {
 
 @media (prefers-reduced-motion: no-preference) {
   .cloud-store-art-packet {
-    animation: cloud-store-packet 2.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+    animation: cloud-store-packet 2.4s cubic-bezier(0.45, 0, 0.55, 1) 3 forwards;
   }
 
   .cloud-store-art-packet.p2 {

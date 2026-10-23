@@ -161,8 +161,9 @@ function Availability({ plan, full, strings }: { plan: CloudPlan; full: boolean;
 }
 
 /**
- * Work moving from a laptop to a cloud machine: three packets travel the link. The packets move only
- * when the system allows motion (`prefers-reduced-motion`, which the host's motion switches drive).
+ * Work moving from a laptop to a cloud machine: three packets travel the link for three passes, then
+ * rest (styles.css: the animation is not composited, so it must end). The packets move only when the
+ * system allows motion (`prefers-reduced-motion`, which the host's motion switches drive).
  */
 function OffloadArt() {
   return (
