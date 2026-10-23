@@ -1,5 +1,6 @@
 import Foundation
 import CmuxTerminalCore
+import CmuxWorkspaces
 
 extension SessionPersistencePolicy {
     static func defaultCmuxCrashDirectoryURL(
@@ -105,6 +106,208 @@ extension SessionPersistencePolicy {
         var pruned = snapshot
         pruned.windows = windows
         return (pruned, removedAny)
+    }
+
+    /// Merges the windows a crash wrote twice, before restore opens them.
+    ///
+    /// A crash can leave the same window in the snapshot twice, sometimes
+    /// under a new window ID; restoring both opens every workspace twice.
+    /// `CrashDuplicateWindowMatcher` decides which windows are the same, and
+    /// the richer copy of each workspace wins.
+    ///
+    /// Only the live restore calls this. The snapshot on disk, its
+    /// `-previous` copy and the rotated history keep every window, so a
+    /// wrong merge never destroys the only copy of a window.
+    static func mergingCrashDuplicateWindows(
+        in snapshot: AppSessionSnapshot
+    ) -> (snapshot: AppSessionSnapshot, mergedWindowCount: Int) {
+        var result: [SessionWindowSnapshot] = []
+        var signatures: [CrashDuplicateWindowMatcher.WindowSignature] = []
+        result.reserveCapacity(snapshot.windows.count)
+        var merged = 0
+        for window in snapshot.windows {
+            let signature = crashWindowSignature(window)
+            if let index = signatures.firstIndex(where: {
+                CrashDuplicateWindowMatcher.isDuplicate($0, signature)
+            }) {
+                result[index] = mergingCrashDuplicateWindows(result[index], window)
+                signatures[index] = crashWindowSignature(result[index])
+                merged += 1
+                continue
+            }
+            result.append(window)
+            signatures.append(signature)
+        }
+        guard merged > 0 else { return (snapshot, 0) }
+        var deduplicated = snapshot
+        deduplicated.windows = result
+        return (deduplicated, merged)
+    }
+
+    private static func crashWindowSignature(
+        _ window: SessionWindowSnapshot
+    ) -> CrashDuplicateWindowMatcher.WindowSignature {
+        let workspaces = window.tabManager.workspaces
+        let workspaceIDs = workspaces.compactMap(\.workspaceId)
+        let titles = workspaces.compactMap { workspace -> String? in
+            let title = workspace.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return title.isEmpty ? nil : title
+        }
+        return CrashDuplicateWindowMatcher.WindowSignature(
+            windowId: window.windowId,
+            workspaceCount: workspaces.count,
+            workspaceIDs: workspaceIDs.count == workspaces.count ? workspaceIDs : nil,
+            checkpointIDs: crashWindowCheckpointIDs(window),
+            workspaceTitles: titles
+        )
+    }
+
+    /// Merge two crash-window generations that share at least one checkpoint.
+    /// A later save can contain an additional workspace while the older copy
+    /// still carries a useful plain terminal. Keep the richer copy of an
+    /// overlapping workspace and append workspaces that exist only in the
+    /// other generation instead of dropping them with the duplicate window.
+    private static func mergingCrashDuplicateWindows(
+        _ lhs: SessionWindowSnapshot,
+        _ rhs: SessionWindowSnapshot
+    ) -> SessionWindowSnapshot {
+        let lhsIsRicher = sessionWindowRestoreFidelityScore(lhs) >=
+            sessionWindowRestoreFidelityScore(rhs)
+        let preferred = lhsIsRicher ? lhs : rhs
+        let supplemental = lhsIsRicher ? rhs : lhs
+        var mergedWorkspaces = preferred.tabManager.workspaces
+
+        for workspace in supplemental.tabManager.workspaces {
+            let supplementalCheckpoints = workspaceCheckpointIDs(workspace)
+            if let matchingIndex = duplicateWorkspaceMatchIndex(
+                workspace,
+                in: mergedWorkspaces,
+                checkpoints: supplementalCheckpoints
+            ) {
+                if sessionWorkspaceRestoreFidelityScore(workspace) >
+                    sessionWorkspaceRestoreFidelityScore(mergedWorkspaces[matchingIndex]) {
+                    mergedWorkspaces[matchingIndex] = workspace
+                }
+            } else {
+                mergedWorkspaces.append(workspace)
+            }
+        }
+
+        var merged = preferred
+        merged.tabManager.workspaces = mergedWorkspaces
+        var mergedGroups = preferred.tabManager.workspaceGroups ?? []
+        for group in supplemental.tabManager.workspaceGroups ?? [] {
+            if !mergedGroups.contains(where: { $0.id == group.id }) {
+                mergedGroups.append(group)
+            }
+        }
+        merged.tabManager.workspaceGroups = mergedGroups.isEmpty ? nil : mergedGroups
+        return merged
+    }
+
+    private static func duplicateWorkspaceMatchIndex(
+        _ workspace: SessionWorkspaceSnapshot,
+        in existing: [SessionWorkspaceSnapshot],
+        checkpoints: Set<String>
+    ) -> Int? {
+        if let stableId = workspace.stableId,
+           let index = existing.firstIndex(where: { $0.stableId == stableId }) {
+            return index
+        }
+        if let workspaceId = workspace.workspaceId,
+           let index = existing.firstIndex(where: { $0.workspaceId == workspaceId }) {
+            return index
+        }
+        if !checkpoints.isEmpty,
+           let index = existing.firstIndex(where: { current in
+               let currentCheckpoints = workspaceCheckpointIDs(current)
+               guard !currentCheckpoints.isEmpty else { return false }
+               // A shared checkpoint is enough only when one snapshot is a
+               // complete generation of the other. Partial overlap can mean
+               // two different worktrees and must remain two workspaces.
+               return checkpoints == currentCheckpoints
+                   || checkpoints.isSubset(of: currentCheckpoints)
+                   || currentCheckpoints.isSubset(of: checkpoints)
+           }) {
+            return index
+        }
+        if let title = workspace.customTitle,
+           !title.isEmpty {
+            let titled = existing.indices.filter { index in
+                existing[index].customTitle == title &&
+                    existing[index].customDescription == workspace.customDescription &&
+                    identitylessWorkspaceDirectoriesMatch(workspace, existing[index])
+            }
+            if titled.count == 1 {
+                return titled[0]
+            }
+        }
+
+        // Legacy snapshots often omit workspace identities and titles. Array
+        // position is not an identity: crash generations can reorder tabs, so
+        // guessing here can merge two unrelated worktrees and silently discard
+        // one of them. Keep the supplemental workspace instead; only a stable
+        // identity, checkpoint, or unique title is safe to merge.
+        return nil
+    }
+
+    /// A title is only a safe identity fallback when both identity-less
+    /// workspaces still point at the same working directory. A user can have
+    /// two intentionally separate workspaces with the same title, and merging
+    /// those would move panels (and their restored agents) between worktrees.
+    private static func identitylessWorkspaceDirectoriesMatch(
+        _ lhs: SessionWorkspaceSnapshot,
+        _ rhs: SessionWorkspaceSnapshot
+    ) -> Bool {
+        guard !lhs.currentDirectory.isEmpty, !rhs.currentDirectory.isEmpty else {
+            return false
+        }
+        return standardizedWorkspacePath(lhs.currentDirectory) ==
+            standardizedWorkspacePath(rhs.currentDirectory)
+    }
+
+    private static func standardizedWorkspacePath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
+    private static func crashWindowCheckpointIDs(
+        _ window: SessionWindowSnapshot
+    ) -> Set<String> {
+        Set(window.tabManager.workspaces.flatMap(workspaceCheckpointIDs))
+    }
+
+    private static func workspaceCheckpointIDs(
+        _ workspace: SessionWorkspaceSnapshot
+    ) -> Set<String> {
+        Set(workspace.panels.compactMap { panel in
+            guard let terminal = panel.terminal else { return nil }
+            return terminal.agent?.sessionId
+                ?? terminal.resumeBinding?.checkpointId
+                ?? terminal.managedAgentResumeBinding?.checkpointId
+        })
+    }
+
+    private static func sessionWindowRestoreFidelityScore(_ window: SessionWindowSnapshot) -> Int {
+        window.tabManager.workspaces.reduce(0) { $0 + sessionWorkspaceRestoreFidelityScore($1) }
+    }
+
+    private static func sessionWorkspaceRestoreFidelityScore(
+        _ workspace: SessionWorkspaceSnapshot
+    ) -> Int {
+        workspace.panels.reduce(
+            (workspace.workspaceId == nil ? 0 : 1) +
+                (workspace.currentDirectory.isEmpty ? 0 : 1)
+        ) { score, panel in
+            let binding = panel.terminal?.resumeBinding ?? panel.terminal?.managedAgentResumeBinding
+            return score
+                + (panel.directory == nil ? 0 : 1)
+                + (panel.terminal?.workingDirectory == nil ? 0 : 4)
+                + (panel.terminal?.agent?.workingDirectory == nil ? 0 : 4)
+                + (panel.terminal?.agent?.launchCommand == nil ? 0 : 3)
+                + (binding?.cwd == nil ? 0 : 3)
+                + (binding?.launchCommand == nil ? 0 : 2)
+                + (binding?.isAgentHookBinding == true ? 2 : 0)
+        }
     }
 
     static func isCmuxCrashDiagnosticWindow(

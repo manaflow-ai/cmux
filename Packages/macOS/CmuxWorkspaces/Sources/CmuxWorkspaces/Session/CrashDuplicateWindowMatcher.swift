@@ -29,8 +29,22 @@ public enum CrashDuplicateWindowMatcher {
         }
     }
 
+    /// Two windows are one when:
+    /// - they share a window ID (or both predate window IDs) and either list
+    ///   the same workspace IDs with no checkpoints, or hold the same
+    ///   checkpoints with the same workspace count, or, with at least three
+    ///   titled workspaces and the same title multiset, share at least 75% of
+    ///   the smaller window's checkpoints (a later generation with a few new
+    ///   checkpoints);
+    /// - or they have different window IDs, the same workspace count and the
+    ///   same multiset of at least three titles, and every one of the smaller
+    ///   window's checkpoints (at least two) is in the other. One agent
+    ///   session runs in one place, so a window whose sessions all live in
+    ///   another window is a crash replay of it that was given a new ID.
     public static func isDuplicate(_ lhs: WindowSignature, _ rhs: WindowSignature) -> Bool {
-        guard mayShareIdentity(lhs, rhs) else { return false }
+        guard mayShareIdentity(lhs, rhs) else {
+            return isReplayWithNewWindowID(lhs, rhs)
+        }
         if let lhsIDs = lhs.workspaceIDs, let rhsIDs = rhs.workspaceIDs,
            !lhsIDs.isEmpty, lhsIDs == rhsIDs, lhs.checkpointIDs.isEmpty, rhs.checkpointIDs.isEmpty {
             return true
@@ -40,14 +54,27 @@ public enum CrashDuplicateWindowMatcher {
             return true
         }
         guard lhs.workspaceCount == rhs.workspaceCount, lhs.workspaceCount > 1 else { return false }
-        guard lhs.workspaceTitles.count >= max(3, lhs.workspaceCount - 2),
-              lhs.workspaceTitles.count == rhs.workspaceTitles.count,
-              lhs.workspaceTitles.sorted() == rhs.workspaceTitles.sorted() else {
-            return false
-        }
+        guard hasSameTitleMultiset(lhs, rhs) else { return false }
         let overlap = lhs.checkpointIDs.intersection(rhs.checkpointIDs).count
         let smaller = min(lhs.checkpointIDs.count, rhs.checkpointIDs.count)
         return Double(overlap) / Double(smaller) >= 0.75
+    }
+
+    private static func isReplayWithNewWindowID(_ lhs: WindowSignature, _ rhs: WindowSignature) -> Bool {
+        guard lhs.workspaceCount == rhs.workspaceCount, lhs.workspaceCount > 1,
+              hasSameTitleMultiset(lhs, rhs) else {
+            return false
+        }
+        let (smaller, larger) = lhs.checkpointIDs.count <= rhs.checkpointIDs.count
+            ? (lhs.checkpointIDs, rhs.checkpointIDs)
+            : (rhs.checkpointIDs, lhs.checkpointIDs)
+        return smaller.count >= 2 && smaller.isSubset(of: larger)
+    }
+
+    private static func hasSameTitleMultiset(_ lhs: WindowSignature, _ rhs: WindowSignature) -> Bool {
+        lhs.workspaceTitles.count >= max(3, lhs.workspaceCount - 2)
+            && lhs.workspaceTitles.count == rhs.workspaceTitles.count
+            && lhs.workspaceTitles.sorted() == rhs.workspaceTitles.sorted()
     }
 
     private static func mayShareIdentity(_ lhs: WindowSignature, _ rhs: WindowSignature) -> Bool {
