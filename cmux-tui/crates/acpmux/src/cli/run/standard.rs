@@ -631,8 +631,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let client = connect(true).await?;
             // The daemon only accepts a sender identity that is bound to this
             // connection. `deliver` is a session-local CLI, so attach before
-            // the quiet write; this does not wake the session or notify it.
-            client.request(method::MUX_ATTACH, json!({"sessionId": sender, "limit": 0})).await?;
+            // the quiet write. Keep the view hidden so attaching does not mark
+            // the agent seen or publish a visible status event.
+            client
+                .request(
+                    method::MUX_ATTACH,
+                    json!({"sessionId": sender, "limit": 0, "visible": false}),
+                )
+                .await?;
             let value = client
                 .request(
                     method::MUX_MAIL_SEND,
