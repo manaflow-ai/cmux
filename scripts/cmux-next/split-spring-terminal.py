@@ -64,6 +64,28 @@ if "--suite=open-panel" in sys.argv:
 if "--suite=budgets" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-budgets.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=budgets"])
+# `--suite=config-parity`: is the bench build (split-spring.sh --config=bench builds --app) as fast as Release?
+# Builds a Release app of this checkout (tag cfgparity-rel), then scripts/cmux-next/bench-config-parity.py
+# runs the same actions on both, interleaved (--runs, --rounds, --idle pass through).
+if "--suite=config-parity" in sys.argv:
+    here = os.path.dirname(os.path.abspath(__file__))
+    root = os.path.dirname(os.path.dirname(here))
+    rest = [a for a in sys.argv[1:] if a != "--suite=config-parity"]
+    bench_app = rest[rest.index("--app") + 1]
+    out = rest[rest.index("--out") + 1] if "--out" in rest else "/tmp/config-parity"
+    passthrough = [a for a in rest if a.startswith(("--runs=", "--rounds=", "--idle=", "--settle="))]
+    log = os.path.join(out, "reload-release.log")
+    os.makedirs(out, exist_ok=True)
+    with open(log, "w") as handle:
+        built = subprocess.run(["./scripts/reload.sh", "--tag", "cfgparity-rel", "--config", "release"], cwd=root,
+                               env={**os.environ, "CMUX_DEV_BACKEND_MODE": "local"}, stdout=handle, stderr=subprocess.STDOUT)
+    lines = open(log).read().splitlines()
+    paths = [lines[i + 1].strip() for i, line in enumerate(lines[:-1]) if line.startswith("App path:")]
+    if built.returncode != 0 or not paths:
+        print("\n".join(lines[-60:]))
+        raise SystemExit("config-parity: the Release build failed")
+    suite = os.path.join(here, "bench-config-parity.py")
+    os.execv(sys.executable, [sys.executable, suite, "--release", paths[-1], "--bench", bench_app, "--out", out] + passthrough)
 if "--suite=pane-perf" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pane-perf-terminal.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=pane-perf"])
