@@ -11,9 +11,11 @@ Findings, in tracked Swift files under Packages/macOS:
   2. An allowlist entry for a file that no longer imports SwiftUI, or no
      longer exists: delete the line, so the list only shrinks.
   3. With --base REF: an allowlist entry that the allowlist at REF did not
-     have. The allowlist only shrinks; a new screen is AppKit. A file moved
-     since REF (a git rename of an entry REF allowed) keeps its entry under
-     its new path.
+     have. The allowlist only shrinks; a new screen is AppKit. A moved file
+     keeps its entry under its new path: one git sees as renamed since REF,
+     one whose history (git log --follow) holds a path REF allowed (a move
+     that landed without its allowlist edit), or one with the file name of
+     an entry REF allowed whose old path is gone (a move with a rewrite).
 
 The allowlist is scripts/cmux-next/no-swiftui-allowlist.txt, one
 repo-relative path per line, sorted; `#` starts a comment.
@@ -87,6 +89,16 @@ def renamed_since(root: pathlib.Path, base: str) -> dict[str, str]:
     return moves
 
 
+def former_paths(root: pathlib.Path, path: str) -> set[str]:
+    """Every path `path` had in its history, as git follows its renames."""
+    try:
+        out = subprocess.run(["git", "-C", str(root), "log", "--follow", "--name-only", "--format=", "--", path],
+                             check=True, capture_output=True, text=True).stdout
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return set()
+    return {line for line in out.splitlines() if line}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", help="the commit the allowlist may only shrink from")
@@ -116,7 +128,10 @@ def main() -> int:
             old_allowed = set(parse_allowlist(old))
             moves = renamed_since(root, args.base)
             for f in sorted(allowed_set - old_allowed):
-                if moves.get(f) in old_allowed:
+                if moves.get(f) in old_allowed or former_paths(root, f) & old_allowed:
+                    continue
+                name = pathlib.PurePosixPath(f).name
+                if any(pathlib.PurePosixPath(o).name == name and not (root / o).exists() for o in old_allowed):
                     continue
                 findings.append(f"{ALLOWLIST}: {f} is new since {args.base}; the allowlist only shrinks")
         except subprocess.CalledProcessError:

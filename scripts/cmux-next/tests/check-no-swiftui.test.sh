@@ -63,4 +63,12 @@ git -C "$repo" add -A
 code=0; python3 -I "$CHECK" --base "$base" "$repo" >/dev/null 2>"$tmp/err" || code=$?
 [[ $code -eq 1 ]] && grep -q "Three.swift is new since" "$tmp/err" \
   || { echo "FAIL: must fail: a new allowlist entry (got $code)" >&2; cat "$tmp/err" >&2; exit 1; }
+# A rewrite moved under its old file name (git sees no rename) keeps its entry too.
+git -C "$repo" rm -q -f "$SRC/B/Three.swift"
+git -C "$repo" mv "$SRC/A/Two.swift" "$SRC/B/Two.swift"
+printf 'import SwiftUI\n// rewritten\nenum Other { case a, b, c }\nstruct Five {}\n' > "$repo/$SRC/B/Two.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/B/Two.swift" > "$repo/$LIST"
+git -C "$repo" add -A
+python3 -I "$CHECK" --base "$base" "$repo" >/dev/null 2>"$tmp/err" \
+  || { echo "FAIL: must pass: a rewrite moved under its file name keeps its entry" >&2; cat "$tmp/err" >&2; exit 1; }
 echo "check-no-swiftui: ok"
