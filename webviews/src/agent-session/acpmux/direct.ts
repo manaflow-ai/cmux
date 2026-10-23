@@ -2385,6 +2385,13 @@ export class AcpmuxDirectClient {
     return page;
   }
 
+  /// Read commands for a deferred chat without selecting or attaching it.
+  async sessionCommands(sessionId: string): Promise<SlashCommand[]> {
+    const result = await this.typed("_acpmux/events", { sessionId, limit: 1, kinds: [COMMANDS_KIND] });
+    const event = records(result?.events).at(-1);
+    return (event && commandsFromUpdate(sessionUpdate(event))) || [];
+  }
+
   /// The newest command list at or before `lastSeq`, unless a live update already arrived.
   private async fetchCommands(sessionId: string, generation: number, lastSeq: number): Promise<void> {
     const result = await this.typed("_acpmux/events", {
