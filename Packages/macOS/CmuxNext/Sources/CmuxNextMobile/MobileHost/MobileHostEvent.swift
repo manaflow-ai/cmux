@@ -31,6 +31,11 @@ public enum MobileHostEvent: Sendable, Equatable {
     case needBrowser(request: UInt64, tab: String, url: String)
     /// hostd no longer needs the browser host of `tab`.
     case browserStop(tab: String)
+    /// A phone opened a streamed simulator surface: start the source of phone
+    /// tab `tab` and answer `request` (``MobileHostLaunch/surfaceLine(request:port:secret:)``).
+    case needSurface(request: UInt64, tab: String)
+    /// hostd no longer needs the surface source of `tab`.
+    case surfaceStop(tab: String)
     /// The owner removed this Mac from the account's devices; hostd exits and must not
     /// be restarted until the person allows iPhone connections again.
     case removed
@@ -79,6 +84,12 @@ public enum MobileHostEvent: Sendable, Equatable {
         case "browser_stop":
             guard let tab = wire.tab else { return nil }
             self = .browserStop(tab: tab)
+        case "need_surface":
+            guard let request = wire.request, let tab = wire.tab else { return nil }
+            self = .needSurface(request: request, tab: tab)
+        case "surface_stop":
+            guard let tab = wire.tab else { return nil }
+            self = .surfaceStop(tab: tab)
         case "removed":
             self = .removed
         default:

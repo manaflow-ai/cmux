@@ -12,3 +12,17 @@ public protocol MobileHostBrowserHosting: Sendable {
     /// Stops every host (hostd restarted or stopped).
     func stopAll() async
 }
+
+/// Starts frame sources for the simulators the phone streams (hostd's `surface`
+/// service, cmux-next-ios/verify/simulator-surface.md): one per phone tab of this
+/// Mac, on loopback, each speaking `sf/1` with its own secret.
+public protocol MobileHostSurfaceHosting: Sendable {
+    /// Starts the source of phone tab `tab` (`s<surface>`) and returns where it
+    /// listens and its per-launch secret. Throws when `tab` is not a phone tab of
+    /// this Mac showing a booted simulator. `onExit` runs once when it ends.
+    func start(tab: String, onExit: @escaping @Sendable () -> Void) async throws -> (port: UInt16, secret: String)
+    /// Stops the source of `tab`.
+    func stop(tab: String) async
+    /// Stops every source (hostd restarted or stopped).
+    func stopAll() async
+}

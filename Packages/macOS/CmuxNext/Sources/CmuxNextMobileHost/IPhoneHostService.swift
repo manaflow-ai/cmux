@@ -62,6 +62,8 @@ public final class IPhoneHostService {
         var acpmuxEnvironment: AcpmuxEnvironment?
         /// The app's browser hosts for the phone's streamed browser tabs; nil when this build has none.
         var browserHosts: (any MobileHostBrowserHosting)?
+        /// The app's simulator surface sources for the phone's streamed phone tabs; nil when it cannot stream simulators.
+        var surfaceHosts: (any MobileHostSurfaceHosting)?
         /// Test-only (DEBUG): phones this tagged test instance trusts without the prompt.
         var pairingSeed: IPhonePairingSeed?
         /// This app's own Chief owner: its session (from the app's `ChiefHome`, always known)
@@ -92,6 +94,7 @@ public final class IPhoneHostService {
             stateDirectory: dependencies.stateDirectory, fileRoots: dependencies.fileRoots(),
             stackProjectID: dependencies.stackProjectID, agentTabHost: dependencies.agentTabHost())
         launch.browserHosts = dependencies.browserHosts != nil
+        launch.surfaceHosts = dependencies.surfaceHosts != nil
         launch.chiefSession = chief?.session
         launch.chiefSocket = chief?.socket
         return launch
@@ -389,7 +392,8 @@ public final class IPhoneHostService {
                 await supervisor.start(.init(
                     launch: launch, accessToken: dependencies.accessToken, acpmux: dependencies.acpmux,
                     log: dependencies.stateDirectory.appendingPathComponent("cmux-mobile-host.log", isDirectory: false),
-                    browserHosts: dependencies.browserHosts, macIdentity: identity))
+                    browserHosts: dependencies.browserHosts, macIdentity: identity,
+                    surfaceHosts: dependencies.surfaceHosts))
             } catch {
                 logger.error("iPhone host not started: \(String(describing: error), privacy: .public)")
                 await supervisor.stop(phase: .waiting(String(describing: error)))

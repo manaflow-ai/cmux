@@ -1,0 +1,323 @@
+public import Foundation
+import IOSurface
+import Network
+
+/// A booted simulator as a phone's streamed surface: the `sf/1` source
+/// cmux-mobile-host connects to on loopback (cmux-mobile-host `surface.rs`,
+/// cmux-next-ios/verify/simulator-surface.md). It hands hostd the simulator's
+/// own frames (SimulatorKit's IOSurface, the one the Mac's phone tab shows;
+/// never a screen capture), encoded to H.264 when hostd's media engine asks,
+/// and drives the simulator with the touches, text, keys and buttons hostd
+/// passes on: touches through the same SimulatorKit HID path as the Mac's tab
+/// (0...1 of the screen in the orientation shown, so device size and rotation
+/// need no mapping), text and buttons through ``PhoneService`` (so a recording
+/// logs them and text a US keyboard cannot type is pasted).
+///
+/// Only a client that sends this source's per-launch secret first is served;
+/// the listener takes loopback connections only.
+@MainActor
+public final class SimulatorSurfaceServer {
+    public enum Failure: Error, Sendable, CustomStringConvertible {
+        case notSimulator, noLiveScreen, listener(String)
+
+        public var description: String {
+            switch self {
+            case .notSimulator: "only a booted iOS simulator streams to a phone"
+            case .noLiveScreen: "this Xcode gives no live simulator screen"
+            case .listener(let reason): "the surface source did not start: \(reason)"
+            }
+        }
+    }
+
+    private let service: PhoneService
+    private let device: PhoneDeviceID
+    public let secret = UUID().uuidString.replacingOccurrences(of: "-", with: "") + UUID().uuidString.replacingOccurrences(of: "-", with: "")
+    private var listener: NWListener?
+    private var sessions: [ObjectIdentifier: Session] = [:]
+    private var ready: [CheckedContinuation<UInt16, any Error>] = []
+    /// Runs once when the source stops (``stop()``, or its listener failed).
+    public var onEnd: (@MainActor () -> Void)?
+
+    public init(service: PhoneService, device: PhoneDeviceID) {
+        self.service = service
+        self.device = device
+    }
+
+    /// Listens on `127.0.0.1` and returns the port.
+    public func start() async throws -> UInt16 {
+        guard device.mode == .simulator else { throw Failure.notSimulator }
+        guard let live = service.live, live.isAvailable() else { throw Failure.noLiveScreen }
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        parameters.acceptLocalOnly = true
+        let listener: NWListener
+        do { listener = try NWListener(using: parameters) } catch { throw Failure.listener("\(error)") }
+        listener.stateUpdateHandler = { [weak self] state in
+            MainActor.assumeIsolated { self?.listenerChanged(state) } // main-proof: listener.start(queue: .main) below
+        }
+        listener.newConnectionHandler = { [weak self] connection in
+            MainActor.assumeIsolated { self?.accept(connection) } // main-proof: listener.start(queue: .main) below
+        }
+        self.listener = listener
+        listener.start(queue: .main)
+        return try await withCheckedThrowingContinuation { ready.append($0) }
+    }
+
+    /// Stops listening and ends every session.
+    public func stop() {
+        guard listener != nil || !sessions.isEmpty else { return }
+        listener?.cancel()
+        listener = nil
+        for session in sessions.values { session.end() }
+        sessions = [:]
+        let end = onEnd
+        onEnd = nil
+        end?()
+    }
+
+    private func listenerChanged(_ state: NWListener.State) {
+        switch state {
+        case .ready:
+            guard let port = listener?.port?.rawValue else { return }
+            let waiting = ready
+            ready = []
+            waiting.forEach { $0.resume(returning: port) }
+        case .failed(let error):
+            let waiting = ready
+            ready = []
+            waiting.forEach { $0.resume(throwing: Failure.listener("\(error)")) }
+            stop()
+        default:
+            break
+        }
+    }
+
+    private func accept(_ connection: NWConnection) {
+        guard let live = service.live else { return connection.cancel() }
+        let id = ObjectIdentifier(connection)
+        let session = Session(connection: connection, secret: secret, udid: device.raw, device: device, live: live, service: service) { [weak self] in
+            self?.sessions[id] = nil
+        }
+        sessions[id] = session
+        session.start()
+    }
+}
+
+extension SimulatorSurfaceServer {
+    /// One hostd connection: the hello, then frames out and input in.
+    @MainActor
+    final class Session {
+        private let connection: NWConnection
+        private let secret: String
+        private let udid: String
+        private let device: PhoneDeviceID
+        private let live: SimulatorKitHID
+        private let service: PhoneService
+        private let ended: @MainActor () -> Void
+        private var wire = SurfaceSourceWire()
+        private var authorized = false
+        private var watch: SimulatorKitHID.ScreenWatch?
+        private var encoder: SurfaceFrameEncoder?
+        private var latest: IOSurface?
+        /// When the newest frame arrived (µs on hostd's clock).
+        private var latestAt: UInt64 = 0
+        /// A `damage` hostd has not asked to encode yet: one is enough.
+        private var damageSent = false
+        private var visible = true
+        private var closed = false
+
+        init(connection: NWConnection, secret: String, udid: String, device: PhoneDeviceID, live: SimulatorKitHID,
+             service: PhoneService, ended: @escaping @MainActor () -> Void) {
+            self.connection = connection
+            self.secret = secret
+            self.udid = udid
+            self.device = device
+            self.live = live
+            self.service = service
+            self.ended = ended
+        }
+
+        func start() {
+            connection.stateUpdateHandler = { [weak self] state in
+                switch state {
+                case .failed, .cancelled: MainActor.assumeIsolated { self?.end() } // main-proof: connection.start(queue: .main)
+                default: break
+                }
+            }
+            connection.start(queue: .main)
+            receive()
+        }
+
+        func end() {
+            guard !closed else { return }
+            closed = true
+            if let watch { live.stopScreen(watch) }
+            watch = nil
+            encoder = nil
+            connection.cancel()
+            ended()
+        }
+
+        /// hostd's clock: `CLOCK_UPTIME_RAW` in microseconds (`surface_clock_us`).
+        static func now() -> UInt64 { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1000 }
+
+        private func receive() {
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, complete, error in
+                MainActor.assumeIsolated { // main-proof: connection.start(queue: .main)
+                    guard let self, !self.closed else { return }
+                    if let data { self.wire.append(data) }
+                    do {
+                        while let frame = try self.wire.next() { self.handle(frame) }
+                    } catch {
+                        return self.end()
+                    }
+                    if complete || error != nil { return self.end() }
+                    self.receive()
+                }
+            }
+        }
+
+        private func send(_ data: Data) {
+            guard !closed else { return }
+            connection.send(content: data, completion: .contentProcessed { _ in })
+        }
+
+        private func handle(_ frame: SurfaceSourceWire.Frame) {
+            guard case .json(let line) = frame else { return end() }
+            let type = line["t"]?.string
+            guard authorized else {
+                guard type == "hello", let given = line["secret"]?.string, Self.equal(given, secret) else {
+                    send(SurfaceSourceWire.json(["t": "error", "message": "unauthorized"]))
+                    return end()
+                }
+                authorized = true
+                return startFrames()
+            }
+            switch type {
+            case "encode": encode(idr: line["idr"]?.bool ?? false, kbps: Int(line["kbps"]?.number ?? 4000))
+            case "visible": setVisible(line["visible"]?.bool ?? true)
+            case "touch": touch(line)
+            case "text": if let text = line["text"]?.string { act(.text(text)) }
+            case "key": key(line)
+            case "button": button(line["button"]?.string)
+            default: break
+            }
+        }
+
+        private static func equal(_ a: String, _ b: String) -> Bool {
+            let a = Array(a.utf8), b = Array(b.utf8)
+            guard a.count == b.count else { return false }
+            return zip(a, b).reduce(UInt8(0)) { $0 | ($1.0 ^ $1.1) } == 0
+        }
+
+        // MARK: Frames
+
+        private func startFrames() {
+            do {
+                watch = try live.startScreen(udid) { [weak self] surface in self?.frame(surface) }
+            } catch {
+                send(SurfaceSourceWire.json(["t": "error", "message": String(describing: error)]))
+                return end()
+            }
+            guard latest != nil else {
+                send(SurfaceSourceWire.json(["t": "error", "message": "the simulator shows no screen yet"]))
+                return end()
+            }
+        }
+
+        private func frame(_ surface: IOSurface) {
+            let first = latest == nil
+            latest = surface
+            latestAt = Self.now()
+            let width = IOSurfaceGetWidth(surface), height = IOSurfaceGetHeight(surface)
+            if encoder.map({ $0.sourceWidth != width || $0.sourceHeight != height }) ?? true {
+                // A new size (first frame, a rotation): a new encoder, whose first frame is an IDR.
+                encoder = SurfaceFrameEncoder(sourceWidth: width, sourceHeight: height)
+                let size = SurfaceFrameEncoder.encodedSize(width: width, height: height)
+                send(SurfaceSourceWire.json(["t": "size", "width": size.width, "height": size.height]))
+                if !first { damageSent = false }
+            }
+            guard visible, !damageSent else { return }
+            damageSent = true
+            send(SurfaceSourceWire.json(["t": "damage"]))
+        }
+
+        private func encode(idr: Bool, kbps: Int) {
+            damageSent = false
+            guard let encoder, let surface = latest ?? live.currentSurface(udid) else {
+                return send(SurfaceSourceWire.json(["t": "skip"]))
+            }
+            encoder.setBitrate(kbps: kbps)
+            let captured = latestAt
+            let connection = connection
+            encoder.encode(surface, forceKeyframe: idr) { result in
+                // NWConnection.send is safe from any thread; the order of sends is kept.
+                guard let result else {
+                    connection.send(content: SurfaceSourceWire.json(["t": "skip"]), completion: .contentProcessed { _ in })
+                    return
+                }
+                connection.send(content: SurfaceSourceWire.accessUnit(idr: result.keyframe, captureMicros: captured, annexB: result.data),
+                                completion: .contentProcessed { _ in })
+            }
+        }
+
+        /// A hidden phone tab costs no encoding: frames stop asking hostd for an encode until it is shown again.
+        private func setVisible(_ shown: Bool) {
+            guard shown != visible else { return }
+            visible = shown
+            if shown {
+                damageSent = false
+                if let surface = latest { frame(surface) }
+            }
+        }
+
+        // MARK: Input
+
+        private func touch(_ line: [String: SurfaceSourceValue]) {
+            guard let x = line["x"]?.number, let y = line["y"]?.number, x.isFinite, y.isFinite else { return }
+            let phase: PhoneTouch.Phase
+            switch line["phase"]?.string {
+            case "began": phase = .began
+            case "moved": phase = .moved
+            case "ended": phase = .ended
+            default: return
+            }
+            try? live.touchNow(phase, x: min(max(x, 0), 1), y: min(max(y, 0), 1), udid: udid)
+        }
+
+        private func key(_ line: [String: SurfaceSourceValue]) {
+            guard let usage = line["key"]?.string.flatMap(Self.keyUsage), let down = line["down"]?.bool else { return }
+            try? live.keyNow(usage, down: down, udid: udid)
+        }
+
+        /// The HID keyboard usages of the keys a phone may press (hostd's list).
+        static func keyUsage(_ code: String) -> UInt32? {
+            switch code {
+            case "Enter": 0x28
+            case "Escape": 0x29
+            case "Backspace": 0x2A
+            case "Tab": 0x2B
+            case "Delete": 0x4C
+            case "ArrowRight": 0x4F
+            case "ArrowLeft": 0x50
+            case "ArrowDown": 0x51
+            case "ArrowUp": 0x52
+            default: nil
+            }
+        }
+
+        private func button(_ name: String?) {
+            switch name {
+            case "home": act(.button(.home))
+            case "lock": act(.button(.lock))
+            default: break
+            }
+        }
+
+        private func act(_ input: PhoneInput) {
+            let service = service, device = device
+            // task-owner: one input the phone sent; PhoneService logs it into a running recording
+            Task { try? await service.send(input, to: device) }
+        }
+    }
+}
