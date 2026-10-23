@@ -176,7 +176,10 @@ fn send_key_encodes_command_chords_from_authoritative_keyboard_modes() {
     };
 
     #[cfg(target_os = "macos")]
-    assert!(encode(&["super+c", "cmd+z"]).is_empty(), "legacy encoding sent text for a Command chord");
+    assert!(
+        encode(&["super+c", "cmd+z"]).is_empty(),
+        "legacy encoding sent text for a Command chord"
+    );
     surface.with_terminal(|term| term.vt_write(b"\x1b[?1049h\x1b[>5u"));
     assert_eq!(
         encode(&["super+c", "cmd+z", "cmd+shift+z", "command+a"]),
