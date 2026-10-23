@@ -90,6 +90,9 @@ final class HomeService {
     /// The cloud Chiefs the Chief tab may show: without the Hosted Chief while
     /// this Mac's history is still being copied into it (the local Chief stays).
     var tabChiefs: HomeCloudChiefs { hostedChief.pending ? HomeCloudChiefs(hosted: nil, placed: cloudChiefs.placed) : cloudChiefs }
+    /// The last Chief made by a headless Home action, for its result receipt.
+    /// This is launch-local state; the durable id lives in the owner registry.
+    @ObservationIgnored var lastCreatedChief: HomeChiefRecord?
     /// The one-time copy of this Mac's Chief into the Hosted Chief and its brain check (HomeService+HostedChief).
     @ObservationIgnored let hostedChief = HostedChiefMigration()
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
