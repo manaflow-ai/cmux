@@ -483,6 +483,44 @@ class LocalizationDebtRatchetTests(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertNotIn("keeps the base's baseline", output)
 
+    def moved_base(self, strings):
+        """A base tree holding the catalog with STRINGS, its baseline, and the same baseline here."""
+        self.write(strings)
+        self.check("--write-baseline")
+        arguments = self.write_base(strings)
+        return arguments
+
+    def test_an_unrelated_same_named_catalog_does_not_inherit_a_deleted_catalogs_debt(self):
+        # Most catalogs are Localizable.xcstrings: deleting one package's catalog and adding an
+        # unrelated one with new untranslated strings must not move the old allowance to it.
+        arguments = self.moved_base({"open": self.copied("Open"), "close": self.copied("Close")})
+        self.catalog.unlink()
+        other = self.root / "Packages/macOS/CmuxNext/Sources/Other/Localizable.xcstrings"
+        other.parent.mkdir(parents=True)
+        other.write_text(json.dumps(catalog({"rename": self.copied("Rename"), "share": self.copied("Share")})),
+                         encoding="utf-8")
+        # The hand-moved baseline the loophole needs: the old counts under the new path.
+        self.baseline.write_text(MODULE.debt_json({str(other.relative_to(self.root)): {"identical": 2}}),
+                                 encoding="utf-8")
+        status, output = self.check(*arguments)
+        self.assertEqual(status, 1, output)
+        self.assertNotIn("keeps the base's baseline", output)
+        self.assertIn("may only go down", output)
+
+    def test_a_moved_catalog_proven_by_the_base_tree_keeps_its_baseline(self):
+        arguments = self.moved_base({"open": self.copied("Open"), "close": self.copied("Close")})
+        moved = self.root / "Packages/macOS/CmuxNext/Sources/Other/Localizable.xcstrings"
+        moved.parent.mkdir(parents=True)
+        self.catalog.rename(moved)
+        # Edited on the way (one string translated): still the same catalog.
+        moved.write_text(json.dumps(catalog({"open": self.copied("Open"),
+                                             "close": string("Close", fr=("Fermer", "translated"))})),
+                         encoding="utf-8")
+        self.assertEqual(self.check("--write-baseline")[0], 0)
+        status, output = self.check(*arguments)
+        self.assertEqual(status, 0, output)
+        self.assertIn("keeps the base's baseline", output)
+
     def write_base(self, strings):
         """The base tree's catalog and, as the base's baseline, a copy of the current baseline."""
         base = self.root / "base"
