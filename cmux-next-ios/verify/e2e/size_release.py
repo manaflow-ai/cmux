@@ -122,6 +122,7 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--paths", default="")
     ap.add_argument("--keep", action="store_true")
+    ap.add_argument("--reuse", action="store_true", help="keep the signed-in simulator of a previous run")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     logf = open(os.path.join(a.out, "run.log"), "a")
@@ -143,7 +144,12 @@ def main():
         time.sleep(0.2)
     log(f"probe: Mac grid {probe.grid()} (Mac pane {mac})")
 
-    udid = ensure_sim(a.sim, a.runtime)
+    udid = None
+    if a.reuse:
+        for devs in json.loads(sh("xcrun", "simctl", "list", "devices", "-j"))["devices"].values():
+            udid = udid or next((d["udid"] for d in devs if d["name"] == a.sim), None)
+    fresh = udid is None
+    udid = udid or ensure_sim(a.sim, a.runtime)
     sim = Sim(udid, shots_dir=os.path.join(a.out, "shots"))
     results = []
     from journey import Journey
@@ -265,6 +271,7 @@ def main():
         g0 = probe.grid()
         changes = 0
         Journey.hide_keyboard(j)
+        sim.wait(label="Tabs", kind="Button", timeout=20)
         for _ in range(5):
             sim.tap_q(label="Tabs", kind="Button"); time.sleep(0.3)
             close_grid(); time.sleep(0.3)
@@ -288,8 +295,9 @@ def main():
     ]
     wanted = set(filter(None, a.paths.split(",")))
     try:
-        subprocess.run(["xcrun", "simctl", "keychain", udid, "reset"], capture_output=True)
-        sh("xcrun", "simctl", "install", udid, a.app)
+        if fresh:
+            subprocess.run(["xcrun", "simctl", "keychain", udid, "reset"], capture_output=True)
+            sh("xcrun", "simctl", "install", udid, a.app)
         launch()
         i, _ = sim.wait_any([dict(ident="setup.teams.create"), dict(ident="setup.teams.choose"),
                              dict(contains="Connect your Mac"), dict(label="Workspaces", kind="RadioButton")], timeout=90)
@@ -319,6 +327,12 @@ def main():
                 record_then(name, mech, action, bound)
                 continue
             record(name, mech, action, bound)
+        if "open_only" in wanted:
+            # Leaves the terminal open and sized for a Mac-side path the caller drives.
+            phone, claim = open_terminal()
+            Journey.hide_keyboard(j)
+            results.append(dict(path="open_only", phone=phone, claim_s=claim, ok=True, at=time.time()))
+            log(f"[pass] open_only: phone {phone} after {claim}s; terminal left open")
         if not wanted or "quick_switch" in wanted:
             try:
                 phone, _ = open_terminal()
