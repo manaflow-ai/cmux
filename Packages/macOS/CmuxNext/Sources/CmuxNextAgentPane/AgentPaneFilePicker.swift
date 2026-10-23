@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// Add Files to Project's open panel (cx-ncc.67): a sheet on the pane's window for files, several
 /// at a time. None when the user cancels, the pane has no window, or the panel came back dead (no

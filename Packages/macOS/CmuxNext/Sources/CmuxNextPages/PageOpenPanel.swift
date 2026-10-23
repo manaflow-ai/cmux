@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 public import WebKit
 
 /// Answers a page's `<input type="file">` with the system open panel, as a sheet on the page's
