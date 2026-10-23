@@ -105,6 +105,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private var scheduledRefreshForce = false
     private var portsCache: (ports: [Int], at: Date)?
     var portDiscovery = CloudPortDiscovery()
+    /// The one pending or running port-only rescan, and whether another
+    /// request arrived while it was busy.
+    var portRescan: Task<Void, Never>?
+    var portRescanOwed = false
+    /// The link route the last port scan used, so a rescan needs no graph read.
+    private var portScanRoute: (link: CloudMachineLink, socketPath: String, lifecycle: UInt64, privateAddress: String?, displayPortsOwned: Bool)?
     private(set) var summaryGeneration: UInt64 = 0
     let loadPortSummary: @MainActor (String) async throws -> VMSummary
     func publishPortDiscovery() {
@@ -248,6 +254,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         scheduledRefresh?.cancel()
         scheduledRefresh = nil
         scheduledRefreshForce = false
+        portRescan?.cancel()
+        portRescan = nil
+        portRescanOwed = false
+        portScanRoute = nil
         stateRecoveryRefreshTask?.cancel()
         stateRecoveryRefreshTask = nil
         stateRecoveryRefreshQueued = false
@@ -1567,9 +1577,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 #endif
         if !portDiscovery.wasRequested, hasProjectedPortPanes { requestPortDiscovery() }
         guard portDiscovery.mayScan else { return portsCache?.ports }
+        portScanRoute = (link, socketPath, lifecycle, privateAddress, displayPortsOwned)
         let previousState = portDiscovery.state
         if let cached = portDiscovery.cachedScan(at: Date.now, socketPath: socketPath, force: force) {
             if portDiscovery.state != previousState { publishPortDiscovery() }
+            // The refresh that hit the cache may follow a server starting, so
+            // rescan once the cache expires instead of waiting for the next poll.
+            schedulePortRescan()
             return cached.ports.filter {
                 !CmuxTuiSnapshotParser.internalPorts.contains($0)
                     && (!displayPortsOwned || !CmuxTuiSnapshotParser.displayPorts.contains($0))
@@ -1606,6 +1620,22 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         settleRestoredPortPanes(scannedPorts: scan.ports)
         portsCache = (scan.ports, Date.now)
         return scan.ports
+    }
+
+    /// Scans over the route the last refresh used, without another graph read,
+    /// and publishes the inventory only when it changed.
+    func rescanPorts() async {
+        guard let route = portScanRoute, isCurrentLifecycleGeneration(route.lifecycle),
+              watchedLink === route.link, cloudState != nil else { return }
+        let published = portsCache?.ports ?? []
+        guard let scanned = await ports(
+            link: route.link, socketPath: route.socketPath, force: false, lifecycle: route.lifecycle,
+            privateAddress: route.privateAddress, displayPortsOwned: route.displayPortsOwned
+        ), scanned != published, isCurrentLifecycleGeneration(route.lifecycle),
+              let cloudState else { return }
+        let observation = catalog.cloudStateObservations[machine] ?? .current
+        publish(cloudState, ports: scanned, reconcileTitles: false, observation: observation)
+        reprojectRestoredPanes(generation: route.lifecycle)
     }
 
     private func watchChanges(link: CloudMachineLink, generation: UInt64) {
@@ -1744,6 +1774,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                     reconcileTitles: titlesChanged
                 )
                 syncNotifications(from: next)
+                // A terminal change (a command starting, a title update) is when
+                // a new server usually appears, often a moment after the change
+                // itself; the scan cache throttles bursts.
+                schedulePortRescan(followUp: true)
             }
         case .streamEnded(let reason, _):
             // A stream gap, unknown item, or transport end is a full-state

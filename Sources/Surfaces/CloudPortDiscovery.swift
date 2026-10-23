@@ -7,12 +7,16 @@ struct CloudPortDiscovery: Sendable {
     private(set) var scan: CloudPortScanResult?
     private(set) var wasRequested = false
     private var scannedAt: Date?
+    /// When the last scan finished, successfully or not; paces rescans.
+    private var attemptedAt: Date?
     private var socketPath: String?
     private var privateAddress: String?
     private var requestID: UInt64 = 0
     private var activeScan: UInt64?
     private var blocker: CloudPortDiscoveryState?
-    private let cacheLifetime: TimeInterval = 30
+    /// Throttles scans during a burst of refreshes. Short, because a refresh
+    /// served from the cache only schedules a trailing rescan for its expiry.
+    private let cacheLifetime: TimeInterval = 5
 
     /// SSH machines reach their ports over the SSH link's loopback forward, so they opt in with `allowLoopback`.
     mutating func reconcile(supportsPreviews: Bool, isAwake: Bool, privateAddress: String?, allowLoopback: Bool = false) {
@@ -25,6 +29,7 @@ struct CloudPortDiscovery: Sendable {
             requestID &+= 1
             scan = nil
             scannedAt = nil
+            attemptedAt = nil
             socketPath = nil
             self.privateAddress = privateAddress
             blocker = nextBlocker
@@ -40,7 +45,10 @@ struct CloudPortDiscovery: Sendable {
     @discardableResult
     mutating func request() -> UInt64 {
         wasRequested = true
-        if blocker == nil { state = .loading }
+        // A repeated request keeps listed services visible, as a rescan does.
+        // An empty or stale result still shows progress, so Refresh visibly runs.
+        let listsServices = state == .available || state == .loopbackOnly
+        if blocker == nil, !listsServices { state = .loading }
         return requestID
     }
 
@@ -61,6 +69,14 @@ struct CloudPortDiscovery: Sendable {
               now.timeIntervalSince(scannedAt) < cacheLifetime else { return nil }
         if let scan { state = scan.state }
         return scan
+    }
+
+    /// How long until the next rescan may run: one cache lifetime after the
+    /// last finished scan, failed or not; nil when it may run now.
+    func rescanDelay(at now: Date) -> TimeInterval? {
+        guard let attemptedAt else { return nil }
+        let remaining = cacheLifetime - now.timeIntervalSince(attemptedAt)
+        return remaining > 0 ? remaining : nil
     }
 
     /// A rescan keeps the settled result visible; only a machine with no inventory shows loading.
@@ -84,6 +100,7 @@ struct CloudPortDiscovery: Sendable {
     @discardableResult
     mutating func complete(_ result: CloudPortScanResult?, request: UInt64, at now: Date, socketPath: String) -> Bool {
         guard request == requestID, blocker == nil else { return false }
+        attemptedAt = now
         if let result {
             scan = result
             scannedAt = now
@@ -106,6 +123,7 @@ struct CloudPortDiscovery: Sendable {
     mutating func invalidate() {
         requestID &+= 1
         scannedAt = nil
+        attemptedAt = nil
         socketPath = nil
         if blocker == nil { state = scan == nil ? .notRequested : .stale }
     }
