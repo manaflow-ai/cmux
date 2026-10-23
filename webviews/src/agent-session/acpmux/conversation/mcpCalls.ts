@@ -306,12 +306,12 @@ export function prettyValue(value: unknown): string | undefined {
 
 /// The opened call's response.
 export function prettyOutput(output: string | undefined): string | undefined {
-  // JSON holding a number a double would change (a 64-bit ID) shows as it came, never parsed and
-  // rounded, as toolResult.ts shows it.
-  if (output && parseJSON(output) !== undefined && losesNumbers(output)) return output.replace(/\n$/, "");
-  // An envelope that holds more than text reads exactly as the tool row reads it: its text, then
-  // each other part as the JSON it is, never cleaned or parsed again (toolResult.ts).
+  // An envelope that holds more than text, at any depth, reads exactly as the tool row reads it:
+  // its text, then each other part as the JSON it is, never cleaned or parsed again, and as it came
+  // when it holds a number a double would change (toolResult.ts).
   if (output && holdsMore(output)) return toolResult(output, cleanText).text || undefined;
+  // Other JSON holding such a number (a 64-bit ID) shows as it came, never parsed and rounded.
+  if (output && parseJSON(output) !== undefined && losesNumbers(output)) return output.replace(/\n$/, "");
   return prettyValue(mcpValue(output));
 }
 

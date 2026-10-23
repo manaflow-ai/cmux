@@ -285,8 +285,24 @@ test("the strip keeps every image an envelope's text leaves out, ahead of the ca
   const output = JSON.stringify([{ type: "text", text: "Four" }, ...[0, 1, 2, 3].map(shot)]);
   const own = "data:image/png;base64,OWN";
   const images = toolImages({ id: "c1", title: "mcp__shots__take", status: "completed", output, images: [own] });
-  expect(images).toEqual([0, 1, 2, 3].map(url));
+  expect(images).toEqual([...[0, 1, 2, 3].map(url), own]);
   expect(toolResult(output).text).toBe("Four");
+});
+
+test("a running call's strip shows the envelope images its text leaves out", () => {
+  const output = JSON.stringify([{ type: "text", text: "Shot" }, shot(0)]);
+  const own = "data:image/png;base64,OWN";
+  const running = { id: "c1", title: "mcp__shots__take", status: "in_progress", output, images: [own] };
+  expect(toolResult(output).text).toBe("Shot");
+  expect(toolImages(running)).toEqual([url(0)]);
+});
+
+test("an image nested in the text of an envelope holding an unsafe number shows once, as the row shows it", () => {
+  const inner = JSON.stringify([{ type: "text", text: "Shot" }, shot(0)]);
+  const output = `{"jsonrpc":"2.0","id":9007199254740993,"result":${JSON.stringify(inner)}}`;
+  expect(toolResult(output, cleanText).text).toBe("Shot");
+  expect(envelopeImages(output, cleanText)).toEqual([url(0)]);
+  expect(prettyOutput(output)).toBe("Shot");
 });
 
 test("a shell that printed an envelope keeps its images in its output, out of the strip", () => {
