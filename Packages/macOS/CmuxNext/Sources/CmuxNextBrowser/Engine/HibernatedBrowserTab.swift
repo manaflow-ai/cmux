@@ -28,6 +28,11 @@ public final class HibernatedBrowserTab: BrowserTab {
     /// the host's cache let them go.
     public var snapshotImage: CGImage? { snapshotSource() }
     private let snapshotSource: @MainActor () -> CGImage?
+    private let previewSource: @MainActor () -> CGImage?
+    private let pictureView: SnapshotView
+    /// The picture the woken page keeps over itself until it draws (`BrowserChromeView.holdPicture`):
+    /// what this placeholder shows now (decoded), else the decoded preview, else the stored picture.
+    public var wakePicture: CGImage? { pictureView.shown ?? previewSource() ?? snapshotSource() }
     /// What woke the page, for the host to apply once it is restored.
     public enum Wake: Sendable, Hashable {
         case load(URL)
@@ -64,7 +69,9 @@ public final class HibernatedBrowserTab: BrowserTab {
         self.favicon = favicon
         self.restoreState = restoreState
         self.snapshotSource = snapshot
-        contentView = SnapshotView(snapshot: snapshot, preview: preview)
+        self.previewSource = preview
+        pictureView = SnapshotView(snapshot: snapshot, preview: preview)
+        contentView = pictureView
     }
 
     public func load(_ url: URL) { onWake?(.load(url)) }
@@ -97,6 +104,10 @@ private final class SnapshotView: NSImageView {
     private let snapshot: @MainActor () -> CGImage?
     private let preview: @MainActor () -> CGImage?
     private var decoding: Task<Void, Never>?
+    /// The decoded picture shown now (the preview, then the full one).
+    private(set) var shown: CGImage? {
+        didSet { image = shown.map { NSImage(cgImage: $0, size: .zero) } }
+    }
 
     init(snapshot: @escaping @MainActor () -> CGImage?, preview: @escaping @MainActor () -> CGImage?) {
         self.snapshot = snapshot
@@ -112,13 +123,13 @@ private final class SnapshotView: NSImageView {
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         decoding?.cancel()
-        image = nil
+        shown = nil
         guard newWindow != nil, let picture = snapshot() else { return }
-        if let preview = preview() { image = NSImage(cgImage: preview, size: .zero) }
+        shown = preview()
         decoding = Task { [weak self] in
             let decoded = await Task.detached(priority: .userInitiated) { Self.decoded(picture) }.value
             guard let self, !Task.isCancelled else { return }
-            image = NSImage(cgImage: decoded, size: .zero)
+            shown = decoded
         }
     }
 

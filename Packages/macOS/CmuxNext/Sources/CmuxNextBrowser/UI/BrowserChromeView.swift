@@ -97,6 +97,8 @@ public final class BrowserChromeView: NSView {
     /// The address a page woken from hibernation slept on, shown until the
     /// woken page reports a real one (`holdAddress(whileWaking:)`).
     var wakingAddress: BrowserTabState?
+    /// The hibernation picture over a woken page until it draws (`holdPicture(whileWaking:)`).
+    var wakePicture = WakePictureCover()
     /// A typed https upgrade in flight (Chrome's http fallback).
     var httpsFallback = HTTPSUpgradeFallback()
     private var showsStop = false
@@ -358,7 +360,10 @@ public final class BrowserChromeView: NSView {
         observation?.cancel()
         promptObservation?.cancel()
         // Another page in this toolbar: the held address was the old page's.
-        if let old, old !== tab { wakingAddress = nil }
+        if let old, old !== tab {
+            wakingAddress = nil
+            wakePicture.end()
+        }
         siteZoom.follow(tab)
         if let old, old !== tab {
             old.contentView.removeFromSuperview()
@@ -407,6 +412,7 @@ public final class BrowserChromeView: NSView {
             reloadButton.setIcon(loading ? .browserToolbarStop : .browserToolbarReload, label: loading ? Strings.stop : Strings.reload)
         }
         updateAddress(for: state)
+        wakePicture.follow(state)
         updateMachineBadge()
         recordHistory(state)
         reportFinishedLoad(state)

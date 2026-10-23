@@ -224,6 +224,16 @@ preview (long side 384 px, ~360 KB, counted in the 64 MB store), shown in the
 turn the placeholder enters a window until the full picture is decoded.
 Tests: `HibernationWakePictureTests`.
 
+A WebKit page restores in the same turn its tab shows, so the placeholder's
+picture never reached a frame: the pane showed the new, unpainted web view.
+The woken page's chrome now keeps the picture the placeholder showed
+(`HibernatedBrowserTab.wakePicture`, decoded) over the page
+(`BrowserChromeView.holdPicture(whileWaking:)`, no hit testing) until its
+first load ends, its process exits, 400 ms after its document commits, or
+2 s after the wake. In-view pages only: a Chromium page is a child window
+above the chrome, so it still shows its theme-colored base from creation to
+its first contentful paint (open). Tests: `WakePictureCoverTests`.
+
 ## 4. Not done / open
 
 - Root cause of the user's disappearing page not reproduced on a
