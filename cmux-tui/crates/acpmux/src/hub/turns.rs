@@ -1068,7 +1068,17 @@ impl Hub {
                 }),
                 remote: None,
             });
-            self.store.delete(&session.id).map_err(|e| RpcError::internal(e.to_string()))?;
+            // After the last write of its record (`meta_writer.rs`), off the executor: the
+            // delete removes the session's folder.
+            let (store, id) = (self.store.clone(), session.id.clone());
+            let forget = self.meta_writer.forget_handle();
+            tokio::task::spawn_blocking(move || {
+                forget.forget(&id);
+                store.delete(&id)
+            })
+            .await
+            .map_err(|e| RpcError::internal(e.to_string()))?
+            .map_err(|e| RpcError::internal(e.to_string()))?;
             // The files dropped into the chat go with it (`file_uploads.rs`), unless the chat
             // itself comes back under this id.
             if !replaced {

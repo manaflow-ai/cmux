@@ -1151,14 +1151,22 @@ impl Config {
     }
 
     /// Write back to the file this config came from. No-op for in-code configs.
+    /// The daemon queues the bytes instead (`Hub::save_config`, `hub/config_writer.rs`).
     pub fn save(&self) -> Result<()> {
-        let Some(path) = &self.path else {
+        let Some((path, bytes)) = self.disk_bytes()? else {
             tracing::debug!("config has no file; not saved");
             return Ok(());
         };
         if let Some(parent) = path.parent() {
             private_state_dir(parent)?;
         }
+        write_atomic(&path, &bytes)
+    }
+
+    /// The file this config came from and the bytes `save` writes there; None for an in-code
+    /// config. No disk access.
+    pub fn disk_bytes(&self) -> Result<Option<(PathBuf, Vec<u8>)>> {
+        let Some(path) = &self.path else { return Ok(None) };
         let mut on_disk = self.clone();
         on_disk
             .harnesses
@@ -1184,7 +1192,7 @@ impl Config {
                 on_disk.defaults.remove("claude");
             }
         }
-        write_atomic(path, serde_json::to_string_pretty(&on_disk)?.as_bytes())
+        Ok(Some((path.clone(), serde_json::to_string_pretty(&on_disk)?.into_bytes())))
     }
 
     pub fn profile(&self, name: &str) -> Option<&HarnessProfile> {

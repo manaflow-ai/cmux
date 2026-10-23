@@ -544,7 +544,7 @@ impl Hub {
                     cfg.last_permission_mode_change = Some(state.mark());
                 }
                 cfg.last_permission_mode_setting = None;
-                if let Err(e) = cfg.save() {
+                if let Err(e) = self.save_config(&cfg) {
                     tracing::warn!("permission pick's change count not saved to config.json: {e}");
                 }
             }
@@ -709,7 +709,7 @@ impl Hub {
         cfg.last_permission_mode = Some(level.to_owned());
         cfg.last_permission_mode_change = changes;
         cfg.last_permission_mode_setting = None;
-        if let Err(e) = cfg.save() {
+        if let Err(e) = self.save_config(&cfg) {
             tracing::warn!("mode pick not saved to config.json: {e}");
         }
         drop(cfg);

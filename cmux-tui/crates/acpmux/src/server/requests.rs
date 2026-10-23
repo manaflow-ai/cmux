@@ -697,7 +697,7 @@ async fn dispatch_request(
                 let mut cfg = hub.config.write().await;
                 cfg.permission_policy = policy;
                 hub.permission_defaults_changed();
-                cfg.save()
+                hub.save_config(&cfg)
                     .map_err(|e| RpcError::internal(format!("save permission policy: {e}")))?;
             }
             // deny-all is a lockdown: every chat without a policy of its own follows it.
@@ -833,7 +833,7 @@ async fn dispatch_request(
                         *entry = merged;
                     }
                 }
-                if let Err(e) = cfg.save() {
+                if let Err(e) = hub.save_config(&cfg) {
                     return Err(RpcError::internal(format!("save config: {e}")));
                 }
             }

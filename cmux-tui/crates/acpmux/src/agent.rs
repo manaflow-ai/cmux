@@ -60,9 +60,60 @@ pub enum Inbound {
 
 /// Logs one wire message. The `u64` is the agent host entry it logs, when
 /// the agent runs under a host (`hostSeq` on the record).
-/// Returns whether the record reached the store; an agent host entry is
-/// acknowledged only then.
-pub type Tap = Arc<dyn Fn(Direction, &Message, Option<u64>) -> bool + Send + Sync>;
+/// Returns None when the record cannot be stored (its log failed), else the
+/// ticket its write is known by: an agent host entry is acknowledged only once
+/// its ticket is written ([`WriteTicket::written`]).
+pub type Tap = Arc<dyn Fn(Direction, &Message, Option<u64>) -> Option<WriteTicket> + Send + Sync>;
+
+/// When a tapped message's record, and every record of its session before it, is on disk: the
+/// session's last record when the tap returned, and the store's progress for that session
+/// (`store/log_writer.rs`; None for a store that writes before it returns).
+pub struct WriteTicket {
+    seq: u64,
+    progress: Option<tokio::sync::watch::Receiver<crate::store::Progress>>,
+}
+
+impl WriteTicket {
+    pub fn new(
+        seq: u64,
+        progress: Option<tokio::sync::watch::Receiver<crate::store::Progress>>,
+    ) -> Self {
+        Self { seq, progress }
+    }
+
+    /// A message that is stored as soon as it is handed over (a test's or a probe's tap).
+    pub fn done() -> Self {
+        Self { seq: 0, progress: None }
+    }
+
+    /// The ticket that covers both: the one that waits on the store for the later record.
+    fn later(self, other: Self) -> Self {
+        match (&self.progress, &other.progress) {
+            (None, _) => other,
+            (Some(_), None) => self,
+            (Some(_), Some(_)) if other.seq >= self.seq => other,
+            _ => self,
+        }
+    }
+
+    /// Waits until the ticket's records are on disk. False when its log failed, or the store
+    /// ended first: the entry is then never acknowledged, and the host keeps it.
+    pub async fn written(self) -> bool {
+        let Some(mut rx) = self.progress else { return true };
+        loop {
+            let p = *rx.borrow_and_update();
+            if p.failed {
+                return false;
+            }
+            if p.covers(self.seq) {
+                return true;
+            }
+            if rx.changed().await.is_err() {
+                return false;
+            }
+        }
+    }
+}
 
 /// Tap methods for an agent host's stderr and exit entries, so they are
 /// logged in entry order before the entry is acknowledged.
@@ -121,7 +172,9 @@ pub enum Attached {
 /// How long `kill` lets the agent's process group exit after SIGTERM.
 const KILL_GRACE: std::time::Duration = std::time::Duration::from_millis(300);
 
-/// How often the reader checks that the agent process is still running.
+/// Windows: how often the reader checks that the agent process is still running. Unix
+/// readers wake on SIGCHLD instead (`LeaderExit`), so an idle agent costs no wakeup.
+#[cfg(windows)]
 const LEADER_CHECK: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// How long the reader keeps draining stdout after the agent process exits.
@@ -306,12 +359,12 @@ impl ChildAgent {
                 let mut lines = BufReader::new(stdout).lines();
                 // The leader can exit while a descendant still holds stdout
                 // open; watch it so its exit is reported regardless.
-                let mut leader_check = tokio::time::interval(LEADER_CHECK);
+                let mut leader_exit = LeaderExit::new();
                 let mut leader_gone: Option<tokio::time::Instant> = None;
                 loop {
                     let next = tokio::select! {
                         next = lines.next_line() => next,
-                        _ = leader_check.tick() => {
+                        () = leader_exit.next(leader_gone) => {
                             if let Some(at) = leader_gone {
                                 // Give buffered output a moment, then stop reading.
                                 if at.elapsed() >= LEADER_DRAIN {
@@ -954,37 +1007,35 @@ impl ChildAgent {
         (agent, responses)
     }
 
-    /// Read `link`'s entries: log each, act on it, then acknowledge it.
+    /// Read `link`'s entries: log each and act on it. Its acknowledgement waits for its record
+    /// to be on disk, on the link's ack task (`ack_entries`): the reader goes on with the next
+    /// entry meanwhile, and one ack covers every entry written by then.
     fn start_reader(self: &Arc<Self>, link: Arc<crate::agent_host::link::Link>) {
         let reader = self.clone();
         tokio::spawn(async move {
             let Some(hosted) = reader.hosted.as_ref() else { return };
+            let (acks, ack_rx) = mpsc::unbounded_channel();
+            // Bounded by the host: it stops reading its harness once its unacknowledged entries
+            // pass `agent_host::DEFAULT_BUFFER_CAP`.
+            let acker = tokio::spawn(reader.clone().ack_entries(link.clone(), ack_rx));
             let mut entries = link.entries.lock().await;
             while let Some((h, entry)) = entries.recv().await {
                 let is_exit = matches!(entry, crate::agent_host::Entry::Exit { .. });
-                if !reader.on_host_entry(h, entry, &hosted.inbound).await {
+                let Some(ticket) = reader.on_host_entry(h, entry, &hosted.inbound).await else {
                     // Not stored: never acknowledge it or anything after it.
                     // Open requests stay open; the next request reattaches.
                     tracing::warn!(agent = %reader.name, "agent host entry {h} not logged; acks stop");
                     hosted.broken.store(true, Ordering::SeqCst);
+                    acker.abort();
                     return;
-                }
+                };
                 hosted.logged.send_replace(h);
-                if is_exit {
-                    // Written before anyone hears of the exit: a daemon that
-                    // ends the agent and exits at once still acks the Exit.
-                    let acked = link.ack_written(h, EXIT_ACK_BUDGET).await;
-                    hosted.exited.store(true, Ordering::SeqCst);
-                    hosted.exit.notify_waiters();
-                    if acked.is_err() {
-                        break;
-                    }
-                    continue;
-                }
-                if link.ack(h).await.is_err() {
+                if acks.send((h, ticket, is_exit)).is_err() {
                     break;
                 }
             }
+            drop(acks);
+            let _ = acker.await;
             // A detach hands the agent and its open requests to the next
             // daemon; a replaced link hands them to its own reader.
             if hosted.detached.load(Ordering::SeqCst) || !Arc::ptr_eq(&hosted.link(), &link) {
@@ -998,14 +1049,50 @@ impl ChildAgent {
         });
     }
 
-    /// Log one host entry, then act on it. Returns whether its record was
-    /// stored (only then may it be acknowledged).
+    /// Acknowledges `link`'s entries as their records reach the disk, in order: each batch of
+    /// entries waiting is one ack, after the latest ticket among them is written. An Exit is
+    /// acknowledged before anyone hears of the exit (`exited`, `exit`).
+    async fn ack_entries(
+        self: Arc<Self>,
+        link: Arc<crate::agent_host::link::Link>,
+        mut rx: mpsc::UnboundedReceiver<(u64, WriteTicket, bool)>,
+    ) {
+        let Some(hosted) = self.hosted.as_ref() else { return };
+        while let Some((mut h, mut ticket, mut exit)) = rx.recv().await {
+            while !exit {
+                let Ok((h2, t2, e2)) = rx.try_recv() else { break };
+                (h, ticket, exit) = (h2, ticket.later(t2), e2);
+            }
+            if !ticket.written().await {
+                tracing::warn!(agent = %self.name, "agent host entry {h} not written; acks stop");
+                hosted.broken.store(true, Ordering::SeqCst);
+                return;
+            }
+            if exit {
+                // Written before anyone hears of the exit: a daemon that
+                // ends the agent and exits at once still acks the Exit.
+                let acked = link.ack_written(h, EXIT_ACK_BUDGET).await;
+                hosted.exited.store(true, Ordering::SeqCst);
+                hosted.exit.notify_waiters();
+                if acked.is_err() {
+                    return;
+                }
+                continue;
+            }
+            if link.ack(h).await.is_err() {
+                return;
+            }
+        }
+    }
+
+    /// Log one host entry, then act on it. Returns the ticket of its record's write (it may be
+    /// acknowledged once written), or None when it could not be stored.
     async fn on_host_entry(
         &self,
         h: u64,
         entry: crate::agent_host::Entry,
         inbound: &mpsc::Sender<Inbound>,
-    ) -> bool {
+    ) -> Option<WriteTicket> {
         use crate::agent_host::{Entry, TapDir};
         match entry {
             Entry::Tap { dir, msg } => match Message::from_value(msg) {
@@ -1013,13 +1100,11 @@ impl ChildAgent {
                     let d = if dir == TapDir::In { Direction::In } else { Direction::Out };
                     (self.tap)(d, &m, Some(h))
                 }
-                Err(_) => true,
+                Err(_) => Some(WriteTicket::done()),
             },
             Entry::In { msg } => {
-                let Ok(m) = Message::from_value(msg) else { return true };
-                if !(self.tap)(Direction::In, &m, Some(h)) {
-                    return false;
-                }
+                let Ok(m) = Message::from_value(msg) else { return Some(WriteTicket::done()) };
+                let ticket = (self.tap)(Direction::In, &m, Some(h))?;
                 match m {
                     Message::Response { id, result, error } => {
                         let answer = match error {
@@ -1043,21 +1128,17 @@ impl ChildAgent {
                         let _ = inbound.send(Inbound::Notification { method, params }).await;
                     }
                 }
-                true
+                Some(ticket)
             }
             Entry::Err { line } => {
                 let note = Message::notification(HOST_STDERR, serde_json::json!({"text": line}));
-                if !(self.tap)(Direction::In, &note, Some(h)) {
-                    return false;
-                }
+                let ticket = (self.tap)(Direction::In, &note, Some(h))?;
                 let _ = inbound.send(Inbound::Stderr(line, Some(h))).await;
-                true
+                Some(ticket)
             }
             Entry::Exit { code } => {
                 let note = Message::notification(HOST_EXIT, serde_json::json!({"code": code}));
-                if !(self.tap)(Direction::In, &note, Some(h)) {
-                    return false;
-                }
+                let ticket = (self.tap)(Direction::In, &note, Some(h))?;
                 // Not alive from here: no turn may set the session ready on
                 // a harness that is gone while the ack is still being written.
                 if let Some(hosted) = &self.hosted {
@@ -1069,13 +1150,61 @@ impl ChildAgent {
                 }
                 drop(p);
                 // `exited` and the exit notify follow the Exit entry's ack
-                // (`start_reader`), so a terminate that waits on them never
+                // (`ack_entries`), so a terminate that waits on them never
                 // returns before the host knows its Exit is logged.
                 let _ =
                     inbound.send(Inbound::Exited { pid: self.pid, code, host_seq: Some(h) }).await;
-                true
+                Some(ticket)
             }
         }
+    }
+}
+
+/// When a direct agent's reader checks whether its leader process still runs: on Unix at each
+/// SIGCHLD (any child of the daemon ended; tokio hands every listener each one) and once at the
+/// start, so a leader that ended before the listener existed is seen; on Windows every
+/// `LEADER_CHECK`. Once the leader is gone, at the end of the [`LEADER_DRAIN`] window.
+struct LeaderExit {
+    #[cfg(unix)]
+    child: Option<tokio::signal::unix::Signal>,
+    first: bool,
+    #[cfg(windows)]
+    tick: tokio::time::Interval,
+}
+
+impl LeaderExit {
+    fn new() -> Self {
+        Self {
+            #[cfg(unix)]
+            child: tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child())
+                .map_err(|e| tracing::warn!("no SIGCHLD listener for an agent reader: {e}"))
+                .ok(),
+            first: true,
+            #[cfg(windows)]
+            tick: tokio::time::interval(LEADER_CHECK),
+        }
+    }
+
+    /// The next moment to check; `gone` is when the leader was seen gone.
+    async fn next(&mut self, gone: Option<tokio::time::Instant>) {
+        if let Some(at) = gone {
+            tokio::time::sleep_until(at + LEADER_DRAIN).await;
+            return;
+        }
+        if std::mem::take(&mut self.first) {
+            return;
+        }
+        #[cfg(unix)]
+        match &mut self.child {
+            Some(signal) => {
+                signal.recv().await;
+            }
+            // No listener: the reader ends only with stdout, as a leader's descendants that
+            // keep it open end.
+            None => std::future::pending::<()>().await,
+        }
+        #[cfg(windows)]
+        self.tick.tick().await;
     }
 }
 
@@ -1149,7 +1278,7 @@ mod spawn_error_tests {
         }))
         .unwrap();
         let (inbound, _rx) = mpsc::channel(1);
-        let tap: Tap = Arc::new(|_, _, _| true);
+        let tap: Tap = Arc::new(|_, _, _| Some(WriteTicket::done()));
         let error =
             match ChildAgent::spawn("missing", &profile, &std::env::temp_dir(), inbound, tap).await
             {
