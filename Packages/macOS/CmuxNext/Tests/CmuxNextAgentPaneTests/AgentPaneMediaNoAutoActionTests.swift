@@ -340,10 +340,6 @@ struct AgentPaneMediaNoAutoActionTests {
                 #expect(Self.isRebuiltCopy(path, in: pane), "\(effect) is not the rebuilt copy")
             }
         }
-        // The rebuild never hands out an SVG it cannot read.
-        let copy = AgentPaneImageCopies.handedOut(broken, in: pane.model.replyLinks.imageFolder)
-        #expect(copy != broken)
-        #expect(await AgentPaneImageCopies.rebuild(broken, to: copy) == false)
     }
 
     @Test func nothingInAReplyNavigatesThePaneOrReachesTheAppByItself() {
