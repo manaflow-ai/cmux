@@ -9341,7 +9341,8 @@ the chat and never rests on what one app remembers:
   this machine's `_acpmux/web_modes` (`agent_session.unknown_tab` for a tab
   with no session, `agent_session.unknown_session` when acpmux no longer knows
   that exact session id or full name, as attach accepts it, never a prefix;
-  `agent_session.limit` past 8 reads at once). `session` is the record's
+  `agent_session.limit` past 8 reads at once; `agent_session.unknown_tab`
+  too when the tab closed or was bound to another chat during the read). `session` is the record's
   value (the id or the name), the key the app files the badge under; the
   attach reply and the pushes use the same key.
   Read-only; the app reads each bound tab it lists once per connect. Adopt
@@ -9360,8 +9361,9 @@ the chat and never rests on what one app remembers:
   page on). Reads run one at a time, so the last push is the newest mode; a
   read that answers after the tab was closed or bound to another chat pushes
   nothing and ends the attachment (`detached`). Each attach on a connection
-  sets `kinds` and `mode_events` again; one that acpmux refuses leaves the
-  ones before it.
+  sets `kinds` and `mode_events` again, and the stream follows the newest one
+  from its send (a read under way when the pushes stop sends nothing); one
+  that acpmux refuses leaves the ones before it.
 
 ### agent-session-trust
 
