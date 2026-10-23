@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample commands, chat titles and files), not shipped UI.
 // The chat's summary card (SummaryCard.tsx) as the inline column draws it, with background work
-// live: commands from acpmux's process registry (running ones with their time and Stop, the
-// finished ones folded into one row), chats the agent started under Subagents with their state,
+// live: commands from acpmux's process registry (running ones with their time and Stop, finished
+// ones as compact status cards), chats the agent started under Subagents with their state,
 // and the header's counts. An empty chat's card draws one quiet line and Attach files or folders,
 // not a "None" under every title.
 import type { ComponentProps } from "react";
@@ -96,14 +96,13 @@ export default componentEntry<Props>({
   load: async () => GallerySummaryCard,
   variants: {
     "background-work": {
-      note: "Three commands running, newest first with their time and Stop; three finished folded into one row. Five started chats under Subagents: waiting, running, failed, done.",
+      note: "Three commands running, newest first with their time and Stop; three finished as compact status cards. Five started chats under Subagents: waiting, running, failed, done.",
       props: { rows, background: background(processes), sessions: { list: sessions, onOpen: none } },
     },
     "finished-open": {
-      note: "The finished commands opened from their row.",
+      note: "Finished commands remain visible as individual cards with their state and detail.",
       props: { rows, background: background(processes), sessions: { list: [], onOpen: none } },
       play: async (ctx) => {
-        await ctx.click({ selector: ".acpmux-summary-finished" });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-summary-task").length === 6);
       },
     },

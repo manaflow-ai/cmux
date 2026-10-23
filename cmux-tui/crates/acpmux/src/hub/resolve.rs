@@ -324,6 +324,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         turn_count: 0,
         usage: None,
         available_commands: None,
+        goal: None,
         permission_rules: None,
         tags: Default::default(),
         unread: false,

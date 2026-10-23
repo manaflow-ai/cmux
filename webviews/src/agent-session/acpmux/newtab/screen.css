@@ -7,8 +7,10 @@
    resizing calculation is slow and wack"; new-tab-live-resize). */
 .nt-screen{padding-top:clamp(12px,calc(46vh - 154px),clamp(40px,14vh,140px))}
 .nt-screen>*{width:100%}
-/* The box (Leo 10-13, coherence pass; Lawrence 10-14): the composer's surface (composerStates.css: lighter than the page in a light theme, one small step toward the text in a dark one), solid, so on a wallpaper it sits as chrome, not a film over the art and not a gray slab. Its rim (--acpmux-card-ring, which the location strip's seam redraws) is one device pixel in the composer's edge, clear under appearance.borders none; focus keeps that rim and only lifts its tone a little, never a wider ring or the accent. Its shadow is the composer's (composerStates.css): --elevation-1 in a light theme, none in a dark one. */
-.nt-box{flex:none;display:flex;flex-direction:column;box-sizing:border-box;border-radius:20px;background:var(--acpmux-composer-surface,var(--cmux-surface-solid,var(--acpmux-base)));position:relative;--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);box-shadow:var(--acpmux-card-ring),var(--acpmux-composer-shadow,var(--elevation-1))}
+/* The box uses the same glass material as the chat composer (ComposerBox.tsx): the shared tint,
+   backdrop and rim are owned by .ui-glass. Keep the composer's edge/elevation aliases so focus,
+   borders-none and Reduce Transparency preserve the existing card contract. */
+.nt-box{flex:none;display:flex;flex-direction:column;box-sizing:border-box;border-radius:20px;position:relative;--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);--glass-edge:var(--acpmux-composer-edge);--glass-elevation:var(--acpmux-composer-shadow,var(--elevation-1))}
 .nt-input{display:flex;align-items:flex-start;gap:10px;min-height:52px;padding:0 18px}
 :root[data-borders=none] .nt-box{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) transparent}
 /* The field wraps a long draft and grows with it (field-sizing; NewTabScreen fits it only in an engine
@@ -365,7 +367,6 @@
   cursor: default;
 }
 .nt-box {
-  background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
   /* The chat composer's attachment tiles (composerAttachments.css), on the field's text inset. */
   --acpmux-attach-inset: 18px;
   --acpmux-attach-gap: 6px;

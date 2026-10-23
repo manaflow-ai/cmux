@@ -102,12 +102,14 @@ public final class WorkspaceAutoNamer {
                                         daemonGeneration: target.daemonGeneration, nameRevision: target.nameRevision)
             guard target.supportsNameSource, workspace.kind != SidebarMapping.homeKind, workspace.app == nil,
                   !submitted.contains(submission), target.nameSource == .auto,
-                  rule.confirmsRename(currentName: workspace.name, currentTitle: workspace.title),
+                  rule.confirmsRename(currentName: workspace.name, currentTitle: workspace.title,
+                                      nameSource: target.nameSource, nameRevision: target.nameRevision),
                   let front = SidebarMapping.shared.frontTab(workspace, selectedTab: { [selection] pane in selection(workspace, pane) }),
                   front.agentSession != nil,
                   let name = rule.persistedName(name: workspace.name, title: workspace.title, front: names.front(front),
                                                 isLocalMachine: target.machineID == DaemonCommandScope.localMachine,
-                                                supportsNameSource: target.supportsNameSource, alreadyRenamed: false) else { continue }
+                                                supportsNameSource: target.supportsNameSource, alreadyRenamed: false,
+                                                nameSource: target.nameSource, nameRevision: target.nameRevision) else { continue }
             renames.append(Rename(machineID: target.machineID, workspaceID: workspace.id,
                                   daemonGeneration: target.daemonGeneration, nameRevision: target.nameRevision, name: name))
         }
@@ -127,7 +129,8 @@ public final class WorkspaceAutoNamer {
                   let key = target.workspace.key, target.daemonGeneration == candidate.daemonGeneration,
                   target.nameRevision == candidate.nameRevision,
                   target.nameSource == .auto, target.supportsNameSource,
-                  rule.confirmsRename(currentName: target.workspace.name, currentTitle: target.workspace.title) else { continue }
+                  rule.confirmsRename(currentName: target.workspace.name, currentTitle: target.workspace.title,
+                                      nameSource: target.nameSource, nameRevision: target.nameRevision) else { continue }
             submitted.insert(submission)
             rename(target, candidate.name)
         }
