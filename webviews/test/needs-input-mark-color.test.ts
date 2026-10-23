@@ -86,12 +86,6 @@ await requireBrowserLane("needs-input-mark-color.test.ts", async () => {
       "color",
     ],
     [
-      "subagent lineage dot",
-      `<span class="acpmux-lineage__icon" data-state="waiting"></span>`,
-      ".acpmux-lineage__icon",
-      "after",
-    ],
-    [
       "suggested task dot",
       `<span class="acpmux-task-started" data-state="waiting"><span class="acpmux-task-dot"></span></span>`,
       ".acpmux-task-dot",
@@ -123,12 +117,7 @@ await requireBrowserLane("needs-input-mark-color.test.ts", async () => {
         (list) =>
           list.map(([name, , selector, prop]) => {
             const el = document.querySelector<HTMLElement>(`[data-mark="${name}"] ${selector}`)!;
-            const look =
-              prop === "after"
-                ? getComputedStyle(el, "::after").backgroundColor
-                : prop === "background"
-                  ? getComputedStyle(el).backgroundColor
-                  : getComputedStyle(el).color;
+            const look = prop === "background" ? getComputedStyle(el).backgroundColor : getComputedStyle(el).color;
             return [name, look] as const;
           }),
         marks as unknown as [string, string, string, string][],

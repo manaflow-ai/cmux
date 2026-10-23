@@ -16,7 +16,7 @@ rm -f /run/ts/key
 # this script; by default the public Internet and DNS), the agent user (Claude Code) reaches only the
 # model forward on 127.0.0.1:4017: no Internet, no tailnet address, no DNS, no other local port. The agent
 # is the node's Tailscale operator (msg 8200 item 4: `tailscale status`, `tailscale ping` without root); what
-# the node reaches is the tailnet policy of its tag (CHIEF_CC_TS_TAG). Root (run.mjs, the notes posts) and ccproxy keep their
+# the node reaches is the tailnet policy of its tag (CHIEF_CC_TS_TAG). Root (chief-turn-runner, the notes posts) and ccproxy keep their
 # network. The guest kernel has no xt_owner, so the rule is nftables `meta skuid`. systemd-resolved
 # goes too: its varlink and D-Bus lookups are open to every user, and root resolves through the
 # nameservers in /etc/resolv.conf without it.

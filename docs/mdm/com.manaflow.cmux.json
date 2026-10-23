@@ -3478,6 +3478,12 @@
       "title" : "Show All Chats on New Tab",
       "type" : "boolean"
     },
+    "sidebar.showColors" : {
+      "default" : true,
+      "description" : "Workspaces and groups draw their colors in the sidebar. Off, the sidebar draws no colors and keeps the colors you set.",
+      "title" : "Show Workspace Colors",
+      "type" : "boolean"
+    },
     "sidebar.showLocalMachine" : {
       "default" : false,
       "description" : "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too.",

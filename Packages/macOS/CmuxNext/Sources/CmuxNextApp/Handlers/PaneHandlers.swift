@@ -79,7 +79,7 @@ enum PaneHandlers {
         let named = invocation["cwd"]?.stringValue
             ?? NewTerminalStart.uninherited(.split, services: ctx.services, daemon: daemon, besides: controller?.selectedTab)
         // Else the folder of the tab it splits: a terminal's, or an agent chat's exact folder.
-        let inherited = named ?? NewTerminalStart.folder(of: controller?.selectedTab, services: ctx.services)
+        let inherited = named ?? NewTerminalStart.inherited(besides: controller?.selectedTab, in: pane, services: ctx.services)
         let cwd = inherited ?? controller?.selectedTab?.cwd ?? pane.tabs.first?.cwd
         let workspace = ctx.services.workspaceKey(of: pane)
         let keep = invocation["keep"]?.boolValue == true ? true : nil

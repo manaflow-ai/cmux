@@ -250,8 +250,10 @@ test("floating beside a side panel, the card's right edge is the chat's", async 
   const aside = container.querySelector<HTMLElement>("aside.acpmux-chat-inspector")!;
   expect(aside.style.getPropertyValue("--acpmux-inspector-side")).toBe("736px");
   const css = readFileSync(new URL("../src/agent-session/acpmux/inspector/inspector.css", import.meta.url), "utf8");
+  // Its box ends at the side panel's edge and its inset is its right margin (the same margin as pushing,
+  // so a switch between the two places starts no slide: chat-inspector-push-motion.test.ts).
   expect(css).toMatch(
-    /\[data-placement="overlay"\] \{[^}]*right: calc\(var\(--acpmux-inspector-side, 0px\) \+ var\(--acpmux-inspector-inset\)\)/,
+    /\[data-placement="overlay"\] \{[^}]*right: var\(--acpmux-inspector-side, 0px\);[^}]*margin-right: var\(--acpmux-inspector-inset\);/,
   );
 });
 

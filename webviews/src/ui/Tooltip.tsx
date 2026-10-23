@@ -41,8 +41,10 @@ export function Tooltip({ label, children, side = "bottom", shortcut, className 
   const host = usePopupHost();
   const [trigger, setTrigger] = useState<HTMLElement | null>(null);
   const [popup, setPopup] = useState<HTMLElement | null>(null);
-  // No room in the page (a tiny pane): past the window's edge, as a Mac tooltip (popupHost.ts).
-  useEscapingPopup(host, popup, () => trigger, { side, align: "start", gap: 6, kind: "tooltip" });
+  // No room in the page (a tiny pane): past the window's edge, as a Mac tooltip (popupHost.ts). A
+  // hover card (`ui-card`) wraps its lines, so its width never sends it there.
+  const wraps = /(^|\s)ui-card(\s|$)/.test(className ?? "");
+  useEscapingPopup(host, popup, () => trigger, { side, align: "start", gap: 6, kind: "tooltip", wraps });
   return (
     <BaseTooltip.Root>
       <BaseTooltip.Trigger ref={host ? setTrigger : undefined} render={children} />
