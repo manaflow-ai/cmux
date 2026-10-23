@@ -671652,6 +671652,65 @@
           }
         }
       }
+    },
+    "cli.restore.error.workingDirectoryMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: the saved working directory no longer exists. Recreate or remount it, then retry."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: دليل العمل المحفوظ لم يعد موجودًا. يرجى إعادة إنشائه أو إعادة تحميله، ثم أعد المحاولة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: Das gespeicherte Arbeitsverzeichnis existiert nicht mehr. Erstellen Sie es neu oder hängen Sie es erneut ein und versuchen Sie es dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: el directorio de trabajo guardado ya no existe. Vuelva a crearlo o a montarlo y vuelva a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore : le répertoire de travail enregistré n'existe plus. Recréez-le ou remontez-le, puis réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: 保存された作業ディレクトリが存在しません。再作成または再マウントしてから、再試行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: 저장된 작업 디렉터리가 더 이상 존재하지 않습니다. 디렉터리를 다시 만들거나 다시 마운트한 후 다시 시도하십시오."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：已保存的工作目录已不存在。请重新创建或重新挂载该目录，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：儲存的工作目錄已不存在。請重新建立或重新掛載該目錄，然後重試。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
