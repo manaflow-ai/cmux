@@ -6167,7 +6167,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         commandPaletteWindowStore.markOpenRequested(windowId, now: ProcessInfo.processInfo.systemUptime)
     }
 
-    private func postCommandPaletteRequest(
+    func postCommandPaletteRequest(
         kind: CommandPaletteRequestKind,
         preferredWindow: NSWindow?,
         source: String,
@@ -15427,6 +15427,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             requestAgentInbox(preferredWindow: targetWindow, source: "shortcut.agentInbox")
             return true
         }
+        if routeFindTmuxWindowShortcut(event: event, targetWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow) { return true }
 
         // Open Chief: toggles Home, so the same keys return to the workspace.
         // When chief.enabled is off the shortcut is not consumed, so the
@@ -16986,7 +16987,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         return accepted ? .acceptedMutation : .rejected
     }
-
 
     func shouldSuppressSplitShortcutForTransientTerminalFocusState(
         direction: SplitDirection? = nil,

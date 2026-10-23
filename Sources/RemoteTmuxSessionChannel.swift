@@ -309,6 +309,12 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
     func seedPane(paneId: Int, clearScrollback: Bool) -> UUID? {
         underlying.seedPane(paneId: paneId, clearScrollback: clearScrollback)
     }
+    func reseedPaneWithFullHistory(paneId: Int) async -> RemoteTmuxFullHistorySeedOutcome {
+        await underlying.reseedPaneWithFullHistory(paneId: paneId)
+    }
+    func queryOutcome(_ command: String, timeout: Double) async -> RemoteTmuxRawQueryOutcome {
+        await underlying.queryOutcome(command, timeout: timeout)
+    }
     func unsubscribePanePath(paneId: Int) { underlying.unsubscribePanePath(paneId: paneId) }
     func unsubscribePaneReflow(paneId: Int) { underlying.unsubscribePaneReflow(paneId: paneId) }
     func unsubscribePaneHeader(paneId: Int) { underlying.unsubscribePaneHeader(paneId: paneId) }
