@@ -287,9 +287,36 @@ class LayerTests(Repo):
         self.base = self.commit("manifest")
 
     def test_the_static_manifest_parse_reads_targets_variables_and_dependencies(self):
-        graph = counts.parse_manifest(MANIFEST % ', "CmuxNextUI"')
-        self.assertEqual(graph, {"CmuxNextCore": [], "CmuxNextDomain": ["CmuxNextCore", "CFFI", "CmuxNextUI"],
+        manifest = counts.parse_manifest(MANIFEST % ', "CmuxNextUI"')
+        graph = {name: sorted(t.deps) for name, t in manifest.targets.items() if t.kind != "testTarget"}
+        self.assertEqual(graph, {"CmuxNextCore": [], "CmuxNextDomain": ["CFFI", "CmuxNextCore", "CmuxNextUI"],
                                  "CmuxNextUI": ["CmuxNextDomain"], "CFFI": []})
+        self.assertEqual(manifest.unreadable, {})
+
+    def test_an_upward_edge_from_core_is_counted_and_refused(self):
+        # Core -> domain is neither hard nor soft, but edges only point down (DESIGN section 2).
+        self.write("Packages/macOS/CmuxNext/Package.swift",
+                   (MANIFEST % "").replace('.target(name: "CmuxNextCore"),',
+                                           '.target(name: "CmuxNextCore", dependencies: ["CmuxNextDomain"]),'))
+        self.commit("upward")
+        refusals, _ = self.check()
+        self.assertEqual(self.rows(refusals), ["layer_upward"])
+        self.assertIn("CmuxNextCore (core) -> CmuxNextDomain (domain)", dict(refusals)["layer_upward"])
+        self.assert_matches_full(self.base, "HEAD")
+
+    def test_a_layer_map_that_does_not_parse_counts_every_target_unplaced(self):
+        # It used to raise KeyError in layers(), and the ratchet then failed open for the whole push.
+        for broken in ('{"order": ["core"], "targets": {"CmuxNextCore": {"layr": "core"}}}',
+                       '{"order": ["core"], "targets": {"CmuxNextCore": "core"}}', "{not json"):
+            lay = counts.layers(MANIFEST % "", broken)
+            self.assertIn("CmuxNextCore", lay.unplaced, broken)
+        self.assertIsNotNone(counts.layers(MANIFEST % "", "{not json").error)
+        self.write("plans/cmux-next/architecture-layers.json", "{not json")
+        self.commit("broken map")
+        refused, out = self.run_push()
+        self.assertTrue(refused, out)
+        self.assertNotIn("the ratchet failed", out)
+        self.assertIn("[layer_unplaced]", out)
 
     def test_a_new_hard_edge_and_an_unplaced_target_are_refused(self):
         self.write("Packages/macOS/CmuxNext/Package.swift",

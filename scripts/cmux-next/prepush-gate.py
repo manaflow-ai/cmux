@@ -742,9 +742,8 @@ class ArchRatchet:
 
 # guardrails.py loads count-swift-code-lines.py (CI's lexer) from the installed copy: an old one counts
 # source lines unlike CI's check-app-size.sh.
-TRUSTED_COPIES = (
-    "prepush-gate.py", "guardrails.py", "count-swift-code-lines.py", "arch-ratchet.py", "arch_counts.py",
-)
+TRUSTED_COPIES = ("prepush-gate.py", "guardrails.py", "count-swift-code-lines.py", "arch-ratchet.py", "arch_counts.py",
+                  "arch_rules/__init__.py", "arch_rules/layer_gate.py")
 
 
 def stale_hook_warning(repo: Path, trusted_scripts: Path) -> None:

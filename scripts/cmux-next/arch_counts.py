@@ -14,7 +14,12 @@ Rows (method v1; a change of any definition bumps METHOD_VERSION and rewrites th
   layer_hard              target edges from a core, service or domain target to a ui or app target
                           (layers from plans/cmux-next/architecture-layers.json, as arch-layers.py)
   layer_soft              edges from a service target to a domain target
-  layer_unplaced          regular and binary targets missing from architecture-layers.json
+  layer_upward            every other edge that points up a layer: core -> service, core -> domain
+                          (edges only point down, DESIGN section 2)
+  layer_unplaced          regular, executable and binary targets that architecture-layers.json does not
+                          place (no entry, an entry without a string `layer`, a layer not in `order`, or a
+                          map that does not parse). One static reader (`parse_manifest`) and one map reader
+                          (`LayerMap`) serve these rows, arch-layers.py and the pre-push layer gate
   stateful_singletons     a stored type-scope `static let/var` whose type is stateful, whatever its
                           name. The type comes from the annotation, else from `T(`, `T<..>(`, `T.init(`,
                           `Self(`, `.init(`, `T.factory(` (the enclosing type for Self/.init), `T {`,
@@ -96,6 +101,7 @@ class Row:
 ROWS = (
     Row("layer_hard", "hard layer edges (core/service/domain -> ui/app)", True),
     Row("layer_soft", "soft layer edges (service -> domain)", True),
+    Row("layer_upward", "other upward layer edges (core -> service/domain)", True),
     Row("layer_unplaced", "targets missing from architecture-layers.json", True),
     Row("stateful_singletons", "stateful singletons (stored static of a stateful type)", True),
     Row("global_mutable_statics", "global mutable statics (static var, static lock/cache)", True),
@@ -106,7 +112,7 @@ ROWS = (
     Row("app_lines", "CmuxNextApp Swift lines", False),
 )
 ROW_IDS = tuple(row.id for row in ROWS)
-LAYER_ROWS = ("layer_hard", "layer_soft", "layer_unplaced")
+LAYER_ROWS = ("layer_hard", "layer_soft", "layer_upward", "layer_unplaced")
 
 SYS_STATEFUL = frozenset({
     "UserDefaults", "URLSession", "NotificationCenter", "OperationQueue", "NSWindow", "NSPanel",
@@ -705,170 +711,394 @@ def classify(static: Static, path: str, table: TypeTable) -> str | None:
 
 # ---------------------------------------------------------------------------------------------------
 # Package.swift and layers
+#
+# The one static reader of Packages/macOS/CmuxNext/Package.swift and the one reader of
+# plans/cmux-next/architecture-layers.json: the layer rows here, arch-layers.py's classification and the
+# pre-push layer gate (arch_rules/layer_gate.py) all use them, so they never disagree about which edges
+# exist or what class an edge has.
+
+PACKAGE_DIR = "Packages/macOS/CmuxNext"
+# Target kinds the layer map must place. Test targets are ignored; plugins, macros and system libraries hold no
+# app code.
+MAPPED_KINDS = ("target", "executableTarget", "binaryTarget")
+TARGET_KINDS = MAPPED_KINDS + ("testTarget", "systemLibrary", "plugin", "macro")
+UPPER_LAYERS = ("ui", "app")
+EDGE_CLASSES = ("hard", "soft", "upward")
+_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_CONSTRUCTOR = re.compile(r"(?:\bTarget|(?<![\w)\]\"]))\.(" + "|".join(TARGET_KINDS) + r")\s*\(")
+_ELEMENT_CONSTRUCTOR = re.compile(r"^(?:Target)?\.(?:" + "|".join(TARGET_KINDS) + r")\s*\(")
+_TOP_LET = re.compile(r"^(let|var)\s+(\w+)\s*(?::\s*([^=\n]+?))?\s*=", re.M)
+_PACKAGE_CALL = re.compile(r"\bPackage\s*\(")
+# A read or a change of the built manifest: `package.` or a `.targets`/`.dependencies` member (the labels
+# `targets:`/`dependencies:` have no dot). Matched with strings and comments blanked.
+_AFTER_BUILD = re.compile(r"\bpackage\s*\.|\.\s*(?:targets|dependencies)\b(?!\s*:)")
+_STRING = re.compile(r'^"((?:[^"\\]|\\.)*)"$')
+_IDENT = re.compile(r"^\w+$")
 
 
-def _split_top(text: str, sep: str) -> list[str]:
-    parts, depth, start = [], 0, 0
-    for i, ch in enumerate(text):
-        if ch in "([{":
+def _skip_string(text: str, i: int) -> int:
+    """Index after the string literal that starts at TEXT[i] (a `"`)."""
+    if text.startswith('"""', i):
+        end = text.find('"""', i + 3)
+        return len(text) if end < 0 else end + 3
+    j = i + 1
+    while j < len(text) and text[j] != '"':
+        j += 2 if text[j] == "\\" else 1
+    return j + 1
+
+
+def _closing(text: str, start: int) -> int:
+    """Index of the bracket that closes the one at TEXT[start] (strings skipped), or len(TEXT)."""
+    depth, i = 0, start
+    while i < len(text):
+        c = text[i]
+        if c == '"':
+            i = _skip_string(text, i)
+            continue
+        if c in "([{":
             depth += 1
-        elif ch in ")]}":
-            depth -= 1
-        elif ch == sep and depth == 0:
-            parts.append(text[start:i])
-            start = i + 1
-    parts.append(text[start:])
-    return parts
-
-
-def _balanced(text: str, open_pos: int) -> int:
-    """Index of the bracket that closes the one at OPEN_POS (strings already blanked)."""
-    depth = 0
-    for i in range(open_pos, len(text)):
-        ch = text[i]
-        if ch in "([{":
-            depth += 1
-        elif ch in ")]}":
+        elif c in ")]}":
             depth -= 1
             if depth == 0:
                 return i
+        i += 1
     return len(text)
 
 
-def parse_manifest(raw: str) -> dict[str, list[str]]:
-    """{target: dependency names} for the regular and binary targets of a Package.swift, statically.
+def _split_top(text: str, sep: str) -> list[str]:
+    """TEXT split at SEP outside brackets and strings, each part stripped, empty parts dropped."""
+    parts, depth, i, last = [], 0, 0, 0
+    while i < len(text):
+        c = text[i]
+        if c == '"':
+            i = _skip_string(text, i)
+            continue
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif c == sep and depth == 0:
+            parts.append(text[last:i])
+            last = i + 1
+        i += 1
+    parts.append(text[last:])
+    return [p.strip() for p in parts if p.strip()]
 
-    Dependencies: string literals, `.target(name:)` and `.byName(name:)` (products are other packages),
-    array variables (`let deps: [Target.Dependency] = [...]`) and `+` concatenations of those.
+
+def _labeled(args: str) -> dict[str, str]:
+    """The labeled arguments of a call (`name: "X"` -> {"name": '"X"'})."""
+    out = {}
+    for part in _split_top(args, ","):
+        m = re.match(r"^(\w+)\s*:(?!:)\s*(.*)$", part, re.S)
+        if m and m.group(1) not in out:
+            out[m.group(1)] = m.group(2).strip()
+    return out
+
+
+def _string_value(expr: str) -> str | None:
+    m = _STRING.match(expr.strip())
+    return m.group(1) if m else None
+
+
+def _statement_end(text: str, start: int) -> int:
+    """End of the top-level `let` initializer that starts at START: the first newline outside brackets
+    after some content whose next line does not continue the expression."""
+    depth, i, seen = 0, start, False
+    while i < len(text):
+        c = text[i]
+        if c == '"':
+            i = _skip_string(text, i)
+            seen = True
+            continue
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif c == "\n" and depth == 0 and seen:
+            rest = text[i + 1:].lstrip()
+            if not rest[:1] in ("+", ".", "?", ":", "]", ")"):
+                return i
+        if not c.isspace():
+            seen = True
+        i += 1
+    return len(text)
+
+
+def _normalized(expr: str) -> str:
+    return " ".join(expr.split())
+
+
+@dataclasses.dataclass
+class ManifestTarget:
+    """One target constructor of Package.swift."""
+
+    kind: str
+    line: int = 1  # 1-based line of the constructor call
+    deps: set[str] = dataclasses.field(default_factory=set)
+    # Dependency expressions the static reader cannot resolve (a ternary, a `var` or untyped variable).
+    unresolved: set[str] = dataclasses.field(default_factory=set)
+    path: str | None = None  # the `path:` argument (relative to the package), when it is a string literal
+
+
+@dataclasses.dataclass
+class Manifest:
+    """The targets of a Package.swift, read statically (`parse_manifest`)."""
+
+    targets: dict[str, ManifestTarget]
+    # Constructs outside any dependency list that the static reader cannot account for:
+    # {normalized text: (1-based line, why)}.
+    unreadable: dict[str, tuple[int, str]] = dataclasses.field(default_factory=dict)
+
+    def edges(self) -> set[tuple[str, str]]:
+        """(source, dependency) for every dependency name of a target that is not a test target."""
+        return {(name, dep) for name, t in self.targets.items() if t.kind != "testTarget" for dep in t.deps}
+
+    def source_dir(self, name: str) -> str:
+        """The repo path of NAME's sources: its `path:` or Sources/<name>, without a trailing slash."""
+        target = self.targets.get(name)
+        relative = target.path if target is not None and target.path else f"Sources/{name}"
+        return f"{PACKAGE_DIR}/{relative.strip('/')}"
+
+
+def parse_manifest(raw: str) -> Manifest:
+    """The targets of a Package.swift and their in-package dependency names, read without swift.
+
+    Targets come from every `.target(`/`.executableTarget(`/... call that is not inside another one
+    (a dependency's `.target(name:)` is), including calls bound to top-level variables
+    (`let appFFI: Target = .binaryTarget(...)`). A `dependencies:` value is array literals and
+    top-level `let` `[Target.Dependency]` variables joined by `+`; string literals, `.target(name:)` and
+    `.byName(name:)` name targets, `.product(...)` entries name other packages and are skipped. A `var`
+    dependency variable is not read (a later statement can append to it), so a dependency list that
+    names one is unresolved.
+
+    Everything else that could add a target or an edge is recorded in `unreadable`: a constructor
+    whose `name:` is not a string literal (a helper `func`), a `Package(targets:)` entry that is not a
+    constructor or a top-level `let X: Target`, and any line that reads or changes the built manifest
+    (`package.`, `.targets`, `.dependencies`).
     """
-    code = strip(raw)
+    code = strip(raw, keep_strings=True)
+    bare = strip(raw)
+    dep_vars: dict[str, str] = {}
+    target_vars: set[str] = set()
+    skip: list[tuple[int, int]] = []
+    for m in _TOP_LET.finditer(code):
+        annotation = (m.group(3) or "").strip()
+        if "Dependency" in annotation:
+            end = _statement_end(code, m.end())
+            if m.group(1) == "let":
+                dep_vars[m.group(2)] = code[m.end():end]
+            skip.append((m.start(), end))
+        elif annotation == "Target" and m.group(1) == "let":
+            target_vars.add(m.group(2))
 
-    def literal(pos: int) -> str:
-        end = code.find('"', pos + 1)
-        return raw[pos + 1:end]
+    lines = code.splitlines()
 
-    variables: dict[str, tuple[int, int]] = {}
-    for m in re.finditer(r"(?m)^\s*(?:let|var)\s+(\w+)\s*(?::[^=\n]+)?=\s*", code):
-        start = m.end()
-        if start < len(code) and code[start] in "[(":
-            variables[m.group(1)] = (start, _balanced(code, start) + 1)
-        else:
-            dot = re.match(r"\.\w+\s*\(", code[start:])
-            if dot:
-                p = start + dot.end() - 1
-                variables[m.group(1)] = (start, _balanced(code, p) + 1)
+    def line_of(index: int) -> int:
+        return code.count("\n", 0, index) + 1
 
-    def deps_of(start: int, end: int, seen: frozenset[str]) -> list[str]:
-        out: list[str] = []
-        term_start = start
-        for term in _split_top(code[start:end], "+"):
-            offset = term_start + (len(term) - len(term.lstrip()))
-            term_start += len(term) + 1
-            body = term.strip()
-            if not body:
-                continue
-            if body.startswith("["):
-                inner_start = offset + 1
-                inner_end = offset + len(body.rstrip()) - 1
-                pos = inner_start
-                for element in _split_top(code[inner_start:inner_end], ","):
-                    e = element.strip()
-                    epos = pos + (len(element) - len(element.lstrip()))
-                    pos += len(element) + 1
-                    if e.startswith('"'):
-                        out.append(literal(epos))
-                    elif re.match(r"\.(?:target|byName)\s*\(", e):
-                        nm = re.search(r'\bname\s*:\s*"', e)
-                        if nm:
-                            out.append(literal(epos + nm.end() - 1))
-                    elif re.fullmatch(r"\w+", e) and e in variables and e not in seen:
-                        vs, ve = variables[e]
-                        out += deps_of(vs, ve, seen | {e})
-            elif re.fullmatch(r"\w+", body) and body in variables and body not in seen:
-                vs, ve = variables[body]
-                out += deps_of(vs, ve, seen | {body})
-        return out
-
-    spans: list[tuple[int, int]] = []
-    calls = []
-    for m in re.finditer(r"\.(target|binaryTarget|executableTarget|testTarget|systemLibrary|macro|plugin)\s*\(", code):
-        open_paren = m.end() - 1
-        calls.append((m.group(1), open_paren, _balanced(code, open_paren)))
-    for kind, open_paren, close_paren in calls:
-        args = code[open_paren + 1:close_paren]
-        dm = re.search(r"\bdependencies\s*:\s*", args)
-        if dm:
-            pos = open_paren + 1
-            for arg in _split_top(args, ","):
-                if re.match(r"\s*dependencies\s*:", arg):
-                    spans.append((pos, pos + len(arg)))
-                pos += len(arg) + 1
-    graph: dict[str, list[str]] = {}
-    for kind, open_paren, close_paren in calls:
-        if any(s <= open_paren < e for s, e in spans):
-            continue  # a `.target(name:)` dependency, not a declaration
-        if kind not in ("target", "binaryTarget"):
+    unreadable: dict[str, tuple[int, str]] = {}
+    after_build_lines: set[int] = set()
+    for m in _AFTER_BUILD.finditer(bare):
+        line = line_of(m.start())
+        if line in after_build_lines:
             continue
-        args = code[open_paren + 1:close_paren]
-        nm = re.match(r'\s*name\s*:\s*"', args)
-        if not nm:
+        after_build_lines.add(line)
+        unreadable.setdefault(_normalized(lines[line - 1]), (line, "it reads or changes the manifest after it is built"))
+
+    def dependency_names(expr: str, target: ManifestTarget, seen: frozenset[str] = frozenset()) -> None:
+        for part in _split_top(expr, "+"):
+            if part.startswith("[") and part.endswith("]"):
+                for element in _split_top(part[1:-1], ","):
+                    name = _string_value(element)
+                    call = re.match(r"^\.(target|byName)\s*\((.*)\)$", element, re.S)
+                    if name is not None:
+                        target.deps.add(name)
+                    elif call and _string_value(_labeled(call.group(2)).get("name", "")) is not None:
+                        target.deps.add(_string_value(_labeled(call.group(2))["name"]))
+                    elif not re.match(r"^\.product\s*\(", element):
+                        target.unresolved.add(_normalized(element))
+            elif _IDENT.match(part) and part in dep_vars and part not in seen:
+                dependency_names(dep_vars[part], target, seen | {part})
+            else:
+                target.unresolved.add(_normalized(part))
+
+    targets: dict[str, ManifestTarget] = {}
+    pos = 0
+    while True:
+        m = _CONSTRUCTOR.search(code, pos)
+        if not m:
+            break
+        if any(a <= m.start() < b for a, b in skip):
+            pos = m.end()
             continue
-        name = literal(open_paren + 1 + nm.end() - 1)
-        deps: list[str] = []
-        pos = open_paren + 1
-        for arg in _split_top(args, ","):
-            am = re.match(r"\s*dependencies\s*:\s*", arg)
-            if am:
-                deps = deps_of(pos + am.end(), pos + len(arg), frozenset())
-            pos += len(arg) + 1
-        graph[name] = deps
-    return graph
+        open_index = m.end() - 1
+        close = _closing(code, open_index)
+        line = line_of(m.start())
+        if line in after_build_lines:
+            pos = close + 1  # already unreadable as a whole line (`....dependencies.append(.target(name: "X"))`)
+            continue
+        args = _labeled(code[open_index + 1:close])
+        name = _string_value(args.get("name", ""))
+        if name is not None and name not in targets:
+            target = ManifestTarget(kind=m.group(1), line=line, path=_string_value(args.get("path", "")))
+            if "dependencies" in args:
+                dependency_names(args["dependencies"], target)
+            targets[name] = target
+        elif m.group(1) != "testTarget":  # test targets are ignored, whatever their name
+            why = (f"a second target named {name}" if name is not None
+                   else "its `name:` is not a string literal")
+            unreadable.setdefault(_normalized(code[m.start():close + 1]), (line, why))
+        pos = close + 1
+
+    package = _PACKAGE_CALL.search(code)
+    if package:
+        open_index = package.end() - 1
+        close = _closing(code, open_index)
+        listed = _labeled(code[open_index + 1:close]).get("targets")
+        for part in _split_top(listed or "", "+"):
+            elements = _split_top(part[1:-1], ",") if part.startswith("[") and part.endswith("]") else [part]
+            for element in elements:
+                call = _ELEMENT_CONSTRUCTOR.match(element)
+                if element in target_vars or (call and _closing(element, call.end() - 1) == len(element) - 1):
+                    continue  # one constructor call, read above (a trailing `.method()` is not)
+                at = code.find(element, open_index)
+                unreadable.setdefault(_normalized(element), (line_of(at if at >= 0 else open_index),
+                                                             "a `Package(targets:)` entry that is not a target "
+                                                             "constructor or a top-level `let X: Target`"))
+    return Manifest(targets, unreadable)
+
+
+def valid_date(value) -> bool:
+    """VALUE is a real calendar date written YYYY-MM-DD (the layer map's and the ratchet's exceptions)."""
+    text = str(value)
+    if not _DATE.match(text):
+        return False
+    try:
+        datetime.date.fromisoformat(text)
+    except ValueError:
+        return False
+    return True
+
+
+def edge_class(order: dict[str, int], a: str | None, b: str | None) -> str | None:
+    """The class of an edge from a target of layer A to one of layer B: None when it points down or sideways
+    (or an end is unplaced), else
+
+      hard    B is ui or app (a core, service or domain target depends on a view or the composition root)
+      soft    a service depends on a domain model
+      upward  any other edge that points up (core -> service, core -> domain)
+
+    Edges only point down (DESIGN section 2), so every class is a violation.
+    """
+    if a is None or b is None or a not in order or b not in order or order[b] <= order[a]:
+        return None
+    if b in UPPER_LAYERS:
+        return "hard"
+    if a == "service" and b == "domain":
+        return "soft"
+    return "upward"
+
+
+@dataclasses.dataclass
+class LayerMap:
+    """plans/cmux-next/architecture-layers.json, read defensively.
+
+    A target entry that is not an object or has no string `layer` places nothing (the target is
+    unplaced). A file that does not parse, is not an object or has no list of layer names under `order`
+    places nothing either and sets ERROR (the layer gate refuses such a head map; the counts treat every
+    target as unplaced).
+    """
+
+    order: dict[str, int]
+    layers: dict[str, str]
+    exceptions: dict[tuple[str, str], dict]
+    # `relayered` entries: {"target", "from", "to", "date", "reason"} (a dated reason for a relabel).
+    relayered: list[dict] = dataclasses.field(default_factory=list)
+    error: str | None = None
+
+    @classmethod
+    def parse(cls, text: str | None) -> LayerMap:
+        def broken(why: str) -> LayerMap:
+            return cls({}, {}, {}, [], why)
+
+        if text is None:
+            return cls({}, {}, {}, [])
+        try:
+            spec = json.loads(text)
+        except ValueError as error:
+            return broken(f"it is not JSON ({error})")
+        if not isinstance(spec, dict):
+            return broken("it is not a JSON object")
+        order = spec.get("order")
+        if (not isinstance(order, list) or not order or not all(isinstance(n, str) for n in order)
+                or len(set(order)) != len(order)):
+            return broken("`order` is not a list of distinct layer names")
+        targets = spec.get("targets", {})
+        if not isinstance(targets, dict):
+            return broken("`targets` is not an object")
+        exceptions = {}
+        listed = spec.get("exceptions", [])
+        for entry in listed if isinstance(listed, list) else []:
+            if isinstance(entry, dict) and isinstance(entry.get("from"), str) and isinstance(entry.get("to"), str):
+                exceptions[(entry["from"], entry["to"])] = entry
+        listed = spec.get("relayered", [])
+        return cls(order={name: i for i, name in enumerate(order)},
+                   layers={name: entry["layer"] for name, entry in targets.items()
+                           if isinstance(entry, dict) and isinstance(entry.get("layer"), str)},
+                   exceptions=exceptions,
+                   relayered=[e for e in listed if isinstance(e, dict)] if isinstance(listed, list) else [])
+
+    def placed(self, name: str) -> str | None:
+        """NAME's layer, or None when the map does not place it or gives it a layer that is not in `order`."""
+        layer = self.layers.get(name)
+        return layer if layer in self.order else None
+
+    def unmapped(self, manifest: Manifest) -> set[str]:
+        """The targets of MANIFEST that must be placed and are not."""
+        return {name for name, t in manifest.targets.items() if t.kind in MAPPED_KINDS and self.placed(name) is None}
+
+    def classify(self, source: str, dep: str) -> str | None:
+        """`edge_class` of the edge SOURCE -> DEP with this map's layers."""
+        return edge_class(self.order, self.placed(source), self.placed(dep))
 
 
 @dataclasses.dataclass
 class Layers:
     hard: list[tuple[str, str, str, str]]
     soft: list[tuple[str, str, str, str]]
+    upward: list[tuple[str, str, str, str]]
     unplaced: list[str]
+    error: str | None = None  # why the layer map does not parse (then every target is unplaced)
 
     def sites(self) -> list[Site]:
         out = [Site("layer_hard", MANIFEST, 0, f"{a} ({la}) -> {b} ({lb})") for a, la, b, lb in self.hard]
         out += [Site("layer_soft", MANIFEST, 0, f"{a} ({la}) -> {b} ({lb})") for a, la, b, lb in self.soft]
+        out += [Site("layer_upward", MANIFEST, 0, f"{a} ({la}) -> {b} ({lb})") for a, la, b, lb in self.upward]
         out += [Site("layer_unplaced", LAYERS_JSON, 0, name) for name in self.unplaced]
         return out
 
     def per_package(self) -> dict[str, collections.Counter]:
         rows: dict[str, collections.Counter] = {r: collections.Counter() for r in LAYER_ROWS}
-        for a, *_ in self.hard:
-            rows["layer_hard"][a] += 1
-        for a, *_ in self.soft:
-            rows["layer_soft"][a] += 1
+        for row, edges in (("layer_hard", self.hard), ("layer_soft", self.soft), ("layer_upward", self.upward)):
+            for a, *_ in edges:
+                rows[row][a] += 1
         for name in self.unplaced:
             rows["layer_unplaced"][name] += 1
         return rows
 
 
 def layers(manifest_raw: str | None, layers_raw: str | None) -> Layers:
-    """The layer edges of a manifest under a layers json (the rules of arch-layers.py)."""
+    """The layer edges of a manifest under a layers json (`parse_manifest`, `LayerMap`, `edge_class`)."""
     if manifest_raw is None or layers_raw is None:
-        return Layers([], [], [])
-    graph = parse_manifest(manifest_raw)
-    spec = json.loads(layers_raw)
-    order = {name: index for index, name in enumerate(spec["order"])}
-    placed = {name: entry["layer"] for name, entry in spec["targets"].items()}
-    hard, soft = [], []
-    for source, deps in sorted(graph.items()):
-        if source not in placed:
-            continue
-        for dep in dict.fromkeys(deps):
-            if dep not in placed:
-                continue
-            a, b = placed[source], placed[dep]
-            if order[b] > order[a] and b in ("ui", "app"):
-                hard.append((source, a, dep, b))
-            elif a == "service" and b == "domain":
-                soft.append((source, a, dep, b))
-    return Layers(hard, soft, sorted(set(graph) - set(placed)))
+        return Layers([], [], [], [])
+    manifest = parse_manifest(manifest_raw)
+    placed = LayerMap.parse(layers_raw)
+    found: dict[str, list[tuple[str, str, str, str]]] = {kind: [] for kind in EDGE_CLASSES}
+    for source, dep in sorted(manifest.edges()):
+        kind = placed.classify(source, dep)
+        if kind is not None:
+            found[kind].append((source, placed.placed(source), dep, placed.placed(dep)))
+    return Layers(found["hard"], found["soft"], found["upward"], sorted(placed.unmapped(manifest)), placed.error)
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -1357,6 +1587,7 @@ def record(sha: str, counts: Counts, lay: Layers, exceptions: list | None = None
         "layer_edges": {
             "hard": [f"{a} ({la}) -> {b} ({lb})" for a, la, b, lb in lay.hard],
             "soft": [f"{a} ({la}) -> {b} ({lb})" for a, la, b, lb in lay.soft],
+            "upward": [f"{a} ({la}) -> {b} ({lb})" for a, la, b, lb in lay.upward],
             "unplaced": lay.unplaced,
         },
         "exceptions": exceptions if exceptions is not None else [],

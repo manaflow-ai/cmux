@@ -5,7 +5,7 @@ The counts are scripts/cmux-next/arch_counts.py's (method v1; its docstring defi
 in plans/cmux-next/arch-ratchet.json. The hook (prepush-gate.py, local path only) counts just the files
 the push changes, at its base and its head, and refuses when the TOTAL of a ratcheted row rises. A rise
 in one package that an equal fall elsewhere in the same push cancels is a move, and passes. Rows:
-layer_hard, layer_soft, layer_unplaced, stateful_singletons, global_mutable_statics,
+layer_hard, layer_soft, layer_upward, layer_unplaced, stateful_singletons, global_mutable_statics,
 assume_isolated_outside_adapters, app_broadcast_names, observer_sites. Report only: assume_isolated_total
 and app_lines (the app-size rule owns that refusal).
 
@@ -14,7 +14,8 @@ none are needed.
 
 A push rebased onto origin/feat-cmux-next counts from the merge base; one that merges it in counts a
 rise only when it is also a rise over that merge base, and keeps a rule module's refusal only when
-the module refuses it over both ranges, so what others landed never refuses a push.
+the module refuses it over both ranges (matched by the refusal's key, not its text), so what others
+landed never refuses a push.
 
 When a count drops, it prints `lower plans/cmux-next/arch-ratchet.json: scripts/cmux-next/arch-ratchet.py
 --update` and passes. Escape for one push (say it in your report):
@@ -33,11 +34,9 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
-import datetime
 import importlib.util
 import json
 import os
-import re
 import subprocess
 import sys
 import time
@@ -55,6 +54,8 @@ FIX = {
     "layer_hard": "depend downward only: lift the shared type to a core target or define a protocol seam in the "
                   "consumer, never an edge from core/service/domain to ui/app",
     "layer_soft": "a service depends on core protocols, not on a domain target: lift the type or add a seam",
+    "layer_upward": "edges only point down: a core target depends on nothing above core; lift the type it needs "
+                    "to core or define a protocol seam in core that the higher layer conforms to",
     "layer_unplaced": "add the target to plans/cmux-next/architecture-layers.json with its layer",
     "stateful_singletons": "construct the object once at the composition root (AppDelegate / AppServices) and "
                            "inject it through init; wrap an OS singleton once at a seam and inject that. A new "
@@ -177,12 +178,8 @@ def added_exceptions(changes: Changes) -> tuple[dict[str, int], list[str]]:
         if not isinstance(entry, dict) or json.dumps(entry, sort_keys=True) in seen:
             continue
         row, n, why, date = entry.get("row"), entry.get("allow"), str(entry.get("why", "")).strip(), entry.get("date")
-        try:
-            # YYYY-MM-DD and a real day: the layer gate's `exceptions` and `relayered` use the same check.
-            dated = re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(date)) is not None
-            datetime.date.fromisoformat(str(date))
-        except ValueError:
-            dated = False
+        # YYYY-MM-DD and a real day: the layer gate's `exceptions` and `relayered` use the same check.
+        dated = changes.counts.valid_date(date)
         if row not in changes.counts.ROW_IDS or not isinstance(n, int) or n <= 0 or not why or not dated:
             notes.append(f"arch-ratchet: ignored exception {entry!r}: it needs date (YYYY-MM-DD), a row, allow > 0 and why")
             continue
@@ -230,6 +227,18 @@ def count_rule(changes: Changes, deltas: list) -> tuple[list[tuple[str, str]], l
     return refusals, notes
 
 
+def keyed_refusal(item, rule_id: str) -> tuple[str, str, tuple]:
+    """(row, text, key) of a rule module's refusal: `(row, text, key)`, `(row, text)` or a bare text.
+
+    KEY identifies the refusal across the ranges of a merge push; without one the row and text do.
+    """
+    if not isinstance(item, tuple):
+        return rule_id, str(item), (rule_id, str(item))
+    row, text = str(item[0]), str(item[1])
+    key = item[2] if len(item) > 2 else text
+    return row, text, (row, key if isinstance(key, (str, tuple)) else repr(key))
+
+
 def check_range(repo: Path, base: str, head: str, rules=None,
                 upstream_ref: str = UPSTREAM) -> tuple[list[tuple[str, str]], list[str]]:
     """(refusals, notes) for one pushed BASE..HEAD."""
@@ -245,11 +254,14 @@ def check_range(repo: Path, base: str, head: str, rules=None,
             found = []
             for changes in per_range:
                 got, extra = module.check(changes.base, changes.head, changes)
-                found.append([item if isinstance(item, tuple) else (rule_id, str(item)) for item in got])
+                found.append([keyed_refusal(item, rule_id) for item in got])
                 notes += [str(n) for n in extra if str(n) not in notes]
             # A merge of upstream refuses only what every range refuses, as the count rule takes the
             # minimum (see ranges_to_count): a change that came in through the merge is not the push's own.
-            refusals += [item for item in found[0] if all(item in other for other in found[1:])]
+            # Ranges are matched by key: the text can name a layer or a note that differs between the two
+            # bases (an upstream relabel), and the first range's (the pushed range's) text is kept.
+            keys = [{key for _, _, key in other} for other in found[1:]]
+            refusals += [(row, text) for row, text, key in found[0] if all(key in other for other in keys)]
         except Exception as error:  # fail open per rule
             notes.append(f"arch-ratchet: WARNING: arch rule {rule_id} failed ({type(error).__name__}: {error}); "
                          "not applied to this push")

@@ -17,6 +17,7 @@ import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+SOURCES = "Packages/macOS/CmuxNext/Sources"
 SCRIPT = HERE.parent / "arch_rules" / "layer_gate.py"
 RATCHET = HERE.parent / "arch-ratchet.py"
 SPEC = importlib.util.spec_from_file_location("layer_gate", SCRIPT)
@@ -27,6 +28,7 @@ SPEC.loader.exec_module(gate)
 
 LAYERS = {
     "CmuxNextCore": "core",
+    "CmuxNextOtherCore": "core",
     "CmuxNextService": "service",
     "CmuxNextOtherService": "service",
     "CmuxNextDomain": "domain",
@@ -37,6 +39,7 @@ LAYERS = {
 
 BASE_DEPS = {
     "CmuxNextCore": [],
+    "CmuxNextOtherCore": ['"CmuxNextCore"'],
     "CmuxNextService": ['"CmuxNextCore"'],
     "CmuxNextOtherService": ['"CmuxNextCore"', '"CmuxNextUI"'],  # an existing hard edge
     "CmuxNextDomain": ['"CmuxNextCore"', '"CmuxNextService"'],
@@ -128,10 +131,11 @@ class LayerGateTests(unittest.TestCase):
         head = self.repo.commit(files)
         refusals, notes = gate.check(self.base, head, Changes(self.repo, self.base, head))
         self.assertEqual(notes, [])
-        for rule, text in refusals:
+        for rule, text, key in refusals:
             self.assertEqual(rule, "layer-gate")
             self.assertIn('ARCH_RATCHET_SKIP_REASON="layer-gate: <why>"', text)
-        return [text for _, text in refusals]
+            self.assertTrue(key, text)
+        return [text for _, text, _ in refusals]
 
     def with_deps(self, **changes: list[str]) -> dict[str, list[str]]:
         deps = {name: list(entries) for name, entries in BASE_DEPS.items()}
@@ -264,12 +268,91 @@ class LayerGateTests(unittest.TestCase):
         self.assertIn("CmuxNextOtherService -> CmuxNextUI hard -> soft", found[0])
         self.assertIn("new edge CmuxNextDomain (domain) -> CmuxNextUI (ui)", found[1])
 
-    def test_relabel_with_a_dated_relayered_entry_passes(self):
+    def test_relabel_with_a_dated_entry_and_its_code_change_passes(self):
+        entry = {"target": "CmuxNextUI", "from": "ui", "to": "domain", "date": "2026-10-23",
+                 "reason": "its views moved to CmuxNextUIViews"}
+        found = self.push({f"{SOURCES}/CmuxNextUI/Model.swift": "public struct Model {}\n",
+                           gate.LAYERS_JSON: layers({**LAYERS, "CmuxNextUI": "domain"}, relayered=[entry])})
+        self.assertEqual(found, [])
+
+    def test_justified_relabel_and_a_new_edge_cannot_ride_together(self):
+        # Even with its code change and a valid entry, the relabel does not clear a new edge in the same push:
+        # under the base layers CmuxNextDomain -> CmuxNextUI is hard.
         entry = {"target": "CmuxNextUI", "from": "ui", "to": "domain", "date": "2026-10-23",
                  "reason": "its views moved to CmuxNextUIViews"}
         found = self.push({gate.PACKAGE_SWIFT: manifest(self.with_deps(CmuxNextDomain=['"CmuxNextUI"'])),
+                           f"{SOURCES}/CmuxNextUI/Model.swift": "public struct Model {}\n",
                            gate.LAYERS_JSON: layers({**LAYERS, "CmuxNextUI": "domain"}, relayered=[entry])})
-        self.assertEqual(found, [])
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("new edge CmuxNextDomain (domain) -> CmuxNextUI (ui)", found[0])
+        self.assertIn("land the relabel with the code change that moves CmuxNextUI in its own push first", found[0])
+
+    def test_relabel_with_an_entry_but_no_code_change_is_refused(self):
+        # The review's case: one push adds HangReports -> HomeEngine (service -> ui), relabels HangReports ui and
+        # adds a dated `relayered` entry; no source of the relabelled target changes. A file in a target whose
+        # name only starts with the same letters does not count.
+        entry = {"target": "CmuxNextService", "from": "service", "to": "ui", "date": "2026-10-23",
+                 "reason": "needs home engine"}
+        found = self.push({gate.PACKAGE_SWIFT: manifest(self.with_deps(CmuxNextService=['"CmuxNextUI"'])),
+                           f"{SOURCES}/CmuxNextServiceKit/Other.swift": "struct Other {}\n",
+                           gate.LAYERS_JSON: layers({**LAYERS, "CmuxNextService": "ui"}, relayered=[entry])})
+        self.assertEqual(len(found), 2, found)
+        self.assertIn("target CmuxNextService moves from service to ui", found[0])
+        self.assertIn(f"the push changes no file under {SOURCES}/CmuxNextService/", found[0])
+        self.assertIn("new edge CmuxNextService (service) -> CmuxNextUI (ui)", found[1])
+
+    def test_relabel_reads_a_target_path_argument(self):
+        entry = {"target": "CmuxNextUI", "from": "ui", "to": "domain", "date": "2026-10-23",
+                 "reason": "its views moved to CmuxNextUIViews"}
+        text = manifest(BASE_DEPS).replace('name: "CmuxNextUI",\n', 'name: "CmuxNextUI",\n            path: "Kit/UI",\n')
+        self.base = self.repo.commit({gate.PACKAGE_SWIFT: text})
+        relabel = layers({**LAYERS, "CmuxNextUI": "domain"}, relayered=[entry])
+        found = self.push({f"{SOURCES}/CmuxNextUI/Model.swift": "x\n", gate.LAYERS_JSON: relabel})
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("Packages/macOS/CmuxNext/Kit/UI/", found[0])
+        self.base = self.repo.git("rev-parse", "HEAD~1")
+        self.assertEqual(self.push({"Packages/macOS/CmuxNext/Kit/UI/Model.swift": "x\n", gate.LAYERS_JSON: relabel}), [])
+
+    def test_new_upward_edges_from_core_are_refused(self):
+        # Neither hard nor soft, but edges only point down: core -> domain and core -> service.
+        found = self.push({gate.PACKAGE_SWIFT: manifest(self.with_deps(
+            CmuxNextOtherCore=['"CmuxNextDomain"', '"CmuxNextService"']))})
+        self.assertEqual(len(found), 2, found)
+        self.assertIn("new edge CmuxNextOtherCore (core) -> CmuxNextDomain (domain)", found[0])
+        self.assertIn("new edge CmuxNextOtherCore (core) -> CmuxNextService (service)", found[1])
+        self.assertIn("edges only point down", found[0])
+
+    def test_exceptions_do_not_cover_upward_edges(self):
+        exception = {"from": "CmuxNextOtherCore", "to": "CmuxNextDomain", "date": "2026-10-23", "reason": "no"}
+        found = self.push({gate.PACKAGE_SWIFT: manifest(self.with_deps(CmuxNextOtherCore=['"CmuxNextDomain"'])),
+                           gate.LAYERS_JSON: layers(LAYERS, [exception])})
+        self.assertEqual(len(found), 1, found)
+
+    def test_map_entry_without_a_layer_is_unmapped_not_a_crash(self):
+        # The review's case: one typo (`layr`) used to raise KeyError, and the ratchet then let three new hard
+        # edges through.
+        spec = json.loads(layers(LAYERS))
+        for bad in ({"layr": "domain"}, "domain", {"layer": ["domain"]}):
+            spec["targets"]["CmuxNextDomain"] = bad
+            found = self.push({gate.PACKAGE_SWIFT: manifest(self.with_deps(CmuxNextService=['"CmuxNextUI"'])),
+                               gate.LAYERS_JSON: json.dumps(spec)})
+            self.assertEqual(len(found), 2, (bad, found))
+            self.assertIn("target CmuxNextDomain (target) has no layer", found[0])
+            self.assertIn("new edge CmuxNextService (service) -> CmuxNextUI (ui)", found[1])
+
+    def test_map_that_does_not_parse_is_refused(self):
+        for broken in ("{not json", "[]", '{"targets": {}}', '{"order": "core", "targets": {}}'):
+            found = self.push({gate.PACKAGE_SWIFT: manifest(self.with_deps(CmuxNextService=['"CmuxNextUI"'])),
+                               gate.LAYERS_JSON: broken})
+            self.assertEqual(len(found), 1, (broken, found))
+            self.assertIn(f"{gate.LAYERS_JSON} does not parse", found[0])
+
+    def test_base_map_that_does_not_parse_judges_the_push_by_the_head(self):
+        self.base = self.repo.commit({gate.LAYERS_JSON: "{not json"})
+        found = self.push({gate.PACKAGE_SWIFT: manifest(self.with_deps(CmuxNextService=['"CmuxNextUI"'])),
+                           gate.LAYERS_JSON: layers(LAYERS)})
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("new edge CmuxNextService (service) -> CmuxNextUI (ui)", found[0])
 
     def test_relayered_entry_with_an_impossible_date_or_wrong_layers_does_not_count(self):
         for bad in ({"date": "2026-02-30"}, {"date": "2026-13-45"}, {"from": "service"}, {"reason": " "}):
@@ -464,6 +547,27 @@ class ThroughTheRatchetTests(unittest.TestCase):
         pushed = self.repo.commit({"README.md": "x\n"})
         git("merge", "-q", "--no-edit", "upstream")
         own = {**landed, "CmuxNextService": landed["CmuxNextService"] + ['"CmuxNextUI"']}
+        head = self.repo.commit({gate.PACKAGE_SWIFT: manifest(own)})
+        self.assertEqual(len(self.ratchet.ranges_to_count(self.repo.root, pushed, head, "upstream")), 2)
+        refusals, _ = self.ratchet.check_range(self.repo.root, pushed, head, upstream_ref="upstream")
+        gate_texts = [text for row, text in refusals if row == "layer-gate"]
+        self.assertEqual(len(gate_texts), 1, gate_texts)
+        self.assertIn("new edge CmuxNextService (service) -> CmuxNextUI (ui)", gate_texts[0])
+
+    def test_a_merge_whose_upstream_relabels_the_source_keeps_the_push_own_edge(self):
+        # origin/feat-cmux-next relabelled CmuxNextService domain (with its code change and entry); the push merges
+        # it in and adds CmuxNextService -> CmuxNextUI. Over the pushed range the source spans service..domain,
+        # over the upstream range it is domain: the texts differ, the refusal is the same (matched by key).
+        git = self.repo.git
+        git("checkout", "-q", "-b", "upstream")
+        entry = {"target": "CmuxNextService", "from": "service", "to": "domain", "date": "2026-10-23",
+                 "reason": "its client became a model"}
+        self.repo.commit({f"{SOURCES}/CmuxNextService/Model.swift": "struct Model {}\n",
+                          gate.LAYERS_JSON: layers({**LAYERS, "CmuxNextService": "domain"}, relayered=[entry])})
+        git("checkout", "-q", "main")
+        pushed = self.repo.commit({"README.md": "x\n"})
+        git("merge", "-q", "--no-edit", "upstream")
+        own = {**BASE_DEPS, "CmuxNextService": BASE_DEPS["CmuxNextService"] + ['"CmuxNextUI"']}
         head = self.repo.commit({gate.PACKAGE_SWIFT: manifest(own)})
         self.assertEqual(len(self.ratchet.ranges_to_count(self.repo.root, pushed, head, "upstream")), 2)
         refusals, _ = self.ratchet.check_range(self.repo.root, pushed, head, upstream_ref="upstream")
