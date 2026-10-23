@@ -303,4 +303,33 @@ struct AgentPageProviderEventsTests {
         await nextPage.waitFor(3)
         #expect(Self.names(nextPage.events) == ["initial", "same", "same"])
     }
+
+    @Test func mixedLiveAndPendingResetDropsRequeueOnePublication() async throws {
+        let provider = AgentPageProvider { _ in nil }
+        let livePage = Received()
+        let live = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null,
+                                                context: Self.context) { event in livePage.append(event) }
+        provider.publish(Self.command("live"))
+        await livePage.waitFor(1)
+
+        // Keep the second subscriber's handoff pending while the live subscriber receives the
+        // same publication. Reset reports the live copy first; cancellation then requeues the
+        // pending suffix, which must coalesce by publication identity.
+        provider.replay = { Array(repeating: Self.command("prior"), count: 129) }
+        let pending = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null,
+                                                   context: Self.context) { _ in }
+        let mixed = AgentPageEvent(kind: "command", value: .string("mixed"), deliveryID: 77)
+        #expect(provider.publish(mixed))
+        provider.eventDeliveryDropped(stream: AgentPageProvider.hostEvents, data: mixed.data, publicationID: 77)
+        live.cancel()
+        pending.cancel()
+
+        provider.replay = { [] }
+        let nextPage = Received()
+        let next = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null,
+                                                context: Self.context) { event in nextPage.append(event) }
+        defer { next.cancel() }
+        await nextPage.waitFor(1)
+        #expect(Self.names(nextPage.events).filter { $0 == "mixed" }.count == 1)
+    }
 }

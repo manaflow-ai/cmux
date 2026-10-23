@@ -178,7 +178,7 @@ public final class AgentPageProvider: PageProvider {
             deliveryOverflowed = true
             return
         }
-        bufferedEvents.append(AgentPageEvent(kind: kind, value: value))
+        bufferedEvents.append(AgentPageEvent(kind: kind, value: value, deliveryID: publicationID))
     }
 
     /// Sends `event` to every subscribed page.
@@ -215,6 +215,7 @@ public final class AgentPageProvider: PageProvider {
                     deliveryOverflowed = true
                     overflowedPendingListeners.insert(id)
                     accepted = false
+                    activeDeliveryID = previousDeliveryID
                     continue
                 }
                 pending.events.append(event)
@@ -308,14 +309,19 @@ public final class AgentPageProvider: PageProvider {
 
     private func appendRequeued(_ events: [AgentPageEvent]) {
         guard !events.isEmpty else { return }
+        var existingIDs = Set(bufferedEvents.compactMap(\.deliveryID))
+        let uniqueEvents = events.filter { event in
+            guard let deliveryID = event.deliveryID else { return true }
+            return existingIDs.insert(deliveryID).inserted
+        }
         let available = Self.maximumBufferedEvents - bufferedEvents.count
-        guard events.count <= available else {
+        guard uniqueEvents.count <= available else {
             bufferedQueueOverflowed = true
             deliveryOverflowed = true
             return
         }
         // Events already buffered by a reset's onDrop callback precede this pending suffix.
-        bufferedEvents.append(contentsOf: events)
+        bufferedEvents.append(contentsOf: uniqueEvents)
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
