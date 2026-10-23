@@ -51,7 +51,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     private var placementObservation: Task<Void, Never>?
     private var titleHeight: NSLayoutConstraint?
     private var tokenObservation: Task<Void, Never>?
-    private var displayOptionsObserver: (any NSObjectProtocol)?
+    private var displayOptionsObserver: MainActorObservation?
     private(set) weak var content: NSView?
     /// Empties AppKit's titlebar drag region: the window moves only through
     /// `TitlebarDragPolicy` (`ShellWindow.sendEvent`).
@@ -171,10 +171,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         mainPaneObservation = observeMainPane()
         // queue: .main: the workspace center may post off main; a selector
         // into this main-actor view trapped there.
-        displayOptionsObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.themeDidChange() } // main-proof: observer on queue: .main
+        displayOptionsObserver = MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
+            self?.themeDidChange()
         }
         themeDidChange()
     }
@@ -189,7 +187,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             tokenObservation?.cancel()
             placementObservation?.cancel()
             mainPaneObservation?.cancel()
-            if let displayOptionsObserver { NSWorkspace.shared.notificationCenter.removeObserver(displayOptionsObserver) }
         }
     }
 
