@@ -29,7 +29,9 @@ nonisolated enum HomeMessageActionCatalog: ActionCatalogGroup {
                 targets: [.workspace, .tab],
                 // Cmd+Shift+P has Send Message To… (any conversation); the CLI and MCP write the
                 // workspace's link in `cmux chat send --text`.
-                surfacePlan: ActionSurfacePlan(palette: .exempt(.familyMember), cli: .exempt(.familyMember), contextMenus: [
+                // The tab pointer row is trimmed, but the same target-aware action stays
+                // searchable in Cmd-Shift-P for people who prefer the palette.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.familyMember), contextMenus: [
                     ContextMenuPlacement(.workspaceRow, .navigate, 50),
                     ContextMenuPlacement(.tab, .navigate, 50),
                     ContextMenuPlacement(.agentChat, .navigate, 50),

@@ -12,7 +12,15 @@ import Testing
 @MainActor
 @Suite struct MoveToNewWindowParityTests {
     /// The object menus that must offer Move to New Window.
-    nonisolated static let contexts: [ActionMenuContext] = [.tab, .tabGroup, .pane, .workspaceRow, .workspaceGroup, .screen, .screenGroup]
+    nonisolated static let contexts: [ActionMenuContext] = [.tabGroup, .pane, .workspaceRow, .workspaceGroup, .screen, .screenGroup]
+
+    @Test func tabMoveToNewWindowStaysPaletteAndCLIReachable() throws {
+        let descriptor = try #require(ActionCatalog.all.first { $0.id == "tab.moveToNewWindow" })
+        #expect(descriptor.surfacePlan.palette.isOffered)
+        #expect(descriptor.surfacePlan.cli?.isOffered == true)
+        #expect(descriptor.surfacePlan.mcp?.isOffered == true)
+        #expect(!ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: .tab)).contains(descriptor.id))
+    }
 
     /// The Move to New Window action of a menu: the placed action whose CLI
     /// verb is `move-to-new-window`.
