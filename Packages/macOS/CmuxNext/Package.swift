@@ -409,6 +409,8 @@ let package = Package(
             dependencies: ["CmuxNextCodeRouter", "CmuxNextDesign", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
             resources: [
                 .process("Localizable.xcstrings"),
+                // BillingStrings (table Billing): moved from the App with Billing/ in B1.
+                .process("Resources/Billing.xcstrings"),
             ],
             swiftSettings: uiSwiftSettings
         ),
