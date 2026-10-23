@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextBridge
+import CmuxNextTabs
 import Foundation
 import Testing
 
@@ -93,5 +94,46 @@ struct UnreadRingClickReadTests {
         try #require(!frames.contains { $0.contains(corner) }, "the fixture's corner lies in a pane")
         fixture.services.notifications.noteMouseDown(in: fixture.window, at: corner)
         #expect(!fixture.services.notifications.log.contains { $0.hasPrefix("ack ") }, "a click outside the panes cleared a ring")
+    }
+
+    /// The center of `pane`'s tab strip in window coordinates.
+    private static func stripCenter(of pane: PaneModel, in fixture: Fixture) throws -> NSPoint {
+        let strip = try #require(fixture.content.panes[LayoutPaneID(pane.id)]?.view.stripView, "pane \(pane.id) has no strip")
+        try #require(strip.window === fixture.window && !strip.isHiddenOrHasHiddenAncestor && strip.bounds.width > 0, "pane \(pane.id) shows no strip")
+        return strip.convert(NSPoint(x: strip.bounds.midX, y: strip.bounds.midY), to: nil)
+    }
+
+    /// Dragging a tab or a pane by its strip moves the ring with it (classic: a Bonsplit tab drag
+    /// never dismissed). The press used to read the pane at once, so the moved pane arrived bare.
+    @Test func aStripPressThatDragsReadsNothing() async throws {
+        let fixture = try await Self.open()
+        defer {
+            fixture.controller.teardown()
+            fixture.window.close()
+        }
+        let notifications = fixture.services.notifications
+        let point = try Self.stripCenter(of: fixture.other, in: fixture)
+        notifications.noteMouseDown(in: fixture.window, at: point)
+        #expect(!notifications.log.contains { $0.hasPrefix("ack ") }, "pressing a tab to drag it read its pane")
+        let drop = NSPoint(x: point.x + TabTunables.dragStartDistance.value + 40, y: point.y - 120)
+        notifications.noteMouseUp(in: fixture.window, at: drop)
+        #expect(!notifications.log.contains { $0.hasPrefix("ack ") }, "a tab drag read the pane it came from")
+    }
+
+    /// A strip press released where it went down is a click into that pane: it reads it.
+    @Test func aStripClickReadsItsPane() async throws {
+        let fixture = try await Self.open()
+        defer {
+            fixture.controller.teardown()
+            fixture.window.close()
+        }
+        let notifications = fixture.services.notifications
+        let clicked = try #require(fixture.other.tabs.first)
+        let kept = try #require(fixture.focused.tabs.first)
+        let point = try Self.stripCenter(of: fixture.other, in: fixture)
+        notifications.noteMouseDown(in: fixture.window, at: point)
+        notifications.noteMouseUp(in: fixture.window, at: point)
+        #expect(notifications.log.contains("ack \(clicked.id)"), "a click on the pane's strip kept its ring")
+        #expect(!notifications.log.contains("ack \(kept.id)"), "a strip click cleared another pane's ring")
     }
 }
