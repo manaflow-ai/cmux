@@ -13,17 +13,26 @@
 #                   newest commits). The perf cron (scripts/cmux-next/perf-cron.py) builds once per measurement.
 #   --build-only    build (or find) the app, keep it in the cache, measure nothing; report.json records the build.
 #   --vdisplay=HZ   measure on a virtual display at HZ (scripts/ci/frame-pacing/vdisplay.m, the private
-#                   CGVirtualDisplay API): it is the main display while the step runs, so the app opens on it.
-#                   When it does not come up at that rate, the step measures on the real display and says so
-#                   (VDISPLAY-FALLBACK); every bench report carries the refresh it saw.
+#                   CGVirtualDisplay API), which the helper makes the main display (`main`: origin 0,0, for
+#                   this process only) so the app opens on it. When it does not come up as the main display at
+#                   that rate, the step measures on the real display and says so (VDISPLAY-FALLBACK). The
+#                   report (report.json, perf-gate.json) gets a `display` key either way: {requested_hz,
+#                   vdisplay, refresh_ms, line}. refresh_ms is the virtual display's measured interval, or after a
+#                   fallback the real main display's (`VDisplay probe`; null only when that does not tick either).
+#                   Not yet confirmed on cmux20-bench by a perf cron run (2026-10-23).
+#   --vdisplay-hold=SECONDS  the helper's own lifetime (default 1200): it ends by itself even when this script
+#                   is killed with SIGKILL. The perf cron passes the part's run time.
+# On exit, TERM, INT or HUP (a cancelled step) the script stops the bench, ends the tag's app and daemons
+# (scripts/cmux-next/tag_teardown.py, exact PIDs of the app bundle) and the virtual display.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
-build_only=0 app_cache=0 vdisplay_hz="" args=()
+build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 args=()
 for arg in "$@"; do
   case "$arg" in
     --build-only) build_only=1 app_cache=1 ;;
     --app-cache) app_cache=1 ;;
     --vdisplay=*) vdisplay_hz="${arg#--vdisplay=}" ;;
+    --vdisplay-hold=*) vdisplay_hold="${arg#--vdisplay-hold=}" ;;
     *) args+=("$arg") ;;
   esac
 done
@@ -83,14 +92,37 @@ if [[ "$build_only" == 1 ]]; then
   exit 0
 fi
 
-vdisplay_pid=""
+vdisplay_pid="" bench_pid="" measuring=0
 stop_vdisplay() {
   if [[ -n "$vdisplay_pid" ]]; then
-    kill "$vdisplay_pid" 2>/dev/null || true
+    kill "$vdisplay_pid" 2>/dev/null || true  # the helper this script started, by its PID
+    wait "$vdisplay_pid" 2>/dev/null || true  # its display arrangement is gone once it has exited
     vdisplay_pid=""
   fi
 }
-trap stop_vdisplay EXIT
+# shellcheck disable=SC2329 # run by the traps below
+cleanup() {
+  trap - EXIT TERM INT HUP
+  if [[ -n "$bench_pid" ]] && kill -0 "$bench_pid" 2>/dev/null; then
+    kill -TERM "$bench_pid" 2>/dev/null || true  # the bench this script started, by its PID
+    wait "$bench_pid" 2>/dev/null || true
+  fi
+  if [[ "$measuring" == 1 ]]; then
+    python3 scripts/cmux-next/tag_teardown.py "$app" || true
+  fi
+  stop_vdisplay
+}
+# shellcheck disable=SC2329 # run by the traps below
+on_signal() {
+  echo "split-spring: signal $1; ending the bench, the app and the virtual display" >&2
+  cleanup
+  exit $((128 + $2))
+}
+trap cleanup EXIT
+trap 'on_signal TERM 15' TERM
+trap 'on_signal INT 2' INT
+trap 'on_signal HUP 1' HUP
+display_json='null'
 if [[ -n "$vdisplay_hz" ]]; then
   vd="$out/vdisplay"
   mkdir -p "$vd/VDisplay.app/Contents/MacOS"
@@ -99,7 +131,7 @@ if [[ -n "$vdisplay_hz" ]]; then
       scripts/ci/frame-pacing/vdisplay.m -o "$vd/VDisplay.app/Contents/MacOS/VDisplay" 2> "$vd/clang.err"; then
     cp scripts/ci/frame-pacing/VDisplay-Info.plist "$vd/VDisplay.app/Contents/Info.plist"
     codesign -s - --force "$vd/VDisplay.app" 2>/dev/null || true
-    "$vd/VDisplay.app/Contents/MacOS/VDisplay" "$vdisplay_hz" 3600 > "$vd/out" 2> "$vd/err" &
+    "$vd/VDisplay.app/Contents/MacOS/VDisplay" "$vdisplay_hz" "$vdisplay_hold" main > "$vd/out" 2> "$vd/err" &
     vdisplay_pid=$!
     for _ in $(seq 20); do
       grep -q '^ready\|^error' "$vd/out" 2>/dev/null && break
@@ -108,24 +140,65 @@ if [[ -n "$vdisplay_hz" ]]; then
     done
     line="$(grep -m1 '^ready\|^error' "$vd/out" 2>/dev/null || echo "error: the virtual display never reported ($(head -c 300 "$vd/err" 2>/dev/null || true))")"
   fi
-  # `ready DISPLAY_ID P50_MS main=MAIN_ID`: the main display, ticking within 15 % of the rate.
-  if python3 - "$line" "$vdisplay_hz" <<'PY'
-import re, sys
+  # `ready DISPLAY_ID P50_MS main=MAIN_ID`: the main display, ticking within 15 % of the rate. Prints the
+  # report's `display` value.
+  if display_json="$(python3 - "$line" "$vdisplay_hz" true <<'PY'
+import json, re, sys
 m = re.match(r"ready (\d+) ([\d.]+) main=(\d+)", sys.argv[1])
 period = 1000 / float(sys.argv[2])
-sys.exit(0 if m and m.group(1) == m.group(3) and abs(float(m.group(2)) - period) <= 0.15 * period else 1)
+ok = bool(m and m.group(1) == m.group(3) and abs(float(m.group(2)) - period) <= 0.15 * period)
+print(json.dumps({"requested_hz": float(sys.argv[2]), "vdisplay": ok, "refresh_ms": float(m.group(2)) if ok else None,
+                  "line": sys.argv[1][:300]}))
+sys.exit(0 if ok else 1)
 PY
-  then
+)"; then
     echo "split-spring: VDISPLAY ${vdisplay_hz} Hz main display ($line)"
     sleep 2  # let WindowServer settle the new main display before the app opens on it
   else
     echo "split-spring: VDISPLAY-FALLBACK no ${vdisplay_hz} Hz virtual display ($line); measuring on the real display"
     stop_vdisplay
+    # The real main display's measured rate, so the frame rows of a fallback run still have a known refresh.
+    probe=""
+    if [[ -x "$vd/VDisplay.app/Contents/MacOS/VDisplay" ]]; then
+      probe="$("$vd/VDisplay.app/Contents/MacOS/VDisplay" probe 2>/dev/null | grep -m1 '^main ' || true)"
+    fi
+    if probed="$(python3 - "$display_json" "$probe" <<'PY'
+import json, re, sys
+display = json.loads(sys.argv[1]) if sys.argv[1] else {}
+m = re.match(r"main (\d+) ([\d.]+)", sys.argv[2])
+ms = float(m.group(2)) if m else 0.0
+display["refresh_ms"] = ms if 2 <= ms <= 50 else None
+display["host_display"] = sys.argv[2][:200] or None
+print(json.dumps(display))
+PY
+)"; then
+      display_json="$probed"
+    fi
+    echo "split-spring: the real display: ${probe:-not measured}"
   fi
   echo "$line" > "$out/display.txt"
 fi
 
 status=0
+measuring=1
+# In the background and waited for, so a TERM reaches the trap at once (bash runs a trap only between commands).
 python3 scripts/cmux-next/split-spring-terminal.py --tag "$tag" --app "$app" --out "$out" --json "$out/report.json" \
-  ${args[@]+"${args[@]}"} || status=$?
+  ${args[@]+"${args[@]}"} &
+bench_pid=$!
+wait "$bench_pid" || status=$?
+bench_pid=""
+# Every report the step returns says which display it measured on (the perf cron reads `display.refresh_ms`).
+for report in "$out/report.json" "$out/perf-gate.json"; do
+  [[ -f "$report" ]] || continue
+  python3 - "$report" "$display_json" <<'PY' || echo "split-spring: could not add the display to $report" >&2
+import json, sys
+path, display = sys.argv[1], json.loads(sys.argv[2])
+with open(path) as f:
+    report = json.load(f)
+if isinstance(report, dict):
+    report["display"] = display
+    with open(path, "w") as f:
+        json.dump(report, f, indent=1)
+PY
+done
 exit "$status"

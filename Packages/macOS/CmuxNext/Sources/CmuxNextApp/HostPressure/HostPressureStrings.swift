@@ -47,6 +47,16 @@ enum HostPressureStrings {
                table: "HostPressure", bundle: .module)
     }
 
+    /// The critical banner: the title's meaning, then acpmux's reasons in its words.
+    static func banner(_ reasons: String) -> String {
+        String(format: String(localized: "hostPressure.banner", defaultValue: "This Mac is overloaded: %@", table: "HostPressure", bundle: .module),
+               reasons)
+    }
+
+    static var showDetails: String {
+        String(localized: "hostPressure.showDetails", defaultValue: "Show Details", table: "HostPressure", bundle: .module)
+    }
+
     static var openActivity: String {
         String(localized: "hostPressure.openActivity", defaultValue: "Open Agent Activity", table: "HostPressure", bundle: .module)
     }

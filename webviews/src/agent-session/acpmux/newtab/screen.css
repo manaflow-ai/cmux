@@ -814,27 +814,73 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 :root[data-borders="none"] .nt-screen[data-template="cards"] .nt-card {
   box-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
 }
-/* The Minimal layout with no widgets on (pageWidgets.ts; Leo 2026-10-20, the default): a quiet
-   greeting and the composer, nothing else. The composer sits about the window's middle at a fixed
-   place (a pasted image or a long draft grows it downward, never moves it); the greeting sits a
+/* The Minimal layout with no widgets on (pageWidgets.ts; Leo 2026-10-20, the default): the composer,
+   nothing else (no greeting, Leo 2026-10-22). It sits about the window's middle at a fixed place (a
+   pasted image or a long draft grows it downward, never moves it); the headline, when on, sits a
    little over it. */
 .nt-screen[data-minimal] {
   padding-top: max(32px, calc(50vh - 150px));
 }
-/* The second dot's quick action pills (tabDots.ts) sit centered under the composer, as the greeting
+/* The second dot's quick action pills (tabDots.ts) sit centered under the composer, as the headline
    over it is. */
 .nt-screen[data-minimal] .nt-create {
   justify-content: center;
 }
-.nt-greeting {
+/* Minimal's headline slot (NewTabScreen.tsx): the old greeting's box (its heading line and 6px
+   under it), there with the headline on or off, so the composer sits where it sat under the greeting
+   and turning the headline on never moves it. The headline sits on the slot's floor and a taller
+   one (Hero, or Choose project under the question) grows up into the page's top padding. */
+.nt-headline-slot {
   flex: none;
-  margin: 0 0 6px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: calc(var(--text-heading--line-height) + 6px);
+}
+/* The headline (NewTabHeadline.tsx; off by default): "What should we work on in <project>?", the
+   project an inline picker. Hero (the shipped look) is a new chat's hero question; Quiet is where the
+   old greeting sat; Chip draws the project as the composer's folder chip (headline.experiment.ts). */
+.nt-headline {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
   text-align: center;
+}
+.nt-headline-text {
+  margin: 0;
+  max-width: 560px;
+  /* A new chat's hero question (.acpmux-empty-title, styles.css: 20px on a 28px line): the
+     heading step is that 20px. */
+  font-size: var(--text-heading);
+  line-height: calc(28px * var(--cmux-interface-scale, 1));
+  font-weight: 400;
+  color: var(--agent-text);
+  overflow-wrap: anywhere;
+}
+.nt-headline[data-look="quiet"] {
+  margin-bottom: 6px;
+}
+.nt-headline[data-look="quiet"] .nt-headline-text {
   font-size: var(--text-heading);
   line-height: var(--text-heading--line-height);
   font-weight: 500;
   color: var(--acpmux-composer-dim, color-mix(in srgb, var(--agent-text) 55%, transparent));
-  user-select: none;
+}
+.nt-headline[data-look="chip"] .nt-headline-text .acpmux-project {
+  display: inline-flex;
+  vertical-align: middle;
+  margin: 0 2px;
+}
+.nt-headline-choose .acpmux-project-button {
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  color: var(--agent-muted);
+}
+.nt-headline-choose .acpmux-project-button > span {
+  text-decoration: none;
 }
 /* Minimal's edit mode (WidgetEditing.tsx; right-click > Edit New Tab, as an iPhone's home screen).
    Out of it a widget's slot draws nothing of its own, so the page lays out as it always did. */

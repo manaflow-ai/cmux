@@ -49,7 +49,7 @@ enum TabIconHandlers {
         guard let (tab, pane) = ctx.daemonTab(invocation) else { return nil }
         let daemon = ctx.services.daemon(for: pane)
         guard daemon.store.servesStateResources, let resource = tab.resourceID else {
-            return ctx.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.shared.stateResources))
+            return ctx.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.stateResources))
         }
         return Target(tab: tab, pane: pane, resource: resource, daemon: daemon)
     }

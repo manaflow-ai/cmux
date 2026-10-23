@@ -48,8 +48,8 @@ import {
 } from "./screenModel";
 import { RowGlyph } from "./RowGlyph";
 import { WidgetCards } from "./WidgetCards";
+import { NewTabHeadline } from "./NewTabHeadline";
 import {
-  greetingKey,
   shownMovable,
   shownPageWidgets,
   type MovableWidget,
@@ -187,8 +187,11 @@ type Props = NewTabScreenActions & {
   /// The widget view (Debug Settings `newTab.widgets`): the Projects and Needs you cards.
   widgets?: boolean;
   /// The page's widgets (`tabs.newTabWidgets.*`, pageWidgets.ts): on Minimal, without them the page
-  /// is the greeting and the composer. Unset shows the template's own (shownPageWidgets).
+  /// is the composer alone. Unset shows the template's own (shownPageWidgets).
   pageWidgets?: PageWidgets;
+  /// true: `tabs.newTabWidgets.greeting` is set to false (not the default): with the headline off,
+  /// Minimal keeps no room for it, so the composer sits where it sat with the greeting off.
+  headlineOff?: boolean;
   /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the recent chats show where
   /// the template would list All chats.
   allChats?: boolean;
@@ -235,15 +238,15 @@ export function NewTabScreen(props: Props) {
   const widgets = props.pageWidgets ?? shownPageWidgets(template);
   // Claude Code desktop's new-session page (templates.ts stage, the Default template): the composer
   // at the foot, the environment and suggestions cards over it. On Minimal with neither the project
-  // card nor the chats on, the page is the plain one: the greeting and the composer, and with the
-  // quick actions on (the second dot, PageDots.tsx) New terminal, New browser tab and New chat as
-  // pills under it (Lucas 2026-10-22: "add the pills for "New terminal", "New browser", "New chat"
-  // back"), never the stage's card. Default, which always shows its cards, keeps its stage.
+  // card nor the chats on, the page is the plain one: the composer (and the headline, if it is on),
+  // and with the quick actions on (the second dot, PageDots.tsx) New terminal, New browser tab and New
+  // chat as pills under it (Lucas 2026-10-22: "add the pills for "New terminal", "New browser", "New
+  // chat" back"), never the stage's card. Default, which always shows its cards, keeps its stage.
   const stage =
     sections.stage &&
     (widgets.has("projects") || widgets.has("chats") || (template !== "minimal" && widgets.has("actions")));
-  // The greeting and the composer, and the pills when on (Minimal, Leo 2026-10-20): the composer sits
-  // about the window's middle.
+  // The composer, at most the headline over it and the pills when on (Minimal, Leo 2026-10-20): the
+  // composer sits about the window's middle.
   const minimal = !stage && !widgets.has("chats");
   // Minimal's edit mode (right-click > Edit New Tab): its widgets wiggle, move and close.
   const onEditWidgets = template === "minimal" ? props.onEditWidgets : undefined;
@@ -1271,6 +1274,21 @@ export function NewTabScreen(props: Props) {
       {content}
     </WidgetFrame>
   );
+  // The headline (off by default): "What should we work on in <project>?", its project the folder
+  // Enter asks in, picked in place as the composer's strip picks it.
+  const headline =
+    widgets.has("greeting") &&
+    frame(
+      "greeting",
+      <NewTabHeadline
+        projects={props.projects ?? []}
+        {...(askFolder ? { folder: askFolder } : {})}
+        noProject={none}
+        onPick={(cwd) => pickProject(cwd)}
+        onNoProject={() => pickProject(undefined)}
+        {...(browseProject ? { onBrowse: browseProject } : {})}
+      />,
+    );
   return (
     <ContextMenu
       className="nt-menu-host"
@@ -1304,9 +1322,8 @@ export function NewTabScreen(props: Props) {
                 composer holds, centered, the environment card and the suggested actions card, then the
                 recent chats; it scrolls on its own, so nothing in it ever moves the composer. */}
             <div className="nt-stage">
-              {/* Minimal keeps its greeting over the stage when widgets are on (Default has none). */}
-              {widgets.has("greeting") &&
-                frame("greeting", <p className="nt-greeting">{nt(greetingKey(new Date(at).getHours()))}</p>)}
+              {/* Minimal keeps its headline over the stage when widgets are on (Default has none). */}
+              {headline}
               {stageRuns(order).map((run) =>
                 run[0] === "chats" ? (
                   frame("chats", playerAndLists)
@@ -1324,9 +1341,16 @@ export function NewTabScreen(props: Props) {
           </>
         ) : (
           <>
-            {/* A quiet greeting over the composer (a widget, on by default), by the hour. */}
-            {widgets.has("greeting") &&
-              frame("greeting", <p className="nt-greeting">{nt(greetingKey(new Date(at).getHours()))}</p>)}
+            {/* The headline over the composer (a widget, off by default). On Minimal it sits in a
+                slot the old greeting's height, on or off, so the composer keeps the place it had
+                under the greeting (screen.css .nt-headline-slot). A greeting set to false in
+                cmux.json (`headlineOff`) keeps no slot while the headline is off: the composer
+                stays where it sat for those who had turned the greeting off. */}
+            {minimal && (headline || !props.headlineOff) ? (
+              <div className="nt-headline-slot">{headline}</div>
+            ) : (
+              headline
+            )}
             {composerCard}
             {props.notice}
             {environmentPanel}

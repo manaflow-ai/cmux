@@ -46,6 +46,7 @@ extension WindowRootView {
         }
         guard let indicator = hostPressureIndicator, !indicator.isHidden else { return }
         let side = TitlebarBandButton.side
-        indicator.frame = CGRect(x: x, y: (midY - side / 2).rounded(), width: side, height: side)
+        let width = (indicator as? HostPressureIndicatorView)?.width ?? side
+        indicator.frame = CGRect(x: x, y: (midY - side / 2).rounded(), width: width, height: side)
     }
 }

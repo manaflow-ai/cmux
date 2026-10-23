@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import collections
 import datetime
+import json
 import re
 import subprocess
 import sys
@@ -24,6 +25,8 @@ PKG = "Packages/macOS/CmuxNext"
 SOURCES = PKG + "/Sources/"
 APP = "CmuxNextApp"
 OUT = "plans/cmux-next/codebase-health.md"
+BENCHES = "scripts/cmux-next/perf-hot-benches.json"
+PERF_HOT_ID = re.compile(r"//\s*perf-hot:\s*\S+\s+([\w-]+)")
 
 # (id, title, pattern on comment-stripped code, waiver marker or None, note)
 CATEGORIES = (
@@ -324,6 +327,21 @@ def file_list(counter: collections.Counter, limit: int | None = None) -> str:
     return text
 
 
+def perf_hot_coverage(repo: Path, texts: dict[str, list[str]]) -> list[tuple[str, str, list[str]]]:
+    """(path id, owner, files with its `// perf-hot:` marker) per id in perf-hot-benches.json, in its order."""
+    try:
+        paths = json.loads((repo / BENCHES).read_text(encoding="utf-8")).get("paths", {})
+    except (OSError, ValueError):
+        paths = {}
+    marked: dict[str, set[str]] = collections.defaultdict(set)
+    for path, lines in texts.items():
+        for line in lines:
+            match = PERF_HOT_ID.search(line)
+            if match:
+                marked[match.group(1)].add(path[len(SOURCES):])
+    return [(pid, entry.get("owner", "?"), sorted(marked.get(pid, ()))) for pid, entry in paths.items()]
+
+
 def report(repo: Path) -> str:
     data = scan(repo)
     head = git(repo, "rev-parse", "--short=11", "HEAD").strip()
@@ -466,11 +484,23 @@ def report(repo: Path) -> str:
     w("## 6. Guardrails (pre-push, local, never CI)")
     w("")
     w("`scripts/cmux-next/guardrails.py`, run by the pre-push hook through `prepush-gate.py --pre-push`, looks only at")
-    w("lines the push adds under `Packages/macOS/CmuxNext/Sources` (moved lines do not count) and takes well under")
-    w("a second. Refusals print the rule, why, the right pattern and the escape. Skip one push with")
-    w("`CMUX_GUARDRAILS_SKIP_REASON=\"<rule>: <why>\"` and say so in your report. `guardrails.py --list` prints every rule.")
+    w("lines the push adds under `Packages/macOS/CmuxNext/Sources` and takes well under a second. Per file and rule it")
+    w("is a count ratchet: an edit of a line that already has the debt adds none, and a line moved from another file")
+    w("does not count. Removed lines pay only when they were debt in the base (same context and escape rules), and an")
+    w("unchanged line counts when the push changes its context (a new loop around a sleep, `struct` -> `class`). Lines a")
+    w("push only brings in from origin/feat-cmux-next (a merge or a rebase onto it) never count. Refusals print the rule,")
+    w("why, the right pattern and the escape. Skip one rule for one push with")
+    w("`CMUX_GUARDRAILS_SKIP_REASON=\"<rule>[,<rule>]: <why>\"` (the other rules still refuse) and say so in your report.")
+    w("`guardrails.py --list` prints every rule.")
+    w("If the script itself fails, the hook prints a warning and lets the push through.")
     w("It also warns (never refuses) when a push changes a `// perf-hot:` function (names the bench,")
     w("`scripts/cmux-next/perf-hot-benches.json`) or an area in [OWNERS.md](OWNERS.md).")
+    w("")
+    w("Perf-hot markers per path id. An id with no marker never warns: its owner marks the hot function")
+    w("(a trailing `// perf-hot: <budget> <path-id>` on the declaration line adds no line).")
+    w("")
+    for pid, owner, files in perf_hot_coverage(repo, data["texts"]):
+        w(f"- `{pid}`: " + (", ".join(files) if files else f"**no marker** (owner {owner})"))
     w("")
     return "\n".join(out) + "\n"
 
