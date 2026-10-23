@@ -73,7 +73,8 @@ function standIn() {
       name === "visibilitychange" && doc.visibility.delete(listener),
     hide() {
       doc.hidden = true;
-      for (const listener of [...doc.visibility]) listener();
+      // A Set may lose the entry being visited: stop() takes the listener off as it runs.
+      for (const listener of doc.visibility) listener();
     },
   };
   const scroller = {
