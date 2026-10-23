@@ -20,8 +20,8 @@ public protocol StateResourceQueries: AnyObject {
 extension StateResourceQueries {
     /// True when this daemon serves the state resources (closed history,
     /// ephemeral workspaces, workspace status, the v2 state mutations): its
-    /// `identify` advertises `DaemonCapabilities.stateResources`.
-    public var servesStateResources: Bool { supports(DaemonCapabilities.stateResources) }
+    /// `identify` advertises `DaemonCapability.stateResources`.
+    public var servesStateResources: Bool { supports(DaemonCapability.stateResources.rawValue) }
 
     /// Whether this daemon's `identify` advertises `capability`.
     public func supports(_ capability: String) -> Bool {

@@ -1723,7 +1723,7 @@ jobs:
         run: python3 scripts/cmux-next/check-daemon-capabilities-fresh.py
 
       # Every capability the app references and the daemon source defines is
-      # in DaemonCapabilities.required/.optional, without a build: the app build
+      # in DaemonCapability.required/.optional, without a build: the app build
       # runs this check first, so #21322 (four unlisted capabilities) broke
       # every tagged build before any PR check saw it.
       - name: App capability references are listed

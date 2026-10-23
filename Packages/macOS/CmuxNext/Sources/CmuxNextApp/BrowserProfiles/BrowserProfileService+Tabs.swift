@@ -14,7 +14,7 @@ extension BrowserProfileService {
     /// daemon: the URL reopens in a new tab and the original closes.
     func move(_ tab: TabModel, in pane: PaneModel, to profile: String, notice: String?) {
         let daemon = services.machines.daemon(forTab: tab)
-        guard daemon.isLocal, daemon.supports(DaemonCapabilities.frontendBrowserTabProfile) else {
+        guard daemon.isLocal, daemon.supports(DaemonCapability.frontendBrowserTabProfile.rawValue) else {
             return reopen(tab, in: pane, profile: profile, closingOriginal: true, notice: notice)
         }
         let (surface, key, browserTabs) = (tab.surface, tab.id, services.cache.browserTabs)

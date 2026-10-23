@@ -10,6 +10,6 @@ extension ServerHandshake {
 
     /// The optional capabilities this app uses and its bundled cmux-tui serves.
     static var appCmuxTUICapabilities: Set<String> {
-        Set(DaemonCapabilities.optional).subtracting(DaemonCapabilities.unservedByBundledDaemon)
+        Set(DaemonCapability.optional).subtracting(DaemonCapability.unservedByBundledDaemon)
     }
 }

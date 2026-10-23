@@ -96,7 +96,7 @@ enum TabHandlers {
             }
             if ctx.services.windows.reopenClosedWindow() { return }
             guard DaemonClosedHistory.isServed(in: ctx.services) else {
-                return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.stateResources))
+                return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapability.stateResources.rawValue))
             }
             ctx.refuseQuietly(RefusalStrings.noRecentlyClosedTab)
         })
@@ -270,7 +270,7 @@ enum TabHandlers {
             guard let surface = pane.tab(id)?.surface ?? ctx.refuse(RefusalStrings.sessionLocalHasNoName) else { return }
             rename(surface, to: nil, ctx: ctx, pane: pane)
         })
-        registry.bind("palette.toggleTabPin", unavailable: ctx.needs(DaemonCapabilities.tabMetadata), invoke: { invocation in
+        registry.bind("palette.toggleTabPin", unavailable: ctx.needs(DaemonCapability.tabMetadata.rawValue), invoke: { invocation in
             let commands = PinCommands(context: ctx)
             if invocation.target?.kind == .tab || invocation["tab"]?.targetValue != nil {
                 guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
