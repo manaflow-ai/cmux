@@ -94,7 +94,7 @@ def vertical_dividers():
 
 
 def surfaces():
-    """Visible terminal panes: dicts with frame x, fit/drawn/owner grid and render counters."""
+    """Visible terminal panes: dicts with an id (pane + shown tab), frame x, fit/drawn/owner grid and render counters."""
     result = rpc("debug.surfaces") or {}
     rows = []
     for win in result.get("windows") or []:
@@ -102,7 +102,8 @@ def surfaces():
             surface, grid = pane.get("surface") or {}, pane.get("grid") or {}
             if not surface.get("fit_grid") or surface.get("hidden") or not surface.get("drawing", True):
                 continue
-            rows.append({"x": grid.get("frame_x", 0), "fit": surface.get("fit_grid"), "drawn": surface.get("drawn_grid"),
+            ident = "%s/%s" % (pane.get("pane"), pane.get("shown_tab") or pane.get("selected_tab"))
+            rows.append({"id": ident, "x": grid.get("frame_x", 0), "fit": surface.get("fit_grid"), "drawn": surface.get("drawn_grid"),
                          "grid": surface.get("grid"), "counters": surface.get("render_counters") or {}})
     return sorted(rows, key=lambda r: r["x"])
 
@@ -114,10 +115,16 @@ def write(text):
 
 
 def counter_delta(before, after):
+    """Sums counter deltas of the terminals present before and after, paired by id (not by x order:
+    a pane that appears, closes or moves between the two reads must not pair with another's counters).
+    `unpaired` counts the terminals present in only one of the two reads."""
     keys = ("frames", "frame_updates", "full_resize", "full_swap", "host_display_passes", "host_main_draws", "host_fresh_presents",
             "host_late_presents")
     total = {k: 0 for k in keys}
-    for b, a in zip(before, after):
+    by_id = {b["id"]: b for b in before}
+    paired = [(by_id[a["id"]], a) for a in after if a["id"] in by_id]
+    total["unpaired"] = len(before) + len(after) - 2 * len(paired)
+    for b, a in paired:
         for k in keys:
             if k in a.get("counters", {}):
                 total[k] += int(a["counters"][k]) - int(b["counters"].get(k, 0))
