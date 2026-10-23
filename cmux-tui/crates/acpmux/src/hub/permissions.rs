@@ -22,7 +22,7 @@ impl Hub {
                             .and_then(|p| p.pointer("/update/_meta/acpmux/contextBreakdown"))
                             .is_some();
                         if breakdown
-                            && !session.child.lock().await.as_ref().is_some_and(|c| c.pid == pid)
+                            && session.child.lock().await.as_ref().is_none_or(|c| c.pid != pid)
                         {
                             continue;
                         }
