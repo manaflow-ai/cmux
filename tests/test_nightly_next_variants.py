@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""The nightly-next track builds, notarizes and publishes only the arm64 variant.
+"""Every nightly-next build ships a thin arm64 and a thin x86_64 DMG together.
 
 Two nightly-next runs in a row (37648507383, 37667249069) lost all three DMG
-notarizations to Apple's queue. Leo's call: nightly-next ships arm64 only, so
-each build waits on one notarization. Main's nightly keeps arm64, x86_64 and
-universal, and nightly-next leaves its x86_64, universal and legacy feeds on
-their last build (an Intel Mac must never be offered an arm64-only app).
+notarizations to Apple's queue, so nightly-next dropped to arm64 only (#18424)
+and Intel Macs got no new cmux NEXT. It now builds arm64 and x86_64 (two
+notarizations, no universal one), and both are required: a build publishes
+both or neither, including a build a later run recovers. Main's nightly keeps
+arm64, x86_64 and universal.
 """
 
 import json
@@ -25,6 +26,12 @@ TEXT = WORKFLOW.read_text()
 FOUR = ["appcast-arm64.xml", "appcast-x86_64.xml", "appcast-universal.xml", "appcast.xml"]
 
 
+def job(name):
+    start = TEXT.index(f"  {name}:\n")
+    end = re.search(r"^  [a-zA-Z0-9_-]+:", TEXT[start + len(name) + 4:], re.M)
+    return TEXT[start:] if end is None else TEXT[start:start + len(name) + 4 + end.start()]
+
+
 def step(name):
     start = TEXT.index(f"      - name: {name}\n")
     end = TEXT.find("\n      - name:", start + 10)
@@ -33,40 +40,114 @@ def step(name):
 
 failures = []
 
-# decide: one variant and one feed on nightly-next, three and four elsewhere.
 decide = TEXT[TEXT.index("  decide:\n"):TEXT.index("\n  promote-nightly-next:\n")]
-variants = re.search(r"const variants = (.+);", decide)
-if not variants or "nightly-next" not in variants.group(1) or "['arm64', 'x86_64', 'universal']" not in variants.group(1):
-    failures.append("decide must build only ['arm64'] on the nightly-next track and keep three variants elsewhere")
 if "core.setOutput('feeds'" not in decide or "feeds: ${{ steps.decide.outputs.feeds }}" not in TEXT:
     failures.append("decide must output the feeds this track publishes")
 if decide.index("const track =") > decide.index("const variants ="):
     failures.append("decide must choose the variants after it knows the track")
 
-# publish: every feed list comes from decide, so nightly-next never touches the
-# x86_64, universal or legacy feeds and main's list is unchanged.
+# decide, executed: variants and feeds per track.
+EXPECTED = {
+    ("nightly-next", False): (["arm64", "x86_64"], ["appcast-arm64.xml", "appcast-x86_64.xml"]),
+    ("main", False): (["arm64", "x86_64", "universal"], FOUR),
+    ("rc/v1.2.3", False): (["arm64", "x86_64", "universal"], FOUR),
+    ("main", True): (["arm64"], FOUR),
+}
+for (ref, fast), (variants, feeds) in EXPECTED.items():
+    outputs = run_decide(event="workflow_dispatch", ref=f"refs/heads/{ref}",
+                         extra_env={**NEXT_ENV, "FAST_BUILD": str(fast).lower()})["outputs"]
+    got = (json.loads(outputs["variants"]), outputs["feeds"].split())
+    if got != (variants, feeds):
+        failures.append(f"decide {ref} fast={fast}: got {got}, expected {(variants, feeds)}")
+
+# Both legs are required: no matrix job lets a leg fail alone.
+for name in ("prepare-nightly-variant", "build-sign-notarize-nightly", "verify-signed-nightly",
+             "verify-final-dmg-nightly"):
+    if "continue-on-error" in job(name).split("    steps:", 1)[0]:
+        failures.append(f"{name} must not let a variant's leg fail alone")
+# Only arm64 hands a slow notarization to a later run, and only it sets the hand-off outputs.
+if "notary_pending: ${{ (needs.decide.outputs.track != 'nightly-next' || matrix.variant == 'arm64') &&" not in TEXT:
+    failures.append("notary_pending must come from the arm64 leg on nightly-next")
+if "needs.decide.outputs.no_publish != 'true' && matrix.variant == 'arm64' && 'true' || 'false' }}" not in TEXT:
+    failures.append("only the arm64 leg may hand a pending notarization to the recovery")
+# The x86_64 final DMG is smoked even while arm64 is pending, for the recovery to take.
+if "(matrix.variant != 'arm64' || needs.build-sign-notarize-nightly.outputs.notary_pending != 'true')" not in job("verify-final-dmg-nightly"):
+    failures.append("verify-final-dmg-nightly must smoke x86_64 while arm64 is pending")
+
+# A failed notarize leg on nightly-next may be recovered later: both verify
+# jobs still run, so that run's x86_64 is verified for the recovery.
+for name in ("verify-signed-nightly", "verify-final-dmg-nightly"):
+    if "needs.decide.outputs.track == 'nightly-next' && needs.build-sign-notarize-nightly.result == 'failure'" not in job(name).split("    steps:", 1)[0]:
+        failures.append(f"{name} must run its legs after a failed nightly-next notarize job")
+
+# A canary pass promotes the build from Dev to Nightly on both architectures'
+# feeds: an Intel item left on Dev would never reach a Mac on the Nightly ring.
+VERDICT = (ROOT / ".github" / "workflows" / "nightly-next-verdict.yml").read_text()
+promote = VERDICT[VERDICT.index("      - name: Move builds whose canary passed to Nightly\n"):]
+promote = promote[:promote.index("\n      - name:", 10)]
+if "NIGHTLY_APPCASTS: appcast-arm64.xml appcast-x86_64.xml" not in VERDICT or "for appcast in $NIGHTLY_APPCASTS" not in promote:
+    failures.append("nightly-next-verdict.yml must promote appcast-arm64.xml and appcast-x86_64.xml")
+
+# A rollback pulls the bad build off the Intel feed too, in a job of its own
+# that follows the build appcast-arm64.xml now serves and never holds the fix-forward.
+ROLLBACK = (ROOT / ".github" / "workflows" / "nightly-next-rollback.yml").read_text()
+intel = ROLLBACK[ROLLBACK.index("  rollback-intel:\n"):ROLLBACK.index("  fix-forward:\n")] if "  rollback-intel:\n" in ROLLBACK else ""
+if ("INTEL_APPCAST: appcast-x86_64.xml" not in intel or '--above "$SERVING"' not in intel
+        or "needs.rollback.outputs.serving" not in intel or "rollback-intel" in ROLLBACK[ROLLBACK.index("  fix-forward:\n"):]):
+    failures.append("nightly-next-rollback.yml must pull the bad build off appcast-x86_64.xml in rollback-intel, without holding fix-forward")
+
+# publish: nightly-next publishes both aliases and both feeds, and refuses a missing variant.
+publish = step("Publish nightly release assets")
+if 'variants=(arm64 x86_64)' not in publish or "$NIGHTLY_FEEDS" not in publish:
+    failures.append("'Publish nightly release assets' must publish arm64 and x86_64 on nightly-next")
 for name in ("Guard nightly-next publication", "Upload nightly-next appcasts to R2", "Upload nightly appcasts to R2"):
     body = step(name)
     if "appcast-x86_64.xml" in body or "$NIGHTLY_FEEDS" not in body:
         failures.append(f"{name!r} must loop over $NIGHTLY_FEEDS, not a fixed list")
-publish = step("Publish nightly release assets")
-if "nightly-next" not in publish or "x86_64" not in publish:
-    failures.append("'Publish nightly release assets' must publish only arm64 on nightly-next and all variants elsewhere")
 assemble = step("Assemble legacy nightly names")
-if "nightly-next" not in assemble:
-    failures.append("'Assemble legacy nightly names' must skip the universal legacy names on nightly-next")
+if "for variant in arm64 x86_64" not in assemble:
+    failures.append("'Assemble legacy nightly names' must require both thin variants on nightly-next")
 notes = step("Prepare nightly release notes and appcast summaries")
-if "--feeds" not in notes or "$NIGHTLY_FEEDS" not in notes:
-    failures.append("the release notes step must pass --feeds $NIGHTLY_FEEDS")
+if "--feeds" not in notes or "$NIGHTLY_FEEDS" not in notes or "${intel_line}" not in notes.split("else", 1)[0]:
+    failures.append("the nightly-next release notes must list the Intel download")
 for name in ("Publish verified nightly release metadata", "Record verified nightly publication"):
     if "x86_64.dmg" in step(name):
         failures.append(f"{name!r} must take its download list from the notes step, which knows the track")
 
-def job(name):
-    start = TEXT.index(f"  {name}:\n")
-    end = re.search(r"^  [a-zA-Z0-9_-]+:", TEXT[start + len(name) + 4:], re.M)
-    return TEXT[start:] if end is None else TEXT[start:start + len(name) + 4 + end.start()]
 
+def run_script(body, env_extra, files):
+    script = textwrap.dedent(body.split("        run: |\n", 1)[1])
+    with tempfile.TemporaryDirectory(prefix="nightly-variants-") as directory:
+        root = Path(directory)
+        for name, text in files.items():
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_text(text)
+        env = {"PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", **env_extra}
+        return subprocess.run(["/bin/bash", "-c", script], cwd=root, env=env, capture_output=True, text=True).returncode
+
+
+require = step("Require every variant")
+both = {"nightly-out/p-arm64-123.dmg": "x", "nightly-out/p-x86_64-123.dmg": "x"}
+env = {"VARIANTS": json.dumps(["arm64", "x86_64"]), "CHANNEL_DMG_PREFIX": "p", "NIGHTLY_BUILD": "123"}
+if run_script(require, env, both) != 0:
+    failures.append("'Require every variant' must pass with arm64 and x86_64")
+if run_script(require, env, {"nightly-out/p-arm64-123.dmg": "x"}) == 0:
+    failures.append("'Require every variant' must refuse an Apple silicon build without its Intel build")
+
+# A recovered arm64 build ships only with its own run's verified x86_64 leg.
+recover = job("recover-nightly-next-notarization")
+cont = recover[recover.index("      - name: Continue the newest accepted pending notarization\n"):]
+for needle in ("cmux-nightly-variant-x86_64", "cmux-nightly-tested-x86_64", "cmux-nightly-signed-verified-x86_64",
+               "cmux-nightly-signed-verified-arm64", "has no verified Intel (x86_64) app or arm64 signed app; skipping"):
+    if needle not in cont:
+        failures.append(f"the recovery must check the candidate's x86_64 leg ({needle})")
+if cont.index("has no verified Intel (x86_64) app") > cont.index("./scripts/ci/notarize-nightly-dmg.sh"):
+    failures.append("the recovery must check x86_64 before any notarization step")
+for name in ("cmux-nightly-recovered-variant-x86_64", "cmux-nightly-recovered-tested-x86_64"):
+    if f"name: {name}" not in recover:
+        failures.append(f"the recovery must upload {name} for publish-nightly")
+if "cmux-nightly-signed-verified-${{ matrix.variant }}" not in job("verify-signed-nightly"):
+    failures.append("verify-signed-nightly must record each verified variant for the recovery")
 
 # The resolved cmux-tui publication includes a checksum-verified acpmux
 # companion. Fetch it before the app job's acpmux step so the existing
@@ -163,8 +244,7 @@ def compile_commands(outputs):
         return {path.name: path.read_text() for path in capture.iterdir()}
 
 
-# The publish matrix has been arm64-only since #18424, but the producer still
-# paid for both Swift whole-module compiles and universal embedded helpers.
+# The producer compiles exactly the architectures the publish matrix needs.
 # Execute its commands with recorders so this catches the actual requested
 # architectures without building on a developer Mac.
 for ref, fast in (("nightly-next", False), ("main", False), ("rc/v1.2.3", False), ("main", True)):
@@ -184,6 +264,6 @@ for ref, fast in (("nightly-next", False), ("main", False), ("rc/v1.2.3", False)
 
 
 if failures:
-    print("FAIL: nightly-next arm64 only\n  " + "\n  ".join(failures))
+    print("FAIL: nightly-next variants\n  " + "\n  ".join(failures))
     sys.exit(1)
-print("PASS: nightly-next arm64 only")
+print("PASS: nightly-next variants")
