@@ -60,14 +60,17 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
     shadow: false,
     cut,
   });
-  const output: Block = {
-    variant: "output-unwrapped-long-line",
+  const call = (variant: string, cut: boolean): Block => ({
+    variant,
     card: ".cv-tool-output-card",
     scroller: ".cv-tool-output",
     wrap: '.cv-tool-output__actions button[aria-label="Wrap lines"]',
     shadow: false,
-    cut: false,
-  };
+    cut,
+  });
+  const output = call("output-unwrapped-long-line", false);
+  /// A call output past eight lines, cut to its preview (Codex review of #23967, round 4).
+  const outputCut = call("output-unwrapped-long-cut", true);
   /// Unwrapped, every line past the edge, settled.
   const blocks: Block[] = [
     diff("edit-long-line-code", false),
@@ -75,6 +78,7 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
     shell("shell-unwrapped-long-line", false),
     shell("shell-unwrapped-long-cut", true),
     output,
+    outputCut,
   ];
   /// Blocks whose height holds while their lines start and stop running past the edge: a diff and
   /// a call output always, a command while it runs.
@@ -84,9 +88,17 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
     shell("shell-live-unwrapped-long-line", false),
     shell("shell-live-unwrapped-long-cut", true),
     output,
+    outputCut,
   ];
   /// Settled blocks whose lines, once they fit, leave no lane: as tall as wrapped.
-  const settled: Block[] = [shell("shell-unwrapped-long-line", false), shell("shell-unwrapped-long-cut", true), output];
+  const settled: Block[] = [
+    shell("shell-unwrapped-long-line", false),
+    shell("shell-unwrapped-long-cut", true),
+    output,
+    outputCut,
+  ];
+  /// Cut call outputs: eight whole lines and the lane under them.
+  const cutCalls: Block[] = [outputCut];
   /// Wrapped diffs, cut and whole.
   const wrapped: Block[] = [diff("edit-long-line-prose", true), diff("edit-preview-open", false)];
 
@@ -355,6 +367,41 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
             console.log(`${engine} ${block.variant} settled: ${JSON.stringify({ unwrapped, shown })}`);
             expect({ body: unwrapped.body, card: unwrapped.card }).toEqual({ body: shown.body, card: shown.card });
             if (!block.cut) expect([unwrapped.tail, shown.tail]).toEqual([unwrapped.inset, shown.inset]);
+          } finally {
+            await page.close();
+          }
+        });
+
+      // A cut call output shows its eight lines and the lane under them, whether or not its lines
+      // run past the edge (Codex review of #23967, round 4): the lane is added to the preview's
+      // cut, not taken out of it, so the bar never covers an eighth line.
+      for (const block of cutCalls)
+        test(`${block.variant}: a cut preview shows eight whole lines and the lane under them`, async () => {
+          const page = await open(engine, block);
+          try {
+            const inside = () =>
+              page.evaluate((scroller) => {
+                const box = document.querySelector<HTMLElement>(scroller)!;
+                const style = getComputedStyle(box);
+                return {
+                  preview: box.getAttribute("data-preview"),
+                  sideways: box.hasAttribute("data-cmux-sideways"),
+                  shown: box.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
+                  eight: 8 * parseFloat(style.lineHeight),
+                  lane: box.offsetHeight - box.clientHeight + parseFloat(style.paddingBottom),
+                };
+              }, block.scroller);
+            const past = await inside();
+            await runPast(page, block, false);
+            const fits = await inside();
+            console.log(`${engine} ${block.variant} cut: ${JSON.stringify({ past, fits })}`);
+            expect(past.sideways).toBe(true);
+            expect(fits.sideways).toBe(false);
+            for (const shown of [past, fits]) {
+              expect(shown.preview).toBe("cut");
+              expect(shown.shown).toBeCloseTo(shown.eight, 0);
+              expect(shown.lane).toBeGreaterThan(0);
+            }
           } finally {
             await page.close();
           }

@@ -2729,6 +2729,21 @@ export default agentPaneEntry({
       ]),
       play: unwrapCall(".cv-tool-output", ".cv-tool-output__actions"),
     },
+    "output-unwrapped-long-cut": {
+      note: "A call's long output with Wrap lines off: its first eight lines whole under a fade, and the thin sideways scrollbar under them in the output's bottom padding, the preview that much taller (Codex review of #23967).",
+      checks: shellDisclosureChecks,
+      snapshot: chat([
+        user("Fetch the whole retry log", 3, { id: "gallery-output-unwrapped-cut-user" }),
+        activity([tool("Fetch the whole retry log", "fetch", "completed", { output: SHELL_LONG_LOG_CUT })], 2.8, {
+          id: "gallery-output-unwrapped-cut-activity",
+        }),
+        assistant("Its first eight lines show; Show all opens the rest.", 2.6, {
+          id: "gallery-output-unwrapped-cut-answer",
+        }),
+        summary(2.6, { id: "gallery-output-unwrapped-cut-summary", status: "completed", toolCount: 1 }),
+      ]),
+      play: unwrapCall(".cv-tool-output", ".cv-tool-output__actions"),
+    },
     "shell-failed-exit": {
       note: "A failed command exposes its nonzero exit status alongside its output.",
       checks: shellDisclosureChecks,
