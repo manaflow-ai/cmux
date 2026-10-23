@@ -109,6 +109,16 @@ private final class CallbackLog {
         #expect(!observer.isValid)
     }
 
+    /// The one-shot form keeps no token: the run loop holds the observer until its one call.
+    @Test func onceRunsOnMainOnALaterPassWithoutAToken() {
+        let log = CallbackLog()
+        MainRunLoopObserver.once(activities: .beforeSources) { log.record("once") }
+        #expect(log.events.isEmpty, "the work ran inline, before the caller returned")
+        runMainRunLoopPass()
+        runMainRunLoopPass()
+        #expect(log.events == ["once"])
+    }
+
     @Test func observesTheCommonModes() {
         let tracking = commonTrackingMode()
         defer { CFRunLoopObserverInvalidate(tracking.keep) }

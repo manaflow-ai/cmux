@@ -8,11 +8,31 @@ public import Foundation
 /// ...)`: the main-thread proof lives here once, and the owner's `deinit` needs nothing
 /// (`CFRunLoopObserverInvalidate` is thread-safe, so no isolated `deinit`, which macOS 14
 /// cannot back-deploy). Keep the token in a stored property; set it to nil or call
-/// ``invalidate()`` to stop early.
+/// ``invalidate()`` to stop early. For work that runs once and has no owner to stop it, use
+/// ``once(activities:order:mode:_:)``, which needs no token.
 ///
 /// ```swift
 /// keeper = MainRunLoopObserver(activities: .beforeWaiting, order: .max) { _ in
 ///     ArrowCursorView.keepCursor()
+/// }
+/// ```
+///
+/// The main run loop keeps the observer, and with it the handler, until the token is released
+/// or invalidated. So a handler must capture the token's owner weakly (`[weak self]`): a strong
+/// capture makes a cycle (owner, token, observer, handler, owner), the owner never deinits, and
+/// the handler runs on every pass forever.
+///
+/// ```swift
+/// final class FrameWatcher {
+///     private var observer: MainRunLoopObserver?
+///
+///     func start() {
+///         observer = MainRunLoopObserver(activities: .beforeWaiting) { [weak self] _ in
+///             self?.frameDidPass()
+///         }
+///     }
+///
+///     func frameDidPass() {}
 /// }
 /// ```
 public nonisolated final class MainRunLoopObserver {
@@ -38,11 +58,31 @@ public nonisolated final class MainRunLoopObserver {
         mode: CFRunLoopMode = .commonModes,
         _ handler: @escaping @MainActor (CFRunLoopActivity) -> Void
     ) {
-        observer = CFRunLoopObserverCreateWithHandler(nil, activities.rawValue, repeats, order) { _, activity in
-            // main-proof: the observer is added only to CFRunLoopGetMain(), whose observers run on the main thread.
-            MainActor.assumeIsolated { handler(activity) }
-        }
-        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, mode)
+        observer = addMainObserver(activities: activities, repeats: repeats, order: order, mode: mode, handler)
+    }
+
+    /// Calls `body` once on the main actor, at the main run loop's next stage in `activities`,
+    /// from any thread. The call returns no token: the run loop keeps the observer until that
+    /// one call, then removes it, so the work cannot be cancelled.
+    ///
+    /// ```swift
+    /// // After AppKit's display and Core Animation's commit of the current pass.
+    /// MainRunLoopObserver.once(activities: .beforeWaiting, order: .max) { startDeferredWork() }
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - activities: The run loop stages, the first of which calls `body`.
+    ///   - order: Where `body` runs among the observers of the same stage, lowest first (see
+    ///     ``init(activities:repeats:order:mode:_:)``). Default 0.
+    ///   - mode: The run loop mode to observe (default `.commonModes`).
+    ///   - body: The main-actor work.
+    public static func once(
+        activities: CFRunLoopActivity,
+        order: CFIndex = 0,
+        mode: CFRunLoopMode = .commonModes,
+        _ body: @escaping @MainActor () -> Void
+    ) {
+        _ = addMainObserver(activities: activities, repeats: false, order: order, mode: mode) { _ in body() }
     }
 
     /// Whether the observer still calls its handler (false after ``invalidate()``, or after
@@ -58,4 +98,21 @@ public nonisolated final class MainRunLoopObserver {
     deinit {
         CFRunLoopObserverInvalidate(observer)
     }
+}
+
+/// Makes an observer whose handler runs on the main actor and adds it to the main run loop in
+/// `mode`: the one main-thread proof of ``MainRunLoopObserver``.
+private nonisolated func addMainObserver(
+    activities: CFRunLoopActivity,
+    repeats: Bool,
+    order: CFIndex,
+    mode: CFRunLoopMode,
+    _ handler: @escaping @MainActor (CFRunLoopActivity) -> Void
+) -> CFRunLoopObserver {
+    let observer: CFRunLoopObserver = CFRunLoopObserverCreateWithHandler(nil, activities.rawValue, repeats, order) { _, activity in
+        // main-proof: the observer is added only to CFRunLoopGetMain(), whose observers run on the main thread.
+        MainActor.assumeIsolated { handler(activity) }
+    }
+    CFRunLoopAddObserver(CFRunLoopGetMain(), observer, mode)
+    return observer
 }
