@@ -22,6 +22,11 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
     private var selectedID: String?
     /// The row drawn hovered.
     private(set) var hoveredID: String?
+    #if DEBUG
+    /// A pointer location in window coordinates that stands in for the real one while
+    /// ``PaletteFlingProbe`` scrolls the list (a fleet host gives the app no real pointer input).
+    var debugPointerInWindow: NSPoint?
+    #endif
     /// No rubber band while every result fits.
     private var scrollFit: ScrollFitElasticity?
 
@@ -133,9 +138,38 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         // Scrolling moves rows under a still pointer; re-hit-test so hover
         // follows the pointer, not the row it was over before the scroll.
         guard let window else { return }
-        let point = table.convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        #if DEBUG
+        let location = debugPointerInWindow ?? window.mouseLocationOutsideOfEventStream
+        #else
+        let location = window.mouseLocationOutsideOfEventStream
+        #endif
+        let point = table.convert(location, from: nil)
         if table.visibleRect.contains(point) { updateHover(at: point) }
     }
+
+    #if DEBUG
+    /// The id of the item row at `location` (window coordinates), as hover reads it: nil over a
+    /// header or outside the visible rows (``PaletteFlingProbe``).
+    func debugRowID(atWindowPoint location: NSPoint) -> String? {
+        let point = table.convert(location, from: nil)
+        guard table.visibleRect.contains(point) else { return nil }
+        let row = table.row(at: point)
+        if rows.indices.contains(row), case .item(let item) = rows[row] { return item.id }
+        return nil
+    }
+
+    /// Scrolls the list by `delta` points (positive: down), clamped to its ends, through the clip
+    /// view as a scroll does, so ``boundsChanged()`` re-hit-tests hover. Returns how far it moved.
+    func debugScroll(by delta: CGFloat) -> CGFloat {
+        let bottom = max(0, table.frame.height - contentView.bounds.height)
+        let from = contentView.bounds.origin.y
+        let to = min(max(from + delta, 0), bottom)
+        guard to != from else { return 0 }
+        contentView.scroll(to: NSPoint(x: contentView.bounds.origin.x, y: to))
+        reflectScrolledClipView(contentView)
+        return abs(to - from)
+    }
+    #endif
 
     private func updateHover(at point: NSPoint, pointerMoved: Bool = false) {
         let row = table.row(at: point)

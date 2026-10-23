@@ -361,7 +361,7 @@ public final class PaletteController {
         }
     }
 
-    private var contentView: PaletteContentView? { panel?.contentView as? PaletteContentView }
+    var contentView: PaletteContentView? { panel?.contentView as? PaletteContentView }
 
     private func makePanel() -> PalettePanel {
         let panel = PalettePanel(size: PaletteLayout.windowSize)

@@ -41,6 +41,10 @@ final class PaletteContentView: NSView {
     private(set) var renderScheduled = false
     /// A hover change waits for ``applyScheduledHover()`` (set as the change happens).
     private(set) var hoverScheduled = false
+    #if DEBUG
+    /// Whole-palette renders so far (``PaletteFlingProbe`` reports how many a fling caused).
+    private(set) var debugRenders = 0
+    #endif
     private var appliedResults = -1
     private var appliedScroll = -1
     private var appliedPage = -1
@@ -150,6 +154,9 @@ final class PaletteContentView: NSView {
 
     /// Everything but hover (`observeHover()`), from the model.
     private func render() {
+        #if DEBUG
+        debugRenders += 1
+        #endif
         // Read every tracked input up front so tracking sees all of them.
         let resultsVersion = model.resultsVersion
         let sections = model.sections
