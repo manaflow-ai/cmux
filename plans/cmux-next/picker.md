@@ -44,8 +44,9 @@ The options:
 - `begin` / `beginSheetModal` instead of `runModal`: already so.
 - A panel kept warm once the service answered: already so. `MadeAheadPanelStore` keeps one panel and resets its choices and
   texts after each use, off the click; the click then pays 0.2 ms to get it. The warm-up runs only while this account is
-  the console user and the person is idle, and stops after a dead panel. Every hand-out, of a kept panel too, first
-  checks that the panel reads a prompt (a dead one is dropped). The warm-up is not bounded: it is the same
+  the console user and the person is idle, and stops after a dead panel. A newly made panel that reads no prompt is
+  dropped, never shown. A kept panel whose view service ended later is not detected (every caller sets its prompt,
+  so it always reads one; open, perf-lead.md row 25). The warm-up is not bounded: it is the same
   `NSOpenPanel()` on the main thread, so for a console user whose panel service hangs or respawns slowly it freezes
   the main thread once, up to about 40 s, before the dead panel stops it. No deadline is possible around it (below).
 - A light in-app placeholder while the panel comes up: it cannot help the one case left, a click with no panel made ahead
