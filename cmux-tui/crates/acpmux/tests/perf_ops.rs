@@ -112,10 +112,42 @@ impl Daemon {
     }
 }
 
-impl Drop for Daemon {
-    fn drop(&mut self) {
+impl Daemon {
+    /// Stops the daemon as an update does (SIGTERM): hosted agents keep running for the next
+    /// daemon to adopt.
+    fn restart_stop(mut self) {
         // SAFETY: signalling this test's own child.
         unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
+        let _ = self.child.wait();
+        std::mem::forget(self);
+    }
+}
+
+impl Drop for Daemon {
+    /// Ends the daemon and every agent it hosts (`_acpmux/shutdown {endAgents}`, the app's Quit
+    /// Everything), so the bench leaves no process behind; SIGTERM if the call fails.
+    fn drop(&mut self) {
+        use std::io::Write;
+        let asked = std::os::unix::net::UnixStream::connect(&self.socket).and_then(|mut s| {
+            s.set_read_timeout(Some(Duration::from_secs(30)))?;
+            let lines = [
+                json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": 1}}),
+                json!({"jsonrpc": "2.0", "id": 2, "method": "_acpmux/shutdown", "params": {"endAgents": true}}),
+            ];
+            for line in lines {
+                s.write_all(format!("{line}\n").as_bytes())?;
+            }
+            let mut reader = BufReader::new(s);
+            let mut line = String::new();
+            while reader.read_line(&mut line)? > 0 && !line.contains("\"id\":2") {
+                line.clear();
+            }
+            Ok(())
+        });
+        if asked.is_err() {
+            // SAFETY: signalling this test's own child.
+            unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
+        }
         let _ = self.child.wait();
     }
 }
@@ -576,6 +608,28 @@ async fn acpmux_ops_and_streaming_meet_the_daemon_budgets_light_and_stress() {
     report.latency("many.token_to_client", app.take_tokens(), Some(OP_P95));
     profile_sessions_list(&daemon, &mut ops).await;
 
+    // -------- restart: four chats with long logs, every agent left running under its host
+    for (i, s) in chats.iter().take(4).enumerate() {
+        prompt(&mut app, s, "stream 25000 0", &format!("long-{i}")).await.await.unwrap();
+    }
+    drop((app, viewer, ops));
+    daemon.restart_stop();
+    let started = now_ns();
+    let daemon = Daemon::start(&dir);
+    let ready = now_ns() - started;
+    let mut c = Client::connect(&daemon.socket).await;
+    let attach = c.timed("_acpmux/attach", json!({"sessionId": chats[0], "limit": 50})).await;
+    // A restart reads the chat logs after its ready line; attach waits for them
+    // (acpmux-audit.md finding 9, D7).
+    report.value(
+        "restart",
+        json!({"chats": many.len(), "long_logs": 4, "records_per_long_log": 25_000,
+               "ready_ms": ready as f64 / 1e6, "first_attach_ms": attach as f64 / 1e6,
+               "ready_to_attach_ms": (now_ns() - started) as f64 / 1e6}),
+    );
+
     report.write();
+    drop((c, daemon));
+    let _ = std::fs::remove_dir_all(&dir);
     assert!(report.over.is_empty(), "over the daemon budgets: {:#?}", report.over);
 }
