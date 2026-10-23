@@ -671659,55 +671659,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: the saved working directory %@ no longer exists. Recreate or remount it, then run 'cmux restore --surface'."
+            "value": "restore: the saved working directory '%@' no longer exists. Recreate or remount it, then run 'cmux restore --surface'."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: دليل العمل المحفوظ %@ لم يعد موجودًا. يرجى إعادة إنشائه أو إعادة تركيبه، ثم شغّل 'cmux restore --surface'."
+            "value": "restore: دليل العمل المحفوظ '%@' لم يعد موجودًا. يرجى إعادة إنشائه أو إعادة تركيبه، ثم شغّل 'cmux restore --surface'."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: Das gespeicherte Arbeitsverzeichnis %@ existiert nicht mehr. Erstellen Sie es neu oder hängen Sie es erneut ein und führen Sie dann 'cmux restore --surface' aus."
+            "value": "restore: Das gespeicherte Arbeitsverzeichnis „%@“ existiert nicht mehr. Erstellen Sie es neu oder hängen Sie es erneut ein und führen Sie dann 'cmux restore --surface' aus."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: el directorio de trabajo guardado %@ ya no existe. Vuelva a crearlo o a montarlo y, a continuación, ejecute 'cmux restore --surface'."
+            "value": "restore: el directorio de trabajo guardado '%@' ya no existe. Vuelva a crearlo o a montarlo y, a continuación, ejecute 'cmux restore --surface'."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore : le répertoire de travail enregistré %@ n'existe plus. Recréez-le ou remontez-le, puis exécutez 'cmux restore --surface'."
+            "value": "restore : le répertoire de travail enregistré « %@ » n'existe plus. Recréez-le ou remontez-le, puis exécutez 'cmux restore --surface'."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: 保存された作業ディレクトリ %@ は存在しません。再作成または再マウントしてから、'cmux restore --surface' を実行してください。"
+            "value": "restore: 保存された作業ディレクトリ「%@」は存在しません。再作成または再マウントしてから、'cmux restore --surface' を実行してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: 저장된 작업 디렉터리 %@이(가) 더 이상 존재하지 않습니다. 디렉터리를 다시 만들거나 다시 마운트한 후 'cmux restore --surface'을(를) 실행하십시오."
+            "value": "restore: 저장된 작업 디렉터리 '%@'이(가) 더 이상 존재하지 않습니다. 디렉터리를 다시 만들거나 다시 마운트한 후 'cmux restore --surface'을(를) 실행하십시오."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore：已保存的工作目录 %@ 已不存在。请重新创建或重新挂载该目录，然后运行 'cmux restore --surface'。"
+            "value": "restore：已保存的工作目录“%@”已不存在。请重新创建或重新挂载该目录，然后运行 'cmux restore --surface'。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore：儲存的工作目錄 %@ 已不存在。請重新建立或重新掛載該目錄，然後執行 'cmux restore --surface'。"
+            "value": "restore：儲存的工作目錄「%@」已不存在。請重新建立或重新掛載該目錄，然後執行 'cmux restore --surface'。"
           }
         }
       }
@@ -671718,55 +671718,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "fork: the saved working directory %@ no longer exists. Recreate or remount it, then run 'cmux fork --surface'."
+            "value": "fork: the saved working directory '%@' no longer exists. Recreate or remount it, then run 'cmux fork --surface'."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "fork: دليل العمل المحفوظ %@ لم يعد موجودًا. يرجى إعادة إنشائه أو إعادة تركيبه، ثم شغّل 'cmux fork --surface'."
+            "value": "fork: دليل العمل المحفوظ '%@' لم يعد موجودًا. يرجى إعادة إنشائه أو إعادة تركيبه، ثم شغّل 'cmux fork --surface'."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "fork: Das gespeicherte Arbeitsverzeichnis %@ existiert nicht mehr. Erstellen Sie es neu oder hängen Sie es erneut ein und führen Sie dann 'cmux fork --surface' aus."
+            "value": "fork: Das gespeicherte Arbeitsverzeichnis „%@“ existiert nicht mehr. Erstellen Sie es neu oder hängen Sie es erneut ein und führen Sie dann 'cmux fork --surface' aus."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "fork: el directorio de trabajo guardado %@ ya no existe. Vuelva a crearlo o a montarlo y, a continuación, ejecute 'cmux fork --surface'."
+            "value": "fork: el directorio de trabajo guardado '%@' ya no existe. Vuelva a crearlo o a montarlo y, a continuación, ejecute 'cmux fork --surface'."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "fork : le répertoire de travail enregistré %@ n'existe plus. Recréez-le ou remontez-le, puis exécutez 'cmux fork --surface'."
+            "value": "fork : le répertoire de travail enregistré « %@ » n'existe plus. Recréez-le ou remontez-le, puis exécutez 'cmux fork --surface'."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "fork: 保存された作業ディレクトリ %@ は存在しません。再作成または再マウントしてから、'cmux fork --surface' を実行してください。"
+            "value": "fork: 保存された作業ディレクトリ「%@」は存在しません。再作成または再マウントしてから、'cmux fork --surface' を実行してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "fork: 저장된 작업 디렉터리 %@이(가) 더 이상 존재하지 않습니다. 디렉터리를 다시 만들거나 다시 마운트한 후 'cmux fork --surface'을(를) 실행하십시오."
+            "value": "fork: 저장된 작업 디렉터리 '%@'이(가) 더 이상 존재하지 않습니다. 디렉터리를 다시 만들거나 다시 마운트한 후 'cmux fork --surface'을(를) 실행하십시오."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "fork：已保存的工作目录 %@ 已不存在。请重新创建或重新挂载该目录，然后运行 'cmux fork --surface'。"
+            "value": "fork：已保存的工作目录“%@”已不存在。请重新创建或重新挂载该目录，然后运行 'cmux fork --surface'。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "fork：儲存的工作目錄 %@ 已不存在。請重新建立或重新掛載該目錄，然後執行 'cmux fork --surface'。"
+            "value": "fork：儲存的工作目錄「%@」已不存在。請重新建立或重新掛載該目錄，然後執行 'cmux fork --surface'。"
           }
         }
       }

@@ -591,7 +591,7 @@ struct CMUXCLIForkVerbRegressionTests {
         #expect(result.status != 0, Comment(rawValue: result.description))
         #expect(
             result.stderr.contains(
-                "fork: the saved working directory \(savedDirectory.path) no longer exists. "
+                "fork: the saved working directory '\(savedDirectory.path)' no longer exists. "
                     + "Recreate or remount it, then run 'cmux fork --surface'."
             ),
             Comment(rawValue: result.description)

@@ -639,7 +639,7 @@ import Testing
         XCTAssertFalse(FileManager.default.fileExists(atPath: attemptedURL.path), result.diagnostics)
         XCTAssertTrue(
             result.stderr.contains(
-                "restore: the saved working directory \(workingDirectory.path) no longer exists. "
+                "restore: the saved working directory '\(workingDirectory.path)' no longer exists. "
                     + "Recreate or remount it, then run 'cmux restore --surface'."
             ),
             result.diagnostics
@@ -1172,7 +1172,7 @@ import Testing
         XCTAssertEqual(result.status, 1, result.diagnostics)
         XCTAssertTrue(
             result.stderr.contains(
-                "restore: the saved working directory \(savedDirectory.path) no longer exists. "
+                "restore: the saved working directory '\(savedDirectory.path)' no longer exists. "
                     + "Recreate or remount it, then run 'cmux restore --surface'."
             ),
             result.diagnostics
