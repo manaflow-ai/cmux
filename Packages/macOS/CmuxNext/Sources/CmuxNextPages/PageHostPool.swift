@@ -33,6 +33,14 @@ public final class PageHostPool {
     let parking = PageHostParking()
     var spare: PageWebView?
     var spareReady = false
+    /// The ``rateGeneration`` the spare was made in.
+    var spareGeneration = 0
+    /// Bumped each time Low Power Mode turns on or off. A `.display` page's WebKit rate holds from
+    /// the moment it is made: a preference written later did not change a shown page's cadence
+    /// (cmux20, macOS 27, 120 Hz: near60 written, still 120 fps). So a spare or a returned host
+    /// made in an earlier generation is never handed out again; the pool makes a new one.
+    var rateGeneration = 0
+    private var lowPowerObservation: LowPowerModeObservation?
     var claimed: [ObjectIdentifier: WeakHost] = [:]
     var building = false
     var activityMark: UInt64 = 0
@@ -47,11 +55,17 @@ public final class PageHostPool {
 
     final class WeakHost {
         weak var view: PageWebView?
-        init(_ view: PageWebView) { self.view = view }
+        /// The ``PageHostPool/rateGeneration`` the host was made in.
+        let generation: Int
+        init(_ view: PageWebView, generation: Int) {
+            self.view = view
+            self.generation = generation
+        }
     }
 
-    /// `lowPowerMode` is the Low Power Mode every spare renders by and follows: the app passes
-    /// `LowPowerMode.system`, tests their own.
+    /// `lowPowerMode` is the Low Power Mode every spare renders by: the app passes
+    /// `LowPowerMode.system`, tests their own. When it changes, the pool drops its spare and makes
+    /// a new one at the new rate (``rateGeneration``).
     public init(policy: Policy = Policy(), options: PageEngineOptions = .standard, lowPowerMode: LowPowerMode,
                 clock: any Clock<Duration> = ContinuousClock(),
                 activity: @escaping () -> UInt64 = { ExpectedActivity.shared.total },
@@ -62,6 +76,16 @@ public final class PageHostPool {
         self.activity = activity
         self.isTrackingMenu = isTrackingMenu
         timer = DemandTimer(owner: "PageHostPool.build", clock: clock)
+        if options.renderRate == .display {
+            lowPowerObservation = lowPowerMode.observe { [weak self] _ in self?.lowPowerModeChanged() }
+        }
+    }
+
+    /// A spare made at the old rate would keep it: drop it and build one at the new rate.
+    func lowPowerModeChanged() {
+        rateGeneration += 1
+        dropSpare()
+        scheduleBuild()
     }
 
     public var isSpareReady: Bool { spare != nil && spareReady }
@@ -93,7 +117,7 @@ public final class PageHostPool {
         let start = ContinuousClock.now
         spare = nil
         spareReady = false
-        claimed[ObjectIdentifier(host)] = WeakHost(host)
+        claimed[ObjectIdentifier(host)] = WeakHost(host, generation: spareGeneration)
         host.removeFromSuperview()
         host.countsTouches = true
         host.shouldFocusOnAttach = focus
@@ -107,17 +131,19 @@ public final class PageHostPool {
         return host
     }
 
-    /// Releases a claimed host. Only an untouched host may return to the spare slot.
+    /// Releases a claimed host. Only an untouched host made at the current rate (``rateGeneration``)
+    /// may return to the spare slot.
     public func release(_ host: PageWebView) {
         host.removeFromSuperview()
-        guard claimed.removeValue(forKey: ObjectIdentifier(host)) != nil else {
+        guard let entry = claimed.removeValue(forKey: ObjectIdentifier(host)) else {
             host.close()
             return
         }
-        if !host.touched, spare == nil, let content = target?.contentView {
+        if !host.touched, spare == nil, entry.generation == rateGeneration, let content = target?.contentView {
             host.countsTouches = false
             park(host, in: content)
             spare = host
+            spareGeneration = entry.generation
             spareReady = false
             Task { @MainActor [weak self, weak host] in
                 await host?.resetPooledPage()
