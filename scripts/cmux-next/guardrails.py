@@ -340,6 +340,19 @@ def in_loop(version: Version, index: int) -> tuple[bool, list[int]]:
     return bool(loops), loops
 
 
+# The ambient theme root (ThemeScope.app, the Palette fallback until Palette takes an explicit theme context;
+# perf-lead.md, lead 2026-10-23: not an accepted exception). Outside CmuxNextDesign, which implements the
+# fallback, no new line names it: take the view's `themeScope`, or the root the composition root injects
+# (`AppServices.themeRoot` / `.themeStore`).
+AMBIENT_THEME = re.compile(r"\bThemeScope\.app\b|\bThemeScope\s*=\s*\.app\b")
+AMBIENT_THEME_ALLOW = re.compile(r"//\s*theme-root-allow:\s*\S")
+DESIGN_SOURCES = SOURCES + "CmuxNextDesign/"
+
+
+def outside_design(version: Version, index: int) -> tuple[bool, list[int]]:
+    return not version.path.startswith(DESIGN_SOURCES), []
+
+
 ROW_STRUCT = re.compile(r"\bstruct\s+(\w*(Row|Cell|Tile|Gap|Item)(View)?)\b[^{]*:\s*[^{]*\bView\b")
 ROW_STORE = re.compile(
     r"@(ObservedObject|EnvironmentObject|StateObject|Bindable)\b|@Environment\(\s*\w+\.self\s*\)"
@@ -1024,11 +1037,19 @@ def implicit_deinit(version: Version, index: int) -> tuple[bool, list[int]]:
     return True, []
 
 
+ambient_theme = matcher_rule(Matcher(AMBIENT_THEME, AMBIENT_THEME_ALLOW, outside_design))
 sleep_in_loop = matcher_rule(Matcher(SLEEP, POLL_ALLOW, in_loop))
 row_store = matcher_rule(Matcher(ROW_STORE, ROW_ALLOW, in_row))
 
 
 RULES = (
+    Rule("ambient-theme-root", "A new read of the ambient theme root (`ThemeScope.app`) outside CmuxNextDesign",
+         "ThemeScope.app is ThemeStore.shared under another name: one global theme every caller couples to, which "
+         "tests mutate in parallel (review 1 of pl-arch B3); the count only goes down until it is gone",
+         "read the view's or window's `themeScope` (`.store` for the store), or take the root the composition "
+         "root injects (`AppServices.themeRoot`, `.themeStore`) through `init`",
+         "// theme-root-allow: <why no scope or injected root can reach this line>",
+         ambient_theme),
     Rule("unchecked-sendable", "`@unchecked Sendable` / `nonisolated(unsafe)` without a safety argument",
          "it switches off the data-race checker; without a written argument nobody can review it",
          "an actor, a Sendable value type, or CmuxNextCompat `Mutex` around the state; when it is truly safe, "
