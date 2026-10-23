@@ -344,6 +344,57 @@ fn a_manual_restart_of_a_kept_layout_tab_starts_in_its_directory_and_ends_the_ke
     }
 }
 
+/// e2. A kept tab no frontend started (its workspace is hidden: frontends
+/// start a kept tab only when a window shows it, #17587) starts when a
+/// request needs its shell: text sent to it through the control socket
+/// (`send {surface}`, the path of the CLI's `send`) starts it in place, in
+/// the same tab, and reaches its new shell; the socket never finds a dead
+/// tab the app draws as live.
+#[test]
+fn text_sent_to_an_unstarted_kept_tab_starts_it_and_reaches_its_new_shell() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start("send-to-kept-layout");
+    start_default_shell(&harness, "kept-hidden");
+    let identify = request(&harness.socket, serde_json::json!({"id": 2, "cmd": "identify"}));
+    let accepted = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 3,
+            "cmd": "shutdown-daemon",
+            "pid": identify["pid"],
+            "generation": identify["generation"],
+            "end_terminals": true,
+            "keep_layout": true,
+        }),
+    );
+    assert_eq!(accepted["accepted"], true, "{accepted}");
+    let mut daemon = harness.child.take().unwrap();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while daemon.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "daemon did not exit after shutdown");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    wait_for_no_host_records(&harness.host_root());
+
+    harness.restart();
+    let dead = tab_named(&harness, "kept-hidden");
+    assert_eq!(dead["dead"], true, "{dead}");
+    assert!(dead["relaunch"]["cwd"].is_string(), "{dead}");
+    let surface = dead["surface"].as_u64().expect("the kept tab has a surface id");
+    // No `restart-tab`: the send alone starts the tab.
+    let sent = request_response(
+        &harness.socket,
+        serde_json::json!({"id": 4, "cmd": "send", "surface": surface, "text": "echo kept-$((40+2))\n"}),
+    );
+    assert_eq!(sent["ok"], true, "the send to the unstarted kept tab failed: {sent}");
+    let live = tab_named(&harness, "kept-hidden");
+    assert_eq!(live["dead"], false, "the send left the kept tab dead: {live}");
+    assert_eq!(live["tab_resource_id"], dead["tab_resource_id"], "the start made a new tab");
+    assert!(live["relaunch"].is_null(), "the started tab is still kept: {live}");
+    let text = wait_for_screen(&harness.socket, surface, "kept-42");
+    assert!(text.contains("kept-42"), "the text never reached the new shell: {text}");
+}
+
 /// f. `run --on-exit shell`: the command's end drops the tab into a shell.
 /// The same tab and terminal id get a new shell (a new incarnation) below
 /// the command's final screen, from the CLI as from the resource request,
