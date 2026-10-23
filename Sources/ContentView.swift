@@ -517,6 +517,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 
     func update(
         isVisible: Bool,
+        dismissalPolicy: @MainActor @escaping () -> CommandPaletteDismissalPolicy = { .closesOnAnyInteraction },
         onDismiss: @MainActor @escaping (CommandPaletteInteractionDismissal) -> Void = { _ in },
         makeRootView: @MainActor () -> AnyView = { AnyView(EmptyView()) }
     ) {
@@ -562,7 +563,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
                     self?.updateFocusLockForWindowState()
                 },
                 onDismiss: { [weak self] dismissal in
-                    guard let self, self.isPaletteVisible else { return }
+                    guard let self, self.isPaletteVisible, dismissalPolicy().dismisses(dismissal) else { return }
                     self.hideOverlay()
                     onDismiss(dismissal)
                 }
@@ -3368,6 +3369,7 @@ struct ContentView: View {
             let overlayController = commandPaletteWindowOverlayController(for: window)
             overlayController.update(
                 isVisible: isCommandPalettePresented,
+                dismissalPolicy: { commandPaletteOverlayState.dismissalPolicy },
                 onDismiss: { dismissal in
                     if isAgentInboxPresented {
                         dismissAgentInbox()
@@ -3648,6 +3650,7 @@ struct ContentView: View {
             commandPaletteWindowOverlayController(for: window)
                 .update(
                     isVisible: isCommandPalettePresented,
+                    dismissalPolicy: { commandPaletteOverlayState.dismissalPolicy },
                     onDismiss: { dismissal in
                         if isAgentInboxPresented {
                             dismissAgentInbox()
