@@ -5,8 +5,9 @@
 //!
 //! - an open answers a handle of this connection that stands for the peer's, so another
 //!   connection, even for the same chat, cannot read through it (`media.handle`);
-//! - a connection holds at most [`MAX_HANDLES`] of them, counting only those used within
-//!   [`IDLE`] (the peer closes the others), so one client cannot fill the link's table;
+//! - a connection holds at most [`MAX_HANDLES`] of them, counting the opens still waiting on the
+//!   peer and only the handles used within [`IDLE`] (the peer closes the others), so one client
+//!   cannot fill the link's table, even with many opens at once;
 //! - a handle's entry goes with its final range or a refused one (the peer closed it too), and
 //!   when the connection ends every handle still held is closed on the peer: a range of length
 //!   0, which the peer refuses and so closes.
@@ -26,12 +27,28 @@ struct Remote {
     used: Instant,
 }
 
+#[derive(Default)]
+struct Table {
+    held: HashMap<String, Remote>,
+    /// Opens sent to a peer and not answered yet: each holds a place under the cap.
+    opening: usize,
+}
+
 /// One connection's handles of peers' media (module docs); None once the connection ended.
-pub(crate) struct RemoteMedia(Mutex<Option<HashMap<String, Remote>>>);
+pub(crate) struct RemoteMedia(Mutex<Option<Table>>);
 
 impl Default for RemoteMedia {
     fn default() -> Self {
-        RemoteMedia(Mutex::new(Some(HashMap::new())))
+        RemoteMedia(Mutex::new(Some(Table::default())))
+    }
+}
+
+/// An open's place under the cap, given back when the open is answered or dropped.
+struct Opening<'a>(&'a RemoteMedia);
+
+impl Drop for Opening<'_> {
+    fn drop(&mut self) {
+        self.0.with(|table| table.opening -= 1);
     }
 }
 
@@ -58,22 +75,24 @@ fn decoded_len(data: &str) -> u64 {
 }
 
 impl RemoteMedia {
-    fn with<T>(&self, f: impl FnOnce(&mut HashMap<String, Remote>) -> T) -> Option<T> {
+    fn with<T>(&self, f: impl FnOnce(&mut Table) -> T) -> Option<T> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner).as_mut().map(f)
     }
 
     /// The connection ended: every handle still held closes on its peer.
     pub(crate) fn close_all(&self) {
         let held = self.0.lock().unwrap_or_else(PoisonError::into_inner).take();
-        for remote in held.into_iter().flat_map(HashMap::into_values) {
+        for remote in held.into_iter().flat_map(|table| table.held.into_values()) {
             release(remote.peer, remote.session, remote.handle);
         }
     }
 
     async fn open(&self, peer: &Arc<Peer>, session: &str, p: Value) -> Result<Value, RpcError> {
-        let room = self.with(|held| {
-            held.retain(|_, remote| remote.used.elapsed() < IDLE);
-            held.len() < MAX_HANDLES
+        let room = self.with(|table| {
+            table.held.retain(|_, remote| remote.used.elapsed() < IDLE);
+            let room = table.held.len() + table.opening < MAX_HANDLES;
+            table.opening += usize::from(room);
+            room
         });
         match room {
             None => return Err(refused("media.closed", "the connection has ended")),
@@ -83,6 +102,7 @@ impl RemoteMedia {
             }
             Some(true) => {}
         }
+        let opening = Opening(self);
         let mut result = peer.request(method::MUX_MEDIA_OPEN, p).await?;
         let theirs = result.get("handle").and_then(Value::as_str).map(str::to_owned);
         let theirs = theirs.ok_or_else(|| RpcError::internal("the peer answered no handle"))?;
@@ -95,7 +115,9 @@ impl RemoteMedia {
             handle: theirs.clone(),
             used: Instant::now(),
         };
-        if self.with(|held| held.insert(mine.clone(), remote)).is_none() {
+        let kept = self.with(|table| table.held.insert(mine.clone(), remote));
+        drop(opening);
+        if kept.is_none() {
             release(peer.clone(), session.to_owned(), theirs);
             return Err(refused("media.closed", "the connection that opened the file has ended"));
         }
@@ -108,8 +130,8 @@ impl RemoteMedia {
 
     async fn range(&self, session: &str, mut p: Value) -> Result<Value, RpcError> {
         let mine = p.get("handle").and_then(Value::as_str).unwrap_or_default().to_owned();
-        let found = self.with(|held| {
-            let remote = held.get_mut(&mine).filter(|remote| remote.session == session)?;
+        let found = self.with(|table| {
+            let remote = table.held.get_mut(&mine).filter(|remote| remote.session == session)?;
             remote.used = Instant::now();
             Some((remote.peer.clone(), remote.handle.clone()))
         });
@@ -124,7 +146,7 @@ impl RemoteMedia {
             at("offset").saturating_add(decoded_len(data)) >= at("size")
         });
         if done {
-            self.with(|held| held.remove(&mine));
+            self.with(|table| table.held.remove(&mine));
         }
         let mut result = result?;
         if let Some(object) = result.as_object_mut() {

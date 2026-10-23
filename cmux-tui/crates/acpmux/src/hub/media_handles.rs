@@ -8,6 +8,8 @@
 //!   connections (`media.handles`, `media.busy`). A peer daemon's link carries the reads of all
 //!   that daemon's clients, which it caps one by one (`server/media_forward.rs`), so its table
 //!   is capped only by [`MAX_OPEN`] ([`Handles::for_peer_link`]).
+//! - A handle whose session is gone counts toward no cap: the insert and the sweeper drop it, and
+//!   [`Handles::forget`] closes one named by a range for a chat that no longer resolves.
 //! - A handle unused for [`IDLE`] is closed by the table's sweeper: one task per table, spawned
 //!   by the insert that finds none, sleeping until the earliest handle's deadline. It stops when
 //!   the table is empty, when the table is dropped, or at [`Handles::close_all`], which aborts it.
@@ -107,6 +109,7 @@ impl<O: Send + Sync + 'static> Handles<O> {
         if state.closed {
             return Err(refused("media.closed", "the connection that opened the file has ended"));
         }
+        state.entries.retain(|_, entry| entry.owner.strong_count() > 0);
         if state.entries.len() >= state.cap {
             let message = "too many media files are open; read one to its end";
             return Err(refused("media.handles", message));
@@ -155,6 +158,11 @@ impl<O: Send + Sync + 'static> Handles<O> {
         }
     }
 
+    /// Closes `handle` whoever opened it: its chat is gone, so nothing reads it again.
+    pub fn forget(&self, handle: &str) {
+        lock(&self.state).entries.remove(handle);
+    }
+
     /// The connection ended: every handle closes, the sweeper stops, and no handle opens again.
     pub fn close_all(&self) {
         let mut state = lock(&self.state);
@@ -182,7 +190,9 @@ async fn sweep<O>(state: Weak<Mutex<State<O>>>) {
             let Some(state) = state.upgrade() else { return };
             let mut state = lock(&state);
             let now = Instant::now();
-            state.entries.retain(|_, entry| now.saturating_duration_since(entry.used) < IDLE);
+            state.entries.retain(|_, entry| {
+                entry.owner.strong_count() > 0 && now.saturating_duration_since(entry.used) < IDLE
+            });
             let Some(used) = state.entries.values().map(|entry| entry.used).min() else {
                 state.sweeper = None;
                 return;
