@@ -45,6 +45,7 @@ parser.add_argument("--switches", type=int, default=24)
 parser.add_argument("--interval", type=float, default=0.25)
 parser.add_argument("--budget-ms", type=float, default=10.0)
 parser.add_argument("--no-gate", action="store_true")
+parser.add_argument("--sample", default="", help="ROW[,...]: also `sample` the app's main thread during those rows (OUT/sample-<session>-<row>.txt)")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 activation = load("activation_perf", "activation-perf.py")
@@ -85,6 +86,8 @@ class Bench:
 
     def time(self, method, step, count, label):
         """`count` inputs (`step(i)`), timed by `method`'s timer; the row's numbers."""
+        if label in opts.sample.split(","):
+            self.sampled(step, count, label)
         self.rpc("debug.frames", {"action": "start"})  # the display link ticks, so commits map to vsyncs
         probe = self.rpc(method, {"action": "start"})
         if not isinstance(probe, dict) or "recording" not in probe:
@@ -117,6 +120,23 @@ class Bench:
               f"work {out['work_before_commit']} stages {stages}", flush=True)
         return out
 
+    def sampled(self, step, count, label):
+        """A separate pass of the row under /usr/bin/sample (1 ms), so the sampler stays out of the timed numbers."""
+        import subprocess
+        path = os.path.join(opts.out, f"sample-{self.session}-{label}.txt")
+        seconds = max(3, int(count * opts.interval) + 2)
+        sampler = subprocess.Popen(["/usr/bin/sample", str(self.app.process.pid), str(seconds), "1", "-mayDie", "-file", path],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(0.8)  # bench: the sampler attaches
+        for index in range(count):
+            step(index)
+            time.sleep(opts.interval)  # bench pacing, as the timed pass
+        try:
+            sampler.wait(timeout=seconds + 90)
+        except subprocess.TimeoutExpired:
+            sampler.terminate()
+        print(f"  sampled {label}: {path}", flush=True)
+
     def pair_switch(self, a, b, label, how="next_prev"):
         """Alternates a <-> b; `a` and `b` must be adjacent in the sidebar (b right after a) for next/prev."""
         self.action("goToWorkspace", {"workspace": a}, settle=0.6)
@@ -143,6 +163,7 @@ class Bench:
         return ws
 
     def run(self, session):
+        self.session = session
         rows = {}
         term_a, term_b = self.new_workspace(), self.new_workspace()
         chrome_a, chrome_b = self.new_workspace("chromium"), self.new_workspace("chromium")
