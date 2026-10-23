@@ -62,8 +62,6 @@ export function useNeedsYou({
     const target = sessions.find((session) => session.sessionId === item.sessionId);
     if (target?.peer) return;
     await callNative("chat.asks.open", { sessionId: item.sessionId }).catch(() => undefined);
-    // Opening the target selects its tab; reveal the exact ask after that tab's transcript mounts.
-    if (item.turnId) void revealTurnWhenShown(item.turnId);
   };
   const goTo = (item: NeedsYouItem) => {
     const reveal = () => {
@@ -103,8 +101,10 @@ export function useNeedsYou({
   // The last ask the pill went to, so the next press goes to the one after it.
   const last = useRef<string | undefined>(undefined);
   const pillItems = items.filter((item) => {
+    const target = sessions.find((session) => session.sessionId === item.sessionId);
+    if (target?.peer) return false;
     if (item.sessionId === sessionId) return true;
-    return !sessions.find((session) => session.sessionId === item.sessionId)?.peer;
+    return target !== undefined;
   });
   const elsewhere = pillItems.filter((item) => item.sessionId !== sessionId).length;
   const pill: TranscriptNeedsYou | undefined =
