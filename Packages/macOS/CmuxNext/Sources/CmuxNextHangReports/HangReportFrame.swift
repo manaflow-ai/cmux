@@ -3,7 +3,7 @@
 ///
 /// A frame in an image that is neither ours nor Apple's is ``other``: no name, UUID or offset,
 /// so an input method, plug-in or injected library is never named.
-public nonisolated struct HangFrame: Codable, Sendable, Hashable {
+public nonisolated struct HangReportFrame: Codable, Sendable, Hashable {
     /// The image's file name (`AppKit`, `cmux NEXT Nightly`), or `other`.
     public var image: String
     /// The image's `LC_UUID`, uppercase; nil for ``other``.
@@ -15,7 +15,7 @@ public nonisolated struct HangFrame: Codable, Sendable, Hashable {
     /// The image name of a frame that is not ours or Apple's.
     public static let otherImage = "other"
     /// A frame that is not ours or Apple's.
-    public static let other = HangFrame(image: otherImage, uuid: nil, offset: nil)
+    public static let other = HangReportFrame(image: otherImage, uuid: nil, offset: nil)
 
     public init(image: String, uuid: String?, offset: UInt64?) {
         self.image = image

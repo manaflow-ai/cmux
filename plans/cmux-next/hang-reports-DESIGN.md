@@ -14,8 +14,8 @@ Related: `perf-lead.md` (the lab numbers these reports check in the field),
 
 - Off by default, on every channel. Only NIGHTLY builds (`com.cmuxterm.app.nightly`, tagged
   nightlies too) ever send. Other channels keep the setting and send nothing.
-- `diagnostics.hangReports` (cmux-next.json, boolean, default `false`). Settings > Advanced >
-  Privacy has the switch and a **View Hang Report** button. `cmux settings set
+- `diagnostics.hangReports` (cmux-next.json, boolean, default `false`). Settings > Privacy and
+  Security > Hang Reports has the switch, and the category ends with a **View Hang Report** button. `cmux settings set
   diagnostics.hangReports true --confirm` and the palette's Toggle Setting write the same key
   through `SettingsController.setSetting` (one write path). The key is agent-refused
   (`AgentRefusal.privacy`): an agent cannot turn it on without the person's confirmation sheet.
@@ -42,13 +42,15 @@ Related: `perf-lead.md` (the lab numbers these reports check in the field),
 `MXAppLaunchDiagnostic` is iOS only (`API_UNAVAILABLE(macos)` in the macOS 26 SDK): launch on
 the Mac is the launch metric histograms plus watchdog stalls during launch.
 
-**Release intervals.** MetricKit aggregates only intervals emitted with `mxSignpost` on a log
-from `MXMetricManager.makeLogHandle(category:)`; `OSSignposter` intervals (the Debug `stalls`
-category) are not seen by MetricKit. A report includes an interval only when its category is in
-`HangReportSignposts.categories` (`perf.motion`, `perf.key`, `perf.switch`, `perf.create`,
-`perf.cef`) and its name is a short static identifier (`[a-z0-9_.-]{1,48}`); everything else is
-dropped. PL-arch's Release intervals use these categories through
-`HangReportSignposts.log(_:)`; histograms only, never a single event.
+**Release intervals.** PL-arch's always-on catalog (`CmuxNextSignposts`, subsystem
+`com.cmuxterm.app.next`: `action.perform`, `action.commit`, `motion.frame`, `key.frame`,
+`switch.workspace`, `switch.tab`, `create.tab`, `cef.pump`, ...) emits `OSSignposter` intervals,
+which MetricKit does not see: it aggregates only `mxSignpost` intervals on a log from
+`MXMetricManager.makeLogHandle(category:)`. While hang reports are on, the catalog mirrors each
+interval's begin and end (name only, no message) to that log, so MetricKit hands back a duration
+histogram per name. A report includes an interval only when its category is in
+`HangReportSignposts.categories` (`action`, `motion`, `key`, `switch`, `create`, `cef`, `launch`;
+not `stall`) and its name matches `[a-z0-9_.-]{1,48}`; histograms only, never one event.
 
 ## 3. Redaction (privacy first)
 
@@ -106,7 +108,7 @@ in its outbox (at most 3, at most 14 days) and tries again at the next trigger.
   "reportId": "5f1c7c1e-2b9b-4a8e-9c62-0f0d2b0b8a11",
   "installId": "0b8d4a51-6c9e-4f0f-8f53-3c2d7b4f9e20",
   "day": "2026-10-23",
-  "app": {"version": "0.70.0", "build": "70123", "channel": "nightly"},
+  "app": {"version": "0.70.0", "build": "2123456789012", "channel": "nightly"},
   "os": {"version": "15.7.4"},
   "hardware": {"arch": "arm64", "chip": "Apple M4 Pro", "cores": 14, "memoryGB": 48},
   "counts": {"windows": "1", "workspaces": "11-30", "panes": "6-10", "tabs": "31-100"},
@@ -121,7 +123,7 @@ in its outbox (at most 3, at most 14 days) and tries again at the next trigger.
     "launchFirstDraw": [], "launchResume": [], "launchOptimizedFirstDraw": [], "launchExtended": [],
     "scrollHitchMsPerS": 1.5, "hitchMsPerS": null
   },
-  "intervals": [{"category": "perf.motion", "name": "frame", "count": 1200,
+  "intervals": [{"category": "motion", "name": "motion.frame", "count": 1200,
                  "buckets": [{"lowMs": 0, "highMs": 10, "count": 1100}], "hitchMsPerS": 0.4}]
 }
 ```
@@ -166,7 +168,15 @@ few times a day. Idle: 0 extra wakeups, 0 extra CPU (measured in section 8).
 
 App: `Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/` (builder, redaction, scanner,
 collector, identity, store, uploader, MetricKit adapter), `CmuxNextApp/HangReports/` (wiring,
-ask card, action handler), `CmuxNextSettings/HangReportsSetting.swift` and its schema row.
+ask card, action handler; `WatchdogReporting` now holds all of the watchdog's sinks),
+`CmuxNextSettings/HangReportsSetting.swift` and its schema row, the `diagnostics.viewHangReport`
+action (`HangReportsActionCatalog`). Strings: `CmuxNextSettings/Localizable.xcstrings`,
+`CmuxNextActions/HangReportsActions.xcstrings`, `CmuxNextApp/Resources/HangReports.xcstrings`
+(all 21 catalog locales).
+
+The ask uses `SidebarAsks`, the queue the agent Cloud requests use: while the person has not
+answered, a later agent request waits behind it (one card at a time). Accepted: the card shows
+once per Mac and takes one click.
 Web: `web/app/api/hang-reports/`, `web/services/hangReports/`, `web/db/schema.ts`,
 `web/db/migrations/<stamp>_hang_reports/`, `web/scripts/hang-reports-top-frames.ts`.
 

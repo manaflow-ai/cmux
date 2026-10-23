@@ -7,7 +7,7 @@ import Foundation
 /// ``noteStall(durationNanos:cpuNanos:addresses:)`` runs on the main thread at the end of each
 /// stall over the watchdog's threshold: off, it is one atomic load; on, a lock over a few integer
 /// adds. Only a stall that earns a stack slot (250 ms and up, among the longest 8) leaves the
-/// main thread: its addresses are reduced to ``HangFrame``s on a utility task (`resolve`, which
+/// main thread: its addresses are reduced to ``HangReportFrame``s on a utility task (`resolve`, which
 /// reads dyld and the classifier) and kept after that. Nothing here runs while the app is idle.
 ///
 /// ```swift
@@ -16,7 +16,7 @@ import Foundation
 /// ```
 public final class HangReportCollector: Sendable {
     /// Turns return addresses (innermost first) into report frames. Called off the main thread.
-    public typealias Resolve = @Sendable ([UInt]) -> [HangFrame]
+    public typealias Resolve = @Sendable ([UInt]) -> [HangReportFrame]
 
     private let enabled = Atomic<Bool>(false)
     // Lock carve-out: a synchronous count from the main thread's run-loop observer at a stall's

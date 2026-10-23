@@ -3,7 +3,7 @@ public import Foundation
 /// One opt-in hang report, wire schema 1 (plans/cmux-next/hang-reports-DESIGN.md section 4).
 ///
 /// Every field is a closed set: enums, bucket labels, version numbers, durations, counts and
-/// ``HangFrame`` values whose names passed ``ImageClassifier``. ``HangReportBuilder`` is the only
+/// ``HangReportFrame`` values whose names passed ``ImageClassifier``. ``HangReportBuilder`` is the only
 /// producer; ``PrivacyLeakScanner`` checks the encoded bytes before anything leaves the Mac.
 ///
 /// ```swift

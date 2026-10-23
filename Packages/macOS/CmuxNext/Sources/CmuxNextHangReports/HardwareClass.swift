@@ -27,7 +27,7 @@ public nonisolated struct HardwareClass: Codable, Sendable, Equatable {
         let arch = rawArch?.trimmingCharacters(in: .whitespaces) ?? ""
         self.arch = ["arm64", "arm64e", "x86_64"].contains(arch) ? (arch == "arm64e" ? "arm64" : arch) : "other"
         self.chip = Self.chipFamily(rawChip)
-        self.cores = min(max(cores, 0), 1_024)
+        self.cores = min(max(cores, 1), 1_024)
         let gigabytes = Double(memoryBytes) / 1_073_741_824
         self.memoryGB = Self.memorySizesGB.min { abs(Double($0) - gigabytes) < abs(Double($1) - gigabytes) } ?? 0
     }

@@ -147,12 +147,13 @@ enum HangReportFixtures {
 
     /// MetricKit signposts: one allowlisted, others with private categories or names.
     static let signposts = [
-        MetricKitInput.Signpost(category: "perf.motion", name: "frame", count: 1200,
+        MetricKitInput.Signpost(category: "motion", name: "motion.frame", count: 1200,
                                 buckets: [HistogramBucket(lowMs: 0, highMs: 10, count: 1100), HistogramBucket(lowMs: 10, highMs: 20, count: 100)],
                                 hitchMsPerS: 0.4),
-        MetricKitInput.Signpost(category: "perf.switch", name: "/Users/alice/Documents", count: 3, buckets: []),
+        MetricKitInput.Signpost(category: "switch", name: "/Users/alice/Documents", count: 3, buckets: []),
         MetricKitInput.Signpost(category: "WorkspaceSecretProject", name: "frame", count: 3, buckets: []),
-        MetricKitInput.Signpost(category: "perf.key", name: "https://intranet.example.com/wiki", count: 1, buckets: []),
+        MetricKitInput.Signpost(category: "stall", name: "stall.main", count: 3, buckets: []),
+        MetricKitInput.Signpost(category: "key", name: "https://intranet.example.com/wiki", count: 1, buckets: []),
     ]
 
     static func metricKitInput() -> MetricKitInput {

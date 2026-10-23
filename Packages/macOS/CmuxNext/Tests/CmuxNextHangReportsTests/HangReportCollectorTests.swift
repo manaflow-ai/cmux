@@ -5,7 +5,7 @@ import Testing
 /// The watchdog sink counts every stall, keeps the stacks of the longest, does nothing while off,
 /// and the aggregate survives a relaunch.
 struct HangReportCollectorTests {
-    private func collector(resolved: @escaping @Sendable ([UInt]) -> [HangFrame] = { _ in [HangFrame(image: "AppKit", uuid: HangReportFixtures.appKitUUID, offset: 1)] })
+    private func collector(resolved: @escaping @Sendable ([UInt]) -> [HangReportFrame] = { _ in [HangReportFrame(image: "AppKit", uuid: HangReportFixtures.appKitUUID, offset: 1)] })
         -> HangReportCollector {
         HangReportCollector(resolve: resolved, schedule: { $0() })
     }
