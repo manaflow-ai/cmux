@@ -299,6 +299,7 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         if offset != 0 { setOffset(0, animated: false) }
         armed = false
         if made.contains("web") { web.release() }
+        resignQuestionOther()
         if composerText.value?.isFirstResponder == true { composerText.value?.resignFirstResponder() }
     }
 
@@ -311,6 +312,9 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
 
     /// The event as the store has it now (its read flag and time; the layout key leaves those out).
     private var current: FeedItem?
+    /// The read flag the dot shows, and when the time was last drawn (a prefetched cell catches up).
+    var shownRead: Bool? { current?.isRead }
+    private(set) var timeDrawnAt: CFTimeInterval = 0
 
     func apply(_ layout: FeedRowLayout, item shown: FeedItem?, settled: Bool) {
         #if DEBUG
@@ -375,6 +379,7 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
     func redraw(_ item: FeedItem) {
         current = item
         unread.isHidden = item.isRead
+        unread.accessibilityElementsHidden = item.isRead
         actions = delegate?.rowSwipeActions(item.id) ?? []
     }
 
@@ -385,6 +390,7 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
     }
 
     private func applyHeader(_ layout: FeedRowLayout) {
+        timeDrawnAt = CACurrentMediaTime()
         let item = current ?? layout.key.item
         let styles = NativeTextStyles(category: traitCollection.preferredContentSizeCategory)
         let font = styles.font(.subheadline)
@@ -433,8 +439,8 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
             markdown.frame = full
             markdown.apply(native)
         case .web(let source, let height, let placeholder):
-            web.frame = full
             if settled || (made.contains("web") && web.isShowing) {
+                web.frame = full
                 web.isHidden = false
                 web.show(source, contentHeight: height)
             } else {

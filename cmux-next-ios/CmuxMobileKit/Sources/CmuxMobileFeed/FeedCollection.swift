@@ -186,9 +186,16 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
         }
         collectionView = view
         scale = view.traitCollection.displayScale > 0 ? view.traitCollection.displayScale : 3
-        view.registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { [weak self] (_: FeedCollectionView, _: UITraitCollection) in
-            self?.measureHeader()
-            self?.relayoutAll()
+        view.registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { [weak self] (view: FeedCollectionView, _: UITraitCollection) in
+            guard let self else { return }
+            self.headerSizer.traitOverrides.preferredContentSizeCategory = view.traitCollection.preferredContentSizeCategory
+            // Not during the trait change's layout pass: both apply snapshots.
+            RunLoop.main.perform(inModes: [.common]) { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.measureHeader()
+                    self?.relayoutAll()
+                }
+            }
         }
         minuteTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.visibleCells.forEach { $0.refreshTime() } }
@@ -398,8 +405,8 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
                 snapshot.appendItems(shownOrder, toSection: .events)
             }
         }
-        let present = Set(shownOrder)
-        let reconfigure = plan.reconfigure.filter { present.contains($0) && previousOrder.contains($0) }
+        let present = Set(shownOrder), wasShown = Set(previousOrder)
+        let reconfigure = plan.reconfigure.filter { present.contains($0) && wasShown.contains($0) }
         if !reconfigure.isEmpty { snapshot.reconfigureItems(reconfigure) }
         applyCount += 1
         let heights = shownOrder.map { shownHeights[$0] ?? 1 }
@@ -653,11 +660,16 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
 
     // MARK: Cells
 
-    #if DEBUG
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        // A cell filled ahead (prefetch) missed redraws (a read flag, the minute) while off screen.
+        if let cell = cell as? FeedRowCell, let id = cell.layout?.key.item.id, let item = items[id] {
+            if cell.shownRead != item.isRead { cell.redraw(item) }
+            if CACurrentMediaTime() - cell.timeDrawnAt > 30 { cell.refreshTime() }
+        }
+        #if DEBUG
         if FeedCellTiming.enabled { FeedCellTiming.logger.notice("FEEDCELL willDisplay \(indexPath.item, privacy: .public) y=\(Int(collectionView.contentOffset.y), privacy: .public)") }
+        #endif
     }
-    #endif
 
     func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         guard let cell = cell as? FeedRowCell, let id = cell.layout?.key.item.id else { return }
@@ -797,6 +809,7 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
             refreshRows([id], animated: false)
         } else {
             shownKeys[id] = layout.key
+            shownHeights[id] = layout.height
             cell(id)?.apply(layout, item: items[id], settled: rowsSettled)
         }
     }
@@ -880,7 +893,7 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
             // The card state and draft stay until the question stops pending (a refused answer
             // brings the card back with the person's picks); applyPending clears them then.
             QuestionDraftStore.shared.save(QuestionDraft(state), for: question.id)
-            states[id, default: FeedRowState()].question = state
+            mutateState(id, animated: false) { $0.question = state }
             store.answer(id, answer: answer)
         default:
             QuestionDraftStore.shared.save(QuestionDraft(state), for: question.id)
