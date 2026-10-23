@@ -84,11 +84,11 @@ final class SidebarItemListRowView: SidebarRowView {
     override func layout() {
         super.layout()
         let b = layoutBounds
-        // The workspace row's geometry: the icon in the leading slot, else the title at the leading inset.
+        // The workspace row's geometry: the icon in the leading slot, drawn or empty, then the title.
         let leading = SidebarStyle.horizontalInset
         let side: CGFloat = hasIcon ? SidebarStyle.iconBox : 0
         icon.frame = NSRect(x: leading, y: (b.height - side) / 2, width: side, height: side)
-        let textX = hasIcon ? icon.frame.maxX + Metrics.space3 : leading - WorkspaceRowView.labelInset
+        let textX = SidebarStyle.titleTextX(leading: leading) - WorkspaceRowView.labelInset
         // The badge and the status trail it, as on the item's band row.
         let badgeWidth = badge.isHidden ? 0 : badge.preferredWidth
         let badgeHeight = badge.state == .dot ? badgeWidth : SidebarStyle.badgeHeight

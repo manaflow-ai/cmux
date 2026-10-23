@@ -140,7 +140,7 @@ extension SidebarBridge {
         var infos: [LayoutItemID: SidebarItemInfo] = [:]
         // `listed`: the built-ins the list draws in a group or a machine list, described as the bands' are.
         for item in layout.sections.flatMap(\.items) + listed {
-            if item.ref.kind == LayoutItemRef.workspaceKind { infos[item.id] = workspace(item.ref) ?? .fallback(for: item); continue }
+            if item.ref.kind == LayoutItemRef.workspaceKind { infos[item.id] = workspace(item.ref) ?? closedWorkspaceInfo(item); continue }
             if item.ref.kind == LayoutItemRef.appKind {
                 var info = app(item.ref.value)
                 if SidebarBuiltIn.firstParty(appID: item.ref.value) == .home { info.badge = homeUnread > 0 ? homeUnread : nil }
@@ -160,6 +160,17 @@ extension SidebarBridge {
             infos[item.id] = info
         }
         return infos
+    }
+
+    /// A workspace item no open workspace answers: dimmed under its stored
+    /// name, or hidden when it has none. Without a name it would be an
+    /// anonymous workspace glyph whose click does nothing (a pin from an old
+    /// daemon session; Lawrence 2026-10-21 "what are these 2 weird things").
+    /// The layout keeps it, so it draws again when its workspace comes back.
+    static func closedWorkspaceInfo(_ item: LayoutItem) -> SidebarItemInfo {
+        var info = SidebarItemInfo.fallback(for: item)
+        if item.label == nil { info.isHidden = true }
+        return info
     }
 
     /// A layout change from this sidebar (a drag, an inline edit): sent to
