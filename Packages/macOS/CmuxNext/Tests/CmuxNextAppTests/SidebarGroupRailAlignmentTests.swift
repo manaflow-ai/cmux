@@ -61,11 +61,46 @@ import Testing
             var offByDepth: [Int: Set<CGFloat>] = [:]
             for line in lines {
                 let header = try #require(list.rowViews[.group(line.group)] as? GroupHeaderRowView, "\(line.group.rawValue) has no header")
-                let bar = list.convert(header.labelFrame, from: header)
+                let bar = list.convert(header.leadingMarkFrame, from: header)
                 offByDepth[line.level, default: []].insert(line.frame.minX - bar.minX)
             }
             for (depth, offs) in offByDepth.sorted(by: { $0.key < $1.key }) {
                 #expect(offs == [0], "\(c.testDescription): depth \(depth) rail starts \(offs.sorted()) pt from its header bar's left edge")
+            }
+        }
+    }
+
+    /// Every header look (`sidebar.groupHeader`): the rail starts at the bar's left edge, or at the quiet looks' dot.
+    @Test(arguments: SidebarGroupHeaderStyle.allCases)
+    func theRailStartsAtEveryHeaderLooksLeadingMark(_ style: SidebarGroupHeaderStyle) throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        let key = SidebarGroupHeaderStyle.tunable.key
+        defer { TunableStore.shared.set(key, nil) }
+        try #require(TunableStore.shared.set(key, style.tunableValue) == style.tunableValue, "the header look takes the override")
+        let (list, window) = Self.list(SidebarNestedFixture(scenario: .deep))
+        defer { window.close() }
+        for line in list.groupLines(list.displayed) {
+            let header = try #require(list.rowViews[.group(line.group)] as? GroupHeaderRowView)
+            header.needsLayout = true
+            header.layoutSubtreeIfNeeded()
+            let mark = list.convert(header.leadingMarkFrame, from: header)
+            #expect(line.frame.minX == mark.minX, "\(style.rawValue) depth \(line.level): rail \(line.frame.minX), mark \(mark.minX)")
+        }
+    }
+
+    /// The header's name keeps its members' text column: the bar grows left, the text does not move.
+    @Test(arguments: SidebarDensity.allCases)
+    func theHeaderNameKeepsTheMembersTextColumn(_ density: SidebarDensity) throws {
+        try Self.with(density, .off) {
+            let (list, window) = Self.list(SidebarNestedFixture(scenario: .deep))
+            defer { window.close() }
+            for row in list.displayed.rows {
+                guard case let .group(id) = row.key, let header = list.rowViews[row.key] as? GroupHeaderRowView else { continue }
+                let name = list.convert(header.titleFrame, from: header).minX
+                let membersX = list.frame(for: row).minX + list.railReach(for: row)
+                #expect(name == membersX + SidebarStyle.horizontalInset - Metrics.space1,
+                        "\(density.rawValue) \(id.rawValue): name at \(name), members at \(membersX)")
             }
         }
     }
