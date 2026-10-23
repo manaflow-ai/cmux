@@ -95,7 +95,8 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// that started this run, when the run went through a gate first (a confirmation sheet, the
     /// palette asking for an argument) and so may run in a later turn, outside that event's
     /// dispatch. The registry stamps it when the gate starts; the run's `action.*` signposts
-    /// report its age when no input event is being dispatched at the run. Nil for every other run.
+    /// report its age, even when an unrelated input event is being dispatched at the run. Nil for
+    /// every other run.
     public var inputTimestamp: Double?
 
     public init(target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:], origin: ActionOrigin = .user,
