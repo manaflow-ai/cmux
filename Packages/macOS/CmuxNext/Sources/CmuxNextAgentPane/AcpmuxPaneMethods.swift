@@ -85,6 +85,10 @@ nonisolated enum AcpmuxPaneMethods {
         // `peerSessionId` only picks one of that chat's paused pairs; acpmux resumes no pair the
         // chat is not in, and only for a connection that proved the person key (hub/person.rs).
         "_acpmux/agent_pair_resume",
+        // Reply in place to another agent's message as the chat the pane shows (direct.ts reply,
+        // IncomingMessageCard.tsx): acpmux checks it and answers it signed, prompting nothing, and
+        // the host sends it on as that chat's cmux agent message (``AgentPaneAgentReply``).
+        "_acpmux/app_reply",
         // A chat's background processes (direct.ts listProcesses, tailProcess; the Inspector and an
         // opened background task note): read only, like `_acpmux/events`. acpmux serves them only to
         // this Mac's clients (server/processes.rs).
@@ -102,6 +106,10 @@ nonisolated enum AcpmuxPaneMethods {
         // runs under its parent's policy), so no gesture; acpmux takes it only from a connection that
         // proved the person key (hub/subsessions.rs, `set_subsession_limits`).
         "_acpmux/subsession/limits",
+        // The forum's current rules for the rules card above the composer (direct.ts forumRules,
+        // RulesNotice.tsx; acpmux server/forum.rs, hq#2570). Read only and without params: the
+        // rules every agent on this Mac is told already. Posting, acking and retiring stay off the pane.
+        "_acpmux/forum/rules",
     ]
 
     /// Notifications (no `id`).
@@ -197,7 +205,8 @@ nonisolated enum AcpmuxPaneMethods {
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
-        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/watch_take_over",
+        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/app_reply",
+        "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set",
         "_acpmux/subsession/limits",
     ]
@@ -273,6 +282,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/secret_submit": .always,
         // Resume runs turns: the held messages go to both chats of the pair.
         "_acpmux/agent_pair_resume": .always,
+        "_acpmux/app_reply": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
         // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work
         // Start begins is its session/prompt, which has one).
