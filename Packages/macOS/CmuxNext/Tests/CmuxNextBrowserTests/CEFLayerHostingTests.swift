@@ -234,3 +234,45 @@ import Testing
         #expect(fake.syncs.isEmpty)
     }
 }
+
+/// Review 1 of the fork (finding 3): with fork API 27 pinned an embedded page never waits for its frame at the new
+/// size, so a page that is not layer hosted lagged its pane during the window's live resize, which Chromium had kept
+/// in sync. The window's live resize gives every page over the view a bounded wait for that time.
+@MainActor
+@Suite struct CEFLayerHostingLiveResizeTests {
+    let fake = CEFLayerHostingTests.FakeFork()
+    let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+
+    func makeHosting(enabled: Bool) -> CEFLayerHosting {
+        let hosting = CEFLayerHosting(isEnabled: { enabled }, schedule: { $0() },
+                                      makePage: { CEFHostedPageView(frame: $0, makeLayerHost: { _ in CALayer() }) },
+                                      resizeDeadlineMs: { 8 }, liveResizeDeadlineMs: { 50 })
+        hosting.view = view
+        return hosting
+    }
+
+    @Test func aPageWindowThatIsNotHostedWaitsDuringTheWindowsLiveResizeOnly() {
+        let hosting = makeHosting(enabled: false)
+        hosting.pageWindowCreated(browser: 4, fork: fake.fork)
+        #expect(fake.syncs.isEmpty)
+        hosting.windowLiveResize(active: true)
+        hosting.windowLiveResize(active: false)
+        #expect(fake.syncs.map(\.browser) == [4, 4])
+        #expect(fake.syncs.map(\.timeoutMs) == [50, 0])
+    }
+
+    @Test func aHostedPageGoesBackToItsPaneDeadlineAfterTheLiveResize() {
+        let hosting = makeHosting(enabled: true)
+        hosting.pageWindowCreated(browser: 5, fork: fake.fork)
+        #expect(fake.syncs.map(\.timeoutMs) == [8])
+        hosting.windowLiveResize(active: true)
+        hosting.windowLiveResize(active: false)
+        #expect(fake.syncs.map(\.timeoutMs) == [8, 50, 8])
+    }
+
+    @Test func noPageWindowMeansNoForkCall() {
+        let hosting = makeHosting(enabled: true)
+        hosting.windowLiveResize(active: true)
+        #expect(fake.syncs.isEmpty)
+    }
+}
