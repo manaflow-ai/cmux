@@ -62,6 +62,13 @@ class DecideTests(unittest.TestCase):
         d = cron.decide(state, at(1), "b" * 40, None, lambda sha: ALL, None)
         self.assertEqual((d["sha"], d["part"]), ("a" * 40, "sidebar"))
 
+    def test_a_dead_measurement_is_dropped_before_the_new_commit_search(self):
+        state = cron.empty_state(T0)
+        cron.decide(state, T0, "a" * 40, None, lambda sha: ["motion"], None)
+        self.assertEqual(cron.drop_dead_measurement(state, at(1), lambda sha: sha != "a" * 40), "unmeasurable")
+        self.assertIsNone(state["current"])
+        self.assertIsNone(cron.drop_dead_measurement(state, at(1), lambda sha: False), "nothing in flight")
+
     def test_a_measurement_the_fleet_no_longer_runs_is_dropped(self):
         state = cron.empty_state(T0)
         cron.decide(state, T0, "a" * 40, None, lambda sha: ["motion"], None)

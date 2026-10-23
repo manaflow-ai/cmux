@@ -288,6 +288,23 @@ def with_build(parts):
     return (["build"] if fleet else []) + [p for p in parts if p != "build"]
 
 
+def drop_dead_measurement(state, t, measurable):
+    """End the measurement in flight when it is too old or the fleet no longer runs its commit (its
+    split-spring.sh is an older reviewed blob). Returns why, or None. The plan calls it before it looks for a
+    new commit, so a dropped measurement is replaced in the same tick."""
+    cur = state.get("current")
+    why = None
+    if cur and hours_between(parse_iso(cur["started_at"]), t) > ABANDON_HOURS:
+        why = "abandoned"
+    elif cur and not measurable(cur["sha"]):
+        why = "unmeasurable"
+    if why:
+        state.setdefault("history", []).append({"sha": cur["sha"], "kind": cur["kind"], "status": why,
+                                                "at": iso(t), "parts": sorted(cur.get("parts", {}))})
+        state["current"] = None
+    return why
+
+
 def decide(state, t, candidate, bisect_sha, supported_parts, github_busy, measurable=lambda sha: True):
     """The tick's work: {'action': 'part'|'none'|'finish', 'part': a fleet part or '', 'linux_part': '' or one}.
     May set state['current'] (a new measurement).
@@ -296,16 +313,8 @@ def decide(state, t, candidate, bisect_sha, supported_parts, github_busy, measur
     supported_parts(sha) -> the PARTS names the commit can run. github_busy: a reason string or None (it holds
     back the Mac parts only; the Linux part takes no Mac). measurable(sha): the fleet would still run the commit
     (its scripts/measure/split-spring.sh is the reviewed one)."""
+    drop_dead_measurement(state, t, measurable)
     cur = state.get("current")
-    why_dropped = None
-    if cur and hours_between(parse_iso(cur["started_at"]), t) > ABANDON_HOURS:
-        why_dropped = "abandoned"
-    elif cur and not measurable(cur["sha"]):
-        why_dropped = "unmeasurable"  # the fleet refuses its split-spring.sh now
-    if why_dropped:
-        state.setdefault("history", []).append({"sha": cur["sha"], "kind": cur["kind"], "status": why_dropped,
-                                                "at": iso(t), "parts": sorted(cur.get("parts", {}))})
-        state["current"] = cur = None
     if not cur:
         if candidate:
             state["current"] = cur = new_measurement(candidate, "tip", with_build(supported_parts(candidate)), t)
@@ -722,6 +731,10 @@ def cmd_plan(o):
     state = load_state(o.dir, t)
     tip = git("rev-parse", o.tip)
     tip_blob = script_blob(tip)
+    before = json.dumps(state, sort_keys=True)
+    dropped = drop_dead_measurement(state, t, lambda sha: fleet_runs(sha, tip_blob))
+    if dropped:
+        print(f"perf-cron: the measurement in flight ended ({dropped}); looking for a new commit")
     last_sha = (state.get("last") or {}).get("sha")
     candidate = None
     if not state.get("current"):
@@ -744,6 +757,8 @@ def cmd_plan(o):
     if candidate or bisect_sha or state.get("current"):
         busy = github_busy(o.repo, o.yield_mode)
     d = decide(state, t, candidate, bisect_sha, supported_parts_at, busy, lambda sha: fleet_runs(sha, tip_blob))
+    if json.dumps(state, sort_keys=True) != before:
+        state["dirty"] = True  # the report job saves it even when no part ran
     json.dump(state, open(os.path.join(o.dir, "state.json"), "w"), indent=1)
     out = {"action": d["action"], "sha": d.get("sha", ""), "part": d.get("part", ""), "linux_part": d.get("linux_part", ""),
            "reason": d["reason"], "stale_hours": round(stale_hours(state, t), 1)}
@@ -931,7 +946,7 @@ def record_part(cur, part, result, run_url):
 def cmd_report(o):
     t = now_utc()
     state = load_state(o.dir, t)
-    changed = not state.get("persisted")
+    changed = not state.get("persisted") or bool(state.pop("dirty", False))
     state["persisted"] = True
     event, summary = None, ""
     cur = state.get("current")
