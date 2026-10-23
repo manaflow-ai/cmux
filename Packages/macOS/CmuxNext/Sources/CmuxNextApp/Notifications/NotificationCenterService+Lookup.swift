@@ -40,15 +40,9 @@ extension NotificationCenterService {
         }
     }
 
-    static func tab(id: String, in store: DaemonStore) -> TabModel? {
-        for workspace in store.workspaces {
-            for screen in workspace.screens {
-                for pane in screen.panes {
-                    if let tab = pane.tabs.first(where: { $0.id == id }) { return tab }
-                }
-            }
-        }
-        return nil
+    static func tab(id: String, in store: DaemonStore) -> TabModel? { // perf-hot: 0.1ms key-dispatch (every key-down: noteTyping)
+        // The store's index: every keystroke looks its tab up here (noteTyping), so no walk over every tab.
+        store.tab(id: id)
     }
 
     func locate(surface: SurfaceID, in store: DaemonStore) -> LocatedTab? {
