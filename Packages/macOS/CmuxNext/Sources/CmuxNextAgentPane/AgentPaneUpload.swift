@@ -4,6 +4,15 @@ public import Foundation
 /// `chat.upload` call (``AgentPaneReply``).
 public typealias AgentPaneUploader = @MainActor (_ files: [AgentPaneUpload]) async -> [String: Any]
 
+public enum AgentPaneUploadStageRequest: Sendable, Equatable {
+    case begin(name: String, size: Int, batchToken: String?, batch: [(name: String, size: Int)]?)
+    case chunk(token: String, offset: Int, data: Data)
+    case finish(token: String)
+    case cancel(token: String)
+}
+
+public typealias AgentPaneUploadStager = @MainActor (_ request: AgentPaneUploadStageRequest, _ sessionId: String?) async -> [String: Any]
+
 /// A file the person dropped or pasted into a chat that the composer can't attach, for the App to
 /// send to the chat's Cloud machine (`chat.upload {files: [{name, data}]}`, cmuxterm-hq#1874
 /// slice 6). The page reads the bytes (it never learns a dropped file's path); the host takes them
