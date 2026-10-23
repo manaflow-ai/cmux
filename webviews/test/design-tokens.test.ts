@@ -9,12 +9,20 @@ describe("design token ratchet", () => {
   });
 
   test("requires a baseline shrink after a violation is removed", () => {
-    const errors = ratchetErrors(new Map([["src.css\theight\theight", 1]]), new Map([["src.css\theight\theight", 2]]));
+    const errors = ratchetErrors(
+      new Map([["src.css\theight\theight", 1]]),
+      new Map([["src.css\theight\theight", 2]]),
+    );
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain("baseline can shrink");
   });
 
   test("accepts an unchanged baseline", () => {
-    expect(ratchetErrors(new Map([["src.css\tspacing\tpadding", 2]]), new Map([["src.css\tspacing\tpadding", 2]]))).toEqual([]);
+    expect(
+      ratchetErrors(
+        new Map([["src.css\tspacing\tpadding", 2]]),
+        new Map([["src.css\tspacing\tpadding", 2]]),
+      ),
+    ).toEqual([]);
   });
 });
