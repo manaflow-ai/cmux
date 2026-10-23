@@ -110,6 +110,23 @@ def ensure_sim(name, runtime, reuse):
     return udid
 
 
+def onboard(sim, log):
+    """From the welcome screen to the tab bar (the production account's path)."""
+    tabs = dict(label="Workspaces", kind="RadioButton")
+    deadline = time.time() + 240
+    while time.time() < deadline:
+        if sim.find(**tabs) and not sim.find(contains="Connect your Mac"):
+            log("onboarded: on the tab bar")
+            return
+        personal = sim.find(ident="setup.teams.personal") or sim.find(contains="Personal", kind="Button")
+        hit = (sim.find(ident="setup.teams.choose") and personal) or sim.find(label="Not now", kind="Button") \
+            or (sim.find(contains="Connect your Mac") and sim.find(label="Continue", kind="Button"))
+        if hit:
+            sim.tap_el(hit[0])
+        time.sleep(1.5)
+    raise Fail("never reached the tab bar")
+
+
 def parse_host(text, since, phone=None):
     """The rig Mac's link and media events since `since` (epoch)."""
     out = []
@@ -183,6 +200,8 @@ def main():
     ap.add_argument("--reuse", action="store_true", help="keep the signed-in simulator of a previous run")
     ap.add_argument("--event", action="append", default=[])
     ap.add_argument("--phone-log", default="info,cmux_mobile_link=debug")
+    ap.add_argument("--bundle", default=BUNDLE)
+    ap.add_argument("--creds", help="EMAIL=/PASSWORD= file: a non-DEBUG simulator build signs in with it")
     a = ap.parse_args()
     os.makedirs(os.path.join(a.out, "shots"), exist_ok=True)
     logf = open(os.path.join(a.out, "run.log"), "a")
@@ -213,13 +232,25 @@ def main():
     def launch():
         e = dict(os.environ, **{"SIMCTL_CHILD_" + k: v for k, v in env.items()})
         subprocess.run(["xcrun", "simctl", "launch", "--terminate-running-process", f"--stderr={phone_log}.{int(time.time())}",
-                        udid, BUNDLE], check=True, capture_output=True, env=e)
+                        udid, a.bundle], check=True, capture_output=True, env=e)
 
-    if not a.reuse:
-        j.s_fresh_install()
-        j.s_sign_in()
-        j.s_choose_space()
-    launch()
+    if a.creds:
+        pairs = dict(l.strip().split("=", 1) for l in open(os.path.expanduser(a.creds)) if "=" in l)
+        if not a.reuse:
+            sh("xcrun", "simctl", "terminate", udid, a.bundle, check=False)
+            subprocess.run(["xcrun", "simctl", "uninstall", udid, a.bundle], capture_output=True)
+            subprocess.run(["xcrun", "simctl", "keychain", udid, "reset"], capture_output=True)
+            sh("xcrun", "simctl", "install", udid, a.app)
+        # The password sign-in of a non-DEBUG simulator build reads these once (never logged).
+        env.update(CMUX_MOBILE_STACK_EMAIL=pairs["EMAIL"], CMUX_MOBILE_STACK_PASSWORD=pairs["PASSWORD"])
+        launch()
+        onboard(sim, log)
+    else:
+        if not a.reuse:
+            j.s_fresh_install()
+            j.s_sign_in()
+            j.s_choose_space()
+        launch()
     t0 = time.time()
     log(f"app launched with {sorted(env)}; soak {a.minutes} min")
     if a.transport == "webrtc":

@@ -88,6 +88,14 @@ def main():
     m = mac()
     if cmd == "prepare":
         m.prepare()
+        # LINKREL_CREDS: an EMAIL=/PASSWORD= file (0600) of another account than the DEBUG dev
+        # credential (a production test account for a --production build), so this rig
+        # is not one of the many rig Macs every agent signs in to the dev account.
+        if os.environ.get("LINKREL_CREDS"):
+            pairs = dict(l.strip().split("=", 1) for l in open(os.path.expanduser(os.environ["LINKREL_CREDS"])) if "=" in l)
+            fd = os.open(m.creds, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(f"CMUX_UITEST_STACK_EMAIL={pairs['EMAIL']}\nCMUX_UITEST_STACK_PASSWORD={pairs['PASSWORD']}\n")
         m.seed_pairing(names=[PHONE])
         print(json.dumps({"app": m.app, "bundle": m.bundle_id, "tag": m.tag, "acpmux": prepare_acpmux()}))
     elif cmd == "launch":
