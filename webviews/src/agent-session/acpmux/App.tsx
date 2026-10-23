@@ -6970,74 +6970,77 @@ function AcpmuxPane() {
         : []),
     ];
     // Grouped by what a row does (chatMenuOrder.ts): the chat, a new chat from it, what opens beside
-    // it, where the tab goes, how the chat shows, then Archive and Close. Quick Chat's panel is not a
+    // it, Move to › and Tools ›, then Archive and Close. Quick Chat's panel is not a
     // tab: only the chat's own rows.
-    if (quick) return chatMenuOrder({ quick, copy, fork: fork[0], continueIn: continueIn[0], view: tools });
-    return chatMenuOrder({
-      quick,
-      rename: {
-        key: "rename",
-        label: t("chatMenu.rename"),
-        icon: "action.edit",
-        shortcutAction: HEADER_ACTIONS.rename,
-        onSelect: () => runHeaderAction(HEADER_ACTIONS.rename),
-      },
-      pin: {
-        key: "pin",
-        label: headerState().pinned ? t("chatMenu.unpin") : t("chatMenu.pin"),
-        icon: "action.pin",
-        shortcutAction: HEADER_ACTIONS.pin,
-        onSelect: () => runHeaderAction(HEADER_ACTIONS.pin),
-      },
-      markUnread,
-      copy,
-      sideChat,
-      fork: fork[0],
-      continueIn: continueIn[0],
-      beside: opensBeside,
-      move: [
-        {
-          key: "moveRight",
-          label: t("chatMenu.moveRight"),
-          icon: "pane.split.right",
-          shortcutAction: HEADER_ACTIONS.moveRight,
-          onSelect: () => runHeaderAction(HEADER_ACTIONS.moveRight),
+    if (quick) return chatMenuOrder({ quick, copy, fork: fork[0], continueIn: continueIn[0], view: tools }, t);
+    return chatMenuOrder(
+      {
+        quick,
+        rename: {
+          key: "rename",
+          label: t("chatMenu.rename"),
+          icon: "action.edit",
+          shortcutAction: HEADER_ACTIONS.rename,
+          onSelect: () => runHeaderAction(HEADER_ACTIONS.rename),
         },
-        {
-          key: "newWorkspace",
-          label: t("chatMenu.newWorkspace"),
-          icon: "workspace.new",
-          shortcutAction: HEADER_ACTIONS.newWorkspace,
-          onSelect: () => runHeaderAction(HEADER_ACTIONS.newWorkspace),
+        pin: {
+          key: "pin",
+          label: headerState().pinned ? t("chatMenu.unpin") : t("chatMenu.pin"),
+          icon: "action.pin",
+          shortcutAction: HEADER_ACTIONS.pin,
+          onSelect: () => runHeaderAction(HEADER_ACTIONS.pin),
         },
-        {
-          key: "newWindow",
-          label: t("chatMenu.newWindow"),
-          icon: "app.open.external",
-          shortcutAction: HEADER_ACTIONS.newWindow,
-          onSelect: () => runHeaderAction(HEADER_ACTIONS.newWindow),
+        markUnread,
+        copy,
+        sideChat,
+        fork: fork[0],
+        continueIn: continueIn[0],
+        beside: opensBeside,
+        move: [
+          {
+            key: "moveRight",
+            label: t("chatMenu.moveTo.rightPane"),
+            icon: "pane.split.right",
+            shortcutAction: HEADER_ACTIONS.moveRight,
+            onSelect: () => runHeaderAction(HEADER_ACTIONS.moveRight),
+          },
+          {
+            key: "newWorkspace",
+            label: t("chatMenu.moveTo.newWorkspace"),
+            icon: "workspace.new",
+            shortcutAction: HEADER_ACTIONS.newWorkspace,
+            onSelect: () => runHeaderAction(HEADER_ACTIONS.newWorkspace),
+          },
+          {
+            key: "newWindow",
+            label: t("chatMenu.moveTo.newWindow"),
+            icon: "app.open.external",
+            shortcutAction: HEADER_ACTIONS.newWindow,
+            onSelect: () => runHeaderAction(HEADER_ACTIONS.newWindow),
+          },
+          ...(headerState().floatingChat && snapshot.sessionId
+            ? [
+                {
+                  key: "floatingChat",
+                  label: t("chatMenu.moveTo.floatingChat"),
+                  icon: "site.permission.windowmanagement",
+                  onSelect: () => runHeaderAction(HEADER_ACTIONS.floatingChat),
+                },
+              ]
+            : []),
+        ],
+        view: tools,
+        archive,
+        close: {
+          key: "close",
+          label: t("chatMenu.close"),
+          icon: "tab.close",
+          shortcutAction: HEADER_ACTIONS.close,
+          onSelect: () => runHeaderAction(HEADER_ACTIONS.close),
         },
-        ...(headerState().floatingChat && snapshot.sessionId
-          ? [
-              {
-                key: "floatingChat",
-                label: t("chatMenu.floatingChat"),
-                icon: "site.permission.windowmanagement",
-                onSelect: () => runHeaderAction(HEADER_ACTIONS.floatingChat),
-              },
-            ]
-          : []),
-      ],
-      view: tools,
-      archive,
-      close: {
-        key: "close",
-        label: t("chatMenu.close"),
-        icon: "tab.close",
-        shortcutAction: HEADER_ACTIONS.close,
-        onSelect: () => runHeaderAction(HEADER_ACTIONS.close),
       },
-    });
+      t,
+    );
   };
   // Before the handshake the New Tab frame shows (cx-0rpl.10) unless the host failed: then the
   // chat view's error card with Retry shows, as before.

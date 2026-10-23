@@ -3,7 +3,8 @@ import { createElement } from "react";
 import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
-import { chatMenuOrder, type ChatMenuEntry } from "./chatMenuOrder";
+import type { ChatMenuItem } from "./ChatHeaderTools";
+import { CHAT_MENU_FOLDED, chatMenuOrder, menuGroups, type ChatMenuEntry } from "./chatMenuOrder";
 import { PanelToggle } from "./PanelToggle";
 import type { QuickAction } from "./quickActions";
 
@@ -33,52 +34,100 @@ type HeaderToolsProps = {
 };
 
 const noop = () => undefined;
-// The App's rows in its order (chatMenuOrder.ts): the chat, a new chat from it, beside it (the
-// folded New tab, Files and Split Down lead), where the tab goes, how it shows, then Archive and Close.
-const menuRows = (): ChatMenuEntry[] =>
-  chatMenuOrder({
-    quick: false,
-    rename: { key: "rename", label: "Rename", icon: "action.edit", shortcutAction: "renameTab", onSelect: noop },
-    pin: { key: "pin", label: "Pin", icon: "action.pin", shortcutAction: "palette.toggleTabPin", onSelect: noop },
-    markUnread: { key: "markUnread", label: "Mark as Unread", icon: "unread.dot", onSelect: noop },
-    copy: {
-      key: "copy",
-      label: "Copy",
-      icon: "action.copy",
-      children: [
-        { key: "copyLink", label: "Copy link", shortcutAction: "palette.copySurfaceLink", onSelect: noop },
-        { key: "copyResponse", label: "Copy last response", onSelect: noop },
-        { key: "copyMarkdown", label: "Copy as Markdown", onSelect: noop },
-      ],
+type MenuRow = Exclude<ChatMenuItem, "separator">;
+const fixtureRows = {
+  rename: { key: "rename", label: "Rename", icon: "action.edit", shortcutAction: "renameTab", onSelect: noop },
+  pin: { key: "pin", label: "Pin", icon: "action.pin", shortcutAction: "palette.toggleTabPin", onSelect: noop },
+  markUnread: { key: "markUnread", label: "Mark as Unread", icon: "unread.dot", onSelect: noop },
+  copy: {
+    key: "copy",
+    label: "Copy",
+    icon: "action.copy",
+    children: [
+      { key: "copyLink", label: "Copy link", shortcutAction: "palette.copySurfaceLink", onSelect: noop },
+      { key: "copyResponse", label: "Copy last response", onSelect: noop },
+      { key: "copyMarkdown", label: "Copy as Markdown", onSelect: noop },
+    ],
+  },
+  sideChat: { key: "sideChat", label: "New side chat", icon: "agent.chat.new", onSelect: noop },
+  fork: { key: "fork", label: "Fork", icon: "agent.fork", onSelect: noop },
+  continueIn: {
+    key: "continue",
+    label: "Continue in",
+    icon: "agent.handoff",
+    children: [
+      { key: "codex", label: "Codex", onSelect: noop },
+      { key: "claude", label: "Claude Code", onSelect: noop },
+    ],
+  },
+  beside: [
+    { key: "newTerminal", label: "New terminal", icon: "terminal", shortcutAction: "splitRight", onSelect: noop },
+    { key: "newBrowser", label: "New browser", icon: "browser", shortcutAction: "splitBrowserRight", onSelect: noop },
+  ],
+  move: [
+    {
+      key: "moveRight",
+      label: "Right pane",
+      icon: "pane.split.right",
+      shortcutAction: "moveSurfaceToPaneRight",
+      onSelect: noop,
     },
-    sideChat: { key: "sideChat", label: "New side chat", icon: "agent.chat.new", onSelect: noop },
-    fork: { key: "fork", label: "Fork", icon: "agent.fork", onSelect: noop },
-    continueIn: {
-      key: "continue",
-      label: "Continue in",
-      icon: "agent.handoff",
-      children: [
-        { key: "codex", label: "Codex", onSelect: noop },
-        { key: "claude", label: "Claude Code", onSelect: noop },
-      ],
-    },
-    beside: [
-      { key: "newTerminal", label: "New terminal", icon: "terminal", shortcutAction: "splitRight", onSelect: noop },
-      { key: "newBrowser", label: "New browser", icon: "browser", shortcutAction: "splitBrowserRight", onSelect: noop },
+    { key: "newWorkspace", label: "New workspace", icon: "workspace.new", onSelect: noop },
+    { key: "newWindow", label: "New window", icon: "app.open.external", onSelect: noop },
+  ],
+  view: [
+    { key: "display", label: "Text & Width…", icon: "site.permission.localfonts", onSelect: noop },
+    { key: "instructions", label: "Edit CLAUDE.md", icon: "action.edit", onSelect: noop },
+    { key: "inspector", label: "ACP inspector", icon: "code", onSelect: noop },
+    { key: "checkpoint", label: "Create checkpoint", icon: "action.review", onSelect: noop },
+  ],
+  archive: { key: "archive", label: "Archive", icon: "inbox", onSelect: noop },
+  // The tab-owned close action stays the last row, like Chrome's tab actions.
+  close: { key: "close", label: "Close", icon: "tab.close", shortcutAction: "closeTab", onSelect: noop },
+} satisfies Record<string, MenuRow | MenuRow[]>;
+// The App's rows in its order (chatMenuOrder.ts), the shipped pick: the chat, a new chat from it,
+// beside it (the folded New tab, Files and Split Down lead), Move to › and Tools ›, then Archive and Close.
+const menuRows = (): ChatMenuEntry[] => chatMenuOrder({ quick: false, ...fixtureRows });
+const { rename, pin, markUnread, copy, sideChat, fork, continueIn, beside, move, view, archive, close } = fixtureRows;
+const sub = (key: string, label: string, icon: string, rows: MenuRow[]): MenuRow => ({
+  key,
+  label,
+  icon,
+  children: rows.map((row) => ({ key: row.key, label: row.label, shortcutAction: row.shortcutAction, onSelect: noop })),
+});
+// Not shipped, for the before/after pick: the same groups with every row flat (six groups, 20 rows).
+const flatRows = (): ChatMenuEntry[] =>
+  menuGroups<ChatMenuEntry>(
+    [rename, pin, markUnread, copy],
+    [sideChat, fork, continueIn],
+    [CHAT_MENU_FOLDED, ...beside],
+    move,
+    view,
+    [archive, close],
+  );
+// Not shipped: one More › submenu holding where the tab goes, the tools and Archive.
+const moreRows = (): ChatMenuEntry[] =>
+  menuGroups<ChatMenuEntry>(
+    [rename, pin, markUnread, copy],
+    [sideChat, fork, continueIn],
+    [CHAT_MENU_FOLDED, ...beside],
+    [sub("more", "More", "action.more.vertical", [...move, ...view, archive])],
+    [close],
+  );
+// Not shipped: ChatGPT's short menu, the chat's own rows only; opening, moving and tools go to submenus.
+const shortRows = (): ChatMenuEntry[] =>
+  menuGroups<ChatMenuEntry>(
+    [rename, pin, markUnread, copy],
+    [
+      sub("new", "New", "agent.chat.new", [sideChat, ...beside]),
+      fork,
+      continueIn,
+      sub("moveTo", "Move to", "pane.split.right", move),
+      sub("tools", "Tools", "code", view),
     ],
-    move: [
-      { key: "moveRight", label: "Move to right pane", icon: "pane.split.right", onSelect: noop },
-      { key: "newWorkspace", label: "Move to new workspace", icon: "workspace.new", onSelect: noop },
-      { key: "newWindow", label: "Open in new window", icon: "app.open.external", onSelect: noop },
-    ],
-    view: [
-      { key: "display", label: "Display…", icon: "site.permission.localfonts", onSelect: noop },
-      { key: "inspector", label: "Inspector", icon: "code", onSelect: noop },
-    ],
-    archive: { key: "archive", label: "Archive", icon: "inbox", onSelect: noop },
-    // The tab-owned close action stays the last row, like Chrome's tab actions.
-    close: { key: "close", label: "Close", icon: "tab.close", shortcutAction: "closeTab", onSelect: noop },
-  });
+    [CHAT_MENU_FOLDED],
+    [archive, close],
+  );
 
 // The summary's panel toggle as the App passes it (summary/SummaryButton.tsx).
 const panelToggle = (shown: boolean) =>
@@ -440,8 +489,23 @@ export default componentEntry<HeaderToolsProps>({
       play: customizeMenu,
     },
     "menu-open": {
-      note: "The chat menu in six groups by what a row does: the chat, a new chat from it, what opens beside it (New tab, Files and Split Down, folded out of the header, lead it), where the tab goes, how it shows, then Archive and Close.",
+      note: "Picked: the chat menu in five short groups: the chat, a new chat from it, what opens beside it (New tab, Files and Split Down, folded out of the header, lead it), Move to › and Tools ›, then Archive and Close.",
       props: base,
+      play: openMenu,
+    },
+    "menu-alt-flat": {
+      note: "Not shipped (alternative A): the same groups with every row flat; 20 rows, the menu still runs long.",
+      props: { ...base, menu: flatRows },
+      play: openMenu,
+    },
+    "menu-alt-more": {
+      note: "Not shipped (alternative B): one More › holds where the tab goes, the tools and Archive; Archive hides two levels deep.",
+      props: { ...base, menu: moreRows },
+      play: openMenu,
+    },
+    "menu-alt-short": {
+      note: "Not shipped (alternative C): New › gathers side chat, terminal and browser too; shortest, but New terminal loses its one-step key row.",
+      props: { ...base, menu: shortRows },
       play: openMenu,
     },
     "keyboard-menu": {

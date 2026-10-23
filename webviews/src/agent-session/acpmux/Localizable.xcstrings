@@ -97650,530 +97650,794 @@
         }
       }
     },
-    "chatMenu.moveRight": {
-      "comment": "Agent pane chat header",
+    "chatMenu.moveTo": {
+      "comment": "Agent pane chat menu: submenu of where the chat tab goes",
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Move to right pane"
-          }
-        },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "نقل إلى اللوحة اليمنى"
+            "state": "translated",
+            "value": "نقل إلى"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Premjesti u desno okno"
+            "state": "translated",
+            "value": "Premjesti u"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Flyt til højre rude"
+            "state": "translated",
+            "value": "Flyt til"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "In rechten Bereich verschieben"
+            "state": "translated",
+            "value": "Verschieben nach"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mover al panel derecho"
+            "state": "translated",
+            "value": "Mover a"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Déplacer vers le volet droit"
+            "state": "translated",
+            "value": "Déplacer vers"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sposta nel riquadro destro"
+            "state": "translated",
+            "value": "Sposta in"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "右のペインに移動"
+            "state": "translated",
+            "value": "移動先"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ផ្លាស់ទីទៅផ្ទាំងស្តាំ"
+            "state": "translated",
+            "value": "ផ្លាស់ទីទៅ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "오른쪽 창으로 이동"
+            "state": "translated",
+            "value": "이동"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Flytt til høyre rute"
+            "state": "translated",
+            "value": "Flytt til"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Przenieś do prawego panelu"
+            "state": "translated",
+            "value": "Przenieś do"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mover para o painel direito"
+            "state": "translated",
+            "value": "Mover para"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Переместить в правую панель"
+            "state": "translated",
+            "value": "Переместить в"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ย้ายไปบานหน้าต่างขวา"
+            "state": "translated",
+            "value": "ย้ายไปที่"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sağ bölmeye taşı"
+            "state": "translated",
+            "value": "Taşı"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Перемістити в праву панель"
+            "state": "translated",
+            "value": "Перемістити в"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chuyển sang ngăn phải"
+            "state": "translated",
+            "value": "Chuyển đến"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "移到右侧窗格"
+            "state": "translated",
+            "value": "移到"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "移到右側窗格"
+            "state": "translated",
+            "value": "移到"
           }
         }
       }
     },
-    "chatMenu.floatingChat" : {
-      "comment" : "Agent pane chat header",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open in floating chat"
-          }
-        },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "فتح في دردشة عائمة"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Otvori u plutajućem chatu"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Åbn i svævende chat"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "In schwebendem Chat öffnen"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Abrir en chat flotante"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ouvrir dans le chat flottant"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Apri nella chat mobile"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "フローティングチャットで開く"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "បើកក្នុងការជជែកអណ្តែត"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "플로팅 채팅에서 열기"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Åpne i flytende chat"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Otwórz w pływającym czacie"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Abrir no chat flutuante"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Открыть в плавающем чате"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "เปิดในแชทลอย"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Kayan sohbette aç"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Відкрити в плаваючому чаті"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Mở trong khung chat nổi"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "在浮动聊天中打开"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "在浮動聊天中打開"
-          }
-        }
-      }
-    },
-    "chatMenu.newWindow" : {
-      "comment" : "Agent pane chat header",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open in new window"
-          }
-        },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "فتح في نافذة جديدة"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Otvori u novom prozoru"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Åbn i nyt vindue"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "In neuem Fenster öffnen"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Abrir en una ventana nueva"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ouvrir dans une nouvelle fenêtre"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Apri in una nuova finestra"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "新しいウインドウで開く"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "បើកក្នុងបង្អួចថ្មី"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "새 윈도우에서 열기"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Åpne i nytt vindu"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Otwórz w nowym oknie"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Abrir em nova janela"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Открыть в новом окне"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "เปิดในหน้าต่างใหม่"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Yeni pencerede aç"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Відкрити в новому вікні"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Mở trong cửa sổ mới"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "在新窗口中打开"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "在新視窗中打開"
-          }
-        }
-      }
-    },
-    "chatMenu.newWorkspace": {
-      "comment": "Agent pane chat header",
+    "chatMenu.tools": {
+      "comment": "Agent pane chat menu: submenu of the chat's tools (text and width, replay, instructions, inspector, checkpoint)",
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Move to new workspace"
-          }
-        },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "نقل إلى مساحة عمل جديدة"
+            "state": "translated",
+            "value": "الأدوات"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Premjesti u novi radni prostor"
+            "state": "translated",
+            "value": "Alati"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Flyt til nyt arbejdsområde"
+            "state": "translated",
+            "value": "Værktøjer"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "In neuen Arbeitsbereich verschieben"
+            "state": "translated",
+            "value": "Werkzeuge"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tools"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mover a un nuevo espacio de trabajo"
+            "state": "translated",
+            "value": "Herramientas"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Déplacer vers un nouvel espace de travail"
+            "state": "translated",
+            "value": "Outils"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sposta in un nuovo spazio di lavoro"
+            "state": "translated",
+            "value": "Strumenti"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "新しいワークスペースに移動"
+            "state": "translated",
+            "value": "ツール"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ផ្លាស់ទីទៅកន្លែងធ្វើការថ្មី"
+            "state": "translated",
+            "value": "ឧបករណ៍"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "새 작업 공간으로 이동"
+            "state": "translated",
+            "value": "도구"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Flytt til nytt arbeidsområde"
+            "state": "translated",
+            "value": "Verktøy"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Przenieś do nowego obszaru roboczego"
+            "state": "translated",
+            "value": "Narzędzia"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mover para novo espaço de trabalho"
+            "state": "translated",
+            "value": "Ferramentas"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Переместить в новое рабочее пространство"
+            "state": "translated",
+            "value": "Инструменты"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ย้ายไปพื้นที่ทำงานใหม่"
+            "state": "translated",
+            "value": "เครื่องมือ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Yeni çalışma alanına taşı"
+            "state": "translated",
+            "value": "Araçlar"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Перемістити в новий робочий простір"
+            "state": "translated",
+            "value": "Інструменти"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chuyển sang không gian làm việc mới"
+            "state": "translated",
+            "value": "Công cụ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "移到新工作区"
+            "state": "translated",
+            "value": "工具"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "移到新工作區"
+            "state": "translated",
+            "value": "工具"
+          }
+        }
+      }
+    },
+    "chatMenu.moveTo.rightPane": {
+      "comment": "Agent pane chat menu, Move to submenu: the pane to the right",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اللوحة اليمنى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desno okno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Højre rude"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechter Bereich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right pane"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel derecho"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volet droit"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riquadro destro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右のペイン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងស្តាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 창"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Høyre rute"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prawy panel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Painel direito"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Правая панель"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บานหน้าต่างขวา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sağ bölme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Права панель"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ngăn phải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右侧窗格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右側窗格"
+          }
+        }
+      }
+    },
+    "chatMenu.moveTo.newWorkspace": {
+      "comment": "Agent pane chat menu, Move to submenu: a new workspace",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة عمل جديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novi radni prostor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyt arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuer Arbeitsbereich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New workspace"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuevo espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvel espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuovo spazio di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいワークスペース"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 작업 공간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nytt arbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowy obszar roboczy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novo espaço de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новое рабочее пространство"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่ทำงานใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni çalışma alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новий робочий простір"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không gian làm việc mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新工作區"
+          }
+        }
+      }
+    },
+    "chatMenu.moveTo.newWindow": {
+      "comment": "Agent pane chat menu, Move to submenu: a new window",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نافذة جديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novi prozor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyt vindue"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neues Fenster"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New window"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nueva ventana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvelle fenêtre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuova finestra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいウインドウ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្អួចថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 윈도우"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nytt vindu"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowe okno"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nova janela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новое окно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าต่างใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni pencere"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нове вікно"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cửa sổ mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新視窗"
+          }
+        }
+      }
+    },
+    "chatMenu.moveTo.floatingChat": {
+      "comment": "Agent pane chat menu, Move to submenu: the floating chat panel",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "دردشة عائمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plutajući chat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svævende chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schwebender Chat"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Floating chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat flotante"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat flottant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat mobile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フローティングチャット"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកអណ្តែត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "플로팅 채팅"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flytende chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pływający czat"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat flutuante"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плавающий чат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทลอย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kayan sohbet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плаваючий чат"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khung chat nổi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浮动聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浮動聊天"
           }
         }
       }
