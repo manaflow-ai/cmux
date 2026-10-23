@@ -194,7 +194,7 @@ public actor HangReportService {
         guard generation == started else { return }
         await store.enqueue(body, reportId: report.reportId)
         // The readable copy (View Hang Report) is the queued body's, written only while reports are on.
-        if let readable = try? HangReport.readableEncoder.encode(report) { await store.saveLastReport(readable) }
+        if generation == started, let readable = try? HangReport.readableEncoder.encode(report) { await store.saveLastReport(readable) }
         await flushOutbox()
     }
 
