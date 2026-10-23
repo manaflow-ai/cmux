@@ -56,20 +56,21 @@ struct MainThreadWatchdogPolicyTests {
             let cap = ContinuousClock.now + .seconds(10)
             while clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) &- start < 80_000_000, ContinuousClock.now < cap {}
             step.yield()
-            // Stays alive while the test reads its CPU time.
+            // Stays alive while the test reads its CPU time, then ends the stream.
             finish.wait()
+            step.finish()
         }
         watched.start()
-        defer {
-            spin.signal()
-            finish.signal()
-        }
         var next = steps.makeAsyncIterator()
         await next.next()
-        let before = try #require(busy.mainThreadCPUNanos())
+        let before = busy.mainThreadCPUNanos()
         spin.signal()
         await next.next()
-        let after = try #require(busy.mainThreadCPUNanos())
-        #expect(after >= before + 50_000_000, "before \(before) ns, after \(after) ns")
+        let after = busy.mainThreadCPUNanos()
+        // Join: the thread ends (and the stream with it) before the test does.
+        finish.signal()
+        while await next.next() != nil {}
+        let readBefore = try #require(before), readAfter = try #require(after)
+        #expect(readAfter >= readBefore + 50_000_000, "before \(readBefore) ns, after \(readAfter) ns")
     }
 }
