@@ -70,7 +70,8 @@ extension UpdaterService {
             UpdateHarness.mark("install_started")
             #endif
             automaticInstallInFlight = false
-            if let failure = installPreflightFailure() {
+            let failure = if let preflightOverride { preflightOverride() } else { installPreflightFailure() }
+            if let failure {
                 failInstall(failure)
                 return
             }
