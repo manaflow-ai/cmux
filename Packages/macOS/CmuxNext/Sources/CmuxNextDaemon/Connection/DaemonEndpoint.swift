@@ -73,6 +73,9 @@ public struct DaemonCapabilities: Sendable {
     /// The manual tab unread mark (Mark Tab Unread): `marked_unread` on
     /// `tab.update` and the tab's `extra.marked_unread`; no notification needed.
     public let tabMarkUnread = "tab-mark-unread-v1"
+    /// An agent's "needs you here" mark on a tab: `attention` on `tab.update` and the tab's
+    /// `extra.attention` (`{reason, at_ms}`).
+    public let tabAttention = "tab-attention-v1"
     /// A workspace's description: `description` on `workspace.update` and the
     /// workspace's `extra.description` (Edit / Clear Workspace Description).
     public let workspaceDescription = "workspace-description-v1"
@@ -471,7 +474,7 @@ public struct DaemonCapabilities: Sendable {
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
                                             terminalReap, resumeCommand, terminalReaperActive, batchClose, closeReason, closeWorkspaceIfEmpty, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, frontendBrowserTabKeys, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles, personalRemoteLocalhost,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
-                                            terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, bookmarkIcon, history, workspacePin, workspaceChecklist, notificationMarkUnread, tabMarkUnread, workspaceDescription, workspaceStatus,
+                                            terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, bookmarkIcon, history, workspacePin, workspaceChecklist, notificationMarkUnread, tabMarkUnread, tabAttention, workspaceDescription, workspaceStatus,
                                             terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, pinnedDock, pinnedDockAlone, rows, columnMove, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, conversationDraftEvents, chiefLive, cloudChiefLive, conversationRuns, cloudConversationRuns, cloudConversationTyping, tabSplitRespawn, tabSplitKeepFocus, workspaceCreateFocus, frontendBrowserHistory, frontendBrowserTabProfile,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
