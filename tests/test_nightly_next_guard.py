@@ -88,6 +88,20 @@ for ring in ("cmux-next", "cmux-next-dev", "cmux-next-canary", "cmux-next-stable
 expect(1, "appcast", appcast(f"{NEXT}cmux-nightly-next-macos-arm64-123.dmg",
                              channel="cmux-next</sparkle:channel><sparkle:channel>cmux-next-dev"))
 
+# Dev fast builds (Leo, 2026-10-23) are signed but never notarized, live on R2
+# under nightly-next/dev/ and may only ever be offered on the Dev ring.
+DEV = "https://files-next.cmux.com/nightly-next/dev/"
+expect(0, "appcast", appcast(f"{DEV}3990000000101/cmux-nightly-next-macos-nightlyid-dev-arm64-3990000000101.dmg",
+                             channel="cmux-next-dev"))
+for ring in ("cmux-next", "cmux-next-canary", "cmux-next-stable"):
+    expect(1, "appcast", appcast(f"{DEV}3990000000101/cmux-nightly-next-macos-nightlyid-dev-arm64-3990000000101.dmg",
+                                 channel=ring))
+expect(1, "appcast", appcast(f"{DEV}3990000000101/cmux-nightly-next-macos-nightlyid-dev-arm64-3990000000102.dmg",
+                             channel="cmux-next-dev"))
+expect(1, "appcast", appcast(f"{DEV}../nightly/cmux-nightly-macos-arm64-1.dmg", channel="cmux-next-dev"))
+expect(1, "appcast", appcast("https://files-next.cmux.com/nightly-next/cmux-nightly-next-macos-arm64-1.dmg",
+                             channel="cmux-next-dev"))
+
 # The guard, the ring script and the app name the same tags.
 guard_tags = re.search(r"^NEXT_SPARKLE_CHANNELS = \(([^)]*)\)$", GUARD.read_text(), re.MULTILINE)
 ring_spec = importlib.util.spec_from_file_location("nightly_next_ring", ROOT / "scripts" / "ci" / "nightly_next_ring.py")

@@ -192,6 +192,51 @@ class LegacyTests(unittest.TestCase):
             ring.legacy(feed(), feed(item("200")), "on", self.verdicts())
 
 
+DEV_FAST = "https://files-next.cmux.com/nightly-next/dev/"
+
+
+def dev_fast_item(build: str, channel: str | None = "cmux-next-dev") -> str:
+    """A Dev fast build (Leo, 2026-10-23): signed, not notarized, on R2."""
+    return item(build, channel).replace(
+        f"{BASE}cmux-nightly-next-macos-arm64-{build}.dmg",
+        f"{DEV_FAST}{build}/cmux-nightly-next-macos-nightlyid-dev-arm64-{build}.dmg")
+
+
+class DevFastTests(unittest.TestCase):
+    """An un-notarized Dev fast build is never offered to Nightly, whatever the
+    mode or a verdict says (NIGHTLY_NEXT_DEV_RING off is the canary kill switch)."""
+
+    def test_retag_keeps_a_dev_fast_build_on_dev_with_a_pass_verdict_or_mode_off(self):
+        text = feed(dev_fast_item("300", "cmux-next"), item("200"))
+        for mode in ("on", "off"):
+            out, summary = ring.retag(text, mode, lambda build: "pass")
+            self.assertEqual(summary["channels"], {"300": "cmux-next-dev", "200": "cmux-next"}, mode)
+            self.assertEqual(offered(out, NIGHTLY_RING), ["200"], mode)
+            self.assertEqual(offered(out, PRE_RING_BUILD), ["200"], mode)
+            self.assertEqual(offered(out, DEV_RING), ["300", "200"], mode)
+
+    def test_legacy_adds_a_dev_fast_build_above_the_nightly_one_in_either_mode(self):
+        for mode in ("on", "off"):
+            out, summary = ring.legacy(feed(dev_fast_item("500")), feed(item("400")), mode, lambda build: "pass")
+            self.assertEqual(summary["channels"], {"500": "cmux-next-dev", "400": "cmux-next"}, mode)
+            self.assertEqual(offered(out, NIGHTLY_RING), ["400"], mode)
+            self.assertEqual(offered(out, DEV_RING), ["500", "400"], mode)
+
+    def test_a_newer_nightly_build_drops_the_dev_fast_build_below_it(self):
+        current = feed(dev_fast_item("300"), item("200"))
+        out, summary = ring.legacy(feed(item("400")), current, "off", lambda build: None)
+        self.assertEqual(summary["channels"], {"400": "cmux-next"})
+        self.assertEqual(summary["dropped"], ["300", "200"])
+
+    def test_the_legacy_feed_with_a_dev_fast_build_passes_the_guard(self):
+        out, _ = ring.legacy(feed(dev_fast_item("500")), feed(item("400")), "on", lambda build: None)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "appcast-arm64.xml"
+            path.write_text(out)
+            result = subprocess.run([sys.executable, str(GUARD), "appcast", str(path)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+
 class CliTests(unittest.TestCase):
     def run_cli(self, *args: str) -> subprocess.CompletedProcess:
         return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True)
