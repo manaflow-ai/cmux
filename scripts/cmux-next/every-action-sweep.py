@@ -31,6 +31,10 @@ Per action (one row of the JSON table):
   check            a cheap correctness check: a split made a pane, a new tab made a tab, a close removed one,
                    a focus move moved focus (`ok`, `wrong`, `n/a`)
 Each action runs --repeat times (default 3); the row keeps p50/p95/max over the repeats.
+  sp_perform_ms, sp_commit_ms, sp_input_to_frame_ms
+                   the always-on CmuxNextSignposts intervals of the same run (action.perform, action.commit;
+                   `log stream --signpost` for the whole sweep, OUT/signposts.ndjson, joined by action id and the
+                   sample's wall-clock window); input to frame = wait_ms + action.commit
 
 Non-catalog interactions (rows with kind `interaction`): typing in a terminal (the typing probe's key to
 frame), the agent composer and the omnibar; scrolling the terminal, a page, the sidebar; clicks on a pane, a tab
@@ -177,6 +181,7 @@ def load(name, file):
 class App:
     def __init__(self):
         self.process = None
+        self.pids = []
 
     def launch(self):
         with open(CONFIG, "w") as f:
@@ -193,6 +198,7 @@ class App:
         binary = next((p for p in sorted(glob.glob(os.path.join(opts.app, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
         log = open(os.path.join(OUT, "app.log"), "a")
         self.process = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+        self.pids.append(self.process.pid)
         note(f"every-action: launched pid {self.process.pid}")
         if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 180, step=0.25):
             raise SystemExit(f"every-action: the tagged app did not come up (exit={self.process.poll()})")
@@ -562,6 +568,7 @@ class Sweep:
         rpc("debug.hangs", {"clear": True})
         rpc("debug.action_perf", {"action": "drain"})
         rpc("debug.frames", {"action": "start"})
+        w_send = time.time()
         t_send = uptime()
         reply = send(t_send)
         t_reply = uptime()
@@ -573,6 +580,7 @@ class Sweep:
                 return got if mine and mine[0].get("commit") else None
             runs = wait(committed, 3.0, step=0.02) or (rpc("debug.action_perf", {"action": "read"}) or {}).get("runs") or []
         time.sleep(settle)  # test script: the animation the action started runs out inside the frame window
+        w_end = time.time()
         frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
         hangs = rpc("debug.hangs", {"limit": 3}) or {}
         tail = (rpc("debug.action_perf", {"action": "drain"}) or {}).get("runs") or []
@@ -580,7 +588,7 @@ class Sweep:
         mine = next((r for r in runs if r.get("action") == action_id), None)
         first = mine or (runs[0] if runs else None)
         row = {"rpc_ms": round((t_reply - t_send) * 1000, 2), "reply": reply, "runs": [r.get("action") for r in runs][:6],
-               "ran": bool(mine), "t_send": t_send}
+               "ran": bool(mine), "t_send": t_send, "window": [w_send, w_end]}
         if first:
             row["turn_ms"] = round(first.get("run_ms"), 3) if first.get("run_ms") is not None else None
             row["wait_ms"] = round((first["began"] - t_send) * 1000, 2)
@@ -681,6 +689,8 @@ class Sweep:
             if err and attempt == 0 and ("unavailable" in err or "not_found" in err or "refused" in err or "invalid" in err):
                 break
         row["samples"] = len(samples)
+        # Wall-clock windows of the measured inputs: the always-on action signposts are joined to them after the run.
+        row["windows"] = [[round(s["window"][0], 6), round(s["window"][1], 6), s.get("wait_ms")] for s in samples]
         for key in ("turn_ms", "wait_ms", "commit_ms", "result_ms", "rpc_ms"):
             row[key] = stat([s.get(key) for s in samples])
         row["frames"] = {"refresh_ms": max([s["frames"]["refresh_ms"] for s in samples] or [0]),
@@ -1040,6 +1050,88 @@ def probe_rows():
 
 
 # ----------------------------------------------------------------------------------------------------------
+# The always-on action signposts (CmuxNextSignposts, 7550ef0ed36): action.perform (the handler's main-thread
+# time) and action.commit (to the end of the Core Animation commit after it) of every action run, the same
+# names a Release build records. `log stream --signpost` runs for the whole sweep; each row's samples are
+# joined by action id and the sample's wall-clock window. Input to committed frame from the signposts =
+# wait_ms (input sent to the handler's start, debug.action_perf) + action.commit.
+
+class SignpostStream:
+    PREDICATE = 'subsystem == "com.cmuxterm.app.next" AND category == "action"'
+
+    def __init__(self, path):
+        self.path, self.process, self.error = path, None, None
+
+    def start(self):
+        try:
+            self.handle = open(self.path, "w")
+            self.process = subprocess.Popen(["/usr/bin/log", "stream", "--signpost", "--style", "ndjson",
+                                             "--predicate", self.PREDICATE], stdout=self.handle, stderr=subprocess.PIPE)
+        except OSError as error:
+            self.error = str(error)
+
+    def stop(self):
+        if not self.process:
+            return
+        self.process.send_signal(2)  # SIGINT to our own log stream child: it flushes and exits
+        try:
+            _, err = self.process.communicate(timeout=20)
+            if self.process.returncode not in (0, -2, 130) and err:
+                self.error = err.decode(errors="replace")[:300]
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+        self.handle.close()
+
+    def intervals(self, module, pids):
+        """[{name, id, origin, begin (wall s), ms}] of the app processes we launched."""
+        opened, done = {}, []
+        try:
+            lines = open(self.path).read().splitlines()
+        except OSError:
+            return done
+        for line in lines:
+            if not line.startswith("{"):
+                continue
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if event.get("eventType") != "signpostEvent" or (pids and event.get("processID") not in pids):
+                continue
+            key = (event.get("processID"), event.get("signpostName"), event.get("signpostID"))
+            at = module.parse_time(event["timestamp"])
+            if event.get("signpostType") == "begin":
+                opened[key] = (at, module.fields(event.get("eventMessage", "")))
+            elif event.get("signpostType") == "end" and key in opened:
+                start, info = opened.pop(key)
+                done.append({"name": key[1], "id": info.get("id"), "origin": info.get("origin"), "begin": start,
+                             "ms": (at - start) * 1000})
+        return done
+
+
+def join_signposts(report, intervals):
+    by_id = {}
+    for interval in intervals:
+        by_id.setdefault(interval["id"], []).append(interval)
+    joined = 0
+    for session in report["sessions"]:
+        for row in session["rows"]:
+            perform, commit, frame = [], [], []
+            for start, end, wait_ms in row.get("windows") or []:
+                mine = [i for i in by_id.get(row["id"], []) if start - 0.002 <= i["begin"] <= end]
+                p = next((i["ms"] for i in mine if i["name"] == "action.perform"), None)
+                c = next((i["ms"] for i in mine if i["name"] == "action.commit"), None)
+                perform.append(p)
+                commit.append(c)
+                if c is not None and isinstance(wait_ms, (int, float)):
+                    frame.append(wait_ms + c)
+            if any(v is not None for v in perform + commit):
+                joined += 1
+                row["sp_perform_ms"], row["sp_commit_ms"], row["sp_input_to_frame_ms"] = stat(perform), stat(commit), stat(frame)
+    return joined
+
+
+# ----------------------------------------------------------------------------------------------------------
 # Report.
 
 def misses(row):
@@ -1053,6 +1145,12 @@ def misses(row):
         why.append(f"commit p95 {commit} ms")
     if isinstance(result, (int, float)) and result > TARGET_COMMIT_MS:
         why.append(f"result p95 {result} ms")
+    frame = (row.get("sp_input_to_frame_ms") or {}).get("p95")
+    if isinstance(frame, (int, float)) and frame > TARGET_COMMIT_MS:
+        why.append(f"signpost input to frame p95 {frame} ms")
+    perform = (row.get("sp_perform_ms") or {}).get("p95")
+    if isinstance(perform, (int, float)) and perform > TARGET_TURN_MS:
+        why.append(f"signpost perform p95 {perform} ms")
     turn = (row.get("turn_ms") or {}).get("p95")
     if isinstance(turn, (int, float)) and turn > TARGET_TURN_MS:
         why.append(f"turn p95 {turn} ms")
@@ -1073,7 +1171,8 @@ def misses(row):
 
 
 def score(row):
-    values = [(row.get(k) or {}).get("p95") for k in ("commit_ms", "result_ms", "key_to_frame_ms") if isinstance(row.get(k), dict)]
+    values = [(row.get(k) or {}).get("p95") for k in ("commit_ms", "result_ms", "key_to_frame_ms", "sp_input_to_frame_ms")
+              if isinstance(row.get(k), dict)]
     values = [v for v in values if isinstance(v, (int, float))]
     return (max(values) if values else 0) + 50 * ((row.get("frames") or {}).get("missed") or 0) + (500 if row.get("errors") or row.get("error") else 0)
 
@@ -1091,10 +1190,12 @@ def markdown(report):
                   f"refresh {session['idle']['frames'].get('refresh_ms')} ms, idle 3 s missed {session['idle']['frames'].get('missed')} frames.", "",
                   f"Actions: {len(session['rows'])} listed, {len(ran)} ran, {len(session['rows']) - len(ran)} skipped; "
                   f"{len(missed)} rows miss a target.", "",
-                  "| # | id | entry | commit p95 | turn p95 | wait p95 | missed | errors / check | why |", "|---|---|---|---|---|---|---|---|---|"]
+                  "| # | id | entry | commit p95 | signpost frame p95 | turn p95 | signpost perform p95 | wait p95 | missed | errors / check | why |",
+                  "|---|---|---|---|---|---|---|---|---|---|---|"]
         for index, row in enumerate(sorted(missed, key=score, reverse=True)):
             lines.append(f"| {index + 1} | {row['id']} | {','.join(row.get('entries') or [row.get('kind')])} | "
-                         f"{(row.get('commit_ms') or {}).get('p95')} | {(row.get('turn_ms') or {}).get('p95')} | "
+                         f"{(row.get('commit_ms') or {}).get('p95')} | {(row.get('sp_input_to_frame_ms') or {}).get('p95')} | "
+                         f"{(row.get('turn_ms') or {}).get('p95')} | {(row.get('sp_perform_ms') or {}).get('p95')} | "
                          f"{(row.get('wait_ms') or {}).get('p95')} | {(row.get('frames') or {}).get('missed')} | "
                          f"{'; '.join(row.get('errors') or [])[:80]} {row.get('check', '')} | {'; '.join(misses(row))[:160]} |")
         skipped = {}
@@ -1109,6 +1210,8 @@ def markdown(report):
 
 def main():
     stress_module = load("perf_stress_session", "perf-stress-session.py")
+    signposts = SignpostStream(os.path.join(OUT, "signposts.ndjson"))
+    signposts.start()
     app = App()
     app.launch()
     identify = rpc("system.identify") or {}
@@ -1158,6 +1261,18 @@ def main():
         if report_path != os.path.join(OUT, "every-action.json"):
             with open(os.path.join(OUT, "every-action.json"), "w") as f:
                 json.dump(report, f, indent=1, default=str)
+        with open(os.path.join(OUT, "every-action.md"), "w") as f:
+            f.write(markdown(report) if report["sessions"] else "# every-action sweep: no session finished\n")
+        signposts.stop()
+        try:
+            module = load("perf_signposts", "perf-signposts.py")
+            intervals = signposts.intervals(module, set(app.pids))
+            report["env"]["signposts"] = {"intervals": len(intervals), "rows_joined": join_signposts(report, intervals),
+                                          "error": signposts.error}
+        except Exception as error:  # the report still lands without the signpost join
+            report["env"]["signposts"] = {"error": f"join: {error}"}
+        with open(report_path, "w") as f:
+            json.dump(report, f, indent=1, default=str)
         with open(os.path.join(OUT, "every-action.md"), "w") as f:
             f.write(markdown(report) if report["sessions"] else "# every-action sweep: no session finished\n")
         if not opts.keep:
