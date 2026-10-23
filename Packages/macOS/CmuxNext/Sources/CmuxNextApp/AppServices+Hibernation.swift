@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextCompat
+import CmuxNextPages
 import CmuxNextSettings
 
 // Browser hibernation and the memory-budgeted warm sets
@@ -20,6 +21,10 @@ extension AppServices {
             return await self.resources.sample(.everything).browserTabMemory()
         }
         hibernation.agentPages = AgentPageHibernation(services: self)
+        // cmux's own pages in Chromium (Settings, Diff, Files, chats...) freeze when hidden, as browser tabs do.
+        let cmuxPages = CmuxPageFreezing()
+        hibernation.cmuxPages = cmuxPages
+        (PageWebView.chromiumHosting as? ChromiumPageHost)?.freezePolicy = cmuxPages
         hibernation.follow(settings)
         hibernation.start()
     }
