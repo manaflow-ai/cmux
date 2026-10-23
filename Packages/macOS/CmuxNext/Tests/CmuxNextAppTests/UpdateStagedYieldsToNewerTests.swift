@@ -266,27 +266,33 @@ import Testing
         #expect(h.sparkle.cancels == 0)
     }
 
-    /// A click on Install while a probe runs: the probe's newer build does not cancel the
-    /// installer the click is using.
-    @Test func anInstallClickedWhileAProbeRunsKeepsItsInstaller() async throws {
+    /// A click on Install while a probe runs joins that probe (a583): the newer Dev build it finds
+    /// replaces the staged one once, and the click carries over to it.
+    @Test func anInstallClickedWhileAProbeRunsTakesTheNewerBuild() async throws {
         let h = Self.make(ring: "dev", held: true)
+        h.updater.preflightOverride = { nil }
         h.updater.checkForUpdates()
         try #require(await eventually { h.feed.fetches == 1 })
         h.updater.installClicked()
         h.feed.release()
-        try #require(await eventually { h.updater.stagedRefresh.task == nil })
-        #expect(h.sparkle.cancels == 0, "the probe cancelled the installer the person clicked")
-        #expect(h.sparkle.backgroundChecks == 0)
+        try #require(await eventually { h.sparkle.cancels == 1 }, "the click installed the staged build though Dev build 500 is out")
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(h.sparkle.cancels == 1, "the probe and the click both cancelled")
+        #expect(h.sparkle.backgroundChecks == 1)
+        #expect(h.updater.installAfterSwap, "the click does not carry over to build 500")
     }
 
-    /// After a click on Install no scheduled probe runs, and none is armed again.
+    /// After a click on Install no scheduled probe runs, and none is armed again; the click's own
+    /// read of the feed is the only one.
     @Test func anInstallClickEndsTheScheduledProbes() async throws {
-        let h = Self.make(ring: "dev")
+        let h = Self.make(ring: "dev", feed: Self.feed(devMinutesAgo: nil))
+        h.updater.preflightOverride = { nil }
         try await h.clock.waitForSleeper()
         h.updater.installClicked()
+        try #require(await eventually { h.feed.fetches == 1 && !h.updater.stagedRefresh.clickWaits }, "the click did not read the feed")
         h.clock.advance(by: .seconds(Self.interval))
         try await Task.sleep(for: .milliseconds(100))
-        #expect(h.feed.fetches == 0, "a scheduled probe ran after the click on Install")
+        #expect(h.feed.fetches == 1, "a scheduled probe ran after the click on Install")
         #expect(!h.updater.stagedRefresh.timer.isScheduled, "a probe was armed again after the click on Install")
         #expect(h.sparkle.cancels == 0)
     }

@@ -734,6 +734,16 @@ class WebviewsChecksGate(unittest.TestCase):
         self.assertEqual(self.module.added("Finished in 1ms on 2 files.ts (1ms)\n" + red, red),
                          ["Finished in 1ms on 2 files.ts (1ms)"])
 
+    def test_replay_of_24524_the_lint_file_count_is_not_a_finding(self):
+        # #24524's fast gates: the base's `vp lint` was red with the same 4 findings as the merge, and the merge
+        # (with the pull request's one new test file) closed on 2465 files. `vp lint`'s closing line names its rules
+        # too, so the `vp fmt` pattern missed it and it read as the one finding the merge added.
+        red = "  x eslint(no-unused-vars): 'a' is declared but never used.\n"
+        self.assertEqual(self.module.added(red + "Finished in 4.8s on 2465 files with 162 rules using 4 threads.\n",
+                                           red + "Finished in 5.1s on 2464 files with 162 rules using 4 threads.\n"), [])
+        self.assertEqual(self.module.added("Finished in 1ms on 2 files with 3 rules.ts (1ms)\n" + red, red),
+                         ["Finished in 1ms on 2 files with 3 rules.ts (1ms)"])
+
     def test_replay_of_24252_unicode_frames_in_another_order_add_nothing(self):
         # #24252's fast gates: Oxlint printed its Unicode frame (`╭─[`, `│`, `·`, `╰`), and with 4 threads the
         # base and the merge listed the same 84 errors in another order. The run's summary glued onto whichever

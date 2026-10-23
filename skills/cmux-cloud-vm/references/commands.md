@@ -24,6 +24,13 @@ no `vm.*` socket method on the CLI, and no `cmux rpc`.
   `machine-status`, `machine-ports`, `machine-tools`, `hand-off-machine`,
   `snapshot-machine` (`snapshot_id`, or `pending`), the file actions, `prepare-scp`
   and the network, firewall, domain and publication lists return `text` and their fields.
+- **GitHub on a machine:** `cloud setup-github` sets `git config --global user.name`
+  and `user.email` on the machine (as its work user) from this Mac's global git config,
+  and starts `gh auth login --web` there. It returns only `ok`, `user_name`,
+  `user_email`, `gh_status` (`logged_in`, `pending`, `missing`, `failed`) and, while
+  pending, `device_code` and `verification_uri`: the person enters the code at
+  https://github.com/login/device. No token leaves the Mac; the machine gets its own.
+  Add `--focus` to open that page in the person's browser.
 - **Exit codes:** `0` success, `1` action failure, `2` usage, `3` app unreachable.
 
 ## Machine actions
@@ -61,6 +68,7 @@ resumes it. `set-idle-pause` changes the timeout per machine.
 ```bash
 cmux cloud ssh --target machine:vm-…                           # opens an SSH terminal
 cmux cloud exec --target machine:vm-… --command '<cmd>'        # exit_code, stdout, stderr (25 s cap)
+cmux cloud setup-github --target machine:vm-…                  # this Mac's git identity + gh device-flow sign-in
 cmux cloud files-list --target machine:vm-… --path <dir>
 cmux cloud file-read --target machine:vm-… --path <file>
 cmux cloud file-write --target machine:vm-… --path <file> --contents '<text>'

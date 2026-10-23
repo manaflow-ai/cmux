@@ -819,6 +819,11 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-screen[data-minimal] {
   padding-top: max(32px, calc(50vh - 150px));
 }
+/* The second dot's quick action pills (tabDots.ts) sit centered under the composer, as the greeting
+   over it is. */
+.nt-screen[data-minimal] .nt-create {
+  justify-content: center;
+}
 .nt-greeting {
   flex: none;
   margin: 0 0 6px;
