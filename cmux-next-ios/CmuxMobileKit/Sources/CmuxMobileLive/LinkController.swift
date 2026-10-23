@@ -47,8 +47,6 @@ public final class LinkController {
     nonisolated static let presenceProbeTimeout: Duration = .milliseconds(1500)
     /// Beyond a probe's own timeout, how long the bound around it waits.
     nonisolated static let probeGrace: Duration = .milliseconds(500)
-    /// A probe that saw the Mac's frames but not its pong (alive, no round trip).
-    nonisolated static let aliveWithoutPong = UInt32.max
     @ObservationIgnored private var quickProbe = false
     @ObservationIgnored public var onLink: (@MainActor ((any MacLink)?) -> Void)?
     /// Runs right after a dial, in the same detached step (no main actor):
@@ -255,16 +253,15 @@ public final class LinkController {
             // 24 s after link up of link-reliability-20261023.md). The race
             // stays as a bound: the FFI call ignores cancellation.
             let result = await Self.race(timeout: timeout + Self.probeGrace, clock: clock) {
-                try await link.probe(timeout: timeout) ?? Self.aliveWithoutPong
+                try await link.probe(timeout: timeout)
             }
             guard let self else { return }
             switch result {
             case .success(let rtt):
-                ConnectTimeline.shared.mark("link_alive", detail: rtt == Self.aliveWithoutPong ? "traffic" : "\(rtt) ms")
+                ConnectTimeline.shared.mark("link_alive", detail: rtt.map { "\($0) ms" } ?? "traffic")
                 guard case .connected(_, let path, _) = self.phase else { return }
-                // Alive without a pong: no new round trip to show.
-                self.send(.linkUpdated(generation: generation, path: path,
-                                       rttMillis: rtt == Self.aliveWithoutPong ? nil : rtt))
+                // Alive without a pong: no new round trip to show (nil keeps the last one).
+                self.send(.linkUpdated(generation: generation, path: path, rttMillis: rtt))
             case .failure(let error):
                 self.send(.probeFailed(generation: generation, reason: Self.reason(error)))
             }
@@ -325,13 +322,13 @@ public final class LinkController {
     /// Mac had already dropped (the app was suspended) held the probe until
     /// the link's own keepalive gave up 20 s later; input typed meanwhile was
     /// lost.
-    nonisolated static func race(
-        timeout: Duration, clock: any Clock<Duration>, _ operation: @escaping @Sendable () async throws -> UInt32
-    ) async -> Result<UInt32, any Error> {
+    nonisolated static func race<T: Sendable>(
+        timeout: Duration, clock: any Clock<Duration>, _ operation: @escaping @Sendable () async throws -> T
+    ) async -> Result<T, any Error> {
         let once = RaceOnce()
         return await withCheckedContinuation { continuation in
             let work = Task {
-                let result: Result<UInt32, any Error>
+                let result: Result<T, any Error>
                 do { result = .success(try await operation()) } catch { result = .failure(error) }
                 if once.claim() { continuation.resume(returning: result) }
             }

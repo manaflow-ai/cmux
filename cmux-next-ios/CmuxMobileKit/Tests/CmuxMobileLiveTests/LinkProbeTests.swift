@@ -11,7 +11,9 @@ final class BusyLink: MacLink, @unchecked Sendable {
     private let continuation: AsyncStream<LinkState>.Continuation
     private let lock = NSLock()
     private var closed = false
+    private var probes = 0
     var isClosed: Bool { lock.withLock { closed } }
+    var probeCount: Int { lock.withLock { probes } }
 
     init() {
         (states, continuation) = AsyncStream.makeStream(of: LinkState.self)
@@ -28,7 +30,10 @@ final class BusyLink: MacLink, @unchecked Sendable {
         return 1
     }
     /// What the Rust link answers when frames arrive but the pong does not.
-    func probe(timeout: Duration) async throws -> UInt32? { nil }
+    func probe(timeout: Duration) async throws -> UInt32? {
+        lock.withLock { probes += 1 }
+        return nil
+    }
     func close() async {
         lock.withLock { closed = true }
         continuation.finish()
@@ -74,5 +79,7 @@ final class BusyDialer: MacLinkDialer, @unchecked Sendable {
         #expect(controller.phase.isConnected, "\(controller.phase)")
         #expect(dialer.dials == 1)
         #expect(dialer.first?.isClosed == false)
+        // The adopt's own probe, the foreground's and the presence change's all ran.
+        #expect((dialer.first?.probeCount ?? 0) >= 3)
     }
 }

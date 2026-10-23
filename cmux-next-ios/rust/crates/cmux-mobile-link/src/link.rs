@@ -688,6 +688,14 @@ impl Link {
         let nonce = self.inner.next_nonce.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         self.inner.pings.lock().unwrap_or_else(PoisonError::into_inner).insert(nonce, tx);
+        // A caller that stops waiting (a probe's timeout) takes its entry out.
+        struct Pending<'a>(&'a Inner, u64);
+        impl Drop for Pending<'_> {
+            fn drop(&mut self) {
+                self.0.pings.lock().unwrap_or_else(PoisonError::into_inner).remove(&self.1);
+            }
+        }
+        let _pending = Pending(&self.inner, nonce);
         let started = Instant::now();
         self.inner.send_control(Frame::new(0, FrameType::Ping, nonce.to_be_bytes().to_vec()))?;
         let answered = rx
@@ -703,6 +711,10 @@ impl Link {
     /// out (a pong can trail a full transmit queue on a slow relay; the link's
     /// own keepalive counts any inbound frame as life too), `Err(Timeout)`
     /// only when nothing at all came back, `Err(Closed)` once closed.
+    ///
+    /// Any frame proves only the peer-to-us direction: a link whose uplink
+    /// alone broke still reads alive here until the peer's own keepalive
+    /// closes it (15 s ping, 20 s timeout), the bound the link already had.
     pub async fn probe(&self, timeout: Duration) -> Result<Option<Duration>, LinkError> {
         /// How often arrivals are checked while the pong is outstanding.
         const TRAFFIC_CHECK: Duration = Duration::from_millis(50);
@@ -713,6 +725,8 @@ impl Link {
         loop {
             let next = (Instant::now() + TRAFFIC_CHECK).min(deadline);
             tokio::select! {
+                // The pong (or the close) first when both are ready.
+                biased;
                 result = &mut ping => return result.map(Some),
                 () = tokio::time::sleep_until(next) => {
                     if self.inner.last_received() > sent {

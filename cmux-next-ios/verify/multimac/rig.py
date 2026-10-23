@@ -94,6 +94,7 @@ def main():
         if os.environ.get("LINKREL_CREDS"):
             pairs = dict(l.strip().split("=", 1) for l in open(os.path.expanduser(os.environ["LINKREL_CREDS"])) if "=" in l)
             fd = os.open(m.creds, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            os.fchmod(fd, 0o600)  # an existing file keeps its mode otherwise
             with os.fdopen(fd, "w") as f:
                 f.write(f"CMUX_UITEST_STACK_EMAIL={pairs['EMAIL']}\nCMUX_UITEST_STACK_PASSWORD={pairs['PASSWORD']}\n")
         m.seed_pairing(names=[PHONE])
