@@ -137,7 +137,7 @@ export function ReplyMedia({
         previewOnHover={previewOnHover}
       />
     );
-  if (state === "failed" && fallback) return <>{fallback}</>;
+  if (fallback && ((answered && !loadable) || state === "failed")) return <>{fallback}</>;
   return (
     <span ref={setFrame} className={`cv-media is-${kind}`}>
       <span className="cv-media__name">{name}</span>

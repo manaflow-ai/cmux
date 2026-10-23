@@ -228,7 +228,8 @@
 }
 .acpmux-attachment-media .cv-media__actions {
   top: 4px;
-  right: 4px;
+  left: 4px;
+  right: auto;
 }
 .acpmux-attachment-media-fallback {
   display: flex;
