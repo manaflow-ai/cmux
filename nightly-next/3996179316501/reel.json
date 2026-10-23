@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "build": "3996179316501",
+  "notes": "notes/3996179316501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24507,
+      "title": "cmux NEXT: host pressure indicator and popover in the top row, off by default (part 2)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/24507/6bddc84f/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "6bddc84f",
+      "tour": "core"
+    },
+    {
+      "pr": 24355,
+      "title": "cmux NEXT model menu: the in-chat composer gets the harness rail back (Fork to another harness) and accounts per harness",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23570,
+      "title": "cmux NEXT: cmux cloud list-machines answers the app's Cloud machine list (loaded, status, target)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
