@@ -214,6 +214,9 @@ export function omniboxAction(input: string, options: NewTabIntentOptions = {}):
       return { kind: "open", url: intent.url };
     case "prompt":
       return readsAsRequest(intent.text) ? { kind: "ask", text: intent.text } : { kind: "search", text: intent.text };
+    // A pairing link (its room secret) is never asked, searched or opened.
+    case "refused":
+      return { kind: "none" };
   }
 }
 

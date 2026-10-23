@@ -34,9 +34,10 @@ const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
 /// A subagent row shows that subagent (`subagents.onOpen`). The Subagents section's title opens a
 /// Subagents tab beside the Summary (SubagentsTab.tsx), as the ChatGPT desktop app's right pane
 /// does; its close button goes back to the summary.
-/// Background work shows live: the chat's background commands (`background`, the process
-/// registry's merged with the transcript's, backgroundWork.ts) with Stop, and the chats its agent
-/// started (`sessions`) under Subagents. The header's counts include the running ones.
+/// Background work shows as compact task cards: the chat's background commands (`background`, the
+/// process registry's merged with the transcript's, backgroundWork.ts) keep their description,
+/// running/completed/failed state and Stop affordance, and the chats its agent started (`sessions`)
+/// stay under Subagents. The header's counts include the running ones.
 export function SummaryCard({
   card,
   rows,

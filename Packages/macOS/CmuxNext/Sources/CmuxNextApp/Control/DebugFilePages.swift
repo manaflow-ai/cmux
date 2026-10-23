@@ -19,10 +19,10 @@ enum DebugFilePages {
     private static var lastOpenLink: String?
 
     static func run(_ params: [String: JSONValue], _ services: AppServices) async -> JSONValue {
-        let drafts = await RecoveryDraftStore.shared.drafts()
+        let drafts = await services.recoveryDrafts.drafts()
         var result: [String: JSONValue] = [:]
         if let id = params["restore"]?.stringValue {
-            guard let draft = drafts.first(where: { $0.id == id }), let handler = RecoveryDraftStore.shared.restoreHandler else {
+            guard let draft = drafts.first(where: { $0.id == id }), let handler = services.recoveryDrafts.restoreHandler else {
                 return ["restored": false]
             }
             handler(draft)
