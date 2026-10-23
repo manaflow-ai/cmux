@@ -74,6 +74,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `phone.startSessions` | boolean | `true` |  | Let Your Phone Start New Workspaces. Off, your phone can still follow, type into and answer what's already running. |
 | `phone.keepAwake` | string | `"pluggedIn"` | `off`, `pluggedIn`, `always` | Keep Mac Awake for Your Phone. A sleeping Mac can't be reached from your phone until it wakes. Closing the lid still puts the Mac to sleep. |
 | `phone.cloudReplica` | boolean | `false` |  | Show This Mac's Workspaces on Your Phone While It's Off. cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy. |
+| `appearance.machineColors` | dictionary | `{}` |  | Machine Color. The color of each machine's sidebar rows and tab badges, by machine name: "#RRGGBB", or an accent name (red, green, yellow, purple, cyan, orange, pink, blue) that follows the theme. A machine without one gets a color from its name. |
 | `agents.subsessions.enabled` | boolean | `true` |  | Let Agents Start Sub-sessions. An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar. |
 | `agents.subsessions.answerQuestions` | boolean | `false` |  | Let Sessions Answer Their Sub-sessions' Questions. When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer. |
 | `agents.subsessions.maxChildren` | real | `50` | 1 to 1000 | Open Sub-sessions per Session. The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place. |
@@ -239,6 +240,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.inspector.placement` | string | `"overlay"` | `push`, `overlay` | Inspector. Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat. |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
+| `terminal.linkOpener.default` | string | `"cmux"` |  | Open Program Links In. Where a URL goes when a program in a terminal opens a browser, such as aws login or gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, a profile after @ (chrome@Profile 1), or command:<command> to let your script decide. A BROWSER you set yourself wins. |
+| `terminal.linkOpener.rules` | array | `[]` |  | Program Link Rules. Checked in order before the default; the first match wins. Write <match> -> <target>: caller:aws matches the program that opened the URL, and text, * wildcards or re: match the URL. Example: caller:gh github.com -> safari |
 | `editor.fontFamily` | string |  |  | Font Family. Empty uses the terminal font. |
 | `editor.fontSize` | real |  | 6 to 72 | Font Size. Empty uses the terminal font size. Cmd-= and Cmd-- change it in one editor. |
 | `editor.fontWeight` | string | `"normal"` | `normal`, `bold`, `300`, `500`, `600` | Font Weight |

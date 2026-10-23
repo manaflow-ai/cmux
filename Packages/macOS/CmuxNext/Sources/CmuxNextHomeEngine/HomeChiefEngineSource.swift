@@ -131,23 +131,3 @@ public nonisolated struct HomeChiefRemoteEngine: HomeChiefEngineSource {
         return snapshot.offering(report)
     }
 }
-
-extension HomeEngineTurn {
-    /// A turn end the brain summarized (`chief.engine.get` `recent`).
-    nonisolated init(report turn: ChiefEngineReport.Turn) {
-        harness = turn.harness ?? "?"
-        model = turn.model
-        seconds = (turn.ms ?? 0) / 1000
-        tools = turn.tools ?? 0
-        toolErrors = turn.toolErrors ?? 0
-        cost = turn.costUSD
-        reply = turn.reply
-        if let usage = turn.usage {
-            let read = usage.cacheRead ?? 0
-            let total = read + (usage.cacheWrite ?? 0) + (usage.input ?? 0)
-            hitRate = total > 0 ? read / total : nil
-        } else {
-            hitRate = nil
-        }
-    }
-}
