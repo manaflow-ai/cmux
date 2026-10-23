@@ -3,9 +3,8 @@ import CmuxNextIcons
 import Foundation
 
 /// The task lane a person pinned a workspace to (Mark as Done, Set Workspace
-/// Status, Cycle Workspace Status), as the sidebar draws it: a trailing status
-/// dot and a line on the hover card. A workspace without a pinned lane (automatic)
-/// draws none.
+/// Status, Cycle Workspace Status), as the sidebar keeps it for hover-card and
+/// done-fold presentation. A workspace without a pinned lane (automatic) draws none.
 public nonisolated enum SidebarTaskStatus: String, CaseIterable, Hashable, Sendable {
     /// Not started.
     case todo
