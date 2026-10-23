@@ -276,6 +276,20 @@ export type AccountsRow = {
 };
 
 /**
+ * The account's teams, the active one marked (`active`). Every team-scoped feature follows the
+ * active team; null when signed out or teamless.
+ */
+export type AccountsTeams = {
+  title: string;
+  help: string;
+  options: Array<{ id: string; name: string; active: boolean }>;
+  /** Switching is off: a managed device, or a switch being saved. */
+  disabled: boolean;
+  note: string | null;
+  error: string | null;
+};
+
+/**
  * cmux's own account row. Button ids are run as actions: `cmux.signIn`, `cmux.cancelSignIn`,
  * `cmux.continueInBrowser`, `cmux.switchAccount`, `cmux.signOut`.
  */
@@ -292,6 +306,7 @@ export type AccountsCmux = {
 
 /** The Accounts part as the host draws it (texts already localized by the app). */
 export type AccountsState = {
+  teams: AccountsTeams | null;
   refresh: string;
   refreshing: boolean;
   /** cmux's own account: who is signed in, sign in, switch and sign out. */
@@ -300,8 +315,8 @@ export type AccountsState = {
   groups: Array<{ id: string; title: string; rows: AccountsRow[] }>;
 };
 
-/** One Accounts gesture; `secret` only for the paste form's save and send. */
-export type AccountsRun = { action: string; provider?: string; account?: string; secret?: string };
+/** One Accounts gesture; `secret` only for the paste form's save and send, `team` for selectTeam. */
+export type AccountsRun = { action: string; provider?: string; account?: string; secret?: string; team?: string };
 
 /** One Settings > Agents row: a harness acpmux knows (never its command line or env). */
 export type AgentHarnessRow = {
