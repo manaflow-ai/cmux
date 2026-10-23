@@ -181,7 +181,9 @@ export function UpdateReadyHighlights({
           <span className="wn-pop-more">{strings.format("updates.card.more", String(data.moreCount))}</span>
         )}
         <button type="button" className="wn-pop-all" onClick={actions.openChangelog}>
-          {strings.t(data.items.length > 0 ? "updates.popover.seeAll" : "updates.popover.seeReleaseNotes")}
+          {strings.t(
+            items.length > 0 || (rest?.length ?? 0) > 0 ? "updates.popover.seeAll" : "updates.popover.seeReleaseNotes",
+          )}
           <span aria-hidden="true"> →</span>
         </button>
       </div>
