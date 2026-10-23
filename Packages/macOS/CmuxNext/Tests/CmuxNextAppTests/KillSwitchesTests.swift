@@ -41,9 +41,11 @@ import Testing
             self.offline = offline
         }
 
+        /// Answers what the server held when the request arrived, as a real response does.
         func fetch(_ url: URL) async throws -> Data {
+            let data = offline ? nil : files[url.lastPathComponent]
             await gate?.wait()
-            guard !offline, let data = files[url.lastPathComponent] else { throw URLError(.fileDoesNotExist) }
+            guard let data else { throw URLError(.fileDoesNotExist) }
             return data
         }
     }
@@ -176,12 +178,31 @@ import Testing
         updater.follow(ring: "dev")
         // The dev read waits for the nightly one instead of fetching beside it.
         let joined = try #require(reader.read())
-        #expect(joined == nightly)
         await gate.release()
         await nightly.value
         // The nightly list is not the ring's any more: nothing of it applies.
         #expect(!switches.isOff("pr-1"))
-        await reader.read()?.value
+        await joined.value
+        #expect(switches.off == ["pr-2"])
+    }
+
+    @Test func aReadAskedWhileTheSameRingsFetchIsOutReadsAgainAfterIt() async throws {
+        let fixture = Fixture()
+        defer { fixture.tearDown() }
+        let network = Network(files: try fixture.served(#"{"version":1,"default":{"DisabledFeatures":["pr-1"]}}"#))
+        let gate = Gate()
+        await network.hold(gate)
+        let switches = KillSwitches()
+        let (updater, reader) = try Self.reader(store: try fixture.store(network), switches: switches)
+        defer { withExtendedLifetime(updater) {} }
+        let first = try #require(reader.read())
+        // A check publishes a new document while the first fetch is out: that fetch answers the old one.
+        await network.set(try fixture.served(#"{"version":1,"default":{"DisabledFeatures":["pr-2"]}}"#))
+        let asked = try #require(reader.read())
+        await gate.release()
+        await first.value
+        await asked.value
+        // The read asked after the check sees the new document.
         #expect(switches.off == ["pr-2"])
     }
 

@@ -162,6 +162,22 @@ class KillSwitchLintTest(unittest.TestCase):
         done = self.run_lint({"pr-23456": entry()}, self.call(), flags)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
 
+    def test_a_reference_to_the_function_that_is_not_a_call_is_refused(self):
+        # `let check = killSwitch; check("pr-999")` evaluates a switch the lint would never see.
+        for code in ('let check = killSwitch\nif check("pr-999") { oldPath() }\n',
+                     'let check = KillSwitches.killSwitch\n', 'run(killSwitch)\n'):
+            with self.subTest(code=code):
+                self.assert_fails(self.run_lint({}, {SWIFT: code}), "killSwitch is only called")
+
+    def test_a_flags_document_of_the_wrong_shape_is_an_error_not_a_crash(self):
+        for flags in ([], "pr-1", {"version": 1, "default": "pr-1"}, {"version": 1, "cohorts": []},
+                      {"version": 1, "default": {"DisabledFeatures": "pr-1"}},
+                      {"version": 1, "cohorts": {"dev": {"DisabledFeatures": {"pr-1": True}}}}):
+            with self.subTest(flags=flags):
+                done = self.run_lint({"pr-23456": entry()}, self.call(), flags)
+                self.assert_fails(done, "flags.json:")
+                self.assertNotIn("Traceback", done.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
