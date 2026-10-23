@@ -15,6 +15,8 @@ export const AgentNamesContext = createContext<ReadonlyMap<string, string>>(new 
 export function agentNames(agents: readonly Subagent[]): ReadonlyMap<string, string> {
   const names = new Map<string, string>();
   for (const agent of agents) {
+    // One nothing named has no name to give: its recipient reads as the generic word.
+    if (agent.unnamed) continue;
     const name = agent.task ?? agent.name;
     if (agent.agentId && name && !looksLikeId(name)) names.set(agent.agentId, name);
   }

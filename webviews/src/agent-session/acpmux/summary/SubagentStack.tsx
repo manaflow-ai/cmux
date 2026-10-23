@@ -28,7 +28,7 @@ export function SubagentStack({ subagents }: { subagents: readonly SummarySubage
             className="acpmux-summary-dot"
             data-state={agent.state}
             data-tone={index % STACK}
-            title={`${agent.title} · ${t(DOT_STATE[agent.state])}`}
+            title={`${agent.title || t("subagents.unnamed")} · ${t(DOT_STATE[agent.state])}`}
           />
         ))}
       </span>
