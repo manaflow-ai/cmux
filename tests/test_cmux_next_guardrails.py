@@ -2113,6 +2113,31 @@ class BlobReadTests(Fixture):
         self.assertNotIn("[singleton]", stdout.getvalue())
 
 
+class GateWrapperTests(Fixture):
+    """guardrails.run_push(): a checker failure lets through only the range it could not judge."""
+
+    def test_a_failure_on_one_pushed_range_keeps_the_refusal_of_another(self):
+        rule = next(r for r in guardrails.RULES if r.id == "main-async")
+
+        def check_own(repo, base, head, before=()):
+            if head == "feat-b":
+                raise SystemExit("guardrails: git diff failed")
+            return [(rule, [guardrails.Added(f"{KIT}/A.swift", 1, "DispatchQueue.main.async { }")])], []
+
+        class Finished:
+            def finish(self):
+                return "", False
+
+        ranges = [types.SimpleNamespace(base=self.base, head=head, before=()) for head in ("feat-a", "feat-b")]
+        stderr, stdout = io.StringIO(), io.StringIO()
+        with mock.patch.object(guardrails, "check_own", check_own), \
+                contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(stdout):
+            refused = guardrails.run_push(self.repo, ranges, Finished())
+        self.assertTrue(refused, stderr.getvalue())
+        self.assertIn("[main-async]", stdout.getvalue())
+        self.assertIn("feat-b", stderr.getvalue(), "the warning names the range it could not judge")
+
+
 class HookTests(Fixture):
     """The installed pre-push hook runs the guardrails; CI (GITHUB_ACTIONS, --commits) never does."""
 
