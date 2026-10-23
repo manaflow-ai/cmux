@@ -280,7 +280,7 @@ jobs:
         run: bun run react-doctor:ci
 
   diff-sidecar-check:
-    # Generated protocol and streaming benchmarks only run for their owned inputs.
+    # Generated protocol checks and the sidecar tests only run for their owned inputs.
     needs: web-subarea-scope
     if: ${{ (inputs.macos == 'true' || inputs.web == 'true') && needs.web-subarea-scope.outputs.diff_sidecar == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -320,10 +320,9 @@ jobs:
       - name: Verify generated protocol types
         run: ./scripts/generate-diff-sidecar-types.sh --check
 
-      - name: Enforce diff-viewer performance budgets
-        env:
-          CMUX_DIFF_WEB_BENCH_ITERATIONS: "10"
-        run: ./scripts/benchmark-diff-viewer.sh
+      # The diff-viewer performance budgets (scripts/benchmark-diff-viewer.sh) run in the cmux-next perf
+      # cron on feat-cmux-next (cmux-next-perf-budgets.yml), not here: no perf check on the push or pull
+      # request path (Lawrence 2026-10-23).
 
   web-db-migrations:
     needs: web-subarea-scope
