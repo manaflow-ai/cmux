@@ -40,6 +40,7 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--count", type=int, default=60)
 parser.add_argument("--modes", default="inproc,helper")
+parser.add_argument("--json", help="also write the result here (a fleet measure entry's report.json)")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 
@@ -141,8 +142,9 @@ def main():
         RESULT["error"] = error.reason
         ok = False
     finally:
-        with open(os.path.join(opts.out, "chromium-host-bench.json"), "w") as out:
-            json.dump(RESULT, out, indent=2)
+        for path in filter(None, [os.path.join(opts.out, "chromium-host-bench.json"), opts.json]):
+            with open(path, "w") as out:
+                json.dump(RESULT, out, indent=2)
         print("CHROMIUM-HOST-BENCH " + json.dumps(RESULT), flush=True)
         app.stop()
     return 0 if ok else 1
