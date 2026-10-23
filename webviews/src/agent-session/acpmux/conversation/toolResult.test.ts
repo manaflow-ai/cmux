@@ -73,6 +73,24 @@ test("an error shows its message, then its data or its other fields", () => {
   const { message: _message, ...others } = rest.error;
   expect(toolResult(JSON.stringify(rest)).text).toBe(`Invalid request\n\n${pretty(others)}`);
   expect(prettyOutput(JSON.stringify(rest))).toBe(`Invalid request\n\n${pretty(others)}`);
+  // A data the error names as null still shows; only an absent one is left out.
+  const named = { error: { code: -32000, message: "Server error", data: null } };
+  expect(toolResult(JSON.stringify(named)).text).toBe("Server error\n\nnull");
+  expect(prettyOutput(JSON.stringify(named))).toBe("Server error\n\nnull");
+  expect(toolResult(JSON.stringify({ error: { code: -32000, message: "Server error" } })).text).toBe("Server error");
+});
+
+test("the opened MCP call never rounds a number a double would change", () => {
+  for (const output of [
+    JSON.stringify({ content: [{ type: "text", text: "Created" }] }).replace(
+      "}]}",
+      '}],"structuredContent":{"id":9007199254740993}}',
+    ),
+    '{"error":{"code":-32000,"message":"Conflict","data":{"id":9007199254740993}}}',
+  ]) {
+    expect(prettyOutput(output)).toBe(output);
+    expect(toolResult(output).text).toBe(output);
+  }
 });
 
 test("a text resource reads as its URI and text", () => {

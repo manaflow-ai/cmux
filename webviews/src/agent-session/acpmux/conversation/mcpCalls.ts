@@ -6,7 +6,7 @@
 import { createContext } from "react";
 import type { Translate } from "../i18n";
 import type { AcpmuxActivity } from "../model";
-import { oneLine, peelEnvelope, printable } from "./toolResult";
+import { losesNumbers, oneLine, peelEnvelope, printable } from "./toolResult";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -292,6 +292,9 @@ export function prettyValue(value: unknown): string | undefined {
 
 /// The opened call's response.
 export function prettyOutput(output: string | undefined): string | undefined {
+  // JSON holding a number a double would change (a 64-bit ID) shows as it came, never parsed and
+  // rounded, as toolResult.ts shows it.
+  if (output && parseJSON(output) !== undefined && losesNumbers(output)) return output.replace(/\n$/, "");
   return prettyValue(mcpValue(output));
 }
 

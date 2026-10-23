@@ -149,7 +149,8 @@ export function peelEnvelope(value: unknown, depth = 0): Peeled | undefined {
       // data; any other error (a REST API's `status`, `details`) with everything but its message.
       const { message, ...others } = error;
       if (!onlyKeys(others, ["code", "data"])) return { texts: [message], rest: [others] };
-      return { texts: [message], rest: error.data !== undefined && error.data !== null ? [error.data] : [] };
+      // A `data` the error names, even null, follows it: only an absent one is left out.
+      return { texts: [message], rest: "data" in error && error.data !== undefined ? [error.data] : [] };
     }
     const result = value.result;
     if (result === undefined || result === null) return { texts: [], rest: [] };
