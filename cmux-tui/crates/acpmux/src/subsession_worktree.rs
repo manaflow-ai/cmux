@@ -186,28 +186,27 @@ pub(crate) fn add_without_config(
         .chain(add.iter().map(|arg| if *arg == destination { stage.as_ref() } else { *arg }))
         .collect();
     git(&args)?;
-    let admin = crate::git_state::head_dir(&staged);
     let filled = check_out_without_config(&objects, &format, &staged, commit, Some(by))
         .and_then(|()| git_by(&staged, &["read-tree", commit], by).map(drop))
         .and_then(|()| git(&["worktree", "move", &stage, &destination]).map(drop))
         .and_then(|()| {
-            if admin.is_some() && crate::git_state::head_dir(root) == admin {
-                Ok(())
-            } else {
+            if root.join(staged.file_name().unwrap_or_default()).exists()
+                || !root.join(".git").is_file()
+            {
                 Err("worktree destination changed during recovery".into())
+            } else {
+                Ok(())
             }
         });
     if filled.is_err() {
         let cleanup_by = Instant::now() + std::time::Duration::from_secs(5);
         let nested = root.join(staged.file_name().unwrap_or_default());
         for path in [&staged, &nested] {
-            if admin.is_some() && crate::git_state::head_dir(path) == admin {
-                let _ = git_by(
-                    common,
-                    &["worktree", "remove", "--force", &path.to_string_lossy()],
-                    cleanup_by,
-                );
-            }
+            let _ = git_by(
+                common,
+                &["worktree", "remove", "--force", &path.to_string_lossy()],
+                cleanup_by,
+            );
         }
     }
     filled
