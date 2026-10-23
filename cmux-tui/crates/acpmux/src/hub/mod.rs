@@ -194,6 +194,10 @@ pub struct HubEvent {
     /// first connection that sends it and shared by the rest (`server::deliver`): one encode
     /// per token, not one per attached client. None inside: too large for one frame.
     pub update_line: Arc<std::sync::OnceLock<Option<String>>>,
+    /// The session's summary after this record, made by the first watching connection that
+    /// sends `_acpmux/session_changed` for it and shared by the rest (`server::deliver`).
+    /// None inside: the session is gone.
+    pub summary: Arc<std::sync::OnceLock<Option<Value>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -947,6 +951,7 @@ impl Hub {
             record: Arc::new(record.clone()),
             remote: None,
             update_line: Default::default(),
+            summary: Default::default(),
         });
         (record, stored)
     }

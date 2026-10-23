@@ -1068,10 +1068,14 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             return;
         }
         let Some(kind) = change_kind::session_change_kind(&rec.kind) else { return };
-        if let Ok(s) = hub.resolve(&ev.session_id) {
+        // One summary per record for every watcher (`HubEvent::summary`).
+        let summary = ev
+            .summary
+            .get_or_init(|| hub.resolve(&ev.session_id).ok().map(|s| hub.session_summary(&s)));
+        if let Some(summary) = summary {
             conn.send(&Message::notification(
                 method::MUX_SESSION_CHANGED,
-                json!({"sessionId": ev.session_id, "session": hub.session_summary(&s), "kind": kind, "recordKind": rec.kind, "seq": rec.seq}),
+                json!({"sessionId": ev.session_id, "session": summary, "kind": kind, "recordKind": rec.kind, "seq": rec.seq}),
             ));
         }
         // A watcher that is not attached still learns a permission is waiting.
