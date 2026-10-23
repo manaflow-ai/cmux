@@ -39,7 +39,8 @@ struct ComposerAttachmentFile: Sendable {
         id = attachment.id
         data = attachment.data
         let ext = UTType(mimeType: attachment.mimeType)?.preferredFilenameExtension ?? "jpg"
-        name = (attachment.file?.info.name ?? "Photo.\(ext)").replacingOccurrences(of: "/", with: "-")
+        let safe = (attachment.file?.info.name ?? "Photo.\(ext)").replacingOccurrences(of: "/", with: "-")
+        name = safe.isEmpty || safe == "." || safe == ".." ? "Attachment" : safe
     }
 
     func write() -> URL? {

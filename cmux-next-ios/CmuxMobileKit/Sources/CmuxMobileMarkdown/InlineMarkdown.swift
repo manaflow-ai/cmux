@@ -82,7 +82,9 @@ public struct MarkdownFilePath: Equatable, Sendable {
               let match = pattern.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
               let extRange = Range(match.range(at: 1), in: text) else { return nil }
         let ext = text[extRange].lowercased()
-        guard text.contains("/") || Self.fileExtensions.contains(ext) else { return nil }
+        // `console.log`, `res.json`, `self.m`: a bare name with these reads as code, not a file.
+        let ambiguous: Set<String> = ["log", "json", "m", "h", "c", "rs", "go", "py", "js", "ts", "css", "lock", "xml"]
+        guard text.contains("/") || (Self.fileExtensions.contains(ext) && !ambiguous.contains(ext)) else { return nil }
         path = text
     }
 

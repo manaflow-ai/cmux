@@ -162,7 +162,9 @@ public struct ArtifactPreview: View {
             do {
                 let loaded = try await source.load(artifact)
                 content = .success(loaded)
-                shareItem = Self.shareItem(for: loaded, artifact: artifact)
+                // The share copy (up to the preview limit) is written off the main actor.
+                let artifact = artifact
+                shareItem = await Task.detached(priority: .utility) { Self.shareItem(for: loaded, artifact: artifact) }.value
             } catch {
                 content = .failure(error)
                 shareItem = nil
@@ -236,7 +238,7 @@ public struct ArtifactPreview: View {
 
     /// What Share hands over: the loaded file under its own name (images, PDFs and
     /// text get a local copy), the page for a link; nothing for folders.
-    static func shareItem(for content: ArtifactContent, artifact: TerminalArtifact) -> URL? {
+    nonisolated static func shareItem(for content: ArtifactContent, artifact: TerminalArtifact) -> URL? {
         switch content {
         case .file(let url), .quickLook(let url): return url
         case .web(let url): return url
@@ -246,7 +248,7 @@ public struct ArtifactPreview: View {
         }
     }
 
-    static func sizeLine(_ url: URL) -> String? {
+    nonisolated static func sizeLine(_ url: URL) -> String? {
         guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else { return nil }
         return ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)
     }

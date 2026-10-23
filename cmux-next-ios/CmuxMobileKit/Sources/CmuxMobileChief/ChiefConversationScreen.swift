@@ -95,6 +95,8 @@ struct ChiefConversationController: UIViewControllerRepresentable {
         // Chief's Mac); web links open in Safari as before.
         conversation.onOpenLink = { [weak session, weak conversation] url in
             guard let link = FileLink(url: url), let session, let conversation else { return false }
+            // Something is already up (Quick Look, a sheet): the tap does nothing.
+            guard conversation.presentedViewController == nil else { return true }
             let source = session.fileSource ?? UnavailableArtifactSource()
             FilePreviewRequest(reference: link.reference, source: source, line: link.line).present(from: conversation)
             return true

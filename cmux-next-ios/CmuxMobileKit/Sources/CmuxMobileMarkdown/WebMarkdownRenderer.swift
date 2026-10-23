@@ -249,7 +249,9 @@ final class PooledWebView: UIView, WKNavigationDelegate {
             return
         }
         decisionHandler(.cancel)
-        if let scheme = url.scheme?.lowercased(), ["http", "https", "mailto", "tel"].contains(scheme) {
+        // An in-page anchor stays put.
+        if url.fragment != nil, url.path == webView.url?.path, url.scheme == webView.url?.scheme { return }
+        if let scheme = url.scheme?.lowercased(), ["http", "https", "mailto", "tel", "sms", "facetime"].contains(scheme) {
             UIApplication.shared.open(url)
         } else {
             onTap?()

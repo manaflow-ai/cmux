@@ -107,16 +107,19 @@ public struct FileLink: Equatable, Sendable {
     /// nil for a web or app link (the system opens it).
     public init?(url: URL) {
         var raw: String
-        if let scheme = url.scheme?.lowercased(), scheme == "file" {
+        var line: Int?
+        let scheme = url.scheme?.lowercased()
+        if scheme == "file" {
             raw = url.path(percentEncoded: false)
-        } else if let scheme = url.scheme?.lowercased(), Self.systemSchemes.contains(scheme) || url.absoluteString.contains("://") {
+            if let fragment = url.fragment, fragment.hasPrefix("L") { line = Int(fragment.dropFirst().prefix { $0.isNumber }) }
+        } else if let scheme, !Self.isPathLike(scheme: scheme, url: url) {
+            // A web page or another app's link (maps:, shortcuts:, x-apple-…:).
             return nil
         } else {
             // No scheme, or "name.ext:12" read as one: the whole link is the path.
             raw = url.absoluteString.removingPercentEncoding ?? url.absoluteString
         }
         guard !raw.hasPrefix("#") else { return nil }
-        var line: Int?
         if let hash = raw.range(of: "#L", options: .backwards) {
             line = Int(raw[hash.upperBound...].prefix { $0.isNumber })
             raw = String(raw[..<hash.lowerBound])
@@ -131,6 +134,15 @@ public struct FileLink: Equatable, Sendable {
         reference = raw
         self.line = line
     }
+
+    /// A "scheme" that is really a file name read as one: `README.md:12`
+    /// (a dot in it) or `Makefile:3` (only digits after it).
+    static func isPathLike(scheme: String, url: URL) -> Bool {
+        if systemSchemes.contains(scheme) || url.absoluteString.contains("://") { return false }
+        if scheme.contains(".") { return true }
+        let rest = url.absoluteString.dropFirst(scheme.count + 1)
+        return !rest.isEmpty && rest.split(separator: ":").allSatisfy { Int($0) != nil }
+    }
 }
 
 #if os(iOS)
@@ -144,7 +156,6 @@ public struct FilePreviewGallery: View {
     /// Closes a preview UIKit presented; nil: the SwiftUI presentation's dismiss.
     let onClose: (() -> Void)?
     @State private var selection: Int
-    @State private var showSource = false
     @Environment(\.dismiss) private var dismiss
 
     public init(request: FilePreviewRequest, onClose: (() -> Void)? = nil) {
@@ -177,11 +188,23 @@ public struct FilePreviewGallery: View {
     }
 
     private func page(_ artifact: TerminalArtifact, index: Int) -> some View {
+        FilePreviewPage(artifact: artifact, source: request.source, position: (index, request.artifacts.count), onClose: close)
+    }
+}
+
+/// One page of the gallery: its own Preview/Source choice and folder stack.
+private struct FilePreviewPage: View {
+    let artifact: TerminalArtifact
+    let source: any ArtifactSource
+    let position: (index: Int, count: Int)
+    let onClose: () -> Void
+    @State private var showSource = false
+
+    var body: some View {
         NavigationStack {
-            ArtifactPreview(artifact: artifact, source: request.source, showSource: $showSource,
-                            position: (index, request.artifacts.count), onClose: close)
+            ArtifactPreview(artifact: artifact, source: source, showSource: $showSource, position: position, onClose: onClose)
                 .navigationDestination(for: TerminalArtifact.self) { child in
-                    ArtifactPreview(artifact: child, source: request.source, showSource: $showSource)
+                    ArtifactPreview(artifact: child, source: source, showSource: $showSource)
                 }
         }
     }

@@ -20,8 +20,8 @@ struct ChatComposerField: UIViewRepresentable {
     static let accessibilityIdentifier = "chat.composer.field"
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    func makeUIView(context: Context) -> ComposerReturnTextView {
-        let view = ComposerReturnTextView(policy: ComposerReturnPolicy(style: .chat, maxLines: Self.maxLines))
+    func makeUIView(context: Context) -> ChatComposerTextView {
+        let view = ChatComposerTextView(policy: ComposerReturnPolicy(style: .chat, maxLines: Self.maxLines))
         view.delegate = context.coordinator
         view.onSend = { [weak coordinator = context.coordinator] in coordinator?.parent.onSend() }
         view.font = .preferredFont(forTextStyle: .body)
@@ -45,7 +45,7 @@ struct ChatComposerField: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ view: ComposerReturnTextView, context: Context) {
+    func updateUIView(_ view: ChatComposerTextView, context: Context) {
         context.coordinator.parent = self
         if context.coordinator.lastTypeSize != dynamicTypeSize {
             context.coordinator.lastTypeSize = dynamicTypeSize
@@ -59,20 +59,28 @@ struct ChatComposerField: UIViewRepresentable {
         }
         if view.placeholder != placeholder { view.placeholder = placeholder }
         // Focus follows the binding both ways; the change waits for the
-        // current update (a responder change inside it re-enters SwiftUI).
+        // current update (a responder change inside it re-enters SwiftUI), and
+        // reads the binding again when it runs (a later tap or send wins).
         if isFocused != view.isFirstResponder {
-            let focus = isFocused
-            Task { @MainActor [weak view] in
-                // A field built for this focus (the capsule expanding) joins its
-                // window a turn or two later.
-                for _ in 0..<4 where view?.window == nil { await Task.yield() }
-                guard let view, view.window != nil else { return }
-                if focus, !view.isFirstResponder { view.becomeFirstResponder() } else if !focus, view.isFirstResponder { view.resignFirstResponder() }
+            Task { @MainActor [weak view, weak coordinator = context.coordinator] in
+                guard let view, let focus = coordinator?.parent.isFocused else { return }
+                if focus, !view.isFirstResponder {
+                    // A field built for this focus (the capsule expanding) takes it once in its window.
+                    if view.window == nil { view.focusWhenInWindow = true } else { view.becomeFirstResponder() }
+                } else if !focus {
+                    view.focusWhenInWindow = false
+                    if view.isFirstResponder { view.resignFirstResponder() }
+                }
             }
         }
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: ComposerReturnTextView, context: Context) -> CGSize? {
+    /// A field torn down while focused (the permission bar replaced it) leaves no focus behind.
+    static func dismantleUIView(_ view: ChatComposerTextView, coordinator: Coordinator) {
+        if coordinator.parent.isFocused { coordinator.parent.isFocused = false }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: ChatComposerTextView, context: Context) -> CGSize? {
         let width = proposal.width ?? 280
         let font = uiView.font ?? .preferredFont(forTextStyle: .body)
         let insets = uiView.textContainerInset.top + uiView.textContainerInset.bottom
@@ -105,6 +113,18 @@ struct ChatComposerField: UIViewRepresentable {
 
         func textViewDidBeginEditing(_ textView: UITextView) { if !parent.isFocused { parent.isFocused = true } }
         func textViewDidEndEditing(_ textView: UITextView) { if parent.isFocused { parent.isFocused = false } }
+    }
+}
+
+/// The chat field: takes a focus asked for before it had a window once it gets one.
+final class ChatComposerTextView: ComposerReturnTextView {
+    var focusWhenInWindow = false
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil, focusWhenInWindow else { return }
+        focusWhenInWindow = false
+        becomeFirstResponder()
     }
 }
 #endif

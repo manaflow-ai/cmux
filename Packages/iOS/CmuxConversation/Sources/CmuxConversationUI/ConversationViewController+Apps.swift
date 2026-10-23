@@ -456,13 +456,31 @@ extension ConversationViewController {
         let placeholder = ConversationQuickLookPresenter(item: ConversationQuickLookItem(url: URL(fileURLWithPath: "/"), title: photoTitle), sourceView: nil)
         quickLookPresenter = placeholder
         Task { @MainActor [weak self, weak sourceView] in
+            // The tapped one first: nothing opens without it, and the rest load together.
+            guard let url = await ConversationImageLoader.shared.fileURL(for: opening) else {
+                self?.quickLookPresenter = nil
+                return
+            }
+            let others = await withTaskGroup(of: (String, URL?).self) { group in
+                for attachment in attachments where attachment.id != opening.id {
+                    group.addTask { (attachment.id, await ConversationImageLoader.shared.fileURL(for: attachment)) }
+                }
+                var urls: [String: URL] = [:]
+                for await (id, url) in group { if let url { urls[id] = url } }
+                return urls
+            }
             var items: [ConversationQuickLookItem] = []
             var index = 0
             for attachment in attachments {
-                guard let url = await ConversationImageLoader.shared.fileURL(for: attachment) else { continue }
-                if attachment.id == opening.id { index = items.count }
-                items.append(ConversationQuickLookItem(url: url, title: attachment.file?.name ?? photoTitle))
+                let title = attachment.file?.name ?? photoTitle
+                if attachment.id == opening.id {
+                    index = items.count
+                    items.append(ConversationQuickLookItem(url: url, title: title))
+                } else if let other = others[attachment.id] {
+                    items.append(ConversationQuickLookItem(url: other, title: title))
+                }
             }
+            if !attachments.contains(where: { $0.id == opening.id }) { items = [ConversationQuickLookItem(url: url, title: opening.file?.name ?? photoTitle)] }
             self?.presentQuickLook(items, index: index, from: sourceView)
         }
     }

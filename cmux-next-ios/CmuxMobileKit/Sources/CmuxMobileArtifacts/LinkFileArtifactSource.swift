@@ -131,7 +131,8 @@ public struct LinkFileArtifactSource: ArtifactSource {
     /// Decodes bytes into the preview the kind wants.
     public static func content(for artifact: TerminalArtifact, data: Data) throws -> ArtifactContent {
         if data.isEmpty {
-            return .binary(description: "\(ArtifactContent.emptyFileLine)\n\(artifact.reference)")
+            let shown = artifact.reference.hasPrefix(LocalFileArtifactSource.scheme) ? artifact.name : artifact.reference
+            return .binary(description: "\(ArtifactContent.emptyFileLine)\n\(shown)")
         }
         switch artifact.kind {
         case .image:
