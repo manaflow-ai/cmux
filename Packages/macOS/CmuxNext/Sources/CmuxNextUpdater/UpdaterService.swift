@@ -52,6 +52,16 @@ public final class UpdaterService {
     /// injected clock (no `asyncAfter`).
     @ObservationIgnored var expiringCard: UpdateCard?
     @ObservationIgnored let cardTimer: DemandTimer
+    /// When the install phase began (``installStatus``), nil outside it.
+    @ObservationIgnored var installStartedAt: Date?
+    /// Bumped by ``installTimer`` so the installing card's seconds move.
+    var installTick = 0
+    /// The person closed the card of an install that never relaunched.
+    var installCardDismissed = false
+    /// The install already gave up (``UpdateInstallStatus/Stage/stalled``) once.
+    @ObservationIgnored var installGaveUp = false
+    /// The installing card's one-second tick, only while an install runs.
+    @ObservationIgnored let installTimer: DemandTimer
     @ObservationIgnored let stagedRefresh: StagedUpdateRefresh
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
@@ -188,6 +198,7 @@ public final class UpdaterService {
                 clock: any Clock<Duration> = ContinuousClock()) {
         self.now = now
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
+        installTimer = DemandTimer(owner: "UpdaterService.install", clock: clock)
         snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)
         stagedRefresh = StagedUpdateRefresh(clock: clock)
         self.identity = identity

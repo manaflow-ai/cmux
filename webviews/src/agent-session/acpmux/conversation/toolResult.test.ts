@@ -4,7 +4,7 @@
 // really returned, stay JSON.
 import { expect, test } from "bun:test";
 import { toolResult } from "./toolResult";
-import { cleanText } from "./mcpCalls";
+import { cleanText, prettyOutput } from "./mcpCalls";
 import { findMatches } from "./chatFind";
 import type { AcpmuxRow } from "../model";
 
@@ -45,22 +45,133 @@ test("Markdown text reads as Markdown", () => {
   expect(toolResult(JSON.stringify([{ type: "text", text }]))).toEqual({ text, lang: "markdown" });
 });
 
-test("an envelope that says more than its text stays JSON, so nothing is lost", () => {
-  const PNG = "iVBORw0KGgo=";
-  const outputs = [
-    [
-      { type: "text", text: "Shot" },
-      { type: "image", data: PNG, mimeType: "image/png" },
-    ],
-    { content: [{ type: "text", text: "Found" }], structuredContent: { id: 42 } },
-    { error: { code: -32602, message: "Invalid params", data: { field: "path" } } },
-    { error: { message: "Invalid request", status: "INVALID_ARGUMENT" } },
-    [{ type: "resource_link", uri: "docs://a", name: "a", description: "About a" }],
+const PNG = "iVBORw0KGgo=";
+const pretty = (value: unknown) => JSON.stringify(value, null, 2);
+
+test("what an envelope holds besides its text follows it as the JSON it is", () => {
+  const image = { type: "image", data: PNG, mimeType: "image/png" };
+  const link = { type: "resource_link", uri: "docs://a", name: "a", title: "A", description: "About a" };
+  const blob = { type: "resource", resource: { uri: "report://r1", mimeType: "application/pdf", blob: "JVBERi0=" } };
+  expect(toolResult(JSON.stringify([{ type: "text", text: "Shot" }, image, link, blob])).text).toBe(
+    ["Shot", pretty(image), pretty(link), pretty(blob)].join("\n\n"),
+  );
+  const structured = { records: [{ id: 42 }] };
+  const found = { content: [{ type: "text", text: "Found one" }], structuredContent: structured };
+  expect(toolResult(JSON.stringify(found))).toEqual({ text: `Found one\n\n${pretty(structured)}`, lang: "text" });
+  expect(toolResult(JSON.stringify({ content: [], structuredContent: structured }))).toEqual({
+    text: pretty(structured),
+    lang: "json",
+  });
+});
+
+test("an error shows its message, then its data or its other fields", () => {
+  const rpc = { error: { code: -32602, message: "Invalid params", data: { result: "bad path", id: "request-7" } } };
+  expect(toolResult(JSON.stringify(rpc)).text).toBe(`Invalid params\n\n${pretty(rpc.error.data)}`);
+  const rest = {
+    error: { code: 400, message: "Invalid request", status: "INVALID_ARGUMENT", details: [{ field: "region" }] },
+  };
+  const { message: _message, ...others } = rest.error;
+  expect(toolResult(JSON.stringify(rest)).text).toBe(`Invalid request\n\n${pretty(others)}`);
+  expect(prettyOutput(JSON.stringify(rest))).toBe(`Invalid request\n\n${pretty(others)}`);
+  // A data the error names as null still shows; only an absent one is left out.
+  const named = { error: { code: -32000, message: "Server error", data: null } };
+  expect(toolResult(JSON.stringify(named)).text).toBe("Server error\n\nnull");
+  expect(prettyOutput(JSON.stringify(named))).toBe("Server error\n\nnull");
+  expect(toolResult(JSON.stringify({ error: { code: -32000, message: "Server error" } })).text).toBe("Server error");
+});
+
+test("the opened MCP call never rounds a number a double would change", () => {
+  for (const output of [
+    JSON.stringify({ content: [{ type: "text", text: "Created" }] }).replace(
+      "}]}",
+      '}],"structuredContent":{"id":9007199254740993}}',
+    ),
+    '{"error":{"code":-32000,"message":"Conflict","data":{"id":9007199254740993}}}',
+  ]) {
+    expect(prettyOutput(output)).toBe(output);
+    expect(toolResult(output).text).toBe(output);
+  }
+});
+
+test("a text resource reads as its URI and text", () => {
+  const block = {
+    type: "resource",
+    resource: { uri: "file:///src/auth.ts", mimeType: "text/typescript", text: "export {}" },
+  };
+  expect(toolResult(JSON.stringify([block])).text).toBe("file:///src/auth.ts\nexport {}");
+});
+
+test("structured content a text repeats shows once, as JSON, unless the text is the exact one", () => {
+  const structured = { result: "bad path", id: "request-7" };
+  const output = { content: [{ type: "text", text: JSON.stringify(structured) }], structuredContent: structured };
+  expect(toolResult(JSON.stringify(output))).toEqual({ text: pretty(structured), lang: "json" });
+  // Parsed, the text's ID would round to the structured copy's: the text is kept, and the whole
+  // output shows as printed, since its structured content cannot be printed again unchanged.
+  const exact =
+    '{"content":[{"type":"text","text":"{\\"id\\":9007199254740993}"}],"structuredContent":{"id":9007199254740992}}';
+  expect(toolResult(exact).text).toContain("9007199254740993");
+});
+
+test("an envelope whose other parts a double would change, or nest too deep, shows as printed", () => {
+  const rounded = '{"content":[{"type":"text","text":"Found"}],"structuredContent":{"value":10.000000000000001}}';
+  expect(toolResult(rounded)).toEqual({ text: rounded, lang: "json" });
+  let deep: unknown = "deep";
+  for (let i = 0; i < 100; i++) deep = { deep };
+  const nested = JSON.stringify({ error: { message: "Too deep", data: deep } });
+  expect(toolResult(nested)).toEqual({ text: nested, lang: "json" });
+  expect(prettyOutput(nested)).toBe(nested);
+});
+
+test("the opened MCP call reads an envelope that holds more than text as the row does, nested ones included", () => {
+  for (const output of [
+    JSON.stringify({ content: [], structuredContent: {} }),
+    JSON.stringify({
+      content: [
+        { type: "audio", mimeType: "audio/wav", data: "UklG" },
+        { type: "resource_link", uri: "file:///a" },
+      ],
+    }),
+    JSON.stringify({
+      content: [{ type: "text", text: "Saved" }],
+      structuredContent: { raw: '{"id":9007199254740993}' },
+    }),
+    JSON.stringify({ error: { code: -32000, message: "Failed", data: { body: '{"nested":true}' } } }),
+    // An envelope inside an envelope: Codex output and a JSON-RPC result holding a whole MCP result.
+    JSON.stringify({
+      output: JSON.stringify({ content: [{ type: "text", text: "Saved" }], structuredContent: { ok: true } }),
+      metadata: { exit_code: 0 },
+    }),
+    JSON.stringify({
+      result: '{"content":[{"type":"text","text":"Found"}],"structuredContent":{"id":9007199254740993}}',
+      error: null,
+    }),
+  ]) {
+    expect(prettyOutput(output)).toBe(toolResult(output, cleanText).text);
+  }
+  const raw = { content: [{ type: "text", text: "Saved" }], structuredContent: { raw: '{"id":9007199254740993}' } };
+  expect(prettyOutput(JSON.stringify(raw))).toContain(JSON.stringify(raw.structuredContent.raw));
+});
+
+test("the opened MCP call never parses a text into JSON that would round its numbers", () => {
+  const text = '{"id":9007199254740993,"name":"run"}';
+  expect(prettyOutput(JSON.stringify({ content: [{ type: "text", text }] }))).toBe(text);
+});
+
+test("an envelope with nothing to read stays JSON", () => {
+  for (const value of [
     { content: [], isError: false },
     [{ type: "text", text: " " }],
-  ];
-  for (const value of outputs)
-    expect(toolResult(JSON.stringify(value))).toEqual({ text: JSON.stringify(value, null, 2), lang: "json" });
+    [{ type: "audio", data: "UklG", mimeType: "audio/wav" }],
+  ])
+    expect(toolResult(JSON.stringify(value))).toEqual({ text: pretty(value), lang: "json" });
+});
+
+test("the opened MCP call shows the same parts", () => {
+  const output = JSON.stringify({ content: [{ type: "text", text: "Found one" }], structuredContent: { id: 42 } });
+  expect(prettyOutput(output)).toBe(`Found one\n\n${pretty({ id: 42 })}`);
+  expect(prettyOutput(JSON.stringify({ error: null, result: { content: [{ type: "text", text: "Rejected" }] } }))).toBe(
+    "Rejected",
+  );
 });
 
 test("a tool's own JSON that names a block type but not its shape stays JSON", () => {

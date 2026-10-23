@@ -124,7 +124,12 @@ enum SidebarStyle {
     /// The members' line sits just left of their rows, in the list's leading inset for a
     /// top-level group, so no hover or selection fill covers it (cx-q5jw) and the rows keep
     /// the ungrouped rows' left edge.
-    static func groupLineX(membersMinX: CGFloat) -> CGFloat { max(0, membersMinX - Metrics.space1 - groupBarWidth) }
+    static func groupLineX(membersMinX: CGFloat) -> CGFloat { max(0, membersMinX - groupRailReach) }
+    /// How far left of its members' x a group's rail starts: its width and the gap to the rows. A group
+    /// header's bar reaches left by the same amount, so the rail's left edge is the bar's left edge at
+    /// every level and density (Lawrence 2026-10-23: "the bar, left side, should be aligned with the
+    /// header part left side"), while the header's name keeps the rows' text column.
+    static var groupRailReach: CGFloat { Metrics.space1 + groupBarWidth }
     /// The quiet group headers' color dot, in the header's leading corner (cx-25az).
     static var groupDotSize: CGFloat { max(6, (Metrics.sidebarRowHeight * 0.28).rounded()) }
     static var headerFont: NSFont { Typography.header }

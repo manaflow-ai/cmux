@@ -69,6 +69,7 @@ import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
 import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
+import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
 import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
@@ -2025,6 +2026,9 @@ export function VirtualTranscript({
   // render, and many at once (a session switch, older history), are a load and do not.
   const knownRows = useRef<Set<string> | null>(null);
   const knownFor = useRef<AcpmuxRow[] | null>(null);
+  /// Where this snapshot first differs from the last, found once below; the rail reads it instead
+  /// of comparing the rows again (model.ts minimapTurns).
+  const rowsChange = useRef<RowsChange | undefined>(undefined);
   const enteringRows = useRef(new Set<string>());
   /// The minimap's hook for this commit's settled offset (ThreadMinimap `placed`).
   const minimapPlaced = useRef<(() => void) | undefined>(undefined);
@@ -2040,6 +2044,7 @@ export function VirtualTranscript({
     const previous = knownFor.current ?? [];
     let from = 0;
     while (from < rows.length && from < previous.length && rows[from] === previous[from]) from += 1;
+    rowsChange.current = { base: previous, rows, from };
     // A page of older history lands above the first row that was already there (a date divider
     // moves up to the page's first turn, so the first known row, not the first row): those rows fade
     // in as they are first seen, and never take a live row's entrance.
@@ -3376,9 +3381,13 @@ export function VirtualTranscript({
           // Above the room under the last row, so a composer that grows while the reader is scrolled
           // up leaves the map as it was, as it does the scrollbar.
           viewportHeight={height - room}
+          // Where the transcript's mask ends the view (conversation.css --acpmux-view-foot): the
+          // rail's rows stay above its bottom band.
+          foot={height - dockSpace}
           scrolls={layout.totalHeight - height > 0.5}
           width={width}
           placed={minimapPlaced}
+          change={rowsChange.current}
         />
         {find?.open && <ChatFindBar find={find} />}
         <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>
@@ -5264,7 +5273,6 @@ function AcpmuxPane() {
     summaryCard,
     inspector,
     backgroundCommandList: runningCommandList,
-    processes: processRegistry.processes,
   });
   counted.current = {
     summary: snapshot.summary,
@@ -5272,7 +5280,6 @@ function AcpmuxPane() {
     runningCommands,
     runningSessions,
     backgroundCommandList: runningCommandList,
-    processes: processRegistry.processes,
     sourceRows,
     transcriptRows,
     summaryCard,
@@ -5338,7 +5345,7 @@ function AcpmuxPane() {
       openCommands: () => {
         const { runningCommands: commands, summaryCard: card, inspector: panel } = counted.current;
         if (commands.length === 1 && showToolRow(commands[0]!.toolCallId)) return;
-        if (panel.reveal) panel.reveal(backgroundSection(counted.current.processes, commands));
+        if (panel.reveal) panel.reveal(backgroundSection(commands));
         else card.show();
       },
       openSessions: () => {
@@ -5352,15 +5359,15 @@ function AcpmuxPane() {
   // A tray command opens its terminal beside the chat; where none opens (a peer's or Cloud chat, or
   // a command only the transcript knows), the Bash call that started it in the transcript; with no
   // call loaded either, the summary card, which lists it, or, while the Inspector takes the card's
-  // place, its section that lists it (Background tasks, or Servers for a dev server).
+  // place, its section that lists it (Background tasks, a dev server's included).
   const openTrayCommand = useCallback(
     (command: BackgroundCommand) => {
       const local = opensProcessTerminal(counted.current.summary);
       void openCommand(command.toolCallId, { local, showCall: showToolRow }).then((opened) => {
         if (opened !== "none") return;
-        const { processes, summaryCard: card, inspector: panel } = counted.current;
-        // The section that lists it, by the Inspector's own split (processes.ts `backgroundSection`).
-        if (panel.reveal) panel.reveal(backgroundSection(processes, [command]));
+        const { summaryCard: card, inspector: panel } = counted.current;
+        // The section that lists it (processes.ts `backgroundSection`).
+        if (panel.reveal) panel.reveal(backgroundSection([command]));
         else card.show();
       });
     },
