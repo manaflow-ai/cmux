@@ -3,12 +3,13 @@ public import AppKit
 /// Open and close of a popup window that a control opened (cx-f6i7): the
 /// Chief pill's settings card, the group editors under a tab group chip or a
 /// sidebar group header, page info, the toolbar menus. The card fades in
-/// while it grows from `Motion.popupOpenScale` on the `popover` spring about
-/// the middle of its edge that faces the control, so it reads as coming out
-/// of that control; it closes faster (`popoverClose`), fading and shrinking
-/// toward the same point. A reopen during the close continues from what is
-/// on screen. Reduce Motion keeps a short crossfade at the popup's size;
-/// `ui.animationSpeed` "off" applies both at once.
+/// while it grows from `Motion.popupOpenScale` on the short `panel` spring
+/// about the middle of its edge that faces the control, so it reads as coming
+/// out of that control without a long Core Animation tail; it closes faster
+/// (`popoverClose`), fading and shrinking toward the same point. A reopen
+/// during the close continues from what is on screen. Reduce Motion keeps a
+/// short crossfade at the popup's size; `ui.animationSpeed` "off" applies both
+/// at once.
 ///
 /// Both run on the content view's layer, never the window's alpha
 /// (Lawrence's recording 2026-10-20): faded through `alphaValue`, the glass
@@ -16,6 +17,13 @@ public import AppKit
 /// left after a ~75 ms hold. The window is opaque while the popup is up;
 /// owners still order a fresh popup front at alpha 0, which `openPopup`
 /// lifts once the card's layer starts at opacity 0, so nothing flashes.
+public extension Motion {
+    /// The entrance spring shared by native popups and floating corner panels. The existing panel
+    /// token keeps the card's Core Animation tail below the motion ceiling while preserving the
+    /// small scale give that makes the glass surface feel attached to its control.
+    static let popupOpenSpring: MotionSpring = .panel
+}
+
 @MainActor
 public extension NSWindow {
     /// The point the popup grows from, in its content view: the middle of
@@ -31,8 +39,11 @@ public extension NSWindow {
 
     /// Fades the popup's card in and grows it about `pivot`. A fresh open
     /// (the owner left the window at alpha 0) starts from nothing; a reopen
-    /// during the close continues from what is on screen.
-    func openPopup(pivot: CGPoint) {
+    /// during the close continues from what is on screen. `movement` defaults
+    /// to the short panel spring so a popup's scale does not outlive its fade
+    /// by a long Core Animation tail; callers can retain a different token for
+    /// a surface with a deliberately slower entrance.
+    func openPopup(pivot: CGPoint, movement: MotionSpring = Motion.popupOpenSpring) {
         guard let content = contentView else {
             alphaValue = 1
             return
@@ -48,7 +59,7 @@ public extension NSWindow {
         Motion.overlays.set(layer, "opacity", to: NSNumber(value: Float(1)), fade: .fadeIn,
                    from: fresh ? NSNumber(value: Float(0)) : nil)
         if Motion.overlays.animatesMovement {
-            Motion.overlays.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .popover,
+            Motion.overlays.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: movement,
                        from: fresh ? NSValue(caTransform3D: Motion.scale(Motion.popupOpenScale, about: pivot, in: layer)) : nil)
         } else {
             // Reduce Motion: at the popup's size, whatever a close left on screen.

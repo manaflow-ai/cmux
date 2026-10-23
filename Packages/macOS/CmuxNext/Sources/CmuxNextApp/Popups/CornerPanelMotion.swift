@@ -4,8 +4,9 @@ import CmuxNextDesign
 /// Open and close of a panel pinned to its window's top-right corner with no
 /// control under it (the notifications and feed panels, cx-f6i7): it grows
 /// out of that corner and shrinks back into it (`NSWindow.openPopup`), so it
-/// never pops in or vanishes. A reopen during the close continues from what
-/// is on screen. Reduce Motion keeps the fades only.
+/// never pops in or vanishes. The short panel spring keeps the entrance from
+/// carrying a long Core Animation tail after its fade. A reopen during the
+/// close continues from what is on screen. Reduce Motion keeps the fades only.
 @MainActor
 final class CornerPanelMotion {
     private var generation = 0
@@ -20,7 +21,7 @@ final class CornerPanelMotion {
         panel.ignoresMouseEvents = false
         if !reopening { panel.alphaValue = 0 }
         panel.orderFront(nil)
-        panel.openPopup(pivot: Self.pivot(of: panel))
+        panel.openPopup(pivot: Self.pivot(of: panel), movement: .panel)
         // A reopen continues the close's scale, whose pivot was for the frame before.
         if reopening { resized(panel) }
     }
@@ -30,7 +31,7 @@ final class CornerPanelMotion {
     func resized(_ panel: NSWindow) {
         guard !isClosing, let layer = panel.contentView?.layer, layer.animation(forKey: "sublayerTransform") != nil,
               let shown = layer.presentation()?.sublayerTransform else { return }
-        Motion.overlays.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .popover,
+        Motion.overlays.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .panel,
                    from: NSValue(caTransform3D: Motion.scale(shown.m11, about: Self.pivot(of: panel), in: layer)))
     }
 
