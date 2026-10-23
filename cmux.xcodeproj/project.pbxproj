@@ -1862,6 +1862,7 @@
 		C0DEC0DE000000000000F102 /* CommandPaletteNucleoFFITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE000000000000F101 /* CommandPaletteNucleoFFITests.swift */; };
 		C0DEC0DE000000000000F204 /* CommandPaletteNucleoFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE000000000000F203 /* CommandPaletteNucleoFixtures.swift */; };
 		C0DEFF200000000000000001 /* CommandPaletteOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFF200000000000000002 /* CommandPaletteOverlay.swift */; };
+		9A22CA30536C2FBCED6BDE77 /* CommandPaletteOverlayDismissalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F827019435B05C22CF12A695 /* CommandPaletteOverlayDismissalTests.swift */; };
 		C0DE86060000000000000003 /* CommandPaletteRestoreFocusTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86060000000000000004 /* CommandPaletteRestoreFocusTarget.swift */; };
 		A5008383 /* CommandPaletteSearchEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008382 /* CommandPaletteSearchEngineTests.swift */; };
 		DD4F3F382061C78DE7BFCB8A /* CommandPaletteSearchFieldRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1B5046B58A531E67146DC /* CommandPaletteSearchFieldRepresentable.swift */; };
@@ -6579,6 +6580,7 @@
 		C0DEC0DE000000000000F101 /* CommandPaletteNucleoFFITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteNucleoFFITests.swift; sourceTree = "<group>"; };
 		C0DEC0DE000000000000F203 /* CommandPaletteNucleoFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteNucleoFixtures.swift; sourceTree = "<group>"; };
 		C0DEFF200000000000000002 /* CommandPaletteOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPalette/CommandPaletteOverlay.swift; sourceTree = "<group>"; };
+		F827019435B05C22CF12A695 /* CommandPaletteOverlayDismissalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CommandPaletteOverlayDismissalTests.swift"; sourceTree = "<group>"; };
 		C0DE86060000000000000004 /* CommandPaletteRestoreFocusTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteRestoreFocusTarget.swift; sourceTree = "<group>"; };
 		A5008382 /* CommandPaletteSearchEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteSearchEngineTests.swift; sourceTree = "<group>"; };
 		A6D1B5046B58A531E67146DC /* CommandPaletteSearchFieldRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPalette/CommandPaletteSearchFieldRepresentable.swift; sourceTree = "<group>"; };
@@ -14384,6 +14386,7 @@
 				DA25929499D9BD6D0BF990EF /* RemoteTmuxFindWindowSearchTests.swift */,
 				457ABBD6ACBA4EFADC328867 /* RemoteTmuxPaneTextReaderTests.swift */,
 				97D159248606553ED826D742 /* RemoteTmuxFindWindowJumperTests.swift */,
+				F827019435B05C22CF12A695 /* CommandPaletteOverlayDismissalTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18984,6 +18987,7 @@
 				C0DEC0DE000000000000F202 /* CommandPaletteNucleoFFILibrarySupport.swift in Sources */,
 				C0DEC0DE000000000000F102 /* CommandPaletteNucleoFFITests.swift in Sources */,
 				C0DEC0DE000000000000F204 /* CommandPaletteNucleoFixtures.swift in Sources */,
+				9A22CA30536C2FBCED6BDE77 /* CommandPaletteOverlayDismissalTests.swift in Sources */,
 				A5008383 /* CommandPaletteSearchEngineTests.swift in Sources */,
 				C0DEF4120000000000000001 /* CommandPaletteSettingsToggleTests.swift in Sources */,
 				C1713006C1713006C1713006 /* CommandPaletteShortcutCustomizationTests.swift in Sources */,
