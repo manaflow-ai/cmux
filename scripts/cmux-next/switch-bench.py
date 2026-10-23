@@ -150,7 +150,9 @@ class Bench:
         except subprocess.TimeoutExpired:
             sampler.terminate()
         try:
-            hot = anim.main_thread_hot(open(path, errors="replace").read(), limit=60)
+            text = open(path, errors="replace").read()
+            hot = anim.main_thread_hot(text, limit=60) + ["-- main-thread call tree, nodes of >= 3 samples (WindowServer waits included) --"]
+            hot += main_tree(text)
         except OSError:
             hot = ["(no sample)"]
         print(f"== sample {self.session} {label}: {path}", *hot, sep="\n", flush=True)
@@ -222,6 +224,35 @@ class Bench:
         if ws:
             self.action("goToWorkspace", {"workspace": ws}, settle=0.5)
         return row
+
+
+def main_tree(text, minimum=3, limit=700):
+    """The sample's main-thread call tree, nodes of at least `minimum` samples (1 ms each), idle
+    run-loop waits left out but synchronous WindowServer round trips (mach_msg under AppKit) kept:
+    window ordering on a switch is a wait for WindowServer, which main_thread_hot counts as idle."""
+    import re
+    graph = text.split("Call graph:", 1)
+    if len(graph) < 2:
+        return ["(no call graph)"]
+    lines = graph[1].splitlines()
+    start = next((i for i, l in enumerate(lines) if "com.apple.main-thread" in l), None)
+    if start is None:
+        return ["(no main thread)"]
+    node = re.compile(r"^([ +!:|]*)(\d+) (.*)$")
+    base = len(node.match(lines[start]).group(1))
+    out = []
+    for line in lines[start + 1:]:
+        m = node.match(line)
+        if not m:
+            continue
+        if len(m.group(1)) <= base:
+            break
+        if int(m.group(2)) < minimum or "__CFRunLoopServiceMachPort" in m.group(3):
+            continue
+        out.append(line.rstrip()[:220])
+        if len(out) >= limit:
+            break
+    return out
 
 
 def check(name, ok, detail):
