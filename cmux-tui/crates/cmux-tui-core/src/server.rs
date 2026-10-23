@@ -201,6 +201,8 @@ mod cmd_profiles;
 mod cmd_screens;
 mod cmd_server;
 mod cmd_sizing;
+mod size_lease;
+pub use size_lease::SIZE_LEASE_CAPABILITY;
 use cmd_sizing::{optional_surface_size, paired_surface_size};
 mod cmd_subscribe;
 mod cmd_tabs;
