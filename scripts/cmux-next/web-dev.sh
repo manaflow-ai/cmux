@@ -10,7 +10,13 @@ sha="$(git -C "$repo_root" rev-parse HEAD)"
 home_root="${HOME:?HOME is required}"
 work_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-next-web-dev.XXXXXX")"
 index_dir="$work_dir/index"
-mkdir -p "$index_dir"
+agent_state_dir="$work_dir/agent-state"
+markdown_root="$work_dir/markdown-root"
+editor_root="$work_dir/editor-root"
+mkdir -p "$index_dir" "$agent_state_dir" "$markdown_root" "$editor_root"
+# The browser dev host confines repository reads to this checkout. Keep the state inside the
+# per-run directory so cleanup removes the slot and the next run cannot reuse a stale cwd.
+printf '%s\n' "$repo_root" >"$agent_state_dir/cwd"
 
 # One stable port per surface. They are all loopback-only; the index is separate so its links can
 # carry the daemon token in a URL fragment (fragments never reach a server or appear in Vite logs).
@@ -33,7 +39,7 @@ server_pids=()
 daemon_pid=""
 index_pid=""
 hmr_pid=""
-daemon_home="$home_root/.acpmux/web-dev"
+daemon_home="${CMUX_WEB_DEV_ACPMUX_HOME:-$work_dir/acpmux-home}"
 acpmux_bin=""
 fleet_seconds="cached"
 daemon_seconds="unmeasured"
@@ -208,8 +214,15 @@ BUN
 }
 
 find_acpmux
-start_vite "webviews" env CMUX_WEBVIEWS_DEV_PORT="$base_port" bun run dev
-start_vite "agent-pane" env CMUX_AGENT_PANE_DEV_PORT="$agent_port" bun run dev:agent-pane
+start_vite "webviews" env CMUX_WEBVIEWS_DEV_PORT="$base_port" \
+  CMUX_WEBVIEWS_DEV_STATE_DIR="$agent_state_dir" \
+  CMUX_DIFF_DEV_REPO="$repo_root" \
+  CMUX_MARKDOWN_DEV_ROOT="$markdown_root" \
+  CMUX_MARKDOWN_DEV_READONLY_ROOTS="$repo_root" \
+  CMUX_EDITOR_DEV_ROOTS="$editor_root" \
+  CMUX_EDITOR_DEV_READONLY_ROOTS="$repo_root" bun run dev
+start_vite "agent-pane" env CMUX_AGENT_PANE_DEV_PORT="$agent_port" \
+  CMUX_WEBVIEWS_DEV_STATE_DIR="$agent_state_dir" bun run dev:agent-pane
 start_vite "preview" env CMUX_PREVIEW_DEV_PORT="$preview_port" bun run preview:dev
 start_vite "settings" env CMUX_SETTINGS_DEV_PORT="$settings_port" bun run dev:settings
 # Every page for a Debug or tagged app launched with CMUX_NEXT_PAGES_DEV_URL (vite.config.pages-dev.ts).
@@ -230,6 +243,9 @@ measure_hmr
 
 start_daemon
 
+markdown_file="$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$repo_root/docs/cmux-next-web-dev.md")"
+editor_file="$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$repo_root/webviews/src/agent-session/acpmux/README.md")"
+
 cat >"$index_dir/index.html" <<EOF
 <!doctype html>
 <meta charset="utf-8">
@@ -239,16 +255,16 @@ cat >"$index_dir/index.html" <<EOF
 <h1>cmux-next web dev</h1>
 <p>All surfaces are local and hot reload through Vite. Capture the gallery matrix remotely with <code>scripts/gallery-matrix</code>; do not run a headless browser on this laptop.</p>
 <ul>
-  <li><a href="$agent_origin/#$daemon_fragment">Agent pane (real local acpmux)</a></li>
+  <li><a href="$agent_origin/#$daemon_fragment">Agent pane (real local acpmux + read-only checkout)</a></li>
   <li><a href="$preview_origin/">Agent pane preview fixtures</a></li>
-  <li><a href="$base_origin/diff/?pick">Diff viewer</a></li>
-  <li><a href="$base_origin/markdown?pick">Markdown editor</a></li>
-  <li><a href="$base_origin/editor?pick">Code editor</a></li>
+  <li><a href="$base_origin/diff/?source=uncommitted">Diff viewer (this checkout)</a> · <a href="$base_origin/diff/?pick">picker</a></li>
+  <li><a href="$base_origin/markdown?file=$markdown_file">Markdown (read-only checkout file)</a> · <a href="$base_origin/markdown?pick">picker</a></li>
+  <li><a href="$base_origin/editor?file=$editor_file">Code editor (read-only checkout file)</a> · <a href="$base_origin/editor?pick">picker</a></li>
   <li><a href="$settings_origin/">Settings</a></li>
 $(if [[ "$gallery_enabled" -eq 1 ]]; then printf '  <li><a href="%s/gallery/">Gallery</a> (manual inspection; matrix captures run remotely)</li>\n' "$gallery_origin"; fi)
-  <li><a href="$base_origin/history/?mock">History</a> · <a href="$base_origin/apps/?mock">Apps</a> · <a href="$base_origin/cloud/?mock">Cloud</a> · <a href="$base_origin/keybindings/?mock">Keyboard shortcuts</a></li>
+  <li><a href="$base_origin/history/?mock">History (mock provider)</a> · <a href="$base_origin/apps/?mock">Apps (mock provider)</a> · <a href="$base_origin/cloud/?mock">Cloud (mock provider)</a> · <a href="$base_origin/keybindings/?mock">Keyboard shortcuts (mock provider)</a></li>
 </ul>
-<p>Hot reload inside a Debug or tagged app: <code>CMUX_NEXT_PAGES_DEV_URL=$pages_origin/ CMUX_NEXT_AGENT_PANE_DEV_URL=$agent_origin/ ./scripts/reload.sh --tag &lt;tag&gt;</code></p>
+<p>These page links use in-memory providers. For the real Swift host, use a tagged app with hot reload: <code>CMUX_NEXT_PAGES_DEV_URL=$pages_origin/ CMUX_NEXT_AGENT_PANE_DEV_URL=$agent_origin/ ./scripts/reload.sh --tag &lt;tag&gt;</code></p>
 <p><small>Measured React edit → Vite HMR update: <strong>$hmr_seconds</strong>. ACPMUX iteration: fleet build + artifact fetch <strong>$fleet_seconds</strong>, daemon readiness <strong>$daemon_seconds</strong>.</small></p>
 EOF
 python3 -m http.server "$index_port" --bind 127.0.0.1 --directory "$index_dir" >"$work_dir/index.log" 2>&1 &
