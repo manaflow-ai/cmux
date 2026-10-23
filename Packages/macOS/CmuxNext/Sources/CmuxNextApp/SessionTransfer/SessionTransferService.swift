@@ -2,96 +2,19 @@ import CmuxNextCompat
 import CmuxNextAgentPane
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextSessionTransfer
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 
 typealias TransferJSONValue = CmuxNextSettings.JSONValue
 
-/// A live tab that another local cmux build can hand to this App.
-nonisolated struct SessionTransferItem: Sendable, Equatable, Identifiable {
-    let sourceSurface: String
-    let workspace: String
-    let kind: Kind
-    let title: String
-    let cwd: String?
-    /// The host portion of an SSH command, when the source exposes one.
-    let sshTarget: String?
-    /// A source terminal's original launch command, when available (classic peers).
-    let command: String?
-    let agentHarness: String?
-    let agentSessionID: String?
-    /// A `chat` (a cmux-next agent chat, `agentSessionID` its acpmux session): the source build's
-    /// acpmux socket and home, which `acpmux transfer` moves it from.
-    var acpmuxSocket: String?
-    var acpmuxHome: String?
-
-    /// `agent` resumes a harness's own session id; `chat` moves an acpmux chat with its history,
-    /// queue and draft (a build that predates it skips the record).
-    nonisolated enum Kind: String, Sendable { case terminal, agent, chat }
-    var id: String { sourceSurface }
-
-    var json: TransferJSONValue {
-        [
-            "surface": .string(sourceSurface),
-            "workspace": .string(workspace),
-            "kind": .string(kind.rawValue),
-            "title": .string(title),
-            "cwd": .optional(cwd),
-            "ssh_target": .optional(sshTarget),
-            "command": .optional(command),
-            "agent": .optional(agentHarness),
-            "agent_session": .optional(agentSessionID),
-            "acpmux_socket": .optional(acpmuxSocket),
-            "acpmux_home": .optional(acpmuxHome),
-        ]
-    }
-
-    init(sourceSurface: String, workspace: String, kind: Kind, title: String, cwd: String?, sshTarget: String?,
-         command: String?, agentHarness: String?, agentSessionID: String?) {
-        self.sourceSurface = sourceSurface
-        self.workspace = workspace
-        self.kind = kind
-        self.title = title
-        self.cwd = cwd
-        self.sshTarget = sshTarget
-        self.command = command
-        self.agentHarness = agentHarness
-        self.agentSessionID = agentSessionID
-    }
-
-    init?(json: TransferJSONValue, defaultWorkspace: String = "") {
-        guard let object = json.objectValue,
-              let sourceSurface = object["surface"]?.stringValue ?? object["id"]?.stringValue,
-              let kind = object["kind"]?.stringValue.flatMap(Kind.init(rawValue:)) else { return nil }
-        self.sourceSurface = sourceSurface
-        workspace = object["workspace"]?.stringValue ?? object["workspace_id"]?.stringValue ?? defaultWorkspace
-        self.kind = kind
-        title = object["title"]?.stringValue ?? object["name"]?.stringValue ?? ""
-        cwd = object["cwd"]?.stringValue
-        sshTarget = object["ssh_target"]?.stringValue
-        command = object["command"]?.stringValue
-        agentHarness = object["agent"]?.stringValue
-        agentSessionID = object["agent_session"]?.stringValue
-        acpmuxSocket = object["acpmux_socket"]?.stringValue
-        acpmuxHome = object["acpmux_home"]?.stringValue
-    }
-}
-
-nonisolated struct SessionTransferPeer: Sendable {
-    let path: String
-    let app: String
-    let build: String
-    let tag: String?
-    let pid: Int32
-    let items: [SessionTransferItem]
-}
-
 /// Discovers live sibling builds and performs an acknowledge-then-close move.
 /// The destination creates every item first; a source is only asked to close
-/// after the corresponding destination operation succeeds. Reached only over
-/// the control socket (`session.transfer.peers` / `session.transfer.pull`),
-/// for scripts and agents; there is no migration UI.
+/// after the corresponding destination operation succeeds. A person runs it
+/// from the palette (Move Sessions from Another cmux Build…, `SessionMoveFromBuild`);
+/// scripts and agents use the control socket (`session.transfer.peers` /
+/// `session.transfer.pull`).
 @MainActor
 final class SessionTransferService {
     private(set) weak var services: AppServices?
@@ -139,6 +62,29 @@ final class SessionTransferService {
         try await connection.closeTabs(ids, endTerminals: true)
     }
 
+    /// Each local terminal's foreground program by surface, for `session.transfer.list`'s
+    /// `idle` and `foreground_program`, asked at once with a short deadline. A nil program:
+    /// its shell only. A terminal missing from it did not answer or reported no foreground,
+    /// so a taker treats it as busy: a move ends it, so unlike a close, no answer is not idle.
+    func foregroundPrograms(_ surfaces: [String]) async -> [String: String?] {
+        guard let connection = services?.daemon.connection else { return [:] }
+        return await withTaskGroup(of: (String, String??).self) { group in
+            for surface in surfaces {
+                guard let id = UInt64(surface).map(SurfaceID.init(rawValue:)) else { continue }
+                group.addTask {
+                    let info = try? await connection.request(TerminalProcessInfoRequest(surface: id), timeout: .milliseconds(500))
+                    guard let info, info.foregroundExecutable?.isEmpty == false else { return (surface, nil) }
+                    return (surface, .some(info.runningProgram))
+                }
+            }
+            var programs: [String: String?] = [:]
+            for await (surface, program) in group {
+                if let program { programs[surface] = .some(program) }
+            }
+            return programs
+        }
+    }
+
     /// The sibling builds and their movable sessions, for `session.transfer.peers` and `.pull`.
     /// Throws ``Failure/peerRefused`` when no peer has sessions and at least
     /// one refused the connection (classic's default `cmuxOnly` socket mode
@@ -168,7 +114,8 @@ final class SessionTransferService {
             let build = fields["build"]?.stringValue ?? fields["version"]?.stringValue ?? ""
             let tag = fields["tag"]?.stringValue ?? ControlSocketPath.shared.bundleTag(fields["bundle_identifier"]?.stringValue)
             let items: [SessionTransferItem]
-            if let list = try? await ControlPeerClient.request(path: path, method: "session.transfer.list"),
+            // A cmux-next source asks each terminal for its foreground program (up to half a second).
+            if let list = try? await ControlPeerClient.request(path: path, method: "session.transfer.list", timeout: .seconds(5)),
                let records = list["sessions"]?.arrayValue {
                 items = records.compactMap { SessionTransferItem(json: $0) }
             } else {
@@ -369,8 +316,4 @@ final class SessionTransferService {
         /// The source build's acpmux does not answer.
         case sourceAgentsStopped
     }
-}
-
-private extension CmuxNextSettings.JSONValue {
-    nonisolated static func optional(_ value: String?) -> CmuxNextSettings.JSONValue { value.map(CmuxNextSettings.JSONValue.string) ?? .null }
 }
