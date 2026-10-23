@@ -98,6 +98,8 @@ CASES = {
                     "    registry.bind(\"renamePane\", invoke: { _ in ctx.send(\"rename-pane\") { try await $0.rename() } })\n}\n",
                     "func bind(_ registry: ActionRegistry) {\n"
                     "    registry.bind(\"renamePane\", effect: { _ in daemon.intentEffect(\"rename-pane\", intent) { try await $0.rename() } })\n}\n"),
+    "ambient-theme-root": ("import AppKit\nfunc tint(_ view: NSView) -> Bool {\n    ThemeScope.app.tokens.isDark\n}\n",
+                           "import AppKit\nfunc tint(_ view: NSView) -> Bool {\n    view.themeScope.tokens.isDark\n}\n"),
     "row-store": ("import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n"
                   "    @Environment(SidebarStore.self) private var store\n    var body: some View { Text(title) }\n}\n",
                   "import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n    let onSelect: () -> Void\n"
@@ -245,6 +247,22 @@ class RuleTests(Fixture):
                           "    Task.detached { await work() }\n}\n",
                           "    // qos-allow: the work inherits nothing and has no deadline\n"),
     }
+
+    def test_the_ambient_theme_root_is_refused_outside_design_and_by_default_argument(self):
+        cases = {
+            f"{KIT}/Added.swift": ("@MainActor final class Card {\n    init(theme: ThemeScope = .app) {}\n}\n", True),
+            f"{KIT}/Store.swift": ("func repaint() {\n    ThemeScope.app.store.repaintAll()\n}\n", True),
+            f"{PKG}/Sources/CmuxNextDesign/Palette.swift": ("func tokens() -> ThemeTokens {\n"
+                                                            "    ThemeContext.active ?? ThemeScope.app.tokens\n}\n", False),
+            f"{APP}/AppDelegate.swift": ("func launch() {\n    let root = ThemeScope.app  "
+                                         "// theme-root-allow: the composition root\n}\n", False),
+        }
+        for path, (text, refused) in cases.items():
+            with self.subTest(path=path):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(path, text)
+                self.commit("theme root")
+                self.assertEqual("ambient-theme-root" in [r.id for r, _ in self.check()[0]], refused)
 
     def test_removing_only_the_escape_comment_is_new_debt(self):
         start = self.base
