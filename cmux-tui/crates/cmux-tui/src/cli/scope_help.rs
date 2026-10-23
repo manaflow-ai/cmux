@@ -11,6 +11,9 @@ USAGE
   cmux browser profile create --name <name> [--color <value>] [--icon <value>]
     [--index <n>]
   cmux browser profile move --profile <id-or-name> --index <n>
+  cmux browser profile proxy set --profile <id-or-name>
+    --url http|https|socks5://host:port [--bypass <host,...>]
+  cmux browser profile proxy clear --profile <id-or-name>
   cmux browser profile open <url> --profile <id-or-name> [--engine webkit|cef]
     [--pane <selector>] [--title <value>] [--background true|false]
   cmux browser <selector> show|navigate|back|forward|reload|activate
