@@ -48,6 +48,19 @@ extension NotificationCenterService {
     }
 
     private func postAttention(_ item: AgentPaneAttentionTabs.Item) {
+        let decision = NotificationPolicy(prefs: preferences).decide(attentionArrival(item))
+        note("attention \(item.tabId) \(decision)")
+        guard decision.desktop else { return }
+        let content = bannerFormatter.content(headline: AttentionBannerStrings.needsYou, posterSubtitle: nil, body: item.reason,
+                                              workspace: item.workspaceTitle, tab: item.tabTitle, host: nil)
+        desktop.post(id: Self.attentionBannerID(item), title: content.title, subtitle: content.subtitle, body: content.body,
+                     surface: nil, workspace: nil, defaultSound: decision.sound == "default", category: DesktopNotifier.attentionCategory)
+        if let sound = decision.sound, sound != "default" { NotificationSounds.play(sound) }
+    }
+
+    /// What the policy reads for `item`'s banner: whether its pane is viewed and its workspace
+    /// muted, both for the tab on the machine its row key names.
+    func attentionArrival(_ item: AgentPaneAttentionTabs.Item) -> NotificationPolicy.Arrival {
         var arrival = NotificationPolicy.Arrival(source: .agent)
         arrival.appActive = NSApp.isActive
         // The row key names the tab's machine (tabs on two machines can share an id).
@@ -61,14 +74,7 @@ extension NotificationCenterService {
         }
         let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
         arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
-        let decision = NotificationPolicy(prefs: preferences).decide(arrival)
-        note("attention \(item.tabId) \(decision)")
-        guard decision.desktop else { return }
-        let content = bannerFormatter.content(headline: AttentionBannerStrings.needsYou, posterSubtitle: nil, body: item.reason,
-                                              workspace: item.workspaceTitle, tab: item.tabTitle, host: nil)
-        desktop.post(id: Self.attentionBannerID(item), title: content.title, subtitle: content.subtitle, body: content.body,
-                     surface: nil, workspace: nil, defaultSound: decision.sound == "default", category: DesktopNotifier.attentionCategory)
-        if let sound = decision.sound, sound != "default" { NotificationSounds.play(sound) }
+        return arrival
     }
 
     /// Tab `tabID` of machine `machine` is the focused content of the key window while cmux is

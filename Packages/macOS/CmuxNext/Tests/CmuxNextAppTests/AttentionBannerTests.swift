@@ -1,7 +1,10 @@
 import AppKit
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
+@testable import CmuxNextDaemon
+import CmuxNextRemote
 import CmuxNextSettings
+import Foundation
 import Testing
 import UserNotifications
 
@@ -54,6 +57,43 @@ struct AttentionBannerTests {
         #expect(service.showAttention(banner: "cmux-attention.1000.tab_1"))
         #expect(shown == ["tab_1"])
         #expect(!service.showAttention(banner: "cmux-notification-3"), "other banners keep their own path")
+    }
+
+    /// Tabs on this Mac and on an SSH machine share an id (a forked machine keeps its tab ids),
+    /// in workspaces of their own. Muting the SSH machine's workspace silences only its tab's
+    /// banner: each row's key sends the policy to the tab on its own machine.
+    @Test func theBannerReadsMutedOnTheRowsOwnMachine() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let host = try SSHHost(destination: SSHDestination(parsing: "leo@lab.tail1.ts.net")).named("lab")
+        let ssh = SSHMachineSession(host: host, binary: URL(fileURLWithPath: "/usr/bin/false"),
+                                    paths: SSHPaths(root: URL(fileURLWithPath: "/private/tmp/cn-attention-banner-remote-unused")),
+                                    environment: { [:] })
+        services.machines.add(ssh)
+        let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, tabResourceID: "tab_forked", title: "GitHub")])
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
+        func marked(_ store: DaemonStore, _ snapshot: WorkspaceSnapshot) throws -> (WorkspaceModel, TabModel) {
+            store.apply(snapshot: DaemonTree(workspaces: [snapshot]))
+            let workspace = try #require(store.workspaces.first)
+            let tab = try #require(workspace.screens.first?.panes.first?.tabs.first)
+            tab.applyState(SessionStateMirror.TabRecord(attention: TabAttention(reason: "Log in to GitHub", atMs: 1_000)), progress: nil)
+            return (workspace, tab)
+        }
+        let (hereWorkspace, hereTab) = try marked(services.daemon.store, WorkspaceSnapshot(id: 1, key: nil, name: "here", screens: [screen]))
+        let (labWorkspace, labTab) = try marked(ssh.daemon.store, WorkspaceSnapshot(id: 2, key: nil, name: "lab", screens: [screen]))
+        #expect(hereTab.id == labTab.id && hereWorkspace.id != labWorkspace.id)
+        let items = AttentionTabsWatch.items(in: [(hereWorkspace, machine: "local"), (labWorkspace, machine: ssh.machineID)])
+        let here = try #require(items.first { $0.tabId == AttentionTabsWatch.key(machine: "local", tab: hereTab.id) })
+        let lab = try #require(items.first { $0.tabId == AttentionTabsWatch.key(machine: ssh.machineID, tab: labTab.id) })
+        let notifications = services.notifications
+        notifications.preferences.mutedWorkspaces = [labWorkspace.id]
+        #expect(notifications.attentionArrival(lab).workspaceMuted, "the SSH machine's muted workspace did not silence its tab's banner")
+        #expect(!notifications.attentionArrival(here).workspaceMuted, "muting the SSH workspace silenced this Mac's tab")
+        notifications.preferences.mutedWorkspaces = [hereWorkspace.id]
+        #expect(notifications.attentionArrival(here).workspaceMuted)
+        #expect(!notifications.attentionArrival(lab).workspaceMuted, "muting this Mac's workspace silenced the SSH machine's tab")
+        #expect(!NotificationPolicy(prefs: notifications.preferences).decide(notifications.attentionArrival(here)).desktop,
+                "a muted workspace's tab still posts a banner")
     }
 
     @Test func theBannerOffersShow() {
