@@ -1528,14 +1528,15 @@ export function manifestEntryEpoch(entry: Pick<DevboxManifestEntry, "epoch" | "n
  * them: delete the entry with the promotion that bakes them, and move
  * `baked` and `current` when a main sync brings a new ladder. The desktop
  * sources moved again in 089cd3e3dc92 and 5901bc15bec0 (the codex config
- * merge under a lock), so `current` is their digest.
+ * merge under a lock) and b5f75830c15f (agent-config.sh bounds that lock's
+ * wait), so `current` is their digest.
  */
 export const DEVBOX_AWAITING_REBAKE = [
   {
     layers: "desktop",
     schema: 2,
     baked: "28fce1e49495",
-    current: "de5d89d6df3c290ad10a69c337153a1d44893371c28d5d636fa95d2ee67d0945",
+    current: "575e883ec36e321ff92b63e79fbc339a6c0b877510be882304acfbca402cf17e",
   },
 ] as const;
 

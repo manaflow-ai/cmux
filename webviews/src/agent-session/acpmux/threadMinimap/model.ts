@@ -72,20 +72,111 @@ export function tickProgress(distance: number | undefined): number {
 /// The drawn length of a tick at `progress`: 6 px at rest, 26 px hovered.
 export const tickLength = (progress: number) => TICK_BOX * (0.2308 + 0.7692 * progress);
 
+/// The transcript's soft edges (conversation.css `.acpmux-scroll[data-fade-*]`): its mask fades
+/// rows out over this many px under the top once scrolled from the start, and above the view's foot
+/// (the bottom stack's top) while more lies below, 56 px while Jump to latest shows (18 px without).
+/// The rail is inside the scroller, so the mask fades it too: its rows stay clear of both bands, at
+/// the widest they get, so the rail never moves as the bands come and go. A test reads the CSS.
+export const TRANSCRIPT_FADE_TOP = 18;
+export const TRANSCRIPT_FADE_BOTTOM = 56;
+/// Where the rail's rows may sit, in px down the transcript's viewport: clear of the mask's bands by
+/// EDGE_MARGIN's half. `foot` is where the mask's view ends (the bottom stack's top), when it is
+/// above `viewportHeight` (a composer grown while the view follows the latest row).
+export function railRoom(viewportHeight: number, foot = viewportHeight): { top: number; bottom: number } {
+  const clear = EDGE_MARGIN / 2;
+  return {
+    top: TRANSCRIPT_FADE_TOP + clear,
+    bottom: Math.min(viewportHeight, foot) - TRANSCRIPT_FADE_BOTTOM - clear,
+  };
+}
+
 /// The rail's height for `count` rows in a window `windowHeight` tall: every row up to 64 rows or
-/// 70% of the window, after which the rows scroll. It never outgrows the transcript it is centered
-/// on (`viewportHeight`, less EDGE_MARGIN at each end), so a short pane's rows all scroll into view.
-export function railHeight(count: number, windowHeight: number, viewportHeight = windowHeight): number {
-  return Math.max(
-    0,
-    Math.min(
-      count * ROW_PITCH,
-      RAIL_MAX_ROWS * ROW_PITCH,
-      Math.floor(windowHeight * RAIL_MAX_SHARE),
-      // A transcript not measured yet (0) does not cap it.
-      viewportHeight > 0 ? Math.floor(viewportHeight - 2 * EDGE_MARGIN) : Infinity,
-    ),
+/// 70% of the window, after which the rows scroll. It fits the room the transcript gives it
+/// (railRoom: its viewport less the mask's bands), so a short pane's rows all scroll into view and no
+/// tick sits under the transcript's fades (Leo 2026-10-22: "it wouldn't show the highlighted bottom
+/// ... it just didn't go to the bottom"). It is never shorter than the band, the `band` prompts on
+/// screen: in a pane too short for both, the mask's clearance gives way first, up to the whole view.
+export function railHeight(
+  count: number,
+  windowHeight: number,
+  viewportHeight = windowHeight,
+  foot = viewportHeight,
+  band = 1,
+): number {
+  const room = railRoom(viewportHeight, foot);
+  const height = Math.min(
+    count * ROW_PITCH,
+    RAIL_MAX_ROWS * ROW_PITCH,
+    Math.floor(windowHeight * RAIL_MAX_SHARE),
+    // A transcript not measured yet (0) does not cap it.
+    viewportHeight > 0 ? Math.floor(room.bottom - room.top) : Infinity,
   );
+  const need = Math.min(count, Math.max(1, band)) * ROW_PITCH;
+  const view = viewportHeight > 0 ? Math.floor(Math.min(viewportHeight, foot)) : Infinity;
+  return Math.max(0, height >= need ? height : Math.min(need, view));
+}
+
+/// The rail's top in the transcript's viewport: centered on it, as the Codex rail is, then moved as
+/// little as it takes to keep the rail inside railRoom. A rail taller than that room (a tiny pane,
+/// railHeight) centers on it, inside the view.
+export function railTop(height: number, viewportHeight: number, foot = viewportHeight): number {
+  const room = railRoom(viewportHeight, foot);
+  const centered = Math.round((viewportHeight - height) / 2);
+  if (viewportHeight <= 0) return centered;
+  if (room.bottom - height >= room.top) return Math.max(room.top, Math.min(centered, Math.floor(room.bottom - height)));
+  const view = Math.min(viewportHeight, foot);
+  return Math.max(0, Math.min(Math.round((room.top + room.bottom - height) / 2), Math.floor(view - height)));
+}
+
+/// The fade a rail longer than its room draws at an edge with more rows past it: 2.5rem
+/// (threadMinimap.css `.acpmux-minimap__list[data-fade-*]`), and at most a quarter of a short rail.
+export const RAIL_FADE = 40;
+export const railFade = (height: number) => Math.max(0, Math.min(RAIL_FADE, Math.floor(height / 4)));
+
+/// Which of the list's edge fades draw at offset `top`: an edge with more rows past it fades, unless
+/// the fade would lie over the band (the prompts on screen), which always draws in full ink.
+export function railFades(
+  band: { first: number; last: number },
+  count: number,
+  height: number,
+  top: number,
+): { top: boolean; bottom: boolean } {
+  const fade = railFade(height);
+  return {
+    top: top > 0 && band.first * ROW_PITCH - top >= fade,
+    bottom: count * ROW_PITCH - top - height > 1 && (band.last + 1) * ROW_PITCH - top <= height - fade,
+  };
+}
+
+/// Where the rail's list scrolls (its `scrollTop`) so the band, the prompts on screen (`first` to
+/// `last`), shows whole and clear of the fades: `current` while it already does; else the band's
+/// first row a third of the way down, as the Codex rail puts it, moved as little as it takes to show
+/// the whole band. In a rail too short for the band and the fades, the fades give way (railFades)
+/// and the band still shows whole. A band taller than the rail shows its first row, or its last when
+/// it holds the chat's last prompt. A band that holds the chat's last prompt scrolls the list to its
+/// end, which draws no bottom fade, so at the bottom of the chat the bottom ticks show lit (Leo
+/// 2026-10-22: "it wouldn't show the highlighted bottom ... it just didn't go to the bottom").
+export function railScrollTop(
+  band: { first: number; last: number },
+  count: number,
+  height: number,
+  current: number,
+): number {
+  const room = Math.max(0, count * ROW_PITCH - height);
+  if (room === 0) return 0;
+  const clamp = (value: number) => Math.max(0, Math.min(room, value));
+  // The offsets that show the band whole: with the fades clear of it (the inner pair), or at all.
+  // An edge row of the list needs no clearance: the list at that end draws no fade there.
+  const highest = band.first * ROW_PITCH;
+  const lowest = (band.last + 1) * ROW_PITCH - height;
+  if (lowest > highest) return clamp(band.last >= count - 1 ? room : highest);
+  if (band.last >= count - 1) return room;
+  const fade = railFade(height);
+  const clearHighest = highest - (band.first > 0 ? fade : 0);
+  const clearLowest = lowest + fade;
+  const [low, high] = clearLowest <= clearHighest ? [clearLowest, clearHighest] : [lowest, highest];
+  if (current >= low && current <= high) return clamp(current);
+  return clamp(Math.min(high, Math.max(low, band.first * ROW_PITCH - height / 3)));
 }
 
 /// The card's top for a row centered at `center`: centered on it, kept inside the viewport.
@@ -106,29 +197,84 @@ export function jumpDuration(distance: number): number {
 /// chat's snapshot hashes and previews only the turns that changed.
 const turnsByPrompt = new WeakMap<AcpmuxRow, { turn: MinimapTurn; sessionId: string; reply?: AcpmuxRow }>();
 
-/// The turns of `rows`, and the rows they were read from.
-export type MinimapTurns = { rows: readonly AcpmuxRow[]; sessionId: string; turns: MinimapTurn[] };
+/// What a turn's tick on the rail shows: its prompt, by key. A tick changes only when its prompt
+/// does, not when the reply it previews streams on.
+export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt">;
+
+/// The turns of `rows`, the ticks they draw, and the rows they were read from.
+export type MinimapTurns = {
+  rows: readonly AcpmuxRow[];
+  sessionId: string;
+  turns: readonly MinimapTurn[];
+  ticks: readonly MinimapTick[];
+  /// The list the next changed turns are written into (the one before `turns`), never `turns`.
+  spare?: MinimapTurn[];
+};
+
+/// For a list the next turns are written into, the list whose first `same` turns it holds.
+const agreed = new WeakMap<readonly MinimapTurn[], { list: readonly MinimapTurn[]; same: number }>();
+
+/// Where a rows snapshot first differs (by object) from the one before it, as the transcript finds
+/// it once per snapshot for everything that reads the rows (VirtualTranscript's arriving rows): the
+/// rows before `from` in `rows` are the rows of `base`.
+export type RowsChange = { base: readonly AcpmuxRow[]; rows: readonly AcpmuxRow[]; from: number };
 
 /// The transcript's turns. A turn that ends before the first row that differs from
 /// `previous.rows` (by object) is kept, and `turns` stays `previous.turns` when every turn is.
-export function minimapTurns(rows: readonly AcpmuxRow[], sessionId = "", previous?: MinimapTurns): MinimapTurns {
+/// `ticks` stays `previous.ticks` while the prompts are the same, so a token streaming into a reply
+/// leaves the rail's ticks alone (ThreadMinimap draws them from `ticks`). Only the turns from the
+/// first changed one on are read and compared: the ones before it are the previous ones.
+///
+/// `change`, when it is the step from `previous.rows` to `rows`, gives where they first differ, so a
+/// streamed token reads only the live turn's rows, however long the chat (#24058 review round 4).
+/// Without it (another session, a first read, a step the transcript did not see) the rows are
+/// compared from the start.
+///
+/// `previous` is left as it was: React can render with the next rows and drop that render, and the
+/// committed result must still be the rows it shows (#24058 review round 6). Changed turns go into
+/// `previous.spare`, the list before `previous.turns`, which holds every turn up to where the two
+/// last differed, so a streamed token writes the live turn alone and copies none of the others. The
+/// result before `previous` is spent: pass the committed result, or one read from it.
+export function minimapTurns(
+  rows: readonly AcpmuxRow[],
+  sessionId = "",
+  previous?: MinimapTurns,
+  change?: RowsChange,
+): MinimapTurns {
   const reuse = previous?.sessionId === sessionId ? previous : undefined;
   let from = 0;
-  if (reuse) while (from < rows.length && from < reuse.rows.length && rows[from] === reuse.rows[from]) from += 1;
+  if (reuse && change && change.base === reuse.rows && change.rows === rows) from = change.from;
+  else if (reuse) while (from < rows.length && from < reuse.rows.length && rows[from] === reuse.rows[from]) from += 1;
   // A kept turn's rows all come before `from`: the next turn's prompt is before it (a row
-  // inserted at that prompt's index joins the turn before).
+  // inserted at that prompt's index joins the turn before). The turns are in row order: the last
+  // turn that starts before `from` is the first one read again.
   let keep = 0;
-  if (reuse) while (keep + 1 < reuse.turns.length && reuse.turns[keep + 1]!.index < from) keep += 1;
-  const turns: MinimapTurn[] = reuse ? reuse.turns.slice(0, keep) : [];
+  if (reuse) {
+    let low = 0;
+    let high = reuse.turns.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if (reuse.turns[middle]!.index < from) low = middle + 1;
+      else high = middle;
+    }
+    keep = Math.max(0, Math.min(reuse.turns.length - 1, low - 1));
+  }
+  // The turns read again, from `keep` on. The ones before are `reuse.turns`' own, never copied.
+  const tail: MinimapTurn[] = [];
   let user: AcpmuxRow | undefined;
   let userIndex = 0;
   let reply: AcpmuxRow | undefined;
   const close = () => {
     if (!user) return;
     const kept = turnsByPrompt.get(user);
-    if (kept && kept.sessionId === sessionId && kept.reply === reply && kept.turn.index === userIndex)
-      turns.push(kept.turn);
-    else {
+    const same = kept && kept.sessionId === sessionId && kept.turn.index === userIndex;
+    if (same && kept.reply === reply) tail.push(kept.turn);
+    else if (same && reply?.text && kept.reply?.text && samePreview(kept.turn.reply, replyPreview(reply.text))) {
+      // A reply streamed on past its preview (replyPreview stops once the preview is full): the
+      // turn is the same, so the list of turns can be too.
+      kept.reply = reply;
+      tail.push(kept.turn);
+    } else {
       const turn: MinimapTurn = {
         index: userIndex,
         id: user.id,
@@ -137,7 +283,7 @@ export function minimapTurns(rows: readonly AcpmuxRow[], sessionId = "", previou
         reply: reply?.text ? replyPreview(reply.text) : [],
       };
       turnsByPrompt.set(user, { turn, sessionId, reply });
-      turns.push(turn);
+      tail.push(turn);
     }
     user = undefined;
     reply = undefined;
@@ -154,8 +300,60 @@ export function minimapTurns(rows: readonly AcpmuxRow[], sessionId = "", previou
   }
   close();
   const old = reuse?.turns;
-  const same = old && old.length === turns.length && old.every((turn, index) => turn === turns[index]);
-  return { rows, sessionId, turns: same ? old : turns };
+  const oldTicks = reuse?.ticks;
+  const length = keep + tail.length;
+  let sameTurns = old !== undefined && old.length === length;
+  let sameTicks = oldTicks !== undefined && oldTicks.length === length;
+  for (let at = 0; at < tail.length && (sameTurns || sameTicks); at += 1) {
+    const turn = tail[at]!;
+    if (old?.[keep + at] !== turn) sameTurns = false;
+    const tick = oldTicks?.[keep + at];
+    if (tick?.key !== turn.key || tick.prompt !== turn.prompt || tick.id !== turn.id) sameTicks = false;
+  }
+  // Changed turns go into the spare list, never into `old`: it holds `old`'s turns up to where the
+  // two last differed, so a streamed token whose reply preview is still filling writes the live turn
+  // alone, not a copy of every turn (#24058 review round 5), and `previous` stays the committed rows'
+  // (round 6). A dropped render wrote only the spare, and its agreement says how far it still holds.
+  if (!old) return { rows, sessionId, turns: tail, ticks: ticksOf(tail, oldTicks) };
+  if (sameTurns)
+    return { rows, sessionId, turns: old, ticks: sameTicks ? oldTicks! : ticksOf(old, oldTicks), spare: reuse!.spare };
+  const list = reuse!.spare ?? [];
+  const agreement = agreed.get(list);
+  for (let at = agreement?.list === old ? Math.min(agreement.same, keep) : 0; at < keep; at += 1) list[at] = old[at]!;
+  list.length = keep;
+  for (const turn of tail) list.push(turn);
+  agreed.set(list, { list: old, same: keep });
+  agreed.set(old, { list, same: keep });
+  return {
+    rows,
+    sessionId,
+    turns: list,
+    ticks: sameTicks ? oldTicks! : ticksOf(list, oldTicks),
+    spare: old as MinimapTurn[],
+  };
+}
+
+/// Whether two reply previews are the same blocks and spans.
+function samePreview(a: readonly ReplyBlock[], b: readonly ReplyBlock[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((block, index) => {
+    const other = b[index]!;
+    return (
+      block.kind === other.kind &&
+      block.spans.length === other.spans.length &&
+      block.spans.every((span, at) => span.text === other.spans[at]!.text && !!span.bold === !!other.spans[at]!.bold)
+    );
+  });
+}
+
+/// Each turn's tick, the previous one where its prompt is the same.
+function ticksOf(turns: readonly MinimapTurn[], previous: readonly MinimapTick[] = []): MinimapTick[] {
+  return turns.map((turn, index) => {
+    const tick = previous[index];
+    return tick && tick.key === turn.key && tick.prompt === turn.prompt && tick.id === turn.id
+      ? tick
+      : { key: turn.key, id: turn.id, prompt: turn.prompt };
+  });
 }
 
 /// FNV-1a of `text`, as base 36.

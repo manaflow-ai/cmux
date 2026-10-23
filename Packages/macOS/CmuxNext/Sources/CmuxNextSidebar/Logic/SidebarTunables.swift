@@ -249,6 +249,7 @@ public nonisolated enum SidebarTunables {
             rowBadgePreview.descriptor,
             sectionTopFraction.descriptor,
             SidebarChatsDesign.tunable.descriptor,
+            SidebarCloseNotch.tunable.descriptor,
             SidebarGroupHeaderStyle.tunable.descriptor,
             SidebarGroupPalette.tunable.descriptor,
             SidebarRowBadgeStackCap.tunable.descriptor,
