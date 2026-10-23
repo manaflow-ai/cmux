@@ -330,7 +330,7 @@ export default componentEntry<GalleryProps>({
       height: 1000,
       play: cappedHeight,
     },
-    // The agent CLI is outdated: a dot on the chip, and Update and Skip This Version in the
+    // The agent CLI is outdated: no dot on the chip (Leo 2026-10-21), and Update and Skip This Version in the
     // picker, never a banner over the chat (hq#2569 #12).
     "update-offer": {
       props: { ...base, update },

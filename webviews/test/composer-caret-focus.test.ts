@@ -220,13 +220,20 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
             const mark = bar.querySelector<HTMLElement>(".acpmux-model .acpmux-picker-button .agent-mark");
             const model = bar.querySelector<HTMLElement>(".acpmux-model .acpmux-picker-button")!;
             // The model button names its effort after the model (Leo 2026-10-20): the name is as
-            // muted as that effort label.
+            // muted as that effort label, except in the quiet row under the box, where the name is in
+            // the button's muted ink and the effort one step back of it (#24151: secondary ink).
             const name = model.querySelector<HTMLElement>(".acpmux-model-name") ?? model;
             const effort = model.querySelector<HTMLElement>(".acpmux-model-detail");
+            const nameColor = getComputedStyle(name).color;
+            const quietRow = bar.classList.contains("acpmux-composer-foot");
             return {
               look: bar.dataset.footerLook ?? "",
               mark: mark ? getComputedStyle(mark).display : "none",
-              muted: !effort || getComputedStyle(name).color === getComputedStyle(effort).color,
+              muted: !effort
+                ? true
+                : quietRow
+                  ? nameColor === getComputedStyle(model).color && getComputedStyle(effort).color !== nameColor
+                  : nameColor === getComputedStyle(effort).color,
             };
           },
           { foot: stage.foot },

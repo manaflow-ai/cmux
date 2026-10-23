@@ -14,6 +14,13 @@ import { type RefObject, useLayoutEffect } from "react";
 // and, while its controls would not fit, applies the next steps too, writing each unit's form on
 // the row (`data-fit-model="family"`).
 //
+// The quiet row under the box (ComposerFoot, #22285) takes no width step: the steps date from
+// #20802's one row, where +, the prompt, the chips, the mic and Send shared the width, and #22285
+// moved the mode, the model button and the ring into a row of their own. There the forms follow
+// what this hook measures alone: the units' natural widths against the row's room, so a 410 px
+// composer keeps "Opus 5.5  Medium" while it fits (live-qa 2026-10-21 read "Opus Med" with about
+// 250 px of the row free) and shortens only when the row really runs out.
+//
 // A part of a unit carries the unit's name (`data-fit-part="model"`) and the forms it shows in
 // (`data-fit-forms="full family"`). A part of another form is laid out of the row, absolute and
 // invisible, so its width is still known: the decision never toggles to measure. It runs when the
@@ -152,6 +159,8 @@ export function fitStep(
 /** The width the row's steps follow: the composer's content box (the CSS's `composer` container,
  *  #20548), so a split pane, the New Tab card and the quick surface step down alike. */
 function paneWidth(bar: HTMLElement): number {
+  // The quiet row fits on its measured room alone (above): no composer width takes a step there.
+  if (bar.classList.contains("acpmux-composer-foot")) return Number.POSITIVE_INFINITY;
   const composer = bar.closest<HTMLElement>(".acpmux-composer, .nt-composer");
   if (!composer) return bar.ownerDocument.documentElement.clientWidth;
   const style = getComputedStyle(composer);
