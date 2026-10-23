@@ -1,3 +1,4 @@
+// l10n-allow-file: gallery entry (titles and play checks), not shipped UI.
 // The New Tab page's three dots (newtab/tabDots.ts; Leo 2026-10-23: "1 CLAUDE MINIMAL / 2 CLAUDE
 // MINIMAL + NEW TAB/TERMINAL/WHATEVER / 3 CODEX MINIMAL"), each one picked: the same default page
 // with Claude's composer alone, with the quick action pills under it, and with Codex's composer.
