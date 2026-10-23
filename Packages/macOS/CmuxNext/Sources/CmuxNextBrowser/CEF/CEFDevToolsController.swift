@@ -91,6 +91,7 @@ final class CEFDevToolsController {
             views?.divider.needsDisplay = true
             if let divider = views?.divider { divider.window?.invalidateCursorRects(for: divider) }
             tab.container.layoutContent()
+            layerHostingMoved()
             return
         }
         if views != nil, tab.runtime.supportsEmbeddedDevTools {
@@ -115,6 +116,7 @@ final class CEFDevToolsController {
         tab.container.addSubview(views.divider)
         closeWindow()
         tab.container.layoutContent()
+        layerHostingMoved()
     }
 
     /// The DevTools view leaves the pane for its own window.
@@ -125,6 +127,14 @@ final class CEFDevToolsController {
         window.adopt(views.host)
         window.orderFront(nil)
         tab.container.layoutContent()
+        layerHostingMoved()
+    }
+
+    /// DevTools has no tab shows: each placement change is its next chance to
+    /// host (the fork's tracker attaches anew) and where a tunable change applies.
+    private func layerHostingMoved() {
+        guard let browser = devToolsBrowserID else { return }
+        views?.host.layerHosting.pageMoved(browser: browser)
     }
 
     private func makeWindow(for tab: CEFTab) -> CEFDevToolsWindow {
@@ -190,10 +200,12 @@ final class CEFDevToolsController {
         if docked, !layout.dock.isDocked { undockViews() }
         tab.container.layoutContent()
         // A docked DevTools is its own page window on its own host view: hosted in the window's layers
-        // too while layer hosting is on (fork API 26), from this open on (a later tunable change applies
-        // at the next open).
+        // too while layer hosting is on (fork API 26), from this open on; a refusal or a tunable change is
+        // asked again at the next placement change (`layerHostingMoved`).
         if docked {
-            views?.host.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(shim: tab.runtime.shim, apiVersion: tab.runtime.forkAPIVersion))
+            views?.host.layerHosting.pageWindowCreated(
+                browser: browser, fork: CEFLayerHosting.Fork(shim: tab.runtime.shim, apiVersion: tab.runtime.forkAPIVersion),
+                anchor: { [weak self] in self?.devToolsBrowserID })
         }
         tab.devToolsObserver?.browserTab(tab, devToolsDidChange: tab.devTools, focused: true)
     }
@@ -307,6 +319,7 @@ final class CEFDevToolsController {
         closeWindow()
         guard let views else { return }
         self.views = nil
+        // After DevTools closed (or before it opens): no fork call, its page window is gone.
         views.host.layerHosting.stop()
         views.divider.removeFromSuperview()
         views.host.removeFromSuperview()

@@ -7,7 +7,8 @@ import AppKit
 ///
 /// The context belongs to the page window, not to a tab: every tab of a pane
 /// shares it, so a tab switch inside a hosted pane makes no fork call. A new
-/// page window (``pageWindowCreated(browser:fork:)``) drops the old context.
+/// page window (``pageWindowCreated(browser:fork:anchor:)``) drops the old
+/// context.
 ///
 /// A request made inside Chromium's creation stack (`OnAfterCreated`, the
 /// DevTools opened event) can find no page window yet: Chromium adds the
@@ -15,7 +16,14 @@ import AppKit
 /// request runs at the end of the run-loop turn, after the stack returned.
 /// When the fork still refuses, the next read of the host view by the fork's
 /// tracker (``trackerDidRead()``, proof that the tracker is attached) retries
-/// once; another refusal waits for the next show.
+/// once. A refusal after that is the page window's answer: no show asks
+/// again (a show is the 10 ms tab-switch path); a new page window or a move
+/// of the host view to another place (``pageMoved(browser:)``) does.
+///
+/// Every request addresses the page window's live browser (`anchor`), never
+/// a browser saved earlier: the browser that created a window (a spare
+/// window's or popup host's about:blank placeholder) can be closed by the
+/// time a retry runs.
 ///
 /// Tests drive it through ``Fork`` and the `schedule` seam, without Chromium.
 final class CEFLayerHosting {
@@ -30,10 +38,12 @@ final class CEFLayerHosting {
             self.setLayerHosting = setLayerHosting
         }
 
-        /// The shim's call; nil without a shim or below fork API 26, where
-        /// nothing changes and showing a tab costs nothing here.
-        init?(shim: CEFShimLibrary?, apiVersion: Int32) {
-            guard let shim, apiVersion >= CEFLayerHosting.forkAPI else { return nil }
+        /// The shim's call; nil without a shim, below fork API 26, or when
+        /// this process has no `CALayerHost` to show a context
+        /// (`CEFHostedPageView.canShowContexts`, asked once per process).
+        /// Nil makes every call here free: nothing reaches the fork.
+        init?(shim: CEFShimLibrary?, apiVersion: Int32, canShowContexts: Bool = CEFHostedPageView.canShowContexts) {
+            guard let shim, apiVersion >= CEFLayerHosting.forkAPI, canShowContexts else { return nil }
             setLayerHosting = { browser, enabled in shim.browserSetLayerHosting(browser, enabled ? 1 : 0) }
         }
     }
@@ -55,14 +65,22 @@ final class CEFLayerHosting {
     /// draws in its own window.
     private(set) var page: CEFHostedPageView?
     /// Requests the fork refused, or hosted contexts no `CALayerHost` could
-    /// show (`CEFTrackerStats.hostingRefused` sums every view).
+    /// show, for this host view (`debug.cef` `layer_hosting.refusals` sums
+    /// the live host views).
     private(set) var refusals = 0
-    /// Calls into the fork so far.
+    /// Calls into the fork so far, for this host view.
     private(set) var forkCalls = 0
-    /// A browser of the page window (any tab of it names the same window).
-    private var browser: Int32?
+    /// The browser shown last (``pageShown(browser:)``): live when it was
+    /// shown. The fallback address when no `anchor` was given.
+    private var shownBrowser: Int32?
+    /// The page window's live browser now (`CEFPaneHost.anchorBrowser`, the
+    /// DevTools browser); nil when none is live.
+    private var anchor: (() -> Int32?)?
     private var fork: Fork?
     private var pending = Pending.none
+    /// The fork refused this page window after its retry (its tracker was
+    /// attached): a show asks again only after ``pageMoved(browser:)``.
+    private var windowRefused = false
     private let isEnabled: () -> Bool
     private let schedule: Scheduler
     private let makePage: (CGRect) -> CEFHostedPageView
@@ -85,36 +103,58 @@ final class CEFLayerHosting {
     /// Whether a refused request waits for the tracker's next read.
     var isRetryArmed: Bool { pending == .armed }
 
+    /// Whether the page draws in a cmux window's layer tree now (a hosted
+    /// view in a window): what `debug.cef` `layer_hosting.hosted_pages` counts.
+    var isHostedInWindow: Bool { page?.window != nil }
+
     /// A new page window over the view (a pane's Chromium window, or a docked
     /// DevTools): the old window's context went with it. Called inside
     /// Chromium's creation stack, so the request waits for the end of the turn.
-    func pageWindowCreated(browser: Int32, fork: Fork?) {
+    /// - Parameters:
+    ///   - browser: the browser whose creation made the window.
+    ///   - fork: the fork's call; nil when hosting cannot run in this process.
+    ///   - anchor: the window's live browser at the time of a later request
+    ///     (the creating browser may be closed by then); nil uses the browser
+    ///     shown last.
+    func pageWindowCreated(browser: Int32, fork: Fork?, anchor: (() -> Int32?)? = nil) {
         dropPage()
-        self.browser = browser
+        shownBrowser = browser
+        self.anchor = anchor
         self.fork = fork
         pending = .none
+        windowRefused = false
         guard fork != nil, isEnabled() else { return }
         request(retry: false)
     }
 
     /// A tab of the page window shows (`CEFPaneHost.present`). While the page
-    /// is hosted and hosting is still wanted, nothing reaches the fork; a
-    /// tunable change applies here.
+    /// is hosted and hosting is still wanted, or the fork refused this page
+    /// window, nothing reaches the fork; a tunable change applies here.
     func pageShown(browser: Int32) { // perf-hot: 10ms tab-switch (every Chromium tab show)
         guard let fork else { return }
-        self.browser = browser
+        shownBrowser = browser
         let wanted = isEnabled()
         if wanted == (page != nil) { return }
         if wanted {
+            if windowRefused { return }
             if case .scheduled = pending { return }
             pending = .none
             apply(fork, browser: browser, retry: false)
         } else {
             pending = .none
-            forkCalls += 1
-            _ = fork.setLayerHosting(browser, false)
+            _ = call(fork, browser, false)
             dropPage()
         }
+    }
+
+    /// The host view moved to another place (a docked DevTools changed side,
+    /// or moved between the pane and its own window): the fork's tracker
+    /// attaches anew, so a page window it refused may host now, and a tunable
+    /// change applies. A person's placement choice, not a hot path: at most
+    /// one fork call.
+    func pageMoved(browser: Int32) {
+        windowRefused = false
+        pageShown(browser: browser)
     }
 
     /// The fork's tracker read the host view (`-cmuxClipPath`): it is attached
@@ -124,16 +164,23 @@ final class CEFLayerHosting {
         request(retry: true)
     }
 
-    /// The view goes away (DevTools closed) or its page window closed: turns
-    /// hosting off for the browser and drops the hosted view.
+    /// The page window closed (DevTools closed, the pane's last tab closed):
+    /// drops the hosted view. No fork call: the window's browsers are gone
+    /// by now, and the context belongs to the page window's tracker, which
+    /// the window's teardown releases.
     func stop() {
         pending = .none
-        if page != nil, let fork, let browser {
-            forkCalls += 1
-            _ = fork.setLayerHosting(browser, false)
-        }
         dropPage()
-        browser = nil
+        fork = nil
+        anchor = nil
+        shownBrowser = nil
+        windowRefused = false
+    }
+
+    /// The page window's live browser now.
+    private var liveBrowser: Int32? {
+        if let anchor { return anchor() }
+        return shownBrowser
     }
 
     private func request(retry: Bool) {
@@ -141,33 +188,34 @@ final class CEFLayerHosting {
         schedule { [weak self] in
             guard let self, self.pending == .scheduled(retry: retry) else { return }
             self.pending = .none
-            guard let fork = self.fork, let browser = self.browser, self.isEnabled(), self.page == nil else { return }
+            guard let fork = self.fork, !self.windowRefused, self.isEnabled(), self.page == nil,
+                  let browser = self.liveBrowser else { return }
             self.apply(fork, browser: browser, retry: retry)
         }
     }
 
     private func apply(_ fork: Fork, browser: Int32, retry: Bool) {
         guard let view else { return }
-        forkCalls += 1
-        let id = fork.setLayerHosting(browser, true)
+        let id = call(fork, browser, true)
         if id != 0 {
             let page = self.page ?? addPage(to: view)
             if page.host(contextID: id) { return }
             // No CALayerHost to show the context: the page window would stay
-            // see-through over a blank view, so give the page its pixels back.
-            forkCalls += 1
-            _ = fork.setLayerHosting(browser, false)
+            // see-through over a blank view, so give the page its pixels back,
+            // and ask no more for this page window (it would fail the same way).
+            _ = call(fork, browser, false)
             dropPage()
-            refused()
+            refusals += 1
+            self.fork = nil
             return
         }
-        refused()
-        if !retry { pending = .armed }
+        refusals += 1
+        if retry { windowRefused = true } else { pending = .armed }
     }
 
-    private func refused() {
-        refusals += 1
-        CEFHostView.trackerStats.hostingRefused += 1
+    private func call(_ fork: Fork, _ browser: Int32, _ enabled: Bool) -> UInt32 {
+        forkCalls += 1
+        return fork.setLayerHosting(browser, enabled)
     }
 
     private func addPage(to view: NSView) -> CEFHostedPageView {

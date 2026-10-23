@@ -10,7 +10,8 @@ import Darwin
 /// `downloading`, `downloadFailed`, `startFailed`, `shutDown`), where the
 /// runtime came from (`runtime`: Chromium on demand) and the WebKit
 /// fallbacks so far, the external pump's counters (`pump`) and what the
-/// fork's page tracker read from host views (`tracker`). Helper
+/// fork's page tracker read from host views (`tracker`) and the
+/// layer hosting of the live host views (`layer_hosting`, a gauge). Helper
 /// processes are separate; measure them with `ps`.
 @MainActor
 enum DebugCEF {
@@ -45,6 +46,7 @@ enum DebugCEF {
         object["devtools"] = .array(devTools(services))
         if let pump = services.cache.cef.pumpStats { object["pump"] = pumpReport(pump) }
         object["tracker"] = trackerReport(services.cache.cef.trackerStats)
+        object["layer_hosting"] = layerHostingReport(services.cache.cef.layerHostingReport)
         object["windows"] = windows(services.cache.cef.windowReport)
         if let duration = report.loadDuration { object["load_ms"] = .number(milliseconds(duration)) }
         if let duration = report.initializeDuration { object["initialize_ms"] = .number(milliseconds(duration)) }
@@ -145,8 +147,17 @@ enum DebugCEF {
             "clip_hits": .number(Double(stats.clipHits)),
             "clip_ms": .number(stats.clipSeconds * 1_000),
             "geometry_posts": .number(Double(stats.geometryPosts)),
-            "hosted_pages": .number(Double(stats.hostedPages)),
-            "hosting_refused": .number(Double(stats.hostingRefused)),
+        ])
+    }
+
+    /// A gauge of the live host views, not counters since launch: a closed
+    /// pane or DevTools takes its numbers with it (cef-layer-verify.py, cef-layer-ab.py).
+    private static func layerHostingReport(_ report: CEFLayerHostingReport) -> JSONValue {
+        .object([
+            "host_views": .number(Double(report.hostViews)),
+            "hosted_pages": .number(Double(report.hostedPages)),
+            "refusals": .number(Double(report.refusals)),
+            "fork_calls": .number(Double(report.forkCalls)),
         ])
     }
 

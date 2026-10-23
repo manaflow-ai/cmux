@@ -44,18 +44,6 @@ final class CEFHostedPageView: NSView {
 
     override func isAccessibilityElement() -> Bool { false }
 
-    /// `debug.cef` `tracker.hosted_pages` counts the hosted views in a
-    /// window, so a view released with its host (DevTools closed, a pane
-    /// closed) never stays counted.
-    override func viewWillMove(toWindow newWindow: NSWindow?) {
-        super.viewWillMove(toWindow: newWindow)
-        if window == nil, newWindow != nil {
-            CEFHostView.trackerStats.hostedPages += 1
-        } else if window != nil, newWindow == nil {
-            CEFHostView.trackerStats.hostedPages -= 1
-        }
-    }
-
     /// Shows the context `id` (0 removes the page). False when `id` is not 0
     /// and nothing can show it (no `CALayerHost`): the caller gives the page
     /// its own window back instead of leaving it blank.
@@ -78,6 +66,14 @@ final class CEFHostedPageView: NSView {
         CATransaction.commit()
         return contextID == id
     }
+
+    /// Whether this process has a `CALayerHost` that takes a context id.
+    /// Asked once per process (the class does not come or go): without it
+    /// ``CEFLayerHosting/Fork`` is nil and no Chromium tab show asks the fork.
+    nonisolated static let canShowContexts: Bool = {
+        guard let type = NSClassFromString("CALayerHost") as? CALayer.Type else { return false }
+        return type.instancesRespond(to: NSSelectorFromString("setContextId:"))
+    }()
 
     /// `CALayerHost` is QuartzCore SPI, the class Chromium itself uses to
     /// show its GPU process's output (`ui::DisplayCALayerTree`).

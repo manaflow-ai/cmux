@@ -244,6 +244,9 @@ public final class CEFEngine: BrowserEngine {
     /// What the fork's page tracker read from host views (for `debug.cef`).
     public var trackerStats: CEFTrackerStats { CEFHostView.trackerStats }
 
+    /// Layer hosting (fork API 26) of the live host views now (for `debug.cef`).
+    public var layerHostingReport: CEFLayerHostingReport { CEFRuntime.shared.layerHostingReport }
+
     /// Chromium asked for a window (a link, `window.open`,
     /// `chrome.windows.create`) and no Chromium window of its profile exists:
     /// Chromium opens nothing, and this opens the URL in a new cmux tab.
