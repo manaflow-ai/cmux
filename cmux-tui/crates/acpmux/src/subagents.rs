@@ -43,6 +43,12 @@ pub struct SubagentTree {
 }
 
 impl SubagentTree {
+    /// Seed the native harness session id before the first update. The hub's
+    /// ACP wrapper id is different from Codex's native thread id.
+    pub fn set_root(&mut self, id: &str) {
+        self.remember_root(id);
+    }
+
     /// Whether `session_id` is one of this session's subagents.
     pub fn owns(&self, session_id: &str) -> bool {
         self.parents.contains_key(session_id)
@@ -143,8 +149,9 @@ impl SubagentTree {
         if let Some(collab) = codex.and_then(|c| c.get("collaboration"))
             && collab.get("tool").and_then(Value::as_str) == Some("spawnAgent")
         {
-            if let Some(sender) = collab.get("senderThreadId").and_then(Value::as_str)
-                && owner.is_none()
+            let sender = collab.get("senderThreadId").and_then(Value::as_str);
+            if let Some(sender) = sender.filter(|sender| owner.is_none())
+                && !self.parents.contains_key(sender)
             {
                 self.remember_root(sender);
             }
@@ -164,7 +171,10 @@ impl SubagentTree {
                         .and_then(|s| s.get(id))
                         .and_then(|s| s.get("status"))
                         .and_then(Value::as_str);
-                    let mut event = self.spawn(id, owner);
+                    let parent = sender
+                        .and_then(|sender| self.authoritative_parent(sender))
+                        .or_else(|| owner.map(str::to_owned));
+                    let mut event = self.spawn_with_parent(id, parent.as_deref());
                     if let Some(task) = task {
                         event.insert("task".into(), json!(task));
                     }
@@ -206,12 +216,30 @@ impl SubagentTree {
     /// Records `id` under `owner` the first time it appears and starts its
     /// event with its id and parent.
     fn spawn(&mut self, id: &str, owner: Option<&str>) -> Map<String, Value> {
+        self.spawn_with_parent(id, owner)
+    }
+
+    fn spawn_with_parent(&mut self, id: &str, parent: Option<&str>) -> Map<String, Value> {
         let parent =
-            self.parents.entry(id.to_owned()).or_insert_with(|| owner.map(str::to_owned)).clone();
+            self.parents.entry(id.to_owned()).or_insert_with(|| parent.map(str::to_owned)).clone();
         let mut event = Map::new();
         event.insert("id".into(), json!(id));
         event.insert("parent".into(), json!(parent));
         event
+    }
+
+    /// Codex's sender id is authoritative when it names a known child or the
+    /// native root. An unseen sender is deliberately left parentless: it may
+    /// be a child whose spawn record has not arrived yet, so treating it as the
+    /// root would create the hierarchy shown by the reported bug.
+    fn authoritative_parent(&self, sender: &str) -> Option<String> {
+        if self.root_thread.as_deref() == Some(sender) {
+            None
+        } else if self.parents.contains_key(sender) {
+            Some(sender.to_owned())
+        } else {
+            None
+        }
     }
 
     /// Record the native root id once, and repair an out-of-order echo that
@@ -293,6 +321,7 @@ mod codex_tests {
         let root = "root-native-thread";
         let review = "review-thread";
         let prior_art = "prior-art-thread";
+        tree.set_root(root);
 
         let first = subagents_for(
             &mut tree,
@@ -350,6 +379,32 @@ mod codex_tests {
                      "senderThreadId": child, "receiverThreadIds": [grandchild]}}}}),
         );
         assert_eq!(nested[0]["id"], grandchild);
+        assert_eq!(nested[0]["parent"], child);
+    }
+
+    #[test]
+    fn a_known_child_sender_wins_over_the_wrapper_session_id() {
+        let mut tree = SubagentTree::default();
+        let child = "review-thread";
+        let helper = "review-helper-thread";
+        let first = subagents_for(
+            &mut tree,
+            "acp-root",
+            json!({"sessionUpdate": "tool_call", "toolCallId": "spawn-review",
+                   "rawInput": {"prompt": "Review", "agentsStates": {}},
+                   "_meta": {"codex": {"collaboration": {"tool": "spawnAgent",
+                     "senderThreadId": "root-native-thread", "receiverThreadIds": [child]}}}}),
+        );
+        assert_eq!(first[0]["parent"], Value::Null);
+        let nested = subagents_for(
+            &mut tree,
+            "acp-root",
+            json!({"sessionUpdate": "tool_call", "toolCallId": "spawn-helper",
+                   "rawInput": {"prompt": "Helper", "agentsStates": {}},
+                   "_meta": {"codex": {"collaboration": {"tool": "spawnAgent",
+                     "senderThreadId": child, "receiverThreadIds": [helper]}}}}),
+        );
+        assert_eq!(nested[0]["id"], helper);
         assert_eq!(nested[0]["parent"], child);
     }
 }
