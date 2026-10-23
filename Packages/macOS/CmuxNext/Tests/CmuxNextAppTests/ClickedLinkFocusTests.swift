@@ -205,7 +205,8 @@ struct ClickedLinkFocusTests {
             AgentChatTabActions(tab: { source }, registry: { services.registry })
                 .runBeside("openBrowser", arguments: ["url": .string("http://127.0.0.1:9/")], on: nil)
             @MainActor func opened() -> String? {
-                store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { !before.contains($0.id) }?.id
+                // The daemon's tab: a person's link shows a stand-in first (BrowserTabStandIn), which it replaces.
+            store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { !before.contains($0.id) && !ProvisionalTab.isProvisional($0.id) }?.id
             }
             try await PinnedPageTests.until({ opened() != nil }, report: { "Preview opened no tab" })
             let tab = try #require(opened())
@@ -270,7 +271,8 @@ struct ClickedLinkFocusTests {
         let before = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
         services.linkOpener.openWeb(link, from: pane, background: false)
         @MainActor func opened() -> String? {
-            store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { !before.contains($0.id) }?.id
+            // The daemon's tab: a person's link shows a stand-in first (BrowserTabStandIn), which it replaces.
+            store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { !before.contains($0.id) && !ProvisionalTab.isProvisional($0.id) }?.id
         }
         try await PinnedPageTests.until({ opened() != nil }, report: { "the link opened no tab" })
         return try #require(opened())
