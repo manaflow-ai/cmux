@@ -112,7 +112,7 @@ enum AgentSessionWorkspace {
                 }
                 let (tab, adopted) = (opened.tab, opened.adopted)
                 let tabKey = tab.tabResourceID?.rawValue ?? "surface:\(tab.surface.rawValue)"
-                AgentBypassSessions.shared.set(session, bypass: !adopted.asking)
+                AgentBypassSessions.shared.set(session, host: host, bypass: !adopted.asking)
                 // The page's view of the bind, ahead of the store's echo (the adopt answered on its own
                 // connection): a page that handshakes first shows this chat and never starts a new one.
                 services.agentTabs.noteRemoteBound(tabKey, session: session)
