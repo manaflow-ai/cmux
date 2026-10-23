@@ -3481,7 +3481,7 @@
       {
         "author": "Austin Wang",
         "pr": 21365,
-        "title": "feat(cloud): read-only Huge Blue app-server inspection route"
+        "title": "feat(cloud): read-only build-box app-server inspection route"
       },
       {
         "author": "Leo",
@@ -3493,7 +3493,7 @@
     "summary": [
       {
         "group": "new",
-        "title": "Read-only Huge Blue app-server inspection route"
+        "title": "Read-only build-box app-server inspection route"
       },
       {
         "group": "changed",
@@ -5584,7 +5584,7 @@
       },
       {
         "author": "Lawrence Chen",
-        "title": "sidebar-v2 record script: --stress workspaces are made with --empty (no terminal each: hitch11 started ~790 terminal hosts and used every PTY on cmux-lawrence-2); stops after 20 creates if the PTY count still grows; at the end ends the tag's terminal hosts with stop_tag_daemon.py and prints the PTY count before and after"
+        "title": "sidebar-v2 record script: --stress workspaces are made with --empty (no terminal each: hitch11 started ~790 terminal hosts and used every PTY on studio-mac); stops after 20 creates if the PTY count still grows; at the end ends the tag's terminal hosts with stop_tag_daemon.py and prints the PTY count before and after"
       },
       {
         "author": "Lawrence Chen",
@@ -5628,7 +5628,7 @@
       },
       {
         "author": "Lawrence Chen",
-        "title": "sidebar-v2 record script: Instruments writes its ktrace intermediates to a per-run TMPDIR that is deleted once the .trace is exported (and at exit); unopened instruments*.ktrace files born during this run's trace in the user temp dir are deleted too (they filled cmux-lawrence-2's disk)"
+        "title": "sidebar-v2 record script: Instruments writes its ktrace intermediates to a per-run TMPDIR that is deleted once the .trace is exported (and at exit); unopened instruments*.ktrace files born during this run's trace in the user temp dir are deleted too (they filled studio-mac's disk)"
       },
       {
         "author": "Lawrence Chen",
