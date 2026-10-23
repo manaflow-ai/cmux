@@ -321,4 +321,51 @@ struct SessionSnapshotRepositoryTests {
         }
         #expect(loaded == snapshot)
     }
+
+    @Test("the app's own snapshot loads even when one string is several MiB")
+    func ownSnapshotWithLargeStringLoads() throws {
+        // A text box draft has no size limit, so a pasted log can put a
+        // multi-megabyte string in the app's own snapshot. Losing the whole
+        // session over it would be far worse than the memory it costs.
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let repository = makeRepository(appSupport: dir)
+        let snapshot = makeSnapshot(windowNames: [String(repeating: "x", count: 3 * 1024 * 1024)])
+
+        #expect(repository.save(snapshot, fileURL: nil))
+        #expect(repository.loadStartupSnapshot() == snapshot)
+    }
+
+    @Test("import rejects JSON nested past the decode limit before decoding")
+    func overlyNestedJSONIsRejectedBeforeDecode() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let repository = makeRepository(appSupport: dir)
+        let fileURL = dir.appendingPathComponent("nested.json")
+        let depth = 600
+        let data = Data("{\"version\":1,\"windows\":[{\"name\":\"w\",\"nested\":".utf8)
+            + Data(String(repeating: "[", count: depth).utf8)
+            + Data(String(repeating: "]", count: depth).utf8)
+            + Data("}]}".utf8)
+        try data.write(to: fileURL)
+
+        guard case .failure(.notASessionSnapshot) = repository.importableSnapshot(fileURL: fileURL) else {
+            Issue.record("expected deeply nested JSON to be rejected before decoding")
+            return
+        }
+    }
+
+    @Test("an empty import file is not a session snapshot")
+    func emptyImportFileIsNotASessionSnapshot() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let repository = makeRepository(appSupport: dir)
+        let fileURL = dir.appendingPathComponent("empty.json")
+        try Data().write(to: fileURL)
+
+        guard case .failure(.notASessionSnapshot) = repository.importableSnapshot(fileURL: fileURL) else {
+            Issue.record("expected an empty file to read as not a session snapshot")
+            return
+        }
+    }
 }
