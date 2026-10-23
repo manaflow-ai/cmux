@@ -41,6 +41,8 @@ final class AgentPaneLaunchImages {
             guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= 8 << 20 /* a larger file is not read */,
                   // concurrency-allow: one capped read of a small local image before the agent pane's first frame
                   let data = try? Data(contentsOf: url), let rep = NSBitmapImageRep(data: data) else { continue }
+            // #17587's launch guard counts a read on the main thread.
+            DebugTimings.markLaunch("launch_read_on_main.agent_page_images")
             let image = NSImage(size: NSSize(width: CGFloat(rep.pixelsWide) / CGFloat(scale), height: CGFloat(rep.pixelsHigh) / CGFloat(scale)))
             rep.size = image.size
             image.addRepresentation(rep)

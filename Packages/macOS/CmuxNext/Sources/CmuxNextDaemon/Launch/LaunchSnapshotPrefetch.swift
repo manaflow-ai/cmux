@@ -57,7 +57,10 @@ public final class LaunchSnapshotPrefetch: Sendable {
             if case .done(let outcome) = state { return outcome }
             return nil
         }
-        return ready ?? Self.read(session: session, stateDirectory: stateDirectory, location: location)
+        if let ready { return ready }
+        // The read still ran: this thread reads it again (#17587's launch guard counts it).
+        if Thread.isMainThread { DaemonLaunchTimings.shared.mark("launch_read_on_main.launch_snapshot") }
+        return Self.read(session: session, stateDirectory: stateDirectory, location: location)
     }
 
     /// Reads and decodes `session`'s launch snapshot, and marks `launch_snapshot_read` when a file

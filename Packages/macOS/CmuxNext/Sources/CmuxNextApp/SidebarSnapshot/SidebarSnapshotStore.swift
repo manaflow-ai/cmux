@@ -22,7 +22,10 @@ actor SidebarSnapshotStore {
     private var sequences: [String: UInt64] = [:]
 
     init(file: SidebarSnapshotFile?, clock: any Clock<Duration> = ContinuousClock(), debounce: Duration = .milliseconds(500)) {
-        let loaded = file?.read() ?? SidebarSnapshotDocument()
+        let read = file?.read()
+        // #17587's launch guard counts a read on the main thread before the first window.
+        if read != nil, Thread.isMainThread { DebugTimings.markLaunch("launch_read_on_main.sidebar_snapshot") }
+        let loaded = read ?? SidebarSnapshotDocument()
         launchDocument = loaded
         document = loaded
         self.file = file

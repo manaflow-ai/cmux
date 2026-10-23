@@ -41,14 +41,15 @@ an agent pane. Its runs wait for the agent pane's handshake as well as the
 first terminal frame.
 
 --launch-guard (the regression guard of #17587, a script, not a CI gate)
-exits 1 when a launch restores hidden work eagerly or reads its cached
-layout on the main thread: in kept mode a terminal of a workspace no
+exits 1 when a launch restores hidden work eagerly or reads what its first
+window draws on the main thread: in kept mode a terminal of a workspace no
 visible window shows runs again after the launch (`--max-hidden-started`,
-default 0), and in every run that drew the launch snapshot its read and
-decode (`launch_snapshot_read`) ended before AppKit was ready
-(`did_finish_launching_start`), so it overlapped AppKit's start instead of
-holding the first window frame. Use it with --budget for the time targets,
-for example `--budget first_window_frame_committed=150`.
+default 0), and in any run the app marked `launch_read_on_main.<file>`:
+the launch snapshot, the saved sidebars, the terminals' last frames or the
+agent pages' last images were read and decoded on the main thread (each
+read marks it when it runs there) instead of off it, begun in `main`. Use
+it with --budget for the time targets, for example
+`--budget first_window_frame_committed=150`.
 
 Several tags run interleaved (A run 1, B run 1, A run 2, ...), so machine
 load affects them alike. Prints the load average and, per tag and mode, one
@@ -75,6 +76,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 DERIVED = os.path.expanduser("~/Library/Developer/Xcode/DerivedData")
 FINAL_MARK = "first_terminal_frame"
 AGENT_MARK = "agent_pane.handshake_end"
+# A file the first window draws was read and decoded on the main thread
+# (`launch_read_on_main.<file>`, LaunchRead): --launch-guard fails on any.
+MAIN_THREAD_READ = "launch_read_on_main."
 
 # Rows in launch order; a mark a build does not emit is left out.
 MARKS = [
@@ -96,6 +100,10 @@ MARKS = [
     ("dfl.menu", "dfl: main menu"),
     ("daemon.binary_resolved", "daemon binary resolved"),
     ("launch_snapshot_read", "launch snapshot read and decoded"),
+    ("launch_read_on_main.launch_snapshot", "MAIN THREAD: launch snapshot read"),
+    ("launch_read_on_main.sidebar_snapshot", "MAIN THREAD: saved sidebars read"),
+    ("launch_read_on_main.terminal_frames", "MAIN THREAD: terminals' last frames read"),
+    ("launch_read_on_main.agent_page_images", "MAIN THREAD: agent pages' last images read"),
     ("launch_snapshot_applied", "cached layout read (launch snapshot)"),
     ("dfl.daemon_cloud_updater", "dfl: daemon, cloud, updater"),
     ("dfl.first_window_hooks", "dfl: first window hooks"),
@@ -124,6 +132,7 @@ MARKS = [
     ("daemon.first_tree_applied", "first live tree applied"),
     ("daemon_snapshot_loaded", "windows restored from live tree"),
     ("first_terminal_surface_created", "first Ghostty surface"),
+    ("terminal.launch_frame_shown", "first terminal's last frame shown"),
     ("terminal.attach_start", "first terminal attach started"),
     ("terminal.attach_end", "first terminal attached (replay)"),
     ("first_terminal_content", "first terminal content decoded"),
@@ -779,11 +788,11 @@ def check_budgets(results, budgets):
 
 def check_launch_guard(results, max_hidden_started):
     """#17587's regression guard: nothing hidden is restored eagerly, and the
-    cached layout is read off the main thread. Every kept-mode run counts at
-    most `max_hidden_started` running terminals outside the shown
-    workspaces (and at least one running in them: the shown workspace is
-    live), and every run that applied a launch snapshot finished reading it
-    before AppKit was ready."""
+    files the first window draws are read off the main thread. Every
+    kept-mode run counts at most `max_hidden_started` running terminals
+    outside the shown workspaces (and at least one running in them: the
+    shown workspace is live), and no run marked a launch read on the main
+    thread (`launch_read_on_main.<file>`)."""
     out = []
     for tag, modes in results.items():
         for mode, runs in modes.items():
@@ -798,13 +807,9 @@ def check_launch_guard(results, max_hidden_started):
                                    f"(limit {max_hidden_started})")
                     elif counts["shown_live"] == 0:
                         out.append(f"{where}: no terminal of the shown workspace runs")
-                if "launch_snapshot_applied" in run:
-                    read, ready = run.get("launch_snapshot_read"), run.get("did_finish_launching_start")
-                    if read is None or ready is None:
-                        out.append(f"{where}: launch_snapshot_read or did_finish_launching_start missing")
-                    elif read >= ready:
-                        out.append(f"{where}: launch snapshot read at {read:.0f} ms, after AppKit was ready at "
-                                   f"{ready:.0f} ms (on the main thread, before the first window)")
+                for mark in sorted(name for name in run if name.startswith(MAIN_THREAD_READ)):
+                    out.append(f"{where}: {mark.removeprefix(MAIN_THREAD_READ)} read on the main thread at "
+                               f"{run[mark]:.0f} ms (it holds the first window frame)")
     return out
 
 

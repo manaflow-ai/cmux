@@ -24,6 +24,10 @@ public struct TerminalTimings {
         onContentApplied?()
     }
 
+    /// Called on the main actor when a launch file (named) was read and decoded there, for the
+    /// launch guard of #17587 (`launch_read_on_main.<name>`).
+    public static var onLaunchReadOnMain: ((String) -> Void)?
+
     /// Phases of the libghostty runtime's one-time start (`ghostty_init`,
     /// config load, `ghostty_app_new`), in order.
     public private(set) static var runtimePhases: [(name: String, duration: Duration)] = []

@@ -88,6 +88,8 @@ public final class TerminalLaunchFrames {
             guard let bytes = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, bytes <= Self.maximumBytes,
                   // concurrency-allow: one capped read of a small local image before the terminal's first frame
                   let data = try? Data(contentsOf: url), let rep = NSBitmapImageRep(data: data) else { continue }
+            // #17587's launch guard counts a read on the main thread.
+            TerminalTimings.onLaunchReadOnMain?("terminal_frames")
             let image = NSImage(size: NSSize(width: CGFloat(rep.pixelsWide) / CGFloat(scale), height: CGFloat(rep.pixelsHigh) / CGFloat(scale)))
             rep.size = image.size
             image.addRepresentation(rep)
