@@ -126,6 +126,19 @@ User data: Lawrence 2026-10-23: opt-in hang reports from nightly users, private 
 
 Process (Lawrence 2026-10-23): every agent session's landed code is reviewed twice by independent review agents, with fixes landed after each review; at the end one agent tests everything on live Macs on every supported macOS (14, 15, 26, 27). The remaining basic problems run as workflow cmux-next-basic-problems (pages cost, idle wakeups, O(all) per event incl. Cmd-Tab, hidden memory, launch, create on the key, scrolling, shell integration, then a completeness critic and a second round).
 
+### Architecture targets (lead, 2026-10-23; counts are proxies, the rules are the goal)
+
+| Count | Target | Why not plain 0 |
+|---|---|---|
+| Hard / soft layer violations | 0 / 0 | none: a strict DAG is an invariant; a soft edge stays only as a written, dated exception |
+| Stateful `static shared` singletons | 0 outside the composition root | stateless catalogs and constants (`static let` declarations) are fine; OS singletons (NSApp, FileManager.default) are wrapped once at a seam and injected |
+| `MainActor.assumeIsolated` | 0 outside callback seam adapters | C, ObjC, CEF, Ghostty and CFRunLoop callbacks need it; each lives in one small adapter type with a `main-proof:` reason (expected tens, not hundreds) |
+| NotificationCenter observers | 0 app-internal broadcast names; system notifications observed once per app or window in an adapter that calls only the affected subscribers | AppKit only publishes some state as notifications |
+| CmuxNextApp lines | composition root only (`cmuxApp`, `AppDelegate`, wiring): about 5-10k lines | an executable target must exist |
+| Outcome metrics (the real goal) | every action < 10 ms p95 light and STRESS, 0 dropped frames, incremental build after a leaf edit < 30 s, 0 crashes in the STRESS soak | - |
+
+Ratchet rule: a count only goes down, and renaming a pattern to dodge a count (a singleton by another name, an observer behind a wrapper) counts as the same debt.
+
 ## 4. Workstreams (batch 1)
 
 Each workstream is one subagent in its own worktree, lands on feat-cmux-next (rebase, plain
