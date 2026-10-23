@@ -45,15 +45,22 @@
   height: 100%;
   overflow: hidden;
 }
-/* A rail longer than its room fades 2.5rem at an edge with more rows past it. */
+/* A rail longer than its room fades at an edge with more rows past it: 2.5rem, less in a short rail
+   (--acpmux-minimap-fade, model.ts railFade), and never over the prompts on screen (railFades). */
 .acpmux-minimap__list[data-fade-top] {
-  mask-image: linear-gradient(to bottom, transparent, #000 2.5rem);
+  mask-image: linear-gradient(to bottom, transparent, #000 var(--acpmux-minimap-fade, 2.5rem));
 }
 .acpmux-minimap__list[data-fade-bottom] {
-  mask-image: linear-gradient(to top, transparent, #000 2.5rem);
+  mask-image: linear-gradient(to top, transparent, #000 var(--acpmux-minimap-fade, 2.5rem));
 }
 .acpmux-minimap__list[data-fade-top][data-fade-bottom] {
-  mask-image: linear-gradient(to bottom, transparent, #000 2.5rem, #000 calc(100% - 2.5rem), transparent);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--acpmux-minimap-fade, 2.5rem),
+    #000 calc(100% - var(--acpmux-minimap-fade, 2.5rem)),
+    transparent
+  );
 }
 .acpmux-minimap__tick {
   position: relative;
