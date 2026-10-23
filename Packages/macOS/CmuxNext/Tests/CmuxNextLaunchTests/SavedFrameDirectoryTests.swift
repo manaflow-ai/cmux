@@ -1,5 +1,5 @@
 import AppKit
-@testable import CmuxNextDesign
+@testable import CmuxNextLaunch
 import Testing
 
 /// #17587: the panes' last frames (terminals', agent pages') are read and decoded off the main
@@ -107,6 +107,33 @@ import Testing
         await frames.backgroundReadFinished()
         #expect(frames.take("tab_a") == nil, "handed out once; the background task did not decode it a second time for nobody")
         #expect(marks.all.count <= 1, "at most one mark: the take on the main thread waited or decoded once")
+    }
+
+    /// The panes the first window shows decode first (`prioritize`, from the launch snapshot), in
+    /// its order, whether the hint comes before or after the listing; the other windows' frames after.
+    @Test(arguments: [true, false])
+    func theFirstWindowsFramesDecodeFirst(hintBeforeListing: Bool) {
+        let file = URL(fileURLWithPath: "/dev/null")
+        var state = SavedFrameDirectoryState()
+        if hintBeforeListing { state.prioritize(["tab_z", "tab_m"]) }
+        state.listed(["tab_a": .init(file: file, scale: 2), "tab_m": .init(file: file, scale: 2),
+                      "tab_z": .init(file: file, scale: 2), "tab_b": .init(file: file, scale: 2)])
+        if !hintBeforeListing { state.prioritize(["tab_z", "tab_m", "tab_gone"]) }
+        let order = (0..<5).compactMap { _ in state.claimNext(lane: 0)?.key }
+        #expect(order == ["tab_z", "tab_m", "tab_a", "tab_b"])
+    }
+
+    /// A frame a pane build claimed is not decoded again by a lane, and a release stops the lanes.
+    @Test func aClaimedFrameIsSkippedAndAReleaseStopsTheLanes() {
+        let file = URL(fileURLWithPath: "/dev/null")
+        var state = SavedFrameDirectoryState()
+        state.listed(["tab_a": .init(file: file, scale: 2), "tab_b": .init(file: file, scale: 2), "tab_c": .init(file: file, scale: 2)])
+        state.entries?["tab_a"]?.phase = .taken
+        #expect(state.claimNext(lane: 1)?.key == "tab_b")
+        state.release()
+        #expect(state.claimNext(lane: 1) == nil)
+        state.decoded("tab_b", nil)
+        #expect(state.entries?["tab_b"] == nil, "a decode that ends after the release keeps nothing")
     }
 
     @Test func aLargerFileIsNotRead() async throws {

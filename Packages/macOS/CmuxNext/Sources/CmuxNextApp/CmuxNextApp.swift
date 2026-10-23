@@ -50,6 +50,13 @@ public struct CmuxNextApp {
                                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                                               resolvesShellIntegration: environment.resolvesShellIntegration)
         DebugTimings.markLaunch("main.prestart")
+        // The panes the first windows show decode their last frames first: the launch snapshot names
+        // them, so its read orders the frame decodes as soon as it ends (both off the main thread).
+        if let launchFiles = environment.launchFiles {
+            prestart?.launchSnapshot.whenRead { found in
+                if case .read(let snapshot) = found { launchFiles.prioritize(snapshot.shownTabKeys) }
+            }
+        }
         // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.
         CrashOnExceptions.register()
         // Instantiate the CEF-ready subclass before anything touches NSApp.

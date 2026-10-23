@@ -3,7 +3,7 @@ import Foundation
 import Testing
 
 /// #17587: the launch snapshot is read on a background task begun in `main` (`DaemonPrestart`,
-/// through `LaunchRead`, tested in CmuxNextAppTests' `LaunchReadTests`); `LaunchSnapshot.find` is that read.
+/// through `LaunchRead`, tested in CmuxNextLaunchTests' `LaunchReadTests`); `LaunchSnapshot.find` is that read.
 @Suite struct LaunchSnapshotFindTests {
     @Test func theLaunchSnapshotOfASessionWithNoFileIsNone() throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "launch-read-\(UUID().uuidString)", directoryHint: .isDirectory)

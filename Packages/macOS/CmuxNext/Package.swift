@@ -15,6 +15,8 @@ import PackageDescription
 //   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary)
 //   CmuxNextCompat -> swift-atomics, system frameworks (back-ports of newer system APIs for the
 //     macOS 14 floor: Mutex, Atomic; any module may import it; plans/cmux-next/macos-floor.md)
+//   CmuxNextLaunch -> Compat (launch-time reads off the main thread: LaunchRead, SavedFrameDirectory;
+//     Daemon, Terminal and App import it; #17587)
 //   CmuxNextWakeups -> system frameworks only (the only sanctioned wakeup primitives:
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger; plans/cmux-next/idle-wakeups.md)
 //   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix), Icons (OverflowButton's glyph); CmuxNextActions -> Signposts; CmuxNextDaemon -> Wakeups
@@ -199,6 +201,7 @@ let package = Package(
             dependencies: [
                 "CmuxNextChiefMemory",
                 "CmuxNextCompat",
+                "CmuxNextLaunch",
                 "CmuxNextFiles",
                 "CmuxNextFilesUI",
                 "CmuxNextVSCodeServer",
@@ -1130,6 +1133,19 @@ let package = Package(
             dependencies: [.product(name: "Atomics", package: "swift-atomics")],
             swiftSettings: daemonSwiftSettings
         ),
+        // Launch-time reads (#17587): the files the first window draws (LaunchRead) and the panes'
+        // last frames (SavedFrameDirectory), read and decoded off the main thread from the top of
+        // `main`, on dispatch queues of their own (never the cooperative pool). Compat only.
+        .target(
+            name: "CmuxNextLaunch",
+            dependencies: ["CmuxNextCompat"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextLaunchTests",
+            dependencies: ["CmuxNextCompat", "CmuxNextLaunch"],
+            swiftSettings: daemonSwiftSettings
+        ),
         // The error journal (`cmux errors`): one bounded, deduplicated NDJSON log of the
         // app's warnings, errors, faults and crashes, written off the main actor.
         .target(
@@ -1251,7 +1267,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextDaemon",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextLaunch", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -1266,6 +1282,7 @@ let package = Package(
             dependencies: [
                 "CmuxNextActions",
                 "CmuxNextCompat",
+                "CmuxNextLaunch",
                 "CmuxNextWakeups",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextDesign",

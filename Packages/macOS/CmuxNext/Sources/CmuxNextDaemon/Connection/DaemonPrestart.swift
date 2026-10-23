@@ -1,4 +1,4 @@
-public import CmuxNextCompat
+public import CmuxNextLaunch
 import CmuxNextWakeups
 import Foundation
 

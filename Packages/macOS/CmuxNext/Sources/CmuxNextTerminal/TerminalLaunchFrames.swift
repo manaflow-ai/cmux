@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+public import CmuxNextLaunch
 
 /// The terminals' last frames, saved at quit and drawn over each terminal at launch until its live
 /// content draws (launch-speed-first: "the first frame is never blank"). A terminal pane is held
@@ -89,6 +90,6 @@ public final class TerminalLaunchFrames {
 
     /// `key`'s saved frame at its point size, the first time it is asked for.
     func take(_ key: String) -> NSImage? {
-        frames.take(key)?.makeImage()
+        frames.take(key).map { NSImage(cgImage: $0.image, size: $0.size) }
     }
 }

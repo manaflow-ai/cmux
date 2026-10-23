@@ -1,10 +1,11 @@
 import CmuxNextCompat
+import CmuxNextLaunch
 import Dispatch
 import Testing
 
-/// #17587: a file the first window draws (the launch snapshot, the saved sidebars) is read and
-/// decoded on a background task begun in `main` (`LaunchRead`); the window build only takes the
-/// value, and the file is read once, never twice.
+/// #17587: a file the first window draws (the launch snapshot, the saved sidebars, the unsent
+/// drafts) is read and decoded on a background thread begun in `main` (`LaunchRead`), with no lock
+/// held while it reads; the window build only takes the value, and the file is read once.
 @Suite struct LaunchReadTests {
     /// Counts the reads and the `launch_read_on_main.<name>` marks, from any thread.
     final class Counts: Sendable {
@@ -47,6 +48,19 @@ import Testing
         #expect(counts.marks.load(ordering: .relaxed) == 1, "the wait on the main thread is marked for the launch guard")
         await read.backgroundReadFinished()
         #expect(counts.reads.load(ordering: .relaxed) == 1)
+    }
+
+    /// `whenRead` (the launch orders the frame decodes by the snapshot through it) sees the value
+    /// and leaves it for the window's take.
+    @Test func whenReadSeesTheValueAndLeavesItForTheTake() async {
+        let read = LaunchRead("test_file", readOnMain: { _ in }) { 5 }
+        let (seen, seenNow) = AsyncStream<Int>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        read.whenRead { seenNow.yield($0) }
+        for await value in seen {
+            #expect(value == 5)
+            break
+        }
+        #expect(read.take() == 5)
     }
 
     /// Off the main thread a take that waits is not marked: the guard counts only the main thread.

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextDesign
+import CmuxNextLaunch
 
 /// The agent panes' last pages, saved at quit and drawn under each pane at
 /// launch until its live page paints, so a relaunch never shows an empty
@@ -46,7 +47,7 @@ final class AgentPaneLaunchImages {
             image.addRepresentation(rep)
             return image
         }
-        return frames.take(key)?.makeImage()
+        return frames.take(key).map { NSImage(cgImage: $0.image, size: $0.size) }
     }
 
     /// Holds `image` as tab `key`'s frame until ``take(_:)`` or ``drop(_:)``.
