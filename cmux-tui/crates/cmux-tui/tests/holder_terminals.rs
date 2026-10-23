@@ -11,8 +11,8 @@
 //!    and hands it every master, input and output still work and no screen
 //!    resets;
 //! 4. SIGKILL the daemon again: the new holder's terminals come back with
-//!    what they printed since it took over (the old holder's ring died with
-//!    it; the screen before that needs the journal snapshot, slice 4).
+//!    their whole screen: the daemon handed the new holder a VT replay of
+//!    each screen (its prologue) with the master, and the output since.
 
 #![cfg(unix)]
 
@@ -46,6 +46,10 @@ fn request(socket: &Path, mut body: Value) -> Value {
 
 struct Daemon {
     child: Option<Child>,
+    /// Extra daemon arguments, kept for every restart.
+    args: Vec<String>,
+    /// Extra daemon environment for the next restarts.
+    env: Vec<(String, String)>,
     dir: PathBuf,
     socket: PathBuf,
     /// Holder and shell pids this test made, ended at drop: a holder
@@ -55,6 +59,18 @@ struct Daemon {
 
 impl Daemon {
     fn start() -> Self {
+        Self::start_with(&[])
+    }
+
+    fn start_with_env(env: &[(&str, &Path)]) -> Self {
+        Self::start_with_args_env(&[], env)
+    }
+
+    fn start_with(args: &[&str]) -> Self {
+        Self::start_with_args_env(args, &[])
+    }
+
+    fn start_with_args_env(args: &[&str], env: &[(&str, &Path)]) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir = PathBuf::from("/tmp").join(format!(
             "cmux-holder-{}-{}",
@@ -62,8 +78,17 @@ impl Daemon {
             stamp % 1_000_000_000
         ));
         fs::create_dir_all(&dir).unwrap();
-        let mut daemon =
-            Self { child: None, socket: dir.join("mux.sock"), dir, cleanup: Vec::new() };
+        let mut daemon = Self {
+            child: None,
+            args: args.iter().map(ToString::to_string).collect(),
+            env: env
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.to_string_lossy().into_owned()))
+                .collect(),
+            socket: dir.join("mux.sock"),
+            dir,
+            cleanup: Vec::new(),
+        };
         daemon.restart();
         daemon
     }
@@ -75,8 +100,10 @@ impl Daemon {
             .arg(&self.socket)
             .arg("--state")
             .arg(self.dir.join("state"))
+            .args(&self.args)
             .env("CMUX_TUI_CONFIG", self.dir.join("config.json"))
             .env("CMUX_TUI_TERMINAL_HOST_MODEL", "holder")
+            .envs(self.env.iter().map(|(key, value)| (key.as_str(), value.as_str())))
             .env("SHELL", "/bin/sh")
             .env_remove("SSH_CONNECTION")
             .env_remove("SSH_CLIENT")
@@ -90,6 +117,17 @@ impl Daemon {
         while UnixStream::connect(&self.socket).is_err() {
             assert!(Instant::now() < deadline, "the daemon never listened");
             std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+
+    /// End `surface`'s shell and its holder when the test ends, whatever
+    /// step fails: a holder outlives every daemon on purpose.
+    fn track(&mut self, surface: u64) {
+        let shell = shell_pid(&self.socket, surface);
+        self.cleanup.push(shell);
+        let holder = parent_of(shell);
+        if holder > 1 && !self.cleanup.contains(&holder) {
+            self.cleanup.push(holder);
         }
     }
 
@@ -174,6 +212,8 @@ fn shells_on_the_holder_survive_a_holder_crash_and_a_daemon_crash() {
         );
         let surface = created["surface"].as_u64().unwrap();
         let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+        // Owned by the test from here: a failing step still ends them.
+        daemon.track(surface);
         request(
             &daemon.socket,
             json!({"cmd": "send", "surface": surface, "text": format!("first-{index}\n")}),
@@ -194,10 +234,8 @@ fn shells_on_the_holder_survive_a_holder_crash_and_a_daemon_crash() {
 
     let shells: Vec<i32> =
         terminals.iter().map(|(_, surface)| shell_pid(&daemon.socket, *surface)).collect();
-    daemon.cleanup.extend(&shells);
     let holder = parent_of(shells[0]);
     assert!(holder > 1, "the shell's parent is the holder");
-    daemon.cleanup.push(holder);
 
     // 2. The daemon crashes and starts again on the same state: every
     // terminal comes back with its whole screen from the holder's ring.
@@ -235,11 +273,10 @@ fn shells_on_the_holder_survive_a_holder_crash_and_a_daemon_crash() {
         &daemon.socket,
         json!({"cmd": "run", "argv": ["/bin/cat"], "new_workspace": true, "name": "probe", "cols": 80, "rows": 24}),
     );
-    let probe_shell = shell_pid(&daemon.socket, probe["surface"].as_u64().unwrap());
-    daemon.cleanup.push(probe_shell);
-    let new_holder = parent_of(probe_shell);
+    let probe_surface = probe["surface"].as_u64().unwrap();
+    daemon.track(probe_surface);
+    let new_holder = parent_of(shell_pid(&daemon.socket, probe_surface));
     assert!(new_holder > 1 && new_holder != holder, "a new holder runs the new terminal");
-    daemon.cleanup.push(new_holder);
 
     // 4. The daemon crashes again: the new holder lists every terminal it
     // took over, and they come back with what they printed since.
@@ -247,10 +284,456 @@ fn shells_on_the_holder_survive_a_holder_crash_and_a_daemon_crash() {
     daemon.restart();
     for (index, (terminal_id, _)) in terminals.iter().enumerate() {
         let surface = running_surface(&daemon.socket, terminal_id);
-        screen_contains(&daemon.socket, surface, &format!("after-holder-{index}"));
+        let screen = screen_contains(&daemon.socket, surface, &format!("after-holder-{index}"));
+        // The screen from before the holder crash comes from the prologue
+        // the daemon handed the new holder.
+        assert!(
+            screen.contains(&format!("first-{index}"))
+                && screen.contains(&format!("after-daemon-{index}")),
+            "terminal {index}: the screen before the holder crash is gone:\n{screen}"
+        );
         send(&daemon.socket, surface, &format!("last-{index}"));
         screen_contains(&daemon.socket, surface, &format!("last-{index}"));
     }
+}
+
+/// The daemon holds the custody master of every holder terminal for its
+/// whole life; a shell that exits must still end its terminal, with its
+/// own status.
+#[test]
+fn a_holder_shell_that_exits_ends_its_terminal_with_its_status() {
+    let mut daemon = Daemon::start();
+    let created = request(
+        &daemon.socket,
+        json!({"cmd": "run", "argv": ["/bin/sh", "-c", "read line; echo bye-$line; exit 3"],
+            "new_workspace": true, "name": "exit-3", "cols": 80, "rows": 24}),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    daemon.track(surface);
+    send(&daemon.socket, surface, "now");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let resolved = loop {
+        let resolved =
+            request(&daemon.socket, json!({"cmd": "resolve-terminal", "terminal_id": terminal_id}));
+        if resolved["lifecycle"] == "exited" {
+            break resolved;
+        }
+        assert!(Instant::now() < deadline, "the terminal never ended: {resolved}");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(resolved["exit"]["outcome"], json!({"kind": "exit", "code": 3}), "{resolved}");
+}
+
+/// Review 2: closing a tab right after the holder died must not connect,
+/// start a holder or re-adopt under the surface's runtime lock (a lock rank
+/// panic in a debug daemon, a deadlock against a resize in release). The
+/// close answers, the other terminal keeps working on the new holder, and
+/// the closed shell ends.
+#[test]
+fn a_tab_closed_right_after_a_holder_crash_ends_without_a_lock_rank_panic() {
+    // Reap at once, as the app's close does after its grace: the reaper
+    // ends the closed tab's terminal under its surface's runtime lock.
+    let mut daemon = Daemon::start_with(&["--terminal-reap-grace-seconds", "0"]);
+    let mut surfaces = Vec::new();
+    for index in 0..2 {
+        let created = request(
+            &daemon.socket,
+            json!({"cmd": "run", "argv": ["/bin/cat"], "new_workspace": true,
+                "name": format!("close-{index}"), "cols": 80, "rows": 24}),
+        );
+        let surface = created["surface"].as_u64().unwrap();
+        daemon.track(surface);
+        send(&daemon.socket, surface, &format!("ready-{index}"));
+        screen_contains(&daemon.socket, surface, &format!("ready-{index}"));
+        surfaces.push(surface);
+    }
+    let closed_shell = shell_pid(&daemon.socket, surfaces[0]);
+    let holder = parent_of(closed_shell);
+    // SAFETY: SIGKILL of the holder this test's daemon started.
+    unsafe { libc::kill(holder, libc::SIGKILL) };
+    request(&daemon.socket, json!({"cmd": "close-surface", "surface": surfaces[0]}));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while alive(closed_shell) {
+        assert!(Instant::now() < deadline, "the closed tab's shell kept running");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    send(&daemon.socket, surfaces[1], "after-close");
+    screen_contains(&daemon.socket, surfaces[1], "after-close");
+    // A new terminal's shell is the new holder's child: track it so the
+    // test ends that holder too.
+    let probe = request(
+        &daemon.socket,
+        json!({"cmd": "run", "argv": ["/bin/cat"], "new_workspace": true, "name": "probe", "cols": 80, "rows": 24}),
+    );
+    daemon.track(probe["surface"].as_u64().unwrap());
+}
+
+/// Review 2: a daemon restart restores a terminal's modes and screen even
+/// after it printed more than the holder's 1 MiB ring: the holder keeps the
+/// daemon's newest screen snapshot as the terminal's prologue. The program
+/// enters the alternate screen, draws a mark, then prints 2 MiB that never
+/// touch the mark's row.
+#[test]
+fn a_restart_after_two_mib_of_output_keeps_the_alternate_screen() {
+    let mut daemon = Daemon::start();
+    let script = r#"printf '[?1049h[1;1HALT-MARK'; yes "$(printf '[5;1H')bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" | head -c 2200000; printf '[6;1Hflood-done'; exec cat"#;
+    let created = request(
+        &daemon.socket,
+        json!({"cmd": "run", "argv": ["/bin/sh", "-c", script], "new_workspace": true,
+            "name": "alt-screen", "cols": 80, "rows": 24}),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    daemon.track(surface);
+    let screen = screen_contains(&daemon.socket, surface, "flood-done");
+    assert!(
+        screen.contains("ALT-MARK"),
+        "the mark is not on the screen:
+{screen}"
+    );
+    // An echo after the flood: the reader went idle once and handed the
+    // holder its snapshot before it read this.
+    send(&daemon.socket, surface, "synced");
+    screen_contains(&daemon.socket, surface, "synced");
+
+    daemon.sigkill();
+    daemon.restart();
+    let surface = running_surface(&daemon.socket, &terminal_id);
+    let screen = screen_contains(&daemon.socket, surface, "flood-done");
+    assert!(
+        screen.contains("ALT-MARK"),
+        "the restart lost the alternate screen set before the ring's oldest byte:
+{screen}"
+    );
+}
+
+/// The replay race at a holder crash (perf lead, holder item 1): a holder
+/// that dies while it holds output the daemon has not parsed must lose no
+/// byte, and a restart after it must restore the exact screen, also when
+/// the holder dies inside an escape sequence or a UTF-8 character.
+///
+/// The program waits behind a gate file. The daemon is stopped (SIGSTOP),
+/// the gate opens and the program prints [`FLOOD_LINES`] numbered colored
+/// lines: with nobody reading its link, the holder takes one credit window
+/// and reads the rest into its ring. The holder is then SIGKILLed and the
+/// daemon continued: every line, the last included, must reach the screen
+/// in order. Then the program stops in the middle of an SGR sequence, and
+/// later in the middle of `é`, and the holder is SIGKILLed at each stop.
+/// The live history and screen must be exact, and a daemon restart must
+/// show the same screen and the same styled history rows.
+#[test]
+fn a_holder_killed_holding_unparsed_output_or_mid_sequence_loses_no_byte() {
+    let mut daemon = Daemon::start();
+    let gate = daemon.dir.join("gate");
+    let flood = daemon.dir.join("flood.txt");
+    let script = daemon.dir.join("flood.sh");
+    let mut lines = String::new();
+    for number in 0..FLOOD_LINES {
+        lines
+            .push_str(&format!("\x1b[3{}mline {number:06} é {FLOOD_LETTERS}\x1b[0m\n", number % 8));
+    }
+    fs::write(&flood, lines).unwrap();
+    fs::write(
+        &script,
+        format!(
+            r#"stty -echo
+printf 'ready\n'
+while [ ! -e '{gate}' ]; do sleep 0.05; done
+cat '{flood}'
+printf 'flood-end\n'
+printf 'X\033[38;5;1'
+read a
+printf '96mRED\303'
+read b
+printf '\251 END\033[0m\n'
+i=0
+while [ $i -lt 30 ]; do printf 'tail %02d\n' "$i"; i=$((i + 1)); done
+exec sleep 3600
+"#,
+            gate = gate.display(),
+            flood = flood.display(),
+        ),
+    )
+    .unwrap();
+    let created = request(
+        &daemon.socket,
+        json!({"cmd": "run", "argv": ["/bin/sh", script.to_str().unwrap()], "new_workspace": true,
+            "name": "replay-race", "cols": 80, "rows": 24}),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    daemon.track(surface);
+    let shell = shell_pid(&daemon.socket, surface);
+    let holder = parent_of(shell);
+    screen_contains(&daemon.socket, surface, "ready");
+
+    // The daemon stops reading its link; then the flood starts. The holder
+    // sends one credit window (into the socket and its queue) and reads the
+    // rest of the PTY's output into its ring: nobody has parsed it.
+    let daemon_pid = daemon.child.as_ref().unwrap().id() as i32;
+    // SAFETY: SIGSTOP of the daemon this test started.
+    unsafe { libc::kill(daemon_pid, libc::SIGSTOP) };
+    fs::write(&gate, b"").unwrap();
+    // `cat` writes the whole file in well under a millisecond of PTY
+    // turns; nothing a test can wait on shows the holder's ring, so this
+    // bounded wait covers it with a wide margin.
+    std::thread::sleep(Duration::from_millis(1500));
+    // SAFETY: SIGKILL of the holder this test's daemon started.
+    unsafe { libc::kill(holder, libc::SIGKILL) };
+    // SAFETY: SIGCONT of the daemon this test stopped.
+    unsafe { libc::kill(daemon_pid, libc::SIGCONT) };
+
+    // `X` comes in the write that ends inside `ESC [ 38;5;1`: once it shows,
+    // the parser is inside that sequence, and the program waits for a line.
+    screen_contains(&daemon.socket, surface, "flood-end\nX");
+    let second = probe_holder(&mut daemon, "probe-2");
+    // SAFETY: SIGKILL of the holder this test's daemon started.
+    unsafe { libc::kill(second, libc::SIGKILL) };
+    request(&daemon.socket, json!({"cmd": "send", "surface": surface, "text": "go\n"}));
+    // Now it waits inside the two bytes of `é`: the third holder dies there.
+    screen_contains(&daemon.socket, surface, "XRED");
+    let third = probe_holder(&mut daemon, "probe-3");
+    assert_ne!(third, second, "a new holder took over after the second one died");
+    // SAFETY: SIGKILL of the holder this test's daemon started.
+    unsafe { libc::kill(third, libc::SIGKILL) };
+    request(&daemon.socket, json!({"cmd": "send", "surface": surface, "text": "go\n"}));
+    let live_screen = screen_contains(&daemon.socket, surface, "tail 29");
+    // The fourth holder runs the terminals from here; it ends with the test.
+    let fourth = probe_holder(&mut daemon, "probe-4");
+    assert_ne!(fourth, third, "a new holder took over after the third one died");
+
+    let live = history(&daemon.socket, surface);
+    let flood = flood_rows(&live);
+    assert_eq!(
+        flood.last().copied(),
+        Some(FLOOD_LINES - 1),
+        "the flood's last lines never arrived:\n{}",
+        dump(&live)
+    );
+    assert!(flood.len() > 100, "too little flood history kept: {} rows", flood.len());
+    let red = live
+        .iter()
+        .position(|row| row_text(row) == "XREDé END")
+        .unwrap_or_else(|| panic!("no exact `XREDé END` row in the history:\n{}", dump(&live)));
+    let runs = content_runs(&live[red]);
+    assert_eq!(runs.len(), 2, "X then the red text: {}", live[red]);
+    assert_eq!(runs[1]["text"], "REDé END");
+    assert_ne!(runs[1]["fg"], runs[0]["fg"], "the split SGR colored the text: {}", live[red]);
+    assert!(live_screen.contains("tail 29") && !live_screen.contains("96m"), "{live_screen}");
+
+    // A restart restores the same screen and the same styled rows.
+    daemon.sigkill();
+    daemon.restart();
+    let restored_surface = running_surface(&daemon.socket, &terminal_id);
+    let restored_screen = screen_contains(&daemon.socket, restored_surface, "tail 29");
+    assert_eq!(restored_screen, live_screen, "the restart changed the screen");
+    let restored = history(&daemon.socket, restored_surface);
+    assert!(
+        restored.iter().any(|row| row_text(row) == "XREDé END"),
+        "the restart lost the red row:\n{}",
+        dump(&restored)
+    );
+    let tail = &live[live.len() - restored.len().min(live.len())..];
+    for (index, (want, got)) in tail.iter().zip(&restored).enumerate() {
+        assert_eq!(got["runs"], want["runs"], "restored history row {index} differs");
+    }
+}
+
+/// Lines of the replay-race flood: more than the holder's credit window and
+/// unsent limit together hold, fewer than the history keeps.
+const FLOOD_LINES: u64 = 10_000;
+const FLOOD_LETTERS: &str = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwx";
+
+/// A new terminal's shell is the current holder's child: its parent is the
+/// holder (and the test ends both at drop).
+fn probe_holder(daemon: &mut Daemon, name: &str) -> i32 {
+    let probe = request(
+        &daemon.socket,
+        json!({"cmd": "run", "argv": ["/bin/cat"], "new_workspace": true, "name": name,
+            "cols": 80, "rows": 24}),
+    );
+    let surface = probe["surface"].as_u64().unwrap();
+    daemon.track(surface);
+    parent_of(shell_pid(&daemon.socket, surface))
+}
+
+/// Every retained history row of `surface` (styled runs), oldest first.
+fn history(socket: &Path, surface: u64) -> Vec<Value> {
+    let mut rows = Vec::new();
+    let mut start = 0u64;
+    loop {
+        let page = request(
+            socket,
+            json!({"cmd": "read-scrollback", "surface": surface, "start": start, "count": 4096}),
+        );
+        let got = page["rows"].as_array().cloned().unwrap_or_default();
+        let total = page["total"].as_u64().unwrap_or(0);
+        start = page["start"].as_u64().unwrap_or(start) + got.len() as u64;
+        rows.extend(got.clone());
+        if got.is_empty() || start >= total {
+            return rows;
+        }
+    }
+}
+
+fn row_text(row: &Value) -> String {
+    let runs = row["runs"].as_array().cloned().unwrap_or_default();
+    let text: String = runs.iter().map(|run| run["text"].as_str().unwrap_or_default()).collect();
+    text.trim_end().to_string()
+}
+
+/// A row's runs without the blank run that pads it to the full width.
+fn content_runs(row: &Value) -> Vec<Value> {
+    let mut runs = row["runs"].as_array().cloned().unwrap_or_default();
+    while runs.last().is_some_and(|run| {
+        run["text"].as_str().is_some_and(|text| text.trim().is_empty()) && run["bg"].is_null()
+    }) {
+        runs.pop();
+    }
+    runs
+}
+
+fn dump(rows: &[Value]) -> String {
+    let from = rows.len().saturating_sub(40);
+    rows[from..].iter().map(row_text).collect::<Vec<_>>().join("\n")
+}
+
+/// The flood rows of a history: each is exactly `line N é <letters>` in
+/// color N % 8, and N counts up by one, with no row missing or cut.
+fn flood_rows(rows: &[Value]) -> Vec<u64> {
+    let letters = FLOOD_LETTERS;
+    let mut numbers = Vec::new();
+    let mut colors: std::collections::HashMap<u64, Value> = Default::default();
+    for row in rows {
+        let text = row_text(row);
+        if !text.starts_with("line ") {
+            continue;
+        }
+        let number: u64 = text[5..11].parse().unwrap_or_else(|_| panic!("cut row {text:?}"));
+        assert_eq!(text, format!("line {number:06} é {letters}"), "a garbled flood row");
+        let runs = content_runs(row);
+        assert_eq!(runs.len(), 1, "a flood row is one run: {row}");
+        let color = colors.entry(number % 8).or_insert_with(|| runs[0]["fg"].clone());
+        assert_eq!(&runs[0]["fg"], color, "row {number} has the wrong color");
+        if let Some(previous) = numbers.last() {
+            assert_eq!(number, previous + 1, "the history skips from line {previous} to {number}");
+        }
+        numbers.push(number);
+    }
+    numbers
+}
+
+/// Holder item 2: the holder is the standalone `cmux-holder` (std and libc,
+/// its own wire), and a newer daemon adopts a holder an older cmux build
+/// started by the wire version they settle on. A daemon starts the frozen
+/// version 3 holder (`cmux-holder-v3`, through `CMUX_TUI_HOLDER_EXE`, as an
+/// older build's daemon would have). Then a daemon of this build, which
+/// starts its own holder, restarts on the same state: it re-attaches every
+/// terminal from the old holder and runs new ones there. When the old
+/// holder dies it starts the standalone `cmux-holder` and hands it every
+/// master (an older holder passes no ring, so the daemon makes one); when
+/// that one dies too, nothing is lost, and a last restart restores every
+/// screen.
+#[test]
+fn a_new_daemon_adopts_an_older_holder_by_its_wire_version() {
+    let fixture = built_binary("cmux-holder-v3");
+    let mut daemon = Daemon::start_with_env(&[("CMUX_TUI_HOLDER_EXE", fixture.as_path())]);
+    let mut terminals = Vec::new();
+    for index in 0..2 {
+        let created = request(
+            &daemon.socket,
+            json!({"cmd": "run", "argv": ["/bin/cat"], "new_workspace": true,
+                "name": format!("old-{index}"), "cols": 80, "rows": 24}),
+        );
+        let surface = created["surface"].as_u64().unwrap();
+        daemon.track(surface);
+        send(&daemon.socket, surface, &format!("first-{index}"));
+        screen_contains(&daemon.socket, surface, &format!("first-{index}"));
+        terminals.push(created["terminal_id"].as_str().unwrap().to_string());
+    }
+    let surface = running_surface(&daemon.socket, &terminals[0]);
+    let old_holder = parent_of(shell_pid(&daemon.socket, surface));
+    assert_eq!(exe_name(old_holder), "cmux-holder-v3", "the first daemon ran the old holder");
+
+    // A daemon of this build on the same state reaches the old holder.
+    daemon.sigkill();
+    daemon.env.clear();
+    daemon.restart();
+    for (index, terminal_id) in terminals.iter().enumerate() {
+        let surface = running_surface(&daemon.socket, terminal_id);
+        screen_contains(&daemon.socket, surface, &format!("first-{index}"));
+        send(&daemon.socket, surface, &format!("restarted-{index}"));
+        screen_contains(&daemon.socket, surface, &format!("restarted-{index}"));
+    }
+    let probe = probe_holder(&mut daemon, "probe-old");
+    assert_eq!(probe, old_holder, "a new terminal runs on the old holder too");
+
+    // The old holder dies: the daemon starts the standalone holder of this
+    // build and hands it every master.
+    // SAFETY: SIGKILL of the holder this test's first daemon started.
+    unsafe { libc::kill(old_holder, libc::SIGKILL) };
+    for (index, terminal_id) in terminals.iter().enumerate() {
+        let surface = running_surface(&daemon.socket, terminal_id);
+        send(&daemon.socket, surface, &format!("new-holder-{index}"));
+        let screen = screen_contains(&daemon.socket, surface, &format!("new-holder-{index}"));
+        assert!(
+            screen.contains(&format!("first-{index}"))
+                && screen.contains(&format!("restarted-{index}")),
+            "terminal {index}: the screen was reset:
+{screen}"
+        );
+    }
+    let new_holder = probe_holder(&mut daemon, "probe-new");
+    assert_ne!(new_holder, old_holder);
+    assert_eq!(exe_name(new_holder), "cmux-holder", "this build's holder is the standalone binary");
+
+    // It dies too: the masters and the rings go to the next one.
+    // SAFETY: SIGKILL of the holder this test's daemon started.
+    unsafe { libc::kill(new_holder, libc::SIGKILL) };
+    for (index, terminal_id) in terminals.iter().enumerate() {
+        let surface = running_surface(&daemon.socket, terminal_id);
+        send(&daemon.socket, surface, &format!("last-{index}"));
+        screen_contains(&daemon.socket, surface, &format!("last-{index}"));
+    }
+    probe_holder(&mut daemon, "probe-last");
+    daemon.sigkill();
+    daemon.restart();
+    for (index, terminal_id) in terminals.iter().enumerate() {
+        let surface = running_surface(&daemon.socket, terminal_id);
+        let screen = screen_contains(&daemon.socket, surface, &format!("last-{index}"));
+        for line in ["first", "restarted", "new-holder"] {
+            assert!(
+                screen.contains(&format!("{line}-{index}")),
+                "terminal {index}: the restart lost {line}:
+{screen}"
+            );
+        }
+    }
+}
+
+/// A binary cargo built beside this package's `cmux-tui` (another
+/// workspace package's, built for its own integration tests).
+fn built_binary(name: &str) -> PathBuf {
+    let path = Path::new(env!("CARGO_BIN_EXE_cmux-tui")).with_file_name(name);
+    assert!(path.is_file(), "{} is not built: run the tests with --workspace", path.display());
+    path
+}
+
+/// The file name of `pid`'s executable.
+fn exe_name(pid: i32) -> String {
+    #[cfg(target_vendor = "apple")]
+    let path = {
+        let mut buf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+        // SAFETY: proc_pidpath writes at most the buffer's length.
+        let len = unsafe { libc::proc_pidpath(pid, buf.as_mut_ptr().cast(), buf.len() as u32) };
+        assert!(len > 0, "no executable path for pid {pid}");
+        buf.truncate(len as usize);
+        PathBuf::from(String::from_utf8_lossy(&buf).into_owned())
+    };
+    #[cfg(not(target_vendor = "apple"))]
+    let path = fs::read_link(format!("/proc/{pid}/exe")).unwrap();
+    path.file_name().unwrap().to_string_lossy().into_owned()
 }
 
 fn send(socket: &Path, surface: u64, line: &str) {

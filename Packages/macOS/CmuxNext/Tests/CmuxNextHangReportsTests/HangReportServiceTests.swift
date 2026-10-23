@@ -45,7 +45,8 @@ struct HangReportServiceTests {
         }
     }
 
-    private func service(_ transport: any HangReportTransport, counts: @escaping @Sendable () async -> CoarseCounts = { CoarseCounts(windows: 1, workspaces: 3, panes: 4, tabs: 9) })
+    private func service(_ transport: any HangReportTransport, counts: @escaping @Sendable () async -> CoarseCounts = { CoarseCounts(windows: 1, workspaces: 3, panes: 4, tabs: 9) },
+                         build: String = "70123", allowed: @escaping @Sendable () -> Bool = { true })
         -> HangReportService {
         let clock = clock
         let collector = HangReportCollector(resolve: { _ in [.other] }, schedule: { $0() })
@@ -54,9 +55,9 @@ struct HangReportServiceTests {
             scanner: PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms),
             identity: InstallIdentity(suiteName: suite, now: { clock.now }), collector: collector,
             environment: HangReportService.Environment(
-                app: HangReport.App(version: "0.70.0", build: "70123", channel: "nightly"), os: HangReport.OS(version: "15.7.4"),
+                app: HangReport.App(version: "0.70.0", build: build, channel: "nightly"), os: HangReport.OS(version: "15.7.4"),
                 hardware: HardwareClass(arch: "arm64", chip: "Apple M4 Pro", cores: 14, memoryGB: 48),
-                counts: counts, now: { clock.now }))
+                counts: counts, now: { clock.now }, stillAllowed: allowed))
     }
 
     @Test func offSendsNothing() async {
@@ -206,6 +207,57 @@ struct HangReportServiceTests {
         await third.setEnabled(true)
         await third.launched()
         #expect(transport.sent.isEmpty)
+    }
+
+    @Test func aManagedBlockInstalledWhileRunningStopsSendingAndDropsWhatWasRecorded() async {
+        let blocked = Mutex(false)
+        let transport = RecordingTransport()
+        let service = service(transport, allowed: { !blocked.withLock { $0 } })
+        await service.setEnabled(true)
+        service.collector.noteStall(durationNanos: 400_000_000, cpuNanos: 0, addresses: [1])
+        blocked.withLock { $0 = true }
+        await service.receive(HangReportFixtures.metricKitInput())
+        #expect(transport.sent.isEmpty)
+        #expect(defaults.string(forKey: InstallIdentity.idKey) == nil)
+        // Allowed again in the same run: nothing recorded while blocked goes out.
+        blocked.withLock { $0 = false }
+        await service.setEnabled(true)
+        await service.launched()
+        #expect(transport.sent.isEmpty)
+        #expect(service.collector.snapshot().isEmpty)
+    }
+
+    @Test func aReportQueuedByAnotherBuildIsDroppedNotSent() async {
+        let older = service(RecordingTransport([.retryLater]), build: "70100")
+        await older.setEnabled(true)
+        await older.receive(HangReportFixtures.metricKitInput())
+        let transport = RecordingTransport()
+        let newer = service(transport, build: "70123")
+        await newer.setEnabled(true)
+        await newer.launched()
+        #expect(transport.sent.isEmpty)
+    }
+
+    /// Schema 1 marks a client without the review 1 and 2 privacy fixes: its queued report is
+    /// dropped, even when the build number matches (a re-signed or rebuilt bundle).
+    @Test func aQueuedSchemaOneReportIsDroppedNotSent() async throws {
+        let failing = RecordingTransport([.retryLater])
+        let queuing = service(failing)
+        await queuing.setEnabled(true)
+        await queuing.receive(HangReportFixtures.metricKitInput())
+        let body = try #require(failing.sent.first)
+        var old = try JSONDecoder().decode(HangReport.self, from: body)
+        #expect(old.schema == HangReport.schemaVersion)
+        old.schema = 1
+        let store = HangReportStore(directory: directory)
+        for entry in await store.outbox(now: clock.now) { await store.remove(entry.url) }
+        await store.enqueue(try HangReport.encoder.encode(old), reportId: old.reportId)
+        let transport = RecordingTransport()
+        let next = service(transport)
+        await next.setEnabled(true)
+        await next.launched()
+        #expect(transport.sent.isEmpty)
+        #expect(await store.outbox(now: clock.now).isEmpty)
     }
 
     @Test func viewBeforeAnySendIsAPreviewThatSendsNothing() async throws {

@@ -2,14 +2,19 @@
 """Chromium page window vs layer hosting (fork API 26), A/B in a real window (plans/cmux-next/cef-layer-hosting-DESIGN.md).
 
 Runs the existing benches twice on one tagged build: once with `browserResize.layerHosting` off (the page is a child
-window over its pane) and once on (the page's pixels in the cmux window's layer tree). The tunable goes into the tag's
-debug-tunables.json before each launch, so every page of the run is hosted or not from its first frame.
+window over its pane) and once on (the page's pixels in the cmux window's layer tree). Before each mode's benches,
+cef-layer-verify.py --checks hosted --tunables build launches the build the way the benches do, sets the tunable in
+the build's own debug-tunables.json (the path the app reports, which every bench launch reads) and checks that the
+mode is real: the page is Chromium (no `unavailable`, no `fallback`), fork_api >= 26 in mode on, and
+tracker.hosted_pages > 0 in mode on, == 0 in mode off. A mode that fails runs no benches and fails the run, so two
+"off" runs are never labelled off/on. summary.json records those values per mode.
 
   switch     sidebar-stress-bench.py switch_matrix at --workspaces workspaces (10 tickers): Chromium and terminal
              workspaces, click / Cmd-digit / Ctrl-Cmd-] ; input to commit (`debug.workspace_switch`), longest frame
   tabs       tab-switch-matrix.py --kinds chromium: Ctrl-Tab, Cmd-Shift-], clicks; input + apply + commit
   light      pane-perf-terminal.py --browser (the top-left pane is a Chromium page): split, close, drag, scroll
-  stress     pane-perf-terminal.py --content chromium at --stress-layout (every pane a Chromium page)
+  stress     pane-perf-terminal.py --layouts stress --stress-selected chromium: the STRESS session
+             (perf-stress-session.py: 60 workspaces, 4x3 + nested splits, every pane showing a Chromium page)
 
 Each run writes OUT/<mode>/<bench>/ (the bench's own report). OUT/summary.json holds the headline rows side by side.
 Read the display refresh rate from the pane-perf reports (`refresh_hz`) and judge drops in frames.
@@ -17,7 +22,8 @@ Read the display refresh rate from the pane-perf reports (`refresh_hz`) and judg
 Run on a GUI fleet host, never a laptop:
   nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA -- \\
     python3 scripts/cmux-next/cef-layer-ab.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS"
-Not a gate: it never fails on a number (exit 1 only when a bench could not run).
+Not a gate: it never fails on a number. Exit 1 when a mode is not what it says, or a bench left no report (a
+launch failure or a crash exits 1 too, so the exit code alone does not tell a budget miss from no result).
 """
 import argparse, json, os, subprocess, sys
 
@@ -31,24 +37,31 @@ parser.add_argument("--out", required=True)
 parser.add_argument("--modes", default="off,on", help="off = page child windows, on = layer hosting")
 parser.add_argument("--benches", default="switch,tabs,light,stress")
 parser.add_argument("--workspaces", type=int, default=60)
-parser.add_argument("--stress-layout", default="4x3")
 parser.add_argument("--rounds", type=int, default=3)
 opts = parser.parse_args()
 
 
-def write_tunable(value):
-    """The tag's Debug Settings override file (DebugSettingsService.fileURL); only this tag's file."""
-    directory = os.path.expanduser(f"~/Library/Application Support/cmux/{opts.tag}")
-    os.makedirs(directory, exist_ok=True)
-    path = os.path.join(directory, "debug-tunables.json")
+def load(path):
     try:
-        with open(path) as existing:
-            data = json.load(existing)
+        with open(path) as f:
+            return json.load(f)
     except (OSError, ValueError):
-        data = {"version": 1, "values": {}}
-    data.setdefault("values", {})[KEY] = value
-    with open(path, "w") as out:
-        json.dump(data, out, indent=2, sort_keys=True)
+        return None
+
+
+def check_mode(mode):
+    """cef-layer-verify.py's valid + hosted rows for `mode`, in the build's own tunables file; (ok, facts)."""
+    out = os.path.join(opts.out, mode, "verify")
+    os.makedirs(out, exist_ok=True)
+    command = [sys.executable, os.path.join(HERE, "cef-layer-verify.py"), "--app", opts.app, "--tag", opts.tag,
+               "--out", out, "--mode", mode, "--checks", "hosted", "--tunables", "build"]
+    print(f"== {mode} verify: {' '.join(command)}", flush=True)
+    with open(os.path.join(out, "log.txt"), "w") as log:
+        code = subprocess.call(command, stdout=log, stderr=subprocess.STDOUT)
+    report = load(os.path.join(out, f"verify-{mode}.json")) or {}
+    rows = report.get("rows") or []
+    ok = code == 0 and bool(rows) and all(r.get("ok") for r in rows)
+    return ok, {"exit": code, "rows": rows, **(report.get("facts") or {})}
 
 
 def bench_command(bench, out):
@@ -65,17 +78,9 @@ def bench_command(bench, out):
                 "--json", os.path.join(out, "report.json")]
     if bench == "stress":
         return [sys.executable, os.path.join(HERE, "pane-perf-terminal.py"), *common, "--out", out,
-                "--content", "chromium", "--layouts", opts.stress_layout, "--actions", "split,close,drag",
+                "--layouts", "stress", "--stress-selected", "chromium", "--actions", "split,close,drag,scroll",
                 "--rounds", str(opts.rounds), "--json", os.path.join(out, "report.json")]
     raise SystemExit(f"unknown bench {bench}")
-
-
-def load(path):
-    try:
-        with open(path) as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return None
 
 
 def headline(bench, out):
@@ -88,15 +93,21 @@ def headline(bench, out):
                 if isinstance(entry, dict) and "input_to_idle_ms" in entry:
                     rows[key] = {k: entry.get(k) for k in ("input_to_commit_ms", "input_to_idle_ms", "longest_frame_ms")}
         return rows or report
-    report = load(os.path.join(out, "report.json"))
-    return report if report is not None else {"error": "no report"}
+    return load(os.path.join(out, "report.json"))
 
 
 failures = 0
-summary = {"tag": opts.tag, "app": opts.app, "modes": {}}
+summary = {"tag": opts.tag, "app": opts.app, "modes": {}, "validity": {}}
+tunables_file = None
 for mode in opts.modes.split(","):
-    write_tunable(mode == "on")
+    ok, facts = check_mode(mode)
+    summary["validity"][mode] = {"ok": ok, **facts}
+    tunables_file = facts.get("tunables_file") or tunables_file
     summary["modes"][mode] = {}
+    if not ok:
+        print(f"== {mode}: not a valid {mode} run, no benches: {json.dumps(facts)[:400]}", flush=True)
+        failures += 1
+        continue
     for bench in opts.benches.split(","):
         out = os.path.join(opts.out, mode, bench)
         os.makedirs(out, exist_ok=True)
@@ -104,11 +115,23 @@ for mode in opts.modes.split(","):
         print(f"== {mode} {bench}: {' '.join(command)}", flush=True)
         with open(os.path.join(out, "log.txt"), "w") as log:
             code = subprocess.call(command, stdout=log, stderr=subprocess.STDOUT)
-        if code not in (0, 1):  # 1 = a bench's own budget miss; still a result
+        rows = headline(bench, out)
+        # A report is the result (exit 1 with one is the bench's own budget miss). No report is no result,
+        # whatever the exit code: the app never came up, or the bench crashed.
+        if not rows:
             failures += 1
-        summary["modes"][mode][bench] = {"exit": code, "rows": headline(bench, out)}
-write_tunable(False)
+        summary["modes"][mode][bench] = {"exit": code, "rows": rows if rows else {"error": "no report"}}
+if tunables_file:
+    try:
+        with open(tunables_file) as f:
+            data = json.load(f)
+        data.setdefault("values", {}).pop(KEY, None)
+        with open(tunables_file, "w") as f:
+            json.dump(data, f, indent=2, sort_keys=True)
+    except (OSError, ValueError):
+        pass
 with open(os.path.join(opts.out, "summary.json"), "w") as f:
     json.dump(summary, f, indent=2, sort_keys=True)
-print(json.dumps({m: {b: v["exit"] for b, v in r.items()} for m, r in summary["modes"].items()}))
+print(json.dumps({"validity": {m: v["ok"] for m, v in summary["validity"].items()},
+                  "exit": {m: {b: v["exit"] for b, v in r.items()} for m, r in summary["modes"].items()}}))
 sys.exit(1 if failures else 0)

@@ -2645,6 +2645,12 @@
       "title" : "Page Theme",
       "type" : "string"
     },
+    "media.pictureInPicture.enabled" : {
+      "default" : true,
+      "description" : "Offer Picture in Picture for a web page's video in menus, the command palette and the media controls. A site's own video controls are not affected.",
+      "title" : "Picture in Picture",
+      "type" : "boolean"
+    },
     "MinimumVersion" : {
       "description" : "Oldest cmux version allowed to sign in, for example 1.2.0.",
       "title" : "MinimumVersion",
@@ -4133,6 +4139,12 @@
       "title" : "Ask What to Work On on New Tab",
       "type" : "boolean"
     },
+    "tabs.newTabWidgets.machines" : {
+      "default" : false,
+      "description" : "Your machines and whether each is online.",
+      "title" : "Show Machines on New Tab",
+      "type" : "boolean"
+    },
     "tabs.newTabWidgets.order" : {
       "default" : [
         "projects",
@@ -4162,6 +4174,18 @@
       "description" : "Dots under the page that switch its template.",
       "title" : "Show Template Dots on New Tab",
       "type" : "boolean"
+    },
+    "tabs.newTabWidgets.weather" : {
+      "default" : false,
+      "description" : "The current weather and today's high and low, for the city below or your time zone's city.",
+      "title" : "Show Weather on New Tab",
+      "type" : "boolean"
+    },
+    "tabs.newTabWidgets.weatherCity" : {
+      "default" : "",
+      "description" : "A city for the weather widget. Empty uses your time zone's city.",
+      "title" : "Weather City",
+      "type" : "string"
     },
     "tabs.overflow" : {
       "default" : "shrink",
@@ -4368,6 +4392,12 @@
       "default" : true,
       "description" : "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once.",
       "title" : "Animate Panes",
+      "type" : "boolean"
+    },
+    "ui.reducedBackgrounds" : {
+      "default" : false,
+      "description" : "Draws windows in the plain theme color, without paintings, wallpapers or glass. Your background choices stay as they are and come back when you turn it off.",
+      "title" : "Plain Backgrounds",
       "type" : "boolean"
     },
     "UpdateChannel" : {

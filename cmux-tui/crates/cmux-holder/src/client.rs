@@ -14,22 +14,69 @@ use crate::{ExitStatus, Listed, SpawnRequest};
 /// Something the holder sent about a terminal.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Event {
-    Data { chan: u32, offset: u64, bytes: Vec<u8> },
-    Gap { chan: u32, requested: u64, oldest: u64 },
-    Exit { chan: u32, status: ExitStatus, end: u64 },
-    Error { chan: u32, request_kind: u16, code: u16, message: String },
-    Pong { nonce: u64 },
+    Data {
+        chan: u32,
+        offset: u64,
+        bytes: Vec<u8>,
+    },
+    /// The terminal's prologue: a VT replay of its screen at `base`.
+    Prologue {
+        chan: u32,
+        base: u64,
+        bytes: Vec<u8>,
+    },
+    Gap {
+        chan: u32,
+        requested: u64,
+        oldest: u64,
+    },
+    Exit {
+        chan: u32,
+        status: ExitStatus,
+        end: u64,
+    },
+    Error {
+        chan: u32,
+        request_kind: u16,
+        code: u16,
+        message: String,
+    },
+    Pong {
+        nonce: u64,
+    },
+}
+
+/// A terminal a holder started: its pid and the custody dups.
+#[derive(Debug)]
+pub struct Spawned {
+    pub pid: i32,
+    pub master: OwnedFd,
+    /// The ring segment (wire version 4; `None` from an older holder).
+    pub ring: Option<OwnedFd>,
 }
 
 /// Start a holder process serving `socket`, wait until it listens.
 pub fn launch(binary: &Path, socket: &Path, token: &[u8; 32]) -> io::Result<Child> {
-    let mut child = Command::new(binary)
+    launch_with(binary, socket, token, |_| {})
+}
+
+/// [`launch`], with `configure` adding arguments or environment to the
+/// holder's command (`--idle-exit-ms`, [`crate::NOFILE_SOFT_ENV`]).
+pub fn launch_with(
+    binary: &Path,
+    socket: &Path,
+    token: &[u8; 32],
+    configure: impl FnOnce(&mut Command),
+) -> io::Result<Child> {
+    let mut command = Command::new(binary);
+    command
         .arg("--socket")
         .arg(socket)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()?;
+        .stderr(Stdio::inherit());
+    configure(&mut command);
+    let mut child = command.spawn()?;
     let hex: String = token.iter().map(|byte| format!("{byte:02x}")).collect();
     let mut stdin = child.stdin.take().ok_or_else(|| io::Error::other("no holder stdin"))?;
     stdin.write_all(format!("{hex}\n").as_bytes())?;
@@ -50,13 +97,21 @@ pub struct HolderClient {
     stream: UnixStream,
     reader: wire::Reader,
     pending: VecDeque<Event>,
+    /// The wire version the holder's WELCOME settled on.
+    version: u16,
 }
 
 impl HolderClient {
     /// Connect and authenticate; returns the terminals the holder runs.
     pub fn connect(socket: &Path, token: &[u8; 32]) -> io::Result<(Self, Vec<Listed>)> {
         let stream = UnixStream::connect(socket)?;
-        let mut client = Self { stream, reader: wire::Reader::default(), pending: VecDeque::new() };
+        wire::tune_socket(stream.as_raw_fd());
+        let mut client = Self {
+            stream,
+            reader: wire::Reader::default(),
+            pending: VecDeque::new(),
+            version: wire::MIN_VERSION,
+        };
         client.send(Kind::Hello, 0, &Out::default().u16(wire::VERSION).bytes(token).0, None)?;
         let deadline = Instant::now() + Duration::from_secs(10);
         let count = loop {
@@ -64,7 +119,7 @@ impl HolderClient {
             match Kind::from_u16(frame.kind) {
                 Some(Kind::Welcome) => {
                     let mut input = In(&frame.payload);
-                    let _version = input.u16()?;
+                    client.version = input.u16()?;
                     break input.u32()?;
                 }
                 Some(Kind::Error) => return Err(io::Error::other("holder refused the token")),
@@ -73,32 +128,50 @@ impl HolderClient {
         };
         let mut listed = Vec::new();
         while listed.len() < count as usize {
-            let mut frame = client.frame(deadline)?;
+            let frame = client.frame(deadline)?;
             if frame.kind == Kind::Listed as u16 {
-                listed.push(Listed::decode(frame.chan, &frame.payload, frame.fds.pop())?);
+                listed.push(Listed::decode(frame.chan, &frame.payload, frame.fds)?);
             }
         }
         Ok((client, listed))
     }
 
-    /// The authenticated socket and the bytes already read past the
-    /// handshake (for [`crate::link::HolderLink`]).
-    pub(crate) fn into_parts(self) -> (UnixStream, wire::Reader) {
-        (self.stream, self.reader)
+    /// The authenticated socket, the bytes already read past the handshake
+    /// and the settled wire version (for [`crate::link::HolderLink`]).
+    pub(crate) fn into_parts(self) -> (UnixStream, wire::Reader, u16) {
+        (self.stream, self.reader, self.version)
+    }
+
+    /// Whether the holder sends at most [`wire::CREDIT_WINDOW`] past the
+    /// last [`Self::ack`] (wire version 2).
+    pub fn has_credit(&self) -> bool {
+        self.version >= 2
+    }
+
+    /// Tell the holder this client parsed `chan`'s output before `offset`.
+    pub fn ack(&mut self, chan: u32, offset: u64) -> io::Result<()> {
+        self.send(Kind::Ack, chan, &Out::default().u64(offset).0, None)
     }
 
     /// Start `request` on channel `chan`. Returns the child's pid and the
     /// daemon's custody dup of the PTY master.
     pub fn spawn(&mut self, chan: u32, request: &SpawnRequest) -> io::Result<(i32, OwnedFd)> {
+        self.spawn_with_ring(chan, request).map(|spawned| (spawned.pid, spawned.master))
+    }
+
+    /// [`Self::spawn`], with the custody dup of the terminal's ring segment
+    /// (wire version 4; `None` from an older holder).
+    pub fn spawn_with_ring(&mut self, chan: u32, request: &SpawnRequest) -> io::Result<Spawned> {
         self.send(Kind::Spawn, chan, &request.encode(), None)?;
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
-            let mut frame = self.frame(deadline)?;
+            let frame = self.frame(deadline)?;
             match Kind::from_u16(frame.kind) {
                 Some(Kind::Spawned) if frame.chan == chan => {
                     let pid = In(&frame.payload).i32()?;
-                    let fd = frame.fds.pop().ok_or_else(|| io::Error::other("no master fd"))?;
-                    return Ok((pid, fd));
+                    let mut fds = frame.fds.into_iter();
+                    let master = fds.next().ok_or_else(|| io::Error::other("no master fd"))?;
+                    return Ok(Spawned { pid, master, ring: fds.next() });
                 }
                 Some(Kind::Error) if frame.chan == chan => {
                     return Err(io::Error::other(error_message(&frame.payload)));
@@ -122,8 +195,52 @@ impl HolderClient {
         self.send(Kind::Adopt, chan, &payload, Some(master))
     }
 
+    /// Hand a running terminal and its ring segment to this holder (wire
+    /// version 4): the holder continues the dead holder's ring, with every
+    /// byte it read. `base` is where `prologue`'s screen is (the offset the
+    /// daemon parsed), `resume` where a fresh ring would start.
+    pub fn adopt_with_ring(
+        &mut self,
+        chan: u32,
+        id: &[u8; 16],
+        (pid, base, resume): (i32, u64, u64),
+        master: &OwnedFd,
+        ring: &OwnedFd,
+        prologue: &[u8],
+    ) -> io::Result<()> {
+        let payload = Out::default().i32(pid).u64(base).bytes(id).u64(resume).bytes(prologue).0;
+        let frame = wire::encode_flagged(Kind::Adopt, wire::FLAG_RING, chan, &payload);
+        wire::send_all(self.stream.as_raw_fd(), &frame, &[master.as_raw_fd(), ring.as_raw_fd()])
+    }
+
+    /// The wire version the holder's WELCOME settled on.
+    pub fn version(&self) -> u16 {
+        self.version
+    }
+
     pub fn attach(&mut self, chan: u32, from: u64) -> io::Result<()> {
         self.send(Kind::Attach, chan, &Out::default().u64(from).0, None)
+    }
+
+    /// [`Self::attach`] as a restarted daemon does: the prologue first.
+    pub fn reattach(&mut self, chan: u32, from: u64) -> io::Result<()> {
+        let frame = wire::encode_flagged(
+            Kind::Attach,
+            wire::FLAG_WITH_PROLOGUE,
+            chan,
+            &Out::default().u64(from).0,
+        );
+        wire::send_all(self.stream.as_raw_fd(), &frame, &[])
+    }
+
+    /// Hand the holder a VT replay of `chan`'s screen at offset `base`.
+    pub fn snapshot(&mut self, chan: u32, base: u64, replay: &[u8]) -> io::Result<()> {
+        self.send(Kind::Snapshot, chan, &Out::default().u64(base).bytes(replay).0, None)
+    }
+
+    /// Leave `chan` on purpose (a daemon shutdown).
+    pub fn detach(&mut self, chan: u32) -> io::Result<()> {
+        self.send(Kind::Detach, chan, &[], None)
     }
 
     pub fn write(&mut self, chan: u32, bytes: &[u8]) -> io::Result<()> {
@@ -156,6 +273,10 @@ impl HolderClient {
         let chan = frame.chan;
         let mut input = In(&frame.payload);
         let event = match Kind::from_u16(frame.kind) {
+            Some(Kind::Data) if frame.flags & wire::FLAG_PROLOGUE != 0 => {
+                let base = input.u64()?;
+                Event::Prologue { chan, base, bytes: input.rest().to_vec() }
+            }
             Some(Kind::Data) => {
                 let offset = input.u64()?;
                 Event::Data { chan, offset, bytes: input.rest().to_vec() }
@@ -198,7 +319,14 @@ impl HolderClient {
             if left.is_zero() {
                 return Err(io::Error::new(io::ErrorKind::TimedOut, "holder did not answer"));
             }
-            self.stream.set_read_timeout(Some(left))?;
+            match self.stream.set_read_timeout(Some(left)) {
+                Ok(()) => {}
+                // macOS fails setsockopt with EINVAL once the peer closed
+                // the link; a read then never blocks, and it still returns
+                // the frames the holder sent before it closed (SUPERSEDED).
+                Err(error) if error.raw_os_error() == Some(libc::EINVAL) => {}
+                Err(error) => return Err(error),
+            }
             match self.reader.fill(self.stream.as_raw_fd()) {
                 Ok(true) => {}
                 Ok(false) => {

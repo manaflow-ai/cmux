@@ -20,6 +20,8 @@ import PackageDescription
 //   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix), Icons (OverflowButton's glyph); CmuxNextActions -> Signposts; CmuxNextDaemon -> Wakeups
 //   CmuxNextSignposts -> Compat, system frameworks (always-on os_signpost intervals, the one name catalog, CommitBoundary,
 //     the opt-in MetricKit mirror for hang reports)
+//   CmuxNextDesignTokens -> Compat, Wakeups, CmuxTheme, CCmuxAppFFI (Design's values without views: tunables,
+//     motion tokens, theme specs, settings enums; CmuxNextDesign re-exports it)
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
@@ -70,7 +72,7 @@ import PackageDescription
 //   CmuxNextAgentCursor -> CmuxAgentCursor (vendored; agent cursor commands from input events and the layout)
 //   CmuxNextAgentCursorVisibility -> AgentCursor (pure visibility rules for a cursor target: snapshot in,
 //     visible / hidden anchor / not drawn out; no AppKit; the App builds the snapshot from the live models)
-//   CmuxNextWorkspaceNaming -> Bridge, Compat, Daemon, Design (hq#1957: the name a workspace takes from a moved
+//   CmuxNextWorkspaceNaming -> Bridge, Compat, Daemon, DesignTokens (hq#1957: the name a workspace takes from a moved
 //     tab or its front tab, and the one-time rename; pure rules; the App supplies its pages and the rename command)
 //   CmuxNextAgentActivity -> Design (Agent activity pane: computer use sessions, timeline, prototype layouts;
 //     a projection of the CUA host; no daemon; the App supplies the source; plans/cmux-next/computer-use.md)
@@ -408,6 +410,8 @@ let package = Package(
                            .product(name: "CMUXAuthCore", package: "CMUXAuthCore")],
             resources: [
                 .process("Localizable.xcstrings"),
+                // BillingStrings (table Billing): moved from the App with Billing/ in B1.
+                .process("Resources/Billing.xcstrings"),
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -707,7 +711,7 @@ let package = Package(
         // supplies its browser pages, New Tab pages and the rename command.
         .target(
             name: "CmuxNextWorkspaceNaming",
-            dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign"],
+            dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesignTokens"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -1159,7 +1163,7 @@ let package = Package(
         // (plans/cmux-next/architecture-refactor-DESIGN.md section 7).
         .target(
             name: "CmuxNextSignposts",
-            // Compat's Atomic and Mutex: the MetricKit mirror's switch and logs (SignpostMetricKitMirror.swift).
+            // Compat's Atomic: the MetricKit mirror's switch (SignpostMetricKitMirror.swift).
             dependencies: ["CmuxNextCompat"],
             swiftSettings: daemonSwiftSettings
         ),
@@ -1223,10 +1227,23 @@ let package = Package(
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
         ),
+        // Design's values without views: tunables, motion tokens, theme specs, settings enums
+        // (plans/cmux-next/architecture-refactor-DESIGN.md slice B2). Design re-exports it.
+        .target(
+            name: "CmuxNextDesignTokens",
+            dependencies: [
+                "CmuxNextCompat",
+                "CmuxNextWakeups",
+                .product(name: "CmuxTheme", package: "CmuxTheme"),
+                "CCmuxAppFFI",
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextDesign",
             dependencies: [
                 "CmuxNextCompat",
+                "CmuxNextDesignTokens",
                 // The shared overflow button's ⋮ glyph (OverflowButton, action.more.vertical).
                 "CmuxNextIcons",
                 "CmuxNextWakeups",
@@ -1242,6 +1259,7 @@ let package = Package(
             name: "CmuxNextDesignTests",
             dependencies: [
                 "CmuxNextDesign",
+                "CmuxNextDesignTokens",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
             ],
@@ -1510,6 +1528,7 @@ let package = Package(
                 "CmuxNextFloating",
                 "CmuxNextFocus",
                 "CmuxNextFocusUI",
+                "CmuxNextHangReports",
                 "CmuxNextHistory",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",

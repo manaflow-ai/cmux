@@ -14,6 +14,7 @@ mini (rmac.py there). Each flow is recorded to PQ_RAW/<name>.mp4.
   `javascript:` says "Scripts can't run from your iPhone's address bar."
 """
 import os
+import subprocess
 import shlex
 import time
 
@@ -217,3 +218,112 @@ def keyboard(j):
     out.append("Select All from the bar, typed over: 'SENT Ada / Rome'")
     bar(j, "Hide Keyboard")
     return "; ".join(out)
+
+
+# ---------------------------------------------------------------- the host's own checks (rb.file_policy, rb.text_input)
+
+def embed_page(secret_path, image_path, css_path):
+    """A shared page that embeds files outside the shared folders four ways: an
+    iframe, an image, a stylesheet and fetch. Each would put LEAKED on screen."""
+    return f"""<!doctype html><title>Embeds</title>
+<link rel=stylesheet href='file://{css_path}'>
+<body style='font:28px -apple-system;padding:20px'>
+<p>EMBEDHOST {BODY}</p><p id=css></p>
+<img src='file://{image_path}' style='width:340px;height:90px'>
+<iframe src='file://{secret_path}' style='width:90%;height:120px'></iframe>
+<p id=f>fetch: waiting</p>
+<script>fetch('file://{secret_path}').then(r=>r.text()).then(t=>document.getElementById('f').textContent='fetch: '+t)
+.catch(()=>document.getElementById('f').textContent='fetch: BLOCKED')</script></body>"""
+
+
+@t.flow("embedded")
+def embedded(j):
+    proj = pq.rsh(f"mkdir -p {t.PROJ} && cd {t.PROJ} && pwd -P").stdout.strip()
+    secret = write_page(f"{PAGES}/secret-{STAMP}.html", "Secret", f"LEAKED {BODY}")
+    svg = ("<svg xmlns='http://www.w3.org/2000/svg' width='340' height='90'>"
+           "<text x='10' y='60' font-size='48' font-family='Helvetica'>LEAKED</text></svg>")
+    css = "#css::after { content: 'LEAKED CSS'; font-size: 40px }"
+    pages = pq.rsh(f"cd {PAGES} && pwd -P").stdout.strip()
+    pq.rsh(f"printf %s {shlex.quote(svg)} > {pages}/secret-{STAMP}.svg && printf %s {shlex.quote(css)} > {pages}/secret-{STAMP}.css")
+    page = embed_page(secret, f"{pages}/secret-{STAMP}.svg", f"{pages}/secret-{STAMP}.css")
+    pq.rsh(f"printf %s {shlex.quote(page)} > {proj}/embeds-{STAMP}.html")
+    a = t.seed(f"brs-embed-{STAMP}", terminals=1)
+    t.open_ws(j, a["name"])
+    pq.plus_menu(j, "New Browser Tab")
+    pq.wait_opened(j, timeout=120)
+    go(j, f"file://{proj}/embeds-{STAMP}.html")
+    check(ocr_wait(j, "EMBEDHOST", timeout=30) is not None, "the shared page did not load")
+    time.sleep(3)
+    j.sim.shot("embedded")
+    leaked = j.sim.ocr_find("LEAKED")
+    check(not leaked, "a file outside the shared folders showed inside the shared page")
+    return ("a shared page's iframe, image, stylesheet and fetch of files outside the shared folders "
+            "show nothing (no 'LEAKED' on screen)")
+
+
+FOCUS = """<!doctype html><title>Focus</title><body style='font:28px -apple-system;padding:20px'>
+<p>FOCUSPAGE <span id=out></span></p><button id=b style='font:28px -apple-system' onclick="document.getElementById('i').focus()">Focus the field</button>
+<p style='margin-top:420px'>Field <input id=i style='font:28px -apple-system;width:90%'></p>
+<script>document.getElementById('i').addEventListener('keydown',e=>{
+if(e.key.startsWith('Arrow'))document.getElementById('out').textContent='KEY '+e.key})</script></body>"""
+
+
+@t.flow("focus")
+def focus(j):
+    out = []
+    proj = pq.rsh(f"mkdir -p {t.PROJ} && cd {t.PROJ} && pwd -P").stdout.strip()
+    pq.rsh(f"printf %s {shlex.quote(FOCUS)} > {proj}/focus-{STAMP}.html")
+    a = t.seed(f"brs-focus-{STAMP}", terminals=1)
+    pane = t.ws_tabs(a)[0][0]
+    t.mac_raw({"cmd": "new-browser-tab", "url": f"file://{proj}/focus-{STAMP}.html", "pane": pane})
+    t.open_ws(j, a["name"])
+    check(ocr_wait(j, "FOCUSPAGE", timeout=45) is not None, "the focus page did not load")
+    def raised(timeout):
+        """The keyboard (or, with a hardware keyboard attached, only its key bar) is up."""
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            if j.sim.find(ident="browser.key.tab") or j.sim.keyboard():
+                return True
+            time.sleep(0.5)
+        return False
+
+    check(not raised(2), "the keyboard was up before any field had focus")
+    j.sim.tap(120, 196)  # the button: the page focuses a field below the fold
+    check(raised(10), "the keyboard did not rise when the page focused a field")
+    time.sleep(1.5)
+    j.sim.shot("focus-raised")
+    check(j.sim.ocr_find("Field"), "the focused field is not in view above the keyboard")
+    out.append("page focus raised the keyboard; the field stays in view")
+    if j.sim.keyboard():
+        j.sim.softtype("abc")
+    else:
+        pq.type_text("abc")
+    took = ocr_wait(j, "abc", timeout=10)
+    check(took is not None, "typing did not reach the focused field")
+    out.append("typed into it")
+    return "; ".join(out)
+
+
+@t.flow("hardware-keys")
+def hardware_keys(j):
+    """axe sends hardware key events: arrows reach the page's own keydown handler."""
+    proj = pq.rsh(f"mkdir -p {t.PROJ} && cd {t.PROJ} && pwd -P").stdout.strip()
+    a = t.seed(f"brs-hw-{STAMP}", terminals=1)
+    pane = t.ws_tabs(a)[0][0]
+    t.mac_raw({"cmd": "new-browser-tab", "url": f"file://{proj}/focus-{STAMP}.html", "pane": pane})
+    t.open_ws(j, a["name"])
+    check(ocr_wait(j, "FOCUSPAGE", timeout=45) is not None, "the focus page did not load")
+    j.sim.tap(120, 196)
+    time.sleep(2)
+    subprocess.run(["axe", "key", "80", "--udid", pq.load()["udid"]], capture_output=True, timeout=30)  # left arrow
+    took = ocr_wait(j, "ArrowLeft", timeout=10)  # "KEY ArrowLeft" wraps
+    j.sim.shot("hardware-arrow")
+    check(took is not None, "a hardware arrow did not reach the page")
+    return "a hardware Left Arrow reached the page's keydown ('KEY ArrowLeft')"
+
+
+HOST_ORDER = ["focus", "embedded", "hardware-keys"]
+
+
+def run_host():
+    return all([run(name) for name in HOST_ORDER])

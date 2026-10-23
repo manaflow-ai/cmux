@@ -153,12 +153,23 @@ await requireBrowserLane("composer-glass.test.ts", async () => {
         await page.close();
       });
 
+  for (const colorScheme of ["light", "dark"] as const)
+    test(`${colorScheme}, the default composer uses the balanced glass level`, async () => {
+      const page = await open(colorScheme, {});
+      for (const id of ["composer", "strip-composer", "codex-strip-composer"]) {
+        const { fill, backdrop } = await look(page, id);
+        expect(fill[3], `${id} keeps the selected 70% tint`).toBeCloseTo(0.7, 2);
+        expect(backdrop, `${id} keeps the selected 24px blur`).toContain("blur(24px)");
+      }
+      await page.close();
+    });
+
   // Codex's look (composerLook.css) draws a new chat's folder and computer strip as a tray with a
   // faint wash of the text colour. On an opaque window that wash went over the solid composer
   // surface with no blur (after #24457): an opaque tray on a glass card. The tray is the card's
   // glass there too (glass is never opaque), and the folder name (muted text) stays at 4.5:1 over
   // the darkest page. Over a pure white page it is about 3.1:1, as the default strip's is about
-  // 3.4:1 under the same 78% glass: the card's glass, not the tray's.
+  // 3.4:1 under the same 70% glass: the card's glass, not the tray's.
   for (const colorScheme of ["light", "dark"] as const)
     test(`${colorScheme}, an opaque window: the Codex look's tray is the card's glass`, async () => {
       const page = await open(colorScheme, {});

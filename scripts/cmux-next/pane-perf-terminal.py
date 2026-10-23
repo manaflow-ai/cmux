@@ -63,7 +63,9 @@ BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*")
 SCRATCH = tempfile.mkdtemp(prefix=f"pane-perf-{TAG}-")
 open(os.path.join(SCRATCH, "ghostty"), "w").close()
 CONFIG = os.path.join(SCRATCH, "cmux.json")
-open(CONFIG, "w").write("{}\n")
+# 30 panes in 6 columns leave ~230 pt each: the 200 pt default minimum refused the timed split there
+# ("not enough room to split this pane"), so the 30-pane split row measured nothing.
+open(CONFIG, "w").write(json.dumps({"layout": {"minimumPaneWidth": 80, "minimumPaneHeight": 32}}) + "\n")
 WINDOW = (80, 80, 1600, 1000)
 PAGE = None  # a local page for a Chromium pane (`serve_page`)
 
@@ -269,9 +271,12 @@ def stress_layout():
                                                                                    "perf-stress-session.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    STRESS.update(module.Stress(rpc, selected=opts.stress_selected).build())
+    try:
+        STRESS.update(module.Stress(rpc, selected=opts.stress_selected).build())
+    except module.StressShapeError as error:
+        return str(error)  # a wrong shape is a failed row, never measured as STRESS
     print("STRESS-SESSION " + json.dumps(STRESS), flush=True)
-    return None if STRESS.get("measured_panes") else f"the STRESS session has no measured panes: {json.dumps(STRESS)[:300]}"
+    return None
 
 
 def vertical_divider():
@@ -581,7 +586,7 @@ def main():
             panes = columns * rows
         if problem:
             print(f"  {name}: {problem}", flush=True)
-            row(f"{name}: the Chromium page runs (--browser)", "window.__frames counting", problem, False)
+            row(f"{name}: the layout was built" if name == "stress" else f"{name}: the Chromium page runs (--browser)", "the STRESS shape" if name == "stress" else "window.__frames counting", problem, False)
             continue
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-before.png")})
         for index in range(opts.rounds):

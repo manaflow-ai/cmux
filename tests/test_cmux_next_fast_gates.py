@@ -494,6 +494,49 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(self.outputs()["checks"], "false")  # ci-web runs them on this same merge
         self.assertNotIn("head_sha", self.outputs(), "head and base come from resolve, not from here")
 
+    def test_pull_request_deepens_so_a_head_that_brings_the_base_in_is_not_a_cut(self):
+        # #24526 at 3a47dc1f: the head was a commit bringing the base in. The merge ref's depth-2 checkout cut it,
+        # so it read as a root adding the whole tree, and the Sidebar-Look check saw 162 sidebar files.
+        seed = self.seed
+        git(seed, "checkout", "-q", "-b", "pr8", self.root)
+        own = commit(seed, {"pr8.txt": "pr8\n"}, "the pull request's own change")
+        git(seed, "-c", "user.name=t", "-c", "user.email=t@example.com", "merge", "-q", "--no-ff", "--no-edit",
+            "feat-cmux-next")
+        head = git(seed, "rev-parse", "HEAD")
+        git(seed, "checkout", "-q", "--detach", self.tip)
+        git(seed, "-c", "user.name=t", "-c", "user.email=t@example.com", "merge", "-q", "--no-ff", "--no-edit", head)
+        git(seed, "push", "-q", str(self.remote), f"{head}:refs/pull/8/head", "HEAD:refs/pull/8/merge")
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        git(self.remote, "config", "uploadpack.allowReachableSHA1InWant", "true")  # as GitHub allows
+        work = self.tmp / "work8"
+        work.mkdir()
+        git(work, "init", "-q")
+        git(work, "remote", "add", "origin", f"file://{self.remote}")
+        git(work, "fetch", "-q", "--depth=2", "origin", "refs/pull/8/merge")  # what actions/checkout does
+        git(work, "checkout", "-q", "--detach", "FETCH_HEAD")
+        self.assertIn(head, (work / ".git" / "shallow").read_text(), "the fixture must start with the head cut")
+
+        result = self.script(work, "prepare", "--event", "pull_request", "--head", head, "--base", self.tip,
+                             "--output", str(self.tmp / "out.txt"))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        merge = git(work, "rev-parse", "HEAD")
+        self.assertEqual(git(work, "rev-list", "--no-merges", f"{self.tip}..{merge}").split(), [own])
+        self.assertEqual(git(work, "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", own).split(),
+                         ["pr8.txt"])
+
+    def test_pull_request_in_a_full_clone_fetches_nothing_more(self):
+        work = self.clone(shallow=False)
+        git(work, "fetch", "-q", "origin", "refs/pull/7/head")
+        git(work, "-c", "user.name=t", "-c", "user.email=t@example.com", "merge", "-q", "--no-ff",
+            "--no-edit", "FETCH_HEAD")
+        git(work, "remote", "set-url", "origin", str(self.tmp / "missing.git"))  # a fetch would fail
+
+        result = self.script(work, "prepare", "--event", "pull_request", "--head", self.pr_head,
+                             "--base", self.tip, "--output", str(self.tmp / "out.txt"))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_pull_request_merge_onto_another_base_fails(self):
         work = self.clone(shallow=False)
         git(work, "fetch", "-q", "origin", "refs/pull/7/head")

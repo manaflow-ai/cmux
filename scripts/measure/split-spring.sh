@@ -10,8 +10,11 @@
 # Options this script reads (the rest go to split-spring-terminal.py):
 #   --app-cache     reuse this commit's app when an earlier step on this worker built it
 #                   ($CI_SHARED_CACHE_DIR/split-spring-apps/<sha>), and keep it there after a build (the 3
-#                   newest commits). The perf cron (scripts/cmux-next/perf-cron.py) builds once per measurement.
-#   --build-only    build (or find) the app, keep it in the cache, measure nothing; report.json records the build.
+#                   newest unpinned commits). The perf cron (scripts/cmux-next/perf-cron.py) builds once per
+#                   measurement.
+#   --build-only    build (or find) the app, keep it in the cache and pin it there for 13 h (`pin`; a perf cron
+#                   measurement is abandoned after 12 h), measure nothing; report.json records the build. No
+#                   eviction removes a pinned app, so a measurement's later parts never build cold.
 #   --vdisplay=HZ   measure on a virtual display at HZ (scripts/ci/frame-pacing/vdisplay.m, the private
 #                   CGVirtualDisplay API), which the helper makes the main display (`main`: origin 0,0, for
 #                   this process only) so the app opens on it. When it does not come up as the main display at
@@ -20,19 +23,22 @@
 #                   vdisplay, refresh_ms, line}. refresh_ms is the virtual display's measured interval, or after a
 #                   fallback the real main display's (`VDisplay probe`; null only when that does not tick either).
 #                   Not yet confirmed on cmux20-bench by a perf cron run (2026-10-23).
+#   --config=bench  build the app in the bench configuration (reload.sh --config bench: Release optimization with
+#                   the debug.* control commands kept), so the bench measures an optimized app; cached apart.
 #   --vdisplay-hold=SECONDS  the helper's own lifetime (default 1200): it ends by itself even when this script
 #                   is killed with SIGKILL. The perf cron passes the part's run time.
 # On exit, TERM, INT or HUP (a cancelled step) the script stops the bench, ends the tag's app and daemons
 # (scripts/cmux-next/tag_teardown.py, exact PIDs of the app bundle) and the virtual display.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
-build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 args=()
+build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 args=() reload_config=()
 for arg in "$@"; do
   case "$arg" in
     --build-only) build_only=1 app_cache=1 ;;
     --app-cache) app_cache=1 ;;
     --vdisplay=*) vdisplay_hz="${arg#--vdisplay=}" ;;
     --vdisplay-hold=*) vdisplay_hold="${arg#--vdisplay-hold=}" ;;
+    --config=*) reload_config=(--config "${arg#--config=}") ;;
     *) args+=("$arg") ;;
   esac
 done
@@ -40,16 +46,19 @@ tag="split-spring"
 out="$(pwd)/artifacts/split-spring"
 mkdir -p "$out"
 sha="$(git rev-parse HEAD)"
+# A bench build (--config=bench) is cached apart from the default Debug build of the same commit.
+key="$sha"
+[[ ${#reload_config[@]} -gt 0 && "${reload_config[1]}" != debug ]] && key="$sha-${reload_config[1]}"
 cache=""
 if [[ "$app_cache" == 1 && -n "${CI_SHARED_CACHE_DIR:-}" ]]; then
   cache="$CI_SHARED_CACHE_DIR/split-spring-apps"
 fi
 build_start=$SECONDS
 app="" cached=false
-if [[ -n "$cache" && -f "$cache/$sha/ok" ]]; then
+if [[ -n "$cache" && -f "$cache/$key/ok" ]]; then
   mkdir -p "$out/app"
-  ditto "$cache/$sha/cmux DEV $tag.app" "$out/app/cmux DEV $tag.app"
-  touch "$cache/$sha/ok"
+  ditto "$cache/$key/cmux DEV $tag.app" "$out/app/cmux DEV $tag.app"
+  touch "$cache/$key/ok"
   app="$out/app/cmux DEV $tag.app" cached=true
   echo "split-spring: the app of $sha from the app cache ($((SECONDS - build_start)) s)"
 fi
@@ -64,7 +73,7 @@ if [[ -z "$app" ]]; then
     fi
     ./scripts/download-prebuilt-ghosttykit.sh
   fi
-  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" 2>&1 | tee "$out/reload.log" | tail -n 40
+  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log" | tail -n 40
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "split-spring: the tagged reload printed no app path" >&2
@@ -73,17 +82,27 @@ if [[ -z "$app" ]]; then
   fi
   if [[ -n "$cache" ]]; then
     mkdir -p "$cache"
-    rm -rf "${cache:?}/$sha.tmp"
-    mkdir -p "$cache/$sha.tmp"
-    if ditto "$app" "$cache/$sha.tmp/cmux DEV $tag.app"; then
-      rm -rf "${cache:?}/$sha"
-      mv "$cache/$sha.tmp" "$cache/$sha"
-      touch "$cache/$sha/ok"
-      # shellcheck disable=SC2012 # the directory names are 40-hex commit ids
-      ls -1t "$cache"/*/ok 2>/dev/null | tail -n +4 | while read -r old; do rm -rf "$(dirname "$old")"; done
+    rm -rf "${cache:?}/$key.tmp"
+    mkdir -p "$cache/$key.tmp"
+    if ditto "$app" "$cache/$key.tmp/cmux DEV $tag.app"; then
+      rm -rf "${cache:?}/$key"
+      mv "$cache/$key.tmp" "$cache/$key"
+      touch "$cache/$key/ok"
       echo "split-spring: kept the app of $sha in the app cache"
     fi
   fi
+fi
+if [[ -n "$cache" && -d "$cache/$key" ]]; then
+  [[ "$build_only" == 1 ]] && touch "$cache/$key/pin"
+  # Keep the 3 newest unpinned apps; a pin younger than 13 h (780 min) keeps its app whatever its age.
+  # shellcheck disable=SC2012 # the directory names are 40-hex commit ids
+  ls -1t "$cache"/*/ok 2>/dev/null | while read -r ok; do
+    dir="$(dirname "$ok")"
+    if [[ -f "$dir/pin" && -n "$(find "$dir/pin" -mmin -780 2>/dev/null)" ]]; then
+      continue
+    fi
+    echo "$dir"
+  done | tail -n +4 | while read -r old; do rm -rf "$old"; done
 fi
 build_seconds=$((SECONDS - build_start))
 if [[ "$build_only" == 1 ]]; then

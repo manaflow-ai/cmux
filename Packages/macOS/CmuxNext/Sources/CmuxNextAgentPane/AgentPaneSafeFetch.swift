@@ -11,6 +11,9 @@ import Foundation
 /// ``maximumMediaBytes`` and ``mediaTimeout``); no cookies, cache, credentials, proxy or referrer.
 protocol AgentPaneImageFetching: Sendable {
     func fetch(_ url: URL) async -> Result<Data, AgentPaneReplyError>
+    /// The same fetch, with every hop (the URL and each redirect) to one of `hosts`
+    /// (``GuardedRemoteFetch/isListed(_:in:)``); a hop anywhere else fails it.
+    func fetch(_ url: URL, within hosts: Set<String>) async -> Result<Data, AgentPaneReplyError>
 }
 
 nonisolated struct AgentPaneSafeFetch: AgentPaneImageFetching {
@@ -37,7 +40,39 @@ nonisolated struct AgentPaneSafeFetch: AgentPaneImageFetching {
     /// a local name or a private literal.
     static func isFetchable(_ url: URL) -> Bool { GuardedRemoteFetch.allows(url) }
 
+    /// Sites whose web images load in a reply without a click under `agentPane.images.remote` =
+    /// `click`, the one declared list (the page gets it from `link.inspect`'s policy). The click
+    /// keeps a site from learning that a reply was read (a tracking pixel, or a prompt-injected
+    /// address that carries data out). raw.githubusercontent.com, where PR screenshots and our
+    /// `pr-media` branch live, gives a repository's owner no count or log of who fetched a file,
+    /// so it tells no one but GitHub. github.com stays behind the click: a release asset's
+    /// download count and a repository's traffic page show its owner each fetch. A click-free
+    /// load's redirects must stay on this list too (``fetch(_:within:)``). Leo, 2026-10-23, of a
+    /// before/after pair whose second image waited on Load image: "i feel like this is a bit lame idk".
+    static let clickFreeImageHosts: Set<String> = ["raw.githubusercontent.com"]
+
+    /// Whether the reply image `src` loads without a click under `click`: it is written exactly
+    /// `https://<a click-free host>/…` (lowercase, no port, user info, backslash or space before
+    /// the path, so the page's WHATWG parse and this one agree), and it parses to that host
+    /// (``GuardedRemoteFetch/isListed(_:in:)``).
+    static func isClickFree(_ src: String) -> Bool {
+        guard clickFreeImageHosts.contains(where: { src.hasPrefix("https://\($0)/") }), let url = URL(string: src) else {
+            return false
+        }
+        return GuardedRemoteFetch.isListed(url, in: clickFreeImageHosts)
+    }
+
     func fetch(_ url: URL) async -> Result<Data, AgentPaneReplyError> {
+        await Self.fetch(url, with: guarded)
+    }
+
+    func fetch(_ url: URL, within hosts: Set<String>) async -> Result<Data, AgentPaneReplyError> {
+        var restricted = guarded
+        restricted.hosts = hosts
+        return await Self.fetch(url, with: restricted)
+    }
+
+    private static func fetch(_ url: URL, with guarded: GuardedRemoteFetch) async -> Result<Data, AgentPaneReplyError> {
         switch await guarded.fetch(url) {
         case .success(let response): .success(response.body)
         case .failure(.refused): .failure(.imageRefused)

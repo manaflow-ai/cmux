@@ -42,6 +42,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let tabSetTransparentBackground: @convention(c) (Int32, Int32) -> Int32
     /// Fork API 26: `cmux_shim_browser_set_layer_hosting` (the page's CAContextID, 0 when off).
     let browserSetLayerHosting: @convention(c) (Int32, Int32) -> UInt32
+    /// Fork API 27: `cmux_shim_browser_set_resize_sync` (deadline in ms, 0 never holds the commit).
+    let browserSetResizeSync: @convention(c) (Int32, Int32) -> Int32
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -288,6 +290,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         browserSetBackgroundColor = try r("cmux_shim_browser_set_background_color")
         tabSetTransparentBackground = try r("cmux_shim_tab_set_transparent_background")
         browserSetLayerHosting = try r("cmux_shim_browser_set_layer_hosting")
+        browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         createWindow = try r("cmux_shim_create_window")

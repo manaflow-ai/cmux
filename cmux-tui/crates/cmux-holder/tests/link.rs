@@ -74,7 +74,7 @@ fn eight_threads_spawn_at_once_and_each_terminal_gets_only_its_own_output() {
     let (link, listed) = HolderLink::connect(
         &socket,
         &TOKEN,
-        Box::new(move || {
+        Box::new(move |_| {
             let _ = lost_tx.send(());
         }),
     )
@@ -87,14 +87,15 @@ fn eight_threads_spawn_at_once_and_each_terminal_gets_only_its_own_output() {
                 let link = link.clone();
                 scope.spawn(move || {
                     let sink = Arc::new(Collect::default());
-                    let (_pid, master) = link
+                    let spawned = link
                         .spawn(
                             chan,
                             &request(chan, &format!("echo up-{chan}; exec cat")),
                             sink.clone(),
                         )
                         .unwrap();
-                    (chan, sink, master)
+                    assert!(spawned.ring.is_some(), "a version 4 holder passes the ring");
+                    (chan, sink, spawned.master)
                 })
             })
             .collect();

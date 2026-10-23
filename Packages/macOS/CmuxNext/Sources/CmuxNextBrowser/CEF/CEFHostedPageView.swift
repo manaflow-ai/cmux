@@ -17,8 +17,12 @@ final class CEFHostedPageView: NSView {
     private(set) var contextID: UInt32 = 0
     private let root = CALayer()
     private var remote: CALayer?
+    private let makeLayerHost: (UInt32) -> CALayer?
 
-    override init(frame: NSRect) {
+    /// - Parameter makeLayerHost: the layer that shows a context id; a
+    ///   `CALayerHost` by default (tests pass one that fails).
+    init(frame: NSRect, makeLayerHost: @escaping (UInt32) -> CALayer? = { CEFHostedPageView.layerHost(contextID: $0) }) {
+        self.makeLayerHost = makeLayerHost
         super.init(frame: frame)
         // Layer-hosting view (layer set before wantsLayer): AppKit sizes
         // the root with the view and never touches the remote layer under it.
@@ -40,15 +44,30 @@ final class CEFHostedPageView: NSView {
 
     override func isAccessibilityElement() -> Bool { false }
 
-    /// Shows the context `id` (0 removes the page).
-    func host(contextID id: UInt32) {
-        guard id != contextID else { return }
+    /// `debug.cef` `tracker.hosted_pages` counts the hosted views in a
+    /// window, so a view released with its host (DevTools closed, a pane
+    /// closed) never stays counted.
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if window == nil, newWindow != nil {
+            CEFHostView.trackerStats.hostedPages += 1
+        } else if window != nil, newWindow == nil {
+            CEFHostView.trackerStats.hostedPages -= 1
+        }
+    }
+
+    /// Shows the context `id` (0 removes the page). False when `id` is not 0
+    /// and nothing can show it (no `CALayerHost`): the caller gives the page
+    /// its own window back instead of leaving it blank.
+    @discardableResult
+    func host(contextID id: UInt32) -> Bool {
+        guard id != contextID else { return true }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         remote?.removeFromSuperlayer()
         remote = nil
         contextID = 0
-        if id != 0, let layerHost = Self.makeLayerHost(contextID: id) {
+        if id != 0, let layerHost = makeLayerHost(id) {
             layerHost.anchorPoint = .zero
             layerHost.position = .zero
             layerHost.actions = Self.noActions
@@ -57,13 +76,16 @@ final class CEFHostedPageView: NSView {
             contextID = id
         }
         CATransaction.commit()
+        return contextID == id
     }
 
     /// `CALayerHost` is QuartzCore SPI, the class Chromium itself uses to
     /// show its GPU process's output (`ui::DisplayCALayerTree`).
-    private static func makeLayerHost(contextID: UInt32) -> CALayer? {
+    nonisolated static func layerHost(contextID: UInt32) -> CALayer? {
         guard let type = NSClassFromString("CALayerHost") as? CALayer.Type else { return nil }
         let layerHost = type.init()
+        // A class without the key would raise in setValue(_:forKey:); ask first.
+        guard layerHost.responds(to: NSSelectorFromString("setContextId:")) else { return nil }
         layerHost.setValue(NSNumber(value: contextID), forKey: "contextId")
         return layerHost
     }

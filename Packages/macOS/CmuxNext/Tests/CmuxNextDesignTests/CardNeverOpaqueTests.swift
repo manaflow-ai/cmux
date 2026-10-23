@@ -2,6 +2,7 @@ import CmuxTheme
 @testable import CmuxNextDesign
 import Foundation
 import Testing
+import CmuxNextDesignTokens
 
 /// Glass is never opaque, and card text keeps WCAG AA (Lawrence, 2026-10-20). Every floating
 /// glass card (`Glass.makeOverlayPanel`) lays its ``CardMaterial`` fill on the glass at
