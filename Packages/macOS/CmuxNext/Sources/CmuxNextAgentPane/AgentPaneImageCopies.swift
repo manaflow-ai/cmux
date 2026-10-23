@@ -107,7 +107,7 @@ extension AgentPaneImageCopies {
             guard model.replyLinks.mouseHeld() else { return AgentPaneModel.replyFailure(.gestureRequired) }
             guard let file = draggedFile(path, in: model) else { return AgentPaneModel.replyFailure(.pathInvalid) }
             let out = handedOut(file, in: model.replyLinks.imageFolder)
-            guard await rebuild(file, to: out) else { return AgentPaneModel.replyFailure(.imageRefused) }
+            if out != file, await !rebuild(file, to: out) { return AgentPaneModel.replyFailure(.imageRefused) }
             return model.replyLinks.startDrag(out) ? AgentPaneReply.success() : AgentPaneModel.replyFailure(.openFailed)
         case .quickLookImage(let src, let name):
             return await withCopy(src, name: name, in: model) { model.replyLinks.quickLookFile($0) }
@@ -161,10 +161,9 @@ extension AgentPaneImageCopies {
         return folder.appendingPathComponent(hash, isDirectory: true).appendingPathComponent(file.lastPathComponent, isDirectory: false)
     }
 
-    /// Writes `file`'s rebuilt SVG to `copy` (``handedOut(_:in:)``), off the main actor; true at
-    /// once when `copy` is `file`, false when the rebuild cannot read it (it is not handed out).
+    /// Writes `file`'s rebuilt SVG to `copy` (``handedOut(_:in:)``), off the main actor; false when
+    /// the rebuild cannot read it (it is not handed out).
     @concurrent static func rebuild(_ file: URL, to copy: URL) async -> Bool {
-        guard copy != file else { return true }
         guard let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= AgentPaneReplyImages.maximumBytes,
               let data = try? Data(contentsOf: file), let clean = AgentPaneSVGSanitizer.sanitize(data) else { return false }
         do {
