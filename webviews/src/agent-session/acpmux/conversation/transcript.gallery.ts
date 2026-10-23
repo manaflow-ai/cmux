@@ -766,6 +766,56 @@ const shellTool = (command: string) =>
     endedAt: minutesAgo(2.79),
   });
 
+/// A running turn with a run of mixed work between two messages, then the run it works in now: the
+/// first run collapses to one line (Leo 2026-10-22: "this is pretty good ui: … the collapsing i
+/// mean"). `extra` joins that run's calls (a failed one).
+const collapsedRunChat = (extra: AcpmuxActivity[] = []) =>
+  chat(
+    [
+      user("Retries for the net client, then run its tests.", 4),
+      assistant("I'll add a retry helper around fetchJson and wire it into the client.", 3.9),
+      activity(
+        [
+          tool("Edit retry.ts", "edit", "completed", {
+            locations: [{ path: "src/net/retry.ts" }],
+            diffs: [{ path: "src/net/retry.ts", oldText: "", newText: "export async function withRetry() {}\n" }],
+          }),
+          tool("Read client.ts", "read", "completed", { locations: [{ path: "src/net/client.ts" }] }),
+          tool("Edit client.ts", "edit", "completed", {
+            locations: [{ path: "src/net/client.ts" }],
+            diffs: [
+              {
+                path: "src/net/client.ts",
+                oldText: "  return request(url);\n",
+                newText: "  return withRetry(() => request(url));\n",
+              },
+            ],
+          }),
+          tool("Read errors.ts", "read", "completed", { locations: [{ path: "src/net/errors.ts" }] }),
+          shellTool("bun test src/net"),
+          shellTool("git diff --stat"),
+          ...extra,
+        ],
+        3.5,
+      ),
+      assistant(
+        "The helper is in and the client uses it. Next I check that nothing else in src/net already retries, so a failing request never backs off twice.",
+        3,
+      ),
+      activity(
+        [
+          shellTool("rg -n retry src/net"),
+          tool("bun run typecheck", "execute", "in_progress", {
+            command: "bun run typecheck",
+            startedAt: minutesAgo(0.2),
+          }),
+        ],
+        0.3,
+      ),
+    ],
+    { isWorking: true },
+  );
+
 const MCP_THREAD = "01a14822-c01a-76a1-9fc5-1268687464d4";
 /// Codex's MCP call shape: `<server>.<tool> call`, arguments nested under `arguments`.
 const mcpTool = (name: string, args: unknown, output: string) =>
@@ -1668,6 +1718,36 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+    },
+    "collapsed-run": {
+      note: 'A run of mixed work between two messages collapses to one quiet line naming its work in the order it came, "Edited 2 files, read 2 files, ran 2 commands", under the glyph of its main kind (the pencil when it edited). The run the agent works in now keeps its call in flight out, on the live line (Leo 2026-10-22: "this is pretty good ui: … the collapsing i mean").',
+      snapshot: collapsedRunChat(),
+    },
+    "collapsed-run-open": {
+      note: "The same line opened: the rows it holds, drawn as they are on their own.",
+      snapshot: collapsedRunChat(),
+      play: openFoldedRun,
+    },
+    "collapsed-run-failed": {
+      note: "A failed call in the collapsed run is counted on its line.",
+      snapshot: collapsedRunChat([
+        tool("bun run lint", "execute", "completed", { command: "bun run lint", exitCode: 1, output: "1 error\n" }),
+      ]),
+    },
+    "collapsed-run-pencil": {
+      note: "Gallery version: the pencil on every collapsed run, as the Codex app draws it (theme toolRunLook pencil).",
+      snapshot: collapsedRunChat(),
+      theme: { toolRunLook: "pencil" },
+    },
+    "collapsed-run-quiet": {
+      note: "Gallery version: the line's words in the quiet rows' colour (theme toolRunLook quiet).",
+      snapshot: collapsedRunChat(),
+      theme: { toolRunLook: "quiet" },
+    },
+    "collapsed-run-quiet-pencil": {
+      note: "Gallery version: quiet words and the pencil, closest to the Codex app (theme toolRunLook quiet-pencil).",
+      snapshot: collapsedRunChat(),
+      theme: { toolRunLook: "quiet-pencil" },
     },
     "agent-messages": {
       note: "Messages to other agents say how far they got in one word at the line's end (Sent, Queued, Delivered, or why not) without the receipt's id; a shell call reads without its leading cd and, opened, names its folder beside Shell.",
