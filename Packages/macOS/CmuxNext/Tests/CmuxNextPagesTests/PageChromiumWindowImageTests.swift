@@ -13,6 +13,9 @@ struct PageChromiumWindowImageTests {
     private let root: URL
     private let descriptor = PageDescriptor(id: "test.window-image", resource: "window-image", namespaces: [])
     /// A 1x1 PNG, as `Page.captureScreenshot` answers it.
+    /// A page makes its Chromium page once it shows (``PageChromiumCostTests``); each test page
+    /// starts here, then moves where the test puts it.
+    private let stage = PageTestWindow()
     private static let onePixel = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 
     init() throws {
@@ -23,7 +26,7 @@ struct PageChromiumWindowImageTests {
 
     private func chromiumView() async throws -> (PageWebView, FakeChromiumPage) {
         let hosting = FakeChromiumHosting()
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting))
+        let view = stage.show(try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting)))
         view.chromiumClock = PageTestClock.never
         await view.chromiumStart?.value
         return (view, try #require(hosting.made.first))
@@ -41,6 +44,7 @@ struct PageChromiumWindowImageTests {
         hidden.isHidden = true
         window.contentView?.addSubview(hidden)
         let (elsewhere, _) = try await chromiumView()
+        elsewhere.removeFromSuperview()
         // The New Tab spare waits in an alpha-0 parking view far outside the content.
         let parking = NSView(frame: NSRect(x: 100_000, y: 100_000, width: 800, height: 600))
         parking.alphaValue = 0
