@@ -237,4 +237,46 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     expect(await page.evaluate(() => document.activeElement?.className ?? "none")).toBe("acpmux-shell-field");
     await context.close();
   });
+
+  test("arrow keys keep the keyboard on the dots right after load and right after a click", async () => {
+    const context = await browser.newContext({ viewport: { width: 760, height: 600 } });
+    const page = await context.newPage();
+    await open(page, "agent-pane.composer", "quiet-chips");
+    const form = ".acpmux-composer";
+    const focused = () =>
+      page.evaluate(() => {
+        const active = document.activeElement as HTMLInputElement | null;
+        return active?.matches(".acpmux-look-dots input[type=radio]") ? `dot:${active.value}` : (active?.tagName ?? "none");
+      });
+    const look = () =>
+      page.$eval(form, (element) => (element as HTMLElement).dataset.composerLook ?? "claude");
+    const settle = () =>
+      page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+
+    // The page's clock as at a fresh load (performance.now() near 0): keys are keys from the start.
+    await page.evaluate(() => {
+      const real = performance.now.bind(performance);
+      const origin = real();
+      performance.now = () => real() - origin;
+    });
+    await page.focus(`${form} .acpmux-look-dots input[value=claude]`);
+    await page.keyboard.press("ArrowRight");
+    await settle();
+    expect(await look()).toBe("codex");
+    expect(await focused()).toBe("dot:codex");
+    await page.keyboard.press("ArrowRight");
+    await settle();
+    expect(await look()).toBe("claude");
+    expect(await focused()).toBe("dot:claude");
+
+    // A click on the marked dot, then a key at once: the key's pick is a key's, the keyboard stays.
+    const marked = (await page.$(`${form} .nt-style-option[data-style="claude"]`))!;
+    await marked.hover();
+    await marked.click();
+    await page.keyboard.press("ArrowRight");
+    await settle();
+    expect(await look()).toBe("codex");
+    expect(await focused()).toBe("dot:codex");
+    await context.close();
+  });
 });
