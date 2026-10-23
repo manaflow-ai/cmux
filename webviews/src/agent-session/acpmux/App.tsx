@@ -45,7 +45,7 @@ import { postNative } from "./native";
 import { NativeError } from "./nativeError";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
-import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost } from "./NewTabPage";
+import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabChat, type NewTabHost } from "./NewTabPage";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
@@ -56,12 +56,19 @@ import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
-import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
+import {
+  injectedNewTabContext,
+  useEarlyNewTabContext,
+  useNewTabAdoption,
+  useNewTabPlaces,
+  useNewTabWeather,
+} from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
+import { TaskGoalStrip } from "./TaskGoalStrip";
 import { PageDots } from "./newtab/PageDots";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { editNewTabWidgets, shownPageWidgets, withWidgetEdit } from "./newtab/pageWidgets";
@@ -342,7 +349,7 @@ import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferC
 import { Notice, NoticeSlot } from "./NoticeSlot";
 import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
-import { type ChatAccounts, ChatAccountsContext, readChatAccounts } from "./chatAccounts";
+import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
@@ -383,6 +390,7 @@ import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
 import { continueTargets, mergedCommands, resolveHarnessTarget, type CmuxCommand } from "./cmuxCommands";
+import { canContinueIn, reviewingHandoff } from "./handoff/continueIn";
 import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
 import { PermissionPanel } from "./permissions/Panel";
@@ -2151,18 +2159,12 @@ export function VirtualTranscript({
             // A late size change (a font loading) must not paint a frame of overlap first. Sizes
             // that did not change render nothing: a synchronous render here for nothing was the
             // "ResizeObserver loop completed with undelivered notifications" while streaming.
-            // That render can grow a row it measured: it also commits the streaming reply's next
-            // reveal step. The observer reports a target at the same depth once a frame, so the new
-            // size came a frame late, and that frame painted the reply's newest line past the view's
-            // foot (#23807). The rows are measured again after each render, until they hold.
-            for (let pass = 0; pass < 3; pass += 1) {
-              if (!changesDrawn(drawnRef.current, pendingDrawn.current)) {
-                pendingDrawn.current = new Map();
-                break;
-              }
-              acpmuxPerf.timed("flush.drawn", () => flushSync(flushDrawn));
-              measure();
-            }
+            // The observer reports a target at the same depth once a frame, so the new size can
+            // arrive a frame late. Queue the changed drawn heights through React's normal batch;
+            // the layout effect after that render measures again before the next paint. A forced
+            // sync commit here made every streaming resize block the main thread.
+            if (changesDrawn(drawnRef.current, pendingDrawn.current)) flushDrawn();
+            else pendingDrawn.current = new Map();
           }),
     [reportDrawn, flushDrawn],
   );
@@ -3717,6 +3719,11 @@ export function NewTabComposerChips({ snapshot, cwd }: { snapshot: AcpmuxSnapsho
   return <DefaultComposerChips snapshot={snapshot} cwd={cwd} startsChat />;
 }
 
+/// The chat's own composer chips, as the pane draws them under a chat (tests drive them directly).
+export function ChatComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
+  return <DefaultComposerChips snapshot={snapshot} />;
+}
+
 /// The host closes a New Tab page (`AgentPaneView.discardUnsentChat`).
 const NEW_TAB_CLOSE_EVENT = "acpmux-newtab-close";
 
@@ -3784,7 +3791,26 @@ function DefaultComposerChips({
         start();
         void callNative("chat.effort", { configId, value });
       }}
-      onHarness={(harness, model) => void callNative("chat.new", { harness, ...(model ? { model } : {}), ...inFolder })}
+      onHarness={(harness, model, options) =>
+        void callNative("chat.new", {
+          harness,
+          ...(model ? { model } : {}),
+          ...(options ? { options } : {}),
+          ...inFolder,
+        })
+      }
+      // A started chat forks to another harness through Continue In… (Leo 2026-10-22: "need to be
+      // able to switch to different harnesses, can expose as fork"): the chat menu's own path, its
+      // review in this tab, then the new chat in a tab of its own. Not while a turn or queue runs.
+      {...(!startsChat && snapshot.canHandoff
+        ? {
+            fork: {
+              to: (harness: string) => void callNative("chat.handoff.prepare", { harness }).catch(() => undefined),
+              // Continue In…'s own check: no fork while a review is open or no harness can take it.
+              ready: canContinueIn(snapshot),
+            },
+          }
+        : {})}
       {...(cwd ? { folder: cwd } : {})}
       // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
       onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
@@ -4227,11 +4253,7 @@ function AcpmuxPane() {
   const loginCommand = chatLoginCommand(catalog, snapshot.summary?.harness, harnessHealth);
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
-  const reviewing =
-    !!handoff &&
-    handoff.target.sessionId === snapshot.sessionId &&
-    ["draft", "starting"].includes(handoff.state) &&
-    !snapshot.handoff?.receipt;
+  const reviewing = reviewingHandoff(snapshot);
   // Until the chat's handoff is read the pane draws no review (reviews are rare): the composer and
   // a new chat's hero stay, and a review that arrives takes their place (Leo 2026-10-19: the
   // composer left for the read on every open, switch and reconnect).
@@ -4244,14 +4266,8 @@ function AcpmuxPane() {
   startFolderRef.current = startFolder;
   /// The folder question, while the chat it was asked for is still the one shown.
   const pendingFolder = folderAsk && folderAsk.sessionId === snapshot.sessionId ? folderAsk : undefined;
-  const continueAvailable =
-    !!snapshot.canHandoff &&
-    !!snapshot.handoff?.ready &&
-    !snapshot.isWorking &&
-    !snapshot.queue.length &&
-    !snapshot.handoff?.busy &&
-    !reviewing &&
-    continueTargets(catalog, snapshot.summary?.harness).length > 0;
+  // `snapshot.catalog` is `catalog` (the snapshot above carries the fetched one).
+  const continueAvailable = canContinueIn(snapshot);
   /// Takes acpmux's trust refusal of a prompt (useFolderTrustAsk.ts): the question shows for the
   /// folder it named, and `again` sends the held prompt after Trust.
   const trustRefused = useRef<((error: unknown, again?: () => void) => boolean) | undefined>(undefined);
@@ -4982,8 +4998,12 @@ function AcpmuxPane() {
         name: catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.name,
       },
       switchModel: () => void openPicker(translate(PICKER_LABELS.model)),
+      // A failure's cmux CodeRouter action: only this Mac's acpmux lists and binds a chat's routes.
+      ...(chatAccounts && snapshot.sessionId ? { ownRoute: ownRouteOf(chatAccounts, snapshot.sessionId) } : {}),
     }),
     [
+      chatAccounts,
+      snapshot.sessionId,
       stableBranches,
       forkable,
       forkSeq,
@@ -5137,6 +5157,7 @@ function AcpmuxPane() {
   }, []);
   const newTabGeneration = useNewTabAdoption(adoptNewTab);
   useNewTabPlaces(setNewTab);
+  useNewTabWeather(setNewTab);
   const earlyNewTab = useEarlyNewTabContext(callNative, setNewTab);
   // Agent chats live in the window's one sidebar (Projects and Recents); the pane opens what it picks.
   const selectSession = useCallback((sessionId: string) => {
@@ -5405,7 +5426,7 @@ function AcpmuxPane() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runningCommandList is new on every snapshot; its key is not
     [subagentTray, chatAgents, commandsKey, childSessions, snapshot.isWorking],
   );
-  // What ended, behind the tray's one folded line; never in its count.
+  // What ended, behind the tray's bounded status cards; never in its count.
   const trayFinished = useMemo(
     () => (subagentTray ? finishedTrayItems(chatAgents, childSessions) : []),
     [subagentTray, chatAgents, childSessions],
@@ -6427,7 +6448,7 @@ function AcpmuxPane() {
           // A pick of another harness is a switch: drawn now, started behind it.
           // A new chat without a folder starts in the chat's start folder (startFolder.tsx);
           // a chat with no project (`noProject`) or for a peer gets no start folder.
-          "chat.new": async ({ harness, cwd, peer, deferred, noProject, model }) => {
+          "chat.new": async ({ harness, cwd, peer, deferred, noProject, model, options }) => {
             const folder = cwd ? String(cwd) : peer || noProject === true ? undefined : startFolderRef.current;
             if (harness && !peer && noProject !== true) {
               // A new chat starts on its pick, else on acpmux's saved default, else on the model last
@@ -6440,9 +6461,19 @@ function AcpmuxPane() {
                   ? undefined
                   : lastOfferedModel(String(harness), catalogRef.current, folder);
               const picked = asked && asked !== start?.model ? asked : undefined;
+              // A typed combo's effort and Fast (ComposerPickers `combo`), held for the new session.
+              const held =
+                options && typeof options === "object"
+                  ? Object.fromEntries(
+                      Object.entries(options as Record<string, unknown>).filter(
+                        (entry): entry is [string, string] => typeof entry[1] === "string",
+                      ),
+                    )
+                  : {};
               return harnessSwitch.switchTo(String(harness), folder, {
                 deferred: deferred === true,
                 ...(picked ? { model: picked } : {}),
+                ...(Object.keys(held).length > 0 ? { options: held } : {}),
               });
             }
             harnessSwitch.cancel();
@@ -6891,14 +6922,7 @@ function AcpmuxPane() {
     />
   );
   const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness);
-  const canContinue =
-    !!snapshot.canHandoff &&
-    !!snapshot.handoff?.ready &&
-    !snapshot.isWorking &&
-    !snapshot.queue.length &&
-    !snapshot.handoff?.busy &&
-    !reviewing &&
-    handoffTargets.length > 0;
+  const canContinue = continueAvailable;
   const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
   // The header's tools and "..." menu run app actions on this chat's tab.
   // A quick action names its mode; the App toggles the split it opened (header/quickActions.ts).
@@ -7250,7 +7274,7 @@ function AcpmuxPane() {
     }
   }, []);
   /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
-  const chatFromNewTab = (text: string, cwd?: string, attachments: ComposerAttachment[] = []) => {
+  const chatFromNewTab = (text: string, cwd?: string, attachments: ComposerAttachment[] = [], chat?: NewTabChat) => {
     const inherited = newTab?.cwd;
     setNewTab(undefined);
     const start = (folder?: string) =>
@@ -7261,11 +7285,47 @@ function AcpmuxPane() {
           heldBack.current = holdNewTabAttachments(heldBack.current, attachments);
           return setProjectDraft(folder);
         }
-        const started = folder ? await callNative("chat.new", { cwd: folder }) : undefined;
+        const asks = text.length > 0 || attachments.length > 0;
+        const message = { text, ...(attachments.length ? { attachments } : {}) };
         // A chat the person started here with a prompt makes its project the default.
-        if (started && text && !directClient.current?.startsOnSend) rememberStartedProject(folder, callNative);
-        if (text || attachments.length)
-          await callNative("chat.send", { text, ...(attachments.length ? { attachments } : {}) });
+        const remembers = !!folder && !!text && !directClient.current?.startsOnSend;
+        if (chat) {
+          // The page's harness and model go with it: the picks it made sit on the deferred chat
+          // that harness opened, and a bare `chat.new {cwd}` would start the default one instead.
+          // As on the New Tab screen (screenActions.ts), the prompt goes in the same turn as the
+          // switch, which queues it: sent after `chat.new` settled, a folder trust refusal left the
+          // switch with nothing queued.
+          void callNative("chat.new", { ...chat, ...(folder ? { cwd: folder } : {}) })
+            .then((started) => {
+              if (started && remembers) rememberStartedProject(folder, callNative);
+            })
+            .catch(() => undefined);
+          if (asks) await callNative("chat.send", message);
+          return;
+        }
+        // No agent named (acpmux listed none yet): a bare start in the folder, then the prompt into
+        // the chat it started. Not in the same turn: with no switch to queue on, a send while the
+        // start is refused would start another chat outside the folder. A refused start gives the
+        // prompt to the chat composer, in that folder, as a fresh chat's own first send keeps it:
+        // a trust refusal asks the folder's question and Trust sends it, once (cx-nn3e P0b).
+        let started: unknown;
+        try {
+          started = folder ? await callNative("chat.new", { cwd: folder }) : undefined;
+        } catch (error) {
+          if (!asks) return;
+          if (folder) setProjectDraft(folder);
+          // Back in the chat composer ahead of anything typed there while the start was out, never
+          // in its place (Composer `restore`); a composer not mounted yet gets it when it mounts.
+          if (composerHandle.current) composerHandle.current.restore(text, attachments);
+          else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
+          if (isTrustRefusal(error)) {
+            holdPrompt.current?.();
+            trustRefused.current?.(error, () => composerHandle.current?.send());
+          }
+          return;
+        }
+        if (started && remembers) rememberStartedProject(folder, callNative);
+        if (asks) await callNative("chat.send", message);
       })().catch(() => undefined);
     // The page's own folder is inherited (`~` in a fresh workspace): the chat starts in its start
     // folder. Another project the user picked there goes through the host first.
@@ -7866,8 +7926,8 @@ function AcpmuxPane() {
           </output>
         </Notice>
         {/* The tray (subagents/SubagentTray.tsx): in the bottom stack, right above the composer, every
-          running subagent, background command and started chat, one line each. */}
-        {!quick && !freshView && trayList.length > 0 && (
+          running or recently ended subagent, background command and started chat, one card each. */}
+        {!quick && !freshView && (trayList.length > 0 || trayFinished.length > 0) && (
           <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
             <SubagentTray
               key={shownSessionId}
@@ -8343,6 +8403,13 @@ function AcpmuxPane() {
               onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
             />
           )}
+          {!showNewTab && snapshot.summary?.goal && (
+            <TaskGoalStrip
+              key={snapshot.summary.sessionId}
+              goal={snapshot.summary.goal}
+              command={(action) => callNative("chat.send", { text: `/goal ${action}`, attachments: [] })}
+            />
+          )}
           {harnessesOpen ? (
             <HarnessesScreen
               catalog={pickerCatalog}
@@ -8389,7 +8456,9 @@ function AcpmuxPane() {
               template={screenTemplate(shownTemplate(newTab))}
               {...(newTab.widgets ? { widgets: true } : {})}
               pageWidgets={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets)}
+              {...(newTab.headlineOff ? { headlineOff: true } : {})}
               {...(newTab.allChats === false ? { allChats: false } : {})}
+              {...(newTab.weather ? { weather: newTab.weather } : {})}
               onEditWidgets={(edit) =>
                 editNewTabWidgets(edit, {
                   callNative,
@@ -8452,7 +8521,10 @@ function AcpmuxPane() {
               location={newTab.location}
               omnibar={newTab.omnibar}
               projects={newTabProjects}
-              chips={ComposerChips}
+              // The same deferred chips as the other templates: a pick before the chat starts opens
+              // the page's chat behind it, as on the New Tab screen, never the active chat's path.
+              chips={registryChips ?? NewTabComposerChips}
+              {...(newTab.lastAgent ? { lastAgent: newTab.lastAgent } : {})}
               // A terminal or browser tab opens at once; a chat waits for acpmux (cx-hnpxh).
               onSubmit={newTabPageSubmit({ callNative, whenHandshaken, startChat: chatFromNewTab })}
               onJump={(target, id) => void callNative("tab.jump", { target, id })}

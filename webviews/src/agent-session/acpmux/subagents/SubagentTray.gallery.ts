@@ -3,7 +3,8 @@
 // the chat, right above the composer (SubagentTray.tsx, runningTray.ts), never in the middle of
 // history, in a turn and after it ("Running in background · …"): one running is its line alone;
 // several get a header ("3 subagents running · 1 command") with a line each; past three they start
-// folded to the header. The transcript has no "Running in background" row. A subagent that ended leaves one line where it ended
+// folded to the header. The transcript has no "Running in background" row. A subagent that ended
+// remains a bounded status card in the tray and leaves one line where it ended
 // (SubagentDoneLine.tsx), a failure in the danger color, a stopped one with why when known, and
 // Restart on hover for one that did not finish. The tray's lines are the summary card's
 // Subagents rows (AgentLine.tsx). The group card and the agents pill this replaces are
@@ -157,9 +158,12 @@ function codexLineage(): Subagent[] {
   return fold.all().map((agent) => ({ ...agent, action: agent.parent === null ? "git show --stat" : "Edit 2 files" }));
 }
 
-/** Waits for the tray's `count` lines, and checks no group card is left in the transcript. */
+/** Waits for the tray's live `count` lines, and checks no group card is left in the transcript. */
 const trayLines = (count: number) => async (ctx: PlayContext) => {
-  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length === count);
+  await ctx.waitFor(
+    () =>
+      ctx.document.querySelectorAll(".acpmux-running-tray li:not([data-finished]) .acpmux-agent-line").length === count,
+  );
   if (ctx.document.querySelector(".cv-subagents"))
     throw new Error("a running subagent must not draw a transcript card");
   if (ctx.document.querySelector(".acpmux-agents-pill"))
@@ -209,7 +213,7 @@ export default agentPaneEntry({
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
     },
     "several-running": {
-      note: "Two subagents and a background command: a header with the counts and the time since the first started, a line each (up to three show open). The one that ended left its line in the transcript.",
+      note: "Two subagents and a background command: a header with the counts and the time since the first started, a line each (up to three show open). The ended task remains a compact status card.",
       play: trayLines(3),
       snapshot: chat(
         [
@@ -281,11 +285,10 @@ export default agentPaneEntry({
       })(),
     },
     "counts-equal-rows": {
-      note: 'What Leo called lying, told straight: the header counts only what runs (2 subagents, 2 chats it started, all subagents; 2 commands) and equals the rows under it. A command reads as what it does, not its cd prefix; a chat says what its turn does now. What ended is one folded "subagents done" line, opened here.',
+      note: "What Leo called lying, told straight: the header counts only what runs (2 subagents, 2 chats it started, all subagents; 2 commands) and equals the rows under it. A command reads as what it does, not its cd prefix; a chat says what its turn does now. What ended stays visible as bounded status cards.",
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         await ctx.click({ selector: ".acpmux-running-tray__head" });
-        await ctx.click({ selector: ".acpmux-running-tray__finished" });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray li[data-finished]").length === 3);
         const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
         if (title !== "4 subagents running · 2 commands") throw new Error(`the header must count the rows: ${title}`);

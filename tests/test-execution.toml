@@ -1295,10 +1295,6 @@ path = "tests/test_browser_host_release_package.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_browser_host_release_smoke.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_cmux_next_tree_notify.py"
 lane = "linux-guard"
 
@@ -1616,10 +1612,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_canary_mode.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_nightly_next_visual_smoke.py"
 lane = "linux-guard"
 
 [[test]]

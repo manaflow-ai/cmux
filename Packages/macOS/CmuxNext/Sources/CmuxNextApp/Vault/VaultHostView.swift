@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 import SwiftUI
+import CmuxNextHistory
 
 /// Hosts the vault list (the vault page's content and the right sidebar's
 /// Vault section). Resolves the list colors in this view's theme scope, again

@@ -65,6 +65,17 @@ struct HostPressureMonitorTests {
         await monitor.stop()
     }
 
+    /// A start whose caller already stopped wanting it (checked on the actor) starts nothing.
+    @Test func aStartNoLongerWantedStartsNothing() async {
+        let monitor = HostPressureMonitor(source: ScriptedSource())
+        await monitor.start(while: { false }) { _, _ in }
+        #expect(await !monitor.isRunning)
+        await monitor.start(while: { true }) { _, _ in }
+        #expect(await monitor.isRunning)
+        await monitor.stop()
+        #expect(await !monitor.isRunning)
+    }
+
     @Test func acpmuxsVerdictWinsOverTheLocalOne() async {
         let source = ScriptedSource()
         await source.set(shared: ScriptedSource.verdict(load: 13, swap: 100))

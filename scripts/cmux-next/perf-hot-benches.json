@@ -28,7 +28,7 @@
     },
     "motion-frame": {
       "what": "one split/close/zoom/column motion frame",
-      "bench": "scripts/cmux-next/pane-perf-terminal.py and anim-perf-terminal.py (panes.* rows, with and without Chromium)",
+      "bench": "scripts/measure/split-spring.sh --suite=pane-bench (PaneMotionBench, PaneMotionWorkTests), then pane-perf-terminal.py and anim-perf-terminal.py (panes.* rows, with and without Chromium, light and --layouts stress)",
       "owner": "PL-motion-core"
     },
     "frame-tick": {
@@ -55,6 +55,11 @@
       "what": "Chromium page geometry, clip and occlusion updates",
       "bench": "scripts/cmux-next/pane-perf-terminal.py with a Chromium page (debug.cef geometry posts per frame)",
       "owner": "PL-motion-cef"
+    },
+    "cmd-tab": {
+      "what": "app activation (Cmd-Tab back): become/resign key notices to committed frame, including the hover refresh",
+      "bench": "scripts/cmux-next/activation-perf.py (observers_ms per become)",
+      "owner": "PL-switch"
     },
     "new-tab": {
       "what": "new terminal or Chromium tab to its first frame",

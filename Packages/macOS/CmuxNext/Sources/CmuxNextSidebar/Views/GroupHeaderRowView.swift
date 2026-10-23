@@ -218,10 +218,10 @@ final class GroupHeaderRowView: SidebarRowView {
         needsLayout = true
     }
 
-    /// The Debug Settings look (`sidebar.groupHeader`, `sidebar.groupColors`, cx-7yywz); a change
-    /// lays the header out and paints it again.
+    /// The Debug Settings look (`sidebar.groupHeader`, `sidebar.groupColors`, cx-7yywz) and line layout (its joined
+    /// corner, `sidebar.groupLineLayout`); a change lays the header out and paints it again.
     private var look: (style: SidebarGroupHeaderStyle, themed: Bool) {
-        let read = { (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme) }
+        let read = { _ = SidebarStyle.groupLineLayout; return (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme) }
         guard !observesLook else { return read() }
         observesLook = true
         return withObservationTracking(read) { [weak self] in
@@ -405,10 +405,10 @@ final class GroupHeaderRowView: SidebarRowView {
         // The cx-rcby chip: one full-width rounded bar, the row's full height like a workspace row's fill.
         pill.frame = NSRect(x: 0, y: 0, width: b.width, height: b.height)
         pill.cornerRadius = SidebarStyle.rowCornerRadius // one radius with the pinned and workspace rows
-        // The quiet styles' dot sits in the header's leading corner, where the members' line starts (the frame's left
-        // edge, `railReach` left of the rows: SidebarStyle.groupLineX), as the rows keep the ungrouped rows' left edge.
+        pill.maskedCorners = SidebarGroupLine.barCorners(open: !collapsed, flipped: pill.contentsAreFlipped()) // joined: an L
+        // The quiet styles' dot sits where the members' line starts (`railReach` less the layout's overhang, `groupLineX`).
         let dotSide = SidebarStyle.groupDotSize
-        dot.frame = CGRect(x: 0, y: (b.height - dotSide) / 2, width: dotSide, height: dotSide)
+        dot.frame = CGRect(x: max(0, railReach - SidebarStyle.groupRailReach), y: (b.height - dotSide) / 2, width: dotSide, height: dotSide)
         dot.cornerRadius = dotSide / 2
         // The members' line starts under this bar: one layer per group
         // under the rows (SidebarListView+GroupLines, cx-qno.17).

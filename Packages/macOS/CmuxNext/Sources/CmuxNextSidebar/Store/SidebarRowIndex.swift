@@ -62,6 +62,7 @@ nonisolated struct SidebarRowIndex: Sendable {
     /// same id (its row state and machine kept). One walk, for a copy of the
     /// rows that has no index (the App's live rows under pending edits).
     static func patching(_ rows: [SidebarWorkspace], in sections: [SidebarSection]) -> [SidebarSection] {
+        guard !rows.isEmpty else { return sections }
         let changed = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
         func patched(_ ws: SidebarWorkspace) -> SidebarWorkspace {
             guard var row = changed[ws.id] else { return ws }

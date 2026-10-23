@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxTheme
+public import CmuxNextDesignTokens
 
 /// A workspace group's color (cx-25az): one of the group palette tokens, a
 /// custom color a person picked, or no color at all. The wire form is the
@@ -102,6 +103,10 @@ public nonisolated enum GroupTint: Hashable, Sendable {
         let wash = tokens.sidebarBackground.withAlpha(1).mixed(toward: lineRGB(themed: true), tokens.isDark ? 0.34 : 0.26)
         return tokens.chip(wash)
     }
+
+    /// A sidebar group's members' line under the solid band: the band's exact rest color
+    /// (`headerChip(themed:).fill`, Leo 2026-10-19), so bar and line read as one group. No color: unseen (`lineRGB`).
+    @MainActor public func lineFill(themed: Bool) -> NSColor { isNone ? lineColor(themed: themed) : headerChip(themed: themed).fill.nsColor }
 
     /// A faint wash of the group's color over the sidebar, behind a name in primary ink.
     @MainActor public func headerWash(themed: Bool) -> ThemeRGB {

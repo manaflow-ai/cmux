@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxNextDesignTokens
 
 /// How agent work shows on a row, tab or transcript line (WORKING-LOOK). The spinner is the default
 /// (Leo 2026-10-21: "WHO BROUGHT BACK BLINKING ICONS? WE SAID NO BLINKING. WE SAID SPINNER."); the

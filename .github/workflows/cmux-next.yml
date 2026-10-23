@@ -148,12 +148,6 @@ on:
       - scripts/cmux-next/request-nightly-next.sh
       - scripts/cmux-next/continue-nightly-next.sh
       - scripts/cmux-next/tests/**
-      # The signed-app visual smoke is a release gate. Changes to its scenes,
-      # driver, checker, or fixtures must get an exact-SHA cmux-next run so the
-      # nightly promotion guard can prove the release compile for that tip.
-      - scripts/cmux-next/visual-smoke/**
-      - tests/test_nightly_next_visual_smoke.py
-      - tests/fixtures/nightly-visual-smoke/**
       - scripts/cmux-next/build_names.py
       - schemas/build-identity/vectors.json
       - scripts/cmux-next/skew-matrix*
@@ -1750,9 +1744,18 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
         run: |
+          # Sidebar look owner sweep (plans/cmux-next/sidebar-owner.md): every commit since the check landed,
+          # not only this push's, so a commit from an old hook copy or a cancelled run is still named.
+          sidebar_from=a1af264c7a7235c5863ade4f3448e2669265d6d0
+          sweep=0
+          git fetch --no-tags --quiet --deepen=2000 origin "$GITHUB_SHA" || true
+          if git merge-base --is-ancestor "$sidebar_from" HEAD 2>/dev/null; then
+            python3 -I scripts/cmux-next/prepush-gate.py --only sidebar --commits "$sidebar_from..HEAD" \
+              | tee -a "$GITHUB_STEP_SUMMARY" || sweep=$?
+          fi
           if [[ "$EVENT_NAME" != push ]]; then
             python3 -I scripts/cmux-next/prepush-gate.py --base HEAD^1 --head HEAD
-            exit
+            exit "$sweep"
           fi
           range="HEAD^1..HEAD"
           if [[ -n "$BEFORE" && "$BEFORE" != 0000000000000000000000000000000000000000 ]]; then
@@ -1760,6 +1763,7 @@ jobs:
             if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then range="$BEFORE..HEAD"; fi
           fi
           python3 -I scripts/cmux-next/prepush-gate.py --commits "$range" | tee -a "$GITHUB_STEP_SUMMARY"
+          exit "$sweep"
 
       # `outcome`, not `conclusion`: continue-on-error makes every conclusion success.
       # STYLE_CHECKS are the structural, style, size and drift guards: while

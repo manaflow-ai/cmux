@@ -38,7 +38,9 @@ final class HomeService {
     @ObservationIgnored private var replyWatch: Task<Void, Never>?
     @ObservationIgnored private let replyTimer = DemandTimer(owner: "HomeService.replyWatchdog")
     /// The Chief home's conversation owner serves `local-conversations-v1`.
-    var isAvailable: Bool { chief.supports(DaemonCapabilities.shared.localConversations) }
+    var isAvailable: Bool { chief.supports(DaemonCapabilities.localConversations) }
+    /// The owner answered and its build is too old: Home shows why only then.
+    var isRefused: Bool { chief.refusal != nil }
     /// The owner of every Home conversation: this build's Chief home's (one Chief per build).
     @ObservationIgnored let chief: ChiefConversationOwner
     /// Keeps the Chief home's brain host running (ChiefBrainKeeper).
@@ -185,7 +187,7 @@ final class HomeService {
         homeObservation = Task { [weak self] in
             // A sign-in or account change re-reads the placed chief (G6), so the Chief tab follows it.
             for await (connection, _) in ObservationStream({
-                (local.supports(DaemonCapabilities.shared.workspaceKind) ? local.connection : nil, auth.isSignedIn ? auth.user?.id : nil)
+                (local.supports(DaemonCapabilities.workspaceKind) ? local.connection : nil, auth.isSignedIn ? auth.user?.id : nil)
             }) {
                 guard let self, let connection else { continue }
                 ensureHomeWorkspace(connection)
@@ -198,7 +200,7 @@ final class HomeService {
         homeStore.start()
         keepHomeListForLaunch()
         availability = Task { [weak self] in
-            for await connection in ObservationStream({ chief.supports(DaemonCapabilities.shared.localConversations) ? chief.connection : nil }) {
+            for await connection in ObservationStream({ chief.supports(DaemonCapabilities.localConversations) ? chief.connection : nil }) {
                 guard let self else { continue }
                 homeSource.connectionChanged(connection)
                 homeInbox.connectionChanged(connection)
@@ -210,7 +212,7 @@ final class HomeService {
                 // The Chief tab may wait on this owner (a local Chief with history
                 // takes it back from a placed chief): check it again now.
                 if let local = services.machines.local.connection,
-                   services.machines.local.supports(DaemonCapabilities.shared.workspaceKind) {
+                   services.machines.local.supports(DaemonCapabilities.workspaceKind) {
                     ensureHomeWorkspace(local)
                 }
                 for session in sessions.values {

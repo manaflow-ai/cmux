@@ -13,7 +13,7 @@
     "CmuxNextAgentCursorVisibility": {"layer": "core"},
     "CmuxNextProcessEnvironment": {"layer": "core"},
     "CmuxNextMallocZone": {"layer": "core"},
-    "CmuxNextWorkspaceNaming": {"layer": "core", "plan": "pure rules; drop Design (Tunable moves to DesignTokens)"},
+    "CmuxNextWorkspaceNaming": {"layer": "core"},
 
     "CmuxNextDaemon": {"layer": "service"},
     "CmuxNextDaemonService": {"layer": "service", "plan": "drop AgentPane, Apps, Bridge, Layout: lift the shared types to Core or a protocol seam"},
@@ -103,6 +103,8 @@
     "CmuxNextPagesTestSupport": {"layer": "ui"},
     "CmuxNextAppPermissions": {"layer": "ui"},
     "CmuxNextTestExitTrace": {"layer": "core"},
+    "CmuxNextSignposts": {"layer": "core"},
+    "CmuxNextDesignTokens": {"layer": "core", "plan": "values only; DesignSettings and ThemeStore go to CmuxNextAppearance (B3)"},
 
     "CmuxNextApp": {"layer": "app", "mixes": ["core", "service", "domain", "ui"], "plan": "composition root only (section 4)"}
   }
