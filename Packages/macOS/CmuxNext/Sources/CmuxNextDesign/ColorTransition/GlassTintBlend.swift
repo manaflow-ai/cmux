@@ -32,7 +32,7 @@ final class GlassTintBlend {
             return
         }
         guard previous != target else { return }
-        let transition = ColorTransition.current
+        let transition = ColorTransition.current(for: view.themeScope.store)
         guard let previous, let layer = overlay.layer, !transition.isInstant,
               let window = view.window, window.isVisible, window.occlusionState.contains(.visible) else {
             stop()

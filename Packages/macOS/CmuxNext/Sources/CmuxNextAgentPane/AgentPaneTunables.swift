@@ -288,17 +288,19 @@ public nonisolated struct AgentPaneTunables {
 
     /// Repaints every window when ``codexToolRuns``, ``turnActionsPlacement`` or ``liveLineBelow``
     /// changes, so open agent pages get it with the theme at once (as AppServices.observeBorders
-    /// does for ``chatWidth``). The first theme push starts it
-    /// (``AgentPaneTheme/values(_:motion:surface:)``).
-    @MainActor static func followCodexToolRuns() {
+    /// does for ``chatWidth``). The first agent pane's theme push starts it with its scope's store
+    /// (`AgentPaneView.applyThemeInScope`, `AgentPanePageHost`): every scope of a tree shares the
+    /// root's, so the first one is the app's.
+    /// - Parameter store: The theme store whose windows repaint.
+    @MainActor static func followCodexToolRuns(store: ThemeStore) {
         guard codexToolRunsFollow == nil else { return }
         // task-owner: lives as long as the app; event-driven (Observation)
-        codexToolRunsFollow = Task {
+        codexToolRunsFollow = Task { [weak store] in
             var last = (codexToolRuns.value, turnActionsPlacement.value, liveLineBelow.value)
             for await on in ObservationStream({ (codexToolRuns.value, turnActionsPlacement.value, liveLineBelow.value) })
             where on != last {
                 last = on
-                ThemeScope.app.store.repaintAll()
+                store?.repaintAll()
             }
         }
     }

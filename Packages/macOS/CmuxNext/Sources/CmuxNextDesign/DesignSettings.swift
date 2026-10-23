@@ -31,6 +31,12 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
 public final class DesignSettings {
     public static let shared = DesignSettings()
 
+    /// Repaints every window (the app theme store's `repaintAll`), for a change that moves no
+    /// theme color but every window draws (calm mode, the terminal face pages follow). The
+    /// composition root installs it with the store it owns; until then (and in a test without
+    /// windows) it does nothing.
+    @ObservationIgnored public var repaintAll: @MainActor () -> Void = {}
+
     /// Intentional Command/Control hold hints (`shortcuts.showModifierHoldHints`).
     public var showModifierHoldHints = true
     /// `appearance.density`: the active density's token set (plans/cmux-next/density-DESIGN.md).
@@ -149,7 +155,7 @@ public final class DesignSettings {
             center.post(name: Motion.speedDidChange, object: nil)
             center.post(name: Motion.reduceMotionDidChange, object: nil)
             center.post(name: Self.hoverCardsDidChange, object: nil)
-            ThemeScope.app.store.repaintAll()
+            repaintAll()
         }
     }
     /// Hover cards open on hover: `sidebar.hoverCards.enabled` and not calm mode.
@@ -216,7 +222,7 @@ public final class DesignSettings {
     /// Pages that show code draw in the terminal's face (`WebTheme.Terminal`): a change of it
     /// repaints, so every page resends its theme.
     private func repaintIfTerminalFaceChanged(from before: String?) {
-        if effectiveTerminalFontFamily != before { ThemeScope.app.store.repaintAll() }
+        if effectiveTerminalFontFamily != before { repaintAll() }
     }
     /// `status.*`: inferred command busy and run notifications.
     public var statusBehavior = StatusBehaviorSettings()
