@@ -32,6 +32,7 @@ import CmuxNextWorkspaceNaming
 import CmuxNextWorkspaceRepair
 import os
 import CmuxNextFocusUI
+import CmuxNextTabs
 /// Process-wide services the window controllers share. Model state is not
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {

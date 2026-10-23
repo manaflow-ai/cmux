@@ -3,6 +3,7 @@ import Foundation
 import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
+import CmuxNextIcons
 
 /// Where an icon picker session stores an Image or SVG asset: the picked object's owner, its
 /// daemon's blob store (`icon-assets-v1`). The daemon sanitizes and validates an SVG again and

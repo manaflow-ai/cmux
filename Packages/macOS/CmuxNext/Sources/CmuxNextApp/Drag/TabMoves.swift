@@ -7,6 +7,7 @@ import enum CmuxNextLayout.DockMode
 import enum CmuxNextLayout.DockRole
 import CmuxNextWorkspaceNaming
 import Foundation
+import CmuxNextTabs
 
 /// Daemon commands for tab moves. With `tab-drag-v1` every outcome is one
 /// atomic command carrying the drag's client transaction (echoed in the
