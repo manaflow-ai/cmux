@@ -18,6 +18,10 @@ final class cmuxUITests: XCTestCase {
             "-mobile.cloud.onboarding.completed.v2", "NO",
         ])
         defer { app.terminate() }
+        let pairingCancel = app.buttons["MobilePairingCancelButton"]
+        if pairingCancel.waitForExistence(timeout: 3) {
+            pairingCancel.tap()
+        }
         let cloudTab = app.tabBars.buttons["Cloud"]
         XCTAssertTrue(cloudTab.waitForExistence(timeout: 15))
         cloudTab.tap()
