@@ -253,6 +253,12 @@ pub(super) fn canonical_scope(value: &str) -> &str {
 /// generic app-action fallback even for invocations such as
 /// `cmux --json route list`.
 pub(crate) fn removed_route_requested(args: &[String]) -> bool {
+    // This mode consumes an arbitrary argv payload through `--` and never
+    // enters the CLI dispatcher, so a literal `route` belongs to the provider
+    // command rather than the removed cmux resource scope.
+    if args.iter().any(|arg| arg == "--machine-provider-command") {
+        return false;
+    }
     scan_globals(args, MachineFlag::Global)
         .map(|(_, command)| {
             let mut words = command.iter().take_while(|word| *word != "--").peekable();
