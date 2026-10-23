@@ -188,6 +188,10 @@ pub struct HubEvent {
     pub session_id: String,
     pub record: Arc<EventRecord>,
     pub remote: Option<RemoteRef>,
+    /// The record as the `session/update` line a raw-text connection receives, made by the
+    /// first connection that sends it and shared by the rest (`server::deliver`): one encode
+    /// per token, not one per attached client. None inside: too large for one frame.
+    pub update_line: Arc<std::sync::OnceLock<Option<String>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -940,6 +944,7 @@ impl Hub {
             session_id: session.id.clone(),
             record: Arc::new(record.clone()),
             remote: None,
+            update_line: Default::default(),
         });
         (record, stored)
     }
