@@ -707,6 +707,23 @@ struct AgentResumeArgvTests {
         ) == .rejected)
     }
 
+    @Test("A markerless Subrouter reroute keeps the update-check override and custom executable names")
+    func markerlessSubrouterRerouteKeepsOverrideForCustomCodex() throws {
+        let argv = try #require(AgentResumeArgv().builtInKind(
+            kind: "codex",
+            sessionId: "SID",
+            executablePath: "/opt/company/bin/codex-enterprise",
+            arguments: [
+                "/opt/company/bin/codex-enterprise",
+                "-c", "model_provider=subrouter",
+                "-c", "model_providers.subrouter.base_url=\"http://127.0.0.1:49152/v1\"",
+            ]
+        ))
+        #expect(Array(argv.prefix(4)) == ["sr", "codex", "resume", "SID"])
+        #expect(argv.contains("check_for_update_on_startup=false"))
+        #expect(!argv.joined(separator: " ").contains("127.0.0.1"))
+    }
+
     @Test("Argv routing proof rejects mixed providers")
     func argvRoutingProofRejectsMixedProviders() {
         #expect(!SubrouterCodexResumeRouting().usesSubrouterProvider(in: [
