@@ -15,6 +15,8 @@ final class MacScreenCardView: MacScreenThemedView {
         var card: MacScreenCard?
         var name: String
         var failedDetail: String
+        /// The type scale the card was built at (`MacScreenType.sizes`).
+        var typeSizes = MacScreenType.sizes
     }
 
     static let width: CGFloat = 340
@@ -97,7 +99,12 @@ final class MacScreenCardView: MacScreenThemedView {
     }
 
     private func glyph(_ name: String, ink: KeyPath<MacScreenColors, NSColor> = \.secondary) {
-        stack.addArrangedSubview(MacScreenGlyph(name, font: MacScreenType.glyph, ink: ink))
+        let font = MacScreenType.glyph
+        let glyph = MacScreenGlyph(name, font: font, ink: ink)
+        // SwiftUI's `Image(systemName:).font(glyph)` took the font's line height, not the symbol's: the
+        // card keeps the same room above its title.
+        glyph.heightAnchor.constraint(equalToConstant: ceil(font.ascender - font.descender)).isActive = true
+        stack.addArrangedSubview(glyph)
     }
 
     private func spinner() {

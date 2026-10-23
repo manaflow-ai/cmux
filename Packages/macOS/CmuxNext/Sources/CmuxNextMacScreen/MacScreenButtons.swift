@@ -98,6 +98,9 @@ final class MacScreenButton: NSButton, MacScreenInked {
         refresh()
     }
 
+    /// Draws the title at the type scale's size now (a button made once, in the toolbar).
+    func reloadType() { refresh() }
+
     private var labelFont: NSFont { role == .primary ? MacScreenType.emphasized : MacScreenType.body }
     private var horizontalPadding: CGFloat { role == .icon ? Metrics.space1 : (compact ? Metrics.space3 : Metrics.space4) }
     private var minHeight: CGFloat { compact || role == .icon ? 22 : 26 }
@@ -232,6 +235,9 @@ final class MacScreenMenuButton: NSButton, MacScreenInked {
         self.colors = colors
         refresh()
     }
+
+    /// Draws the glyph and title at the type scale's size now.
+    func reloadType() { refresh() }
 
     func retitle(_ title: String) {
         guard label != nil, title != label else { return }
@@ -379,13 +385,17 @@ final class MacScreenSwitch: NSControl, MacScreenInked {
         track.frame = CGRect(origin: .zero, size: size)
         track.cornerRadius = size.height / 2
         let inset: CGFloat = 2
-        let diameter = size.height - inset * 2
-        knob.frame = CGRect(x: isOn ? size.width - inset - diameter : inset, y: inset, width: diameter, height: diameter)
-        knob.cornerRadius = diameter / 2
-        track.backgroundColor = (isOn ? colors.focus : colors.pressed).cgColor
+        // The system switch's knob: a capsule 1.6 times as wide as it is tall (32 × 20 in a 54 × 24 track).
+        let knobHeight = size.height - inset * 2
+        let knobWidth = min(size.width - inset * 2, (knobHeight * 1.6).rounded())
+        knob.frame = CGRect(x: isOn ? size.width - inset - knobWidth : inset, y: inset, width: knobWidth, height: knobHeight)
+        knob.cornerRadius = knobHeight / 2
+        // Off, the system switch's track is the ink at 10% (light gray on light, a lift on dark) and its knob is
+        // a light gray in dark mode; on, the track is the theme's focus color.
+        track.backgroundColor = (isOn ? colors.focus : colors.primary.withAlphaComponent(0.1)).cgColor
         track.borderWidth = isOn ? 0 : 0.5
         track.borderColor = colors.separator.cgColor
-        knob.backgroundColor = NSColor.white.cgColor
+        knob.backgroundColor = (colors.isDark && !isOn ? NSColor(white: 0.886, alpha: 1) : NSColor.white).cgColor
         alphaValue = isEnabled ? 1 : 0.45
     }
 }

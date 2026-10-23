@@ -27,6 +27,8 @@ final class MacScreenText: NSTextField, MacScreenInked {
             usesSingleLineMode = false
             maximumNumberOfLines = 0
             lineBreakMode = .byWordWrapping
+            // SwiftUI Text's breaking: no one-word last line (it pushes a word down with it).
+            lineBreakStrategy = .standard
             cell?.wraps = true
             cell?.isScrollable = false
             cell?.truncatesLastVisibleLine = false
@@ -71,9 +73,11 @@ final class MacScreenText: NSTextField, MacScreenInked {
 @MainActor
 final class MacScreenGlyph: NSImageView, MacScreenInked {
     private let ink: KeyPath<MacScreenColors, NSColor>
+    private var pointSize: CGFloat
 
     init(_ symbol: String, font: NSFont, ink: KeyPath<MacScreenColors, NSColor> = \.secondary, width: CGFloat? = nil) {
         self.ink = ink
+        pointSize = font.pointSize
         super.init(frame: .zero)
         image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
         symbolConfiguration = NSImage.SymbolConfiguration(pointSize: font.pointSize, weight: .regular)
@@ -90,6 +94,13 @@ final class MacScreenGlyph: NSImageView, MacScreenInked {
 
     func apply(_ colors: MacScreenColors) {
         contentTintColor = colors[keyPath: ink]
+    }
+
+    /// Draws the symbol at `font`'s size (a type scale change).
+    func resize(to font: NSFont) {
+        guard pointSize != font.pointSize else { return }
+        pointSize = font.pointSize
+        symbolConfiguration = NSImage.SymbolConfiguration(pointSize: font.pointSize, weight: .regular)
     }
 }
 

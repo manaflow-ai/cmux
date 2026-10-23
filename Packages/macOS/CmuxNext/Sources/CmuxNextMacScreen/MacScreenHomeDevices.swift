@@ -54,6 +54,8 @@ struct MacScreenHomeSnapshot: Equatable {
     var devices: Devices?
     var sharing: Sharing?
     var keyboard: Keyboard?
+    /// The type scale the rows were built at (`MacScreenType.sizes`).
+    var typeSizes = MacScreenType.sizes
 
     /// The hosts listed, whose permission lists the page reads.
     var deviceIDs: [String] {
@@ -186,6 +188,11 @@ extension MacScreenHomeView {
             stack.trailingAnchor.constraint(equalTo: row.trailingAnchor),
             stack.topAnchor.constraint(equalTo: row.topAnchor),
             stack.bottomAnchor.constraint(equalTo: row.bottomAnchor),
+            // The name and status lines keep the row's 10-point padding above and below them, as the
+            // SwiftUI row's did: a centered stack alone sizes the row to its buttons and lets the
+            // two lines run into the padding (a row 4 points shorter than before the port).
+            labels.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: 10),
+            labels.bottomAnchor.constraint(lessThanOrEqualTo: row.bottomAnchor, constant: -10),
         ])
         if device.access.allowsRequests {
             let id = device.id

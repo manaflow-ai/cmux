@@ -161,6 +161,8 @@ final class MacScreenApprovalView: MacScreenThemedView {
         var request: SessionRequest?
         var error: String?
         var answering: Bool
+        /// The type scale the prompt was built at (`MacScreenType.sizes`).
+        var typeSizes = MacScreenType.sizes
     }
 
     static let width: CGFloat = 380
@@ -240,6 +242,8 @@ final class MacScreenApprovalView: MacScreenThemedView {
             font: MacScreenType.emphasized, wraps: true)
         let glyph = MacScreenGlyph(request.scope == .full ? "cursorarrow.and.square.on.square.dashed" : "eye",
                                    font: MacScreenType.glyph, ink: \.accent)
+        // SwiftUI's `Image(systemName:).font(glyph)` took the font's line height: the same header height.
+        glyph.heightAnchor.constraint(equalToConstant: ceil(MacScreenType.glyph.ascender - MacScreenType.glyph.descender)).isActive = true
         let header = MacScreenStack.make(.horizontal, spacing: 10, alignment: .centerY, [glyph, title])
         MacScreenStack.addFullWidth(header, to: stack)
         stack.addArrangedSubview(MacScreenText(String(format: L.t("macScreen.approval.scope", "Asks for %@."), request.scope.title),

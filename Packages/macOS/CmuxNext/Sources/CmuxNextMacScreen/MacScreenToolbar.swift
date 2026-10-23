@@ -21,7 +21,11 @@ final class MacScreenToolbarView: MacScreenThemedView {
     private let name = MacScreenText("", font: MacScreenType.emphasized)
     private let stats = MacScreenText("", font: MacScreenType.stats, ink: \.secondary)
     private let badge: MacScreenFill
+    private let badgeGlyph = MacScreenGlyph("eye", font: MacScreenType.badge, ink: \.attention)
+    private let badgeText = MacScreenText(L.t("macScreen.toolbar.viewOnly", "View Only"), font: MacScreenType.badge, ink: \.attention)
     private let hint: NSStackView
+    private let hintGlyph = MacScreenGlyph("keyboard", font: MacScreenType.caption)
+    private let hintText = MacScreenText(L.t("macScreen.toolbar.releaseHint", "⌃⌥⎋ releases the keyboard"), font: MacScreenType.caption, ink: \.secondary)
     private let displayButton: MacScreenMenuButton
     private let quality: MacScreenMenuButton
     private let sendKeys: MacScreenMenuButton
@@ -41,10 +45,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         self.model = model
         self.actions = actions
         badge = MacScreenFill(\.attentionWash, shape: .rounded(0))
-        let badgeContent = MacScreenStack.make(.horizontal, spacing: 4, alignment: .centerY, [
-            MacScreenGlyph("eye", font: MacScreenType.badge, ink: \.attention),
-            MacScreenText(L.t("macScreen.toolbar.viewOnly", "View Only"), font: MacScreenType.badge, ink: \.attention),
-        ], insets: NSEdgeInsets(top: 2, left: 8, bottom: 2, right: 8))
+        let badgeContent = MacScreenStack.make(.horizontal, spacing: 4, alignment: .centerY, [badgeGlyph, badgeText], insets: NSEdgeInsets(top: 2, left: 8, bottom: 2, right: 8))
         badge.addSubview(badgeContent)
         NSLayoutConstraint.activate([
             badgeContent.leadingAnchor.constraint(equalTo: badge.leadingAnchor),
@@ -56,10 +57,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         badge.setAccessibilityRole(.staticText)
         badge.setAccessibilityLabel(L.t("macScreen.toolbar.viewOnly", "View Only"))
         badge.setAccessibilityIdentifier("macScreen.viewOnly")
-        hint = MacScreenStack.make(.horizontal, spacing: 4, alignment: .centerY, [
-            MacScreenGlyph("keyboard", font: MacScreenType.caption),
-            MacScreenText(L.t("macScreen.toolbar.releaseHint", "⌃⌥⎋ releases the keyboard"), font: MacScreenType.caption, ink: \.secondary),
-        ])
+        hint = MacScreenStack.make(.horizontal, spacing: 4, alignment: .centerY, [hintGlyph, hintText])
         hint.themedToolTip = L.t("macScreen.toolbar.keyboardHint", "Keyboard goes to this Mac · ⌃⌥⎋ to release")
         displayButton = MacScreenMenuButton(symbol: "display.2", title: "", accessibilityTitle: "", id: "macScreen.display")
         quality = MacScreenMenuButton(symbol: "slider.horizontal.3", accessibilityTitle: L.t("macScreen.toolbar.quality", "Quality"),
@@ -106,6 +104,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
     }
 
     private func apply() {
+        applyType()
         dot.fill = statusColor
         if name.stringValue != model.name { name.stringValue = model.name }
         let session = model.session
@@ -138,6 +137,25 @@ final class MacScreenToolbarView: MacScreenThemedView {
         }
         connect.isHidden = !controlsShown || !ended
         disconnect.isHidden = !controlsShown || ended
+    }
+
+    /// The labels, glyphs and buttons at the type scale's sizes, read here so a density, font size
+    /// or interface scale change shows at once (the views are made once).
+    private func applyType() {
+        let fonts: [(MacScreenText, NSFont)] = [(name, MacScreenType.emphasized), (stats, MacScreenType.stats),
+                                                (badgeText, MacScreenType.badge), (hintText, MacScreenType.caption)]
+        var changed = false
+        for (label, font) in fonts where label.font != font {
+            label.font = font
+            label.invalidateIntrinsicContentSize()
+            changed = true
+        }
+        icon.resize(to: MacScreenType.body)
+        badgeGlyph.resize(to: MacScreenType.badge)
+        hintGlyph.resize(to: MacScreenType.caption)
+        guard changed else { return }
+        for button in [displayButton, quality, sendKeys] { button.reloadType() }
+        for button in [refresh, connect, disconnect] { button.reloadType() }
     }
 
     /// Sets a tooltip only when it changes (the stats redraw this every second).

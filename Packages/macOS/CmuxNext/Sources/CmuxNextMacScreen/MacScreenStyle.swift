@@ -142,4 +142,7 @@ enum MacScreenType {
     static var code: NSFont { Typography.system(.monospaced, size: Typography.caption.pointSize) }
     /// A card's or a row's glyph.
     static var glyph: NSFont { Typography.system(size: Typography.title.pointSize) }
+    /// The scale's sizes now. A surface that keeps them in what it shows (read under Observation)
+    /// is built again when density, the font size or the interface scale changes, as SwiftUI redrew.
+    static var sizes: [CGFloat] { [title, subtitle, body, caption].map(\.pointSize) }
 }
