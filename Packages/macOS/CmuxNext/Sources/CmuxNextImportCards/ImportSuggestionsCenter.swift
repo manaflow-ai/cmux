@@ -1,6 +1,5 @@
 public import AppKit
 public import CmuxNextActions
-import CmuxNextAgentPane
 public import CmuxNextBrowserImport
 import CmuxNextCompat
 import CmuxNextDesign
@@ -14,8 +13,8 @@ import Observation
 /// ``rescanInterval``), keeps the person's dismissals and the Chief's
 /// requests, and runs each card's import as a job saved after every step, so
 /// a quit or crash leaves it paused for Resume (or resumes it at launch when
-/// no prompt is left). Home, New Tab (through `AgentPaneImportCards`) and
-/// Settings › Import draw what ``list(for:)`` returns.
+/// no prompt is left). Settings › Import draws what ``list()`` returns; Home and
+/// New Tab show no suggestion (Leo 2026-10-21: "yes to both", removing it from both).
 @MainActor
 @Observable
 public final class ImportSuggestionsCenter {
@@ -24,24 +23,26 @@ public final class ImportSuggestionsCenter {
     /// Every source the last scan found.
     public private(set) var findings: [ImportFinding] = []
     public private(set) var state: ImportSuggestionState
-    public private(set) var ledger = ImportJobLedger()
+    public internal(set) var ledger = ImportJobLedger()
     /// A scan is running.
     public private(set) var isScanning = false
 
     /// cmux comes forward this long after the last scan before the next one.
     public static let rescanInterval: TimeInterval = 10 * 60
 
-    @ObservationIgnored private var host: ImportCardsHost?
+    @ObservationIgnored var host: ImportCardsHost?
+    /// What a scan finds on this Mac (a test's fixed findings).
+    @ObservationIgnored var scanThisMac: @MainActor (ImportCardsHost) async -> [ImportFinding] = ImportSuggestionsCenter.scanLive
     @ObservationIgnored private weak var registry: ActionRegistry?
     @ObservationIgnored private let defaults: UserDefaults
-    @ObservationIgnored private let ledgerURL: URL
+    @ObservationIgnored let ledgerURL: URL
     @ObservationIgnored private var lastScan: Date?
-    @ObservationIgnored private var running: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored var running: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var activation: (any NSObjectProtocol)?
     @ObservationIgnored private var started = false
     /// A page's start is waiting on the person's answer (one question at a time).
     @ObservationIgnored private var asking = false
-    @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored let now: () -> Date
 
     init(defaults: UserDefaults = .standard, ledgerURL: URL = ImportSuggestionsCenter.defaultLedgerURL, now: @escaping () -> Date = Date.init) {
         self.defaults = defaults
@@ -67,18 +68,8 @@ public final class ImportSuggestionsCenter {
         self.registry = registry
         guard !started else { return }
         started = true
-        var loaded = ImportJobLedger.load(from: ledgerURL)
-        loaded.relaunched(now: now())
-        ledger = loaded
-        saveLedger()
+        restoreJobs()
         state.expire(now: now())
-        AgentPaneImportCards.shared.onAction = { [weak self] id, action in
-            guard let action = ImportCardAction(rawValue: action) else { return }
-            // A New Tab page's button: a first-party control, never the person's own gesture, so a
-            // start asks natively first and a cookie request still gets its consent panel.
-            try? self?.perform(id, action, caller: ActionInvocation(arguments: [:], origin: .page))
-        }
-        follow()
         activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
                                                             queue: .main) { [weak self] _ in
             Task { @MainActor in self?.rescanIfStale() }
@@ -90,6 +81,14 @@ public final class ImportSuggestionsCenter {
                 try? perform(job.id, .resume)
             }
         }
+    }
+
+    /// The jobs saved before this launch: one a quit cut off is paused for Resume.
+    func restoreJobs() {
+        var loaded = ImportJobLedger.load(from: ledgerURL)
+        loaded.relaunched(now: now())
+        ledger = loaded
+        saveLedger()
     }
 
     // MARK: Scan
@@ -104,21 +103,27 @@ public final class ImportSuggestionsCenter {
         guard isEnabled, !isScanning, let host else { then?(); return }
         isScanning = true
         lastScan = now()
-        let environment = ImportEnvironment.live { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
-        let variables = ProcessInfo.processInfo.environment
+        let scanning = scanThisMac
         Task { [weak self] in
-            let imported = await host.importedProfiles()
-            // Classic's session file is up to 32 MB of JSON: read and planned off the main actor.
-            let classic = await Task.detached(priority: .utility) { await ClassicWorkspaceCount().count() }.value
-            let found = await Task.detached(priority: .utility) {
-                ImportScanner(home: environment.homeDirectory, environment: environment, variables: variables,
-                              importedProfiles: imported, classicWorkspaces: { classic }).scan()
-            }.value
+            let found = await scanning(host)
             guard let self else { return }
             findings = found
             isScanning = false
             then?()
         }
+    }
+
+    /// This Mac's sources, read off the main thread.
+    static func scanLive(_ host: ImportCardsHost) async -> [ImportFinding] {
+        let environment = ImportEnvironment.live { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
+        let variables = ProcessInfo.processInfo.environment
+        let imported = await host.importedProfiles()
+        // Classic's session file is up to 32 MB of JSON: read and planned off the main actor.
+        let classic = await Task.detached(priority: .utility) { await ClassicWorkspaceCount().count() }.value
+        return await Task.detached(priority: .utility) {
+            ImportScanner(home: environment.homeDirectory, environment: environment, variables: variables,
+                          importedProfiles: imported, classicWorkspaces: { classic }).scan()
+        }.value
     }
 
     // MARK: Cards
@@ -136,16 +141,16 @@ public final class ImportSuggestionsCenter {
         "terminal.iterm2": "com.googlecode.iterm2", "terminal.ghostty": "com.mitchellh.ghostty", "cmux.classic": "com.cmuxterm.app",
     ]
 
-    /// The cards `surface` draws now; empty while the cards are off.
-    public func list(for surface: ImportCardDeck.Surface) -> ImportCardList {
+    /// The cards Settings › Import lists now; empty while the cards are off.
+    public func list() -> ImportCardList {
         guard isEnabled else { return .empty }
-        return deck.list(for: surface, now: now())
+        return deck.list()
     }
 
     /// Settings › Import's list for the page's host lists (`import_suggestions`), with its empty text; null while the cards are off.
     public var settingsJSON: JSONValue {
         guard isEnabled else { return .null }
-        var value = ImportCardJSON.value(list(for: .settings), keepEmpty: true)
+        var value = ImportCardJSON.value(list(), keepEmpty: true)
         if case .object(var members) = value {
             members["empty"] = .string(ImportSuggestionStrings.settingsEmpty)
             members["scanning"] = .bool(isScanning)
@@ -154,18 +159,9 @@ public final class ImportSuggestionsCenter {
         return value
     }
 
-    /// Pushes the New Tab cards to every agent page on each change of what they show.
-    private func follow() {
-        withObservationTracking {
-            AgentPaneImportCards.shared.cards = ImportCardJSON.value(list(for: .newTab))
-        } onChange: { [weak self] in
-            Task { @MainActor in self?.follow() }
-        }
-    }
-
     // MARK: Buttons
 
-    /// Runs a card's button (the Home strip, a page, `import.card`). `caller` is the run that
+    /// Runs a card's button (Settings › Import's page, `import.card`). `caller` is the run that
     /// pressed it, the person's own click when nil. Only that click starts an import at once: any
     /// other caller's Import, Resume or Try Again asks the person in a native dialog first (page
     /// script cannot answer it), and an agent's cookie request always gets
@@ -184,7 +180,11 @@ public final class ImportSuggestionsCenter {
                 put(job)
                 run(id)
             case .iterm2: run(id, writingTheme: job)
-            case .claudeCode, .codex, .cmuxClassic, .ghostty: finish(job)
+            case .cmuxClassic:
+                // Runs the import again; the migration ledger skips what already came over.
+                put(job)
+                runClassic(id)
+            case .claudeCode, .codex, .ghostty: finish(job)
             }
         case .dismiss:
             if state.requests.contains(where: { $0.id == id }) {
@@ -235,7 +235,7 @@ public final class ImportSuggestionsCenter {
         } else {
             guard let job = ledger.job(id), job.phase != .running else { throw ImportCardsFailure.noSuchCard(id) }
         }
-        guard let card = deck.cards(for: .settings, now: now()).first(where: { $0.id == id }), card.kind.startReadsAnotherApp else { return nil }
+        guard let card = deck.cards().first(where: { $0.id == id }), card.kind.startReadsAnotherApp else { return nil }
         let confirm = CmuxDialogButton(id: "confirm", title: ImportSuggestionStrings.confirmButton(action), role: .default)
         return CmuxDialogSpec(title: ImportSuggestionStrings.confirmTitle(card.title), lines: [card.facts, card.benefit].filter { !$0.isEmpty },
                               buttons: [.cancel(), confirm], identifier: "cmux.dialog.importCard")
@@ -306,8 +306,9 @@ public final class ImportSuggestionsCenter {
             _ = registry?.perform("search.chats", invocation: Self.forwarded(caller))
             finish(ImportJob(finding: finding, now: now()))
         case .cmuxClassic:
-            // Its own preview and confirmation; the next scan drops the card once they are here.
-            _ = registry?.perform("workspace.importClassic", invocation: Self.forwarded(caller))
+            // The action's own import, tracked: its preview asks before anything opens.
+            put(ImportJob(finding: finding, now: now()))
+            runClassic(id)
         case .iterm2:
             run(id, writingTheme: ImportJob(finding: finding, now: now()))
         case .ghostty:
@@ -332,92 +333,6 @@ public final class ImportSuggestionsCenter {
 
     /// Settings › Import.
     public func openSettings() { host?.openSettings("#/settings/import") }
-
-    // MARK: Jobs
-
-    private func put(_ job: ImportJob) {
-        ledger.put(job)
-        saveLedger()
-    }
-
-    private func finish(_ job: ImportJob) {
-        var job = job
-        job.finishedStep(0, counts: ImportCounts(), now: now())
-        put(job)
-    }
-
-    private func saveLedger() {
-        try? ledger.save(to: ledgerURL)
-    }
-
-    private func run(_ id: String, writingTheme job: ImportJob) {
-        put(job)
-        let writer = ITermThemeWriter(home: FileManager.default.homeDirectoryForCurrentUser, variables: ProcessInfo.processInfo.environment)
-        Task { [weak self] in
-            let written = await Task.detached { try? writer.write() }.value
-            guard let self else { return }
-            ledger.update(id) { job in
-                if written == nil { job.failed(.sourceGone, now: now()) } else { job.finishedStep(0, counts: ImportCounts(), now: now()) }
-            }
-            saveLedger()
-        }
-    }
-
-    /// Runs a browser job's steps that are left, one plan per profile, saving after each.
-    private func run(_ id: String) {
-        guard running[id] == nil, let host, let job = ledger.job(id), job.kind == .browser, let browser = job.browser else { return }
-        running[id] = Task { [weak self] in
-            await self?.runSteps(id, browser: browser, host: host)
-            self?.running[id] = nil
-            // What is left of that browser to bring over, now that this import is in.
-            self?.scan()
-        }
-    }
-
-    private func runSteps(_ id: String, browser: ImportBrowser, host: ImportCardsHost) async {
-        let access = BrowserFolderAccess()
-        // The per-browser folder grant (Debug Settings `browserImport.folderGrant`): asked for once.
-        if await access.awaiting().contains(browser), !(await access.request(browser)) {
-            return fail(id, .declined)
-        }
-        guard let source = await access.detect().first(where: { $0.browser == browser }) else { return fail(id, .sourceGone) }
-        // One job's Keychain reads, shared by its plans: macOS asks once for the browser's key, not
-        // once per profile, and a Deny is not asked again. Dropped (and zeroed) when the job's run ends.
-        let keys = OneReadSafeStorage(SafeStorageKeys().live())
-        while let job = ledger.job(id), job.phase == .running, let index = job.nextStep {
-            let step = job.steps[index]
-            guard let profile = source.profiles.first(where: { $0.directoryName == step.profile }) else {
-                ledger.update(id) { $0.finishedStep(index, counts: ImportCounts(), now: now()) }
-                saveLedger()
-                continue
-            }
-            let plan = ImportPlan(items: [ImportPlan.Item(profile: profile, kinds: Set(step.kinds))],
-                                  mergeTarget: step.intoDefault ? Self.defaultProfile : nil)
-            do {
-                let summary = plan.items.isEmpty ? ImportSummary(batches: [])
-                    : try await host.runImport(plan, keys) { [weak self] progress in
-                        guard let self else { return }
-                        ledger.update(id) { $0.progressed(progress.fraction, now: now()) }
-                    }
-                guard summary.failures.isEmpty else { return fail(id, .importFailed) }
-                ledger.update(id) { $0.finishedStep(index, counts: summary.counts, now: now()) }
-                saveLedger()
-            } catch is CancellationError {
-                ledger.update(id) { $0.paused(.interrupted, now: now()) }
-                return saveLedger()
-            } catch {
-                return fail(id, .importFailed)
-            }
-        }
-    }
-
-    /// The person's default cmux browser profile (`BrowserProfileRecord.defaultID`).
-    static let defaultProfile = "default"
-
-    private func fail(_ id: String, _ reason: ImportJob.Failure) {
-        ledger.update(id) { $0.failed(reason, now: now()) }
-        saveLedger()
-    }
 }
 
 /// A refused card button, for `import.card` and the pages.

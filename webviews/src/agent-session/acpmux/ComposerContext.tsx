@@ -5,6 +5,7 @@ import { Popover } from "../../ui/Popover";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import { EnvironmentIcon, EnvironmentPicker, type SavedEnvironmentRows } from "./EnvironmentPicker";
+import { machineColor } from "./machineColor";
 import type { ConnectKind, EnvironmentKind, OffloadKind } from "./environments";
 import { FolderPopover } from "./FolderPopover";
 import type { Project } from "./ProjectChooser";
@@ -290,7 +291,12 @@ export function ComposerContext({
               value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
               face={
                 <LocationFace
-                  icon={<EnvironmentIcon kind={savedPick?.kind ?? currentComputer?.kind ?? "local"} />}
+                  icon={
+                    <EnvironmentIcon
+                      kind={savedPick?.kind ?? currentComputer?.kind ?? "local"}
+                      name={savedPick ? undefined : currentComputer?.label}
+                    />
+                  }
                   value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
                   chevron
                 />
@@ -308,7 +314,7 @@ export function ComposerContext({
               label={t(CONTEXT_LABELS.computer)}
               menu="Computer"
               kind="computer"
-              icon={<ComputerIcon />}
+              icon={<ComputerIcon name={currentComputer?.kind === "local" ? undefined : currentComputer?.label} />}
               value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
               options={computers}
               selected={selectedComputer}
@@ -507,10 +513,12 @@ function FolderIcon() {
   );
 }
 
-function ComputerIcon() {
+/// The computer chip's icon, in another machine's own color (machineColor); this Mac's stays quiet.
+function ComputerIcon({ name }: { name?: string }) {
   return (
     <svg
       className="acpmux-icon acpmux-location-icon ui-ghost-icon"
+      style={name ? { color: machineColor(name) } : undefined}
       width={14}
       height={14}
       viewBox="0 0 16 16"

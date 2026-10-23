@@ -15,6 +15,7 @@ import type { SubsessionRow } from "../subagents/subsessions";
 import { SUBSESSION_STATUS, SubagentStatusList, subagentStatus, waitingSubagents } from "./SubagentStatusList";
 import { SubagentsTab } from "./SubagentsTab";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
+import type { ChatToolsControl } from "./SourcesAddMenu";
 import type { SummaryCardControl } from "./cardState";
 import { backgroundCommands } from "../inspector/processes";
 import type { SummaryBackgroundTask } from "./sessionSummary";
@@ -48,6 +49,7 @@ export function SummaryCard({
   onAttach,
   background,
   sessions,
+  tools,
 }: {
   card: SummaryCardControl;
   rows: readonly AcpmuxRow[];
@@ -81,6 +83,8 @@ export function SummaryCard({
   };
   /// The chats this chat's agent started, and how one opens.
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  /// Sources' Use tools: the chat's tools, where acpmux can change them (cx-thur3).
+  tools?: ChatToolsControl;
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
@@ -132,17 +136,23 @@ export function SummaryCard({
     const away = (event: Event) => {
       const target = event.target instanceof Element ? event.target : null;
       if (!target || panel.current?.contains(target)) return;
-      if (target.closest(".acpmux-summary-button, .acpmux-chat-gallery")) return;
+      // The card's own menus (Sources' +, SourcesAddMenu.tsx) draw in the page's portal, outside it.
+      if (target.closest(".acpmux-summary-button, .acpmux-chat-gallery, .acpmux-summary-menu")) return;
       close();
     };
     document.addEventListener("pointerdown", away, true);
     return () => document.removeEventListener("pointerdown", away, true);
   }, [close, popover]);
-  useEscapeCloses(popover && !gallery, () => {
-    const button = panel.current?.closest(".acpmux-stage")?.querySelector<HTMLElement>(".acpmux-summary-button");
-    card.close();
-    button?.focus();
-  });
+  // Escape in one of the card's menus closes that menu only.
+  useEscapeCloses(
+    popover && !gallery,
+    () => {
+      const button = panel.current?.closest(".acpmux-stage")?.querySelector<HTMLElement>(".acpmux-summary-button");
+      card.close();
+      button?.focus();
+    },
+    ".acpmux-summary-menu",
+  );
   if (!drawn) {
     // Keep the inline column's width stable before the first summary row arrives. The rail is
     // intentionally invisible until it has content, but removing it from the flex row would make
@@ -162,12 +172,12 @@ export function SummaryCard({
   // A started chat waiting on the person is counted with the waiting subagents.
   const waitingCount = count("waiting") + children.filter((child) => child.state === "waiting").length;
   const runningCommands = commands.filter((command) => command.state === "running").length;
-  const runningSessions = children.filter((child) => child.state === "running").length;
+  // A started chat whose turn runs is a running subagent too: one word, as the tray says.
+  const runningCount = count("running") + children.filter((child) => child.state === "running").length;
   const counts = [
     waitingCount > 0 && t("summary.subagents.waiting", { n: waitingCount }),
-    count("running") > 0 && t("summary.subagents.running", { n: count("running") }),
+    runningCount > 0 && t("summary.subagents.running", { n: runningCount }),
     runningCommands > 0 && t("turn.working.commands", { n: runningCommands }),
-    runningSessions > 0 && t("turn.working.sessions", { n: runningSessions }),
     count("failed") > 0 && t("summary.subagents.failed", { n: count("failed") }),
     count("stopped") > 0 && t("summary.subagents.stopped", { n: count("stopped") }),
     count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
@@ -304,6 +314,7 @@ export function SummaryCard({
               subagents={hasSubagents ? <></> : undefined}
               onOpenOutput={onOpenOutput}
               onAttach={onAttach}
+              tools={tools}
               commands={commands}
               onStopCommand={background?.onStop}
             />

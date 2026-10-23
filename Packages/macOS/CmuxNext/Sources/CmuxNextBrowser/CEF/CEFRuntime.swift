@@ -45,6 +45,10 @@ final class CEFRuntime {
     var placements = CEFPlacementQueue()
     /// Window requests: decisions, their log and link clicks.
     private(set) lazy var windowRequests = CEFWindowRequests(runtime: self)
+    /// Page accessibility while an assistive client asks for it (`CEFAccessibility`).
+    private(set) lazy var accessibility = CEFAccessibility(
+        apply: { [weak self] browser, enabled in self?.shim?.setAccessibility(browser, enabled ? 1 : 0) },
+        browsers: { [weak self] in self.map { Array($0.tabsByBrowser.keys) } ?? [] })
     /// Two-finger Back and Forward swipes over pages (`CEFSwipeNavigation`).
     private(set) lazy var swipeNavigation = CEFSwipeNavigation(runtime: self)
     /// Opens `url` in a new cmux tab when no Chromium window of its profile
@@ -248,7 +252,9 @@ final class CEFRuntime {
             try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, environment: environment) }
             state = .ready
             CEFStartSteps.shared.timed("ready_hooks") {
-                startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install(); onReady?()
+                startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()
+                ChromiumPageTextAccessory.install { [weak self] view in self?.showsCmuxPage(in: view.window) ?? false }
+                onReady?()
             }
             self.trigger = trigger
             loadDuration = library.loadDuration
@@ -418,6 +424,7 @@ final class CEFRuntime {
             throw .initialize
         }
         shim.devToolsSetKeyHandler(cefDevToolsKeyCallback)
+        shim.setUnhandledKeyHandler(cefUnhandledKeyCallback)
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { _ in

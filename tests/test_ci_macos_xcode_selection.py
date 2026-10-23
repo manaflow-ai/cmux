@@ -67,17 +67,12 @@ EXEMPT = {
         "as the nightly and release callers always have; pinning it would "
         "change published artifacts",
     ("relay-publish-npm.yml", "smoke"): "npm package smoke test; no Xcode",
-    ("signing-keychain-macos.yml", "bash32-syntax"):
-        "parses shell scripts with the system /bin/bash 3.2; no Xcode",
     ("nightly.yml", "nightly-next-macos15-launch"):
         "launches the published, signed app on a macOS 15 runner; builds "
         "nothing, so no Xcode",
     ("cmux-next-batch.yml", "build"):
         "submits the stack to the build fleet and waits; the build runs on a "
         "fleet worker, never with this runner's Xcode",
-    ("macos-matrix-fuzz.yml", "fuzz"):
-        "submits the head's build and the Tart VM fuzz runs to the build fleet "
-        "and waits; both run on fleet workers, never with this runner's Xcode",
 }
 
 # (workflow, job, step name) allowed to set CMUX_CI_XCODE_ALLOW_BELOW_FLOOR.

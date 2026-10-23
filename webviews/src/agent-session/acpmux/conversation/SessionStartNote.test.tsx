@@ -1,10 +1,8 @@
 // l10n-allow-file: test fixture versions, models and paths, not shipped UI.
 // A Claude Code chat's session start note says what the chat runs on in one short line ("Claude
-// Code · Opus 5.5 · sr2", the whole of it on hover and a click), then how it compacts in one line
-// that opens to its explanation (Leo 2026-10-20: the long facts line and the compaction paragraph
-// were a mishmash at the turn's end). The compaction words follow the chat's harness: sr2's
-// (`claude-sr2`) is managed; any other harness compacts the way Claude Code does. Dismissing the
-// note keeps it away.
+// Code · Opus 5.5 · sr2", the whole of it on hover and a click), and nothing else: no line under it
+// explaining how the chat compacts (Leo 2026-10-21: the transcript holds events, not explainers;
+// each compaction shows as its own note when it happens).
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -12,7 +10,7 @@ import { JSDOM } from "jsdom";
 import { translate } from "../i18n";
 import type { AcpmuxSessionStart } from "../model";
 import { SessionStartNote } from "./SessionStartNote";
-import { compactionModeOf, routeOf } from "./sessionStart";
+import { routeOf } from "./sessionStart";
 import { resetTranscriptDisclosure } from "./transcriptDisclosure";
 
 let dom: JSDOM | undefined;
@@ -75,9 +73,7 @@ const start = (harness: string): AcpmuxSessionStart => ({
   cwd: "/Users/dev/fun/cmux",
 });
 
-test("the compaction mode and route follow the chat's harness", () => {
-  expect(compactionModeOf("claude-sr2")).toBe("managed");
-  for (const harness of ["claude", "claude-cr", "codex", undefined]) expect(compactionModeOf(harness)).toBe("stock");
+test("the route follows the chat's harness", () => {
   expect([routeOf("claude-sr2"), routeOf("claude-cr"), routeOf("claude"), routeOf(undefined)]).toEqual([
     "sr2",
     "coderouter",
@@ -87,8 +83,6 @@ test("the compaction mode and route follow the chat's harness", () => {
 });
 
 const facts = (container: HTMLElement) => container.querySelector(".cv-session-start .cv-tool__text")!.textContent;
-const compactionLine = (container: HTMLElement) =>
-  container.querySelector(".cv-session-start__compaction .cv-session-start__compaction-text")!.textContent;
 
 test("an sr2 chat says what it runs on in one short line, the whole of it on hover and on a click", async () => {
   const container = installDom();
@@ -114,26 +108,18 @@ test("an sr2 chat says what it runs on in one short line, the whole of it on hov
   expect(container.querySelector(".cv-session-start__detail")!.textContent).toBe(whole);
 });
 
-test("the compaction note is one line that opens to its explanation", async () => {
+test("an sr2 chat's start is the one facts line: no compaction explainer, no Learn more, no dismiss", async () => {
   const container = installDom();
   resetTranscriptDisclosure();
   await render(container, start("claude-sr2"));
-  const note = container.querySelector(".cv-session-start__compaction")!;
-  expect(note.getAttribute("data-compaction")).toBe("managed");
-  expect(note.classList.contains("cv-tool")).toBe(true);
-  expect(compactionLine(container)).toBe(translate("sessionStart.compaction.managedShort"));
-  // The paragraph waits behind Learn more.
-  expect(container.textContent).not.toContain(translate("sessionStart.compaction.managed"));
-  const more = container.querySelector<HTMLButtonElement>(".cv-session-start__more")!;
-  expect(more.textContent).toBe(translate("sessionStart.compaction.learnMore"));
-  expect(more.getAttribute("aria-expanded")).toBe("false");
-  await act(async () => more.click());
-  expect(more.getAttribute("aria-expanded")).toBe("true");
-  const explain = container.querySelector(`#${CSS.escape(more.getAttribute("aria-controls")!)}`)!;
-  expect(explain.textContent).toBe(translate("sessionStart.compaction.managed"));
+  const wrapper = container.firstElementChild!;
+  expect(wrapper.children).toHaveLength(1);
+  expect(wrapper.firstElementChild!.classList.contains("cv-session-start")).toBe(true);
+  expect(container.querySelectorAll("button")).toHaveLength(1);
+  expect(container.textContent?.toLowerCase()).not.toContain("compact");
 });
 
-test("a chat on its own Claude Code setup says Claude Code compacts on its own", async () => {
+test("a chat on its own Claude Code setup shows the facts without its route, and no compaction line", async () => {
   const container = installDom();
   resetTranscriptDisclosure();
   await render(container, start("claude"));
@@ -142,31 +128,6 @@ test("a chat on its own Claude Code setup says Claude Code compacts on its own",
   expect(container.querySelector(".cv-session-start")!.getAttribute("title")).toContain(
     translate("sessionStart.route.own"),
   );
-  const note = container.querySelector(".cv-session-start__compaction")!;
-  expect(note.getAttribute("data-compaction")).toBe("stock");
-  expect(compactionLine(container)).toBe(translate("sessionStart.compaction.stockShort"));
-  await act(async () => container.querySelector<HTMLButtonElement>(".cv-session-start__more")!.click());
-  expect(container.textContent).toContain(translate("sessionStart.compaction.stock"));
-  expect(container.textContent).not.toContain(translate("sessionStart.compaction.managed"));
-});
-
-test("a dismissed compaction note stays away, the facts line stays", async () => {
-  const container = installDom();
-  resetTranscriptDisclosure();
-  await render(container, start("claude-sr2"));
-  const dismiss = container.querySelector<HTMLButtonElement>(".cv-session-start__dismiss")!;
-  expect(dismiss.getAttribute("aria-label")).toBe(translate("sessionStart.compaction.dismiss"));
-  await act(async () => dismiss.click());
-  expect(container.querySelector(".cv-session-start__compaction")).toBeNull();
-  expect(container.querySelector(".cv-session-start")).not.toBeNull();
-
-  // Another sr2 chat (a new mount, same profile): still dismissed. A stock chat's note is its own.
-  await act(async () => root!.unmount());
-  root = undefined;
-  await render(container, start("claude-sr2"));
-  expect(container.querySelector(".cv-session-start__compaction")).toBeNull();
-  await act(async () => root!.unmount());
-  root = undefined;
-  await render(container, start("claude"));
-  expect(container.querySelector(".cv-session-start__compaction")).not.toBeNull();
+  expect(container.firstElementChild!.children).toHaveLength(1);
+  expect(container.textContent?.toLowerCase()).not.toContain("compact");
 });

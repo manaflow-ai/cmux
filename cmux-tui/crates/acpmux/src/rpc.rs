@@ -3,6 +3,7 @@
 //! acpmux keeps every message as a `serde_json::Value` so that unknown
 //! methods, `_meta` blocks, and vendor extensions pass through untouched.
 
+use crate::no_panic::JsonExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -125,14 +126,14 @@ impl Message {
             Message::Request { id, method, params } => {
                 let mut v = json!({"jsonrpc": "2.0", "id": id, "method": method});
                 if let Some(p) = params {
-                    v["params"] = p.clone();
+                    v.set("params", p.clone());
                 }
                 v
             }
             Message::Notification { method, params } => {
                 let mut v = json!({"jsonrpc": "2.0", "method": method});
                 if let Some(p) = params {
-                    v["params"] = p.clone();
+                    v.set("params", p.clone());
                 }
                 v
             }
@@ -251,6 +252,8 @@ pub mod method {
     /// Stop one of a session's background subagents (a Claude background
     /// agent or workflow): `{sessionId, subagentSessionId}`.
     pub const MUX_SUBAGENT_STOP: &str = "_acpmux/subagent_stop";
+    /// The app pane's reply in place, checked and signed (`server/app_reply.rs`).
+    pub const MUX_APP_REPLY: &str = "_acpmux/app_reply";
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
     pub const MUX_QUEUE_EDIT: &str = "_acpmux/queue_edit";
     /// To the agent adapter, `{sessionId}`: stop the agent's current step so it reads the steers
@@ -259,6 +262,9 @@ pub mod method {
     pub const MUX_STEP_NOW: &str = "_acpmux/step_now";
     /// An agent message's sender takes it back (`hub/withdraw.rs`).
     pub const MUX_PROMPT_WITHDRAW: &str = "_acpmux/prompt_withdraw";
+    /// `acpmux send --no-wait`: queue a prompt for this daemon to deliver (`hub/outbox.rs`).
+    pub const MUX_SEND_QUEUE: &str = "_acpmux/send_queue";
+    pub const MUX_SEND_STATUS: &str = "_acpmux/send_status";
     /// Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
     pub const MUX_AGENT_PAIR_RESUME: &str = "_acpmux/agent_pair_resume";
     pub const MUX_INFO: &str = "_acpmux/info";
@@ -436,6 +442,12 @@ pub mod method {
     pub const MUX_WORKTREE_REPORT: &str = "_acpmux/worktree/report";
     pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";
     pub const MUX_WORKTREE_RESTORE: &str = "_acpmux/worktree/restore";
+    // Pairing (`crate::pairing`, `server/pairing.rs`).
+    pub const MUX_PAIR_TICKET_NEW: &str = "_acpmux/pair_ticket_new";
+    pub const MUX_PAIR_LIST: &str = "_acpmux/pair_list";
+    pub const MUX_PAIR_REVOKE: &str = "_acpmux/pair_revoke";
+    pub const MUX_PAIR_ISSUE: &str = "_acpmux/pair_issue";
+    pub const MUX_PAIR_REDEEM: &str = "_acpmux/pair_redeem";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";

@@ -29,6 +29,21 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     public var revealFolder: @MainActor (URL) -> Void = { NSWorkspace.shared.revealInBackground([$0]) }
     /// Selects a file in Finder (the image viewer's Show in Finder).
     public var revealFile: @MainActor (URL) -> Void = { NSWorkspace.shared.revealInBackground([$0]) }
+    /// The context menu's Copy Image: replaces the general pasteboard's contents with the item
+    /// (``AgentPaneImageCopies/pasteboardItem(_:data:)``); tests record it instead.
+    public var copyItem: @MainActor (NSPasteboardItem) -> Bool = { AgentPaneImageCopies.writeGeneral($0) }
+    /// Save Image As…: asks where to save the file under the name (the system save panel).
+    public var saveFile: @MainActor (_ file: URL, _ name: String) -> Void = { AgentPaneImageCopies.askToSave($0, name: $1) }
+    /// Quick Look on a file (the system's preview panel).
+    public lazy var quickLookFile: @MainActor (URL) -> Void = { [quickLook = self.quickLook] in quickLook.show($0) }
+    /// Whether the person still holds the pointer's button: a page drag (`image.drag`, `file.drag`)
+    /// becomes the host's drag only then, so page script alone never starts one.
+    public var mouseHeld: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
+    /// Starts the host's drag of a real file out of the pane (the view's dragging session); false
+    /// when there is no pane to drag from.
+    public var startDrag: @MainActor (URL) -> Bool = { _ in false }
+    /// The Quick Look panel's source for ``quickLookFile``.
+    private let quickLook = AgentPaneQuickLook()
     /// Where the image viewer keeps the copies it shows or opens (``AgentPaneImageCopies``).
     public var imageFolder = AgentPaneImageCopies.defaultFolder()
     public var browsers: any AgentPaneBrowserApps = AgentPaneWorkspaceBrowsers()
@@ -55,6 +70,36 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
                                     "reading": answer.reading]
         if let fetchedAt = answer.fetchedAt { reply["fetchedAt"] = fetchedAt }
         return AgentPaneReply.success(reply)
+    }
+
+    /// The link requests a page answers for its link hover card with no chat behind it: the agent
+    /// page, and the changelog page's PR chip (`cmux.changelog.<method>`).
+    public static let cardMethods: Set<String> = ["browser.list", "browser.openIn", "pr.inspect"]
+
+    /// The reply to one of ``cardMethods`` (any other request is `link.open_failed`), the same on
+    /// every page that shows the card. `consumeGesture` spends the person's gesture in that page;
+    /// `openInCmux` opens a URL in a cmux browser tab (`browserId` `cmux`), false when nothing opened.
+    public func respond(toCard request: AgentPaneReplyRequest, consumeGesture: @MainActor () -> Bool,
+                        openInCmux: (@MainActor (URL) -> Bool)?) -> [String: Any] {
+        switch request {
+        case .listBrowsers:
+            return AgentPaneReply.success(["browsers": choices.list(from: browsers)])
+        case .inspectPullRequest(let url):
+            return respondToPullRequest(url)
+        case .openIn(let url, let browserId):
+            if browserId == "cmux" {
+                guard consumeGesture() else { return AgentPaneModel.replyFailure(.gestureRequired) }
+                guard let openInCmux, openInCmux(url) else { return AgentPaneModel.replyFailure(.openFailed) }
+                return AgentPaneReply.success()
+            }
+            guard let app = choices.app(browserId) else { return AgentPaneModel.replyFailure(.browserUnknown) }
+            guard consumeGesture() else { return AgentPaneModel.replyFailure(.gestureRequired) }
+            browsers.open(url, withApplicationAt: app)
+            return AgentPaneReply.success()
+        case .inspect, .openPath, .loadImage, .loadMedia, .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage,
+             .dragImage, .dragFile:
+            return AgentPaneModel.replyFailure(.openFailed)
+        }
     }
 }
 
@@ -99,21 +144,10 @@ extension AgentPaneModel {
             return await loadReplyImage(src)
         case .loadMedia(let src):
             return await loadReplyMedia(src)
-        case .listBrowsers:
-            return AgentPaneReply.success(["browsers": replyLinks.choices.list(from: replyLinks.browsers)])
-        case .inspectPullRequest(let url):
-            return replyLinks.respondToPullRequest(url)
-        case .openIn(let url, let browserId):
-            if browserId == "cmux" {
-                guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
-                guard let onOpenPreview, onOpenPreview(url) else { return Self.replyFailure(.openFailed) }
-                return AgentPaneReply.success()
-            }
-            guard let app = replyLinks.choices.app(browserId) else { return Self.replyFailure(.browserUnknown) }
-            guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
-            replyLinks.browsers.open(url, withApplicationAt: app)
-            return AgentPaneReply.success()
-        case .revealImage, .openImageInPane: return await AgentPaneImageCopies.respond(to: request, in: self)
+        case .listBrowsers, .inspectPullRequest, .openIn:
+            return replyLinks.respond(toCard: request, consumeGesture: { transport.gestures.consume() }, openInCmux: onOpenPreview)
+        case .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile:
+            return await AgentPaneImageCopies.respond(to: request, in: self)
         }
     }
 

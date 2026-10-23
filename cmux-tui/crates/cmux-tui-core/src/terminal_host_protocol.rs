@@ -212,10 +212,7 @@ fn truncate_utf8(value: &mut String, max_bytes: usize) {
     if value.len() <= max_bytes {
         return;
     }
-    let mut boundary = max_bytes;
-    while !value.is_char_boundary(boundary) {
-        boundary -= 1;
-    }
+    let boundary = (0..=max_bytes).rev().find(|&index| value.is_char_boundary(index)).unwrap_or(0);
     value.truncate(boundary);
 }
 
@@ -252,29 +249,27 @@ pub fn encode_terminal_exit(exit: &TerminalExit) -> Vec<u8> {
 }
 
 pub fn decode_terminal_exit(payload: &[u8]) -> Result<TerminalExit, ProtocolError> {
+    const MALFORMED: ProtocolError = ProtocolError::MalformedExitPayload;
     if payload.len() < EXIT_PAYLOAD_HEADER_LEN {
-        return Err(ProtocolError::MalformedExitPayload);
+        return Err(MALFORMED);
     }
-    let version = u16::from_le_bytes(payload[0..2].try_into().expect("fixed exit-version slice"));
+    let version = wire_u16(payload, 0).ok_or(MALFORMED)?;
     if version != EXIT_PAYLOAD_VERSION {
-        return Err(ProtocolError::MalformedExitPayload);
+        return Err(MALFORMED);
     }
-    let kind = payload[2];
-    let flags = payload[3];
-    let exited_at_ms =
-        u64::from_le_bytes(payload[4..12].try_into().expect("fixed exit-timestamp slice"));
+    let kind = wire_u8(payload, 2).ok_or(MALFORMED)?;
+    let flags = wire_u8(payload, 3).ok_or(MALFORMED)?;
+    let exited_at_ms = wire_u64(payload, 4).ok_or(MALFORMED)?;
     let outcome = match kind {
         1 if flags == 0 && payload.len() == EXIT_PAYLOAD_STATUS_LEN => {
-            let code =
-                i32::from_le_bytes(payload[12..16].try_into().expect("fixed exit-code slice"));
+            let code = wire_i32(payload, 12).ok_or(MALFORMED)?;
             if code < 0 {
                 return Err(ProtocolError::MalformedExitPayload);
             }
             TerminalExitOutcome::Exit { code }
         }
         2 if flags & !1 == 0 && payload.len() == EXIT_PAYLOAD_STATUS_LEN => {
-            let signal =
-                i32::from_le_bytes(payload[12..16].try_into().expect("fixed exit-signal slice"));
+            let signal = wire_i32(payload, 12).ok_or(MALFORMED)?;
             if signal <= 0 {
                 return Err(ProtocolError::MalformedExitPayload);
             }
@@ -284,9 +279,10 @@ pub fn decode_terminal_exit(payload: &[u8]) -> Result<TerminalExit, ProtocolErro
             && payload.len() > EXIT_PAYLOAD_HEADER_LEN
             && payload.len() <= EXIT_PAYLOAD_HEADER_LEN + MAX_EXIT_REASON_BYTES =>
         {
-            let reason = std::str::from_utf8(&payload[12..])
-                .map_err(|_| ProtocolError::MalformedExitPayload)?
-                .to_string();
+            let reason =
+                std::str::from_utf8(payload.get(EXIT_PAYLOAD_HEADER_LEN..).ok_or(MALFORMED)?)
+                    .map_err(|_| ProtocolError::MalformedExitPayload)?
+                    .to_string();
             TerminalExitOutcome::Unknown { reason }
         }
         _ => return Err(ProtocolError::MalformedExitPayload),
@@ -371,16 +367,16 @@ pub fn decode_host_launch_failure(payload: &[u8]) -> Result<HostLaunchFailure, P
     {
         return Err(ProtocolError::MalformedLaunchFailurePayload);
     }
-    let version = u16::from_le_bytes(payload[0..2].try_into().expect("fixed version slice"));
+    const MALFORMED: ProtocolError = ProtocolError::MalformedLaunchFailurePayload;
+    let version = wire_u16(payload, 0).ok_or(MALFORMED)?;
     if version != LAUNCH_FAILURE_PAYLOAD_VERSION {
-        return Err(ProtocolError::MalformedLaunchFailurePayload);
+        return Err(MALFORMED);
     }
-    let kind = HostLaunchFailureKind::try_from(u16::from_le_bytes(
-        payload[2..4].try_into().expect("fixed kind slice"),
-    ))?;
-    let message = std::str::from_utf8(&payload[LAUNCH_FAILURE_PAYLOAD_HEADER_LEN..])
-        .map_err(|_| ProtocolError::MalformedLaunchFailurePayload)?
-        .to_string();
+    let kind = HostLaunchFailureKind::try_from(wire_u16(payload, 2).ok_or(MALFORMED)?)?;
+    let message =
+        std::str::from_utf8(payload.get(LAUNCH_FAILURE_PAYLOAD_HEADER_LEN..).ok_or(MALFORMED)?)
+            .map_err(|_| ProtocolError::MalformedLaunchFailurePayload)?
+            .to_string();
     Ok(HostLaunchFailure { kind, message })
 }
 
@@ -633,6 +629,33 @@ impl From<io::Error> for ProtocolError {
     }
 }
 
+/// Copy the `N` bytes at `offset` out of `bytes`, or `None` when `bytes` is
+/// too short. Every fixed-layout decoder reads through this so a short or
+/// lying payload is an error, never an out-of-bounds panic.
+pub(crate) fn wire_array<const N: usize>(bytes: &[u8], offset: usize) -> Option<[u8; N]> {
+    bytes.get(offset..offset.checked_add(N)?)?.try_into().ok()
+}
+
+pub(crate) fn wire_u8(bytes: &[u8], offset: usize) -> Option<u8> {
+    bytes.get(offset).copied()
+}
+
+pub(crate) fn wire_u16(bytes: &[u8], offset: usize) -> Option<u16> {
+    wire_array(bytes, offset).map(u16::from_le_bytes)
+}
+
+pub(crate) fn wire_u32(bytes: &[u8], offset: usize) -> Option<u32> {
+    wire_array(bytes, offset).map(u32::from_le_bytes)
+}
+
+pub(crate) fn wire_u64(bytes: &[u8], offset: usize) -> Option<u64> {
+    wire_array(bytes, offset).map(u64::from_le_bytes)
+}
+
+pub(crate) fn wire_i32(bytes: &[u8], offset: usize) -> Option<i32> {
+    wire_array(bytes, offset).map(i32::from_le_bytes)
+}
+
 #[derive(Debug, Clone, Copy)]
 struct Header {
     version: u16,
@@ -644,24 +667,25 @@ struct Header {
 }
 
 fn parse_header(bytes: &[u8], max_payload: usize) -> Result<Header, ProtocolError> {
-    debug_assert_eq!(bytes.len(), HEADER_LEN);
-    let magic = <[u8; 4]>::try_from(&bytes[0..4]).expect("fixed header magic slice");
+    let truncated = || ProtocolError::Truncated { expected: HEADER_LEN, actual: bytes.len() };
+    let header: [u8; HEADER_LEN] = wire_array(bytes, 0).ok_or_else(truncated)?;
+    let magic = wire_array::<4>(&header, 0).ok_or_else(truncated)?;
     if magic != MAGIC {
         return Err(ProtocolError::InvalidMagic(magic));
     }
-    let version = u16::from_le_bytes([bytes[4], bytes[5]]);
+    let version = wire_u16(&header, 4).ok_or_else(truncated)?;
     if version == 0 {
         return Err(ProtocolError::InvalidVersion(version));
     }
-    let kind = MessageKind::try_from(u16::from_le_bytes([bytes[6], bytes[7]]))?;
-    let flags = u32::from_le_bytes(bytes[8..12].try_into().expect("fixed flags slice"));
+    let kind = MessageKind::try_from(wire_u16(&header, 6).ok_or_else(truncated)?)?;
+    let flags = wire_u32(&header, 8).ok_or_else(truncated)?;
     let payload_len =
-        u32::from_le_bytes(bytes[12..16].try_into().expect("fixed payload-length slice")) as usize;
+        usize::try_from(wire_u32(&header, 12).ok_or_else(truncated)?).unwrap_or(usize::MAX);
     if payload_len > max_payload {
         return Err(ProtocolError::PayloadTooLarge { len: payload_len, max: max_payload });
     }
-    let request_id = u64::from_le_bytes(bytes[16..24].try_into().expect("fixed request-id slice"));
-    let sequence = u64::from_le_bytes(bytes[24..32].try_into().expect("fixed sequence slice"));
+    let request_id = wire_u64(&header, 16).ok_or_else(truncated)?;
+    let sequence = wire_u64(&header, 24).ok_or_else(truncated)?;
     Ok(Header { version, kind, flags, payload_len, request_id, sequence })
 }
 
@@ -727,12 +751,15 @@ pub fn read_frame(
     let mut header_bytes = [0u8; HEADER_LEN];
     let mut header_read = 0;
     while header_read < HEADER_LEN {
-        match reader.read(&mut header_bytes[header_read..]) {
+        let Some(unread) = header_bytes.get_mut(header_read..) else {
+            break;
+        };
+        match reader.read(unread) {
             Ok(0) if header_read == 0 => return Ok(None),
             Ok(0) => {
                 return Err(ProtocolError::Truncated { expected: HEADER_LEN, actual: header_read });
             }
-            Ok(count) => header_read += count,
+            Ok(count) => header_read = header_read.saturating_add(count),
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(error) => return Err(error.into()),
         }
@@ -741,14 +768,17 @@ pub fn read_frame(
     let mut payload = vec![0u8; header.payload_len];
     let mut payload_read = 0;
     while payload_read < payload.len() {
-        match reader.read(&mut payload[payload_read..]) {
+        let Some(unread) = payload.get_mut(payload_read..) else {
+            break;
+        };
+        match reader.read(unread) {
             Ok(0) => {
                 return Err(ProtocolError::Truncated {
                     expected: HEADER_LEN + payload.len(),
                     actual: HEADER_LEN + payload_read,
                 });
             }
-            Ok(count) => payload_read += count,
+            Ok(count) => payload_read = payload_read.saturating_add(count),
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(error) => return Err(error.into()),
         }
@@ -803,35 +833,33 @@ impl FrameDecoder {
                     if input.is_empty() {
                         break;
                     }
-                    let count = (HEADER_LEN - self.buffer.len()).min(input.len());
-                    self.buffer.extend_from_slice(&input[..count]);
-                    *input = &input[count..];
+                    let count = HEADER_LEN.saturating_sub(self.buffer.len());
+                    self.take_input(input, count);
                     if self.buffer.len() < HEADER_LEN {
                         break;
                     }
                 }
-                let header = parse_header(&self.buffer[..HEADER_LEN], self.max_payload)?;
-                self.expected_total = Some(HEADER_LEN + header.payload_len);
+                let header = parse_header(&self.buffer, self.max_payload)?;
+                let expected_total = HEADER_LEN.saturating_add(header.payload_len);
+                self.expected_total = Some(expected_total);
                 self.buffer.reserve(header.payload_len);
             }
 
-            let expected_total = self.expected_total.expect("set after a valid header");
+            let expected_total = self.expected_total.unwrap_or(HEADER_LEN);
             if self.buffer.len() < expected_total {
                 if input.is_empty() {
                     break;
                 }
-                let count = (expected_total - self.buffer.len()).min(input.len());
-                self.buffer.extend_from_slice(&input[..count]);
-                *input = &input[count..];
+                let count = expected_total.saturating_sub(self.buffer.len());
+                self.take_input(input, count);
                 if self.buffer.len() < expected_total {
                     break;
                 }
             }
 
-            let header = parse_header(&self.buffer[..HEADER_LEN], self.max_payload)?;
-            self.buffer.drain(..HEADER_LEN);
-            let payload = std::mem::take(&mut self.buffer);
-            self.buffer = Vec::with_capacity(HEADER_LEN);
+            let header = parse_header(&self.buffer, self.max_payload)?;
+            let mut payload = std::mem::replace(&mut self.buffer, Vec::with_capacity(HEADER_LEN));
+            payload.drain(..HEADER_LEN.min(payload.len()));
             self.expected_total = None;
             frames.push(Frame {
                 version: header.version,
@@ -843,6 +871,13 @@ impl FrameDecoder {
             });
         }
         Ok(frames)
+    }
+
+    /// Move up to `count` bytes from the front of `input` into the buffer.
+    fn take_input(&mut self, input: &mut &[u8], count: usize) {
+        let (taken, rest) = input.split_at(count.min(input.len()));
+        self.buffer.extend_from_slice(taken);
+        *input = rest;
     }
 
     pub fn finish(&self) -> Result<(), ProtocolError> {
