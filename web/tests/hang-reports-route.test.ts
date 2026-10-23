@@ -83,7 +83,7 @@ afterAll(() => {
 });
 
 describe("POST /api/hang-reports", () => {
-  test("stores a realistic schema 1 report and answers 204", async () => {
+  test("stores a realistic schema 2 report and answers 204", async () => {
     const response = await POST(reportRequest(realisticReport()));
     expect(response.status).toBe(204);
     expect(response.headers.get("cache-control")).toBe("no-store");
@@ -106,7 +106,7 @@ describe("POST /api/hang-reports", () => {
 
   test("accepts absent optionals and arrays, the way JSONEncoder omits nil", async () => {
     const minimal = {
-      schema: 1,
+      schema: 2,
       reportId: "11111111-2222-4333-8444-555555555555",
       installId: "66666666-7777-4888-9999-AAAAAAAAAAAA",
       day: "2026-10-22",
@@ -177,6 +177,41 @@ describe("POST /api/hang-reports", () => {
     const response = await POST(reportRequest(report));
     expect(response.status).toBe(400);
     expect(await response.text()).not.toContain("alice");
+  });
+
+  test("refuses schema 1, the format of Nightlies without the review privacy fixes", async () => {
+    const old = { ...realisticReport(), schema: 1 };
+    const response = await POST(reportRequest(old));
+    // 400 is final for the client: it drops the report from its outbox.
+    expect(response.status).toBe(400);
+    expect(repository.rows.size).toBe(0);
+  });
+
+  test("accepts only the chip families and memory sizes the client can send", async () => {
+    for (const chip of ["Apple M1", "Apple M4 Pro", "Apple M2 Max", "Apple M3 Ultra", "Apple M10", "Intel", "other"]) {
+      const report = { ...realisticReport(), reportId: crypto.randomUUID() };
+      report.hardware = { ...report.hardware, chip };
+      expect((await POST(reportRequest(report))).status).toBe(204);
+    }
+    for (const memoryGB of [4, 18, 36, 512]) {
+      const report = { ...realisticReport(), reportId: crypto.randomUUID() };
+      report.hardware = { ...report.hardware, memoryGB };
+      expect((await POST(reportRequest(report))).status).toBe(204);
+    }
+    const stored = repository.rows.size;
+    for (const chip of ["Alice Liddell", "alices-macbook-pro", "Apple M4 Pro Max", "Apple M4 pro", "apple m1", "Intel(R) Core(TM) i9", "Other", "Apple M123", " Apple M1"]) {
+      const report = { ...realisticReport(), reportId: crypto.randomUUID() };
+      report.hardware = { ...report.hardware, chip };
+      const response = await POST(reportRequest(report));
+      expect(response.status).toBe(400);
+      expect(await response.text()).not.toContain("Alice");
+    }
+    for (const memoryGB of [0, 1, 17, 47, 1024, 16_384]) {
+      const report = { ...realisticReport(), reportId: crypto.randomUUID() };
+      report.hardware = { ...report.hardware, memoryGB };
+      expect((await POST(reportRequest(report))).status).toBe(400);
+    }
+    expect(repository.rows.size).toBe(stored);
   });
 
   test("rejects an email and a URL", async () => {
@@ -363,8 +398,8 @@ describe("POST /api/hang-reports", () => {
     expect((await response.text()).toLowerCase()).not.toContain(installId);
   });
 
-  test("stores the golden schema 1 fixture the Swift client round-trips", async () => {
-    const fixture = readFileSync(new URL("./fixtures/hang-report-schema1.json", import.meta.url), "utf8");
+  test("stores the golden schema 2 fixture the Swift client round-trips", async () => {
+    const fixture = readFileSync(new URL("./fixtures/hang-report-schema2.json", import.meta.url), "utf8");
     const body = fixture.replace('"day":"2026-10-23"', `"day":"${NOW.toISOString().slice(0, 10)}"`);
     const response = await POST(new Request("https://cmux.test/api/hang-reports", {
       method: "POST",
@@ -515,7 +550,7 @@ function reportRequest(body: unknown, headers: Record<string, string> = {}): Req
 
 function realisticReport() {
   return {
-    schema: 1 as const,
+    schema: 2 as const,
     reportId: "5F1C7C1E-2B9B-4A8E-9C62-0F0D2B0B8A11",
     installId: "0B8D4A51-6C9E-4F0F-8F53-3C2D7B4F9E20",
     day: "2026-10-23",

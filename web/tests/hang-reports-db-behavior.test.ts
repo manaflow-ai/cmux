@@ -46,7 +46,7 @@ function row(reportId: string, installId = INSTALL): HangReportRow {
     cores: 14,
     memoryGb: 48,
     counts: { windows: "1", workspaces: "2-5", panes: "2-5", tabs: "6-10" },
-    payload: { schema: 1, hangs: [] },
+    payload: { schema: 2, hangs: [] },
   };
 }
 
