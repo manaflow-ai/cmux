@@ -9,8 +9,8 @@ import Testing
 /// next to a busy row's spinner ("that counts as a time"), titles that start at two x's ("weird
 /// spacing") and "Chief • Update available" on a group header. By default a workspace row is its
 /// name and one state mark (the spinner, the unread dot): no running time, no pull request badge,
-/// no agent words, no status or log line; every title starts at one x whether or not the row has
-/// an icon; a machine header never prints "Update available". Each stays a setting.
+/// no agent words, no status or log line; a title without an icon starts flush at the leading
+/// inset (2026-10-22); a machine header never prints "Update available". Each stays a setting.
 @MainActor @Suite(.serialized) struct SidebarMinimalDefaultsTests {
     private static let busy = WorkspaceID("ws-busy")
     private static let favicon = WorkspaceID("ws-favicon")
