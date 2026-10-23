@@ -63,6 +63,9 @@ private struct LiveControlClient: Sendable {
     func fetch(expectedIdentity: IdentifyFingerprint?) throws -> LiveFetch {
         let identify = try request(method: "system.identify")
         let identity = try IdentifyFingerprint(result: identify)
+        guard identity.protocolVersion == 1 else {
+            throw LiveProjectionError.invalidIdentify
+        }
         if let expectedIdentity, identity != expectedIdentity {
             throw LiveProjectionError.identityChanged
         }
