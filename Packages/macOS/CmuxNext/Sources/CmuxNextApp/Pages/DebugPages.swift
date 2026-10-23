@@ -22,6 +22,12 @@ import WebKit
 //   `parked`, `window_number` and `claim` (how a pooled host took its last claim: `path`
 //   acknowledged / refused / timedOut / loaded, `ms`) and `in_flight` (the page's calls still
 //   running: id, op, age_ms);
+// - `frames` (`window_ms` default 1000, at most 1500; `scroll_px`, default 0; `selector`?): the
+//   page's own requestAnimationFrame intervals over the window (`PageFrameCadence`: frames,
+//   observed_fps, p50/p95/max_ms, long_frames over 1.5 refreshes, intervals_ms), with `engine`,
+//   `render_rate` and `display_fps`, so one reply says whether a cadence number is valid (row 23
+//   needs engine webkit on a 120 Hz display; a default build opens Settings, History and Cloud in
+//   Chromium). `scroll_px` > 0 scrolls the page's scroller that far each frame;
 // - `snapshot` (`path`, default /tmp/cmux-page-<id>.png): the page as WebKit rendered it;
 // - `command` (`command`, `text`): a dispatcher command (`find`, `focusSearch`, `back`, `forward`,
 //   `reset`) on the page's command stream, as the key dispatcher sends it;
@@ -93,6 +99,17 @@ enum DebugPages {
                 state = .object(members)
             }
             return state
+        case "frames":
+            let displayFPS = page.window?.screen.map { Double($0.maximumFramesPerSecond) }
+            guard let cadence = await page.debugFrameCadence(windowMs: params["window_ms"]?.doubleValue ?? 1000,
+                                                             scrollPixels: params["scroll_px"]?.doubleValue ?? 0,
+                                                             selector: params["selector"]?.stringValue,
+                                                             displayFPS: displayFPS),
+                  case .object(var members) = cadence.json else { return ["error": "page not loaded"] }
+            members["engine"] = .string(page.showsChromium ? "chromium" : "webkit")
+            members["render_rate"] = .string(renderRate(page))
+            members.merge(identity(page)) { _, new in new }
+            return .object(members)
         case "snapshot":
             let path = params["path"]?.stringValue ?? "/tmp/cmux-page-\(page.pageID).png"
             let written = await page.debugSnapshot(to: URL(fileURLWithPath: path))
