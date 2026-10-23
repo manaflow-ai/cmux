@@ -73,6 +73,13 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfacePlan: plan(menus: [p(.sidebarItem, .close, 120, label: ObjectMenuLabels.hideApp),
                                           p(.sidebarSection, .close, 110, label: ObjectMenuLabels.hideApp)])
             ),
+            // A link, tab or app row: Archive keeps it in its group (or section), last and dimmed (archiving-DESIGN.md).
+            ActionDescriptor(
+                id: "sidebar.item.toggleArchive", title: t("action.sidebar.item.toggleArchive", "Archive/Unarchive Item"),
+                keywords: ["sidebar", "item", "link", "tab", "archive", "unarchive", "dim"], category: .sidebar, symbol: "archivebox",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: [.sidebarItem], cliName: "sidebar toggle-item-archive",
+                surfacePlan: plan(menus: [p(.sidebarItem, .identity, 110)])
+            ),
             ActionDescriptor(
                 id: "sidebar.item.toggleLabel", title: t("action.sidebar.item.toggleLabel", "Show/Hide Label"),
                 keywords: ["sidebar", "item", "label", "icon", "title"], category: .sidebar, symbol: "textformat",

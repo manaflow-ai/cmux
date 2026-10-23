@@ -129,6 +129,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// Nobody named the workspace and its title says nothing (the daemon's default name, or a
     /// terminal in the home folder): the row reads quiet while idle (`SidebarTunables.quietUnnamedRows`).
     public var isUnnamed = false
+    /// Archived in the sidebar document (`extra.archived`, or under an archived group): the row
+    /// draws dimmed at the end of its list (plans/cmux-next/archiving-DESIGN.md). Set by `arrange`.
+    public var isArchived = false
     /// Agents acting in the workspace's tabs right now, in a stable order
     /// (`agent-presence-v1`); drawn only with `sidebar.presenceDots` on.
     public var presence: [SidebarPresence] = []
