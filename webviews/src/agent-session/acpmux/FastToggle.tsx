@@ -76,6 +76,8 @@ export function FastToggle({ speed, inline = false }: { speed: SpeedTiers; inlin
           className="acpmux-fast"
           data-tier={at < 0 ? "off" : at === 0 ? "fast" : "ultrafast"}
           aria-pressed={at >= 0}
+          role="button"
+          tabIndex={0}
           aria-label={label}
           {...tooltipProps(t("composer.speedTooltip", { tier: name(at), next: name(nextAt) }), undefined)}
           // The inline glyph lives inside the model picker trigger. Stop the pointer gesture
@@ -85,6 +87,12 @@ export function FastToggle({ speed, inline = false }: { speed: SpeedTiers; inlin
             event.stopPropagation();
           }}
           onClick={(event) => {
+            event.stopPropagation();
+            speed.onPick(nextAt < 0 ? speed.off : speed.tiers[nextAt]!);
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
             event.stopPropagation();
             speed.onPick(nextAt < 0 ? speed.off : speed.tiers[nextAt]!);
           }}
