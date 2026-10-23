@@ -27,14 +27,45 @@ struct HibernationPlanner {
         var isDownloading = false
         /// An agent holds the page's browser lease (its cursor is on it).
         var hasAgentLease = false
-        /// The probe kept the page lately (it played or held form input): under pressure it
-        /// ranks after the others, so it does not hold up the relief of the rest. It is live for
-        /// a reason, so it neither goes for the warm budget nor holds a place in it.
-        var recentlyKept = false
+        /// When the probe last kept the page (it played or held form input) and how many times in
+        /// a row it did while hidden; nil when it never did.
+        var kept: Kept?
+        /// Seconds since the page last became counted in the warm budget (its front went from
+        /// `Front.warm` to parked or none); nil when it counted since it hid. The person left it
+        /// then, so `overBudgetMinimumHidden` runs from the later of the two.
+        var countedFor: Double?
         /// Its pane shows it (off screen: a parked workspace or an off-screen column), so a switch
         /// shows it again: `.warm` stays out of the warm budget, `.parked` counts with
         /// `frontCredit`; nil for a tab no pane shows.
         var front: Front?
+
+        /// The probe kept the page lately (`keptHold(times:)`): under pressure it ranks after
+        /// the others, so it does not hold up the relief of the rest. It is live for a reason, so
+        /// it neither goes for the warm budget nor holds a place in it. Setting it records one keep now.
+        var recentlyKept: Bool {
+            get { kept.map { $0.seconds < HibernationPlanner.keptHold(times: $0.times) } ?? false }
+            set { kept = newValue ? Kept(seconds: 0, times: 1) : nil }
+        }
+
+        /// Seconds the person has been away from the page as the warm budget counts it.
+        var budgetAge: Double { min(hiddenFor, countedFor ?? hiddenFor) }
+    }
+
+    /// The probe's keeps of a hidden page.
+    struct Kept: Hashable {
+        /// Seconds since the last keep.
+        var seconds: Double
+        /// Keeps in a row while hidden (1 after the first).
+        var times: Int
+    }
+
+    /// Seconds a page the probe kept stays out of the budget after its first keep.
+    static let keptBackoff: Double = 60
+    /// Seconds a page the probe kept `times` in a row stays out of the budget (and, without
+    /// pressure, is not probed again): `keptBackoff`, doubling with each keep up to 32 minutes, so
+    /// a page that keeps playing is not thawed and probed again every minute while it stays hidden.
+    static func keptHold(times: Int) -> Double {
+        keptBackoff * Double(1 << min(max(times, 1) - 1, 5))
     }
 
     /// How near a hidden tab its pane shows (`NeighborTabs.fronts`) is to the next switch, for the
@@ -98,8 +129,11 @@ struct HibernationPlanner {
     }
 
     struct Plan: Equatable {
-        /// Keys to hibernate now (after the probe).
+        /// Keys to hibernate now (after the probe): at most `Pace.perPass` less the ones in flight.
         var due: [String] = []
+        /// Every key due now, before the pace took its share: a probe that ends checks its page
+        /// is still among them (budget membership can change back while it runs).
+        var allDue: Set<String> = []
         /// Seconds until the next page reaches its deadline; nil when none will.
         var nextCheck: Double?
         var exemptions: [String: Exemption] = [:]
@@ -193,32 +227,49 @@ struct HibernationPlanner {
         return counted.prefix(max(0, counted.count - warmPages)).map(\.key)
     }
 
+    /// The share of `due` (in order) one pass starts, with `inFlight` pages still being
+    /// prepared from earlier passes, and whether more wait for the next pass (`Pace.interval`).
+    /// Shared by browser pages (`plan`) and chat pages (`AgentPageHibernation`), so a switch that
+    /// moves many pages past the budget starts a few jobs, not one per page, however many events
+    /// it sends.
+    static func paced(_ due: [String], inFlight: Int, pace: Pace) -> (now: [String], more: Bool) {
+        let now = Array(due.prefix(max(0, pace.perPass - inFlight)))
+        return (now, due.count > now.count)
+    }
+
     /// The pages to hibernate now, least valuable first, and when to look again.
     ///
     /// A page is due once its idleness reaches the timeout (`browser.hibernation`; 10 minutes at
     /// most under pressure). Under memory pressure, when no page is due, the least valuable page
     /// hidden at least `Pace.minimumHidden` goes anyway, to relieve it. Past the warm budget
     /// (`warmPages`, `WarmSetBudget.pageCapacity`: hidden live pages kept beyond the probe's
-    /// keeps and the warm fronts, `overBudget`) the least valuable pages are due once hidden
-    /// `overBudgetMinimumHidden`, so hidden pages cost a bounded amount, not 55 MB each for half
-    /// an hour. Each pass takes at most `Pace.perPass` pages and looks again after `Pace.interval`
-    /// while more are waiting.
+    /// keeps and the warm fronts, `overBudget`) the least valuable pages are due once the person
+    /// has been away from them `overBudgetMinimumHidden` (`Candidate.budgetAge`), so hidden pages
+    /// cost a bounded amount, not 55 MB each for half an hour. Each pass takes at most
+    /// `Pace.perPass` pages, less the `inFlight` ones still being prepared, and looks again after
+    /// `Pace.interval` while more are waiting.
     static func plan(_ setting: BrowserHibernationSetting, pressure: MemoryPressureLevel, candidates: [Candidate],
-                     warmPages: Int? = nil) -> Plan {
+                     warmPages: Int? = nil, inFlight: Int = 0) -> Plan {
         var plan = Plan()
         guard let threshold = threshold(setting, pressure: pressure == .critical ? .warning : pressure) else {
             for candidate in candidates { plan.exemptions[candidate.key] = .disabled }
             return plan
         }
         let pace = Pace.at(pressure)
-        var ranked: [(key: String, idleness: Double, hiddenFor: Double, kept: Bool, budgeted: Bool, front: Front?)] = []
+        // `kept`: under pressure, ranks last. `held`: without pressure, seconds until the probe is
+        // asked again (a kept page is not probed again on every event past its timeout).
+        var ranked: [(key: String, idleness: Double, hiddenFor: Double, kept: Bool, held: Double?, budgeted: Bool, front: Front?, budgetAge: Double)] = []
         for candidate in candidates {
             if let exemption = exemption(candidate, setting: setting) {
                 plan.exemptions[candidate.key] = exemption
                 continue
             }
+            let held = candidate.kept.flatMap { kept -> Double? in
+                let left = keptHold(times: kept.times) - kept.seconds
+                return pressure == .normal && left > 0 ? left : nil
+            }
             ranked.append((candidate.key, idleness(candidate, pressure: pressure, timeout: threshold), candidate.hiddenFor,
-                           pressure != .normal && candidate.recentlyKept, !candidate.recentlyKept, candidate.front))
+                           pressure != .normal && candidate.recentlyKept, held, !candidate.recentlyKept, candidate.front, candidate.budgetAge))
         }
         ranked.sort {
             if $0.kept != $1.kept { return !$0.kept }
@@ -233,7 +284,7 @@ struct HibernationPlanner {
         let overKeys = Set(over.map(\.key))
         let overMinimum = max(pace.minimumHidden, overBudgetMinimumHidden)
         // A page the person just left never goes, whatever its memory or the mode.
-        let oldEnough = ranked.filter { $0.hiddenFor >= pace.minimumHidden }
+        let oldEnough = ranked.filter { $0.hiddenFor >= pace.minimumHidden && $0.held == nil }
         // Pages the probe just kept come last: only when no other page can go.
         let fresh = oldEnough.filter { !$0.kept }
         var due = fresh.filter { $0.idleness >= threshold }
@@ -242,10 +293,12 @@ struct HibernationPlanner {
         if due.isEmpty, pressure != .normal { due = oldEnough }
         // The timed ones first (least valuable first), then the ones past the budget in budget order.
         let timedKeys = Set(due.map(\.key))
-        due += over.filter { $0.hiddenFor >= overMinimum && !timedKeys.contains($0.key) }
+        due += over.filter { $0.budgetAge >= overMinimum && !timedKeys.contains($0.key) }
         let dueKeys = Set(due.map(\.key))
-        plan.due = due.prefix(pace.perPass).map(\.key)
-        if due.count > plan.due.count || (pressure != .normal && !plan.due.isEmpty) {
+        plan.allDue = dueKeys
+        let pass = paced(due.map(\.key), inFlight: inFlight, pace: pace)
+        plan.due = pass.now
+        if pass.more || (pressure != .normal && !plan.due.isEmpty) {
             plan.nextCheck = pace.interval
         }
         for page in ranked where !dueKeys.contains(page.key) {
@@ -254,7 +307,9 @@ struct HibernationPlanner {
             // Under pressure any page old enough is relief: look again once this one is.
             if pressure != .normal { wait = min(wait, max(young, pace.interval)) }
             // Over the budget: due once the person has been away from it long enough.
-            if overKeys.contains(page.key) { wait = min(wait, overMinimum - page.hiddenFor) }
+            if overKeys.contains(page.key) { wait = min(wait, overMinimum - page.budgetAge) }
+            // Kept by the probe: asked again once its backoff ends.
+            if let held = page.held { wait = max(wait, held) }
             plan.nextCheck = min(plan.nextCheck ?? .infinity, max(wait, 0.001))
         }
         return plan

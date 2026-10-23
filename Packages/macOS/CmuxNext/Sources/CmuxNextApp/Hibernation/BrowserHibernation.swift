@@ -102,7 +102,10 @@ final class BrowserHibernation {
     /// Tabs kept awake now because they sit beside a shown tab.
     private(set) var awakeNeighbors: Set<String> = []
     /// The tab each pane shows, on screen or not, and whether it counts in the page warm budget (`NeighborTabs.fronts`).
-    private(set) var fronts: [String: HibernationPlanner.Front] = [:]
+    var fronts: [String: HibernationPlanner.Front] { neighbors.fronts }
+    /// When each hidden page last became counted in the warm budget (its front stopped being
+    /// warm): the person left it then, so the budget's minute runs from the later of this and its hide.
+    private var countedAt: [String: ContinuousClock.Instant] = [:]
     /// When the pointer last rested on each hidden tab's strip cell (`noteHover`).
     private var hoveredAt: [String: ContinuousClock.Instant] = [:]
     /// Seconds a hovered tab stays awake after the hover, as for an agent's call.
@@ -130,10 +133,11 @@ final class BrowserHibernation {
     private var memoryMeasuredAt: ContinuousClock.Instant?
     private var measuringMemory = false
     static let memoryMaxAge: Double = 30
-    /// When the probe last kept each page; under pressure such a page ranks after the others
-    /// for `keptBackoff` seconds, so one playing page does not hold up the relief of the rest.
-    private var probeKeptAt: [String: ContinuousClock.Instant] = [:]
-    static let keptBackoff: Double = 60
+    /// When the probe last kept each hidden page and how many times in a row
+    /// (`HibernationPlanner.keptHold(times:)`): such a page stays out of the warm budget, and
+    /// under pressure ranks after the others, for a backoff that doubles with each keep, so a
+    /// page that keeps playing is not thawed and probed again every minute while it stays hidden.
+    private var probeKept: [String: (at: ContinuousClock.Instant, times: Int)] = [:]
 
     init(cache: TabContentCache, lowPower: LowPowerMode = .system) {
         self.cache = cache
@@ -252,9 +256,10 @@ final class BrowserHibernation {
         unanswered[key] = nil
         hoveredAt[key] = nil
         hiddenAt[key] = nil
+        countedAt[key] = nil
         prepared[key] = nil
         exemptions[key] = nil
-        probeKeptAt[key] = nil
+        probeKept[key] = nil
         noteFocus(key, at: .now)
     }
 
@@ -303,7 +308,8 @@ final class BrowserHibernation {
         focusedAt[key] = nil
         leased.remove(key)
         memoryBytes[key] = nil
-        probeKeptAt[key] = nil
+        probeKept[key] = nil
+        countedAt[key] = nil
         snapshots.remove(key)
         wakeLog.forget(key)
     }
@@ -313,16 +319,17 @@ final class BrowserHibernation {
     /// A pane's tab order, shown tab or presence changed (a switch, reorder, close, new tab, a
     /// parked workspace); `selected` is nil while the pane shows nothing, `visible` false while it
     /// is off screen (its shown tab stays its front, and wakes no neighbors). `group`: the pane's
-    /// workspace (nil: the pane alone), whose fronts stay warm while it is on screen or left last.
-    func paneDidChange(_ pane: ObjectIdentifier, order: [String], selected: String?, visible: Bool = true, group: ObjectIdentifier? = nil) {
-        neighbors.set(pane, order: order, selected: selected, visible: visible, group: group)
-        refreshNeighbors()
+    /// workspace (nil: the pane alone), whose fronts stay warm while it is on screen or left last
+    /// in its `window` (nil: one shared window).
+    func paneDidChange(_ pane: ObjectIdentifier, order: [String], selected: String?, visible: Bool = true,
+                       group: ObjectIdentifier? = nil, window: ObjectIdentifier? = nil) { // perf-hot: 0.1ms workspace-switch (every pane report of a switch)
+        let moved = neighbors.set(pane, order: order, selected: selected, visible: visible, group: group, window: window)
+        refreshNeighbors(fronts: moved)
     }
 
     /// The pane is gone: its tabs are no longer anyone's neighbors.
     func paneDidGo(_ pane: ObjectIdentifier) {
-        neighbors.remove(pane)
-        refreshNeighbors()
+        refreshNeighbors(fronts: neighbors.remove(pane))
     }
 
     /// The pointer moved onto hidden tab `key` in a strip (nil: off every tab).
@@ -346,21 +353,27 @@ final class BrowserHibernation {
     static let hoverDwellDelay: Duration = .milliseconds(150)
     private let hoverDwell = DemandTimer(owner: "BrowserNeighborHover")
 
-    /// Recomputes the awake neighbors; a new neighbor wakes now (thaws, or
+    /// Recomputes the awake neighbors (O(panes on screen)); a new neighbor wakes now (thaws, or
     /// restores in the background), and one that stops being a neighbor
-    /// starts its hidden clock again, so it sleeps `freezeSeconds` later.
-    private func refreshNeighbors(replans: Bool = true) {
+    /// starts its hidden clock again, so it sleeps `freezeSeconds` later. `moved`: the fronts the
+    /// pane report changed (`NeighborTabs.set`), not a rebuild of every pane's.
+    private func refreshNeighbors(fronts moved: [String: NeighborTabs.FrontChange] = [:], replans: Bool = true) {
         guard let cache else { return }
         let next = neighbors.awake(radius: neighborRadius).filter { cache.browsers[$0] != nil }
-        let nextFronts = neighbors.fronts
-        let frontsMoved = nextFronts != fronts
+        let frontsMoved = !moved.isEmpty
         if frontsMoved {
-            let changed = Set(nextFronts.keys).union(fronts.keys).filter { nextFronts[$0] != fronts[$0] }
-            fronts = nextFronts
+            // A front that stops being warm starts to count in the budget now: the person left
+            // it now, however long ago it hid (`countedAt`).
+            let now = ContinuousClock.now
+            var counted: Set<String> = []
+            for (key, change) in moved where change.old == .warm && change.new != .warm {
+                counted.insert(key)
+                if hiddenAt[key] != nil { countedAt[key] = now }
+            }
             // A tab that became or stopped being a front, or a warm one, changes its place in the
             // budget. The chats too: a pane withdraws its old tab (and the chat planned with the
             // fronts before this change) before it reports its new one.
-            agentPages?.frontsDidChange(changed)
+            agentPages?.frontsDidChange(Set(moved.keys), becameCounted: counted)
         }
         guard next != awakeNeighbors else {
             if frontsMoved, replans { replan() }
@@ -372,6 +385,7 @@ final class BrowserHibernation {
         let now = ContinuousClock.now
         for key in left where cache.lifecycle.phase(key) == .mountedHidden {
             hiddenAt[key] = now
+            countedAt[key] = nil
             if exemptions[key] == .neighbor { exemptions[key] = nil }
         }
         for key in joined { warm(key) }
@@ -401,9 +415,34 @@ final class BrowserHibernation {
 
     // MARK: Planning
 
-    /// Hibernates every due page and arms one deadline for the next.
+    /// Hibernates every due page, a few per pass (`HibernationPlanner.Pace`, counting the probes
+    /// still in flight), and arms one deadline for the next.
     func replan() {
         guard let cache else { return }
+        let (candidates, plan, graceEnds) = planNow(cache)
+        exemptions.merge(plan.exemptions) { $1 }
+        if !plan.due.isEmpty { refreshMemoryIfNeeded() }
+        for key in plan.due { prepare(key) }
+        if let next = [plan.nextCheck, graceEnds].compactMap(\.self).min() {
+            deadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
+        } else {
+            deadline.cancel()
+        }
+        replanFreeze(candidates)
+    }
+
+    /// Whether hidden page `key` is still due by the plan now: its probe ran a while, and budget
+    /// membership can change back meanwhile (a front warm again, a page closed that freed a
+    /// place, a neighbor, an agent's call).
+    private func isStillDue(_ key: String) -> Bool {
+        guard let cache else { return false }
+        let (_, plan, _) = planNow(cache)
+        exemptions.merge(plan.exemptions) { $1 }
+        return plan.allDue.contains(key)
+    }
+
+    /// The hidden pages that could hibernate, the plan for them, and when the next grace ends.
+    private func planNow(_ cache: TabContentCache) -> ([HibernationPlanner.Candidate], HibernationPlanner.Plan, Double?) {
         let now = ContinuousClock.now
         var graceEnds: Double?
         let candidates = cache.lifecycle.keys(in: .mountedHidden).compactMap { key -> HibernationPlanner.Candidate? in
@@ -430,22 +469,13 @@ final class BrowserHibernation {
                 if exemptions[key] == .agentDriving { exemptions[key] = nil }
             }
             var facts = candidate(key, entry: entry, hiddenFor: (now - at).seconds, now: now)
-            if let kept = probeKeptAt[key] {
-                if (now - kept).seconds < Self.keptBackoff { facts.recentlyKept = true } else { probeKeptAt[key] = nil }
-            }
+            if let kept = probeKept[key] { facts.kept = HibernationPlanner.Kept(seconds: (now - kept.at).seconds, times: kept.times) }
+            if let counted = countedAt[key] { facts.countedFor = (now - counted).seconds }
             return facts
         }
         let plan = HibernationPlanner.plan(setting, pressure: pressure, candidates: candidates,
-                                           warmPages: cache.warmBudget.pageCapacity)
-        exemptions.merge(plan.exemptions) { $1 }
-        if !plan.due.isEmpty { refreshMemoryIfNeeded() }
-        for key in plan.due { prepare(key) }
-        if let next = [plan.nextCheck, graceEnds].compactMap(\.self).min() {
-            deadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
-        } else {
-            deadline.cancel()
-        }
-        replanFreeze(candidates)
+                                           warmPages: cache.warmBudget.pageCapacity, inFlight: probing.count)
+        return (candidates, plan, graceEnds)
     }
 
     // MARK: Freeze
@@ -606,17 +636,14 @@ final class BrowserHibernation {
             }
             if let exemption {
                 self.exemptions[key] = exemption
-                self.probeKeptAt[key] = .now
+                self.probeKept[key] = (ContinuousClock.now, (self.probeKept[key]?.times ?? 0) + 1)
                 return
             }
-            // It became a neighbor or was hovered while the probe ran (the person's Hibernate Tab still applies).
-            if !user, self.awakeNeighbors.contains(key) || self.hoverLeft(key, now: .now) != nil {
-                self.exemptions[key] = .neighbor
-                return
-            }
-            // An agent called the page while the probe ran: it stays awake (the person's Hibernate Tab still applies).
-            if !user, let used = self.agentUsedAt[key], (ContinuousClock.now - used).seconds < Self.agentGrace {
-                self.exemptions[key] = .agentDriving
+            // It became a neighbor, was hovered, an agent called it, or it is no longer past the
+            // budget (a front warm again, a place freed) while the probe ran: it stays, with the
+            // plan's reason (the person's Hibernate Tab still applies).
+            if !user, !self.isStillDue(key) {
+                cache.trace(key, "hibernate probe dropped (no longer due)")
                 return
             }
             guard let state = source.hibernationState() else {
@@ -655,6 +682,8 @@ final class BrowserHibernation {
         cache.swapPage(key, with: placeholder)
         cache.dormantTabs.set(key, true)
         hiddenAt[key] = nil
+        countedAt[key] = nil
+        probeKept[key] = nil
         // A probe that kept the page before no longer applies (`debug.surfaces`).
         exemptions[key] = nil
         hibernatedCount += 1

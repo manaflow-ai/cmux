@@ -22,7 +22,10 @@ import os
 /// timeout, ranked by `HibernationPlanner.overBudget` as browser pages are. A pane's shown chat in
 /// a workspace on screen or left last (`fronts`, `.warm`) stays out of the budget, so a switch back
 /// shows a live page; one in a workspace left before that counts with a bounded credit, so the
-/// parked workspaces do not hold a page each.
+/// parked workspaces do not hold a page each. A front that stops being warm counts its minute
+/// from then (`countedAt`), not from its hide. Releases go a few at a time
+/// (`HibernationPlanner.Pace`, counting the ones in flight), as browser pages do, so a switch
+/// that parks a workspace's chats starts no burst of snapshots and retires in its frames.
 ///
 /// A page stays when its tab is pinned (unless the setting includes pinned tabs), its chat's
 /// turn runs or waits on the person (acpmux's turn state, `AgentTurnStateStore`), it is a New
@@ -44,6 +47,8 @@ final class AgentPageHibernation {
     private(set) var pressure: MemoryPressureLevel = .normal
     /// When each hidden page was last visible.
     private var hiddenAt: [String: ContinuousClock.Instant] = [:]
+    /// When each hidden page last became counted in the warm budget (its front stopped being warm).
+    private var countedAt: [String: ContinuousClock.Instant] = [:]
     private var shown: Set<String> = []
     private var releasing: Set<String> = []
     private let deadline = DemandTimer(owner: "AgentPageHibernation")
@@ -65,6 +70,8 @@ final class AgentPageHibernation {
     /// The clock (tests set it).
     var now: () -> ContinuousClock.Instant = { .now }
     private(set) var releasedCount = 0
+    /// Releases in flight (asking the page for its wake state and frame); tests read it.
+    var releasingCount: Int { releasing.count }
     /// A page is due later and the timer for it runs (tests).
     var hasDeadline: Bool { deadline.isScheduled }
     /// Seconds from the last plan to the next page's deadline; nil when none (tests).
@@ -132,6 +139,7 @@ final class AgentPageHibernation {
     /// Tab `key`'s page started or stopped drawing.
     func pageVisibility(_ key: String, visible: Bool) {
         guard let tabs = store() else { return }
+        countedAt[key] = nil
         if visible {
             shown.insert(key)
             hiddenAt[key] = nil
@@ -146,7 +154,11 @@ final class AgentPageHibernation {
     /// Tabs became or stopped being a pane's shown tab, warm or parked (`NeighborTabs.fronts`): a
     /// hidden chat among them changes its place in the budget. Panes report their new shown tab
     /// after the hide of the old one, so the hide planned with the fronts before the change.
-    func frontsDidChange(_ changed: Set<String>) {
+    /// `becameCounted`: the ones that stopped being warm, so the person left them now (the
+    /// budget's minute starts now, however long ago they hid).
+    func frontsDidChange(_ changed: Set<String>, becameCounted: Set<String> = []) {
+        let current = now()
+        for key in becameCounted where hiddenAt[key] != nil { countedAt[key] = current }
         guard changed.contains(where: { hiddenAt[$0] != nil }) else { return }
         replan()
     }
@@ -154,34 +166,65 @@ final class AgentPageHibernation {
     func forget(_ key: String) {
         shown.remove(key)
         hiddenAt[key] = nil
+        countedAt[key] = nil
         store()?.launchImages.drop(key)
     }
 
-    /// Releases every page that is due and arms one deadline for the next.
+    /// Releases the pages that are due, a few at a time (`HibernationPlanner.paced`, counting the
+    /// releases in flight), and arms one deadline for the next.
     func replan() {
         guard let tabs = store() else { return }
         hiddenAt = hiddenAt.filter { tabs.existingView($0.key) != nil }
+        countedAt = countedAt.filter { hiddenAt[$0.key] != nil }
         shown = shown.filter { tabs.existingView($0) != nil }
-        guard let threshold = HibernationPlanner.threshold(setting, pressure: pressure).map({ max($0, Self.minimumHidden) }) else {
+        guard let planned = plan() else {
             deadline.cancel()
             nextCheck = nil
             return
+        }
+        let pace = HibernationPlanner.Pace.at(pressure)
+        let pass = HibernationPlanner.paced(planned.due, inFlight: releasing.count, pace: pace)
+        for key in pass.now { release(key) }
+        var next = planned.next
+        if pass.more { next = min(next ?? pace.interval, pace.interval) }
+        nextCheck = next
+        if let next {
+            deadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
+        } else {
+            deadline.cancel()
+        }
+    }
+
+    /// The hidden pages due now (the timed ones longest hidden first, then the ones past the
+    /// budget in budget order) and seconds until the next one is; nil when hibernation is off.
+    private func plan() -> (due: [String], next: Double?)? {
+        guard let threshold = HibernationPlanner.threshold(setting, pressure: pressure).map({ max($0, Self.minimumHidden) }) else {
+            return nil
         }
         let current = now()
         var next: Double?
         // Pages that must stay (a busy turn, pinned) neither go for the budget nor hold a place in it.
         let releasable = hiddenAt.filter { !releasing.contains($0.key) && keepsPage($0.key, onScreen: false) == nil }
+            .map { (key: $0.key, age: (current - $0.value).seconds) }
         let fronts = self.fronts()
-        let over = Set(HibernationPlanner.overBudget(
-            releasable.map { (key: $0.key, idleness: (current - $0.value).seconds, front: fronts[$0.key]) },
-            warmPages: warmPages(), timeout: threshold))
+        let overOrder = HibernationPlanner.overBudget(releasable.map { (key: $0.key, idleness: $0.age, front: fronts[$0.key]) },
+                                                      warmPages: warmPages(), timeout: threshold)
+        let over = Set(overOrder)
         let overThreshold = min(threshold, max(Self.minimumHidden, HibernationPlanner.overBudgetMinimumHidden))
-        for (key, at) in releasable {
-            let remaining = (over.contains(key) ? overThreshold : threshold) - (current - at).seconds
+        var timed: [(key: String, age: Double)] = []
+        var overDue: Set<String> = []
+        for (key, age) in releasable {
+            var remaining = threshold - age
+            let timedOut = remaining <= 0
+            if over.contains(key) {
+                // The person left it when it hid or, for a front that stopped being warm, then.
+                let budgetAge = min(age, countedAt[key].map { (current - $0).seconds } ?? age)
+                remaining = min(remaining, overThreshold - budgetAge)
+            }
             if remaining > 0 {
                 next = min(next ?? remaining, remaining)
             } else if keepsPage(key) == nil {
-                release(key)
+                if timedOut { timed.append((key, age)) } else { overDue.insert(key) }
             } else {
                 // Still in its window: a hide comes before the pane swaps its content, and
                 // the swap sends no event of its own. Look again, backing off the longer it
@@ -190,12 +233,8 @@ final class AgentPageHibernation {
                 next = min(next ?? again, again)
             }
         }
-        nextCheck = next
-        if let next {
-            deadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
-        } else {
-            deadline.cancel()
-        }
+        timed.sort { $0.age != $1.age ? $0.age > $1.age : $0.key < $1.key }
+        return (timed.map(\.key) + overOrder.filter { overDue.contains($0) }, next)
     }
 
     /// Why tab `key`'s hidden page stays, or nil when it can go. `onScreen: false` leaves out
@@ -264,8 +303,10 @@ final class AgentPageHibernation {
         }
     }
 
+    /// Still the same hidden page and still due by the plan now: budget membership can change
+    /// back while its frame is taken (a front warm again, a chat closed that freed a place).
     private func isDue(_ key: String, _ view: AgentPaneView, in tabs: AgentTabStore) -> Bool {
-        hiddenAt[key] != nil && tabs.existingView(key) === view && keepsPage(key) == nil
+        hiddenAt[key] != nil && tabs.existingView(key) === view && keepsPage(key) == nil && plan()?.due.contains(key) == true
     }
 
     /// The page as last drawn; nil when it does not answer in time (it then shows its loading

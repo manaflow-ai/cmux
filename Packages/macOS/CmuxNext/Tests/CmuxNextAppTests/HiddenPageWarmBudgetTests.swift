@@ -183,4 +183,51 @@ import Testing
         #expect(tabs.fronts == ["a0": .warm, "a1": .warm, "c0": .warm])
         withExtendedLifetime((workspaces, panes)) {}
     }
+
+    /// The person works in B for minutes, goes to C, comes back to A: when C shows, A stops being
+    /// the workspace left last and its fronts start to count. They hid minutes ago, but the person
+    /// left them as budget pages only now: the minute's grace runs from then
+    /// (`Candidate.countedFor`), so no hibernation lands in the switch's frames and a quick
+    /// A -> B -> C -> A wakes nothing. Before, they were due in the same turn as the switch.
+    @Test func aFrontThatJustStartedToCountWaitsAMinute() {
+        var front = page("front", minutes: 10, front: .parked)
+        front.countedFor = 0
+        let plan = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: [front], warmPages: 0)
+        #expect(plan.due.isEmpty, "a front that just stopped being warm was due in the turn of the switch")
+        #expect(plan.nextCheck.map { abs($0 - HibernationPlanner.overBudgetMinimumHidden) < 1e-6 } == true)
+        front.countedFor = HibernationPlanner.overBudgetMinimumHidden + 1
+        #expect(HibernationPlanner.plan(.fallback, pressure: .normal, candidates: [front], warmPages: 0).due == ["front"])
+        // The timeout still runs from the hide.
+        var old = page("old", minutes: 31, front: .parked)
+        old.countedFor = 0
+        #expect(HibernationPlanner.plan(.fallback, pressure: .normal, candidates: [old], warmPages: 0).due == ["old"])
+    }
+
+    /// A page the probe keeps (it plays, holds form input, does not answer) left the budget only
+    /// for a minute, then was due again: a thaw and a probe every minute for as long as it stayed
+    /// hidden. Each keep in a row now doubles how long it stays out of the budget and unprobed.
+    @Test func aPageKeptTwiceIsNotProbedAgainAfterAMinute() {
+        var playing = page("playing", minutes: 40)
+        playing.kept = HibernationPlanner.Kept(seconds: HibernationPlanner.keptBackoff + 1, times: 2)
+        let plan = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: [playing], warmPages: 0)
+        #expect(plan.due.isEmpty, "a page kept twice was probed again after a minute")
+        #expect(plan.nextCheck.map { abs($0 - (HibernationPlanner.keptBackoff - 1)) < 1e-6 } == true,
+                "the next probe is not when the doubled backoff ends")
+        playing.kept?.seconds = 2 * HibernationPlanner.keptBackoff + 1
+        #expect(HibernationPlanner.plan(.fallback, pressure: .normal, candidates: [playing], warmPages: 0).due == ["playing"])
+        #expect(HibernationPlanner.keptHold(times: 40) == 32 * HibernationPlanner.keptBackoff, "the backoff is not bounded")
+    }
+
+    /// Pages already being prepared take their share of the pass: a switch sends many events
+    /// (every pane reports), and each used to start `Pace.perPass` more probes.
+    @Test func probesInFlightTakeTheirShareOfThePass() {
+        let candidates = (0..<20).map { page("t\($0)", minutes: 2 + Double($0)) }
+        let busy = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: candidates, warmPages: 4,
+                                           inFlight: HibernationPlanner.Pace.normal.perPass)
+        #expect(busy.due.isEmpty, "a pass started more probes while a full pass was in flight")
+        #expect(busy.nextCheck == HibernationPlanner.Pace.normal.interval)
+        #expect(busy.allDue.count == 16)
+        let one = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: candidates, warmPages: 4, inFlight: 1)
+        #expect(one.due == ["t19"])
+    }
 }
