@@ -53,7 +53,7 @@ Check a host by hand or from a fleet step (exit 0 when the socket answered and a
     python3 scripts/cmux-next/bench_launch.py check --socket-only --app ...   # also with no GUI session; no frames
     python3 scripts/cmux-next/bench_launch.py session    # only the GUI session check, no app
 """
-import argparse, glob, json, os, platform, pwd, re, signal, socket, subprocess, sys, tempfile, time
+import argparse, glob, json, os, platform, pwd, re, select, signal, socket, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -288,37 +288,61 @@ def report_matches(path, pid=None, binary=None):
 
 
 def crash_report_folders():
-    """Where ReportCrash writes this account's reports, and the system's."""
+    """Where ReportCrash writes reports: this account's folder first (its own processes' reports; ReportCrash creates it
+    with the account's first report), then the system's (0770 root:_analyticsusers: not every account can open it)."""
     return (os.path.join(account_home(), "Library/Logs/DiagnosticReports"), "/Library/Logs/DiagnosticReports")
 
 
 class FolderEvents:
-    """Wakes when any of `folders` gains, loses or renames an entry (kqueue EVFILT_VNODE NOTE_WRITE on each folder):
-    the signal for a file another process writes with no signal of its own (ReportCrash's .ips). A folder that is
-    missing or unreadable is not watched; with none watched, `wait` returns False at once (nothing can wake it)."""
+    """Wakes when any of `folders` gains, loses or renames an entry, or a file added with ``watch_file`` grows (kqueue
+    EVFILT_VNODE NOTE_WRITE, plus NOTE_EXTEND on files): the signal for a file another process writes with no signal of
+    its own (ReportCrash's .ips, which may be created before its body is written). A folder that cannot be opened is
+    not watched: `watched` lists the folders it watches and `unwatched` maps each other one to its error, so a caller
+    reports a wait that had nothing to wake it. With nothing watched, `wait` returns False at once."""
 
     def __init__(self, folders):
         self.folders = folders
         self.queue = None
         self.fds = []
+        self.files = set()
+        self.watched = []
+        self.unwatched = {}
 
     def __enter__(self):
-        import select
-        flags = getattr(os, "O_EVTONLY", os.O_RDONLY)  # O_EVTONLY: watch without keeping the volume busy
         for folder in self.folders:
             try:
-                self.fds.append(os.open(folder, flags))
-            except OSError:
-                pass
-        if self.fds:
-            self.queue = select.kqueue()
-            self.queue.control([select.kevent(fd, filter=select.KQ_FILTER_VNODE,
-                                              flags=select.KQ_EV_ADD | select.KQ_EV_CLEAR,
-                                              fflags=select.KQ_NOTE_WRITE) for fd in self.fds], 0)
+                self._add(folder, select.KQ_NOTE_WRITE)
+                self.watched.append(folder)
+            except OSError as error:
+                self.unwatched[folder] = error.strerror or str(error)
         return self
 
+    def watch_file(self, path):
+        """Also wakes when the file at `path` is written or grows (once per path)."""
+        if path in self.files:
+            return
+        try:
+            self._add(path, select.KQ_NOTE_WRITE | select.KQ_NOTE_EXTEND)
+            self.files.add(path)
+        except (FileNotFoundError, PermissionError):
+            # Gone since the folder read (the folder's event covers what replaces it), or another account's report in
+            # the system folder that this account cannot read, so it could not match anyway.
+            pass
+
+    def _add(self, path, fflags):
+        fd = os.open(path, getattr(os, "O_EVTONLY", os.O_RDONLY))  # O_EVTONLY: watch without keeping the volume busy
+        try:
+            if self.queue is None:
+                self.queue = select.kqueue()
+            self.queue.control([select.kevent(fd, filter=select.KQ_FILTER_VNODE,
+                                              flags=select.KQ_EV_ADD | select.KQ_EV_CLEAR, fflags=fflags)], 0)
+        except OSError:
+            os.close(fd)
+            raise
+        self.fds.append(fd)
+
     def wait(self, timeout):
-        """True when a watched folder changed within `timeout` seconds."""
+        """True when a watched folder or file changed within `timeout` seconds."""
         if self.queue is None:
             return False
         return bool(self.queue.control(None, len(self.fds), timeout))
@@ -330,18 +354,25 @@ class FolderEvents:
             os.close(fd)
 
 
-def crash_reports(since, name="cmux DEV", pid=None, binary=None):
-    """Crash and hang reports of the app written after `since` (epoch seconds); with `pid` or `binary`, only
-    those of that process or executable."""
+def crash_report_candidates(since, name="cmux DEV"):
+    """Report files of the app (`name*`) in the report folders, written after `since` (epoch seconds), oldest first,
+    whatever process they are of."""
     found = []
     for folder in crash_report_folders():
         for path in glob.glob(os.path.join(folder, f"{name}*")):
             try:
-                if os.path.getmtime(path) >= since and report_matches(path, pid, binary):
-                    found.append(path)
+                mtime = os.path.getmtime(path)
             except OSError:
-                pass
-    return sorted(found, key=os.path.getmtime)
+                continue
+            if mtime >= since:
+                found.append((mtime, path))
+    return [path for _, path in sorted(found)]
+
+
+def crash_reports(since, name="cmux DEV", pid=None, binary=None):
+    """Crash and hang reports of the app written after `since` (epoch seconds); with `pid` or `binary`, only
+    those of that process or executable."""
+    return [path for path in crash_report_candidates(since, name) if report_matches(path, pid, binary)]
 
 
 def crash_summary(path, lines=40):
@@ -390,6 +421,7 @@ class BenchApp:
         self.read_session = session
         self.socket_only = socket_only
         self.gui_session = None  # the session read at the last launch
+        self.crash_report_wait = None  # the folders the last crash-report wait watched, and the ones it could not
         self.teardown = None
         if teardown:
             sys.path.insert(0, HERE)
@@ -519,6 +551,8 @@ class BenchApp:
         report = {"tag": self.tag, **host_facts(), "pid": self.process.pid if self.process else None, "exit": exit_code,
                   "sockets": sockets, "last_reply": last, "gui_session": session, "log": self.log_path}
         crashes = self.wait_for_crash_report(exit_code)
+        if self.crash_report_wait is not None:
+            report["crash_report_wait"] = self.crash_report_wait
         if crashes:
             report["crash_report"] = crashes[-1]
             report["crash"] = crash_summary(crashes[-1])
@@ -549,7 +583,9 @@ class BenchApp:
     def wait_for_crash_report(self, exit_code, wait=10):
         """This launch's crash and hang reports. After a signal exit (exit < 0) ReportCrash writes the .ips a few
         seconds after the process ends, so this waits for a report folder to gain a file (kqueue), at most `wait`
-        seconds; otherwise it reads once."""
+        seconds; otherwise it reads once. The account's own folder is created first, so the wait can watch it before the
+        account's first report (ReportCrash would create it inside ~/Library/Logs, which is not watched).
+        `crash_report_wait` then records which folders were watched and why the others were not."""
         if not self.launched_at:
             return []
         pid = self.process.pid if self.process else None
@@ -559,10 +595,21 @@ class BenchApp:
 
         if exit_code is None or exit_code >= 0:
             return found()
-        with FolderEvents(crash_report_folders()) as events:
+        folders = crash_report_folders()
+        unmade = {}
+        try:
+            os.makedirs(folders[0], exist_ok=True)  # the folder ReportCrash writes this account's reports into
+        except OSError as error:
+            unmade[folders[0]] = f"cannot create it: {error.strerror or error}"
+        with FolderEvents(folders) as events:
+            self.crash_report_wait = {"watched": events.watched, "unwatched": {**events.unwatched, **unmade}}
             deadline = time.monotonic() + wait
             while True:
-                reports = found()  # read after the watch is armed: a report written meanwhile is not missed
+                # Each report file seen is watched before the read below, so one whose body is still being written
+                # wakes the wait when it grows; reading after the watches are armed misses nothing written meanwhile.
+                for path in crash_report_candidates(self.launched_at - 1):
+                    events.watch_file(path)
+                reports = found()
                 left = deadline - time.monotonic()
                 if reports or left <= 0 or not events.wait(left):
                     return reports or found()
