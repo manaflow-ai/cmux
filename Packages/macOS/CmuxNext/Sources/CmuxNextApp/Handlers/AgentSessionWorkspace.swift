@@ -70,23 +70,29 @@ enum AgentSessionWorkspace {
         NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: nil, then: join, windows: services.windows)
         return Task { @MainActor in
             do {
-                let tab = try await WorkspaceCreation.createWithFirstTab(key, name: name, on: connection, repair: repair) { result in
+                // The workspace and its terminal; a failure here is WorkspaceCreation's to clean up.
+                let created = try await WorkspaceCreation.createWithFirstTab(key, name: name, on: connection, repair: repair) { result in
                     try await connection.createTerminal(in: result.key, cwd: cwd)
-                    return try await connection.request(NewConversationTabRequest(agentSession: AgentSessionRef(host: host, hostName: machine), workspace: result.workspace,
-                                                                                  origin: AgentTabStore.createOrigin, mutationID: "adopt-" + key.rawValue))
+                    return result
                 }
-                let adopted: AgentSessionAttachClient.Adopted
+                let tab: NewConversationTabRequest.Response, adopted: AgentSessionAttachClient.Adopted
                 do {
+                    // One mutation id for every send: a tab the daemon made after the deadline replays.
+                    let request = NewConversationTabRequest(agentSession: AgentSessionRef(host: host, hostName: machine), workspace: created.workspace,
+                                                            origin: AgentTabStore.createOrigin, mutationID: "adopt-" + key.rawValue)
+                    tab = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command) { try await connection.request(request) }
                     adopted = try await AgentSessionAttachClient.adopt(session: session, surface: tab.surface.rawValue, endpoint: endpoint)
-                } catch let refusal as AgentSessionAttachError {
-                    // Refused, so nothing is bound: the workspace made for the chat (its terminal and
-                    // unbound tab) closes again. The half-created close above only closes an empty one.
+                } catch {
+                    // No chat to show (refused, or the tab or adopt reply never came): the workspace made for
+                    // it closes again with its terminal and any tab, bound or not. Closing only detaches a
+                    // session, so a lost reply after a bind ends nothing. WorkspaceCreation's close above
+                    // takes only an empty workspace, and this one holds the terminal.
                     do {
                         try await WorkspaceClose.close(key, terminals: [], on: connection, reason: .sessionEnd)
-                    } catch {
-                        daemon.logger.error("agent.openSessionWorkspace: closing a refused adopt's workspace failed: \(String(describing: error), privacy: .public)")
+                    } catch let closeError {
+                        daemon.logger.error("agent.openSessionWorkspace: closing a failed adopt's workspace failed: \(String(describing: closeError), privacy: .public)")
                     }
-                    throw refusal
+                    throw error
                 }
                 AgentBypassSessions.shared.set(session, bypass: !adopted.asking)
                 if let pane = await daemon.store.firstPane(mirroring: key) {
