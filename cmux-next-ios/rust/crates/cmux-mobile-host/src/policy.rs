@@ -1043,7 +1043,10 @@ mod tests {
         ] {
             assert_eq!(policy().evaluate(line), Verdict::Forward, "{}", String::from_utf8_lossy(line));
         }
-        let line = br#"{"cmd":"notification-reply","id":"m4","notification":1,"text":"y"}"#.as_slice();
+        // A notification's own reply is PR B's narrow command, with only its notification
+        // and text (`notification_reply_takes_only_its_notification_and_text`); a stray
+        // field still refuses it.
+        let line = br#"{"cmd":"notification-reply","id":"m4","notification":1,"text":"y","surface":7}"#.as_slice();
         assert!(matches!(policy().evaluate(line), Verdict::Refuse(_)));
     }
 
