@@ -41,6 +41,8 @@ public final class AgentPaneDroppedPaths {
     /// Exact copies of the person's recording drops, never their parent folders. These remain
     /// usable by this pane's existing file open/drag actions after the preview path disappears.
     private(set) var retainedPaths: [String] = []
+    /// Invalidates async drop work when the pane switches to a different chat.
+    private(set) var generation = UUID()
 
     public init(now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
         self.now = now
@@ -109,15 +111,10 @@ public final class AgentPaneDroppedPaths {
         if retainedPaths.count > 100 { retainedPaths.removeFirst(retainedPaths.count - 100) }
     }
 
-    /// Retained copies belong to the chat that requested them. A pane can be reused for another
-    /// chat, so never carry an exact-file grant across that session boundary.
-    func clearRetained() {
-        retainedPaths.removeAll()
-    }
-
     /// A pane can move between chat sessions. Clear pending drops as well as already-retained
     /// copies so the next chat cannot consume or open the prior chat's recording.
     func clearForSessionChange() {
+        generation = UUID()
         held.values.forEach { $0.expiry.cancel() }
         held.removeAll()
         retainedPaths.removeAll()
