@@ -1,6 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
-import CmuxNextDesign
+@testable import CmuxNextDesign
 import Foundation
 import Testing
 
@@ -110,5 +110,29 @@ import Testing
         let result = try #require(all.items.firstIndex { !$0.isHidden && $0.title == "Pixel 10" })
         all.performActionForItem(at: result)
         #expect(chosen == ["Pixel 10"])
+    }
+
+    /// A search that hides the checked device drops the menu's state column; clearing the field
+    /// while the menu is open shows the checked device again and brings the column back to every
+    /// row, not only to the checked one (Codex on #24036: the columns are measured once per theming).
+    @Test func clearingTheDeviceSearchBringsTheStateColumnBack() throws {
+        let current = BrowserDeviceMenu.Current(title: "iPad (10th gen)", orientation: "vertical", orientations: ["vertical"])
+        let menu = BrowserDeviceMenu(devices: try Self.devices(), current: current) { _, _ in }.menu()
+        let buttons = BrowserToolbarButtonsView()
+        buttons.popUpMenu = { _, _, _ in }
+        buttons.present(menu, from: .overflow, themed: true)
+        let all = try #require(menu.items.first { $0.title == BrowserDeviceMenu.Strings.allDevices }?.submenu)
+        let laptop = try #require(all.items.first { $0.title == "MacBook Air 13\"" }?.view as? ThemedMenuRowView)
+        #expect(laptop.columns.state, "the checked iPad gives All Devices a state column")
+
+        BrowserDeviceMenu.search("zzz", in: all)
+        #expect(all.items.contains { $0.title == "iPad (10th gen)" && $0.isHidden })
+        #expect(!laptop.columns.state, "the hidden checked iPad leaves no column")
+
+        BrowserDeviceMenu.search("", in: all)
+        #expect(all.items.contains { $0.title == "iPad (10th gen)" && !$0.isHidden })
+        #expect(laptop.columns.state, "the checked iPad shows again, and so does the column")
+        let menuItem = try #require(laptop.menuItem)
+        #expect(ThemedMenuRowView.leading(of: menuItem, in: laptop.columns) == ThemedMenuRowView.stateTitleX)
     }
 }

@@ -24,6 +24,7 @@ extension SettingsSchema {
     /// `appearance.surfaces.<surface>.color|opacity` row (looks only, R55).
     public static let agentSettableKeys: Set<String> = agentSettableTable.union(SurfaceBackgroundSetting.keys).union(BrowserLinkClickSchema.agentSettableKeys)
         .union(OmnibarSettingsSchema.agentSettableKeys)
+        .union(ChiefReactionSettings.keys) // a Chief configures its own reaction classifier (Lawrence 2026-10-21)
         // What sidebar rows show (looks only, SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE).
         .union(WorkspaceRowSetting.keys)
         // The diff page's display keys (looks only, diff-host S4).
@@ -202,6 +203,9 @@ extension SettingsSchema {
         "notifications.dockBadge",
         "notifications.attention.style",
         "notifications.attention.color",
+        "notifications.attention.terminals",
+        "notifications.attention.agentChats",
+        "notifications.attention.agentChatBlinkCount",
         "notifications.attention.width",
         "notifications.attention.blinkCount",
         "notifications.attention.duration",
