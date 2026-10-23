@@ -26,6 +26,6 @@ pub(crate) use terminal::{HolderTerminal, holder_local_launch};
 pub(crate) fn enabled() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED.get_or_init(|| {
-        std::env::var("CMUX_TUI_TERMINAL_HOST_MODEL").is_ok_and(|model| model == "holder")
+        std::env::var("CMUX_TUI_TERMINAL_HOST_MODEL").map_or(true, |model| model == "holder")
     })
 }
