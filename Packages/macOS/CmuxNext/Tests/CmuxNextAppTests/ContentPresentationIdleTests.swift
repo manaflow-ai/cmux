@@ -45,7 +45,7 @@ import Testing
         frames.fire()
         #expect(!idle)
         frames.fire()
-        #expect(panes.allSatisfy(\.shown))
+        #expect(panes.allSatisfy { $0.shown })
         #expect(idle, "the frame that showed the last pane ran the idle work")
     }
 
