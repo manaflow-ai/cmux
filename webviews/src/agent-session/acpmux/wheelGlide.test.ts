@@ -229,6 +229,29 @@ describe("installWheelGlide", () => {
     expect(scroller.scrollTop).toBe(at);
   });
 
+  test("a glide to the bottom follows a reply that grows meanwhile, to the new bottom", () => {
+    const { scroller } = setup();
+    // 50px above the bottom (800): a notch down goes to the bottom.
+    scroller.scrollTop = 750;
+    expect(scroller.wheel(DOWN)).toBe(true);
+    run(3);
+    // The streaming reply grows by 60px mid-glide.
+    scroller.scrollHeight = 1060;
+    run(20);
+    expect(Math.round(scroller.scrollTop)).toBe(860);
+    expect(frames.size).toBe(0);
+  });
+
+  test("a glide short of the bottom keeps its own distance when the reply grows", () => {
+    const { scroller } = setup();
+    scroller.scrollTop = 500;
+    scroller.wheel(DOWN);
+    run(3);
+    scroller.scrollHeight = 1060;
+    run(20);
+    expect(Math.round(scroller.scrollTop)).toBe(600);
+  });
+
   test("a diagonal notch, as much sideways as down, is the engine's", () => {
     const { scroller } = setup();
     expect(scroller.wheel({ ...DOWN, deltaX: -100.006103515625 })).toBe(false);

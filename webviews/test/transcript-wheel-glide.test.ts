@@ -4,7 +4,8 @@
 // another chat ends it, so the old chat's distance never moves the new one; and a notch over a part
 // that scrolls on its own (a code view, a long tool output) ends it where it is, since the wheel
 // belongs to that part now; and a page hidden mid-glide ends it at once, since WebKit holds a hidden
-// page's frames and the first one back would finish the glide in one jump.
+// page's frames and the first one back would finish the glide in one jump; and a glide to the bottom
+// while a reply streams lands at the bottom the reply grew to, so the chat follows the reply again.
 //
 // The transcript harness (test/browser/transcript-follow.harness.tsx) in real Chromium and WebKit;
 // the notch is the event macOS WebKit dispatches for a mouse wheel (100.006103515625px,
@@ -106,6 +107,31 @@ await requireBrowserLane("transcript-wheel-glide.test.ts", async () => {
       );
     }, deltaY);
 
+  /// A chat whose last reply is still streaming, `paragraphs` long.
+  const streaming = (paragraphs: number) => [
+    ...history("s", 30),
+    { id: "s-live-user", kind: "user", text: "Tell me about the lighthouse.", version: 1, at: 900_000 },
+    {
+      id: "s-live-answer",
+      kind: "assistant",
+      text: Array.from(
+        { length: paragraphs },
+        (_, index) => `Paragraph ${index}. The keeper wiped the salt from the lantern glass and watched the light.`,
+      ).join("\n\n"),
+      version: paragraphs,
+      streaming: true,
+      at: 900_001,
+    },
+  ];
+  const show = (page: Page, rows: unknown) =>
+    page.evaluate((rows) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(rows), rows);
+  /// How far the view's bottom is above the transcript's end, in pixels.
+  const fromEnd = (page: Page) =>
+    page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      return Math.round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop);
+    });
+
   for (const name of browsers.keys()) {
     describe(name, () => {
       test("a switch to another chat mid-glide leaves the new chat where it opened", async () => {
@@ -180,6 +206,39 @@ await requireBrowserLane("transcript-wheel-glide.test.ts", async () => {
         });
         expect(after.taken).toBe(false);
         expect(after.tops.slice(1).filter((top) => Math.abs(top - after.tops[0]!) > 1)).toEqual([]);
+        await page.close();
+      });
+
+      test("a glide to the bottom while a reply streams lands at the grown bottom, and follows on", async () => {
+        const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 560 } });
+        await installPaintedFrames(page);
+        const { port } = vite!.httpServer!.address() as { port: number };
+        await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
+        await page.waitForFunction(() => "__showRows" in window);
+        let paragraphs = 6;
+        await show(page, streaming(paragraphs));
+        await painted(page, 20);
+        // The reader is 150px above the bottom: two notches down go to the bottom.
+        await page.evaluate(() => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight - 150;
+        });
+        await painted(page, 20);
+        expect(await fromEnd(page)).toBeGreaterThan(100);
+        for (let index = 0; index < 2; index += 1) expect(await notch(page, 100.006103515625)).toBe(true);
+        await painted(page, 2);
+        // The reply grows by several lines mid-glide, more than the follow deadband.
+        paragraphs += 4;
+        await show(page, streaming(paragraphs));
+        await painted(page, 30);
+        expect(await fromEnd(page)).toBeLessThanOrEqual(1);
+        // And the chat follows the reply again: it grows, and the view stays at its end.
+        for (let more = 0; more < 3; more += 1) {
+          paragraphs += 3;
+          await show(page, streaming(paragraphs));
+          await painted(page, 6);
+        }
+        expect(await fromEnd(page)).toBeLessThanOrEqual(1);
         await page.close();
       });
 

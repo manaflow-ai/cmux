@@ -231,12 +231,22 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
 
       // The wheel over Jump to latest reaches the transcript as a copy (wheelPassThrough.ts) that keeps
       // the wheel's modifiers, so a modified notch there is read as it would be over the transcript.
-      test("a notch over Jump to latest reaches the transcript with its modifiers", async () => {
+      test("a notch over Jump to latest reaches the transcript with its modifiers, and scrolls nothing", async () => {
         current = browsers.get(name);
         const page = await open();
         await page.locator(".acpmux-jump-latest[data-shown]").waitFor();
-        const copies = await page.evaluate(() => {
+        const { copies, moved } = await page.evaluate(async () => {
           const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          // Where the row under the transcript's middle is on screen: rows that measure change the
+          // offset to keep the reader's place, and nothing on screen moves for them.
+          const box = scroller.getBoundingClientRect();
+          const id = (
+            document
+              .elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)!
+              .closest(".acpmux-row") as HTMLElement
+          ).dataset.rowId!;
+          const top = () => document.querySelector(`[data-row-id="${id}"]`)!.getBoundingClientRect().top;
+          const before = top();
           const seen: { shift: boolean; alt: boolean; meta: boolean; legacy: number }[] = [];
           scroller.addEventListener("wheel", (event) =>
             seen.push({
@@ -252,8 +262,11 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
             const init = { deltaY: -100.006103515625, wheelDeltaY: 300, bubbles: true, cancelable: true, ...modifiers };
             jump.dispatchEvent(new WheelEvent("wheel", init as WheelEventInit));
           }
-          return seen;
+          for (let frame = 0; frame < 10; frame += 1) await window.cmuxPaintFrame();
+          return { copies: seen, moved: Math.round(top() - before) };
         });
+        // A modified wheel is the engine's over the transcript itself; outside it, nothing scrolls.
+        expect(moved).toBe(0);
         expect(copies).toEqual([
           { shift: true, alt: false, meta: false, legacy: 300 },
           { shift: false, alt: true, meta: false, legacy: 300 },
