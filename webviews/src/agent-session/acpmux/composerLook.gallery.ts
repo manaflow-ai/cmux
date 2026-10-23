@@ -24,22 +24,6 @@ const startedChat = () =>
 /// A new chat before its first send: the folder and computer strip heads the composer.
 const newChat = () => noChat(manySessions(4), { summary: { sessionId: "", cwd: CWD, harness: "codex" } });
 
-const goalChat = (status: "active" | "paused") => {
-  const snapshot = chat(startedChat().rows, { harness: "codex", model: "gpt-6-astra" });
-  return {
-    ...snapshot,
-    summary: {
-      ...snapshot.summary!,
-      harness: "codex",
-      goal: {
-        objective: "Finish the timeout fix and verify the retry behavior",
-        status,
-        tokenBudget: 50000,
-        tokensUsed: 12400,
-      },
-    },
-  };
-};
 const speedNewTab = () => {
   const snapshot = newChat();
   snapshot.summary = { ...snapshot.summary!, model: "gpt-6.1-sol" };
@@ -113,16 +97,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/StyleSwitch.tsx#DotSwitch",
   ],
   variants: {
-    "goal-active": {
-      note: "A persisted Codex goal between turns; Pause and Clear use the same /goal command path.",
-      snapshot: goalChat("active"),
-      play: (ctx) => look(ctx, "claude"),
-    },
-    "goal-paused": {
-      note: "A paused goal remains visible when the conversation reopens.",
-      snapshot: goalChat("paused"),
-      play: (ctx) => look(ctx, "codex"),
-    },
     "newtab-codex-speed": {
       note: "Fast and Ultrafast are available before the first prompt, from the model's advertised tiers.",
       height: 520,
