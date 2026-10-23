@@ -9,6 +9,7 @@ import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
 import { ChannelsCard } from "./ChannelsCard";
 import { ChiefsCard } from "./ChiefsCard";
 import { ComputerUseCard } from "./ComputerUseCard";
+import { DevicesCard } from "./DevicesCard";
 import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
 import { GroupList } from "./GroupList";
 import { HarnessesCard } from "./HarnessesCard";
@@ -47,6 +48,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   advancedActions: () => <PlaceholderSection section="advanced" />,
   backdrops: (focus, workspace) => <Backdrops focus={focus} workspace={workspace} />,
   mobile: () => <MobileCard />,
+  devices: () => <DevicesCard />,
   chiefPet: (focus) => <ChiefPetCard focus={focus} />,
   density: () => <DensityCard />,
   importSuggestions: () => <ImportSuggestionsCard />,
