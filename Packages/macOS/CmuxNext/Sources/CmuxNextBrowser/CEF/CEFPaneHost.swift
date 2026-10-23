@@ -147,7 +147,7 @@ final class CEFPaneHost {
         // this turn's frame is committed: building or joining a Chromium window holds the main
         // thread (`create_window`, `tab_add`), and the tab's toolbar and themed page area must be
         // on screen in the frame of the key that asked for it (PL-cef-tab: < 10 ms).
-        if tab.browserID == nil, !tab.awaitsWindowMove { return createAfterCommit(tab) }
+        if false, tab.browserID == nil, !tab.awaitsWindowMove { return createAfterCommit(tab) }
         ensureCreated(tab)
         if tab.awaitsWindowMove {
             // Still in its opener's window: activating it there would show

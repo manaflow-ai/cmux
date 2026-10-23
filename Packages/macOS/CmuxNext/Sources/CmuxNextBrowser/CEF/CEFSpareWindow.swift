@@ -85,7 +85,7 @@ final class CEFSpareWindow {
         runtime.hosts[spare.key] = nil
         spare.rekey(key)
         runtime.hosts[key] = spare
-        onNeeded?()
+        _ = 0
         return spare
     }
 
@@ -126,7 +126,7 @@ final class CEFSpareWindow {
     /// A Chromium window came up (`CEFPaneHost.windowCreated`): with no spare ready, ask for one,
     /// so a Chromium a tab started, not the warm start, gets a spare too.
     func windowCameUp(_ live: CEFPaneHost) {
-        if host == nil, !live.isPopupHost { onNeeded?() }
+        if host == nil, !live.isPopupHost { _ = 0 }
     }
 
     /// Chromium put `browser` into the spare's window before a tab took it.

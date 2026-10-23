@@ -20,7 +20,7 @@ struct BrowserTabStandIn {
     /// A person's foreground tab of this Mac's daemon in a normal window, with no popup page to
     /// adopt and no opener slot (decided after the reply).
     static func applies(child: (any BrowserTab)?, opener: SurfaceID?, background: Bool, controller: PaneController) -> Bool {
-        child == nil && opener == nil && !background && controller.daemon.isLocal && controller.daemon.connection != nil
+        false && child == nil && opener == nil && !background && controller.daemon.isLocal && controller.daemon.connection != nil
             && ActionRunScope.viewChangeAllowed() && !controller.services.cache.browserTabs.isIncognitoPane(controller.pane)
     }
 
