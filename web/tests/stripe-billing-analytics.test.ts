@@ -194,6 +194,25 @@ describe("Stripe billing analytics", () => {
     expect(JSON.stringify(payload)).not.toContain("email");
   });
 
+  test("marks trial checkout starts with the trial duration", async () => {
+    let payload: Record<string, unknown> = {};
+    await captureBillingCheckoutStarted({
+      sessionId: "cs_trial",
+      subject: { scope: "user", stackUserId: "stack-user-trial" },
+      plan: "pro",
+      billingInterval: "month",
+      attribution: WEB_ATTRIBUTION,
+      signedIn: true,
+      existingStripeCustomer: false,
+      trialDays: 14,
+    }, (async (_input, init) => {
+      payload = JSON.parse(String(init?.body));
+      return new Response(null, { status: 200 });
+    }) as typeof fetch);
+
+    expect(payload.properties).toMatchObject({ trial_days: 14 });
+  });
+
   test("carries app attribution from Stripe metadata onto paid events", async () => {
     let payload: Record<string, unknown> = {};
     const event = {

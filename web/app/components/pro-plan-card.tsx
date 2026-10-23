@@ -35,6 +35,7 @@ export function ProPlanCard({
   requiresSignIn,
   ctaLabel,
   action,
+  trialAction,
   monthlyOnly = false,
   initialInterval = "year",
   plan = "pro",
@@ -52,6 +53,8 @@ export function ProPlanCard({
   ctaLabel: string;
   /** A non-checkout action (manage billing, App Store); hides the period toggle. */
   action?: ReactNode;
+  /** Optional first-time customer trial action shown below the regular CTA. */
+  trialAction?: ReactNode;
   /**
    * The account's checkout goes to the Stripe portal plan switch, which
    * offers monthly prices only (a Go subscriber upgrading), so no toggle.
@@ -140,6 +143,7 @@ export function ProPlanCard({
           </ProCtaLink>
         )}
       </div>
+      {trialAction ? <div className="mt-2">{trialAction}</div> : null}
       {children}
     </div>
   );

@@ -24,6 +24,7 @@ export function PlanPicker({
   cards,
   scope,
   periodEnd,
+  subscriptionStatus,
   canManagePayment,
   currentPrice,
   initialSwitch,
@@ -32,6 +33,8 @@ export function PlanPicker({
   readonly scope: PickerScope;
   /** ISO end of the current paid period, when there is one. */
   readonly periodEnd: string | null;
+  /** Stripe status, used to explain when a trial ends before billing begins. */
+  readonly subscriptionStatus?: string | null;
   /** Shows the payment method and invoice links (Stripe-managed billing). */
   readonly canManagePayment: boolean;
   /**
@@ -58,6 +61,7 @@ export function PlanPicker({
   const resume = useResumePlan();
   const teamId = scope.kind === "team" ? scope.teamId : undefined;
   const periodDate = formatBillingDate(periodEnd, locale);
+  const periodLabel = subscriptionStatus === "trialing" ? "trialEndsOn" : "renewsOn";
   const current = cards.find((card) => card.current);
   const paidCurrent = current && current.id !== "free" ? current.id : null;
   const portalHref = teamId ? teamPortalHref(teamId) : "/api/billing/portal";
@@ -67,7 +71,7 @@ export function PlanPicker({
     const name = t(`names.${card.id}`);
     switch (card.action.kind) {
       case "current":
-        return periodDate && card.id !== "free" ? <p className="text-xs text-muted">{t("renewsOn", { date: periodDate })}</p> : null;
+        return periodDate && card.id !== "free" ? <p className="text-xs text-muted">{t(periodLabel, { date: periodDate })}</p> : null;
       case "resume":
         return (
           <div className="space-y-2">

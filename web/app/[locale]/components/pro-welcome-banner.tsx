@@ -32,13 +32,15 @@ export function ProWelcomeBanner() {
                   ? t("billingCancelled")
                   : billing === "annual_unavailable"
                     ? t("billingAnnualUnavailable")
-                    : billing === "plan_unavailable"
-                      ? t("billingPlanUnavailable")
-                      : billing === "invalid_plan"
-                    ? t("billingInvalidPlan")
-                    : billing === "invalid_relay"
-                      ? t("billingInvalidRelay")
-                      : null;
+                    : billing === "trial_unavailable"
+                      ? t("billingTrialUnavailable")
+                      : billing === "plan_unavailable"
+                        ? t("billingPlanUnavailable")
+                        : billing === "invalid_plan"
+                          ? t("billingInvalidPlan")
+                          : billing === "invalid_relay"
+                            ? t("billingInvalidRelay")
+                            : null;
   if (!message) return null;
 
   return (

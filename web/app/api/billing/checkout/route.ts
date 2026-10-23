@@ -38,6 +38,7 @@ import {
 } from "../../../../services/billing/stripe";
 import {
   CHECKOUT_BILLING_INTERVAL,
+  PRO_TRIAL_DAYS,
   type BillingInterval,
 } from "../../../../services/billing/plans";
 import {
@@ -163,7 +164,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!app || !isStripeBillingConfigured()) return nativeCheckoutError("billing_unavailable");
     const attribution = nativeCheckoutAttribution();
     const scheme = validatedNativeCallbackScheme(typeof body.cmux_scheme === "string" ? body.cmux_scheme : null, request);
-    const response = await stripePersonalCheckout(request, app, plan, "month", scheme, attribution, user.id);
+    const response = await stripePersonalCheckout(request, app, plan, "month", scheme, attribution, false, user.id);
     const destination = response.headers.get("location");
     if (!destination) throw new Error("Checkout destination is unavailable");
     const url = new URL(destination);
@@ -236,6 +237,9 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
   const intervalError = unavailableIntervalResponse(request, plan);
   if (intervalError) return intervalError;
   const interval = checkoutInterval(request, plan);
+  const trial = checkoutTrial(request.nextUrl.searchParams.get("trial"));
+  const trialError = unavailableTrialResponse(request, plan, interval, trial);
+  if (trialError) return trialError;
   const rawCallbackScheme = request.nextUrl.searchParams.get("cmux_scheme");
   const verifiedRelayScheme = verifiedAppPricingRelayScheme(request.nextUrl);
   const hasRelayAssertion =
@@ -296,6 +300,7 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
       interval,
       callbackScheme,
       attribution,
+      trial,
     );
   }
   if (plan === "team") {
@@ -328,6 +333,7 @@ async function stripePersonalCheckout(
   interval: BillingInterval,
   callbackScheme: string,
   attribution: CheckoutAttribution,
+  trial = false,
   authenticatedUserId?: string,
 ) {
   try {
@@ -345,6 +351,14 @@ async function stripePersonalCheckout(
     captureCheckoutAuthenticated(request, user.id, plan, attribution);
 
     const stripeBillingStatus = await stripeBillingStatusForUser(stackUserId);
+    if (
+      trial &&
+      (stripeBillingStatus.hasCustomer ||
+        stripeBillingStatus.subscriptionId !== null ||
+        stripeBillingStatus.hasRecurringSubscription)
+    ) {
+      return NextResponse.redirect(new URL("/pricing?billing=trial_unavailable", requestOrigin(request)));
+    }
     // Keep stale Upgrade links from opening a second subscription. Any
     // currently active row (even behind a newer canceled one) means the portal
     // is the right destination; the portal also recovers past-due/unpaid and
@@ -382,6 +396,7 @@ async function stripePersonalCheckout(
       app: "cmux",
       billingInterval: interval,
       nativeCallbackScheme: callbackScheme,
+      ...(trial ? { trialDays: String(PRO_TRIAL_DAYS) } : {}),
       ...(returnTo ? { returnTo } : {}),
       ...checkoutAttributionMetadata(attribution),
     };
@@ -400,13 +415,17 @@ async function stripePersonalCheckout(
       ],
       client_reference_id: stackUserId,
       metadata,
-      subscription_data: { metadata },
+      subscription_data: {
+        metadata,
+        ...(trial ? { trial_period_days: PRO_TRIAL_DAYS } : {}),
+      },
       customer: stripeBillingStatus.customerId ?? undefined,
       customer_email: stripeBillingStatus.customerId
         ? undefined
         : !user.isAnonymous && user.primaryEmail
           ? user.primaryEmail
           : undefined,
+      ...(trial ? { payment_method_collection: "always" as const } : {}),
       allow_promotion_codes: true,
       success_url: successUrl,
       cancel_url: cancelUrl.toString(),
@@ -422,6 +441,7 @@ async function stripePersonalCheckout(
       attribution,
       signedIn: !user.isAnonymous,
       existingStripeCustomer: Boolean(stripeBillingStatus.customerId),
+      ...(trial ? { trialDays: PRO_TRIAL_DAYS } : {}),
       ...checkoutLivemode(session),
     }));
     return NextResponse.redirect(session.url);
@@ -430,6 +450,7 @@ async function stripePersonalCheckout(
       route: "/api/billing/checkout",
       plan,
       interval,
+      ...(trial ? { trialDays: PRO_TRIAL_DAYS } : {}),
     });
     return NextResponse.redirect(new URL("/pricing?billing=error", requestOrigin(request)));
   }
@@ -785,6 +806,20 @@ function checkoutPlan(raw: string | null): "go" | "pro" | "max" | "team" | null 
   const plan = raw.trim().toLowerCase();
   if (plan === "go" || plan === "pro" || plan === "max" || plan === "team") return plan;
   return null;
+}
+
+function checkoutTrial(raw: string | null): boolean {
+  return raw === "1";
+}
+
+function unavailableTrialResponse(
+  request: NextRequest,
+  plan: ReturnType<typeof checkoutPlan>,
+  interval: BillingInterval,
+  trial: boolean,
+): NextResponse | null {
+  if (!trial || (plan === "pro" && interval === "month")) return null;
+  return NextResponse.redirect(new URL("/pricing?billing=trial_unavailable", requestOrigin(request)));
 }
 
 /** Pro and Max sell yearly Prices; Go and Team remain monthly-only. */

@@ -102,6 +102,7 @@ function StripePersonalBilling({ data, change }: { data: PersonalBillingJson; ch
       cards={cards}
       scope={{ kind: "personal", returnTo: localeHref(locale, "/dashboard/billing") }}
       periodEnd={subscription?.currentPeriodEnd ?? null}
+      subscriptionStatus={subscription?.status ?? null}
       canManagePayment={status.billingManagement === "stripe"}
       initialSwitch={change}
       // A plan granted without a subscription charges nothing, so it shows no price.

@@ -11,6 +11,7 @@ import {
   GO_CHECKOUT_URL,
   PRO_CHECKOUT_URL,
   TEAM_CHECKOUT_URL,
+  withCheckoutTrial,
   withCheckoutInterval,
 } from "../../../lib/billing";
 import {
@@ -262,6 +263,10 @@ function PricingContent({
   // A failed payment is fixed in the portal before any plan switch.
   const maxNeedsPaymentFix = snapshot.isPro && !isMax && snapshot.paymentPastDue === true;
   const proCheckoutHref = withCheckoutInterval(proCheckoutURL, "month");
+  const proTrialCheckoutHref = withCheckoutInterval(
+    withCheckoutTrial(proCheckoutURL),
+    "month",
+  );
   const proAnnualLabelSet = {
     billingPeriod: t("billingPeriod"),
     yearly: t("pro.annual.yearly"),
@@ -375,6 +380,17 @@ function PricingContent({
         checkoutHrefs={proCheckoutHrefs}
         requiresSignIn={!pending && !snapshot.authenticated}
         ctaLabel={t("pro.cta")}
+        trialAction={!snapshot.isPro ? (
+          <ProCtaLink
+            checkoutHref={proTrialCheckoutHref}
+            requiresSignIn={!pending && !snapshot.authenticated}
+            interval="month"
+            location="pricing_page_trial"
+            plan="pro"
+          >
+            {t("pro.trialCta")}
+          </ProCtaLink>
+        ) : null}
         badge={
           isProCurrent ? (
             <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge>
@@ -590,8 +606,8 @@ function PricingContent({
             className="space-y-5 text-[15px] max-w-2xl"
             style={{ lineHeight: 1.5 }}
           >
-            {faqItems.map((item, i) => (
-              <div key={i}>
+            {faqItems.map((item) => (
+              <div key={item.q}>
                 <p className="font-medium mb-1">{item.q}</p>
                 <p className="text-muted">{item.a}</p>
               </div>
