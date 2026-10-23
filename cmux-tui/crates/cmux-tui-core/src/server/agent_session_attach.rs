@@ -15,6 +15,8 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+#[path = "agent_session_adopt.rs"]
+mod agent_session_adopt;
 #[path = "agent_session_children.rs"]
 pub(super) mod agent_session_children;
 #[path = "agent_session_link.rs"]
@@ -30,6 +32,7 @@ mod inventory_socket;
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
+pub use agent_session_adopt::AGENT_SESSION_ADOPT_CAPABILITY;
 use agent_session_link::{AcpmuxLink, Inbound, LinkError};
 pub use agent_session_start::{
     AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AcpmuxStarter,
@@ -335,6 +338,8 @@ pub(crate) enum Refusal {
     UnknownPermission,
     /// `agent-session-start`: the tab already has a session.
     Bound,
+    /// `agent-session-adopt`: this machine's acpmux lists no such chat of its own.
+    UnknownSession,
     /// `agent-session-start`: acpmux is not running and could not be started.
     AcpmuxUnavailable,
     /// `agent-session-start`: the agent has no mode that asks before acting.
@@ -369,6 +374,7 @@ impl Refusal {
             Self::Refused => "agent_session.refused",
             Self::UnknownPermission => "agent_session.unknown_permission",
             Self::Bound => "agent_session.bound",
+            Self::UnknownSession => "agent_session.unknown_session",
             Self::AcpmuxUnavailable => "agent_session.acpmux_unavailable",
             Self::NotAsking => "agent_session.not_asking",
             Self::UntrustedFolder => "agent_session.untrusted_folder",
@@ -394,6 +400,7 @@ impl Refusal {
             Self::Refused => "acpmux refused the request",
             Self::UnknownPermission => "no such pending permission request on this attachment",
             Self::Bound => "the agent tab already has a session",
+            Self::UnknownSession => "this machine runs no such chat of its own",
             Self::AcpmuxUnavailable => {
                 "acpmux is not running on this machine and could not be started"
             }
@@ -456,6 +463,9 @@ pub(super) fn try_handle(
     if cmd == "agent-session-trust" {
         return Some(trust(mux, client, id, object, writer));
     }
+    if cmd == "agent-session-adopt" {
+        return Some(adopt(mux, client, id, object, writer));
+    }
     let Some(command) = AgentSessionCommand::parse(&cmd, Value::Object(object)) else {
         return Some(refuse(writer, id, Refusal::BadRequest));
     };
@@ -506,6 +516,26 @@ fn start(
         return refuse(writer, id, Refusal::Unavailable);
     };
     agent_session_start::start(mux, client, id, socket, params, writer)
+}
+
+/// `agent-session-adopt` (agent_session_adopt.rs), with the same checks.
+fn adopt(
+    mux: &Arc<Mux>,
+    client: u64,
+    id: Option<Value>,
+    params: serde_json::Map<String, Value>,
+    writer: &MessageWriter,
+) -> bool {
+    let Ok(params) = serde_json::from_value(Value::Object(params)) else {
+        return refuse(writer, id, Refusal::BadRequest);
+    };
+    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
+    let Some(socket) = mux.control_clients.agent_sessions.socket() else {
+        return refuse(writer, id, Refusal::Unavailable);
+    };
+    agent_session_adopt::adopt(mux, client, id, socket, params, writer)
 }
 
 /// `agent-session-trust` (agent_session_trust.rs), with the same checks.

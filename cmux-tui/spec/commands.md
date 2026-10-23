@@ -9308,6 +9308,34 @@ key itself (and only on `safe_to_restart`, or after the person's click), then
 starts again; this check does not close the race with an agent that starts
 between the check and a restart (cx-ofowe).
 
+### agent-session-adopt
+
+`agent-session-adopt-v1`: `{id, cmd:"agent-session-adopt", surface, session}`
+binds a chat that already runs in this machine's own acpmux (one an agent or
+`cmux agent open` started here) to an agent tab of this store, then answers
+`{surface, session, conversation, family, mode, asking}`. The client then
+shows it with `agent-session-attach`. The tab is checked as for
+`agent-session-start` (`agent_session.unknown_tab`, `agent_session.bound`),
+and so is the machine: a team VM answers `agent_session.team_vm_blocked`, a
+Cloud VM of unknown kind `agent_session.host_unverified`. `session` (1 to 128
+letters, digits or `_`, `.`, `:`, `-`) must be listed by this machine's
+`_acpmux/sessions` as its own: a chat mirrored from a peer (`peer` set), the
+Home Chief's (`tags.cmux.chief`, an `optchat-` name or harness) and an id
+acpmux does not list are `agent_session.unknown_session`. The daemon never
+starts acpmux for an adopt (`agent_session.acpmux_unavailable` when nothing
+listens). The session keeps its mode: `family` and `mode` are its
+`_acpmux/web_modes` answer, and `asking` is false when that mode does not ask
+before acting (or the family is one the remote table refuses). Such a chat is
+adopted too, on the hosts the machine check allows, and the app shows it with
+a "bypass" badge; the daemon changes no mode. The bind records the harness
+acpmux lists for the session (a profile by its last part), else its family.
+Starts and adopts share the per-daemon and per-tab limit
+(`agent_session.limit`). Trust is the attach verbs': trusted local (Unix)
+connections only. The daemon does not advertise `agent-session-adopt-v1` in
+`identify` yet: it does once the mode reads the app relies on with it
+(`agent-session-mode`, the attach reply's `agentMode`, `mode_events`) are
+served too.
+
 ### agent-session-trust
 
 `agent-session-trust-v1`: `{id, cmd:"agent-session-trust", surface, cwd, level?}`
