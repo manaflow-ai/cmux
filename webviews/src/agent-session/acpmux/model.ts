@@ -19,6 +19,7 @@ import { PASTE_CHIP_HEIGHT, type PasteRange, collapsedPromptHeight, promptParts 
 import { mcpCall } from "./conversation/mcpCalls";
 import { subsessionCall } from "./conversation/subsessionCalls";
 import type { ChatTool } from "./summary/chatTools";
+import type { TaskGoal } from "./goal";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -515,6 +516,8 @@ export type AcpmuxSnapshot = {
     worktree?: string;
     title?: string;
     name?: string;
+    /** Codex's persisted thread goal, when the harness reported one. */
+    goal?: TaskGoal;
     harness?: string;
     /// The harness family acpmux files the session under (`codex`, `opencode`, ...), when it says.
     family?: string;
