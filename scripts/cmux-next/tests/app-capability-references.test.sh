@@ -2,7 +2,7 @@
 # scripts/cmux-next/check-app-capability-references.py fails a tree whose app
 # gates a feature on a daemon capability the same-tree daemon never serves
 # (decision P10). It reads source only, so this test builds a small tree:
-# DaemonEndpoint.swift, one app file, cmux-tui-core with one dependency crate.
+# DaemonEndpoint.swift (enum DaemonCapability), one app file, cmux-tui-core with one dependency crate.
 # A planted gate on an unserved capability is red; removing it is green.
 set -euo pipefail
 
@@ -40,19 +40,27 @@ cat > "$tmp/cmux-tui/crates/cmux-tui-cloud-conversations/src/lib.rs" <<'EOF'
 pub const CLOUD_CONVERSATIONS_CAPABILITY: &str = "cloud-conversations-v1";
 EOF
 
-write_endpoint() { # optional-identifiers
+write_endpoint() { # optional-identifiers (`.name, .name`)
   cat > "$sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift" <<EOF
-public struct DaemonCapabilities: Sendable {
-    private init() {}
-    public static let required: [String] = [
-        "workspace-registry-v1",
-    ]
-    public static let tabDrag = "tab-drag-v1"
-    public static let attachIdentity = "attach-identity-v1"
-    public static let cloudConversations = "cloud-conversations-v1"
-    public static let terminalResources = "terminal-resources-v1"
-    public static var optional: [String] { [$1] }
-    public static var unservedByBundledDaemon: [String] { [] }
+public enum DaemonCapability: String, CaseIterable, Sendable {
+    case workspaceRegistry = "workspace-registry-v1"
+    case tabDrag = "tab-drag-v1"
+    case attachIdentity = "attach-identity-v1"
+    case cloudConversations = "cloud-conversations-v1"
+    case terminalResources = "terminal-resources-v1"
+
+    public enum Tier: Sendable {
+        case required, optional, unservedByBundledDaemon
+    }
+
+    public var tier: Tier {
+        switch self {
+        case .workspaceRegistry:
+            return .required
+        case $1:
+            return .optional
+        }
+    }
 }
 EOF
 }
@@ -64,12 +72,12 @@ struct TerminalResourcesRequest {
 struct Feature {
     func run(daemon: DaemonService) {
         // daemon.supports("commented-out-v1") is not a reference.
-        if daemon.supports(DaemonCapabilities.tabDrag) {}
+        if daemon.supports(DaemonCapability.tabDrag.rawValue) {}
         if daemon.supports("attach-identity-v1") {}
-        if daemon.supports(DaemonCapabilities.cloudConversations) {}
+        if daemon.supports(DaemonCapability.cloudConversations) {}
         registry.bindUnavailable(["later"], ActionFailure.needsDaemonCapability("layout-templates-v1"))
         let label = #"a raw "string" with { a brace"#, other = "interpolated \(f("}")) text"
-        if ctx.require(DaemonCapabilities.tabDrag, on: daemon) {}
+        if ctx.require(DaemonCapability.tabDrag.rawValue, on: daemon) {}
 $1
     }
 }
@@ -77,7 +85,7 @@ EOF
 }
 run() { python3 -I "$check" --repo "$tmp" 2>&1; }
 
-write_endpoint "tabDrag, attachIdentity, cloudConversations, terminalResources"
+write_endpoint ".tabDrag, .attachIdentity, .cloudConversations, .terminalResources"
 write_app ""
 out="$(run)" || fail "a tree whose daemon serves every gate failed: $out"
 [[ "$out" == *"PASS"* ]] || fail "no PASS line: $out"
@@ -109,7 +117,14 @@ out="$(run)" || fail "the tree failed after the plant was removed: $out"
 
 # A daemon capability the app gates on but leaves out of the lists is red:
 # check-daemon-capabilities.sh would never prove the bundled binary serves it.
-write_endpoint "tabDrag, attachIdentity, cloudConversations"
+write_endpoint ".tabDrag, .attachIdentity, .cloudConversations"
+python3 - "$sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift" <<'PY'
+import sys
+path = sys.argv[1]
+text = open(path, encoding="utf-8").read()
+# terminal-resources-v1 leaves the catalog; the app still gates on it through its own constant.
+open(path, "w", encoding="utf-8").write(text.replace('    case terminalResources = "terminal-resources-v1"\n', ""))
+PY
 if out="$(run)"; then fail "an unlisted daemon capability passed: $out"; fi
 [[ "$out" == *"terminal-resources-v1"* ]] || fail "the failure does not name terminal-resources-v1: $out"
 [[ "$out" == *"optional"* ]] || fail "the failure does not say to list it in optional: $out"
@@ -118,15 +133,15 @@ if out="$(run)"; then fail "an unlisted daemon capability passed: $out"; fi
 # file, which static members allow since cc7a964ef61) is in no list, so check-daemon-capabilities.sh
 # never checks it and DaemonCompatibility never reports it missing. Red even when no daemon crate
 # defines it yet.
-write_endpoint "tabDrag, attachIdentity, cloudConversations, terminalResources"
+write_endpoint ".tabDrag, .attachIdentity, .cloudConversations, .terminalResources"
 write_app ""
-cat > "$sources/CmuxNextApp/DaemonCapabilities+Orphan.swift" <<'SWIFT'
-extension DaemonCapabilities {
+cat > "$sources/CmuxNextApp/DaemonCapability+Orphan.swift" <<'SWIFT'
+extension DaemonCapability {
     static let orphanExtension = "orphan-extension-v1"
 }
 SWIFT
 if out="$(run)"; then fail "a capability constant in an extension passed: $out"; fi
 [[ "$out" == *"orphan-extension-v1"* ]] || fail "the failure does not name the extension constant: $out"
-rm "$sources/CmuxNextApp/DaemonCapabilities+Orphan.swift"
+rm "$sources/CmuxNextApp/DaemonCapability+Orphan.swift"
 
 echo "app-capability-references.test.sh: ok"

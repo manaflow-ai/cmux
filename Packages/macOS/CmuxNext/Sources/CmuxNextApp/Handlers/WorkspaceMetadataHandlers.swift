@@ -14,13 +14,13 @@ import CmuxNextSidebar
 /// `WorkspaceChecklistHandlers`.
 enum WorkspaceMetadataHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        registry.bind("palette.clearWorkspaceName", requires: DaemonCapabilities.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in
-            try context.require(DaemonCapabilities.workspaceMetadata)
+        registry.bind("palette.clearWorkspaceName", requires: DaemonCapability.workspaceMetadata.rawValue, daemon: context.services.activeDaemon, run: { invocation in
+            try context.require(DaemonCapability.workspaceMetadata.rawValue)
             let key = try context.workspace(invocation).key
             let daemon = context.services.activeDaemon, resource = daemon.store.stateResourceID(workspace: key)
             daemon.send("set-workspace-metadata") { try await $0.state.setWorkspaceIdentity(key, resource: resource, title: .clear) }
         })
-        registry.bind("palette.workspaceColor", requires: DaemonCapabilities.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in
+        registry.bind("palette.workspaceColor", requires: DaemonCapability.workspaceMetadata.rawValue, daemon: context.services.activeDaemon, run: { invocation in
             guard let raw = invocation["color"]?.stringValue, let color = GroupColor(rawValue: raw) else {
                 throw ActionFailure.invalidTarget(RefusalStrings.colorMustBeOneOf(GroupColor.allCases.map(\.rawValue).joined(separator: ", ")))
             }
@@ -28,7 +28,7 @@ enum WorkspaceMetadataHandlers {
         })
         // One pin path (PinCommands): a layout tile once the store serves the
         // layout, else the legacy flag, which then needs `workspace-pin-v1`.
-        registry.bind("palette.toggleWorkspacePin", requires: DaemonCapabilities.workspacePin, daemon: {
+        registry.bind("palette.toggleWorkspacePin", requires: DaemonCapability.workspacePin.rawValue, daemon: {
             PinCommands(context: context).pinsAreTiles ? nil : context.services.activeDaemon
         }(), run: { invocation in
             // Every selected row takes the right-clicked row's new state, as Finder's tags do.
@@ -49,12 +49,12 @@ enum WorkspaceMetadataHandlers {
             guard let workspace = try? context.workspace(invocation).model else { return nil }
             return PinCommands(context: context).isWorkspaceOnTopRows(workspace.id) ? PinStrings.removeFromTop : PinStrings.addToTop
         }
-        registry.bind("palette.resetWorkspaceColor", requires: DaemonCapabilities.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in try setColor(nil, invocation, context) })
-        registry.bind("workspace.removeAllColors", requires: DaemonCapabilities.workspaceMetadata, daemon: context.services.activeDaemon, run: { _ in
+        registry.bind("palette.resetWorkspaceColor", requires: DaemonCapability.workspaceMetadata.rawValue, daemon: context.services.activeDaemon, run: { invocation in try setColor(nil, invocation, context) })
+        registry.bind("workspace.removeAllColors", requires: DaemonCapability.workspaceMetadata.rawValue, daemon: context.services.activeDaemon, run: { _ in
             try removeAllColors(context)
         })
         for id: ActionID in ["palette.markWorkspaceRead", "clearWorkspaceNotifications"] {
-            registry.bind(id, requires: DaemonCapabilities.notificationAck, daemon: context.services.activeDaemon, run: { invocation in
+            registry.bind(id, requires: DaemonCapability.notificationAck.rawValue, daemon: context.services.activeDaemon, run: { invocation in
                 try acknowledge([try context.workspace(invocation).model], context)
             })
         }
@@ -69,14 +69,14 @@ enum WorkspaceMetadataHandlers {
             context.copy("\(key)\n\(ActionTargetRef(kind: .workspace, id: key))")
         })
 
-        registry.bind("palette.markWorkspaceUnread", requires: DaemonCapabilities.notificationMarkUnread, daemon: context.services.activeDaemon, run: { invocation in
-            try context.require(DaemonCapabilities.notificationMarkUnread)
+        registry.bind("palette.markWorkspaceUnread", requires: DaemonCapability.notificationMarkUnread.rawValue, daemon: context.services.activeDaemon, run: { invocation in
+            try context.require(DaemonCapability.notificationMarkUnread.rawValue)
             WorkspaceUnreadMark.set(true, on: [try context.workspace(invocation).model], machines: context.services.machines)
         })
     }
 
     private static func setColor(_ color: GroupColor?, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
-        try context.require(DaemonCapabilities.workspaceMetadata)
+        try context.require(DaemonCapability.workspaceMetadata.rawValue)
         let (workspace, key) = try context.workspace(invocation)
         if let sidebar = context.activeWindow?.sidebar {
             // A person's swatch on one of several selected rows colors them all (the selection menu's header).
@@ -92,7 +92,7 @@ enum WorkspaceMetadataHandlers {
     /// colors"): every workspace on every machine loses its color, and every group the window lists
     /// takes no color (`none`), each through the same path as its own menu's No Color swatch.
     private static func removeAllColors(_ context: AppActionContext) throws {
-        try context.require(DaemonCapabilities.workspaceMetadata)
+        try context.require(DaemonCapability.workspaceMetadata.rawValue)
         let sidebar = try context.sidebar()
         let colored = context.services.machines.daemons.flatMap { daemon in daemon.store.workspaces.filter { $0.color != nil }.map(\.id) }
         if !colored.isEmpty { sidebar.handle(.setColor(colored.map(SidebarWorkspaceID.init), nil)) }
@@ -102,12 +102,12 @@ enum WorkspaceMetadataHandlers {
     /// Acknowledges every unread tab of `workspaces` (all tabs when the
     /// daemon rollup reports unread but no tab carries a marker).
     static func acknowledge(_ workspaces: [WorkspaceModel], _ context: AppActionContext) throws {
-        try context.require(DaemonCapabilities.notificationAck)
+        try context.require(DaemonCapability.notificationAck.rawValue)
         let machines = context.services.machines
         WorkspaceUnreadMark.set(false, on: workspaces, machines: machines)
         // A group's members can live on different machines.
         for (workspace, daemon) in WorkspaceUnreadMark.routes(workspaces, machines: machines)
-        where daemon.supports(DaemonCapabilities.notificationAck) {
+        where daemon.supports(DaemonCapability.notificationAck.rawValue) {
             let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
             let unread = tabs.filter(\.hasUnread)
             for tab in unread.isEmpty && workspace.unreadCount > 0 ? tabs : unread {
