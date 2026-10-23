@@ -60,10 +60,9 @@ final class UIInspectorController {
             }
             let local = page.convert(page.window?.convertPoint(fromScreen: point) ?? .zero, from: nil)
             let y = page.bounds.height - local.y
-            page.page?.evaluate("globalThis.__cmuxUiPointer?.highlight(\(local.x), \(y));")
+            page.evaluateUiPointer("globalThis.__cmuxUiPointer?.highlight(\(local.x), \(y));")
             if event.type == .leftMouseDown || event.type == .rightMouseDown {
-                page.page?.evaluate("globalThis.__cmuxUiPointer?.pick(\(local.x), \(y));")
-                if page.page == nil { page.webView.evaluateJavaScript("globalThis.__cmuxUiPointer?.pick(\(local.x), \(y));", completionHandler: nil) }
+                page.evaluateUiPointer("globalThis.__cmuxUiPointer?.pick(\(local.x), \(y));")
                 return nil
             }
             return event
