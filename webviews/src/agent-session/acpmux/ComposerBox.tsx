@@ -130,7 +130,6 @@ export function ComposerBox({
   const plainPaste = useRef(pastedChips.plainPaste);
   plainPaste.current = pastedChips.plainPaste;
   useImperativeHandle(handle, () => ({ plainPaste: () => plainPaste.current() }), []);
-  const { onBeforeInput, onKeyDown } = field;
   const latestField = useRef(field);
   latestField.current = field;
   const latestPastedChips = useRef(pastedChips);
