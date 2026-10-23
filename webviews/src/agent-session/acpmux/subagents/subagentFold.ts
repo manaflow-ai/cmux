@@ -66,6 +66,10 @@ type Group = { id: string; at: number; version: number; ids: string[] };
 /// own updates, their spawn and state events, and the tool calls that started them draw no row.
 export class SubagentFold {
   private readonly agents = new Map<string, Subagent>();
+  /// Native session ids that are the owning chat, rather than subagents. Codex collaboration
+  /// metadata names the issuing thread; keeping this identity across replay prevents an echoed
+  /// root update from becoming a child of the thread that happened to report it.
+  private readonly rootThreads = new Set<string>();
   private readonly groupOf = new Map<string, Group>();
   private readonly spawnCalls = new Set<string>();
   /// The subagent each spawning call started, by call id.
@@ -87,6 +91,12 @@ export class SubagentFold {
   cause: SubagentStopReason | undefined;
 
   constructor(private readonly stops: SubagentStops = subagentStops()) {}
+
+  /// Seeds the native root before a persisted event window is replayed. A malformed historical
+  /// record can mention the root as a subagent, so this must happen before the first `apply`.
+  setRoot(id: string | undefined): void {
+    if (typeof id === "string" && id.length > 0) this.rootThreads.add(id);
+  }
   /// The subagents whose end the harness reported (not one ``stopRunning`` guessed): a progress
   /// report that trails it (Claude's last task_progress) does not run one again.
   private readonly ended = new Set<string>();
@@ -104,9 +114,21 @@ export class SubagentFold {
   reduce(event: Event, update: any): boolean {
     const mux = event.msg?.params?._meta?.acpmux;
     const events: any[] = Array.isArray(mux?.subagents) ? mux.subagents : [];
+    // Codex puts its collaboration item on the session update itself. Keep the event-level
+    // fallback for older persisted records that lifted `_meta` beside `update`.
+    const collaboration = update?._meta?.codex?.collaboration ?? event.msg?.params?._meta?.codex?.collaboration;
+    const sender = typeof collaboration?.senderThreadId === "string" ? collaboration.senderThreadId : undefined;
+    // A top-level collaboration call is the only replay signal that can teach us a native root
+    // when an old session summary did not retain agentSessionId. Never infer it from a child-owned
+    // update: a child sender is the parent of its own grandchildren.
+    if (sender && typeof mux?.subagent !== "string") this.setRoot(sender);
     // Met first through its progress, its spawn is older than what this fold read: not this turn's.
     const spawn = update?.sessionUpdate !== "subagent_progress";
-    for (const change of events) this.apply(change, event, spawn);
+    for (const change of events) {
+      if (typeof change?.id !== "string" || this.rootThreads.has(change.id)) continue;
+      const normalized = sender === undefined ? change : { ...change, parent: this.parentFor(sender) };
+      this.apply(normalized, event, spawn);
+    }
     const owner = typeof mux?.subagent === "string" ? this.agents.get(mux.subagent) : undefined;
     if (owner) {
       // What it does now is its newest call: a later update of an older call (its end) keeps it.
@@ -147,6 +169,10 @@ export class SubagentFold {
       return true;
     }
     return events.length > 0;
+  }
+
+  private parentFor(sender: string): string | null {
+    return this.rootThreads.has(sender) || !this.agents.has(sender) ? null : sender;
   }
 
   /// A turn starts: its stop ends the subagents spawned from here on.
