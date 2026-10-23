@@ -38,6 +38,13 @@ export type Subagent = {
   /// The id Claude Code's Agent call answered with (`agentId: …`), which a SendMessage to it
   /// names (conversation/agentNames.ts).
   agentId?: string;
+  /// Where the harness says it works, from the call that started it: Claude's Agent call asked for
+  /// a worktree of its own (`isolation: "worktree"`), the folder that call named (`cwd`), and the
+  /// worktree and branch its result reports (`worktreePath:`, `worktreeBranch:`). The Inspector's
+  /// Environment for the subagent reads them (inspector/subagentScope.ts).
+  isolated?: boolean;
+  cwd?: string;
+  worktree?: { path: string; branch?: string };
 };
 
 /// Why a subagent was stopped: the person stopped it (Stop on the turn, or on the subagent), or a
@@ -101,6 +108,8 @@ export class SubagentFold {
     if (owner) {
       // What it does now is its newest call: a later update of an older call (its end) keeps it.
       const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
+      // A nested subagent's Agent call says its agentId and worktree too.
+      if (call && this.spawnCalls.has(call)) this.readSpawnCall(call, update);
       // A call met first through its update (a harness that sends no tool_call) is new too.
       const tool = update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update";
       if (tool && call && (update.sessionUpdate === "tool_call" || !this.calls.has(`${owner.id}\u0000${call}`))) {
@@ -121,7 +130,7 @@ export class SubagentFold {
     if (kind === "subagent_spawned" || kind === "subagent_state_update" || kind === "subagent_progress") return true;
     const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
     if (call && this.spawnCalls.has(call)) {
-      this.readAgentId(call, update);
+      this.readSpawnCall(call, update);
       return true;
     }
     // Codex's own bookkeeping between its subagents (`wait` for them, `closeAgent`): the group
@@ -281,19 +290,41 @@ export class SubagentFold {
   }
 
   /// Redraws the group row a subagent is listed in, or its parent's view.
-  /// The agentId in a spawning call's result (Claude Code's Agent call), on the subagent it started.
-  private readAgentId(call: string, update: any): void {
+  /// What a spawning call (Claude Code's Agent call) says of the subagent it started: from its input,
+  /// whether it runs in a worktree of its own and the folder it was given; from its result, the
+  /// agentId and the worktree it worked in.
+  private readSpawnCall(call: string, update: any): void {
     const id = this.spawnedBy.get(call);
     const agent = id ? this.agents.get(id) : undefined;
-    if (!agent || agent.agentId || !Array.isArray(update?.content)) return;
-    for (const part of update.content) {
-      const text = part?.content?.text;
-      const found = typeof text === "string" ? agentIdIn(text) : undefined;
-      if (!found) continue;
-      agent.agentId = found;
-      this.touch(agent);
-      return;
+    if (!agent) return;
+    let changed = false;
+    const input = update?.rawInput;
+    if (input && typeof input === "object") {
+      if (input.isolation === "worktree" && !agent.isolated) {
+        agent.isolated = true;
+        changed = true;
+      }
+      const cwd = text(input.cwd);
+      if (cwd?.startsWith("/") && agent.cwd !== cwd) {
+        agent.cwd = cwd;
+        changed = true;
+      }
     }
+    for (const part of Array.isArray(update?.content) ? update.content : []) {
+      const said = part?.content?.text;
+      if (typeof said !== "string") continue;
+      const found = agent.agentId ? undefined : agentIdIn(said);
+      if (found) {
+        agent.agentId = found;
+        changed = true;
+      }
+      const worktree = worktreeIn(said);
+      if (worktree && (worktree.path !== agent.worktree?.path || worktree.branch !== agent.worktree?.branch)) {
+        agent.worktree = worktree;
+        changed = true;
+      }
+    }
+    if (changed) this.touch(agent);
   }
 
   private touch(agent: Subagent): void {
@@ -305,9 +336,20 @@ export class SubagentFold {
   }
 }
 
-/// The agentId a Claude Code Agent call's result names (`agentId: a39e817af38ddf5e7 (…)`).
+/// The agentId a Claude Code Agent call's result names (`agentId: a39e817af38ddf5e7 (…)`): the
+/// last one, as Claude appends it after a finished subagent's report, which may itself say `agentId:`.
 export function agentIdIn(text: string): string | undefined {
-  return /\bagentId:\s*([A-Za-z0-9_-]+)/.exec(text)?.[1];
+  return [...text.matchAll(/\bagentId:\s*([A-Za-z0-9_-]+)/g)].at(-1)?.[1];
+}
+
+/// The worktree a Claude Code Agent call's result reports for a subagent that ran in one and changed
+/// something (`worktreePath: /repo/.claude/worktrees/x` and `worktreeBranch: worktree-x`, a line
+/// each), or undefined.
+export function worktreeIn(text: string): { path: string; branch?: string } | undefined {
+  const path = /^worktreePath:[ \t]*(\/\S*)/m.exec(text)?.[1];
+  if (!path) return undefined;
+  const branch = /^worktreeBranch:[ \t]*(\S+)/m.exec(text)?.[1];
+  return branch ? { path, branch } : { path };
 }
 
 /// Which running subagents nothing will end any more, and how they read: `turn` only the

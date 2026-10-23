@@ -42,12 +42,13 @@
   align-self: flex-start;
   margin: var(--acpmux-inspector-top, 0px) var(--acpmux-inspector-inset) 0 0;
 }
-/* Floating: the same card over the gutter. */
+/* Floating: the same card over the gutter. With the side panel open beside the chat, its gutter ends at
+   that panel's edge (--acpmux-inspector-side, its width), never over the document. */
 .acpmux-chat-inspector[data-placement="overlay"] {
   position: absolute;
   z-index: var(--layer-overlay);
   top: var(--acpmux-inspector-top, 0px);
-  right: var(--acpmux-inspector-inset);
+  right: calc(var(--acpmux-inspector-side, 0px) + var(--acpmux-inspector-inset));
 }
 .acpmux-chat-inspector[data-placement] .acpmux-chat-inspector__body {
   /* The card is as tall as its sections; past its max-height, the body scrolls. */

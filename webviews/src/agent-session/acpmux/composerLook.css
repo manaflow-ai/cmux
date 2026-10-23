@@ -1,0 +1,126 @@
+/* The composer's looks (composerLook.ts; Leo 2026-10-22: "first dot claude, second dot codex. since
+   it's just all looks anyways"). Claude's, the default, sets nothing here: it is the composer as it
+   was. Codex's (data-composer-look="codex" on the chat's form and on New Tab's .nt-composer) lays the
+   same controls out as Codex desktop: one row inside the box under the prompt, + and the mode on the
+   left, the context ring, the model and effort, the mic and Send on the right, and the folder and
+   computer strip a tray tucked under the box's top edge. Our glass and the theme's accent (never
+   Codex's orange), Send our plain glyph (no disc). test/composer-look-dots.test.ts checks it. */
+
+/* The box's row: + first, then the mode, pushing the rest right; the ring before the model, as Codex
+   draws its own; the mic and Send last. The chips lay out as the row's own items. */
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips {
+  display: contents;
+}
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips > * {
+  order: 3;
+}
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips > .acpmux-access {
+  order: 1;
+}
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers) > .acpmux-context {
+  order: 2;
+  margin-inline-start: auto;
+}
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers) > .acpmux-composer-actions {
+  order: 4;
+  margin-inline-start: 0;
+}
+/* With no ring (New Tab, or the ring hidden), the model starts the right group. */
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers):not(:has(> .acpmux-context)) .acpmux-chips > .acpmux-model {
+  margin-inline-start: auto;
+}
+/* With neither (no harness yet), the mic and Send keep the right edge. */
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers):not(:has(> .acpmux-context, .acpmux-model)) > .acpmux-composer-actions {
+  margin-inline-start: auto;
+}
+
+/* The folder and computer strip: Codex's tray, set in from the box's sides where its corners end,
+   its bottom tucked under the box (which is raised over it), its top corners round, a faint wash of
+   the text colour over the card's glass. A new chat's strip and New Tab's (.nt-above). */
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] {
+  --acpmux-tray-inset: 22px;
+  --acpmux-tray-tuck: 10px;
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip,
+.nt-composer[data-composer-look="codex"] > .nt-above {
+  position: relative;
+  z-index: var(--layer-base, 0);
+  margin: 0 var(--acpmux-tray-inset) calc(-1 * var(--acpmux-tray-tuck));
+  padding: 4px 8px calc(4px + var(--acpmux-tray-tuck));
+  border-radius: 14px 14px 0 0;
+  background: color-mix(in srgb, var(--agent-text) 5%, var(--acpmux-composer-surface, transparent));
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip {
+  height: auto;
+}
+.nt-composer[data-composer-look="codex"] > .nt-above {
+  padding-block: 2px var(--acpmux-tray-tuck);
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip::after {
+  content: none;
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box,
+.nt-composer[data-composer-look="codex"] > .nt-box {
+  position: relative;
+  z-index: var(--layer-raised, 1);
+}
+/* The box keeps its own four corners and whole rim over the tray (not the default's joined top). */
+:root .acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-strip) > .acpmux-composer-box {
+  /* glass-opaque-allow: a keyword the lens reads, not a color; the box joins nothing */
+  --glass-join: initial;
+  border-top-left-radius: var(--acpmux-composer-radius);
+  border-top-right-radius: var(--acpmux-composer-radius);
+}
+:root .acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-strip) > .acpmux-composer-box::before {
+  content: none;
+}
+/* Full access names its risk in the theme's accent, where Codex draws orange. */
+:is(.acpmux-composer, .nt-composer, .acpmux-newtab)[data-composer-look="codex"] .acpmux-access.acpmux-unrestricted :is(.acpmux-picker-button, .acpmux-access-trigger) {
+  color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
+}
+
+/* The Classic New Tab page (NewTabPage.tsx) draws the same look in its own box: the row under the
+   field takes Codex's order, the mode first, then the project and the agent, the model and effort
+   pushed right next to Send. */
+.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under :is(.acpmux-newtab-context, .acpmux-chips) {
+  display: contents;
+}
+.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under .acpmux-chips > * {
+  order: 2;
+}
+.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under .acpmux-chips > .acpmux-access {
+  order: 0;
+}
+.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under :is(.acpmux-project, .acpmux-newtab-chip) {
+  order: 1;
+}
+.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under .acpmux-chips > .acpmux-model {
+  margin-inline-start: auto;
+}
+.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under > .acpmux-send {
+  order: 3;
+}
+/* A terminal or a browser tab has no model: Send keeps the right edge. */
+.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under:not(:has(.acpmux-model)) > .acpmux-send {
+  margin-inline-start: auto;
+}
+
+/* The New Tab page's dots (newtab/PageDots.tsx): the looks, then the page's styles, one row under
+   the page where the style switch sat (newtab/screen.css .nt-style). */
+.nt-page-dots {
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  display: flex;
+  gap: 12px;
+  max-width: calc(100% - 32px);
+  transform: translateX(-50%);
+}
+.nt-page-dots > .nt-style {
+  position: relative;
+  bottom: auto;
+  left: auto;
+  max-width: none;
+  transform: none;
+}

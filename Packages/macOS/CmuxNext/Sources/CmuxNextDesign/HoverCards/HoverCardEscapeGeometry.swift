@@ -78,6 +78,18 @@ public nonisolated struct HoverCardEscapeGeometry: Hashable, Sendable {
     /// - Parameter row: The row's frame on screen (its pill, a header, a rail mark).
     /// - Parameter column: The sidebar column's visible frame on screen; only its x extent is used.
     /// - Returns: `row`'s vertical extent spanning `column`'s horizontal one.
+    /// The room a row's card rests in: the screen's visible frame less `margin`, and inside its
+    /// window, so the last row's card never hangs below the window (Lawrence 2026-10-22). The window
+    /// takes no margin: the card's near edge stays one device pixel off a sidebar at its edge.
+    /// - Parameter visible: The screen's visible frame (or the whole screen), screen coordinates.
+    /// - Parameter window: The parent window's frame; nil out of a window.
+    public static func room(visible: CGRect, window: CGRect?, margin: CGFloat) -> CGRect {
+        let screen = visible.insetBy(dx: margin, dy: margin)
+        guard let window else { return screen }
+        let inside = screen.intersection(window)
+        return inside.isNull || inside.isEmpty ? screen : inside
+    }
+
     public static func rowBand(row: CGRect, column: CGRect) -> CGRect {
         CGRect(x: column.minX, y: row.minY, width: column.width, height: row.height)
     }
