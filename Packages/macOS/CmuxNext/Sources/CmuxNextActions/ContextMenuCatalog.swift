@@ -35,8 +35,12 @@ public nonisolated struct ContextMenuCatalog: Sendable {
             }
         }
         menus = Dictionary(uniqueKeysWithValues: rows.map { context, rows in
+            // Keep the tab menu's long tail searchable in the palette without repeating
+            // diagnostics and stateful controls in a pointer menu. The target-aware app
+            // path still supplies these actions through the registry and CLI.
             let entries = Self.topLevel(rows)
-            return (context, ContextMenuEssentials.menus[context].map { ContextMenuEssentials.apply($0, to: entries) } ?? entries)
+            let trimmed = context == .tab ? Self.removing(ContextMenuEssentials.tabMenuTrimmedActions, from: entries) : entries
+            return (context, ContextMenuEssentials.menus[context].map { ContextMenuEssentials.apply($0, to: trimmed) } ?? trimmed)
         })
         selectionMenus = Dictionary(uniqueKeysWithValues: ContextMenuEssentials.selectionMenus.map { context, essentials in
             (context, ContextMenuEssentials.apply(essentials, to: Self.topLevel(rows[context] ?? [])))

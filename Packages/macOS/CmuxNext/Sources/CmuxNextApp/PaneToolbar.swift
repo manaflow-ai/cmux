@@ -73,7 +73,10 @@ final class PaneToolbar {
         self.init(registry: { [weak services] in services?.registry },
                   newTabMenu: { [weak pane] in
                       // The plus's rows, without its Chromium warmup: "…" is opened for a split as often.
-                      pane.map { $0.services.registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: $0.paneKey)) }
+                      pane.map {
+                          let entries = ContextMenuCatalog.shared.entries(for: .newTab, removing: Self.overflowNewTabTrimmedActions)
+                          return $0.services.registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: $0.paneKey), entries: entries)
+                      }
                   },
                   contentMenu: { [weak pane] in (pane?.view.content as? PaneMoreMenuContributing)?.paneMoreMenuItems() ?? [] })
         writePinned = { [weak services] next in
@@ -131,6 +134,12 @@ final class PaneToolbar {
         return ["splitRight", "splitDown"] + own + [zoom]
     }
 
+    /// The overflow keeps the split, zoom and search affordances compact. Content-specific
+    /// tools remain pinnable buttons and searchable in the palette, but do not repeat in every
+    /// tab bar's default menu.
+    static let overflowNewTabTrimmedActions: Set<ActionID> = ["browserProfile.newTab", "newTab.page"]
+    static let overflowTabTrimmedActions: Set<ActionID> = ["openDiffViewer", "file.open", "agentPane.searchChats"]
+
     static let zoom: ActionID = "toggleSplitZoom", search: ActionID = "tab.search"
 
     /// Shows the `pinned` actions tab `target` of `kind` can run and "…" (nil kind: none); lit while the pane is zoomed.
@@ -185,7 +194,7 @@ final class PaneToolbar {
         for (index, item) in own.enumerated() { menu.insertItem(item, at: index) }
         let buttons = shownPins()
         let tabOwn = registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: target),
-                                              entries: tabActions().filter { !buttons.contains($0) }.map { .action($0) })
+                                              entries: tabActions().filter { !buttons.contains($0) && !Self.overflowTabTrimmedActions.contains($0) }.map { .action($0) })
         if !menu.items.isEmpty, !tabOwn.items.isEmpty { menu.addItem(.separator()) }
         for item in tabOwn.items {
             tabOwn.removeItem(item)

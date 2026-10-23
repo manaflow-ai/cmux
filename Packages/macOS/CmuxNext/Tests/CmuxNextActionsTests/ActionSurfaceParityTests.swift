@@ -85,7 +85,10 @@ import Testing
         for context in ActionMenuContext.allCases {
             let shown = Set(ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: context)))
             let placed = Set(catalog.filter { $0.surfacePlan.contextMenus.contains { $0.context == context } }.map(\.id))
-            #expect(shown == placed, "\(context): shown-only \(shown.subtracting(placed)), placed-only \(placed.subtracting(shown))")
+            // The tab menu deliberately trims infrequent rows while keeping their catalog
+            // placement and palette/CLI vocabulary intact.
+            let trimmed: Set<ActionID> = context == .tab ? ContextMenuEssentials.tabMenuTrimmedActions : []
+            #expect(shown == placed.subtracting(trimmed), "\(context): shown-only \(shown.subtracting(placed)), placed-only \(placed.subtracting(shown))")
             #expect(!shown.isEmpty, "\(context) menu is empty")
         }
     }
