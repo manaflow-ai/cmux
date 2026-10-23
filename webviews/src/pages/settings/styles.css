@@ -940,17 +940,6 @@ mark {
   opacity: 0.4;
 }
 
-/* A sign-in in progress: the dot pulses until it ends (Reduce Motion stops it, layout.css). */
-@keyframes accounts-busy {
-  50% {
-    opacity: 0.3;
-  }
-}
-
-.accounts-status[data-busy] .accounts-dot {
-  animation: accounts-busy calc(var(--motion-in) * 8) var(--motion-ease) infinite;
-}
-
 .accounts-body {
   display: flex;
   flex-direction: column;
