@@ -56,8 +56,13 @@ export function useNeedsYou({
   /// Another chat's ask: the app shows that chat's tab or opens one (`chat.asks.open`,
   /// AgentPaneAskOpen). Never `chat.select`, which replaced the chat on screen in its own tab
   /// (Leo 2026-10-21). A host that opens none leaves this chat as it is.
-  const openElsewhere = (item: NeedsYouItem) =>
-    callNative("chat.asks.open", { sessionId: item.sessionId }).catch(() => undefined);
+  const openElsewhere = async (item: NeedsYouItem) => {
+    // `chat.asks.open` is intentionally local-only. Peer sessions still belong in the header
+    // list, but they must not make the opt-in transcript pill look actionable and then no-op.
+    const target = sessions.find((session) => session.sessionId === item.sessionId);
+    if (target?.peer) return;
+    await callNative("chat.asks.open", { sessionId: item.sessionId }).catch(() => undefined);
+  };
   const goTo = (item: NeedsYouItem) => {
     const reveal = () => {
       if (item.turnId) void revealTurnWhenShown(item.turnId);
@@ -95,14 +100,20 @@ export function useNeedsYou({
   };
   // The last ask the pill went to, so the next press goes to the one after it.
   const last = useRef<string | undefined>(undefined);
-  const elsewhere = items.filter((item) => item.sessionId !== sessionId).length;
+  const pillItems = items.filter((item) => {
+    const target = sessions.find((session) => session.sessionId === item.sessionId);
+    if (target?.peer) return false;
+    if (item.sessionId === sessionId) return true;
+    return target !== undefined;
+  });
+  const elsewhere = pillItems.filter((item) => item.sessionId !== sessionId).length;
   const pill: TranscriptNeedsYou | undefined =
-    pillOn && items.length > 0
+    pillOn && pillItems.length > 0
       ? {
-          count: items.length,
+          count: pillItems.length,
           elsewhere,
           next: (behind) => {
-            const item = nextAsk(items, sessionId, behind, last.current);
+            const item = nextAsk(pillItems, sessionId, behind, last.current);
             if (!item) return;
             last.current = item.id;
             goTo(item);
