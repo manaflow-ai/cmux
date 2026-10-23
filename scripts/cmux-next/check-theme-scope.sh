@@ -13,9 +13,11 @@
 #      callers only call inside such a closure).
 #   2. No `performAsCurrentDrawingAppearance` (it resolves the app theme);
 #      use `performWithTheme`.
-#   3. No `ThemeStore.shared.tokens` or `ThemeStore.shared.input` and no
-#      `ThemeStore.shared.adopt(`: read `themeTokens` / `themeScope`, adopt
-#      with `ThemeScope.adopt` or `NSWindow.adoptThemeScope(of:)`.
+#   3. No app-theme store read: `<store>.tokens`, `<store>.input` or
+#      `<store>.adopt(` on `ThemeStore.shared` (gone in B3), `ThemeScope.app.store`
+#      or any scope's `.store` (every scope's store is its tree's root, the app's):
+#      read `themeTokens` / `themeScope`, adopt with `ThemeScope.adopt` or
+#      `NSWindow.adoptThemeScope(of:)`.
 # Usage: scripts/cmux-next/check-theme-scope.sh [package-root]
 set -euo pipefail
 root="${1:-$(git rev-parse --show-toplevel)/Packages/macOS/CmuxNext}"
@@ -129,8 +131,8 @@ for directory, _, files in os.walk(sources):
                 problems.append(f"{rel}:{line_of(m.start())}: {m.group(0)} outside performWithTheme (rule 1)")
         for m in re.finditer(r"performAsCurrentDrawingAppearance", code):
             problems.append(f"{rel}:{line_of(m.start())}: performAsCurrentDrawingAppearance resolves the app theme; use performWithTheme (rule 2)")
-        for m in re.finditer(r"ThemeStore\.shared\.(tokens|input|adopt\()", code):
-            problems.append(f"{rel}:{line_of(m.start())}: ThemeStore.shared.{m.group(1)} is the app theme; use the view's theme scope (rule 3)")
+        for m in re.finditer(r"(ThemeStore\.shared|ThemeScope\.app\.store|\.store)\.(tokens|input|adopt\()", code):
+            problems.append(f"{rel}:{line_of(m.start())}: {m.group(0)} is the app theme; use the view's theme scope (rule 3)")
 
 for problem in sorted(problems):
     print(problem)
