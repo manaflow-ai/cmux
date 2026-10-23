@@ -4,18 +4,21 @@ import Testing
 
 /// A released ``TabSearchLiveUpdates`` stops following its source: its follow task is an
 /// `OwnedTask`, so the release cancels it and the source's changes stream ends. Before it the task
-/// was cancelled by a deinit that did nothing off the main thread.
+/// was cancelled by a deinit that did nothing off the main thread. Its `nonisolated deinit {}`
+/// keeps the release on the releasing thread: an implicit deinit is isolated in this target and
+/// hops to the main actor (the cx-t7hu trap inside an action's task-local scope).
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct TabSearchLiveUpdatesTests {
-    /// A source whose changes stream reports when its follower went away.
+    /// A source whose changes stream reports when its follower went away, and whether that
+    /// happened on the main thread.
     final class EndingSource: TabSearchSource {
-        let ended: AsyncStream<Void>
-        private let end: AsyncStream<Void>.Continuation
+        let ended: AsyncStream<Bool>
+        private let end: AsyncStream<Bool>.Continuation
         private var continuations: [AsyncStream<Void>.Continuation] = []
 
         init() {
-            let pair = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+            let pair = AsyncStream.makeStream(of: Bool.self, bufferingPolicy: .bufferingNewest(1))
             ended = pair.stream
             end = pair.continuation
         }
@@ -23,7 +26,7 @@ struct TabSearchLiveUpdatesTests {
         func changes() -> AsyncStream<Void> {
             let (stream, continuation) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
             let end = end
-            continuation.onTermination = { _ in end.yield() }
+            continuation.onTermination = { _ in end.yield(Thread.isMainThread) }
             continuations.append(continuation)
             return stream
         }
@@ -55,14 +58,22 @@ struct TabSearchLiveUpdatesTests {
     }
 
     /// The release off the main thread (the last reference dropped by a background task): the
-    /// old deinit returned there without cancelling, and the follow ran on forever.
-    @Test func releasingTheUpdatesOffTheMainThreadEndsTheFollow() async {
+    /// old deinit returned there without cancelling, and the follow ran on forever. The follow
+    /// ends on the releasing thread: with an isolated (implicit) deinit the release hopped to the
+    /// main actor, and the stream ended there.
+    @Test func releasingTheUpdatesOffTheMainThreadEndsTheFollowThere() async {
         let source = EndingSource()
         let model = PaletteModel()
-        // The capture list holds the only reference, so the detached task drops the last one.
-        await Task.detached { [updates = Self.following(source, in: model)] in _ = updates }.value
+        // The capture list holds the only reference, so the detached task drops the last one when
+        // it completes. Its main-actor turn first lets the follow task (queued on the main actor
+        // before it) start and wait in the changes stream, so the cancel ends that wait at once,
+        // on the thread that cancels.
+        await Task.detached { [updates = Self.following(source, in: model)] in
+            await MainActor.run {}
+            _ = updates
+        }.value
         var ended = source.ended.makeAsyncIterator()
-        #expect(await ended.next() != nil, "the follow ends once the updates are released off the main thread")
+        #expect(await ended.next() == false, "the follow ends on the releasing thread, not after a hop to the main actor")
         withExtendedLifetime(model) {}
     }
 

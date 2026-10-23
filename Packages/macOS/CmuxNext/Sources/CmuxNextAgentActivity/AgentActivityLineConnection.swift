@@ -42,7 +42,7 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
     }
 
     /// A connection released without ``cancel()`` (its owner went away) ends here, so its
-    /// descriptor and read source do not outlive it and the owner needs no deinit. No callback
+    /// descriptor and read source do not outlive it and the owner's deinit has no body. No callback
     /// runs. Nothing else can touch the fields now: every `queue` block holds `self` strongly and
     /// the read source holds it weakly.
     deinit {

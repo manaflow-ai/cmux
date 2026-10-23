@@ -59,6 +59,11 @@ public final class AgentPaneSuggestedTasks {
         view.deliver([.suggestedTasks(on)], scripts: [Self.script(on)])
     }
 
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. The observation
+    // (an OwnedTask) is cancelled on the releasing thread.
+    nonisolated deinit {}
+
     private func follow() {
         guard observation == nil else { return }
         // task-owner: app-lifetime; event-driven (Observation on the setting and the tunable key)
