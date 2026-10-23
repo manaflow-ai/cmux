@@ -1,14 +1,13 @@
 /// The few rows a crowded right-click menu keeps at its top level (Leo 2026-10-11: the
 /// workspace menu's twelve rows were "overwhelming"). Every other row of that menu moves into
 /// one More submenu, in its old order; its short folders show there as sections, its long ones
-/// as submenus (`inlineFolderLimit`). The close rows end the menu
-/// after a separator. The group rows stay at the top level in their own section (Lawrence
-/// 2026-10-14: "my groups UI is lost"); More never takes them.
+/// as submenus (`inlineFolderLimit`). The close rows end the menu after a separator. Workspace
+/// organization and messaging stay together in More's Organize section.
 nonisolated enum ContextMenuEssentials {
     struct Rows {
         /// The top-level rows, in order.
         let top: [ContextMenuEntry]
-        /// The group rows: one top-level section after `top`, between separators.
+        /// Legacy top-level group rows for menus that still keep them prominent.
         var group: [ContextMenuEntry] = []
         let close: [ActionID]
         /// The rows after the close rows, behind a separator (Chrome's Reopen Closed Tab).
@@ -23,12 +22,13 @@ nonisolated enum ContextMenuEssentials {
         // Move ▸ (Up, Down, Top, Bottom of the group, …) stays at the top level (u2418: "I need an
         // option to … move a workspace to the top of a group"; under More it was not found).
         // Send Message… (u5402: "send messages in the iMessage UI via right clicking") opens the
-        // Chief's chat about this workspace.
+        // Chief's chat about this workspace. It stays searchable and is now in More's Organize
+        // section with the group operations.
         // Rename and the color row open the menu as its name field and swatches (MenuIdentityHeader,
         // Leo 2026-10-20: "like Chrome"). Duplicate joins the top level from More's New.
         .workspaceRow: Rows(top: [.action("renameWorkspace"), .action("palette.toggleWorkspacePin"), .choices("palette.workspaceColor"),
-                                  .action("workspace.newBelow"), .action("workspace.duplicate"), .action("home.messageAbout"), .folder(.move, [])],
-                            group: [.choices("moveWorkspaceToGroup"), .action("groupSelectedWorkspaces"), .action("removeWorkspaceFromGroup")],
+                                  .action("workspace.newBelow"), .action("workspace.duplicate"), .folder(.move, [])],
+                            group: [],
                             close: ["closeWorkspace"]),
         // Chrome's tab menu, in its order (`TabMenuModel::Build`, Leo 2026-10-19: "make sure that
         // chrome right click tab situation works"): New Tab to the Right and the group rows; Reload,

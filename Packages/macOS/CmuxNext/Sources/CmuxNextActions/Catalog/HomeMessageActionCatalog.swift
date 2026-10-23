@@ -30,7 +30,7 @@ nonisolated enum HomeMessageActionCatalog: ActionCatalogGroup {
                 // Cmd+Shift+P has Send Message To… (any conversation); the CLI and MCP write the
                 // workspace's link in `cmux chat send --text`.
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.familyMember), cli: .exempt(.familyMember), contextMenus: [
-                    ContextMenuPlacement(.workspaceRow, .navigate, 50),
+                    ContextMenuPlacement(.workspaceRow, .organize, 50, folder: .group),
                     ContextMenuPlacement(.tab, .navigate, 50),
                     ContextMenuPlacement(.agentChat, .navigate, 50),
                 ])

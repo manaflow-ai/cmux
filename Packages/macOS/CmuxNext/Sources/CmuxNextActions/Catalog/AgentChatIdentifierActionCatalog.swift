@@ -10,8 +10,6 @@ nonisolated enum AgentChatIdentifierActionCatalog: ActionCatalogGroup {
                 symbol: "at", surfaces: [.palette, .contextMenu], targets: [.tab, .workspace],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.clipboard), contextMenus: [
                     ActionSurfaceCatalog.p(.tab, .inspect, 506, folder: .copy), ActionSurfaceCatalog.p(.agentChat, .inspect, 1),
-                    // The sidebar workspace row that shows the chat's summary.
-                    ActionSurfaceCatalog.p(.workspaceRow, .inspect, 410, folder: .copy),
                 ])
             ),
         ]

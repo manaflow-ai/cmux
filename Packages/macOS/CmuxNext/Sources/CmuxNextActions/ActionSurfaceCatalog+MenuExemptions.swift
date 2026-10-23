@@ -135,6 +135,19 @@ nonisolated extension ActionSurfaceCatalog {
         .minimalMenu: [
             "space.setDefaults", "browserProfile.clearSpaceDefault",
         ],
+        .pointerMenuTrim: [
+            // The workspace row keeps identity, creation, ordering and close
+            // actions visible; infrequent appearance, copy, diagnostics and
+            // global controls remain searchable in the palette or on the
+            // sidebar background menu.
+            "workspace.setTheme", "workspace.setTint", "workspace.removeAllColors",
+            "sidebar.workspaceTabs.toggle", "sidebar.density.compact", "sidebar.density.comfortable",
+            "sidebar.density.expanded", "workspace.copyPath", "copyWorkspaceSSHError",
+            "revealWorkspaceInFinder", "palette.copyWorkspaceID",
+            "palette.copyWorkspaceIDAndRef", "palette.copyWorkspaceLink",
+            "agentChat.copyIdentifier", "workspace.showResources", "palette.openWorkspacePullRequests",
+            "workspace.setRemoteLocalhost",
+        ],
         .paletteInternal: [
             "commandPaletteNext", "commandPalettePrevious",
         ],
