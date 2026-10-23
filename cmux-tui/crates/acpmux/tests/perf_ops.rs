@@ -32,6 +32,9 @@ const OP_P95: Duration = Duration::from_millis(2);
 const ROUNDS: usize = 100;
 /// Chats streaming at once in STRESS.
 const STRESS_CHATS: usize = 16;
+/// Chats streaming at once in the many-chats phase: more than the file store keeps open
+/// (`store.rs` OPEN_LOGS, 64), as a STRESS app with an agent chat in each of 60 workspaces has.
+const MANY_CHATS: usize = 72;
 /// Idle windows; the daemon is judged by its median window.
 const IDLE_WINDOW: Duration = Duration::from_secs(5);
 const IDLE_WINDOWS: usize = 3;
@@ -502,6 +505,28 @@ async fn acpmux_ops_and_streaming_meet_the_daemon_budgets_light_and_stress() {
             IDLE_WINDOW.as_secs()
         ));
     }
+
+    // -------- many chats: more chats writing at once than the store keeps logs open
+    let mut many = chats.clone();
+    while many.len() < MANY_CHATS {
+        let s = app.new_chat(&daemon.work).await;
+        app.call("_acpmux/attach", json!({"sessionId": s, "limit": 1})).await;
+        let rx = prompt(&mut app, &s, "hello", &format!("warm-{s}")).await;
+        rx.await.unwrap();
+        many.push(s);
+    }
+    report.value("many.tree", tree(daemon.pid()));
+    app.take_tokens();
+    let mut turns = Vec::new();
+    for (i, s) in many.iter().enumerate() {
+        turns.push(prompt(&mut app, s, "stream 40 25", &format!("many-{i}")).await);
+    }
+    time_ops(&mut ops, &many[0], 20, "many", &mut report).await;
+    for t in turns {
+        t.await.unwrap();
+    }
+    report.latency("many.token_to_client", app.take_tokens(), Some(OP_P95));
+
     report.write();
     assert!(report.over.is_empty(), "over the daemon budgets: {:#?}", report.over);
 }
