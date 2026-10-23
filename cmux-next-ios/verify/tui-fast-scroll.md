@@ -84,7 +84,7 @@ The cmux-next Mac app's trackpad stream was replayed into the same Claude Code P
 ## Tests
 
 These ran on mini-cmux11s in the iOS simulator (`cmux_mobile_kit-test-ios.sh`):
-- CmuxMobileLiveTests: 271 tests.
+- CmuxMobileLiveTests: 274 tests, including the review's failure-path tests.
 - CmuxMobileTerminalTests: 280 tests.
 - CmuxMobileTransportTests: 5 tests.
 

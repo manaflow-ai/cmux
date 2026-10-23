@@ -83,8 +83,8 @@ public final class DaemonTerminalSession: TerminalSession {
     /// Unanswered sends allowed at once.
     static let maxInputInFlight = 8
     private var nextInputBatch = 0
-    /// The batch numbers of `input`'s first entries, batches that failed.
-    private var inputRequeued: [Int] = []
+    /// Batches of the failed channel, held until its sends all settle.
+    private var inputFailed: [(number: Int, bytes: Data, at: TimeInterval, written: Bool)] = []
     private var inputDrainScheduled = false
     private var handler: (@MainActor (TerminalSessionEvent) -> Void)?
     /// Decodes lines given to `handle(_:)` (the attach stream has its own, off the main actor).
@@ -234,7 +234,6 @@ public final class DaemonTerminalSession: TerminalSession {
         guard input.contains(where: { $0.detached && $0.at <= cutoff }) else { return }
         let bytes = input.reduce(0) { $0 + $1.bytes.count }
         input.removeAll()
-        inputRequeued.removeAll()
         if !attached { refusingInput = true }
         log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) typed bytes dropped (the terminal was unreachable for longer than \(Self.inputHoldLimit, privacy: .public) s)")
         handler?(.inputNotSent(bytes: bytes))
@@ -315,7 +314,6 @@ public final class DaemonTerminalSession: TerminalSession {
         dropInputLane()
         outbox.removeAll()
         input.removeAll()
-        inputRequeued.removeAll()
     }
 
     /// Attaches again after a dropped link. A no-op while attached or
@@ -731,12 +729,15 @@ public final class DaemonTerminalSession: TerminalSession {
     /// repair the loss within a few segments. Writes stay in order (each
     /// waits for the last), and several are unanswered on one channel only:
     /// requests on two channels could reach the terminal out of order.
+    ///
+    /// When a channel fails, its other requests settle before anything new
+    /// goes out (``inputSettled()``). A batch that was written may already
+    /// have been typed on the Mac, and a doubled Return runs a command
+    /// twice: it is never sent again, and neither is anything after it.
     private func drainInput() {
         guard attached, !inputWriting else { return }
         expireInput()
         guard !input.isEmpty, let target = inputClient ?? client else { return }
-        // After a failure the rest of that channel's requests settle first,
-        // so every failed batch goes back in order before newer keys.
         if inputInFlight > 0, inputRecovering || inputTarget !== target || inputInFlight >= Self.maxInputInFlight { return }
         inputWriting = true
         inputInFlight += 1
@@ -746,27 +747,34 @@ public final class DaemonTerminalSession: TerminalSession {
         let typedAt = input[0].at
         let batch = input.reduce(into: Data()) { $0.append($1.bytes) }
         input.removeAll()
-        inputRequeued.removeAll()
         let surface = surface
+        let onLane = target !== client
         Task { [weak self] in
             guard let self else { return }
             var written = false
             do {
-                let id = try await target.submit("send", params: ["surface": surface, "bytes": batch.base64EncodedString()])
+                let submit: @Sendable () async throws -> String = {
+                    try await target.submit("send", params: ["surface": surface, "bytes": batch.base64EncodedString()])
+                }
+                // A lane request gets written and answered within seconds or
+                // the lane is given up.
+                let id: String
+                if onLane {
+                    guard let submitted = try await Self.within(.seconds(10), submit) else {
+                        abandonInputLane(target, number: number, bytes: batch.count, wasWriting: true)
+                        return
+                    }
+                    id = submitted
+                } else {
+                    id = try await submit()
+                }
                 written = true
                 inputWriting = false
                 drainInput()
-                // A lane request gets an answer within seconds or the lane is
-                // given up. The batch is not sent again then: the Mac may
-                // already have typed it, and a doubled Return runs a command
-                // twice.
                 let reply: Data
-                if target !== client {
+                if onLane {
                     guard let answer = try await Self.within(.seconds(10), { try await target.reply(to: id) }) else {
-                        log.error("send on the input lane got no answer; using the attach channel")
-                        abandonedInputLane = target
-                        if inputClient === target { dropInputLane() }
-                        inputSettled()
+                        abandonInputLane(target, number: number, bytes: batch.count, wasWriting: false)
                         return
                     }
                     reply = answer
@@ -777,25 +785,26 @@ public final class DaemonTerminalSession: TerminalSession {
                     lastError = error
                     log.error("send failed: \(error, privacy: .public)")
                 }
-            } catch where target === abandonedInputLane {
-                // A lane given up for silence: like the request that timed
-                // out, the Mac may already have typed this batch.
-                if !written { inputWriting = false }
-                log.error("send on an abandoned input lane failed; not sent again")
             } catch {
                 if !written { inputWriting = false }
-                // Keep the keystrokes: retry on the attach channel when the
-                // lane failed, or after the reattach when the link dropped.
                 lastError = LinkController.reason(error)
-                requeueInput(batch, typedAt: typedAt, number: number)
                 inputRecovering = true
-                markInputDetached()
+                if written || target === abandonedInputLane {
+                    inputFailed.append((number, batch, typedAt, written: true))
+                } else {
+                    // Never written: safe to send again (on the attach channel
+                    // when the lane failed, or after the reattach).
+                    inputFailed.append((number, batch, typedAt, written: false))
+                }
                 if inputClient === target {
                     dropInputLane()
                 } else if self.client === target {
                     self.client = nil
                     inputClient = nil
                     attached = false
+                    // Fails this channel's other unanswered sends, which
+                    // otherwise wait on a channel nobody reads.
+                    Task { await target.close() }
                     handler?(.connection(connectionState))
                 }
             }
@@ -803,22 +812,45 @@ public final class DaemonTerminalSession: TerminalSession {
         }
     }
 
-    /// A `send` was answered, failed or given up: the next batch may go.
-    private func inputSettled() {
-        inputInFlight -= 1
-        if inputInFlight == 0 {
-            inputRecovering = false
-            inputTarget = nil
-        }
-        drainInput()
+    /// The input lane gave no answer in time (`wasWriting`: the batch's
+    /// write itself hung): given up, and the batch is not sent again (the
+    /// Mac may already have typed it).
+    private func abandonInputLane(_ lane: DaemonClient, number: Int, bytes: Int, wasWriting: Bool) {
+        log.error("send on the input lane got no answer; using the attach channel")
+        abandonedInputLane = lane
+        inputRecovering = true
+        inputFailed.append((number, Data(count: bytes), now(), written: true))
+        if wasWriting { inputWriting = false }
+        if inputClient === lane { dropInputLane() }
+        inputSettled()
     }
 
-    /// A failed batch goes back before newer keys, after the failed batches
-    /// written before it.
-    private func requeueInput(_ bytes: Data, typedAt: TimeInterval, number: Int) {
-        let index = inputRequeued.firstIndex { $0 > number } ?? inputRequeued.count
-        inputRequeued.insert(number, at: index)
-        input.insert((bytes, typedAt, true), at: index)
+    /// A `send` was answered, failed or given up: the next batch may go.
+    /// Once a failed channel's sends have all settled, its failed batches go
+    /// back before newer keys, in order, unless one of them may have been
+    /// typed already: then all of them are dropped and the screen is told.
+    private func inputSettled() {
+        inputInFlight -= 1
+        guard inputInFlight == 0 else { return drainInput() }
+        inputTarget = nil
+        abandonedInputLane = nil
+        if inputRecovering {
+            inputRecovering = false
+            let failed = inputFailed.sorted { $0.number < $1.number }
+            inputFailed.removeAll()
+            if failed.contains(where: \.written) {
+                // The keys typed since go too: no part of a command may run
+                // after an earlier part that may be lost.
+                let bytes = failed.reduce(0) { $0 + $1.bytes.count } + input.reduce(0) { $0 + $1.bytes.count }
+                input.removeAll()
+                log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) typed bytes not sent again (the Mac may have typed them before the channel failed)")
+                handler?(.inputNotSent(bytes: bytes))
+            } else if !failed.isEmpty {
+                input.insert(contentsOf: failed.map { ($0.bytes, $0.at, true) }, at: 0)
+                markInputDetached()
+            }
+        }
+        drainInput()
     }
 
     /// One main-queue turn's input goes out as one `send`: Ghostty writes a
@@ -836,11 +868,11 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `operation`'s result, or nil when it takes longer than `limit`. Does
     /// not wait for `operation` to notice cancellation (a request on a dead
     /// channel never does).
-    private static func within(_ limit: Duration, _ operation: @escaping @Sendable () async throws -> Data) async throws -> Data? {
+    private static func within<T: Sendable>(_ limit: Duration, _ operation: @escaping @Sendable () async throws -> T) async throws -> T? {
         let once = RaceOnce()
-        let result: Result<Data?, any Error> = await withCheckedContinuation { continuation in
+        let result: Result<T?, any Error> = await withCheckedContinuation { continuation in
             let work = Task {
-                let result: Result<Data?, any Error>
+                let result: Result<T?, any Error>
                 do { result = .success(try await operation()) } catch { result = .failure(error) }
                 if once.claim() { continuation.resume(returning: result) }
             }
