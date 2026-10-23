@@ -1,5 +1,5 @@
 {
-  "id": "2d1ce09c-78af-40fd-ac4b-a66a65cfd0f5",
+  "id": "3cbfe2ff-2acd-442b-a38d-306cca67663a",
   "prevId": "087ac55d-1f4a-4c10-87ac-d13c89933f5f",
   "version": "7",
   "dialect": "postgresql",
@@ -61,6 +61,12 @@
         "last_seen_at": {
           "name": "last_seen_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "machine_id": {
+          "name": "machine_id",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         }
@@ -149,18 +155,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "muted_macs": {
-          "name": "muted_macs",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "previews": {
-          "name": "previews",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false
         },
         "updated_at": {
           "name": "updated_at",
