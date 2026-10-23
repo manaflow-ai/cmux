@@ -935,7 +935,6 @@ export function ModelPicker(props: ModelPickerProps) {
           onMore={more}
         >
           {chipFace}
-          {speed && <FastToggle speed={speed} inline />}
           {/* A quiet label, as Claude Code's: the model, then its effort, and no chevron. */}
           {detail && (
             <span
@@ -955,6 +954,7 @@ export function ModelPicker(props: ModelPickerProps) {
             />
           )}
         </QuickModelMenu>
+        {speed && <FastToggle speed={speed} inline />}
       ) : (
         <PickerButton
           ref={trigger}
@@ -982,9 +982,9 @@ export function ModelPicker(props: ModelPickerProps) {
           {...press}
         >
           {chipFace}
-          {speed && <FastToggle speed={speed} inline />}
           <ChevronIcon />
         </PickerButton>
+        {speed && <FastToggle speed={speed} inline />}
       )}
       {open && (
         <PickerDialog
