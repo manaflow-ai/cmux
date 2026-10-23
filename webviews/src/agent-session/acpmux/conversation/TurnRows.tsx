@@ -268,7 +268,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           code={row.errorCode}
           route={route}
           switchModel={switchModel}
-          retry={retry && prompt ? () => retry(row.retryRowId ?? "", prompt) : undefined}
+          retry={retry && prompt && row.retryRowId ? () => retry(row.retryRowId!, prompt) : undefined}
         />
       )}
       <div

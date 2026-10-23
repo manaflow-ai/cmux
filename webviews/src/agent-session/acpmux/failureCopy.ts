@@ -57,7 +57,9 @@ const TAILNET_DOWN = /not connected|logged out|needs login|is (?:down|stopped|of
 /// The agent's process ended mid-turn (acpmux's "agent process closed", a signal, a broken pipe).
 const AGENT_EXITED =
   /agent process (?:closed|exited|died|ended)|(?:agent|process) exited (?:unexpectedly|with)|exited with (?:code|status|signal)|terminated by signal|\bSIG(?:KILL|TERM|SEGV|ABRT|BUS)\b|broken pipe|\bEPIPE\b/i;
-/// The agent never started (its command missing, a spawn refused).
+/// The agent never started (its command missing, a spawn refused). The same words can be a tool's
+/// in the agent's stderr ("pnpm: command not found"), so they count only when nothing says the
+/// agent ran and quit; acpmux's typed `spawn.failed` names a start that failed either way.
 const SPAWN_FAILED =
   /failed to (?:spawn|start|launch)|could not (?:spawn|start|launch)|\bspawn\b.*\bENOENT\b|command not found/i;
 /// acpmux's typed reasons (`errorCode`), by the words in them: the kind its text would give, when
@@ -117,9 +119,10 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   if (AUTH.test(message) && via) return "proxy-auth";
   if (SUBSCRIPTION.test(message)) return "subscription-login";
   if (AUTH.test(message)) return "auth";
-  // Last: the cause an agent's stderr names (above) says more than that it quit.
-  if (SPAWN_FAILED.test(message)) return "spawn-failed";
+  // Last: the cause an agent's stderr names (above) says more than that it quit, and that it quit
+  // says more than a start failure's words, which may be a tool's.
   if (AGENT_EXITED.test(message)) return "agent-exited";
+  if (SPAWN_FAILED.test(message)) return "spawn-failed";
   return "other";
 }
 
