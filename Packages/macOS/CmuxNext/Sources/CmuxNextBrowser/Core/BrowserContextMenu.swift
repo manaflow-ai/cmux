@@ -160,8 +160,12 @@ public final class BrowserContextMenuRequest {
     /// Set when the engine shows its own menu (WebKit): the host passes its
     /// leading rows here at once instead of presenting a menu.
     public let insertLeading: (([NSMenuItem]) -> Void)?
-    private var completion: ((Int?) -> Void)?
+    /// A host that drops the request unanswered dismisses the menu: the token answers nil
+    /// when it is released with the request.
+    private let reply: BrowserContextMenuCompletion
 
+    /// - Parameter completion: Runs once on the main actor with the chosen item's id, or nil
+    ///   when the menu was dismissed or the request was released unanswered.
     public init(items: [BrowserContextMenuItem], target: BrowserContextMenuTarget, location: CGPoint,
                 insertLeading: (([NSMenuItem]) -> Void)? = nil,
                 completion: @escaping (Int?) -> Void) {
@@ -169,21 +173,13 @@ public final class BrowserContextMenuRequest {
         self.target = target
         self.location = location
         self.insertLeading = insertLeading
-        self.completion = completion
+        reply = BrowserContextMenuCompletion { completion($0) }
     }
 
     public func complete(_ id: Int?) {
-        let completion = completion
-        self.completion = nil
-        completion?(id)
+        reply.complete(id)
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            // A host that drops the request dismisses the menu.
-            completion?(nil)
-        }
-    }
+    nonisolated deinit {}
 }
