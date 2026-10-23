@@ -309,6 +309,15 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 120, folder: .options), p(.workspaceRow, .view, 100, folder: .options)])
             ),
+            // Leo (2026-10-21): the workspace hover card needs "a way to toggle it off". The
+            // sidebar's menu and a workspace row's ⋮ check Show Hover Cards while cards open on
+            // hover (`sidebar.hoverCards.enabled`, the Settings row of the same name).
+            ActionDescriptor(
+                id: "sidebar.hoverCards.toggle", title: t("action.sidebar.hoverCards.toggle", "Show Hover Cards"),
+                keywords: ["sidebar", "hover", "card", "preview", "popover", "tooltip", "show", "hide", "workspace"], category: .sidebar,
+                symbol: "rectangle.on.rectangle", surfaces: [.palette, .keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 121, folder: .options), p(.workspaceRow, .view, 104, folder: .options)])
+            ),
             ActionDescriptor(
                 id: "sidebar.edit", title: t("action.sidebar.edit", "Edit Sidebar"), keywords: ["sidebar", "edit", "arrange", "reorder", "move", "remove",
                     "add", "items", "wiggle", "home screen"], category: .sidebar, symbol: "square.and.pencil", surfaces: [.palette, .keyboard, .contextMenu],
