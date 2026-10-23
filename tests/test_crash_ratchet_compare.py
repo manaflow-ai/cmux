@@ -171,5 +171,84 @@ class RealRatchetAgainstBase(unittest.TestCase):
         self.assertIn("swift M: dynamic_dispatch: head 2, base ok", out)
 
 
+class WaivedHitsCount(unittest.TestCase):
+    """A `// crash-allow:` waiver must not make a hit disappear from the count.
+
+    B1 (ba5e6df99f9) moved RunningProcess (`@unchecked Sendable`) from CmuxNextApp to
+    CmuxNextFilesUI and appended a crash-allow on the way: CmuxNextApp's count went 4 -> 3, FilesUI
+    counted nothing, and --update-baseline recorded the drop as a reduction while the construct was
+    unchanged. The real crash_ratchet.py, judged the way the CI job judges it, must see that move."""
+
+    OLD = "Packages/macOS/CmuxNext/Sources/App/RunningProcess.swift"
+    NEW = "Packages/macOS/CmuxNext/Sources/FilesUI/RunningProcess.swift"
+    WRAPPER = "final class RunningProcess: @unchecked Sendable {\n    let process = Process()\n}\n"
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", self.tmp]))
+        self.head = os.path.join(self.tmp, "head")
+        self.base = os.path.join(self.tmp, "base")
+        self.ratchet = os.path.join(self.head, "scripts", "cmux-next", "crash_ratchet.py")
+        with open(RATCHET) as src:
+            self.write("scripts/cmux-next/crash_ratchet.py", src.read())
+        self.write("cmux-tui/crates/x/src/lib.rs", "pub fn f() {}\n")
+        self.write(self.OLD, self.WRAPPER)
+        self.write("Packages/macOS/CmuxNext/Sources/FilesUI/Search.swift", "let limit = 500\n")
+        self.git("init", "-q")
+        self.git("add", ".")
+        self.update_baseline()
+        self.assertEqual(self.baseline()["swift"]["unchecked"], {"App": 1})
+        self.git("add", ".")
+        self.git("commit", "-qm", "base")
+        archive = subprocess.run(["git", "-C", self.head, "archive", "--format=tar", "HEAD"],
+                                 check=True, capture_output=True).stdout
+        os.makedirs(self.base)
+        subprocess.run(["tar", "-x", "-C", self.base], input=archive, check=True)
+        # The move, with a waiver added on the way.
+        self.git("mv", self.OLD, self.NEW)
+        self.write(self.NEW, self.WRAPPER.replace(
+            "@unchecked Sendable {", "@unchecked Sendable { // crash-allow: moved with its owner"))
+        self.git("add", ".")
+
+    def write(self, rel, text):
+        path = os.path.join(self.head, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write(text)
+
+    def git(self, *args):
+        subprocess.run(["git", "-C", self.head, "-c", "user.name=t", "-c", "user.email=t@t",
+                        "-c", "commit.gpgsign=false", *args], check=True, capture_output=True)
+
+    def update_baseline(self):
+        subprocess.run([sys.executable, self.ratchet, "--repo", self.head, "--update-baseline"],
+                       check=True, capture_output=True)
+
+    def baseline(self):
+        with open(os.path.join(self.head, "scripts", "cmux-next", "crash-safety-baseline.json")) as f:
+            return json.load(f)
+
+    def test_a_waiver_added_in_a_move_is_red_against_the_base(self):
+        out = subprocess.run([sys.executable, COMPARE, "--script", self.ratchet, "--head", self.head,
+                              "--base", self.base], capture_output=True, text=True)
+        text = out.stdout + out.stderr
+        self.assertEqual(out.returncode, 1, text)
+        self.assertIn("swift FilesUI: unchecked.waived: head 1, base ok", text)
+
+    def test_the_refreshed_baseline_records_the_waiver_not_a_reduction(self):
+        self.update_baseline()
+        baseline = self.baseline()
+        self.assertNotIn("App", baseline["swift"].get("unchecked", {}))
+        self.assertEqual(baseline["waived"]["swift"]["unchecked"], {"FilesUI": 1})
+        out = subprocess.run([sys.executable, self.ratchet, "--repo", self.head], capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        # Fixing the hit lowers the waived count like any other.
+        self.write(self.NEW, "final class RunningProcess {}\n")
+        self.git("add", ".")
+        out = subprocess.run([sys.executable, self.ratchet, "--repo", self.head], capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("count(s) went down", out.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
