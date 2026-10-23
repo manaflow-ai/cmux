@@ -208,6 +208,15 @@ capture stay). The timeout and memory pressure rules are unchanged; "off"
 still disables everything. `debug.surfaces` hibernation reports
 `page_budget` and `hidden_live_pages`. Tests: `HiddenPageWarmBudgetTests`.
 
+Agent chat pages (one web content process each, about 75 MB) had no budget
+either and waited for the whole timeout: a STRESS pane's five hidden chats held
+~375 MB. `AgentPageHibernation` now applies the same `pageCapacity` to the
+hidden chat pages it may release: all but the most recently left go once
+hidden `overBudgetMinimumHidden`; each pane's shown chat (`fronts`) stays out,
+and a busy turn, pinned, New Tab and shell chats still stay. A released chat
+keeps its session, wake state and last frame, as before. Tests:
+`AgentPageHibernationTests.hiddenChatsPastTheWarmBudgetLetGoAfterAMinute`.
+
 Wake picture: a hibernated page's JPEG took 10 to 30 ms to decode off the
 main thread after its placeholder entered a window, so a woken tab showed an
 empty pane for those frames. Each large picture now also keeps a decoded

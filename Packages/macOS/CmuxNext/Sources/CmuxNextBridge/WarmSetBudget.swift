@@ -19,7 +19,8 @@ public struct WarmSetBudget: Hashable, Sendable {
     /// Hidden terminal surfaces kept beyond the visible ones (LRU).
     public var terminalCapacity: Int
     /// Hidden live web pages (either engine) kept beyond the shown ones, their neighbors and
-    /// each pane's shown tab; the least valuable of the others hibernate.
+    /// each pane's shown tab; the least valuable of the others hibernate. Hidden agent chat pages
+    /// are counted against it on their own (`AgentPageHibernation`).
     public var pageCapacity: Int
 
     public init(terminalCapacity: Int, pageCapacity: Int = WarmSetBudget.minimumPages) {
