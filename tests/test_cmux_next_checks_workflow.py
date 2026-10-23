@@ -268,13 +268,22 @@ class WebviewsWarnSplitCoversCheck(unittest.TestCase):
         loop = re.search(r"for check in ([^;]+); do", warn_branch)
         self.assertIsNotNone(loop, "the warn branch loops over the style checks")
         looped = set(loop.group(1).split())
+        # The warn branch runs fast_gate_webviews_checks.py, which runs each of its CHECKS (#24252).
+        import fast_gate_webviews_checks
+        gated = set()
+        if re.search(r"fast_gate_webviews_checks\.py[^\n]*\|\| status=1", warn_branch):
+            gated = set(fast_gate_webviews_checks.CHECKS)
+        gated_commands = {package["scripts"][name] for name in gated if name in package["scripts"]}
         for part in parts:
-            if part == "vp check":
-                self.assertIn("vp check", warn_branch)
+            if part.startswith("vp "):
+                self.assertTrue(
+                    part in gated_commands or f"./node_modules/.bin/{part} ||" in warn_branch,
+                    f"`{part}` from webviews/package.json check does not run when CMUX_NEXT_STYLE_GUARDS=warn",
+                )
                 continue
             name = part.removeprefix("bun run ").strip()
             self.assertTrue(
-                name in looped or f"bun run {name} || status=1" in warn_branch,
+                name in looped or name in gated or f"bun run {name} || status=1" in warn_branch,
                 f"`{part}` from webviews/package.json check does not run when CMUX_NEXT_STYLE_GUARDS=warn",
             )
 
@@ -995,7 +1004,7 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                                   "the step after checkout must drop stale submodule checkouts")
         # request-nightly-next runs on GitHub-hosted ubuntu-latest (70d5128f784b), never a mini.
         self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "fast-tier", "generated-files",
-                                           "release-compile", "swift-canary", "swift-test"])
+                                           "release-compile", "swift-canary", "swift-test", "web-bundles"])
 
 
 

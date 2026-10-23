@@ -34,121 +34,122 @@
   box-shadow: none;
 }
 
-/* The pinned list: the shared popup surface, as wide as a card. */
+/* The pinned list (restyled Leo 2026-10-21): one layer of the shared
+   popup glass (Popover's .ui-popup.ui-glass; ui/popupSurface.css), never a fill of its own, with
+   native list metrics: 13px rows, a 16px mark, the ask in two lines at most, plain muted meta and
+   tools that show on hover or keyboard focus. The title stays put and the rows scroll under it
+   inside the list, so no second glass band frosts over them. */
 .acpmux-needs-you {
-  width: 380px;
+  display: flex;
+  flex-direction: column;
+  width: 360px;
   max-width: calc(100vw - 24px);
-  max-height: min(560px, 75vh);
-  overflow: auto;
+  max-height: min(520px, 75vh);
+  overflow: hidden;
   box-sizing: border-box;
   padding: 0;
   border: 0;
   border-radius: var(--ui-popup-radius);
   transform-origin: var(--transform-origin);
   color: var(--agent-text);
-  font-size: var(--text-control);
-  line-height: 18px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
   outline: none;
-  overscroll-behavior: contain;
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-needs-you {
     animation: ui-popup-open var(--ui-popup-open) ease-out;
   }
 }
+.acpmux-needs-you-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  outline: none;
+}
+/* The title as a list's section heading (the agents list's, subagents.css): small, muted, with the
+   count as plain text at the end. */
 .acpmux-needs-you-head {
-  position: sticky;
-  top: 0;
-  z-index: var(--layer-sticky);
+  flex: none;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 10px 12px 8px;
-  /* Glass on the list's glass: the rows scrolled under it frost, never a solid band. The tokens
-     are the list's own, so under prefers-reduced-transparency it is opaque and unblurred too. */
-  background: var(--glass-tint);
-  -webkit-backdrop-filter: var(--glass-backdrop);
-  backdrop-filter: var(--glass-backdrop);
-  border-bottom: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  padding: 8px 12px 2px;
   color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
 }
 .acpmux-needs-you-title {
-  color: var(--agent-text);
   font-weight: var(--weight-emphasis, 600);
 }
 .acpmux-needs-you-total {
   margin-left: auto;
-  min-width: 18px;
-  padding: 0 6px;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--acpmux-needs-you-mark) 16%, transparent);
-  color: var(--acpmux-needs-you-mark);
-  font-size: var(--text-caption);
-  font-weight: var(--weight-emphasis, 600);
-  line-height: 18px;
-  text-align: center;
   font-variant-numeric: tabular-nums;
 }
 .acpmux-needs-you-note {
-  margin: 8px 12px 0;
+  flex: none;
+  margin: 4px 12px 0;
   color: var(--agent-muted);
   font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
 }
 .acpmux-needs-you-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 28px 16px 30px;
+  gap: 6px;
+  padding: 18px 16px 22px;
   color: var(--agent-muted);
 }
 .acpmux-needs-you-list {
+  flex: 1 1 auto;
+  min-height: 0;
   margin: 0;
-  padding: 4px;
+  padding: 2px 4px 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   list-style: none;
 }
 .acpmux-needs-you-item {
-  padding: 9px 8px 10px;
-  border-radius: 8px;
+  padding: 6px 8px 7px;
+  border-radius: 6px;
 }
 .acpmux-needs-you-item + .acpmux-needs-you-item {
-  margin-top: 2px;
+  margin-top: 1px;
 }
 .acpmux-needs-you-item:hover {
-  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  background: color-mix(in srgb, var(--agent-text) 5%, transparent);
 }
+/* The ask a link opened the list on: a wash of the needs-you mark, no ring. */
 .acpmux-needs-you-item[data-focused] {
-  background: color-mix(in srgb, var(--acpmux-needs-you-mark) 10%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acpmux-needs-you-mark) 35%, transparent);
+  background: color-mix(in srgb, var(--acpmux-needs-you-mark) 12%, transparent);
 }
 .acpmux-needs-you-meta {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
+  min-height: 20px;
   color: var(--agent-muted);
-  font-size: var(--text-detail);
   white-space: nowrap;
 }
 .acpmux-needs-you-avatar {
   flex: none;
   display: inline-grid;
   place-items: center;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
   object-fit: cover;
-}
-.acpmux-needs-you-avatar.is-chief {
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
 }
 .acpmux-needs-you-who {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--agent-text);
-  font-weight: var(--weight-emphasis, 600);
+  font-weight: 500;
 }
 .acpmux-needs-you-via {
   flex: 0 1 auto;
@@ -156,31 +157,55 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* The kind is a word in the meta line, not a chip. */
 .acpmux-needs-you-kind {
   flex: none;
-  padding: 0 6px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
-  font-size: var(--text-caption);
-  line-height: 16px;
 }
-.acpmux-needs-you-item[data-kind="approval"] .acpmux-needs-you-kind,
-.acpmux-needs-you-item[data-kind="decision"] .acpmux-needs-you-kind,
-.acpmux-needs-you-item[data-kind="verify"] .acpmux-needs-you-kind {
-  background: color-mix(in srgb, var(--acpmux-needs-you-mark) 14%, transparent);
-  color: var(--acpmux-needs-you-mark);
+/* The row's end: the age at rest, the tools in the same slot on hover or focus, so the age sits
+   flush right and the tools never move the line. */
+.acpmux-needs-you-end {
+  flex: none;
+  display: grid;
+  justify-items: end;
+  align-items: center;
+  margin-left: auto;
+}
+.acpmux-needs-you-end > * {
+  grid-area: 1 / 1;
 }
 .acpmux-needs-you-age {
-  flex: none;
   font-variant-numeric: tabular-nums;
 }
-.acpmux-needs-you-go {
+.acpmux-needs-you-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+}
+.acpmux-needs-you-item:is(:hover, :focus-within) .acpmux-needs-you-tools,
+.acpmux-needs-you-item:has(.acpmux-needs-you-ask-about[aria-expanded="true"]) .acpmux-needs-you-tools {
+  opacity: 1;
+}
+.acpmux-needs-you-item:is(:hover, :focus-within) .acpmux-needs-you-age,
+.acpmux-needs-you-item:has(.acpmux-needs-you-ask-about[aria-expanded="true"]) .acpmux-needs-you-age {
+  opacity: 0;
+}
+/* No hover to reveal them (a touch screen): the tools stay shown and the age gives way. */
+@media (hover: none) {
+  .acpmux-needs-you-tools {
+    opacity: 1;
+  }
+  .acpmux-needs-you-age {
+    opacity: 0;
+  }
+}
+.acpmux-needs-you-go,
+.acpmux-needs-you-ask-about {
   flex: none;
   display: inline-grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
-  margin-left: auto;
+  width: 20px;
+  height: 20px;
   padding: 0;
   border: 0;
   border-radius: 5px;
@@ -188,22 +213,25 @@
   color: var(--agent-muted);
   cursor: default;
 }
-.acpmux-needs-you-go:hover {
-  background: var(--acpmux-menu-hover, color-mix(in srgb, var(--agent-text) 10%, transparent));
+.acpmux-needs-you-go:hover,
+.acpmux-needs-you-ask-about:hover,
+.acpmux-needs-you-ask-about[aria-expanded="true"] {
+  background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
   color: var(--agent-text);
 }
 .acpmux-needs-you-go:focus-visible,
-.acpmux-needs-you-answer:focus-visible,
 .acpmux-needs-you-ask-about:focus-visible,
+.acpmux-needs-you-answer:focus-visible,
 .acpmux-needs-you-side-send:focus-visible {
   outline: 1.5px solid var(--agent-text);
-  outline-offset: 1px;
+  outline-offset: 0;
 }
+/* The ask, under the name (past the 16px mark and its 6px gap): two lines at most. */
 .acpmux-needs-you-ask {
-  margin: 6px 0 0 24px;
+  margin: 1px 0 0 22px;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   overflow: hidden;
   overflow-wrap: anywhere;
   color: var(--agent-text);
@@ -212,41 +240,36 @@
   -webkit-line-clamp: 1;
 }
 .acpmux-needs-you-detail {
-  margin: 2px 0 0 24px;
+  margin: 2px 0 0 22px;
   overflow: hidden;
   color: var(--agent-soft, var(--agent-muted));
-  font-size: var(--text-caption);
-  line-height: 16px;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 /* A command: as the ask's card shows one. */
 .acpmux-needs-you-detail[data-code] {
   margin-top: 4px;
-  padding: 4px 7px;
+  padding: 3px 7px;
   border-radius: 5px;
   background: color-mix(in srgb, var(--agent-text) 6%, transparent);
   font-family: var(--font-mono, ui-monospace, monospace);
 }
 .acpmux-needs-you-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin: 8px 0 0 24px;
+  margin: 6px 0 0 22px;
 }
 /* The answers as Claude's permission card draws its options (styles.css .acpmux-permission-ask):
    numbered rows in one column, the first one ready, hover fills the row. */
 .acpmux-needs-you-options {
-  flex: 1 0 100%;
   min-width: 0;
   margin: 0;
   border: 0;
   display: flex;
   flex-direction: column;
   gap: 1px;
-  padding: 3px;
-  border-radius: 9px;
+  padding: 2px;
+  border-radius: 7px;
   background: color-mix(in srgb, var(--agent-text) 4%, transparent);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border);
   counter-reset: acpmux-needs-you-option;
@@ -258,14 +281,14 @@
   column-gap: 6px;
   align-items: center;
   min-width: 0;
-  min-height: 26px;
-  padding: 3px 8px;
+  min-height: 24px;
+  padding: 2px 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 5px;
   background: transparent;
   color: var(--agent-text);
   font: inherit;
-  font-size: var(--text-detail);
+  font-size: var(--text-body);
   text-align: left;
   cursor: default;
 }
@@ -292,7 +315,6 @@
 .acpmux-needs-you-answer[aria-busy="true"] {
   opacity: 0.8;
 }
-.acpmux-needs-you-ask-about,
 .acpmux-needs-you-side-send {
   display: inline-flex;
   align-items: center;
@@ -313,36 +335,23 @@
   text-overflow: ellipsis;
   cursor: default;
 }
-.acpmux-needs-you-ask-about:hover,
 .acpmux-needs-you-side-send:hover:not(:disabled) {
   background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
 }
 .acpmux-needs-you-side-send:disabled {
   opacity: 0.55;
 }
-.acpmux-needs-you-ask-about {
-  margin-left: auto;
-  background: none;
-  box-shadow: none;
-  color: var(--agent-muted);
-  padding: 0 6px;
-}
-.acpmux-needs-you-ask-about[aria-expanded="true"] {
-  color: var(--agent-text);
-}
 .acpmux-needs-you-error {
-  margin: 6px 0 0 24px;
+  margin: 4px 0 0 22px;
   color: var(--agent-danger, var(--agent-text));
   font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
 }
 .acpmux-needs-you-side {
-  margin: 8px 0 0 24px;
-  padding: 8px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--agent-text) 5%, transparent);
+  margin: 6px 0 0 22px;
 }
 .acpmux-needs-you-side > p + .acpmux-needs-you-side-form {
-  margin-top: 8px;
+  margin-top: 6px;
 }
 .acpmux-needs-you-side .acpmux-needs-you-error {
   margin: 0;
@@ -351,6 +360,7 @@
   margin: 0;
   color: var(--agent-muted);
   font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
 }
 .acpmux-needs-you-side-form {
   display: flex;
@@ -359,9 +369,9 @@
 .acpmux-needs-you-side-field {
   flex: 1;
   min-width: 0;
-  height: 26px;
+  height: 24px;
   box-sizing: border-box;
-  padding: 0 9px;
+  padding: 0 8px;
   border: 0;
   border-radius: 6px;
   outline: none;
@@ -370,7 +380,7 @@
   color: var(--agent-text);
   caret-color: var(--cmux-caret, var(--agent-text));
   font: inherit;
-  font-size: var(--text-detail);
+  font-size: var(--text-body);
 }
 .acpmux-needs-you-side-field:focus {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 40%, transparent);

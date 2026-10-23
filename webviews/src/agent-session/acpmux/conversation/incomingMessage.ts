@@ -18,6 +18,11 @@
 // relayed from another machine), so an agent sending from one puts its name first by convention:
 // `[coord-deputy] Merged #23727`. That prompt is the named agent's message. No chat id comes with
 // it, so the card opens the listed chat with that name (subsessions.ts `useSenderChat`).
+// An agent also addresses one sender first: `summary-panel -> claude-sr2: Confirmed.` (`→`, spaces
+// or none). Nothing else in the record says an agent sent it, and a person types the same at the
+// acpmux TUI, so it is a message only when its sender is a listed chat, or its receiver is this
+// chat and its sender reads as an agent's name (`IncomingContext`). A watched chat (`client: "watch"`, hub/watch.rs) records its
+// prompts from the transcript as an adopted one does, Claude Code's envelopes in them.
 
 /// Who a family message's sender is to this chat (acpmux `fromRole`, subsession_send.rs
 /// `family_role`): the chat that started it, one it started, one further up, or another below or
@@ -36,11 +41,19 @@ export type IncomingMessage = {
   /// (IncomingMessageCard.tsx's Reply); a Claude Code envelope has neither.
   msgId?: string;
   threadId?: string;
+  /// Relayed from an acpmux on another machine (`acpmux send` there): the paths it names are
+  /// that machine's, not this Mac's.
+  remote?: true;
   /// What the sender wrote.
   text: string;
   /// The prompt as the agent got it.
   raw: string;
 };
+
+/// What the pane knows that tells an agent's addressed message (`sender -> receiver: …`) from the
+/// person's words: whether a name is this chat's, and whether it is a listed chat's. Each is asked
+/// only of a prompt in that form.
+export type IncomingContext = { isThisChat?: (name: string) => boolean; isChat?: (name: string) => boolean };
 
 export type IncomingPrompt =
   | { kind: "message"; message: IncomingMessage }
@@ -77,12 +90,23 @@ export function messagePreview(text: string): string {
     .slice(0, 240);
 }
 
+/// `text` without a signature naming `name` first (`[coord-deputy] Merged`, `From coord-deputy:
+/// Merged`), which the card's chip says already: a record read before the signature was taken out
+/// on every path, or a queued one, may still start with it.
+export function unsigned(text: string, name: string): string {
+  const signed = namedFirst(text) ?? fromFirst(text);
+  return signed && namesSender(signed.name, [name]) ? signed.text : text;
+}
+
 /// What a `user_message` is when not the person's own as recorded, or undefined when it is.
 export function incomingPrompt(
   text: string,
   msg: { _meta?: { provenance?: unknown }; client?: unknown } | undefined,
+  context?: IncomingContext,
 ): IncomingPrompt | undefined {
   const provenance = msg?._meta?.provenance as Record<string, unknown> | undefined;
+  // Relayed from another machine (acpmux hub/peers.rs): its files are that machine's, on every path.
+  const remote = String(msg?.client ?? "").startsWith("acpmux-peer#") ? { remote: true as const } : {};
   const fromSession = provenance?.kind === "subsession_message" || provenance?.kind === "session_message";
   if (fromSession && typeof provenance.from === "string" && provenance.from) {
     // `from` is the sender's raw session id, always a chat here; its short name, when it is a
@@ -95,13 +119,14 @@ export function incomingPrompt(
         : undefined;
     // An agent that signs its message first names itself better than its chat's title; the chip
     // still opens the sending chat.
-    const signed = agentSigned(text.trim());
+    const signed = agentSigned(text.trim(), [provenance.fromShortName, provenance.fromName]);
     return {
       kind: "message",
       message: {
         name: signed?.name ?? name,
         ...(sessionId && { sessionId }),
         ...(relation && { relation }),
+        ...remote,
         text: signed?.text ?? text.trim(),
         raw: text,
       },
@@ -120,7 +145,11 @@ export function incomingPrompt(
     ];
     if (senders.length > 0) {
       const name = senders.length > 3 ? `${senders.slice(0, 3).join(", ")} +${senders.length - 3}` : senders.join(", ");
-      return { kind: "message", message: { name, ...digestReply(provenance.messages), text: text.trim(), raw: text } };
+      const body = digestBody(text) || text.trim();
+      return {
+        kind: "message",
+        message: { name, ...digestReply(provenance.messages), ...remote, text: body, raw: text },
+      };
     }
   }
   if (provenance?.kind === "agent_message" && typeof provenance.from === "string" && provenance.from) {
@@ -133,7 +162,7 @@ export function incomingPrompt(
     // one.
     const sessionId = provenance.from.startsWith("acp:") ? provenance.from.slice(4) || undefined : undefined;
     const body = (renderedBody(text, provenance.msgId) ?? text).trim();
-    const signed = agentSigned(body);
+    const signed = agentSigned(body, [provenance.fromName]);
     const id = (key: string) =>
       typeof provenance[key] === "string" && provenance[key] ? { [key]: provenance[key] as string } : {};
     return {
@@ -143,16 +172,17 @@ export function incomingPrompt(
         ...(sessionId && { sessionId }),
         ...id("msgId"),
         ...id("threadId"),
+        ...remote,
         text: signed?.text ?? body,
         raw: text,
       },
     };
   }
   if (!provenance && typeof msg?.client === "string" && CLI_CLIENT.test(msg.client)) {
-    const named = namedFirst(text.trim()) ?? fromFirst(text.trim());
-    if (named) return { kind: "message", message: { ...named, raw: text } };
+    const named = namedFirst(text.trim()) ?? fromFirst(text.trim()) ?? addressedFirst(text.trim(), context);
+    if (named) return { kind: "message", message: { ...named, ...remote, raw: text } };
   }
-  if (msg?.client !== "adopt") return undefined;
+  if (msg?.client !== "adopt" && msg?.client !== "watch") return undefined;
   // Claude Code's envelopes start the prompt, after its line about them; one quoted later in it is
   // the person's text.
   const rest = withoutBookkeeping(text);
@@ -166,7 +196,7 @@ export function incomingPrompt(
     const body = decodeXml(envelope[2]!).trim();
     // What follows the envelope is Claude Code's note to the agent about it. A session's title
     // names it less well than the agent's own signature, as at a shell.
-    const agent = agentSigned(body);
+    const agent = agentSigned(body, [name]);
     if (name) return { kind: "message", message: { ...(agent ?? { name, text: body }), raw: text } };
   }
   const notification = NOTIFICATION.exec(rest);
@@ -175,6 +205,10 @@ export function incomingPrompt(
     return summary ? { kind: "notice", text: summary } : { kind: "hidden" };
   }
   if (!rest) return { kind: "hidden" };
+  // A message acpmux delivered to the harness, read back from its transcript, records no client of
+  // its own: only the strict addressed form names its sender.
+  const addressed = addressedFirst(rest, context);
+  if (addressed) return { kind: "message", message: { ...addressed, raw: text } };
   return rest === text.trim() ? undefined : { kind: "prompt", text: rest };
 }
 
@@ -195,31 +229,6 @@ function renderedBody(text: string, msgId: unknown): string | undefined {
   if (lines[line++] !== "---") return undefined;
   if (line >= lines.length || lines.at(-1) !== `--- end of message ${msgId} ---`) return undefined;
   return lines.slice(line, -1).join("\n");
-}
-
-/// A reply in place (direct.ts `AcpmuxDirectClient.reply`) as cmux renders an agent message for
-/// the agent (agent_message_prompt.rs `render`), so the agent reads it as that chat's answer in the
-/// thread: who sent it, its id, the message it answers and cmux's note that it is not an
-/// instruction from the operator. `renderedBody` reads it back. It has no `Reply with` line: its id
-/// is acpmux's, which `cmux agent message --reply-to` does not know.
-export function renderedReply(reply: {
-  from: string;
-  fromName?: string;
-  msgId: string;
-  replyTo: string;
-  text: string;
-}): string {
-  const name = (reply.fromName ?? "").replace(/[\s\p{Cc}\p{Cf}]+/gu, " ").trim();
-  const from = name && name !== reply.from ? `${name} (${reply.from})` : reply.from;
-  return [
-    `[cmux agent message] from ${from}`,
-    `Message id: ${reply.msgId}`,
-    `In reply to: ${reply.replyTo}`,
-    RENDERED_NOTE,
-    "---",
-    reply.text,
-    `--- end of message ${reply.msgId} ---`,
-  ].join("\n");
 }
 
 const RENDERED_HEADER = /^\[cmux agent message(?: \(\d+ of \d+\))?\] from \S/;
@@ -260,12 +269,72 @@ function fromFirst(text: string): { name: string; text: string } | undefined {
   return prefixed && ENVELOPE_AGENT.test(prefixed[1]!) ? { name: prefixed[1]!, text: prefixed[2]!.trim() } : undefined;
 }
 
-/// The agent that signed a message whose envelope names its sender already: its name first in
-/// brackets, when that is an agent's name and not a tag (`[WIP]`, `[1/3]`), or after "From".
-function agentSigned(text: string): { name: string; text: string } | undefined {
-  const named = namedFirst(text);
-  return named && ENVELOPE_AGENT.test(named.name) ? named : fromFirst(text);
+/// A message addressed sender first: `summary-panel -> claude-sr2: …`, its arrow `->` or `→`, with
+/// spaces around it or none, each name one word that ends and starts with no dash (`a-->b` is none).
+const ADDRESSED = /^([\w.@/-]+?)(?<!-)\s*(?:->|→)\s*([\w.@][\w.@/-]*):\s+(\S[\s\S]*)$/;
+
+/// The sender and message of a prompt addressed sender first, when nothing but its text says an
+/// agent sent it: only when its sender is a listed chat, or it names this chat as its receiver and
+/// its sender reads as an agent's name (`summary-panel`, not `leo`), so the person's
+/// "foo -> bar: …" stays theirs.
+function addressedFirst(
+  text: string,
+  context: IncomingContext | undefined,
+): { name: string; text: string } | undefined {
+  const addressed = ADDRESSED.exec(text);
+  if (!addressed || !context) return undefined;
+  const [, from, to, body] = addressed as unknown as [string, string, string, string];
+  const known = (ENVELOPE_AGENT.test(from) && context.isThisChat?.(to)) || context.isChat?.(from);
+  return known ? { name: from, text: body.trim() } : undefined;
 }
+
+/// The agent that signed a message whose envelope names its sender already: its name first in
+/// brackets, when it is an agent's name and not a tag (`[WIP]`, `[1/3]`), after "From", or
+/// before an arrow to its receiver. A name the envelope gives (`known`) is a signature in any form.
+function agentSigned(text: string, known: readonly unknown[] = []): { name: string; text: string } | undefined {
+  const named = namedFirst(text);
+  if (named && (ENVELOPE_AGENT.test(named.name) || namesSender(named.name, known))) return named;
+  const addressed = ADDRESSED.exec(text);
+  return (
+    fromFirst(text) ??
+    (addressed && ENVELOPE_AGENT.test(addressed[1]!) ? { name: addressed[1]!, text: addressed[3]!.trim() } : undefined)
+  );
+}
+
+/// Whether `name` is one of the sender's `known` names, or one of them on another machine
+/// (`<peer>/<name>`, acpmux hub/peers.rs), ignoring case and runs of spaces.
+function namesSender(name: string, known: readonly unknown[]): boolean {
+  const said = name.toLowerCase().replace(/\s+/g, " ");
+  return known.some((value) => {
+    if (typeof value !== "string" || !value.trim()) return false;
+    const full = value.trim().toLowerCase().replace(/\s+/g, " ");
+    return said === full || said === full.split("/").at(-1) || full === said.split("/").at(-1);
+  });
+}
+
+/// A turn of agent messages as acpmux writes it (hub/digest.rs `digest_blocks`): a line saying
+/// what follows, then each message under `[agent message 2 of 3] from <sender>`. The card shows
+/// each message under its sender's name in bold, without that line and without the signature
+/// that only repeats the sender (`[lane-a] Merged`); one message alone is just its text. Empty
+/// when `text` is not in that form.
+function digestBody(text: string): string {
+  const rest = text.trim().replace(DIGEST_LEAD, "");
+  const parts = [...rest.matchAll(DIGEST_PART)];
+  if (!parts.length || parts[0]!.index !== 0) return "";
+  const messages = parts.map((part, index) => {
+    const sender = part[1]!.trim();
+    const end = parts[index + 1]?.index ?? rest.length;
+    const body = rest.slice(part.index! + part[0].length, end).trim();
+    const signed = agentSigned(body, [sender]);
+    return { sender: signed?.name ?? sender, text: signed?.text ?? body };
+  });
+  if (messages.length === 1) return messages[0]!.text;
+  return messages.map((message) => `**${message.sender}**\n${message.text}`).join("\n\n");
+}
+
+const DIGEST_LEAD =
+  /^\d+ messages? from other agents arrived while you were busy\.(?: Each follows as it was sent, oldest first\.)?\s*/;
+const DIGEST_PART = /^\[agent message \d+ of \d+\] from ([^\n]+)$/gm;
 
 /// Claude Code's line before an envelope it delivers, by itself or with the agent busy.
 const PREFACE = /^Another Claude session sent a message(?: while you were working)?:\s*/;

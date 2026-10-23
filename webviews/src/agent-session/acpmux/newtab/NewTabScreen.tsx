@@ -7,7 +7,7 @@ import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
 import type { Project } from "../ProjectChooser";
-import { isAgentHome, mostRecentProject, projectLabel } from "../sessionList";
+import { firstProject, isAgentHome, mostRecentProject, projectLabel } from "../sessionList";
 import { WorktreeFailure } from "../startFolder";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
@@ -26,6 +26,7 @@ import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
 import { useRecentlyClosed } from "./recentlyClosed";
 import { initialRecentProject } from "./recentProject";
+import { rememberedStartedProject } from "./startedProject";
 import {
   canonicalAddress,
   defaultSelection,
@@ -52,6 +53,7 @@ import {
   type WidgetEdit,
 } from "./pageWidgets";
 import { useWidgetEditing, WidgetEditBar, WidgetFrame } from "./WidgetEditing";
+import { useNoEntryMotion } from "./noEntryMotion";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
 import { Icon } from "../icons/Icon";
@@ -65,11 +67,13 @@ import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
 import { useComposerChrome } from "../composerChrome";
 import { useComposerSettings } from "../composerSettings";
+import { useComposerLook } from "../composerLook";
 import { ComposerFoot } from "../ComposerFoot";
 import { FastToggle, SpeedToggleHost, type SpeedTiers } from "../FastToggle";
 import { useRowFit } from "../composerRowFit";
 import { useMenuPressGuard } from "../menuPressGuard";
 import { useMinuteClock } from "../clock";
+import { usePasteAnywhere } from "../composer/pasteAnywhere";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
@@ -139,8 +143,9 @@ type Props = NewTabScreenActions & {
   lastAgent?: string;
   home?: string;
   /// The host's project folders (`project.list` and the page's own list), so a deleted or removed
-  /// folder never becomes the start project. Absent, every local chat folder counts.
-  knownProjects?: readonly string[];
+  /// folder never becomes the start project. Absent or empty (not loaded yet), every local chat
+  /// folder counts; `null` (the host answered with no project), none does.
+  knownProjects?: readonly string[] | null;
   /// The workspace's tabs to move here (a split's page, cx-jfo7).
   openTabs?: NewTabHost["openTabs"];
   inputToken?: string;
@@ -156,6 +161,10 @@ type Props = NewTabScreenActions & {
   /// true until this page's daemon connection has listed the chats (`listedSessions`), while no
   /// chat is known: the recent project may still come, so the folder chip holds its place.
   chatsPending?: boolean;
+  /// The app's copy of the project of the chat the person last picked and started
+  /// (newtab/startedProject.ts; this run's own copy wins): where a tab with no folder of its own
+  /// starts, before the newest chat's folder (which agents move).
+  startedProject?: string;
   /// The projects the picker offers (App's newTabProjects).
   projects?: Project[];
   /// The host's folder panel; resolves with the folder picked, if any.
@@ -209,6 +218,8 @@ const NO_DEVICE_CHATS: ReturnType<typeof useDeviceChats> = [];
 /// (cx-e2aa), and the recent chats as cards. A key typed anywhere on the page goes to the field.
 export function NewTabScreen(props: Props) {
   const nt = useNt();
+  // What the page shows or opens appears at once; exits keep their fades (noEntryMotion.ts).
+  useNoEntryMotion();
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, inputToken } = props;
   const template = props.template ?? "default";
   const sections = screenSections(template);
@@ -254,11 +265,22 @@ export function NewTabScreen(props: Props) {
   // Before the host's project list lands, a chat folder counts; once it lands, one it does not
   // list (removed, deleted) gives way to the newest it lists.
   const known = props.knownProjects?.length ? props.knownProjects : undefined;
-  if (latched !== undefined && known && !known.some((path) => path.replace(/(.)\/+$/, "$1") === latched))
+  if (
+    latched !== undefined &&
+    (props.knownProjects === null || (known && !known.some((path) => path.replace(/(.)\/+$/, "$1") === latched)))
+  )
     setLatched(undefined);
   else if (latched === undefined && candidate !== undefined && (props.knownProjects === undefined || known))
     setLatched(candidate);
-  const recent = startsRecent ? (latched ?? candidate) : undefined;
+  // The project of the chat the person last picked and started wins over the newest chat's folder
+  // (Leo 2026-10-21): chats agents start move that one. Not on another machine's page (no `home`),
+  // and only a folder the host's project list still has. Read once, as the page mounts.
+  const [startedProject] = useState(() => rememberedStartedProject() ?? props.startedProject);
+  const started =
+    startsRecent && home && startedProject
+      ? firstProject([startedProject.replace(/(.)\/+$/, "$1")], home, props.knownProjects)
+      : undefined;
+  const recent = startsRecent ? (started ?? latched ?? candidate) : undefined;
   // Nothing knows the recent project yet (the run's first page, before its daemon lists the chats):
   // the folder chip keeps its place but names nothing, rather than "Choose folder" and then the
   // project. A daemon that has not answered in RESERVE_MS shows the chip as it is.
@@ -272,6 +294,16 @@ export function NewTabScreen(props: Props) {
   const projectPending = pending && !reserveOver;
   const project = none ? undefined : (recent ?? seeded);
   const field = useRef<HTMLTextAreaElement>(null);
+  // Cmd-V anywhere on the page outside a text field (a row, a card, the empty page) goes into the
+  // field, caret at the end, as in a chat (composer/pasteAnywhere.ts; Leo 2026-10-22: "cmd v anywhere
+  // in chat should put it in chat").
+  usePasteAnywhere(() => {
+    const input = field.current;
+    if (!input) return false;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    return true;
+  });
   // A paste on the field (an image, a copied file, a screenshot) and a file drop anywhere on the
   // page stage attachments, as a chat's composer does (composer/attachmentIntake.tsx).
   const {
@@ -399,7 +431,12 @@ export function NewTabScreen(props: Props) {
   // existing composer on the second one"): with the plain footer on, every template but Default
   // (the page's second dot) draws the chat composer's split, the mode, model and effort in a quiet
   // row under the box. Default keeps the chips in the box, as before the split.
-  const split = plainFooter && props.chips !== undefined && template !== "default";
+  // Codex's look (the page's second dot, composerLook.ts) keeps them in the box's row too.
+  const look = useComposerLook();
+  // Either look draws the chat composer's box (Cards too, its strip Codex's tray); only the plain
+  // footer off keeps Cards' pill.
+  const chatBox = plainFooter && props.chips !== undefined && template !== "default";
+  const split = chatBox && look === "claude";
   useRowFit(foot, split);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
   useMenuPressGuard();
@@ -864,7 +901,7 @@ export function NewTabScreen(props: Props) {
   const [speed, setSpeed] = useState<SpeedTiers | undefined>(undefined);
   /// The Cards template (u2851): the field is a pill of its own and the chips sit under it. The
   /// split draws the chat composer's box instead.
-  const pill = template === "cards" && !split;
+  const pill = template === "cards" && !chatBox;
   // Where the chat starts: the folder Enter asks in (askFolder), picked as in the agent composer's
   // location strip; never the home ~ the tab inherited (cx-7fje0).
   const folderStrip = (
@@ -1028,7 +1065,7 @@ export function NewTabScreen(props: Props) {
           bar with the agent's model chip, the mic and Send. The location strip with the project the
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
           composer location strip; newtab/screen.css). */}
-      <div ref={setComposer} className="nt-composer">
+      <div ref={setComposer} className="nt-composer" data-composer-look={look === "codex" ? "codex" : undefined}>
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
         {/* Above the box: the project strip (Cards draws it under the field). */}
         {!pill && <div className="nt-above">{folderStrip}</div>}
