@@ -2097,6 +2097,8 @@ export function VirtualTranscript({
         registry: NativeRegistry;
         first: number;
         last: number;
+        /// Rows mounted outside that range because a margin drag's selection holds them (at most two).
+        held: readonly number[];
       }
     | undefined
   >(undefined);
@@ -2348,6 +2350,12 @@ export function VirtualTranscript({
             kept = Math.min(kept, index);
             found += 1;
           }
+        // A held row (a margin drag's selection end) is mounted far from that range: looked up itself.
+        for (const index of last.held)
+          if ((index < from || index >= to) && rows[index] && changed.has(rows[index]!.id)) {
+            kept = Math.min(kept, index);
+            found += 1;
+          }
         if (found < changed.size) kept = 0;
       }
     }
@@ -2375,6 +2383,7 @@ export function VirtualTranscript({
       registry,
       first: last?.first ?? 0,
       last: last?.last ?? 0,
+      held: last?.held ?? [],
     };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [estimated, drawn, registry, rows, sessionId, width]);
@@ -2492,10 +2501,11 @@ export function VirtualTranscript({
   // the mounted rows alone do not walk every text node in the transcript again.
   const mountedRangeKey = mountedRanges.map(({ first, last }) => `${first}:${last}`).join(",");
   // The scrolled rows only: a held row far from the view would widen every drawn-height search
-  // (`measured`) to the rows between them. A held row's height does not change while it is held.
+  // (`measured`) to the rows between them. The held rows are looked up by index instead.
   if (lastPlaced.current) {
     lastPlaced.current.first = scrolledRanges[0]?.first ?? 0;
     lastPlaced.current.last = scrolledRanges.at(-1)?.last ?? 0;
+    lastPlaced.current.held = heldIndices;
   }
   // A session can reuse row ids. Until the reset effect commits, render the new session as a
   // fresh transcript so a stale focus or range never flashes on its first paint.
