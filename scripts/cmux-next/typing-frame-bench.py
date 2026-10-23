@@ -49,6 +49,7 @@ parser.add_argument("--stress", action="store_true",
                     help="build the STRESS session first (perf-lead brief: 60 workspaces, the typed workspace a 4x3 grid with "
                          "6 tabs per pane, 10 workspaces with Chromium pages, 10 printing terminals); every phase runs in it. "
                          "Uses scripts/cmux-next/perf-stress-session.py when present, else the builder here")
+parser.add_argument("--sessions", help="comma list of light,stress: one app launch each (default: light, or stress with --stress)")
 parser.add_argument("--sample", action="store_true", help="/usr/bin/sample the app over each load phase")
 parser.add_argument("--gate-p95-ms", type=float)
 opts = parser.parse_args()
@@ -65,6 +66,7 @@ WINDOW = (40, 40, 1400, 900)
 BUSY = "while :; do printf '%s busy line %s %s\\n' $RANDOM $RANDOM $RANDOM; done"
 results = {"tag": TAG, "host": os.uname().nodename, "opts": vars(opts), "log": [], "runs": []}
 app = None
+SESSION = "light"
 
 
 def note(text):
@@ -141,7 +143,8 @@ def probe_rows():
 def refresh_hz():
     out = subprocess.run(["system_profiler", "SPDisplaysDataType"], capture_output=True, text=True, timeout=60).stdout
     rates = re.findall(r"@ ?([\d.]+) ?Hz", out) or re.findall(r"Refresh Rate: ?([\d.]+)", out)
-    return [float(r) for r in rates] or None
+    lines = [l.strip() for l in out.splitlines() if "Hz" in l or "Resolution" in l]
+    return {"hz": [float(r) for r in rates] or None, "lines": lines[:6]}
 
 
 # ---------------------------------------------------------------- load
@@ -319,7 +322,7 @@ def measure(surface, phase, params, column, pid, streams=()):
         s.start()
     sampler = None
     if opts.sample and phase == "load":
-        path = os.path.join(OUT, f"sample-{surface}-{phase}.txt")
+        path = os.path.join(OUT, f"sample-{SESSION}-{surface}-{phase}.txt")
         seconds = max(3, int(opts.samples * opts.interval))
         sampler = (subprocess.Popen(["/usr/bin/sample", str(pid), str(seconds), "1", "-file", path],
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), path)
@@ -332,7 +335,7 @@ def measure(surface, phase, params, column, pid, streams=()):
     hangs = rpc("debug.hangs", {"limit": 12}, timeout=20)
     f = lambda key: [float(r[key]) for r in rows if r.get(key)]
     entry = {
-        "surface": surface, "phase": phase, "keys": len(trips), "measured": len(rows),
+        "session": SESSION, "surface": surface, "phase": phase, "keys": len(trips), "measured": len(rows),
         "key_to_frame_ms": pct(f(column)), "column": column,
         "send_to_dispatch_ms": pct(f("dispatch_start_ms")),
         "dispatch_ms": pct([float(r["dispatch_end_ms"]) - float(r["dispatch_start_ms"]) for r in rows
@@ -358,7 +361,7 @@ def measure(surface, phase, params, column, pid, streams=()):
         except OSError:
             pass
     k = entry["key_to_frame_ms"] or {}
-    note(f"{surface}.{phase}: key-to-frame p50 {k.get('p50')} p95 {k.get('p95')} p99 {k.get('p99')} max {k.get('max')} ms "
+    note(f"{SESSION} {surface}.{phase}: key-to-frame p50 {k.get('p50')} p95 {k.get('p95')} p99 {k.get('p99')} max {k.get('max')} ms "
          f"(n={k.get('n')}/{len(trips)}); hangs {(entry['hangs'] or {}).get('count') if isinstance(entry['hangs'], dict) else '?'}")
     results["runs"].append(entry)
     if opts.json:
@@ -439,34 +442,49 @@ def surface_omnibar(phase, pid):
 SURFACES = {"terminal": surface_terminal, "home": surface_home, "dock": surface_dock, "omnibar": surface_omnibar}
 
 
-def main():
-    global app
-    with open(CONFIG, "w") as f:
-        json.dump({"browser": {"defaultEngine": "chromium"}}, f)
-    open(os.path.join(SCRATCH, "ghostty"), "w").close()
-    if os.path.exists(SOCKET):
-        os.unlink(SOCKET)
+def find_socket():
+    """The app's debug socket: /tmp, or the state directory (a fleet step's HOME); True once it answers."""
+    global SOCKET
+    for path in (f"/tmp/cmux-debug-{TAG}.sock", os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{TAG}.sock")):
+        if os.path.exists(path):
+            SOCKET = path
+            if (rpc("debug.windows") or {}).get("windows"):
+                return True
+    return False
+
+
+def run_session(session):
+    """One launch of the app: the light session, or STRESS (built first); every surface and phase in it."""
+    global app, SESSION
+    SESSION = session
+    LOAD.clear()
+    LOAD.update({"made": False, "workspaces": [], "chat_panes": []})
+    for path in (f"/tmp/cmux-debug-{TAG}.sock", os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{TAG}.sock")):
+        if os.path.exists(path):
+            os.unlink(path)
+    scratch = tempfile.mkdtemp(prefix=f"typing-{TAG}-{session}-")
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/zsh", "CMUX_NEXT_NO_ACTIVATE": "1",
            "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_DEV_BACKEND_MODE": "local", "CMUX_NEXT_AGENT_PANE_MOCK": "1",
            "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"),
-           "CMUX_NEXT_CHIEF_ISOLATED": "1", "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"),
+           "CMUX_NEXT_CHIEF_ISOLATED": "1", "CMUX_NEXT_CHIEF_HOME": os.path.join(scratch, "chief"),
            "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(map(str, WINDOW)), "CMUX_NEXT_TYPING_PROBE": PROBE,
            "CMUX_NEXT_HANG_THRESHOLD_MS": "8"}
-    log = open(os.path.join(OUT, "app.log"), "a")
+    log_path = os.path.join(OUT, f"app-{session}.log")
+    log = open(log_path, "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    note(f"launched pid {app.pid}")
-    results["refresh_hz"] = refresh_hz()
-    results["macos"] = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
+    note(f"{session}: launched pid {app.pid}")
     try:
-        if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 180):
-            sys.exit(f"the tagged app did not come up (exit={app.poll()})")
+        if not wait(find_socket, 180):
+            log.flush()
+            note(f"{session}: the tagged app did not come up (exit={app.poll()}); log tail: "
+                 f"{open(log_path, errors='replace').read()[-3000:]}")
+            return
         time.sleep(5)  # launch work settles
-        if opts.stress:
+        if session == "stress":
             LOAD["terminal_ws"] = build_stress()
             time.sleep(5)  # the grid settles
         surfaces = opts.surfaces.split(",")
-        # The docked Home first: it is what the app shows at launch.
         for phase in opts.phases.split(","):
             for surface in surfaces:
                 if surface == "dock" and phase != "idle":
@@ -474,11 +492,8 @@ def main():
                 try:
                     SURFACES[surface](phase, app.pid)
                 except Exception as error:  # one surface failing must not hide the others
-                    note(f"{surface}.{phase}: failed: {error!r}")
+                    note(f"{session} {surface}.{phase}: failed: {error!r}")
     finally:
-        summary = {f"{r['surface']}.{r['phase']}": (r["key_to_frame_ms"] or {}).get("p95") for r in results["runs"]}
-        results["summary_p95_ms"] = summary
-        note(f"summary p95 ms: {json.dumps(summary)} refresh {results.get('refresh_hz')}")
         rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
         try:
             app.wait(timeout=25)
@@ -486,12 +501,28 @@ def main():
             app.kill()
         subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
                        env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
+
+
+def main():
+    with open(CONFIG, "w") as f:
+        json.dump({"browser": {"defaultEngine": "chromium"}}, f)
+    open(os.path.join(SCRATCH, "ghostty"), "w").close()
+    results["refresh_hz"] = refresh_hz()
+    results["macos"] = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
+    sessions = opts.sessions.split(",") if opts.sessions else (["stress"] if opts.stress else ["light"])
+    try:
+        for session in sessions:
+            run_session(session)
+    finally:
+        summary = {f"{r['session']}.{r['surface']}.{r['phase']}": (r["key_to_frame_ms"] or {}).get("p95") for r in results["runs"]}
+        results["summary_p95_ms"] = summary
+        note(f"summary p95 ms: {json.dumps(summary)} refresh {results.get('refresh_hz')}")
         if opts.json:
             json.dump(results, open(opts.json, "w"), indent=1)
     if opts.gate_p95_ms is not None:
         over = {k: v for k, v in results["summary_p95_ms"].items() if v is not None and v > opts.gate_p95_ms}
-        if over:
-            print(f"FAIL key-to-frame p95 over {opts.gate_p95_ms} ms: {over}", flush=True)
+        if over or not results["summary_p95_ms"]:
+            print(f"FAIL key-to-frame p95 over {opts.gate_p95_ms} ms: {over or 'nothing measured'}", flush=True)
             sys.exit(1)
         print(f"PASS key-to-frame p95 within {opts.gate_p95_ms} ms", flush=True)
 
