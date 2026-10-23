@@ -123,9 +123,9 @@ import Testing
         await page.waitUntilLoaded() // a document committing later would reset the router itself
         let (delivered, deliver) = AsyncStream<JSONValue>.makeStream()
         let send = page.router.sendWithDrop
-        page.router.sendWithDrop = { envelope, dropped in
-            send?(envelope, dropped)
-            deliver.yield(envelope)
+        page.router.sendWithDrop = { envelopes, dropped in
+            send?(envelopes, dropped)
+            for envelope in envelopes { deliver.yield(envelope) }
         }
         let reply = await page.router.handle(["t": "sub", "id": .number(1), "stream": "cmux.debug.tunables.changed",
                                               "filter": .object([:])])

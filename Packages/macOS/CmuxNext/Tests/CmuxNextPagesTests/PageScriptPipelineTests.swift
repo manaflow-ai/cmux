@@ -31,14 +31,14 @@ struct PageScriptPipelineTests {
     @Test func resetDropsInFlightBeforeLaterQueuedEnvelope() async {
         let gate = RenderGate()
         var drops: [String] = []
-        let pipeline = PageScriptPipeline(evaluate: { _ in }, render: { envelope in
+        let pipeline = PageScriptPipeline(evaluate: { _ in }, render: { envelopes in
             await gate.wait()
-            return PageRouter.receiveScript(envelope)
+            return PageRouter.receiveScript(envelopes)
         })
         let large = JSONValue.string(String(repeating: "x", count: 20_000))
-        pipeline.send(large) { drops.append("first") }
+        pipeline.send([large]) { drops.append("first") }
         await gate.waitUntilStarted()
-        pipeline.send(.string("later")) { drops.append("second") }
+        pipeline.send([.string("later")]) { drops.append("second") }
 
         pipeline.reset()
         #expect(drops == ["first", "second"])
@@ -47,7 +47,7 @@ struct PageScriptPipelineTests {
 
     @Test func resetOpensAnInFlightGate() async {
         let pipeline = PageScriptPipeline(evaluate: { _ in })
-        pipeline.send(JSONValue.string(String(repeating: "x", count: 20_000)))
+        pipeline.send([JSONValue.string(String(repeating: "x", count: 20_000))])
         let gate = pipeline.gate(always: true)
         let reached = await Task { await gate?.reached(); return true }.value
         #expect(reached)

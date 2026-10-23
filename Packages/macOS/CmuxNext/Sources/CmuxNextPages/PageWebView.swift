@@ -88,6 +88,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The static status look (`WebTheme.statusIndicators`): the setting and Reduce Motion.
     private var statusLookObservation: Task<Void, Never>?
     private var reduceMotionObservers: [MainActorObservation] = []
+    /// The window's occlusion changes (PageWebView+Visibility.swift): a covered page gets no events.
+    var occlusionObserver: (any NSObjectProtocol)?
     public var additionalZoom: Double = 1 {
         didSet { if additionalZoom != oldValue { applyUIScale() } }
     }
@@ -328,8 +330,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         followLowPowerMode()
         PageRegistry.add(self)
         let scripts = scripts
-        router.send = { envelope in scripts.send(envelope) }
-        router.sendWithDrop = { envelope, onDrop in scripts.send(envelope, onDrop: onDrop) }
+        router.send = { envelopes in scripts.send(envelopes) }
+        router.sendWithDrop = { envelopes, onDrop in scripts.send(envelopes, onDrop: onDrop) }
+        // Out of a window until it is shown: its events wait (PageWebView+Visibility.swift).
+        updatePageVisibility()
         router.didClose = { [weak self] in
             scripts.reset()
             self?.popupHost?.hide()
@@ -385,6 +389,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
             statusLookObservation?.cancel()
+            if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
         }
     }
 
@@ -557,6 +562,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
         chromiumSession?.page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
+        followWindowOcclusion()
         applyTheme()
         windowDidChangeChrome()
         if shouldFocusOnAttach, window != nil {
@@ -570,11 +576,13 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         super.viewDidHide()
         popupHost?.dismiss()
         chromiumSession?.page.setVisible(false)
+        updatePageVisibility()
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
         chromiumSession?.page.setVisible(window != nil)
+        updatePageVisibility()
     }
 
     public override func viewDidChangeEffectiveAppearance() {

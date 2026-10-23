@@ -10,15 +10,22 @@ public import Foundation
 /// - only ops and streams the descriptor admits reach a provider; the rest is `unknown_op`;
 /// - params must be an object; an `origin` or a confirmation the page sends is refused (the host
 ///   stamps `page`; only a native confirmation sheet makes a call the user's);
-/// - events of one subscription are numbered from 1; an unsubscribe or ``close()`` cancels.
+/// - events of one subscription are numbered from 1; an unsubscribe or ``close()`` cancels;
+/// - a page nobody can see (``isPageHidden``) gets no event: they wait, in order, and go together
+///   in one `send` when it shows, or before anything else reaches the page (a host call, a
+///   command, a popup event, the reply to a message the page posted), so nothing reorders. Each
+///   event to a hidden page was a main-thread script evaluation and a render in its web process
+///   (#8900: a hidden notifications page took 50-61 % of the main thread).
 @MainActor
 public final class PageRouter {
     public private(set) var descriptor: PageDescriptor
     private var routes: [PageRoute]
-    /// Runs one envelope in the page (`window.__cmuxPageReceive(<json>)`).
-    public var send: ((JSONValue) -> Void)?
-    /// Script pipeline entry that reports envelopes dropped by a page reset.
-    public var sendWithDrop: ((JSONValue, @escaping @MainActor () -> Void) -> Void)?
+    /// Runs envelopes in the page, in order, in one script (`window.__cmuxPageReceive(<json>)` each).
+    /// Usually one envelope; the events a hidden page waited for go together.
+    public var send: (([JSONValue]) -> Void)?
+    /// Script pipeline entry that reports envelopes dropped by a page reset: the action runs the
+    /// drop of every event in the send, oldest first.
+    public var sendWithDrop: (([JSONValue], @escaping @MainActor () -> Void) -> Void)?
     /// Runs at every ``close()`` (and so at ``reset()`` and rebind): the host drops envelopes it
     /// has not delivered yet, which belong to the subscriptions that just ended.
     public var didClose: (() -> Void)?
@@ -38,6 +45,22 @@ public final class PageRouter {
     private var builtIn: [UInt64: String] = [:]
     /// The owner link state the connection stream reports.
     public private(set) var connected = true
+    /// Events waiting for the page to show, oldest first (``isPageHidden``).
+    private var held: [PageHeldEvent] = []
+    /// Most events a hidden page waits for: past it they go in one `send`, so a busy stream
+    /// behind another tab costs one call per this many events, not unbounded memory.
+    static let heldLimit = 1024
+
+    /// Whether nobody can see the page (out of a window, hidden, its window covered): events wait.
+    /// Setting it false sends the waiting events at once, in one `send`.
+    public var isPageHidden = false {
+        didSet {
+            if !isPageHidden { releaseHeld() }
+        }
+    }
+
+    /// Events waiting for the page to show (tests, `debug.page`).
+    public var heldCount: Int { held.count }
 
     public init(descriptor: PageDescriptor, routes: [PageRoute]) {
         self.descriptor = descriptor
@@ -51,12 +74,19 @@ public final class PageRouter {
         self.routes = routes.sorted { $0.prefix.count > $1.prefix.count }
     }
 
-    /// The script that delivers `envelope` to the page.
-    /// One buffer: the envelope's JSON is appended in place, never built and copied.
-    public nonisolated static func receiveScript(_ envelope: JSONValue) -> String {
-        var script = "window.__cmuxPageReceive && window.__cmuxPageReceive("
-        envelope.appendCompactText(to: &script)
-        script += ");"
+    /// The script that delivers `envelopes` to the page, in order. With more than one, each runs
+    /// in its own `try`, so a page error in one does not drop the rest.
+    /// One buffer: each envelope's JSON is appended in place, never built and copied.
+    public nonisolated static func receiveScript(_ envelopes: [JSONValue]) -> String {
+        var script = ""
+        let guarded = envelopes.count > 1
+        for envelope in envelopes {
+            if guarded { script += "try {" }
+            script += "window.__cmuxPageReceive && window.__cmuxPageReceive("
+            envelope.appendCompactText(to: &script)
+            script += ");"
+            if guarded { script += "} catch (e) { console.error(e) }\n" }
+        }
         return script
     }
 
@@ -65,6 +95,13 @@ public final class PageRouter {
     /// Handles one envelope the page posted and returns the reply envelope (or `null` for
     /// messages that need none: `unsub`, and replies to host calls).
     public func handle(_ message: JSONValue) async -> JSONValue {
+        let reply = await reply(to: message)
+        // The reply reaches the page after the events before it: a page that posts is awake.
+        releaseHeld()
+        return reply
+    }
+
+    private func reply(to message: JSONValue) async -> JSONValue {
         guard let type = message["t"]?.stringValue else { return Self.error(id: 0, .invalidParams("missing t")) }
         let id = message["id"]?.doubleValue.map { UInt64(max(0, $0)) } ?? 0
         switch type {
@@ -229,7 +266,9 @@ public final class PageRouter {
         return (route.provider, params)
     }
 
-    private func deliver(sub: UInt64, _ data: JSONValue, publicationID: UInt64? = nil) {
+    /// Sends one event of `sub`, or holds it while the page is hidden. `intent` (a command, a popup
+    /// event: the person's own action) goes at once, after what waits.
+    private func deliver(sub: UInt64, _ data: JSONValue, publicationID: UInt64? = nil, intent: Bool = false) { // perf-hot: 0.1ms page-event (every subscription event of every page; a hidden page's cost is one append)
         guard subscriptions[sub] != nil || builtIn[sub] != nil || activeStreams.contains(sub) else { return }
         let seq = (sequences[sub] ?? 0) + 1
         sequences[sub] = seq
@@ -239,7 +278,33 @@ public final class PageRouter {
             guard let stream else { return }
             stream.provider.eventDeliveryDropped(stream: stream.name, data: data, publicationID: publicationID)
         }
-        if let sendWithDrop { sendWithDrop(envelope, dropped) } else { send?(envelope) }
+        let event = PageHeldEvent(envelope: envelope, dropped: dropped)
+        guard isPageHidden, !intent else {
+            releaseHeld()
+            transmit([event])
+            return
+        }
+        held.append(event)
+        if held.count >= Self.heldLimit { releaseHeld() }
+    }
+
+    /// Sends every waiting event in one `send`.
+    private func releaseHeld() {
+        guard !held.isEmpty else { return }
+        let waiting = held
+        held.removeAll()
+        transmit(waiting)
+    }
+
+    /// Sends `events` in one script; through ``sendWithDrop`` when the host reports drops.
+    private func transmit(_ events: [PageHeldEvent], then envelope: JSONValue? = nil) {
+        var envelopes = events.map(\.envelope)
+        if let envelope { envelopes.append(envelope) }
+        if let sendWithDrop {
+            sendWithDrop(envelopes) { for event in events { event.dropped() } }
+        } else {
+            send?(envelopes)
+        }
     }
 
     private func unsubscribe(_ sub: UInt64) {
@@ -248,6 +313,9 @@ public final class PageRouter {
         streamProviders.removeValue(forKey: sub)
         builtIn.removeValue(forKey: sub)
         sequences.removeValue(forKey: sub)
+        // Its waiting events belong to a subscription the page ended.
+        let number = JSONValue.number(Double(sub))
+        held.removeAll { $0.envelope["sub"] == number }
     }
 
     // MARK: Built-in streams
@@ -260,13 +328,13 @@ public final class PageRouter {
         var data = arguments
         data["command"] = .string(command)
         let subs = builtIn.filter { $0.value == PageNativeOp.pageCommand }.keys.sorted()
-        for sub in subs { deliver(sub: sub, .object(data)) }
+        for sub in subs { deliver(sub: sub, .object(data), intent: true) }
         return !subs.isEmpty
     }
 
     /// Sends a popup event (`{type, id?}`) to the page's popup subscribers.
     public func publishPopup(_ event: JSONValue) {
-        for sub in builtIn.filter({ $0.value == PageNativeOp.pagePopup }).keys.sorted() { deliver(sub: sub, event) }
+        for sub in builtIn.filter({ $0.value == PageNativeOp.pagePopup }).keys.sorted() { deliver(sub: sub, event, intent: true) }
     }
 
     /// Records the owner link state and tells the page's connection subscribers when it changes.
@@ -282,12 +350,15 @@ public final class PageRouter {
 
     /// Calls an op the page serves (`cmux.page.command`) and waits for its reply.
     public func callPage(_ op: String, params: JSONValue) async throws -> JSONValue {
-        guard !closed, let send else { throw PageError.closed }
+        guard !closed, send != nil else { throw PageError.closed }
         let id = nextCall
         nextCall += 1
+        // The page answers with the state the events before this call left.
+        let waiting = held
+        held.removeAll()
         return try await withCheckedThrowingContinuation { continuation in
             pendingCalls[id] = continuation
-            send(["t": "call", "id": .number(Double(id)), "op": .string(op), "params": params])
+            transmit(waiting, then: ["t": "call", "id": .number(Double(id)), "op": .string(op), "params": params])
         }
     }
 
@@ -305,6 +376,10 @@ public final class PageRouter {
     public func close() {
         closed = true
         didClose?()
+        // Events a hidden page still waited for are newer than anything the host just dropped.
+        let waiting = held
+        held.removeAll()
+        for event in waiting { event.dropped() }
         for subscription in subscriptions.values { subscription.cancel() }
         subscriptions.removeAll()
         activeStreams.removeAll()
@@ -404,4 +479,11 @@ final class PageEarlyEvents {
         defer { held = nil }
         return held ?? []
     }
+}
+
+/// An event that waits for a hidden page (``PageRouter/isPageHidden``), with the action that
+/// tells its provider when a reset drops it.
+private struct PageHeldEvent {
+    let envelope: JSONValue
+    let dropped: @MainActor () -> Void
 }
