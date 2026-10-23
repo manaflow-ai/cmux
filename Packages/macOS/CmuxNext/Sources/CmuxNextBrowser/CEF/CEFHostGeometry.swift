@@ -30,7 +30,7 @@ nonisolated struct CEFHostGeometry: Equatable, Sendable {
         let window = view.window
         let inWindow = view.convert(view.bounds, to: nil)
         screenRect = window?.convertToScreen(inWindow) ?? inWindow
-        visibleInWindow = Self.visibleRectInWindow(of: view)
+        visibleInWindow = visibleRectInWindow(of: view)
         clip = CEFClipShape.Inputs(around: view)
         occlusion = view.occlusionRects
         windowOcclusion = Self.windowOcclusion(over: view)
@@ -48,20 +48,26 @@ nonisolated struct CEFHostGeometry: Equatable, Sendable {
             return local.isNull || local.isEmpty ? nil : local
         }
     }
+}
 
-    /// The fork's visible rect: the view's rect in its window cut by every
-    /// ancestor that clips (a clip view, the content view, a layer that masks
-    /// to its bounds, a view that clips to its bounds).
-    @MainActor
-    private static func visibleRectInWindow(of view: NSView) -> CGRect {
-        var rect = view.convert(view.bounds, to: nil)
-        var ancestor = view.superview
-        while let current = ancestor, !rect.isEmpty {
-            let clips = current is NSClipView || current === current.window?.contentView || current.superview == nil
-                || current.layer?.masksToBounds == true || current.clipsToBounds
-            if clips { rect = rect.intersection(current.convert(current.bounds, to: nil)) }
-            ancestor = current.superview
-        }
-        return rect
+/// The fork's visible rect: the view's rect in its window cut by every ancestor
+/// that clips (a clip view, the content view, a layer that masks to its bounds,
+/// a view that clips to its bounds).
+///
+/// A copy of the fork's `-visibleRectInWindow` (cef-cmux
+/// `chrome_child_window_mac.mm`, `CmuxParentViewTracker`): keep the two the
+/// same. If the fork's rule cuts by an ancestor this one does not, a page
+/// update that changes only that ancestor finds an equal value here and posts
+/// nothing (`CEFHostView.pagesNeedUpdate`), and the page stays at its old clip.
+@MainActor
+private func visibleRectInWindow(of view: NSView) -> CGRect {
+    var rect = view.convert(view.bounds, to: nil)
+    var ancestor = view.superview
+    while let current = ancestor, !rect.isEmpty {
+        let clips = current is NSClipView || current === current.window?.contentView || current.superview == nil
+            || current.layer?.masksToBounds == true || current.clipsToBounds
+        if clips { rect = rect.intersection(current.convert(current.bounds, to: nil)) }
+        ancestor = current.superview
     }
+    return rect
 }
