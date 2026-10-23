@@ -180,7 +180,10 @@ struct StashTests {
             let store = services.daemon.store
             let name = "stash-remote-\(UUID().uuidString.prefix(6).lowercased())"
             let created = try await connection.state.createWorkspace(name: name, ephemeral: false, terminal: true, focus: false)
-            try await PinnedPageTests.until({ store.workspaces.contains { $0.resourceID == created.workspaceID && $0.key != nil } })
+            // The store lists the workspace before its first pane arrives, so wait for the pane too.
+            try await PinnedPageTests.until({
+                store.workspaces.contains { $0.resourceID == created.workspaceID && $0.key != nil && $0.screens.first?.panes.first?.handle != nil }
+            }, report: { "the workspace has no pane" })
             let workspace = try #require(store.workspaces.first { $0.resourceID == created.workspaceID })
             let pane = try #require(workspace.screens.first?.panes.first?.handle)
             // A terminal on a machine this app has not connected to: the tab shows its placeholder.
