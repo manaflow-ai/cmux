@@ -444,6 +444,11 @@ impl Hub {
                 && let Some(to) = self.fallback_profile(session).await
             {
                 let from = session.meta().harness;
+                // Before the failover is logged: a /context answer the old agent sends from here
+                // on is not logged after it as the fallback's.
+                if let Some(old) = session.child.lock().await.as_ref() {
+                    old.retire();
+                }
                 self.append(
                     session,
                     "mux",
@@ -455,7 +460,12 @@ impl Hub {
                 self.detach_child(session).await;
                 *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = turn;
                 self.set_status(session, SessionStatus::Running);
-                session.meta.lock().unwrap().harness = to.clone();
+                {
+                    let mut m = session.meta.lock().unwrap();
+                    m.harness = to.clone();
+                    // The last harness's /context breakdown is not the fallback's.
+                    m.context_breakdown = None;
+                }
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
                 let fallback = self.child_for(session).await;

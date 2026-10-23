@@ -13,8 +13,19 @@ impl Hub {
     ) {
         while let Some(item) = rx.recv().await {
             match item {
-                Inbound::Notification { method: m, params } => {
+                Inbound::Notification { method: m, params, pid } => {
                     if m == method::SESSION_UPDATE {
+                        // A /context breakdown from a process that was replaced (a failover's
+                        // dying primary answering late) is not the chat's context now.
+                        let breakdown = params
+                            .as_ref()
+                            .and_then(|p| p.pointer("/update/_meta/acpmux/contextBreakdown"))
+                            .is_some();
+                        if breakdown
+                            && session.child.lock().await.as_ref().is_none_or(|c| c.pid != pid)
+                        {
+                            continue;
+                        }
                         self.on_update(&session, params.as_ref());
                     }
                 }
@@ -106,6 +117,7 @@ impl Hub {
         // A mode or option change goes through the one setter below.
         let mut mode_write = None;
         let mut reported_tools = None;
+        let mut breakdown_changed = false;
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         match kind {
             "agent_message_chunk" => {
@@ -146,6 +158,12 @@ impl Hub {
                         m.title_source = Some(super::titles::HARNESS.to_owned());
                     }
                 }
+                // Claude Code's /context breakdown, sent after each turn (`claude_stdio`). It comes
+                // after the turn's own save, so it is saved here (below), or a restart loses it.
+                if let Some(breakdown) = update.pointer("/_meta/acpmux/contextBreakdown") {
+                    m.context_breakdown = Some(breakdown.clone());
+                    breakdown_changed = true;
+                }
                 // Claude Code's system/init: its MCP servers, plugins and skills.
                 reported_tools = update
                     .pointer("/_meta/claude")
@@ -155,6 +173,9 @@ impl Hub {
             _ => {}
         }
         drop(m);
+        if breakdown_changed {
+            self.save_meta(session);
+        }
         if let Some(claude) = reported_tools {
             self.absorb_reported_tools(session, &claude);
         }
