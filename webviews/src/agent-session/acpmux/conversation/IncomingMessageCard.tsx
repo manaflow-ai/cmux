@@ -14,17 +14,24 @@
 // answers in place: the answer goes to the sending chat in the message's thread
 // (AcpmuxDirectClient.reply), from an editor under the card. An open reply and its draft last
 // while the page does too; closing the message closes the reply and keeps the draft.
-import { useContext, useId, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
+// The card is cleaner (Leo 2026-10-21: "just... idk make it all look nicer"): the sender's signature
+// ("[lane] …") is dropped, a pull request written twice in a row shows once (messageRefs.ts), a
+// commit SHA reads as quiet monospace, and a message from another machine names that machine's
+// files, which draw with its name and a lock (chips/messageScope.ts).
+import { useContext, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
 import { RECEIVED_LINES, type PromptImage } from "../model";
-import type { IncomingMessage, IncomingRelation } from "./incomingMessage";
+import { unsigned, type IncomingMessage, type IncomingRelation } from "./incomingMessage";
+import { dedupeReferences } from "./messageRefs";
 import { PromptEditor, SentImages } from "./UserBubble";
 import { FindReveal } from "./chatFind";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
 import { AgentMark, agentBrand } from "../../shared/AgentMark";
-import { useSenderChat } from "../subagents/subsessions";
+import { useSenderChat, useSenderPlace } from "../subagents/subsessions";
+import { MessageScopeContext, type MessageScope } from "../chips/messageScope";
+import { mentionedRepository } from "../../../githubReferences";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
 const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
@@ -80,7 +87,7 @@ export function IncomingMessageLine({
   // only in the envelope (Find searches the whole prompt) opens Details too.
   const reveal = useContext(FindReveal);
   const needle = reveal && reveal.rowId === id ? reveal.needle : "";
-  const inText = Boolean(needle && message.text.toLocaleLowerCase().includes(needle));
+  const inText = Boolean(needle && unsigned(message.text, message.name).toLocaleLowerCase().includes(needle));
   const inRaw = Boolean(needle && !inText && message.raw.toLocaleLowerCase().includes(needle));
   useLayoutEffect(() => {
     if (!inText && !inRaw) return;
@@ -92,6 +99,15 @@ export function IncomingMessageLine({
   const raw = message.raw.trim() === message.text ? undefined : message.raw;
   const sender = useSenderChat(message.name, message.sessionId);
   const sessionId = sender.sessionId;
+  const place = useSenderPlace(sessionId);
+  // The sender's words without a signature that only repeats its name (incomingMessage.ts reads
+  // it on every path; a record from before that, or a queued one, may still have it).
+  const text = unsigned(message.text, message.name);
+  // The machine the sender's files are on, when it is another (a peer's relayed message names none).
+  const host = message.remote ? (place?.host ?? "") : place?.host;
+  const repository = githubRepository ?? mentionedRepository(text);
+  const body = useMemo(() => dedupeReferences(text, repository), [text, repository]);
+  const scope = useMemo<MessageScope>(() => (host === undefined ? {} : { host }), [host]);
   // Whether the text runs past `RECEIVED_LINES`, measured as drawn (its width and font decide).
   const textBox = useRef<HTMLDivElement>(null);
   const [long, setLong] = useState(false);
@@ -107,7 +123,7 @@ export function IncomingMessageLine({
     const observer = new ResizeObserver(measure);
     observer.observe(box);
     return () => observer.disconnect();
-  }, [message.text]);
+  }, [body]);
   const cut = long && !open;
   // "Open chief-ui (huge-blue)": the chat the chip opens, and the other machine it runs on.
   const openLabel = sender.host
@@ -206,9 +222,18 @@ export function IncomingMessageLine({
         data-cut={cut || undefined}
         onClick={cut ? openCut : undefined}
       >
-        <div ref={textBox} className="cv-received__text">
-          {message.text ? <Markdown githubRepository={githubRepository}>{message.text}</Markdown> : t("message.noText")}
-        </div>
+        {/* The chips read whose files these are (chips/messageScope.ts). */}
+        <MessageScopeContext.Provider value={scope}>
+          <div ref={textBox} className="cv-received__text">
+            {text ? (
+              <Markdown githubRepository={repository} commits="quiet" thumbnails={host === undefined}>
+                {body}
+              </Markdown>
+            ) : (
+              t("message.noText")
+            )}
+          </div>
+        </MessageScopeContext.Provider>
       </div>
       {open && raw !== undefined && (
         <div className="cv-received__details">

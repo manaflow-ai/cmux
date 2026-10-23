@@ -131,6 +131,9 @@ export class SubsessionStore {
   private named = new Map<string, string>();
   private harnesses = new Map<string, string>();
   private hosts = new Map<string, string>();
+  /// Where each listed chat works, by id: its folder and the other machine it runs on, for the
+  /// files its messages name (IncomingMessageCard.tsx), read with the same listeners.
+  private places = new Map<string, SenderPlace>();
   private namedKey = "";
   private readonly nameListeners = new Set<() => void>();
 
@@ -160,16 +163,20 @@ export class SubsessionStore {
       if (bare && !named.has(bare)) named.set(bare, entry.sessionId);
     }
     const hosts = new Map<string, string>();
+    const places = new Map<string, SenderPlace>();
     for (const entry of sessions) {
       if (entry.harness) harnesses.set(entry.sessionId, entry.harness);
       const host = cloudHost(entry);
       if (host) hosts.set(entry.sessionId, host);
+      const cwd = entry.cwd?.trim();
+      if (cwd || host) places.set(entry.sessionId, { ...(cwd && { cwd }), ...(host && { host }) });
     }
-    const namedKey = JSON.stringify([[...named], [...harnesses], [...hosts]]);
+    const namedKey = JSON.stringify([[...named], [...harnesses], [...places]]);
     const renamed = namedKey !== this.namedKey;
     this.named = named;
     this.harnesses = harnesses;
     this.hosts = hosts;
+    this.places = places;
     this.namedKey = namedKey;
     if (renamed) for (const listener of this.nameListeners) listener();
     for (const entry of sessions) {
@@ -216,6 +223,11 @@ export class SubsessionStore {
     return this.hosts.get(sessionId);
   }
 
+  /// Where listed chat `sessionId` works: its folder, and the other machine it runs on.
+  place(sessionId: string): SenderPlace | undefined {
+    return this.places.get(sessionId);
+  }
+
   subscribeNames = (listener: () => void): (() => void) => {
     this.nameListeners.add(listener);
     return () => this.nameListeners.delete(listener);
@@ -246,6 +258,17 @@ export function useSubsessionInfo(sessionId: string | undefined): SubsessionInfo
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
   const read = () => (sessionId ? store.get(sessionId) : undefined);
   return useSyncExternalStore(store.subscribe, read, read);
+}
+
+/// Where a message's sender works: its folder (`cwd`), and the other machine it runs on (`host`,
+/// undefined for this Mac's).
+export type SenderPlace = { cwd?: string; host?: string };
+
+/// Where the chat a message came from works, while the list has it (subsessions.ts `place`).
+export function useSenderPlace(sessionId: string | undefined): SenderPlace | undefined {
+  const store = useContext(SubsessionContext)?.store ?? EMPTY;
+  const read = () => (sessionId ? store.place(sessionId) : undefined);
+  return useSyncExternalStore(store.subscribeNames, read, read);
 }
 
 /// The chat a message's sender is: its own id when the message gives one, else the listed chat
