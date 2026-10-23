@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 655baaa1d0f11bd63754ffcda70267c4b8f07a2d8d415bf0c302c2ccab838a96. */
+/* cmux-tui mux protocol 12, IR 5d3ff5ed972a33f5c4bb6a49a9dd6aeed437faa9b1ef702813aa5522af7f0eb0. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -709,7 +709,9 @@ export type NameSource = "user" | "auto";
 
 export type NewRowResult = {
   "pane": Id;
+  "pane_id"?: string;
   "surface": Id;
+  "tab_id"?: string;
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
   "transaction"?: string;
@@ -978,6 +980,10 @@ export type Screen = {
   "panes": Array<Pane>;
   "short_id"?: string;
   "zoomed_pane": (Id) | null;
+};
+
+export type SendExpectAgent = {
+  "session"?: (string) | null;
 };
 
 export type ServerStatsConnections = {

@@ -16,6 +16,32 @@
   pointer-events: auto;
 }
 
+/* Codex's hover tooltip: the no-breakdown state is three quiet lines, centered and short. A
+   harness that reports categories uses the fuller card below (ContextCard.tsx). */
+.acpmux-context-pop--compact.ui-card {
+  width: 200px;
+  max-width: min(200px, calc(100vw - 24px));
+  padding: 8px 10px 9px;
+  text-align: center;
+}
+.acpmux-context-pop--compact .acpmux-context-card-title {
+  color: var(--agent-text);
+}
+.acpmux-context-card-compact-percent {
+  margin-top: 2px;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: var(--weight-emphasis);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-context-card-compact-tokens {
+  margin-top: 1px;
+  color: var(--agent-text);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-variant-numeric: tabular-nums;
+}
+
 .acpmux-context-card-title {
   font-size: var(--text-detail);
   color: var(--agent-muted);

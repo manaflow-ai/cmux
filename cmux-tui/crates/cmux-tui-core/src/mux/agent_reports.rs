@@ -490,7 +490,11 @@ impl Mux {
                     })?;
                 // The roster's own clock, so `since_ms <= updated_at_ms` holds.
                 let since_ms = entry.since_ms();
-                let last_prompt = prompts.get(&terminal_id).cloned();
+                // The hover card's folded cut; the whole prompt is the phone Feed's.
+                let last_prompt = prompts
+                    .get(&terminal_id)
+                    .and_then(|prompt| crate::agent_hooks::live_prompt_text(prompt))
+                    .map(Arc::from);
                 let agent_session_id = agent_session_ids.get(&terminal_id).cloned();
                 Some(AgentRecord {
                     surface: representative,

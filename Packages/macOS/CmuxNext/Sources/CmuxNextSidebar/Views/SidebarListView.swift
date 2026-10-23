@@ -27,8 +27,6 @@ final class SidebarListView: NSView {
     /// Each group and the groups under it, in document order (`reload`): a section lists a subgroup
     /// after its parent, not inside it, so a parent's card reads its members through this.
     var groupSubtrees: [GroupID: [GroupID]] = [:]
-    /// Where a held drag's drop goes: inside a group or between rows at a level (nested-groups prototype).
-    var nestedDropIndicator: SidebarNestedDropIndicatorView?
     /// The rails before the nested-groups prototype (a capture's "before"); off draws the subtree rails.
     var legacyNestedRails = false
     var sections: [SectionID: SidebarSection] = [:]

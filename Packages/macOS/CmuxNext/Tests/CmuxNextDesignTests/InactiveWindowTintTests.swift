@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Leo, 2026-10-20: "it's so weird when the app is in focus and out of focus; the opacity shifts
 /// in weird hardcoded ways." A window that is not key looks like the key one: the wash over

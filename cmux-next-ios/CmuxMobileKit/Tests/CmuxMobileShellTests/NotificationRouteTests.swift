@@ -38,6 +38,15 @@ import UserNotifications
         #expect(decide(route, chat: chat, workspaces: [ws]) == .workspace(id: "w2", tabID: "s8"))
     }
 
+    /// A terminal agent's question (Claude Code in a terminal tab: no acpmux session,
+    /// its terminal's tab) opens that terminal, never a chat screen bound to the tab id.
+    /// Found live: the tap opened an empty agent chat for the terminal's tab.
+    @Test func aTerminalAgentsQuestionOpensItsTerminal() {
+        let ws = workspace("w2", mac: "m", tabs: ["s17"])
+        let route = NotificationRoute(kind: "question", mac: "m", workspaceID: "w2", tabID: "s17")
+        #expect(decide(route, chat: chat, workspaces: [ws]) == .workspace(id: "w2", tabID: "s17"))
+    }
+
     @Test func aBrowserTabOpensInItsWorkspace() {
         let ws = workspace("w3", mac: "m", tabs: ["b1"])
         #expect(decide(NotificationRoute(kind: "completed", mac: "m", workspaceID: "w3", tabID: "b1"), workspaces: [ws]) == .workspace(id: "w3", tabID: "b1"))

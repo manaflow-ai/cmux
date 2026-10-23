@@ -99,7 +99,8 @@
 :root[data-status-indicators=static] .acpmux-mp-refresh-spinner{animation:none}
 /* The context ring is a button the size of the mic; resting on it or focusing it shows the context card (contextCard.css). */
 .acpmux-context{flex:none}
-.acpmux-context-ring{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted)}
+.acpmux-context-ring{flex:none;display:grid;place-items:center;width:22px;height:22px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted)}
+.acpmux-context-ring svg{width:12px;height:12px}
 .acpmux-context-ring:disabled{background:none;color:var(--agent-muted);opacity:.5}
 .acpmux-context-ring:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 .acpmux-context-full .acpmux-context-ring,.acpmux-context-full .acpmux-context-ring:hover{color:var(--acpmux-warning)}
@@ -140,6 +141,8 @@
 .acpmux-mention-row.acpmux-slash-active{background:var(--acpmux-menu-hover)}
 .acpmux-mention-row b{font-weight:var(--weight-emphasis,600);color:var(--agent-text)}
 .acpmux-mention-icon{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;color:var(--acpmux-composer-dim)}
+/* The / menu's Fast row (Composer.tsx SlashMenu): the bolt in the row's ink, beside its name. */
+.acpmux-slash-icon{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;color:var(--agent-text)}
 .acpmux-mention-row .acpmux-slash-name{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .acpmux-mention-row .acpmux-slash-description{flex:0 1000 auto}
 .acpmux-slash-empty{padding:0 14px;height:40px;display:flex;align-items:center;color:var(--acpmux-composer-dim);border-radius:8px}
@@ -185,7 +188,7 @@
 .acpmux-newtab-all:hover{color:var(--agent-text)}
 .acpmux-newtab-kind:focus-visible,.acpmux-newtab-all:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 .acpmux-newtab-anchor{position:relative}
-.acpmux-omni{--popup-scroll-cap:420px;position:absolute;top:calc(100% + 10px);left:0;right:0;z-index:var(--layer-dropdown);box-sizing:border-box;padding:var(--ui-popup-padding);border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);max-height:min(60vh,420px);overflow:auto;overscroll-behavior:contain}
+.acpmux-omni{--popup-scroll-cap:420px;position:absolute;top:calc(100% + 10px);left:0;right:0;z-index:var(--layer-dropdown);box-sizing:border-box;padding:var(--ui-popup-padding);border-radius:var(--ui-popup-radius);max-height:min(60vh,420px);overflow:auto;overscroll-behavior:contain}
 .acpmux-omni-row{display:flex;align-items:center;gap:10px;height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);color:var(--agent-soft);cursor:default;font-size:var(--text-control)}
 .acpmux-omni-row>.acpmux-icon{flex:none;color:var(--acpmux-composer-dim)}
 .acpmux-omni-row.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
@@ -640,6 +643,10 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question-preview{flex:1 1 280px;display:flex;flex-direction:column;gap:6px;min-width:0;margin:10px 0;padding:10px;border-radius:10px;background:color-mix(in srgb,var(--agent-text) 4%,var(--agent-page-bg,var(--acpmux-base)))}
 .acpmux-question-preview-label{color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height)}
 .acpmux-question-preview pre{margin:0;overflow:auto;white-space:pre;font:var(--text-detail)/1.45 var(--font-mono,ui-monospace,SFMono-Regular,Menlo,monospace);color:var(--agent-text)}
+/* An HTML preview (question/HtmlPreview.tsx): a still picture in a frame that runs nothing. framed (the default): in the preview box like a monospace one. canvas: an inset artboard in the page colour with an edge. bleed: no box, the picture fills the column. */
+.acpmux-question-html{display:block;width:100%;min-width:0;border:0;background:transparent}
+.acpmux-question-html[data-look=canvas]{border-radius:8px;background:var(--agent-page-bg,var(--acpmux-base));box-shadow:0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-question-edge)}
+.acpmux-question-preview:has(>.acpmux-question-html[data-look=bleed]){padding:10px 0 0;background:transparent}
 /* Where the preview draws (question/previewLayout.experiment.ts). split (the default): a narrower list and the preview filling the card's height beside it, as Claude Code draws it; under about 520 px it wraps under the list. even: list and preview share the width (the rules above). below: under the whole list. inline: under the focused option. */
 .acpmux-question-preview pre{flex:1 1 auto}
 .acpmux-question[data-preview-layout=split] .acpmux-question-rows{flex:2 1 220px}

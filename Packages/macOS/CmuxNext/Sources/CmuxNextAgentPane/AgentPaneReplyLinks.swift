@@ -136,12 +136,15 @@ extension AgentPaneModel {
             let setting = replyLinks.settings()
             return AgentPaneReply.success([
                 "paths": places, "sites": sites,
-                "policy": ["outsideRoots": setting.outsideRoots.rawValue, "remoteImages": setting.remoteImages.rawValue],
+                "policy": [
+                    "outsideRoots": setting.outsideRoots.rawValue, "remoteImages": setting.remoteImages.rawValue,
+                    "clickFreeImageHosts": AgentPaneSafeFetch.clickFreeImageHosts.sorted(),
+                ],
             ])
         case .openPath(let path):
             return Self.replyResult(await openReplyPath(path))
-        case .loadImage(let src):
-            return await loadReplyImage(src)
+        case .loadImage(let src, let auto):
+            return await loadReplyImage(src, auto: auto)
         case .loadMedia(let src):
             return await loadReplyMedia(src)
         case .listBrowsers, .inspectPullRequest, .openIn:
@@ -195,16 +198,26 @@ extension AgentPaneModel {
     }
 
     /// A reply image (D5): a file inside the roots, read by the host; or an https image fetched
-    /// under the network rules, after a click unless `agentPane.images.remote` is `always`.
-    func loadReplyImage(_ src: String) async -> [String: Any] {
+    /// under the network rules, after a click unless `agentPane.images.remote` is `always` or the
+    /// image is from a click-free site (``AgentPaneSafeFetch/isClickFree(_:)``), whose load spends
+    /// no gesture and is redirected only within ``AgentPaneSafeFetch/clickFreeImageHosts``. `auto`
+    /// is the page's load without a click: one this host does not judge click-free is refused
+    /// without spending a gesture the person made for something else.
+    func loadReplyImage(_ src: String, auto: Bool = false) async -> [String: Any] {
         if let url = URL(string: src), let scheme = url.scheme?.lowercased(), scheme != "file" {
             guard scheme == "https", AgentPaneSafeFetch.isFetchable(url) else { return Self.replyFailure(.imageRefused) }
+            var clickFree = false
             switch replyLinks.settings().remoteImages {
             case .never: return Self.replyFailure(.imageRefused)
             case .always: break
-            case .click: guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
+            case .click:
+                clickFree = AgentPaneSafeFetch.isClickFree(src)
+                guard clickFree || (!auto && transport.gestures.consume()) else { return Self.replyFailure(.gestureRequired) }
             }
-            switch await replyLinks.fetcher.fetch(url) {
+            let fetched = clickFree
+                ? await replyLinks.fetcher.fetch(url, within: AgentPaneSafeFetch.clickFreeImageHosts)
+                : await replyLinks.fetcher.fetch(url)
+            switch fetched {
             case .success(let data): return Self.replyImage(await AgentPaneReplyImages.remote(data))
             case .failure(let error): return Self.replyFailure(error)
             }

@@ -359,7 +359,9 @@ fn segmented_config(segment_bytes: u64) -> Config {
 }
 
 /// A daemon over [`segmented_config`] in a fresh directory.
-async fn setup_segmented(segment_bytes: u64) -> (Arc<Hub>, TestClient, std::path::PathBuf) {
+pub(super) async fn setup_segmented(
+    segment_bytes: u64,
+) -> (Arc<Hub>, TestClient, std::path::PathBuf) {
     let dir = std::env::temp_dir().join(format!("acpmux-tail-{}", uuid::Uuid::now_v7()));
     let cfg = segmented_config(segment_bytes);
     let store = acpmux::store::open(&cfg.store, &dir).unwrap();

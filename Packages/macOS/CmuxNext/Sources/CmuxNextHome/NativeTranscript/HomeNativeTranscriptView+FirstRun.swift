@@ -39,18 +39,6 @@ extension HomeNativeTranscriptView {
         }
     }
 
-    /// A row the host puts on the Chief's front page under its action rows (Home's import
-    /// suggestion, `ImportSuggestionRowView`), in the panel's own layout so it never covers the
-    /// conversation; nil removes it.
-    public func setFirstRunAccessory(_ view: NSView?) {
-        firstRun.accessory = view
-    }
-
-    /// The front page's host row showed, hid or changed size: the panel fits its rows again.
-    public func firstRunAccessoryChanged() {
-        firstRun.needsLayout = true
-    }
-
     /// The user's agents for the first-run panel's glance (the host maps
     /// them from the tab status the strip and the sidebar draw); empty lists
     /// none.

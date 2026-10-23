@@ -37,7 +37,10 @@ import argparse, glob, json, os, pathlib, signal, subprocess, sys, tempfile, tim
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", required=True)
-parser.add_argument("--layouts", default="1x2,4x2,6x5")
+parser.add_argument("--layouts", default="1x2,4x2,6x5",
+                    help="COLSxROWS terminal grids, and `stress`: the STRESS session (perf-stress-session.py)")
+parser.add_argument("--stress-selected", default="terminal", choices=["terminal", "chromium"],
+                    help="layout `stress`: what each pane of the measured workspace shows")
 parser.add_argument("--actions", default="split,close,column,zoom,drag")
 parser.add_argument("--rounds", type=int, default=3)
 parser.add_argument("--scrollback", type=int, default=5000)
@@ -60,7 +63,9 @@ BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*")
 SCRATCH = tempfile.mkdtemp(prefix=f"pane-perf-{TAG}-")
 open(os.path.join(SCRATCH, "ghostty"), "w").close()
 CONFIG = os.path.join(SCRATCH, "cmux.json")
-open(CONFIG, "w").write("{}\n")
+# 30 panes in 6 columns leave ~230 pt each: the 200 pt default minimum refused the timed split there
+# ("not enough room to split this pane"), so the 30-pane split row measured nothing.
+open(CONFIG, "w").write(json.dumps({"layout": {"minimumPaneWidth": 80, "minimumPaneHeight": 32}}) + "\n")
 WINDOW = (80, 80, 1600, 1000)
 PAGE = None  # a local page for a Chromium pane (`serve_page`)
 
@@ -253,6 +258,24 @@ def layout(columns, rows):
         action("focusLeft", settle=0.15)
     focus_page()
     time.sleep(1.5 if opts.scrollback else 0.5)  # test harness: seq fills the scrollback
+    return None
+
+
+STRESS = {}  # layout `stress`: the session's summary (perf-stress-session.py)
+
+
+def stress_layout():
+    """The STRESS session (perf-stress-session.py), ending on its measured workspace's top-left pane."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("perf_stress_session", os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                                                   "perf-stress-session.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    try:
+        STRESS.update(module.Stress(rpc, selected=opts.stress_selected).build())
+    except module.StressShapeError as error:
+        return str(error)  # a wrong shape is a failed row, never measured as STRESS
+    print("STRESS-SESSION " + json.dumps(STRESS), flush=True)
     return None
 
 
@@ -554,13 +577,17 @@ def main():
     report = {"tag": TAG, "macos": macos, "host": host, "stream": opts.stream, "scrollback": opts.scrollback, "runs": []}
     sequence = steps()
     for name in opts.layouts.split(","):
-        columns, rows = (int(v) for v in name.split("x"))
-        problem = layout(columns, rows)
+        if name == "stress":
+            problem = stress_layout()
+            panes = STRESS.get("measured_panes") or 0
+        else:
+            columns, rows = (int(v) for v in name.split("x"))
+            problem = layout(columns, rows)
+            panes = columns * rows
         if problem:
             print(f"  {name}: {problem}", flush=True)
-            row(f"{name}: the Chromium page runs (--browser)", "window.__frames counting", problem, False)
+            row(f"{name}: the layout was built" if name == "stress" else f"{name}: the Chromium page runs (--browser)", "the STRESS shape" if name == "stress" else "window.__frames counting", problem, False)
             continue
-        panes = columns * rows
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-before.png")})
         for index in range(opts.rounds):
             for step in sequence:

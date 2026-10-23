@@ -56,7 +56,7 @@ enum SidebarContextMenus {
                 }
             }
             MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: group?.name ?? "", rename: "workspaceGroup.rename",
-                                       current: group?.custom == nil ? group?.color : nil)
+                                       current: group?.custom == nil ? group?.color : nil, noColor: group?.tint == GroupTint.none)
             menu.themeRows(in: scope)
             return menu
         case .section(.machine(let machine)) where machine.rawValue == MachineRegistry.localID && SidebarSection.machineCount(model.sections) == 1:

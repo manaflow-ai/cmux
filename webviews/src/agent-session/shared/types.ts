@@ -60,6 +60,9 @@ export type AgentSessionTheme = {
   /// A running turn's status line as its last row (Debug Settings `agentPane.debug.liveLineBelow`,
   /// acpmux liveLineBelow.ts). Absent or true draws it there; false keeps it over the turn's work.
   liveLineBelow?: boolean;
+  /// A collapsed tool run's look (acpmux toolRunLook.ts): `kind` (absent), `pencil`, `quiet` or
+  /// `quiet-pencil`. Only the gallery sends it, for the versions it keeps beside the default.
+  toolRunLook?: string;
   /// The answer footer's copy/retry/fork controls: right by default, or left when selected by the host.
   turnActionsPlacement?: "left" | "right";
   /// The host's motion durations in seconds (MotionFade after ui.animationSpeed and Reduce

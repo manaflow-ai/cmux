@@ -2,8 +2,8 @@
 // Cloud VM or another machine included (that machine's daemon lists its children with the chat's
 // attachment), as rows under Subagents after the harness's own subagents: the summary card's list
 // (summary/SubagentStatusList.tsx), shown with the Inspector off. The Inspector draws them as
-// subagent lines instead (SubagentsSection.tsx, with `sessionStatus` and `sessionStateLabel`). A chat icon whose dot says its live state, its title and
-// that state in words. Waiting on the person first, then running, failed and idle
+// subagent lines instead (SubagentsSection.tsx, with `sessionStatus` and `sessionStateLabel`). A chat icon, its title and
+// its live state in words. Waiting on the person first, then running, failed and idle
 // (`orderedSessions`). A row opens that chat.
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -13,8 +13,8 @@ import type { SubagentStatus } from "../summary/SubagentStatusList";
 
 const ROW_ICON = rowIconSize(12);
 
-/// Each state's word, and the status it counts as beside the subagents (its dot, summary.css
-/// `.acpmux-lineage__icon`): an idle chat's turn ended, so it reads done.
+/// Each state's word, and the status it counts as beside the subagents: an idle chat's turn ended,
+/// so it reads done.
 const SESSION_STATE: Record<StartedState, { word: StringKey; status: SubagentStatus }> = {
   running: { word: "subagents.state.running", status: "running" },
   waiting: { word: "subagents.state.waiting", status: "waiting" },

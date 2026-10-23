@@ -68,6 +68,18 @@ pub const NOTIFICATION_REPLY_CAPABILITY: &str = "notification-reply-v1";
 
 #[derive(Debug, Clone)]
 pub struct NotificationEvent {
+    /// The ledger row's id (`list-notifications` `id`), so a client joins this event's
+    /// memory-only texts to the durable row. None for a notification with no row.
+    pub id: Option<String>,
+    /// An agent's whole last message (markdown, up to `LIVE_MESSAGE_CHARS`), or the error text
+    /// of a failed turn, memory only, for the phone's Feed (`preview` is the banner's cut).
+    pub message: Option<String>,
+    /// The prompt of the agent turn this notification ends (markdown, up to
+    /// `LIVE_MESSAGE_CHARS`), memory only, for the phone Feed's quote.
+    pub prompt: Option<String>,
+    /// The posting agent's harness session id (`list-agents` `agent_session_id`), so a reply
+    /// from the Feed goes only to that session (`send` `expect_agent`).
+    pub session: Option<String>,
     pub notification: u64,
     pub title: String,
     /// Second line under the title, as `cmux notify --subtitle`.

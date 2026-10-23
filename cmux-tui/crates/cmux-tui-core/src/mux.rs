@@ -464,7 +464,9 @@ const MAX_PENDING_DIAGNOSTICS: usize = 8;
 const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
 const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
-const TERMINAL_HOST_CLOSE_WAIT: Duration = Duration::from_secs(4);
+/// How long a closed terminal's host gets to end its programs (SIGHUP, grace,
+/// SIGTERM, grace, SIGKILL) and publish its exit.
+const TERMINAL_HOST_CLOSE_WAIT: Duration = crate::terminal_host_runtime::HOST_TERMINATE_WAIT;
 const TERMINAL_READER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// A durable client install identity: non-empty, at most 128 ASCII graphic
