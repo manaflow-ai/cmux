@@ -6,9 +6,14 @@ import CmuxNextIcons
 /// (`Metrics`, `Typography`). Hierarchy comes from weight and gray level.
 enum SidebarStyle {
     static var horizontalInset: CGFloat { SidebarDensityTokens.horizontalInset }
-    /// How much shorter than the list's inset a row ends on the right: the row's pill stops
-    /// before the sidebar's edge (Leo 2026-10-20: "trim the pill's right side").
-    static var rowTrailingTrim: CGFloat { Metrics.space4 }
+    /// How much shorter than the list's inset a row ends on the right: none. #22733 stopped the
+    /// pills `Metrics.space4` short of the sidebar's edge; Leo 2026-10-21 took it back ("bring back
+    /// the length, so we can have more content per sidebar row"). Pinned rows and list blocks
+    /// read it too, so every row still ends at one x.
+    static var rowTrailingTrim: CGFloat { 0 }
+    /// A workspace row's hover close (`SidebarDogEarButton`): the square on the row's top-right
+    /// corner its glyph is placed in; the cut in the row's fill is this or smaller (`SidebarCloseNotch`).
+    static var dogEarSide: CGFloat { controlSize + Metrics.space1 }
     static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// A listed tab's icon, sized to its caption-size title.
     static var tabIconSize: CGFloat { .iconRowSize(forLabelPointSize: subtitleFont.pointSize) }
@@ -115,7 +120,7 @@ enum SidebarStyle {
     /// A top-level group's header and members line up with ungrouped rows: same leading x, same
     /// pill width (Leo 2026-10-21: "THE STUPID INDENT, IS THAT CHROME???? WHY IS THERE INDENT ON
     /// THIS INDENT"). Only a nested group's rows step in, one gutter per level below the first.
-    static func groupOffset(depth: Int) -> CGFloat { groupGutter * CGFloat(max(0, depth - 1)) }
+    static func groupOffset(depth: Int) -> CGFloat { SidebarIndent(step: groupGutter).offset(level: depth, width: .greatestFiniteMagnitude) }
     /// The members' line sits just left of their rows, in the list's leading inset for a
     /// top-level group, so no hover or selection fill covers it (cx-q5jw) and the rows keep
     /// the ungrouped rows' left edge.

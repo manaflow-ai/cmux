@@ -131,8 +131,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         metrics base: SidebarLayoutMetrics,
         options o: SidebarLayoutOptions = SidebarLayoutOptions()
     ) -> SidebarLayout {
-        // Minimal mode is visibly compact: shorter rows, thin group headers (cx-7swgy).
-        let m = o.minimal ? base.minimal : base
+        // Minimal mode is visibly compact: shorter rows, thin group headers (cx-7swgy); Expanded rows
+        // and headers are two lines. One `resolved` for every sizing site.
+        let m = base.resolved(for: o)
         // A new workspace's drop gap is a row: as short as minimal mode's rows.
         let gapHeight = max(0, o.gapHeight - (base.rowHeight - m.rowHeight))
         if o.hidesWorkspaces { return .empty }
@@ -179,6 +180,10 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             // subgroups: a group under a collapsed or hidden one hides too, and with a filter a
             // group shows while a group under it has a match (the path to the match).
             var hiddenGroups = Set<GroupID>()
+            // Groups that hold a subgroup: never drawn as empty, their subgroups follow them.
+            let subgroupParents = Set(section.nodes.compactMap { node -> GroupID? in
+                if case let .group(child) = node { child.parent } else { nil }
+            })
             let pathToMatch = filtering ? Self.pathToMatch(section, visible: o.visible) : []
             for node in section.nodes {
                 switch node {
@@ -354,6 +359,12 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                             y += h + m.rowSpacing
                         }
                         return
+                    }
+                    // An open group with nothing in it keeps one quiet member-sized row (user 9757): it reads as open
+                    // and empty, and a drop over it goes into the group. A drag's gap here takes its place.
+                    if members.isEmpty, o.gap?.group != group.id,
+                       Self.listsEmptyRow(group, filtering: filtering, hasSubgroups: subgroupParents.contains(group.id)) {
+                        y = Self.appendEmptyRow(group, section: section.id, parent: index, metrics: m, to: &rows, y: y)
                     }
                     let fold = SidebarDoneFoldID(section: section.id, group: group.id)
                     let drawn = Self.foldingDone(Self.treeOrder(Self.workspaceIDs(members), parents: o.sessionTree?.parents),
