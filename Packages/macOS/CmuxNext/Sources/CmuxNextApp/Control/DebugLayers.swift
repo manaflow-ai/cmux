@@ -111,7 +111,7 @@ enum DebugLayers {
             ((plane.home as? LayoutRootView)?.overlayRings ?? []).allSatisfy { $0.ringInSync }
         }
         var fields: [String: JSONValue] = [:]
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         fields["ring_layout_passes"] = .number(Double(layer.ringLayoutPasses))
         fields["ring_lag_passes"] = .number(Double(layer.ringLagPasses))
         fields["last_ring_lag"] = layer.lastRingLag.map(JSONValue.string) ?? .null
@@ -147,7 +147,7 @@ enum DebugLayers {
         max(abs(a.minX - b.minX), abs(a.minY - b.minY), abs(a.width - b.width), abs(a.height - b.height))
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.window_frame` (DEBUG builds): sets a window's frame the way an
     /// Accessibility client (Rectangle) or a display change does: one
     /// programmatic `setFrame`, no live resize. `frame` is [x, y, w, h] in

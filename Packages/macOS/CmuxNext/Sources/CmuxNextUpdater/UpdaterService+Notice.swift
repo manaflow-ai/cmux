@@ -74,7 +74,7 @@ extension UpdaterService {
     /// cancels it when the card changed to one that waits.
     func followCardExpiry() {
         let shown = card
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         // The update harness's timeline: what the user sees, as it changes.
         let kind = shown?.kind ?? (readyCard == nil ? "none" : "ready")
         if kind != markedCardKind {

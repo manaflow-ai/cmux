@@ -106,7 +106,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         },
                              onCancel: { driver.cancelSteps() })
         driver.start()
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         // The view of a traced new terminal's tab: its session is matched by this IO.
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.watch(io: ObjectIdentifier(self), surface: surface) }
         #endif
