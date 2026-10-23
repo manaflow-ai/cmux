@@ -23,10 +23,20 @@ public final class MadeAheadOpenPanel {
     /// The warm-up checks run so far, and whether another is pending.
     public private(set) var warmChecks = 0
     public var isWarming: Bool { timer.isScheduled }
+    /// Whether the warm-up gave up for this launch (no panel service, or no panel came back).
+    public private(set) var stoppedWarming = false
 
-    private let timer = DemandTimer(owner: "openPanel.madeAhead.warm")
+    private let world: MadeAheadOpenPanelWorld
+    private let timer: DemandTimer
 
-    public init() {}
+    public convenience init() {
+        self.init(world: .live)
+    }
+
+    init(world: MadeAheadOpenPanelWorld) {
+        self.world = world
+        timer = DemandTimer(owner: "openPanel.madeAhead.warm", clock: world.clock)
+    }
 
     /// The panel made ahead when it is free (no sheet or window shows it), else a new one (it
     /// shows on another window). Either comes as a new panel would: one file, no folders, every
@@ -52,7 +62,7 @@ public final class MadeAheadOpenPanel {
     /// click. A view that offers the picker calls this when it reaches a window.
     public func warmWhenIdle() {
         guard made == nil, !timer.isScheduled else { return }
-        check(after: .seconds(2), triesLeft: 10)
+        check(after: world.firstCheck, triesLeft: 10)
     }
 
     /// Keeps `panel` for later clicks, unless its view service never answered (no prompt): then the next
@@ -67,21 +77,16 @@ public final class MadeAheadOpenPanel {
         timer.schedule(after: delay) { @MainActor [weak self] in
             guard let self else { return }
             warmChecks += 1
-            // Only in a running app: a process that never ran its event loop (a test host, a ci-step
-            // mini with no open-panel service) would wait 10 s per ViewBridge endpoint, then die.
-            // Checked here, not at schedule time: launch windows come before the loop runs.
-            guard made == nil, NSApp?.isRunning == true else { return }
-            // In the background the person types elsewhere: nothing here waits on the main thread.
-            // In front, the time since the last input event (kCGAnyInputEventType, ~0).
-            let anyInput = CGEventType(rawValue: ~0) ?? .null
-            let idle = NSApp?.isActive == true ? CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput) : .infinity
-            // Never inside a tracking loop (a drag, a menu, a resize): those count as busy.
-            // RunLoop.current is unavailable in async code; this closure runs on the main actor.
-            guard idle >= 1, RunLoop.main.currentMode == .default else {
-                if triesLeft > 1 { check(after: .seconds(1), triesLeft: triesLeft - 1) }
+            guard made == nil else { return }
+            switch world.gate() {
+            case .never:
                 return
+            case .busy:
+                if triesLeft > 1 { check(after: world.retry, triesLeft: triesLeft - 1) }
+                return
+            case .go:
+                if let panel = world.makePanel() { keep(panel) }
             }
-            keep(NSOpenPanel())
         }
     }
 }
