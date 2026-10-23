@@ -289,6 +289,8 @@ impl Hub {
             },
             git_branch: git.branch,
             git_head: git.head,
+            // Read for the fork's own folder when its agent starts.
+            worktree: None,
             // The fork's own spend. Claude Code restores the parent's running cost into a
             // whole-chat fork; a fork through an earlier turn has no known baseline.
             totals: None,
