@@ -108,8 +108,6 @@ Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/
 # nested-groups prototype gallery output
 Packages/macOS/CmuxNext/nested-groups-gallery/
 Packages/macOS/CmuxNext/nested-groups-gallery.tar
-Packages/macOS/CmuxNext/close-notch-gallery/
-Packages/macOS/CmuxNext/close-notch-gallery.tar
 Packages/macOS/CmuxNext/ws-no-color-gallery/
 Packages/macOS/CmuxNext/ws-no-color-gallery.tar
 Packages/macOS/CmuxNext/group-header-gallery/

@@ -46,8 +46,6 @@ class SidebarRowView: NSView {
         let local = convert(point, from: superview)
         // A button fading out after hover shows but takes no click.
         for button in interactiveSubviews where !button.isHidden && button.alphaValue > 0 && button.frame.contains(local) {
-            // A workspace row's corner close takes only the clicks in the cut its fill leaves out.
-            if let ear = button as? SidebarDogEarButton, !ear.cutContains(ear.convert(local, from: self)) { continue }
             return button
         }
         return nil
@@ -133,58 +131,6 @@ class SidebarRowView: NSView {
         guard let layer else { return }
         ChromeHover.paint(layer, color, animated: fadesNextFill, clearing: .hoverOut)
         fadesNextFill = false
-    }
-
-    /// The fill as a shape (`paintFill(_:shape:edge:)`), under the row's content; nil until first used.
-    private var shapedFill: CAShapeLayer?
-
-    /// Paints `color` as `shape` (a path in the row's flipped bounds, clipped to its corner radius)
-    /// instead of the backing layer's whole rounded rectangle, with a hairline along `edge` when
-    /// given: a workspace row's hover close cuts its corner out of the fill (`SidebarCloseNotch`).
-    /// The shape shows and goes at once. With no color or no shape the fill goes back to the backing
-    /// layer, which takes the shape's color first so a fade from there starts from what showed.
-    /// Call from `updateLayer()` inside the theme scope.
-    func paintFill(_ color: NSColor?, shape: CGPath?, edge: CGPath? = nil) {
-        guard let layer else { return }
-        guard let color, let shape else {
-            if let shapedFill, !shapedFill.isHidden {
-                layer.removeAnimation(forKey: "backgroundColor")
-                Motion.feedback.transaction(nil) {
-                    layer.backgroundColor = shapedFill.fillColor
-                    shapedFill.isHidden = true
-                }
-            }
-            return paintFill(color)
-        }
-        let fill = shapedFill ?? makeShapedFill(in: layer)
-        let line = fill.sublayers?.first as? CAShapeLayer
-        Motion.feedback.transaction(nil) {
-            fill.frame = layoutBounds
-            fill.cornerRadius = layer.cornerRadius
-            fill.path = shape
-            fill.fillColor = color.cgColor
-            fill.isHidden = false
-            line?.frame = fill.bounds
-            line?.path = edge
-            line?.strokeColor = Palette.separator.cgColor
-            line?.lineWidth = 1 / max(1, window?.backingScaleFactor ?? 2)
-            layer.removeAnimation(forKey: "backgroundColor")
-            layer.backgroundColor = nil
-        }
-        paintsFill = true
-        fadesNextFill = false
-    }
-
-    private func makeShapedFill(in layer: CALayer) -> CAShapeLayer {
-        let fill = CAShapeLayer(), line = CAShapeLayer()
-        fill.cornerCurve = .continuous
-        fill.masksToBounds = true
-        fill.zPosition = -1 // under every subview's layer
-        line.fillColor = nil
-        fill.addSublayer(line)
-        layer.insertSublayer(fill, at: 0)
-        shapedFill = fill
-        return fill
     }
 
     /// The row paints a fill now (`paintFill`); debug.sidebar_rows `fill`.
