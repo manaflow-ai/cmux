@@ -13,7 +13,8 @@ tracker.hosted_pages > 0 in mode on, == 0 in mode off. A mode that fails runs no
              workspaces, click / Cmd-digit / Ctrl-Cmd-] ; input to commit (`debug.workspace_switch`), longest frame
   tabs       tab-switch-matrix.py --kinds chromium: Ctrl-Tab, Cmd-Shift-], clicks; input + apply + commit
   light      pane-perf-terminal.py --browser (the top-left pane is a Chromium page): split, close, drag, scroll
-  stress     pane-perf-terminal.py --content chromium at --stress-layout (every pane a Chromium page)
+  stress     pane-perf-terminal.py --layouts stress --stress-selected chromium: the STRESS session
+             (perf-stress-session.py: 60 workspaces, 4x3 + nested splits, every pane showing a Chromium page)
 
 Each run writes OUT/<mode>/<bench>/ (the bench's own report). OUT/summary.json holds the headline rows side by side.
 Read the display refresh rate from the pane-perf reports (`refresh_hz`) and judge drops in frames.
@@ -36,7 +37,6 @@ parser.add_argument("--out", required=True)
 parser.add_argument("--modes", default="off,on", help="off = page child windows, on = layer hosting")
 parser.add_argument("--benches", default="switch,tabs,light,stress")
 parser.add_argument("--workspaces", type=int, default=60)
-parser.add_argument("--stress-layout", default="4x3")
 parser.add_argument("--rounds", type=int, default=3)
 opts = parser.parse_args()
 
@@ -78,7 +78,7 @@ def bench_command(bench, out):
                 "--json", os.path.join(out, "report.json")]
     if bench == "stress":
         return [sys.executable, os.path.join(HERE, "pane-perf-terminal.py"), *common, "--out", out,
-                "--content", "chromium", "--layouts", opts.stress_layout, "--actions", "split,close,drag",
+                "--layouts", "stress", "--stress-selected", "chromium", "--actions", "split,close,drag,scroll",
                 "--rounds", str(opts.rounds), "--json", os.path.join(out, "report.json")]
     raise SystemExit(f"unknown bench {bench}")
 
