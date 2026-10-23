@@ -74,11 +74,11 @@ public nonisolated struct NewWorkspaceName {
 
     /// `forLastTab` with the tab's name already read (an agent chat's comes from its chat).
     public static func forLastTab(workspaceName: String, workspaceTitle: String?, tabName: String?,
-                                  workspaceNameSource: WorkspaceNameSource = .auto, workspaceNameRevision: UInt64 = 0) -> String? {
+                                  workspaceNameSource: WorkspaceNameSource = .auto, workspaceNameRevision: UInt64 = 0,
+                                  allowsLegacyDefaults: Bool = true) -> String? {
         if let title = clean(workspaceTitle) { return title }
-        if (workspaceNameSource != .user || workspaceNameRevision == 0) && !isDefaultWorkspaceName(workspaceName),
-           let name = clean(workspaceName) { return name }
-        if workspaceNameSource == .user, workspaceNameRevision > 0, let name = clean(workspaceName) { return name }
+        if workspaceNameSource == .user && (workspaceNameRevision > 0 || !allowsLegacyDefaults), let name = clean(workspaceName) { return name }
+        if !isDefaultWorkspaceName(workspaceName), let name = clean(workspaceName) { return name }
         return tabName
     }
 

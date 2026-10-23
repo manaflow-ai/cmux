@@ -66,7 +66,9 @@ public final class WorkspaceModel: Identifiable {
 
     /// Nobody named the workspace: no title, and the daemon's default name.
     public var isUnnamed: Bool {
-        (title ?? "").isEmpty && (nameSource == .auto || nameRevision == 0) && Self.isDefaultName(name)
+        guard (title ?? "").isEmpty, Self.isDefaultName(name) else { return false }
+        let legacyMarker = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || name == "~"
+        return !legacyMarker || nameSource == .auto || nameRevision > 0
     }
 
     /// True for a name the daemon gave (`workspace-N`, its default), including

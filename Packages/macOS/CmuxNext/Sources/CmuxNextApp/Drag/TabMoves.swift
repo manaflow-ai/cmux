@@ -243,7 +243,8 @@ enum TabMoves {
         guard let source = services.workspaceID(ofTab: tab.id).flatMap(services.workspace(id:)),
               source.screens.flatMap(\.panes).flatMap(\.tabs).count == 1 else { return tabName }
         return NewWorkspaceName.forLastTab(workspaceName: source.name, workspaceTitle: source.title, tabName: tabName,
-                                           workspaceNameSource: source.nameSource, workspaceNameRevision: source.nameRevision)
+                                           workspaceNameSource: source.nameSource, workspaceNameRevision: source.nameRevision,
+                                           allowsLegacyDefaults: !daemon.supports(DaemonCapabilities.workspaceNameSource))
     }
 
     /// What `NewWorkspaceName` reads from `tab`: the browser's live page

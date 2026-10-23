@@ -45,8 +45,10 @@ public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
     /// showing its PR in a split) never renames the workspace: the anchor
     /// keeps naming it, so the row does not flip to whatever page is focused.
     public func label(name: String, title: String?, front: Front?, anchor: Front? = nil,
-                      nameSource: WorkspaceNameSource = .auto, nameRevision: UInt64 = 0) -> String? {
-        guard enabled, !Self.isUserNamed(name: name, title: title, nameSource: nameSource, nameRevision: nameRevision), let front else { return nil }
+                      nameSource: WorkspaceNameSource = .auto, nameRevision: UInt64 = 0,
+                      allowsLegacyDefaults: Bool = true) -> String? {
+        guard enabled, !Self.isUserNamed(name: name, title: title, nameSource: nameSource,
+                                         nameRevision: nameRevision, allowsLegacyDefaults: allowsLegacyDefaults), let front else { return nil }
         if case .browser = front, let anchor { return Self.derived(anchor) }
         return Self.derived(front)
     }
@@ -59,9 +61,11 @@ public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
     /// one app run.
     public func persistedName(name: String, title: String?, front: Front?, isLocalMachine: Bool,
                               supportsNameSource: Bool = false, alreadyRenamed: Bool,
-                              nameSource: WorkspaceNameSource = .auto, nameRevision: UInt64 = 0) -> String? {
+                              nameSource: WorkspaceNameSource = .auto, nameRevision: UInt64 = 0,
+                              allowsLegacyDefaults: Bool = true) -> String? {
         guard enabled, variant == .persist, (isLocalMachine || supportsNameSource), !alreadyRenamed,
-              !Self.isUserNamed(name: name, title: title, nameSource: nameSource, nameRevision: nameRevision) else { return nil }
+              !Self.isUserNamed(name: name, title: title, nameSource: nameSource, nameRevision: nameRevision,
+                                allowsLegacyDefaults: allowsLegacyDefaults) else { return nil }
         // Only a chat's real title lasts: a first prompt, a terminal's title (`vim foo`, a folder) or a
         // page's title is transient, so those stay live labels.
         guard case let .chat(_, _, generatedTitle)? = front else { return nil }
@@ -71,14 +75,16 @@ public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
     /// Whether a rename decided earlier may still go out now that the
     /// workspace is named `currentName` and titled `currentTitle`.
     public func confirmsRename(currentName: String, currentTitle: String?, nameSource: WorkspaceNameSource = .auto,
-                               nameRevision: UInt64 = 0) -> Bool {
-        !Self.isUserNamed(name: currentName, title: currentTitle, nameSource: nameSource, nameRevision: nameRevision)
+                               nameRevision: UInt64 = 0, allowsLegacyDefaults: Bool = true) -> Bool {
+        !Self.isUserNamed(name: currentName, title: currentTitle, nameSource: nameSource, nameRevision: nameRevision,
+                          allowsLegacyDefaults: allowsLegacyDefaults)
     }
 
     /// Whether the user named the workspace: a title, or a name the daemon did not give.
     public static func isUserNamed(name: String, title: String?, nameSource: WorkspaceNameSource = .auto,
-                                   nameRevision: UInt64 = 0) -> Bool {
-        !(title ?? "").isEmpty || (nameSource == .user && nameRevision > 0) || !NewWorkspaceName.isDefaultWorkspaceName(name)
+                                   nameRevision: UInt64 = 0, allowsLegacyDefaults: Bool = true) -> Bool {
+        !(title ?? "").isEmpty || (nameSource == .user && (nameRevision > 0 || !allowsLegacyDefaults))
+            || !NewWorkspaceName.isDefaultWorkspaceName(name)
     }
 
     /// The name `front` gives, one line and at most `NewWorkspaceName.maxLength` characters.

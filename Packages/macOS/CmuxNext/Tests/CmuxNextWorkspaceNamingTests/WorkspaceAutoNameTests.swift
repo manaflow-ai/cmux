@@ -90,6 +90,8 @@ struct WorkspaceAutoNameTests {
         #expect(Self.live.label(name: "", title: nil, front: front) == "npm run dev")
         #expect(Self.live.label(name: "~", title: "My work", front: front) == nil)
         #expect(Self.live.label(name: "~", title: nil, front: front, nameSource: .user, nameRevision: 1) == nil)
+        #expect(Self.live.label(name: "~", title: nil, front: front, nameSource: .user, nameRevision: 0,
+                                allowsLegacyDefaults: false) == nil)
     }
 
     @Test func emptyTitleDoesNotCountAsAUserName() {
