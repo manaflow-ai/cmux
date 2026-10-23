@@ -9,6 +9,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { commandFolder } from "./commandFolder";
 import { cleanText, mcpCall, prettyOutput, prettyValue } from "./mcpCalls";
 import { drawnThought } from "./thoughts";
+import { shellOutput } from "./toolFailure";
 
 /** One match: the `occurrence`th match of the query in row `rowIndex`. */
 export type FindMatch = { rowIndex: number; rowId: string; occurrence: number };
@@ -30,7 +31,9 @@ function drawnText(item: AcpmuxActivity): string {
   const call = mcpCall(tool);
   if (call) return [prettyValue(call.args), prettyOutput(tool.output)].filter(Boolean).join("\n");
   const shell = tool.kind === "execute" && Boolean(tool.command);
-  const output = shell || !tool.output ? tool.output : cleanText(tool.output);
+  // A shell draws its output without Claude Code's leading "Exit code N" line (toolFailure.ts), which
+  // its Shell block says once, at its end.
+  const output = shell ? shellOutput(tool) : tool.output && cleanText(tool.output);
   // The command as its rows draw it, without a leading `cd <folder> &&` (commandFolder).
   return [(tool.command && commandFolder(tool.command).rest) || tool.title, output].filter(Boolean).join("\n");
 }
