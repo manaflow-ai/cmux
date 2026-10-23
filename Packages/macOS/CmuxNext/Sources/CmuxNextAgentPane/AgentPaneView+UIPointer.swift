@@ -4,9 +4,15 @@ import CmuxNextPages
 /// tiny and isolated to the page's own main frame; the native controller owns
 /// the screenshot, redaction boundary and composer delivery.
 extension AgentPaneView {
-    func setUiPointerInspector(_ enabled: Bool) {
+    /// Installs or removes the debug picker in this pane's document.
+    public func setUiPointerInspector(_ enabled: Bool) {
         page?.evaluate(enabled ? Self.uiPointerScript : Self.uiPointerStopScript)
         if page == nil { webView.evaluateJavaScript(enabled ? Self.uiPointerScript : Self.uiPointerStopScript, completionHandler: nil) }
+    }
+
+    /// Runs a picker operation in whichever engine currently draws this pane.
+    public func evaluateUiPointer(_ script: String) {
+        if let page { page.evaluate(script) } else { webView.evaluateJavaScript(script, completionHandler: nil) }
     }
 
     private static let uiPointerStopScript = "globalThis.__cmuxUiPointer?.stop?.();"
