@@ -165,6 +165,9 @@ extension AgentPaneView {
 }
 
 extension AgentPaneHostError {
+    /// The shell command that stops the daemon on `socketPath` with `executable`.
+    static func shutdownCommand(socketPath: String, executable: String) -> String { "" }
+
     /// What the page shows for `error`; anything but a host error reads as a
     /// timeout.
     static func userMessage(for error: any Error) -> String {
@@ -188,9 +191,9 @@ extension AgentPaneHostError {
             String(localized: "agentPane.error.daemonStopped", defaultValue: "acpmux is not running. Open a new agent chat to start it.", bundle: .module)
         case .chiefStopped:
             String(localized: "agentPane.error.chiefStopped", defaultValue: "The Chief is not running. Reopen cmux and open Home to start it.", bundle: .module)
-        case .daemonRefused(let holder?, let socketPath, _):
+        case .daemonRefused(let holder?, let socketPath, _, _):
             String(format: String(localized: "agentPane.error.daemonHeldByOtherBuild", defaultValue: "acpmux is running, but %1$@ owns it (%2$@) and this build may not use it. Quit %1$@, or use that build.", bundle: .module), holder, socketPath)
-        case .daemonRefused(nil, let socketPath, let reason):
+        case .daemonRefused(nil, let socketPath, let reason, _):
             String(format: String(localized: "agentPane.error.daemonRefused", defaultValue: "acpmux is running at %1$@, but this build may not use it: %2$@.", bundle: .module), socketPath, reason)
         case .timedOut, nil:
             String(localized: "agentPane.error.timedOut", defaultValue: "acpmux did not answer in time.", bundle: .module)
