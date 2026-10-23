@@ -6,4 +6,7 @@ public enum WorkspaceNameSource: String, Codable, Sendable, Hashable {
     case user
     /// An automatic agent naming pass supplied the name.
     case auto
+
+    /// Creates the automatic source used by public naming defaults.
+    public init() { self = .auto }
 }
