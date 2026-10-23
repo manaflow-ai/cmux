@@ -103,20 +103,24 @@ extension KeyRouter {
         let expectedEpoch = readiness.focusEpoch
         // task-owner: one queued insertion into the page, then its Deletes; the next flush runs after it
         Task { [weak self, weak readiness] in
-            guard let readiness else { return }
-            guard let self, await readiness.insert(text, expectedEpoch: expectedEpoch) else {
+            guard let self, let readiness else { return }
+            guard await readiness.insert(text, expectedEpoch: expectedEpoch) else {
                 // The original element disappeared or refused the insert; discard Deletes tied
                 // to that failed text so they cannot hit a later focused field.
-                self?.typeAhead.takeDeletes()
-                self?.deliveringTypeAhead = nil
+                self.typeAhead.takeDeletes()
+                self.deliveringTypeAhead = nil
                 return
             }
             // Ends when no Delete came in during the last edit; each pass sends what came before it.
-            while let self, self.typeAhead.pendingDeletes > 0 {
-                let deletes = self.typeAhead.pendingDeletes
+            while self.typeAhead.pendingDeletes > 0 {
+                // Consume this batch before awaiting the page so Deletes arriving during the
+                // asynchronous edit remain queued for the next pass.
+                let deletes = self.typeAhead.takeDeletes()
                 let applied = await readiness.deleteBackward(deletes, expectedEpoch: expectedEpoch)
-                self.typeAhead.takeDeletes()
-                if !applied { break }
+                if !applied {
+                    self.typeAhead.takeDeletes()
+                    break
+                }
             }
             deliveringTypeAhead = nil
             flushTypeAhead(surface, into: readiness)

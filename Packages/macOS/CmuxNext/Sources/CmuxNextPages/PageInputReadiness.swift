@@ -21,7 +21,7 @@ public final class PageInputReadiness {
     /// An editable element has focus now (a text field, a code editor, a
     /// content-editable): bare keys are typing, not bindings.
     public private(set) var isEditableFocused = false
-    private(set) var focusEpoch = 0
+    public private(set) var focusEpoch = 0
     /// The pointer is over an element that scrolls sideways itself (a wide table or code line in
     /// its own `overflow-x` box): the layout leaves a horizontal scroll there to the page
     /// (``PageWebView`` claims it, `HorizontalScrollClaiming`) instead of scrolling the column strip.
@@ -141,7 +141,7 @@ public final class PageInputReadiness {
         const token = \(tokenLiteral);
         if (token !== null) {
           const prior = el.__cmuxInputEditToken;
-          (tokenCheck)
+          \(tokenCheck)
           el.__cmuxInputEditToken = token;
         }
         \(edit.script)
@@ -171,7 +171,12 @@ public final class PageInputReadiness {
             const typing = editable(document.activeElement);
             if (typing !== editing) { editing = typing; post({ editing: typing }); }
           };
-          document.addEventListener('focusin', () => { epoch += 1; window.__cmuxInputFocusEpoch = epoch; report(); }, true);
+          document.addEventListener('focusin', () => {
+            epoch += 1;
+            window.__cmuxInputFocusEpoch = epoch;
+            try { window.webkit.messageHandlers.\(handlerName).postMessage({ ready: editable(document.activeElement), epoch }); } catch (_) {}
+            report();
+          }, true);
           document.addEventListener('focusout', () => setTimeout(report, 0), true);
           document.addEventListener('DOMContentLoaded', report);
           \(sidewaysScript)
