@@ -121,7 +121,10 @@ ghostty-next (PR 46, then one GhosttyNextKit pin bump), each with a red test com
 - G2 app half: a local-history restore holds frames only when a READY-only frame would show less.
 - Mirror pixel-only resize: no `Terminal.resize`, mode 2026 survives a drag, `live_epoch` stays, the
   main thread never waits behind a parsed chunk.
-- G6 part: a hidden surface's output does not wake its renderer per chunk.
+- G6 part: a hidden surface's output does not wake its renderer per chunk. NOT PROVEN: its red commit
+  (ghostty-next 7ec1bab, CI run 39975084450) fails only to compile (the test reads a field the fix adds).
+  Next ghostty-next PR: a renderer-wakeup counter in its own commit, then a behavior test red on the
+  pre-fix commit and green on the fix.
 - G7 part: a blink tick of a hidden or steady cursor wakes nothing (agent TUIs hide the cursor).
 - Key to frame: the first frame update of each refresh interval draws at once while the link runs.
 - Bash integration: no fork per command on 5.3, none at start for PROMPT_COMMAND (PR 47, for
