@@ -116,6 +116,12 @@ final class ScreenContentView: NSView {
 
     override func viewDidUnhide() {
         super.viewDidUnhide()
+        reconcileIfDeferred()
+    }
+
+    /// Runs the reconcile a resize while hidden left for later (a reader that needs the screen's
+    /// frames at its current size before it shows: a canvas seed).
+    func reconcileIfDeferred() {
         guard needsReconcileOnShow else { return }
         needsReconcileOnShow = false
         reconcileAndScroll()
