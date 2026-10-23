@@ -194,6 +194,10 @@ the last frame and let the async frame land), or the renderer rebuilding cells f
 layout pass ends; measured against these rows. Also open: the after run's idle-cursor phase drew 8 frames in
 5 s at rest (before: 0); not explained yet.
 
+Pending for the next batch (lead, from cmux-4f's review of pl-arch B3): after review-pl-arch-b3 lands,
+`GhosttyRuntime+DefaultTheme.swift:78` calls `ColorTransition.current(for: themeScope.store)` instead of the
+no-argument `ColorTransition.current`, which is then removed (PL-ghostty is its last caller).
+
 ## 5. Measurements
 
 Filled in as fleet runs land: host, build sha, refresh rate, light and STRESS side by side.
