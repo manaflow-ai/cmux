@@ -12,8 +12,9 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "terminal")
 ///   live `output` chunks are fed to the local Ghostty mirror in order; a
 ///   `resized` event (protocol 6+) resets the mirror (`ESC c`) and replays.
 ///   `detached` ends the session.
-/// - Input: `send {surface, bytes}` (base64), in order, batched while a
-///   request is out, on its own `daemon` channel on the link's input lane
+/// - Input: `send {surface, bytes}` (base64), in order, one per main-queue
+///   turn and batched while one is being written, several unanswered at
+///   once (``drainInput()``), on its own `daemon` channel on the link's input lane
 ///   (PROTOCOL.md "Lanes"), so a keystroke or ^C never waits behind the
 ///   output it should interrupt. Until that channel is open (or when it
 ///   fails) input goes on the attach channel.
@@ -56,7 +57,7 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The input-lane channel for `send`, once open.
     private var inputClient: DaemonClient?
     /// Keystrokes not yet sent, with when they were typed; sent as one
-    /// `send` while none is out. Keys older than `inputHoldLimit` when the
+    /// `send` (``drainInput()``). Keys older than `inputHoldLimit` when the
     /// terminal can take them are dropped, never sent late (termfix-r13 D5:
     /// a command typed during an outage ran 15.4 minutes later).
     private var input: [(bytes: Data, at: TimeInterval, detached: Bool)] = []
@@ -69,7 +70,22 @@ public final class DaemonTerminalSession: TerminalSession {
     public static let inputHoldLimit: TimeInterval = 2
     /// The clock the hold is measured on (tests inject one).
     var now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
-    private var inputDraining = false
+    /// A `send` is being written (writes go one after another, in order).
+    private var inputWriting = false
+    /// Sends written and not yet answered, all on `inputTarget`.
+    private var inputInFlight = 0
+    private var inputTarget: DaemonClient?
+    /// A send failed: no new one until the others on its channel settle.
+    private var inputRecovering = false
+    /// The input lane given up because a `send` got no answer: its other
+    /// unanswered sends are not sent again either.
+    private var abandonedInputLane: DaemonClient?
+    /// Unanswered sends allowed at once.
+    static let maxInputInFlight = 8
+    private var nextInputBatch = 0
+    /// The batch numbers of `input`'s first entries, batches that failed.
+    private var inputRequeued: [Int] = []
+    private var inputDrainScheduled = false
     private var handler: (@MainActor (TerminalSessionEvent) -> Void)?
     /// Decodes lines given to `handle(_:)` (the attach stream has its own, off the main actor).
     private var lineParser: DaemonTerminalEventParser
@@ -184,7 +200,7 @@ public final class DaemonTerminalSession: TerminalSession {
         }
         input.append((bytes, now(), !attached))
         if attached {
-            drainInput()
+            scheduleInputDrain()
         } else {
             // Dropped once they are too old to send, not at the reattach:
             // the screen says so while the person still remembers typing.
@@ -218,6 +234,7 @@ public final class DaemonTerminalSession: TerminalSession {
         guard input.contains(where: { $0.detached && $0.at <= cutoff }) else { return }
         let bytes = input.reduce(0) { $0 + $1.bytes.count }
         input.removeAll()
+        inputRequeued.removeAll()
         if !attached { refusingInput = true }
         log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) typed bytes dropped (the terminal was unreachable for longer than \(Self.inputHoldLimit, privacy: .public) s)")
         handler?(.inputNotSent(bytes: bytes))
@@ -298,6 +315,7 @@ public final class DaemonTerminalSession: TerminalSession {
         dropInputLane()
         outbox.removeAll()
         input.removeAll()
+        inputRequeued.removeAll()
     }
 
     /// Attaches again after a dropped link. A no-op while attached or
@@ -701,49 +719,76 @@ public final class DaemonTerminalSession: TerminalSession {
         Task { await lane.close() }
     }
 
-    /// Sends queued keystrokes as one `send`, one request at a time, on the
-    /// input lane when open, else on the attach channel. Keys that waited
-    /// longer than `inputHoldLimit` are dropped first.
+    /// Sends queued keystrokes as one `send`, on the input lane when open,
+    /// else on the attach channel. Keys that waited longer than
+    /// `inputHoldLimit` are dropped first.
+    ///
+    /// The next batch goes out once this one is written, not when its reply
+    /// comes (TUI fast scroll), up to `maxInputInFlight` unanswered. One
+    /// small request at a time stalled a flick for the link's whole
+    /// retransmission timeout (1 s, then 2 s) whenever a segment was lost on
+    /// a relayed path; with later segments behind it, the duplicate ACKs
+    /// repair the loss within a few segments. Writes stay in order (each
+    /// waits for the last), and several are unanswered on one channel only:
+    /// requests on two channels could reach the terminal out of order.
     private func drainInput() {
-        guard attached, !inputDraining else { return }
+        guard attached, !inputWriting else { return }
         expireInput()
         guard !input.isEmpty, let target = inputClient ?? client else { return }
-        inputDraining = true
+        // After a failure the rest of that channel's requests settle first,
+        // so every failed batch goes back in order before newer keys.
+        if inputInFlight > 0, inputRecovering || inputTarget !== target || inputInFlight >= Self.maxInputInFlight { return }
+        inputWriting = true
+        inputInFlight += 1
+        inputTarget = target
+        let number = nextInputBatch
+        nextInputBatch += 1
         let typedAt = input[0].at
         let batch = input.reduce(into: Data()) { $0.append($1.bytes) }
         input.removeAll()
+        inputRequeued.removeAll()
         let surface = surface
         Task { [weak self] in
             guard let self else { return }
+            var written = false
             do {
-                let encoded = batch.base64EncodedString()
-                let request: @Sendable () async throws -> Data = { try await target.request("send", params: ["surface": surface, "bytes": encoded]) }
+                let id = try await target.submit("send", params: ["surface": surface, "bytes": batch.base64EncodedString()])
+                written = true
+                inputWriting = false
+                drainInput()
                 // A lane request gets an answer within seconds or the lane is
                 // given up. The batch is not sent again then: the Mac may
                 // already have typed it, and a doubled Return runs a command
                 // twice.
                 let reply: Data
                 if target !== client {
-                    guard let answer = try await Self.within(.seconds(10), request) else {
+                    guard let answer = try await Self.within(.seconds(10), { try await target.reply(to: id) }) else {
                         log.error("send on the input lane got no answer; using the attach channel")
+                        abandonedInputLane = target
                         if inputClient === target { dropInputLane() }
-                        inputDraining = false
-                        drainInput()
+                        inputSettled()
                         return
                     }
                     reply = answer
                 } else {
-                    reply = try await request()
+                    reply = try await target.reply(to: id)
                 }
                 if let error = Self.error(in: reply) {
                     lastError = error
                     log.error("send failed: \(error, privacy: .public)")
                 }
+            } catch where target === abandonedInputLane {
+                // A lane given up for silence: like the request that timed
+                // out, the Mac may already have typed this batch.
+                if !written { inputWriting = false }
+                log.error("send on an abandoned input lane failed; not sent again")
             } catch {
+                if !written { inputWriting = false }
                 // Keep the keystrokes: retry on the attach channel when the
                 // lane failed, or after the reattach when the link dropped.
                 lastError = LinkController.reason(error)
-                input.insert((batch, typedAt, true), at: 0)
+                requeueInput(batch, typedAt: typedAt, number: number)
+                inputRecovering = true
                 markInputDetached()
                 if inputClient === target {
                     dropInputLane()
@@ -754,7 +799,36 @@ public final class DaemonTerminalSession: TerminalSession {
                     handler?(.connection(connectionState))
                 }
             }
-            inputDraining = false
+            inputSettled()
+        }
+    }
+
+    /// A `send` was answered, failed or given up: the next batch may go.
+    private func inputSettled() {
+        inputInFlight -= 1
+        if inputInFlight == 0 {
+            inputRecovering = false
+            inputTarget = nil
+        }
+        drainInput()
+    }
+
+    /// A failed batch goes back before newer keys, after the failed batches
+    /// written before it.
+    private func requeueInput(_ bytes: Data, typedAt: TimeInterval, number: Int) {
+        let index = inputRequeued.firstIndex { $0 > number } ?? inputRequeued.count
+        inputRequeued.insert(number, at: index)
+        input.insert((bytes, typedAt, true), at: index)
+    }
+
+    /// One main-queue turn's input goes out as one `send`: Ghostty writes a
+    /// scroll frame's wheel reports one by one.
+    private func scheduleInputDrain() {
+        guard !inputDrainScheduled else { return }
+        inputDrainScheduled = true
+        Task { [weak self] in
+            guard let self else { return }
+            inputDrainScheduled = false
             drainInput()
         }
     }
