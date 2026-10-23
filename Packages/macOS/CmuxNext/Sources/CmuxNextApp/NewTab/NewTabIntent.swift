@@ -14,6 +14,12 @@ nonisolated enum NewTabIntent: Equatable, Sendable {
     /// Plain text: a prompt for an agent. A web search is an explicit
     /// choice (a row, `newTab.submit --arg search=true`), never a mode (R86).
     case prompt(String)
+    /// Text no surface may load, search or send: an old Mac Screen pairing
+    /// link (`pairing_link`, it carried a room secret). Before every other
+    /// rule, `!` included.
+    case refused(reason: String)
+
+    static let pairingLinkReason = "pairing_link"
 
     static let terminalPrefix: Character = "!"
 
@@ -31,6 +37,7 @@ nonisolated enum NewTabIntent: Equatable, Sendable {
     static func classify(_ input: String, home: URL? = FileManager.default.homeDirectoryForCurrentUser) -> NewTabIntent {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return .none }
+        if BrowserURLResolver.containsPairingLink(trimmed) { return .refused(reason: pairingLinkReason) }
         if trimmed.first == terminalPrefix {
             return .terminal(command: trimmed.dropFirst().trimmingCharacters(in: .whitespacesAndNewlines))
         }
@@ -64,7 +71,7 @@ nonisolated enum NewTabIntent: Equatable, Sendable {
 /// The fixture's shape: `{"kind": "terminal", "command": "ls"}` and so on,
 /// the same JSON the page's `NewTabIntent` type has.
 nonisolated extension NewTabIntent: Codable {
-    private enum CodingKeys: String, CodingKey { case kind, command, url, text }
+    private enum CodingKeys: String, CodingKey { case kind, command, url, text, reason }
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -73,6 +80,7 @@ nonisolated extension NewTabIntent: Codable {
         case "terminal": self = .terminal(command: try container.decode(String.self, forKey: .command))
         case "url": self = .url(try container.decode(String.self, forKey: .url))
         case "prompt": self = .prompt(try container.decode(String.self, forKey: .text))
+        case "refused": self = .refused(reason: try container.decode(String.self, forKey: .reason))
         case let kind:
             throw DecodingError.dataCorruptedError(forKey: .kind, in: container, debugDescription: "unknown kind \(kind)")
         }
@@ -91,6 +99,9 @@ nonisolated extension NewTabIntent: Codable {
         case .prompt(let text):
             try container.encode("prompt", forKey: .kind)
             try container.encode(text, forKey: .text)
+        case .refused(let reason):
+            try container.encode("refused", forKey: .kind)
+            try container.encode(reason, forKey: .reason)
         }
     }
 }

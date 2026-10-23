@@ -21,4 +21,7 @@ public nonisolated enum RemoteSessionEnd: Sendable, Hashable {
     case connectionLost
     /// The host refused, or nobody answered the consent prompt in time.
     case consentDenied
+    /// The host needs its own sign-in (an RFB compatibility host's user name
+    /// and password). `rejected`: the ones sent were not accepted.
+    case signInRequired(rejected: Bool)
 }
