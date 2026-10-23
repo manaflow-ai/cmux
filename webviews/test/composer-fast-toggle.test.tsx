@@ -10,7 +10,7 @@
 //   - Claude: no bolt anywhere, on or off;
 //   - an option with a tier past Fast (Codex's Ultrafast) adds an Ultrafast checkbox row under Fast
 //     mode, checked while that tier runs: on picks it, off steps back to Fast; a two-state option
-//     has no such row;
+//     has no such row; a tier past Fast that is not Ultrafast keeps the agent's name for it;
 //   - neither draws an effort control of its own (#20946 brought one back): only the model button
 //     names the effort;
 //   - the button never says Fast in words;
@@ -316,6 +316,28 @@ test("Codex: a tier past Fast is an Ultrafast row under Fast mode; on picks it, 
   expect(sent).toEqual(["fast-mode=ultrafast", "fast-mode=fast"]);
   // The button still never says it in words.
   expect(chip().textContent).not.toMatch(/fast/i);
+});
+
+// Codex review of #24151: the second row is Codex's Ultrafast only where the tier says so; any other
+// harness's tier past Fast keeps the name the agent gives it (else its value), never "Ultrafast".
+test("a tier past Fast that is not Ultrafast is a row under Fast mode with the agent's own name for it", async () => {
+  sent.length = 0;
+  const turbo: Option[] = [{ value: "standard" }, { value: "fast" }, { value: "turbo", name: "Turbo" }];
+  await render(snapshot({ options: turbo, current: "fast" }, claude));
+  await open();
+  expect(rows().slice(-2)).toEqual(["Fast mode", "Turbo"]);
+  await act(async () => ultraRow()!.click());
+  await settle();
+  expect(sent).toEqual(["fast-mode=turbo"]);
+  const unnamed: Option[] = [{ value: "standard" }, { value: "fast" }, { value: "priority" }];
+  await render(snapshot({ options: unnamed, current: "fast" }, codex));
+  await open();
+  expect(rows().slice(-2)).toEqual(["Fast mode", "priority"]);
+  // Codex's own tier, named or not, reads Ultrafast in the app's words.
+  const named: Option[] = [{ value: "standard" }, { value: "fast" }, { value: "ultrafast", name: "ultra fast" }];
+  await render(snapshot({ options: named, current: "fast" }, codex));
+  await open();
+  expect(rows().slice(-2)).toEqual(["Fast mode", "Ultrafast"]);
 });
 
 test("Claude: with a tier past Fast, any tier on checks the row, and a click goes back to off", async () => {

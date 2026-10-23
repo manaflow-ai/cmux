@@ -32,8 +32,13 @@ export type QuickMenu = {
   /// Fast mode (Claude Code's Fast Mode, Codex's Fast service tier): the menu's last checkbox row,
   /// its one toggle (the composer draws no speed button; a running Codex fast tier is a bolt inside
   /// the model button). Absent where the running model has none. `ultra`: the option's tier past
-  /// Fast (Codex's Ultrafast), a second checkbox row under it; absent where the option has none.
-  fast?: { checked: boolean; onChange(on: boolean): void; ultra?: { checked: boolean; onChange(on: boolean): void } };
+  /// Fast (Codex's Ultrafast), a second checkbox row under it, named `label` (Ultrafast for Codex's,
+  /// else the agent's name for the tier); absent where the option has none.
+  fast?: {
+    checked: boolean;
+    onChange(on: boolean): void;
+    ultra?: { label: string; checked: boolean; onChange(on: boolean): void };
+  };
   /// The rail beside the list: Starred (when any), then each harness. Without it the menu lists
   /// `models` alone and More models opens the full picker.
   families?: QuickFamilies;
@@ -351,7 +356,7 @@ export function QuickModelMenu({
               checked={fast.ultra.checked}
               onCheckedChange={(on) => fast.ultra?.onChange(on)}
             >
-              <span className="acpmux-menu-label">{t("picker.tierUltrafast")}</span>
+              <span className="acpmux-menu-label">{fast.ultra.label}</span>
             </MenuCheckboxItem>
           )}
         </>
