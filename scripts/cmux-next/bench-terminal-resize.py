@@ -194,12 +194,16 @@ def idle_cursor():
     wait(lambda: surfaces(), 30)
     write("clear; printf '\\033[?25l'; sleep 600\r")
     time.sleep(1.5)  # bench script: the command runs and the screen settles
-    focused = [s for s in surfaces()]
-    before = focused[0]["counters"].get("frames", 0) if focused else 0
+    def focused_frames():
+        rows = surfaces()
+        # The phase's own new workspace shows one terminal: the one it wrote to.
+        row = rows[0] if len(rows) == 1 else None
+        return int(row["counters"].get("frames", 0)) if row else -1
+    before = focused_frames()
     time.sleep(opts.idle_s)  # bench script: the measured idle window
-    after_rows = surfaces()
-    after = after_rows[0]["counters"].get("frames", 0) if after_rows else 0
-    return {"layout": "idle-cursor", "idle_s": opts.idle_s, "frames": int(after) - int(before)}
+    after = focused_frames()
+    return {"layout": "idle-cursor", "idle_s": opts.idle_s, "frames": after - before,
+            "note": "the bench window is never key (no activation): Ghostty's blink timer runs only when focused"}
 
 
 def stress():
