@@ -65,7 +65,9 @@ public final class WorkspaceModel: Identifiable {
     }
 
     /// Nobody named the workspace: no title, and the daemon's default name.
-    public var isUnnamed: Bool { (title ?? "").isEmpty && Self.isDefaultName(name) }
+    public var isUnnamed: Bool {
+        (title ?? "").isEmpty && (nameSource == .auto || nameRevision == 0) && Self.isDefaultName(name)
+    }
 
     /// True for a name the daemon gave (`workspace-N`, its default), including
     /// the empty and home-folder defaults retained by older daemons.

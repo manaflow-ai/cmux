@@ -63,8 +63,10 @@ public struct WorkspaceAutoNameReader {
     /// resync) never drops the row back to the daemon's `workspace-N`.
     public func label(_ workspace: WorkspaceModel, front tab: TabModel, work: TabModel?) -> String? {
         let rule = self.rule
-        let label = rule.label(name: workspace.name, title: workspace.title, front: front(tab), anchor: work.flatMap { front($0) })
-        guard rule.enabled, !WorkspaceAutoName.isUserNamed(name: workspace.name, title: workspace.title) else {
+        let label = rule.label(name: workspace.name, title: workspace.title, front: front(tab), anchor: work.flatMap { front($0) },
+                               nameSource: workspace.nameSource, nameRevision: workspace.nameRevision)
+        guard rule.enabled, !WorkspaceAutoName.isUserNamed(name: workspace.name, title: workspace.title,
+                                                           nameSource: workspace.nameSource, nameRevision: workspace.nameRevision) else {
             hold.forget(workspace: workspace.id)
             return label
         }

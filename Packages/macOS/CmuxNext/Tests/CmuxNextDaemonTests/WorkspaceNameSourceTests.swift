@@ -13,6 +13,11 @@ struct WorkspaceNameSourceTests {
         #expect(!WorkspaceModel.isDefaultName(name))
     }
 
+    @Test @MainActor func aUserRenamedHomeMarkerIsNotUnnamed() throws {
+        let snapshot = WorkspaceSnapshot(id: 1, key: "manual", name: "~", nameSource: .user, nameRevision: 1)
+        #expect(!WorkspaceModel(snapshot).isUnnamed)
+    }
+
     @Test func legacySnapshotDefaultsToManualOwnership() throws {
         let snapshot = try Self.decodeSnapshot("""
         {"id":1,"key":"legacy","name":"Claude Code","screens":[]}

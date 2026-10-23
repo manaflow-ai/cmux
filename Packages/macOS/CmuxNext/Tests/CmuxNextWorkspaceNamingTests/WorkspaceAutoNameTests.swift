@@ -89,6 +89,7 @@ struct WorkspaceAutoNameTests {
         #expect(Self.live.label(name: "~", title: nil, front: front) == "npm run dev")
         #expect(Self.live.label(name: "", title: nil, front: front) == "npm run dev")
         #expect(Self.live.label(name: "~", title: "My work", front: front) == nil)
+        #expect(Self.live.label(name: "~", title: nil, front: front, nameSource: .user, nameRevision: 1) == nil)
     }
 
     @Test func emptyTitleDoesNotCountAsAUserName() {
@@ -178,5 +179,6 @@ struct WorkspaceAutoNameTests {
         #expect(Self.persist.confirmsRename(currentName: "workspace-3", currentTitle: ""))
         #expect(!Self.persist.confirmsRename(currentName: "api", currentTitle: nil))
         #expect(!Self.persist.confirmsRename(currentName: "workspace-3", currentTitle: "Mine"))
+        #expect(!Self.persist.confirmsRename(currentName: "~", currentTitle: nil, nameSource: .user, nameRevision: 1))
     }
 }
