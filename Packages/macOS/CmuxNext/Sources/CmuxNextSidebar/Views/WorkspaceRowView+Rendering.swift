@@ -25,7 +25,7 @@ extension WorkspaceRowView {
 
     override func hoverChanged() {
         super.hoverChanged()
-        // The x, the more button and the chevron show or hide only in
+        // The dog-ear, the pin and the chevron show or hide only in
         // `layout()`, so every hover change asks for one; AppKit coalesces it
         // into the next pass. Skipping it during a scroll or a list apply left
         // a row's controls up after hover cleared (no pointer event follows).
@@ -39,8 +39,8 @@ extension WorkspaceRowView {
             title.stopMarquee()
             return
         }
-        // The x and the more button draw over the title's end behind a fade,
-        // so the title keeps its width; a clipped title scrolls. Under Reduce
+        // The close draws in the row's corner, not over the title, so the
+        // title keeps its width; a clipped title scrolls. Under Reduce
         // Motion no marquee runs: the workspace hover card shows the whole
         // name (wrapped), so no second popover (a tooltip) shows with it.
         layoutSubtreeIfNeeded()
@@ -72,7 +72,8 @@ extension WorkspaceRowView {
             // Fills only, no borders: drop target, selection, multi-selection or on screen, hover.
             let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected || isOnScreen ? Palette.secondarySelectionFill
                 : isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil
-            paintFill(fill)
+            let notched = fill == nil ? nil : notchedFill
+            paintFill(fill, shape: notched?.shape, edge: notched?.edge)
             (rowBadge.ringColor, rowBadge.chipColor) = (Self.badgeBackdrop(fill), Palette.sidebarStep.cgColor)
             // The sidebar's own tonal step, once more: a bar a step apart.
             placeholderBar.layer?.backgroundColor = Palette.sidebarStep.cgColor
@@ -136,18 +137,16 @@ extension WorkspaceRowView {
         trailing = layoutTreeFold(trailing: trailing, cy: cy, control: control, fades: fades)
         trailing = layoutRollUp(trailing: trailing, cy: cy)
         trailing = layoutPullRequests(trailing: trailing, cy: cy)
-        // Lawrence 2026-10-11 ("Overlay with fade"): the title keeps its full
-        // width at rest and on hover. The x and the more button draw over the
-        // end of the title, which fades out before them (an alpha mask), so
-        // nothing moves. Marks under them hide while they show. An unread
-        // badge keeps its slot at rest, and the action that lands there on
-        // hover hides it.
+        // Leo 2026-10-21: the hover action sits on the row's top-right corner, the close on a row
+        // that can close, else the menu; the row's fill leaves that corner out (Leo 2026-10-22). It
+        // takes nothing from the text: the title keeps the row's full width at rest and on hover,
+        // and the unread badge and keycap keep their slots (`layoutDogEar`).
         let showClose = isHovered && !isShowingPlaceholder && isClosable
         let showMore = !isPlaceholderRow && onMore != nil && isHovered && !renaming
-        setHoverShown(closeButton, showClose, fades: fades)
-        setHoverShown(badge, !(showClose || (showMore && !isClosable) || !badge.state.isUnread), fades: fades)
+        layoutDogEar(full: full, showClose: showClose, showMenu: showMore && !showClose, fades: fades)
+        setHoverShown(badge, badge.state.isUnread, fades: fades)
         // The keycap of one of the first rows takes the unread mark's slot when there is no mark.
-        setHoverShown(keycap, keycap.number != nil && !badge.state.isUnread && !(showClose || (showMore && !isClosable)), fades: fades)
+        setHoverShown(keycap, keycap.number != nil && !badge.state.isUnread, fades: fades)
         var slot: CGFloat = 0
         if !badge.state.isUnread, keycap.number != nil { slot = layoutKeycap(trailing: trailing, cy: cy, control: control) }
         if badge.state.isUnread {
@@ -157,16 +156,13 @@ extension WorkspaceRowView {
             badge.frame = NSRect(x: trailing - w - pad, y: cy - h / 2, width: w, height: h)
             slot = max(control, w + pad)
         }
-        closeButton.frame = NSRect(x: trailing - control, y: cy - control / 2, width: control, height: control)
         if slot > 0 { trailing -= slot + Metrics.space2 }
+        // An expanded row's hover pin: at the end of the name's line, clear of the unread badge or
+        // keycap and of the dog-ear's square, over the text behind a fade.
+        let pinMaxX = min(trailing, full.maxX - SidebarStyle.dogEarSide - Metrics.space1, closeButton.frame.minX - Metrics.space1)
+        let pinSlot = NSRect(x: pinMaxX - control, y: cy - control / 2, width: control, height: control)
         trailing = layoutTime(trailing: trailing, cy: cy, height: sh)
-        // The menu button, on hover only, left of the x (or in its place on a
-        // row that cannot close). Hidden (not only clear) when it does not
-        // show; VoiceOver uses the row's custom action.
-        setHoverShown(moreButton, showMore, fades: fades)
-        moreButton.frame = closeButton.frame.offsetBy(dx: isClosable && !isShowingPlaceholder ? -(control + Metrics.space1) : 0, dy: 0)
-        let pinStart = layoutPin(showMore: showMore, control: control, fades: fades)
-        let overlayStart = [showClose ? closeButton.frame.minX : nil, showMore ? moreButton.frame.minX : nil, pinStart].compactMap { $0 }.min()
+        let overlayStart = layoutPin(showMore: showMore, slot: pinSlot, fades: fades)
         let ind = SidebarStyle.indicatorSize
         // With nothing else at the row's end, the lone dot or spinner takes the trailing column,
         // centered on the group header chevron's x (SidebarStyle+TrailingColumn).
@@ -222,9 +218,9 @@ extension WorkspaceRowView {
         title.fadeWidth = SidebarStyle.titleFadeWidth
         let titleWidth = max(0, textW - inset) // draws at its edge, so it runs to `trailing`
         layoutTextLines(x: textX, inset: inset, titleWidth: titleWidth, width: textW, head: b, top: top, title: th, line: sh)
-        // The hover actions draw over the text's end: the title and second
-        // line fade out before them (alpha masks, every backdrop), and the
-        // marks they cover hide while they show.
+        // An expanded row's hover pin draws over the text's end: the title
+        // and second line fade out before it (alpha masks, every backdrop),
+        // and the marks it covers hide while it shows.
         let fade = SidebarStyle.titleFadeWidth
         title.setTrailingOcclusion(overlayStart.map { max(0, title.frame.maxX - ($0 - Metrics.space1)) } ?? 0, animated: fades)
         updateCalmTitleTip()
