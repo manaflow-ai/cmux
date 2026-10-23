@@ -40,6 +40,12 @@ struct SidebarDocSubgroupPlanTests {
         #expect(third.refusal == .tooDeep)
     }
 
+    /// Lawrence 2026-10-23: "i want to see deeply nested groups". A sixth-level group still takes a subgroup.
+    @Test func aSixthLevelGroupTakesASubgroup() {
+        let sixth = SidebarDocSubgroupPlan(parent: GroupID("g6"), id: GroupID("n"), name: "", color: .grey, records: records(chain: 6))
+        #expect(sixth.ops != nil, "refused: \(String(describing: sixth.refusal))")
+    }
+
     @Test func anUnknownParentPlansNothing() {
         let plan = SidebarDocSubgroupPlan(parent: GroupID("nope"), id: GroupID("n"), name: "", color: .grey, records: records(chain: 1))
         #expect(plan.ops == nil)

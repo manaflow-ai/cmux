@@ -410,3 +410,42 @@ fn a_dragged_group_lands_beside_rows_only_at_its_own_level_or_above() {
     let table = accept::drag_begin(&doc, &rows, &[ws(A, "a2")]);
     assert!(table[&ws(A, "a1")].before && table[&ws(A, "a1")].after);
 }
+
+/// Six levels of groups (Lawrence 2026-10-23: "i want to see deeply nested groups"): each level
+/// nests, the document passes the full check, the view lists every level with its depth, a drag
+/// can still go into the sixth level, and repair keeps the chain.
+#[test]
+fn six_levels_of_groups_nest_view_and_take_a_drop() {
+    let mut doc = doc();
+    let sec = machine_section_id(A);
+    let mut parent: Option<String> = None;
+    for level in 1..=6 {
+        let id = format!("g{level}");
+        let items = if level == 6 { vec![ws(A, "a1")] } else { vec![] };
+        apply(&mut doc, &[group(&id, &id, &sec, parent.as_deref(), items)])
+            .unwrap_or_else(|refusal| panic!("level {level} refused: {refusal}"));
+        parent = Some(id);
+    }
+    check(&doc).expect("a six-level tree passes the full check");
+    assert!(!repair(&mut doc.clone()), "repair leaves a six-level tree alone");
+    let live = vec![
+        LiveWorkspace { session_id: A.into(), workspace_id: "a1".into(), title: None },
+        LiveWorkspace { session_id: A.into(), workspace_id: "a2".into(), title: None },
+    ];
+    let rows = view(&doc, &ViewRequest { live, ..ViewRequest::default() });
+    for level in 1..=6u8 {
+        let key = format!("g{level}");
+        assert_eq!(rows.iter().find(|r| r.key == key).map(|r| r.depth), Some(level - 1), "{key}");
+    }
+    assert_eq!(rows.iter().find(|r| r.key == ws(A, "a1")).map(|r| r.depth), Some(6));
+    let table = accept::drag_begin(&doc, &rows, &[ws(A, "a2")]);
+    assert!(table["g6"].into, "a workspace drops into the sixth level");
+    apply(&mut doc, &[group("g_solo", "solo", &sec, None, vec![ws(A, "a2")])]).unwrap();
+    let live = vec![
+        LiveWorkspace { session_id: A.into(), workspace_id: "a1".into(), title: None },
+        LiveWorkspace { session_id: A.into(), workspace_id: "a2".into(), title: None },
+    ];
+    let rows = view(&doc, &ViewRequest { live, ..ViewRequest::default() });
+    let table = accept::drag_begin(&doc, &rows, &["g_solo".to_string()]);
+    assert!(table["g6"].into, "a group drops into the sixth level, making a seventh");
+}
