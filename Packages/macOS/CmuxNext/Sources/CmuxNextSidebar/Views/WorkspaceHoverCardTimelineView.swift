@@ -102,11 +102,11 @@ final class WorkspaceHoverCardTimelineView: NSView {
             row.text.preferredMaxLayoutWidth = textWidth
             let text = row.text.size(forWidth: textWidth)
             let time = row.time.size(forWidth: Self.timeColumn)
-            // The time sits on the text's first baseline; the icon centers on its first line, by
-            // the same rule as the card's other rows (`FirstLineIconView`).
+            // The time on the text's first baseline; the icon centered on that line's capitals, as
+            // every hover card icon (`NSFont.iconBaselineOffsetFromTop`), not standing on the baseline.
             let baseline = row.text.firstBaselineOffsetFromTop
             let timeY = y + max(0, baseline - row.time.firstBaselineOffsetFromTop)
-            let iconBaseline = FirstLineIconView.baselineOffset(side: Self.iconSize, font: row.text.font ?? Typography.body)
+            let iconBaseline = (row.text.font ?? Typography.body).iconBaselineOffsetFromTop(iconHeight: Self.iconSize)
             let iconY = y + max(0, baseline - iconBaseline)
             row.text.frame = CGRect(x: textX, y: y, width: textWidth, height: text.height)
             row.time.frame = CGRect(x: 0, y: timeY, width: Self.timeColumn, height: time.height)

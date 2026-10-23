@@ -41,12 +41,14 @@ struct WorkspaceHoverCardContent: Equatable {
         var iconTone: HoverCardTone?
         /// The card's preview line (`Preview`): the last row, a step apart from the metadata.
         var isPreview = false
+        /// The machine a machine row names: its icon draws that machine's color pick, if any.
+        var machine: String?
 
         /// The row the shared hover card row draws (`HoverCardRowView`).
         var row: HoverCardRowContent {
             HoverCardRowContent(text: text, ink: ink ?? (isMessage ? .primary : .secondary), lines: lines, status: status,
                                 statusTone: statusTone, additions: additions, deletions: deletions, accessory: accessory,
-                                iconTone: iconTone)
+                                iconTone: iconTone, iconMachine: machine)
         }
 
         /// What someone said or asked (a waiting reason, a notification, the task, the last
@@ -225,10 +227,8 @@ struct WorkspaceHoverCardContent: Equatable {
             // that is not connected says how, in its color, under it.
             let own = ownIcon(remote.icon)
             let tone = connectionTone(remote.status)
-            // The Chief's subagent workspaces say who started them here, not on their row.
-            let name = remote.id.isLocalChief ? Strings.startedByChief : remote.name
-            facts.append(Fact(icon: hostIcon(remote), text: name, mark: own.mark, image: own.image, kind: "machine",
-                              accessory: .dot(tone)))
+            facts.append(Fact(icon: hostIcon(remote), text: remote.name, mark: own.mark, image: own.image, kind: "machine",
+                              accessory: .dot(tone), machine: remote.name))
             if let word = connectionWord(remote.status) {
                 facts.append(Fact(icon: .statusDisconnected, text: word, kind: "machineStatus", ink: tone))
             }

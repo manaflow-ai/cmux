@@ -89,7 +89,7 @@
    frame, as the stack's flow takes it; only the drawing travels. */
 .acpmux-dock > :not(.acpmux-composer, .acpmux-home-area, .acpmux-asks-stack),
 .acpmux-asks-stack > *,
-.acpmux-composer-queue > li:not(.acpmux-queue-header) {
+.acpmux-composer-queue > li {
   --ui-enter-y: var(--ui-enter-distance);
   animation: ui-enter var(--ui-enter-duration) var(--ui-enter-ease) both;
 }
