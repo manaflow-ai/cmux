@@ -35,10 +35,12 @@ import Foundation
     private(set) var provisionalTabCount = 0
     /// An order-free digest of which tab sits in which pane and which panes
     /// are listed (XOR of one hash per indexed tab and its pane, and one per
-    /// indexed pane): a remove and re-add of the same tab in the same pane, or
-    /// of the same pane, leaves it as it was, so a refresh changes it only
+    /// listed pane id): a remove and re-add of the same tab in the same pane,
+    /// or of the same pane, leaves it as it was, so a refresh changes it only
     /// when a tab came, went or moved to another pane, or a pane came or went
-    /// (a pane with no tab too).
+    /// (a pane with no tab too). A pane id folds in when its first record is
+    /// indexed and out when its last one goes (`recordsByPane`), so two
+    /// records of one pane (a move's added delta) never cancel each other.
     private var tabMembership = 0
     private var takenMembership = 0
     /// An order change inside a pane, or of the workspaces, noted by its
@@ -57,7 +59,8 @@ import Foundation
         var keys: Keys
         var parent: ObjectIdentifier?
         var children: Set<ObjectIdentifier> = []
-        /// A tab's or a pane's share of `tabMembership` (0 for other records).
+        /// A tab's share of `tabMembership` (0 for other records; a pane's
+        /// share is per id, folded in by `key` and out by `unkey`).
         var membership = 0
     }
 
@@ -65,6 +68,11 @@ import Foundation
     /// Every indexed tab record per surface: normally one; two for the
     /// moment a move's added delta carries its own record of the moved tab.
     private var recordsBySurface: [SurfaceID: [ObjectIdentifier]] = [:]
+    /// Every indexed pane record per durable id (`PaneModel.id`): normally
+    /// one; two while a move's added delta (a pane moved into a new screen or
+    /// workspace) carries its own record and the source still lists the old
+    /// one. The survivor takes the keys back when one goes.
+    private var recordsByPane: [String: [ObjectIdentifier]] = [:]
 
     /// The indexed tab records on `surface` (normally one).
     func tabs(onSurface surface: SurfaceID) -> [TabModel] {
@@ -116,11 +124,11 @@ import Foundation
         return hasher.finalize()
     }
 
-    /// A pane's share: by its durable id, so a refresh that re-indexes it changes nothing.
-    private static func membership(_ pane: PaneModel) -> Int {
+    /// A pane id's share: by its durable id, so a refresh that re-indexes it changes nothing.
+    private static func membership(pane id: String) -> Int {
         var hasher = Hasher()
         hasher.combine("pane")
-        hasher.combine(pane.id)
+        hasher.combine(id)
         return hasher.finalize()
     }
 
@@ -167,8 +175,6 @@ import Foundation
         var entry = Entry(record: record, keys: keys, parent: parentID)
         if let tab = record as? TabModel {
             entry.membership = Self.membership(tab, (parent as? PaneModel)?.handle)
-        } else if let pane = record as? PaneModel {
-            entry.membership = Self.membership(pane)
         }
         tabMembership ^= entry.membership
         entries[id] = entry
@@ -193,6 +199,8 @@ import Foundation
             panesByHandle[handle] = pane
             panesByID[id] = pane
             if let resource { panesByResource[resource] = pane }
+            if recordsByPane[id] == nil { tabMembership ^= Self.membership(pane: id) }
+            recordsByPane[id, default: []].append(ObjectIdentifier(pane))
             for group in groups { tabGroupsByID[group.id] = group }
         case .tab(let surface, let id, let terminal, let resource, let terminalResource):
             guard let tab = record as? TabModel else { return }
@@ -221,25 +229,44 @@ import Foundation
             Self.drop(id, from: &panesByID, if: record)
             if let resource { Self.drop(resource, from: &panesByResource, if: record) }
             for group in groups { Self.drop(group.id, from: &tabGroupsByID, if: group) }
+            guard var records = recordsByPane[id] else { return }
+            records.removeAll { $0 == ObjectIdentifier(record) }
+            if records.isEmpty {
+                // The last record of the pane id went: the pane left the tree.
+                recordsByPane[id] = nil
+                tabMembership ^= Self.membership(pane: id)
+                return
+            }
+            recordsByPane[id] = records
+            // A second record of the pane still indexed takes its keys back.
+            if let other = records.first, let entry = entries[other], let pane = entry.record as? PaneModel,
+               case .pane(let otherHandle, _, let otherResource, let otherGroups) = entry.keys {
+                if panesByID[id] == nil { panesByID[id] = pane }
+                if panesByHandle[otherHandle] == nil { panesByHandle[otherHandle] = pane }
+                if let otherResource, panesByResource[otherResource] == nil { panesByResource[otherResource] = pane }
+                for group in otherGroups where tabGroupsByID[group.id] == nil { tabGroupsByID[group.id] = group }
+            }
         case .tab(let surface, let id, let terminal, let resource, let terminalResource):
             Self.drop(surface, from: &tabsBySurface, if: record)
-            recordsBySurface[surface]?.removeAll { $0 == ObjectIdentifier(record) }
-            if recordsBySurface[surface]?.isEmpty == true { recordsBySurface[surface] = nil }
-            // A second record of the surface still indexed takes its keys back.
-            if tabsBySurface[surface] == nil, let other = recordsBySurface[surface]?.first, let entry = entries[other],
-               case .tab(_, let otherID, let terminal, let resource, let terminalResource) = entry.keys,
-               let tab = entry.record as? TabModel {
-                tabsBySurface[surface] = tab
-                if tabsByID[otherID] == nil { tabsByID[otherID] = tab }
-                if let terminal, tabsByTerminal[terminal] == nil { tabsByTerminal[terminal] = tab }
-                if let resource, tabsByResource[resource] == nil { tabsByResource[resource] = tab }
-                if let terminalResource, tabsByTerminalResource[terminalResource] == nil { tabsByTerminalResource[terminalResource] = tab }
-            }
             Self.drop(id, from: &tabsByID, if: record)
             if let terminal { Self.drop(terminal, from: &tabsByTerminal, if: record) }
             if let resource { Self.drop(resource, from: &tabsByResource, if: record) }
             if let terminalResource { Self.drop(terminalResource, from: &tabsByTerminalResource, if: record) }
             if Self.isOverlayTab(id: id, surface: surface) { provisionalTabCount -= 1 }
+            recordsBySurface[surface]?.removeAll { $0 == ObjectIdentifier(record) }
+            if recordsBySurface[surface]?.isEmpty == true { recordsBySurface[surface] = nil }
+            // A second record of the surface still indexed takes its keys back, after this
+            // record's own keys are dropped: the two records share their durable id, so a
+            // take-back before the drop would find the id still taken and then lose it.
+            if let other = recordsBySurface[surface]?.first, let entry = entries[other],
+               case .tab(_, let otherID, let terminal, let resource, let terminalResource) = entry.keys,
+               let tab = entry.record as? TabModel {
+                if tabsBySurface[surface] == nil { tabsBySurface[surface] = tab }
+                if tabsByID[otherID] == nil { tabsByID[otherID] = tab }
+                if let terminal, tabsByTerminal[terminal] == nil { tabsByTerminal[terminal] = tab }
+                if let resource, tabsByResource[resource] == nil { tabsByResource[resource] = tab }
+                if let terminalResource, tabsByTerminalResource[terminalResource] == nil { tabsByTerminalResource[terminalResource] = tab }
+            }
         }
     }
 
