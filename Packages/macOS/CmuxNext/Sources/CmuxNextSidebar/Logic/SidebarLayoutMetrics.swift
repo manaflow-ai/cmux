@@ -230,7 +230,7 @@ nonisolated extension SidebarLayoutOptions {
         if workspacesAsTabs {
             var content = WorkspaceRowContent(ws, preferences: Self.tabRow, now: now)
             (content.detail, content.trailingStatus, content.badgeTime) = (nil, nil, nil)
-            content.status = WorkspaceRowContent.bypassOnly(content.status)
+            content.status = WorkspaceRowContent.bypassOnly(ws.reported)
             return content
         }
         if expanded && !minimal {
@@ -242,7 +242,9 @@ nonisolated extension SidebarLayoutOptions {
         var content = WorkspaceRowContent(ws, preferences: Self.minimalRow, now: now)
         content.detail = nil
         content.badgeTime = nil
-        content.status = WorkspaceRowContent.bypassOnly(content.status)
+        // From the reported status itself: a one-entry block has already moved to the name's line.
+        content.status = WorkspaceRowContent.bypassOnly(ws.reported)
+        if content.status != nil { content.trailingStatus = nil }
         return content
     }
 }
