@@ -22,6 +22,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+from journey import Journey  # noqa: E402
 from sim import Sim, sh  # noqa: E402
 
 BUSY = ("Connecting", "Reconnecting", "offline", "isn't connected", "Trying", "didn't answer")
@@ -83,7 +84,9 @@ def main():
     env = dict(os.environ, SIMCTL_CHILD_CMUX_MOBILE_LOG=a.phone_log)
     subprocess.run(["xcrun", "simctl", "launch", "--terminate-running-process",
                     f"--stderr={os.path.join(a.out, 'phone-stderr.log')}", udid, a.bundle], check=True, capture_output=True, env=env)
-    home = sim.wait(label="Home", kind="RadioButton", timeout=60)
+    # A workspace shown full screen (the app restores it) hides the tab bar: back out first.
+    Journey(sim, None, a.out, None, log).back_to_list()
+    home = sim.wait(label="Home", kind="RadioButton", timeout=30)
     if home:
         sim.tap_el(home)
     row = sim.wait(ident="home.chief", timeout=60) or sim.wait(contains="Chief", kind="Button", timeout=10)
