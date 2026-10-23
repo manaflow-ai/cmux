@@ -10,7 +10,7 @@ import { mediaKind, ReplyMedia } from "../chips/ReplyMedia";
 import { pathName } from "../chips/paths";
 import { toolImages } from "../toolImages";
 import { toolLabel } from "../toolPaths";
-import { shortCommand } from "./shortCommand";
+import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
 import { CopyButton } from "./CopyButton";
@@ -94,7 +94,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   // Only a call with a command line is a shell; an MCP call can also say "execute".
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // Find counts a shell's whole line: a label that is its description or a shortened line is skipped.
-  const drawsCommand = !tool.description && shortCommand(tool.command ?? "") === tool.command?.trim();
+  const drawsCommand = !tool.description && shortCommand(tool.command ?? "", ROW_WIDTH) === tool.command?.trim();
   // A shell prints what it printed. Any other call's result is shown without the JSON envelope a
   // harness wrapped it in and the context a host injects into it (toolResult.ts), read only while
   // the call is open: a closed row parses nothing.
@@ -110,7 +110,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
       <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
       <span className="cv-tool__text" data-find-skip={(shell && (open || !drawsCommand)) || undefined}>
         {write ? <WriteLabel tool={tool} write={write} t={t} /> : label}
-        {failed && <span className="cv-tool__detail"> {t("tools.failed")}</span>}
+        {failed && <span className="cv-tool__failed"> {t("tools.failed")}</span>}
       </span>
       {background ? (
         <span className="cv-command__meta cv-tool__meta">
