@@ -11,8 +11,8 @@
 //!    and hands it every master, input and output still work and no screen
 //!    resets;
 //! 4. SIGKILL the daemon again: the new holder's terminals come back with
-//!    what they printed since it took over (the old holder's ring died with
-//!    it; the screen before that needs the journal snapshot, slice 4).
+//!    their whole screen: the daemon handed the new holder a VT replay of
+//!    each screen (its prologue) with the master, and the output since.
 
 #![cfg(unix)]
 
@@ -247,7 +247,14 @@ fn shells_on_the_holder_survive_a_holder_crash_and_a_daemon_crash() {
     daemon.restart();
     for (index, (terminal_id, _)) in terminals.iter().enumerate() {
         let surface = running_surface(&daemon.socket, terminal_id);
-        screen_contains(&daemon.socket, surface, &format!("after-holder-{index}"));
+        let screen = screen_contains(&daemon.socket, surface, &format!("after-holder-{index}"));
+        // The screen from before the holder crash comes from the prologue
+        // the daemon handed the new holder.
+        assert!(
+            screen.contains(&format!("first-{index}"))
+                && screen.contains(&format!("after-daemon-{index}")),
+            "terminal {index}: the screen before the holder crash is gone:\n{screen}"
+        );
         send(&daemon.socket, surface, &format!("last-{index}"));
         screen_contains(&daemon.socket, surface, &format!("last-{index}"));
     }
