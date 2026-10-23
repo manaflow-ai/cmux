@@ -27,6 +27,18 @@ Usage: split-spring-terminal.py --tag <tag> --app PATH [--rounds 3] [--presses 5
 """
 import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
 
+# `--suite=plo-bench` (scratch harness for the pl-o-all test batch, never landed): scripts/cmux-next/plo-bench.py.
+if "--suite=plo-bench" in sys.argv:
+    _here = os.path.dirname(os.path.abspath(__file__))
+    _a = sys.argv[1:]
+    _app = next((v for i, v in enumerate(_a) if _a[i - 1] == "--app"), None) if "--app" in _a else next((x.split("=", 1)[1] for x in _a if x.startswith("--app=")), None)
+    _out = next((v for i, v in enumerate(_a) if _a[i - 1] == "--out"), None) if "--out" in _a else next((x.split("=", 1)[1] for x in _a if x.startswith("--out=")), "/tmp/plo-bench")
+    _rc = subprocess.call([sys.executable, os.path.join(_here, "plo-bench.py"), "--app", _app, "--out", _out,
+                           "--src", os.path.dirname(os.path.dirname(_here))])
+    _cmd = [sys.executable, os.path.join(_here, "activation-perf.py"), "--app", _app, "--out", os.path.join(_out, "act400"),
+            "--workspaces", "400", "--sample"]
+    print("plo-bench: act400", subprocess.call(_cmd), flush=True)
+    sys.exit(0 if os.path.exists(os.path.join(_out, "plo-bench.json")) else (_rc or 1))
 # `--suite=pane-perf` (through the allowlisted fleet entry scripts/measure/split-spring.sh): the whole pane
 # motion suite instead, scripts/cmux-next/pane-perf-terminal.py, with the same --tag/--app/--out/--json.
 # `--suite=budgets`: every perf budget row, scripts/cmux-next/perf-budgets.py (one table, one gate).
