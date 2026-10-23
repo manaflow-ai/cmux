@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { sql } from "drizzle-orm";
 import { Pool } from "pg";
 import * as Effect from "effect/Effect";
@@ -126,7 +127,7 @@ describe("hang_reports migration", () => {
 });
 
 function migrationStatements(name: string): string[] {
-  const file = path.join(import.meta.dir, "..", "db", "migrations", name, "migration.sql");
+  const file = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "db", "migrations", name, "migration.sql");
   return readFileSync(file, "utf8").split("--> statement-breakpoint").map((value) => value.trim()).filter(Boolean);
 }
 

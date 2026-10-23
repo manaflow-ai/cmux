@@ -290,8 +290,9 @@ describe("POST /api/hang-reports", () => {
   });
 
   test("caps one install at 8 reports per server UTC day", async () => {
+    // One install id (realisticReport's) for every report: the cap is per install.
     for (let index = 0; index < HANG_REPORTS_PER_INSTALL_PER_DAY; index += 1) {
-      const report = { ...realisticReport(), reportId: crypto.randomUUID(), installId: crypto.randomUUID() };
+      const report = { ...realisticReport(), reportId: crypto.randomUUID() };
       expect((await POST(reportRequest(report))).status).toBe(204);
     }
     const capped = await POST(reportRequest({ ...realisticReport(), reportId: crypto.randomUUID() }));
