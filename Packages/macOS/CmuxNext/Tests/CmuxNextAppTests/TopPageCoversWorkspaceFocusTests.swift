@@ -19,7 +19,8 @@ struct TopPageCoversWorkspaceFocusTests {
             try await PasswordManagerRouteTests.until({ notifications.focusedTab(in: controller.window) != nil },
                                                       report: { "focus \(controller.focus.state.resolved)" })
             let tab = notifications.focusedTab(in: controller.window)
-            #expect(notifications.isTerminalFocused(in: controller.window))
+            // The launch's first workspace may show a terminal or the New Tab page; either is its focused content.
+            let terminal = notifications.isTerminalFocused(in: controller.window)
 
             #expect(TopPages.show(.page(.history), services: services) != nil)
             #expect(controller.shownTopPage == .page(.history))
@@ -30,7 +31,7 @@ struct TopPageCoversWorkspaceFocusTests {
             #expect(controller.leaveTopPage())
             try await PasswordManagerRouteTests.until({ notifications.focusedTab(in: controller.window) == tab },
                                                       report: { "focus \(controller.focus.state.resolved)" })
-            #expect(notifications.isTerminalFocused(in: controller.window))
+            #expect(notifications.isTerminalFocused(in: controller.window) == terminal)
         }
     }
 }
