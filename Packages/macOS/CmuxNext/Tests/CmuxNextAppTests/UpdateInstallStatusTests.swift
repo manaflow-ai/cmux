@@ -74,15 +74,18 @@ import Testing
 
         wall.now += 30
         try await clock.waitForSleeper()
+        let ticks = updater.installTick
         clock.advance(by: .seconds(30))
-        for _ in 0..<200 where updater.cardPresentation?.detail == UpdaterStrings.relaunchingDetail { await Task.yield() }
+        // The tick must run before the wall clock moves again, or it would read the later time.
+        for _ in 0..<500 where updater.installTick == ticks { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(updater.installTick > ticks, "the installing card's tick never ran")
         #expect(updater.cardPresentation?.detail?.contains("30") == true, "after 30 s: \(String(describing: updater.cardPresentation?.detail))")
         #expect(abandoned == 0)
 
         wall.now += 200
         try await clock.waitForSleeper()
         clock.advance(by: .seconds(200))
-        for _ in 0..<200 where abandoned == 0 { await Task.yield() }
+        for _ in 0..<500 where abandoned == 0 { try await Task.sleep(for: .milliseconds(5)) }
         #expect(abandoned == 1, "the hidden windows never came back")
         #expect(updater.cardPresentation?.dismissible == true)
         #expect(updater.cardPresentation?.actions.contains(.details) == true)
