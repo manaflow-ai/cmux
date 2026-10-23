@@ -401,6 +401,13 @@ impl Hub {
         table.processes.iter().any(|p| p.state == ProcessState::Running)
     }
 
+    /// How many of the session's background processes run, from a table this
+    /// daemon has read already: never a log scan (`host_load.rs` asks for every chat).
+    pub(super) fn running_processes_read(&self, session: &Session) -> usize {
+        let table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
+        table.processes.iter().filter(|p| p.state == ProcessState::Running).count()
+    }
+
     /// `_acpmux/process/list`: the session's processes; without one, those of
     /// every chat whose processes this daemon has read (any chat that ran one
     /// since it started, or that it adopted).
