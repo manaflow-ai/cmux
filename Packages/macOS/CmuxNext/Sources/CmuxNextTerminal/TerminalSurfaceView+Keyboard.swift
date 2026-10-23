@@ -11,7 +11,7 @@ import GhosttyNextKit
 // and the IME candidate window is positioned from `ghostty_surface_ime_point`
 // (ghostty.h:1571, :1586, :1656).
 extension TerminalSurfaceView {
-    public override func keyDown(with event: NSEvent) { // perf-hot: 1ms terminal-key (every key typed into a terminal)
+    public override func keyDown(with event: NSEvent) {
         if TerminalClipboardRequests.isPasteChord(event), !clipboardRequests.userPasteInProgress {
             return clipboardRequests.asUserPaste { keyDown(with: event) }
         }
@@ -36,16 +36,13 @@ extension TerminalSurfaceView {
 
         let hadMarkedText = markedText.length > 0
         // A key that switches the input source (for example Ctrl-Space) must
-        // not also reach the terminal. Only a key with Control, Option, Command
-        // or Fn can be such a shortcut: a plain key pays no TIS lookup (two
-        // TISCopyCurrentKeyboardInputSource calls per typed character).
-        let mayChangeInputSource = !hadMarkedText && GhosttyInput.mayChangeInputSource(event.modifierFlags)
-        let inputSourceBefore = mayChangeInputSource ? GhosttyInput.currentInputSourceID() : nil
+        // not also reach the terminal.
+        let inputSourceBefore = hadMarkedText ? nil : GhosttyInput.currentInputSourceID()
         lastPerformKeyEventTimestamp = nil
 
         interpretKeyEvents([translationEvent])
 
-        if mayChangeInputSource, inputSourceBefore != GhosttyInput.currentInputSourceID() {
+        if !hadMarkedText, inputSourceBefore != GhosttyInput.currentInputSourceID() {
             return
         }
 
