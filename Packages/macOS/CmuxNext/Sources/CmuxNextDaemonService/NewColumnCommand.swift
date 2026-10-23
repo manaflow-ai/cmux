@@ -42,13 +42,18 @@ public struct NewColumnCommand: Sendable {
         options.terminalID = TerminalID(rawValue: provisional.terminalID)
         let pane = pane, width = width, sent = options
         let intent = Intent.splitPane(pane: pane, direction: .right, ratio: 0.5, provisional: provisional)
+        // The target at send time: a stand-in (a create pressed on a create in flight) has become the
+        // daemon's pane by then (``DaemonStore/daemonHandle(showing:)``; creates of one workspace go
+        // out in order, each once the store holds the one before).
+        let target: @MainActor @Sendable () -> PaneID = { daemon.store.daemonHandle(showing: pane) ?? pane }
         let send = daemon.intendNow("new-pane-right", intent, transaction: transaction) { connection in
-            try await connection.newColumn(rightOf: pane, width: width, options: sent)
+            try await connection.newColumn(rightOf: await target(), width: width, options: sent)
         }
         return {
             guard let created = await send() else { throw PaneSplitFailure() }
             daemon.store.creations.noteReply(transaction, surface: created.surface)
             guard !daemon.store.creations.wasCancelled(transaction) else { throw PaneSplitCancelled() }
+            await daemon.store.applied(transaction, connection: daemon.connection)
             return created
         }
     }
