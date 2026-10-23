@@ -45,17 +45,16 @@ export function useCodeRouterChoice(kind: FailureKind, route: FailureRoute | und
   return choice;
 }
 
-/// The action itself: a button (`className` sets its look) or, for the `link` arm, a link.
+/// The action itself: a button, or a link to the docs when there is no route to move to. `className`
+/// sets its look (an outlined or filled button, or the `link` arm's inline link).
 export function CodeRouterAction({
   choice,
   retry,
   className,
-  link = false,
 }: {
   choice: CodeRouterChoice;
   retry?: () => void;
   className: string;
-  link?: boolean;
 }) {
   const t = useT();
   const { ownRoute } = useContext(TurnActionsContext);
@@ -87,12 +86,7 @@ export function CodeRouterAction({
     );
   };
   return (
-    <button
-      type="button"
-      className={`${className}${link ? " cv-turn-error__link" : ""}`}
-      disabled={state === "moving"}
-      onClick={move}
-    >
+    <button type="button" className={className} disabled={state === "moving"} onClick={move}>
       {label}
     </button>
   );

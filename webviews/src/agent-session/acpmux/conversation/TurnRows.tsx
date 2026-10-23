@@ -389,10 +389,15 @@ function TurnFailure({
     >
       <span className="cv-turn-error__cause">
         {arm !== "note" && <AlertCircle size={14} className="cv-turn-error__icon" />}
-        <span className="text-fg">{sentence}</span>
-        {codeRouter && offerArm === "link" && (
-          <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-error__offer-link" link />
-        )}
+        <span className="text-fg">
+          {sentence}
+          {codeRouter && offerArm === "link" && (
+            <>
+              {" "}
+              <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-error__offer-link" />
+            </>
+          )}
+        </span>
       </span>
       <span className="cv-turn-error__actions">
         {offerLeads && (

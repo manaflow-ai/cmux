@@ -2609,17 +2609,17 @@ a.cv-sha:focus-visible {
   background: color-mix(in srgb, var(--agent-accent) 24%, transparent);
 }
 /* The CodeRouter offer (CodeRouterOffer.tsx): a link after the cause in the `link` arm. */
+/* The `link` arm: a link that ends the cause sentence, blue as every link (#22345). */
 .cv-turn-error__offer-link {
   all: unset;
-  margin-inline-start: 6px;
-  color: var(--agent-accent);
+  color: var(--agent-link);
   cursor: pointer;
 }
 .cv-turn-error__offer-link:hover {
   text-decoration: underline;
 }
 .cv-turn-error__offer-link:focus-visible {
-  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline: 1.5px solid color-mix(in srgb, var(--agent-link) 55%, transparent);
   outline-offset: 1px;
   border-radius: 3px;
 }
