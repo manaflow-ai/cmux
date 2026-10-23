@@ -7,29 +7,29 @@
 //! its own uploads (`hub/file_uploads.rs`). The hub keeps no `additionalDirectories`, so they are
 //! no root. The open runs against the descriptor, not the path:
 //!
-//! - the root is opened (its own spelling may go through a link), then every component below it
-//!   with `openat` and `O_NOFOLLOW`, so no component inside the root can be a link;
+//! - each root is resolved once (`realpath`): a root that is itself a link (`/tmp` on macOS, a
+//!   folder the person linked) means the person chose its target. That resolved folder is opened
+//!   with `O_DIRECTORY | O_NOFOLLOW` and must be the folder that was resolved (same device and
+//!   inode), so nothing swapped in after the resolve is followed;
+//! - every component below it is opened with `openat` and `O_NOFOLLOW`, so no component inside
+//!   the root can be a link, and each must be on the root's device, so no mount point or firmlink
+//!   below the root (a bind mount of another folder) is crossed;
 //! - the opened descriptor must be a regular file with one link, its own path (`F_GETPATH`,
 //!   `/proc/self/fd`) inside the root's, and no part of it below the root a dot name, nor a key
 //!   file, nor under `~/Library`;
 //! - its type is sniffed from its bytes: png, jpeg, gif or webp up to [`MAX_IMAGE_BYTES`], an
 //!   mp4, mov, m4v or webm up to [`MAX_VIDEO_BYTES`]. SVG and PDF are never read.
 //!
-//! The descriptor stays in a connection's handle table ([`Handles`]: at most [`MAX_HANDLES`],
-//! each gone after [`IDLE`] unused). Every range is read from it after and before comparing
-//! `(dev, ino, size, mtime)` with the open's, so a file changed since the open is refused, and a
-//! file replaced at its path keeps serving the bytes that were opened. A range is at most
-//! [`MAX_RANGE`] bytes: 8 MiB of base64, under the RPC cap (`rpc.rs`) and an older peer's 16 MiB
-//! frame.
+//! Every range is read from the opened descriptor after and before comparing `(dev, ino, size,
+//! mtime)` with the open's, so a file changed since the open is refused, and a file replaced at
+//! its path keeps serving the bytes that were opened. A range is at most [`MAX_RANGE`] bytes:
+//! 8 MiB of base64, under the RPC cap (`rpc.rs`) and an older peer's 16 MiB frame.
 
 use crate::rpc::RpcError;
 use serde_json::json;
-use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::File;
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::{Duration, Instant};
 
 /// The most bytes one range reads.
 pub const MAX_RANGE: usize = 6 << 20;
@@ -37,10 +37,6 @@ pub const MAX_RANGE: usize = 6 << 20;
 pub const MAX_IMAGE_BYTES: u64 = 10 << 20;
 /// The largest video read.
 pub const MAX_VIDEO_BYTES: u64 = 200 << 20;
-/// The most files one connection holds open.
-pub const MAX_HANDLES: usize = 8;
-/// A handle unused this long is closed.
-pub const IDLE: Duration = Duration::from_secs(120);
 
 fn refused(reason: &str, message: &str) -> RpcError {
     RpcError::invalid_params(message).with_data(json!({"reason": reason}))
@@ -48,6 +44,14 @@ fn refused(reason: &str, message: &str) -> RpcError {
 
 fn unreadable() -> RpcError {
     refused("media.unreadable", "the file cannot be opened without following a link")
+}
+
+fn mount() -> RpcError {
+    refused("media.mount", "the file is on another mount than the chat's folder")
+}
+
+fn outside() -> RpcError {
+    refused("media.outside", "the file is outside the chat's folder and its uploads")
 }
 
 fn changed() -> RpcError {
@@ -94,10 +98,11 @@ pub struct Opened {
     pub mime: &'static str,
 }
 
-/// Where the race tests act during an open: after the root is opened, after each folder below
+/// Where the race tests act during an open: after the root is resolved, after it is opened, after each folder below
 /// it, and after the file's checks (before its first range).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Step {
+    Resolved,
     Root,
     Dir(usize),
     File,
@@ -135,11 +140,23 @@ pub fn sniff(head: &[u8]) -> Option<&'static str> {
     None
 }
 
-/// The root `path` is under and its components below the root (each a plain name): a relative
-/// path is under the first root (the chat's folder), an absolute one under the root it starts
-/// with, as spelled or resolved, the deepest first. Only the roots are resolved: nothing outside
-/// them is looked up, so a path in a protected folder raises no privacy prompt.
-fn locate(roots: &[PathBuf], path: &str) -> Result<(PathBuf, Vec<OsString>), RpcError> {
+/// A root as resolved: its path, and the device and inode the open must find there.
+struct Root {
+    path: PathBuf,
+    id: (u64, u64),
+}
+
+fn resolve(root: &Path) -> Option<Root> {
+    let path = std::fs::canonicalize(root).ok()?;
+    let id = sys::dev_ino(&std::fs::symlink_metadata(&path).ok()?);
+    Some(Root { path, id })
+}
+
+/// The resolved root `path` is under and its components below it (each a plain name): a
+/// relative path is under the first root (the chat's folder), an absolute one under the root it
+/// starts with, as spelled or resolved, the deepest first. Only the roots are resolved: nothing
+/// outside them is looked up, so a path in a protected folder raises no privacy prompt.
+fn locate(roots: &[PathBuf], path: &str) -> Result<(Root, Vec<OsString>), RpcError> {
     let bad = || refused("media.path", "path must name a file with no `.` or `..` part");
     if path.is_empty() || path.len() > 4096 || path.contains('\0') {
         return Err(bad());
@@ -153,19 +170,21 @@ fn locate(roots: &[PathBuf], path: &str) -> Result<(PathBuf, Vec<OsString>), Rpc
     };
     let p = Path::new(path);
     if p.is_relative() {
-        let root = roots.first().ok_or_else(bad)?;
-        return Ok((root.clone(), parts(p)?));
+        let root = roots.first().and_then(|root| resolve(root)).ok_or_else(unreadable)?;
+        return Ok((root, parts(p)?));
     }
-    let mut spellings: Vec<PathBuf> = roots
+    let mut spellings: Vec<(PathBuf, Root)> = roots
         .iter()
-        .flat_map(|root| [Some(root.clone()), std::fs::canonicalize(root).ok()])
-        .flatten()
+        .filter_map(|spelled| Some((spelled, resolve(spelled)?)))
+        .flat_map(|(spelled, root)| {
+            let real = Root { path: root.path.clone(), id: root.id };
+            [(spelled.clone(), root), (real.path.clone(), real)]
+        })
         .collect();
-    spellings.sort_by_key(|root| std::cmp::Reverse(root.components().count()));
-    let root = spellings.into_iter().find(|root| p.starts_with(root)).ok_or_else(|| {
-        refused("media.outside", "the file is outside the chat's folder and its uploads")
-    })?;
-    let rest = p.strip_prefix(&root).map_err(|_| bad())?;
+    spellings.sort_by_key(|(spelled, _)| std::cmp::Reverse(spelled.components().count()));
+    let (spelled, root) =
+        spellings.into_iter().find(|(spelled, _)| p.starts_with(spelled)).ok_or_else(outside)?;
+    let rest = p.strip_prefix(&spelled).map_err(|_| bad())?;
     Ok((root, parts(rest)?))
 }
 
@@ -192,16 +211,28 @@ pub fn open_in(
     at: &mut dyn FnMut(Step),
 ) -> Result<Opened, RpcError> {
     let (root, parts) = locate(roots, path)?;
-    let mut dir = sys::open_root(&root).ok_or_else(unreadable)?;
+    at(Step::Resolved);
+    let mut dir = sys::open_root(&root.path).ok_or_else(unreadable)?;
+    let opened_root = sys::dev_ino(&dir.metadata().map_err(|_| unreadable())?);
+    if opened_root != root.id {
+        return Err(unreadable());
+    }
     let root_path = sys::fd_path(&dir).ok_or_else(unreadable)?;
+    let device = root.id.0;
     at(Step::Root);
     let (name, folders) = parts.split_last().ok_or_else(unreadable)?;
     for (index, folder) in folders.iter().enumerate() {
         dir = sys::open_below(&dir, folder, true).ok_or_else(unreadable)?;
+        if sys::dev_ino(&dir.metadata().map_err(|_| unreadable())?).0 != device {
+            return Err(mount());
+        }
         at(Step::Dir(index));
     }
     let file = sys::open_below(&dir, name, false).ok_or_else(unreadable)?;
     let meta = file.metadata().map_err(|_| unreadable())?;
+    if sys::dev_ino(&meta).0 != device {
+        return Err(mount());
+    }
     if !meta.is_file() {
         return Err(refused("media.notFile", "the path is not a regular file"));
     }
@@ -210,9 +241,7 @@ pub fn open_in(
     }
     let identity = sys::identity(&meta);
     let own = sys::fd_path(&file).ok_or_else(unreadable)?;
-    let inside = own.strip_prefix(&root_path).map_err(|_| {
-        refused("media.outside", "the file is outside the chat's folder and its uploads")
-    })?;
+    let inside = own.strip_prefix(&root_path).map_err(|_| outside())?;
     if denied(inside, &own, home) {
         return Err(refused("media.denied", "the file is in a private place"));
     }
@@ -271,67 +300,6 @@ pub fn read_range(
     Ok(buf)
 }
 
-struct Entry {
-    session: String,
-    file: Arc<File>,
-    identity: Identity,
-    used: Instant,
-}
-
-/// One connection's open media files (module docs).
-#[derive(Default)]
-pub struct Handles(Mutex<HashMap<String, Entry>>);
-
-impl Handles {
-    fn table(&self, now: Instant) -> MutexGuard<'_, HashMap<String, Entry>> {
-        let mut table = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        table.retain(|_, entry| now.saturating_duration_since(entry.used) < IDLE);
-        table
-    }
-
-    pub fn insert(&self, session: &str, opened: Opened, now: Instant) -> Result<String, RpcError> {
-        let mut raw = [0u8; 16];
-        getrandom::fill(&mut raw).map_err(|e| RpcError::internal(format!("no handle: {e}")))?;
-        let handle: String = raw.iter().map(|b| format!("{b:02x}")).collect();
-        let mut table = self.table(now);
-        if table.len() >= MAX_HANDLES {
-            return Err(refused(
-                "media.handles",
-                "too many media files are open; read one to its end",
-            ));
-        }
-        let Opened { file, identity, .. } = opened;
-        let entry =
-            Entry { session: session.to_owned(), file: Arc::new(file), identity, used: now };
-        table.insert(handle.clone(), entry);
-        Ok(handle)
-    }
-
-    pub fn get(
-        &self,
-        session: &str,
-        handle: &str,
-        now: Instant,
-    ) -> Result<(Arc<File>, Identity), RpcError> {
-        let mut table = self.table(now);
-        let entry = table.get_mut(handle).filter(|entry| entry.session == session);
-        let entry = entry.ok_or_else(|| {
-            refused("media.handle", "no such media handle on this connection; open the file again")
-        })?;
-        entry.used = now;
-        Ok((entry.file.clone(), entry.identity))
-    }
-
-    pub fn close(&self, handle: &str) {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner).remove(handle);
-    }
-
-    /// The connection ended.
-    pub fn close_all(&self) {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner).clear();
-    }
-}
-
 #[cfg(unix)]
 mod sys {
     use std::ffi::{CString, OsStr};
@@ -354,14 +322,18 @@ mod sys {
         meta.nlink()
     }
 
+    pub fn dev_ino(meta: &Metadata) -> (u64, u64) {
+        (meta.dev(), meta.ino())
+    }
+
     pub fn read_at(file: &File, buf: &mut [u8], offset: u64) -> std::io::Result<usize> {
         file.read_at(buf, offset)
     }
 
-    /// The root folder, through whatever links spell it.
+    /// The resolved root folder, never through a link put in its place.
     pub fn open_root(root: &Path) -> Option<File> {
         let mut options = std::fs::OpenOptions::new();
-        options.read(true).custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC);
+        options.read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC);
         options.open(root).ok().filter(|dir| dir.metadata().is_ok_and(|m| m.is_dir()))
     }
 
@@ -421,6 +393,10 @@ mod sys {
 
     pub fn links(_: &Metadata) -> u64 {
         0
+    }
+
+    pub fn dev_ino(_: &Metadata) -> (u64, u64) {
+        (0, 0)
     }
 
     pub fn read_at(_: &File, _: &mut [u8], _: u64) -> std::io::Result<usize> {
