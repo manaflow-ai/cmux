@@ -105,8 +105,8 @@ def scene_window(name, seed=0):
         c.rect((box[0] + 0.005, box[1] + 0.01, box[2] - 0.005, box[3] - 0.01), WHITE)
         c.text((box[0] + 0.01, box[1], box[0] + 0.2, box[3]), seed)
     if name == "home":
-        c.text((0.34, 0.12, 0.59, 0.85), seed)  # the Chief chat
-        composer((0.34, 0.935, 0.59, 0.995))
+        c.text((0.59, 0.14, 0.95, 0.58), seed)  # the Chief welcome pane
+        composer((0.59, 0.9, 0.98, 0.995))
         composer((0.62, 0.15, 0.98, 0.3))  # New Tab's Ask anything
     else:
         c.rect((0.68, 0.06, 1, 1), PANEL)  # the chat's Inspector
@@ -223,6 +223,26 @@ class PngReader(unittest.TestCase):
 
 class ShippedScenes(unittest.TestCase):
     """scenes.json as shipped, on a mock of the real 1000x640 window scaled to the minimum size."""
+
+    def test_real_home_with_one_chief_conversation_is_drawn(self):
+        config = json.loads((SMOKE / "scenes.json").read_text())
+        fixture = ROOT / "tests/fixtures/nightly-visual-smoke/home-list.png"
+        result = vc.check_scene("home", config["scenes"]["home"], config["defaults"], fixture)
+        self.assertTrue(result["ok"], result["failures"])
+
+    def test_real_home_requires_each_named_region(self):
+        config = json.loads((SMOKE / "scenes.json").read_text())
+        fixture = ROOT / "tests/fixtures/nightly-visual-smoke/home-list.png"
+        for name, region in config["scenes"]["home"]["regions"].items():
+            with self.subTest(region=name), tempfile.TemporaryDirectory() as tmp:
+                image = vc.load(fixture)
+                left, top, right, bottom = vc.region_box(image, region["box"])
+                for y in range(top, bottom):
+                    image.pixels[y * image.width + left:y * image.width + right] = bytes([255]) * (right - left)
+                shot = Path(tmp) / "home.png"
+                vc.write_png(shot, image)
+                result = vc.check_scene("home", config["scenes"]["home"], config["defaults"], shot)
+                self.assertTrue(any(f.startswith(f"{name} is empty") for f in result["failures"]), result)
 
     def test_shipped_limits_pass_a_drawn_window_and_fail_a_blank_one(self):
         config = json.loads((SMOKE / "scenes.json").read_text())

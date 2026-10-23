@@ -36,6 +36,14 @@ import { isStartableProject, rememberedStartedProject } from "./newtab/startedPr
 import { seedWarmNewTab } from "./newtab/warmSnapshot";
 import { useNoEntryMotion } from "./newtab/noEntryMotion";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
+import type { ComposerAttachment } from "./attachments";
+import {
+  AttachmentStrip,
+  backspacedAttachment,
+  useAttachmentIntake,
+  useSendWhenAttached,
+} from "./composer/attachmentIntake";
+import { DropOverlay } from "./composer/DropOverlay";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -269,7 +277,7 @@ type Props = {
   projects?: Project[];
   /// Make the tab `kind`: run `text` (in `cwd`), open it, or ask it. A promise that rejects is a
   /// refused open: the page says so under the field and keeps what was typed.
-  onSubmit(kind: TabKind, text: string, cwd?: string): void | Promise<unknown>;
+  onSubmit(kind: TabKind, text: string, cwd?: string, attachments?: ComposerAttachment[]): void | Promise<unknown>;
   /// Go to an open tab or workspace instead of opening a duplicate.
   onJump?(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
@@ -330,9 +338,11 @@ export function NewTabPage({
   const [text, setText] = useState(location ?? "");
   /// The last open was refused (the host made no tab): a note under the field until the next edit.
   const [openFailed, setOpenFailed] = useState(false);
+  const attachmentRef = useRef<ComposerAttachment[]>([]);
   const make = (next: TabKind, value: string, folder?: string) => {
     setOpenFailed(false);
-    const result = onSubmit(next, value, folder);
+    const attachments = next === "agent" ? attachmentRef.current : [];
+    const result = onSubmit(next, value, folder, attachments.length ? attachments : undefined);
     // The suggestions float over the note: they close until the next edit, so it shows.
     if (result)
       void result.catch(() => {
@@ -361,6 +371,19 @@ export function NewTabPage({
   // The kind a prefix switched from, so Backspace in the empty field switches back.
   const [beforePrefix, setBeforePrefix] = useState<TabKind>();
   const field = useRef<HTMLInputElement>(null);
+  const { attachments, setAttachments, pending, attachError, drop, dropLanded } = useAttachmentIntake({
+    allowImages: snapshot.summary?.promptCapabilities?.image !== false,
+    pasteTarget: (target) => (kind === "agent" && field.current?.contains(target) ? { uploads: false } : undefined),
+    dropZone: () => field.current?.closest(".acpmux-newtab") ?? null,
+  });
+  attachmentRef.current = attachments;
+  const holdForAttachments = useSendWhenAttached(pending.length);
+  const [dropHost, setDropHost] = useState<Element | null>(null);
+  useEffect(() => {
+    const element = field.current;
+    setDropHost(element ? (element.closest(".acpmux-newtab") ?? element.ownerDocument.body) : null);
+  }, []);
+  const dropLandingTarget = useCallback(() => field.current?.parentElement ?? null, []);
   // Cmd-V anywhere on the page outside a text field (a row, a card, the empty page) goes into the
   // field, caret at the end, as in a chat (composer/pasteAnywhere.ts; Leo 2026-10-22: "cmd v anywhere
   // in chat should put it in chat").
@@ -482,11 +505,15 @@ export function NewTabPage({
     event.preventDefault();
     field.current?.focus();
   };
+  const submitNow = useRef<() => void>(() => {});
   const submit = (event?: React.FormEvent) => {
     event?.preventDefault();
+    if (holdForAttachments(() => submitNow.current())) return;
+    submitNow.current();
+  };
+  submitNow.current = () => {
     const row = rows[selected];
     if (row) return activate(row);
-    // An empty terminal or agent opens as it is; an empty page has nothing to load.
     if (kind === "browser" && !query.trim()) return;
     make(kind, query.trim(), kind === "browser" ? undefined : projectCwd);
   };
@@ -512,6 +539,16 @@ export function NewTabPage({
       event.preventDefault();
       changeKind(beforePrefix);
       setBeforePrefix(undefined);
+    } else {
+      // Backspace at the field's start takes back the last chip (backspacedAttachment).
+      const backspaced = backspacedAttachment(
+        event,
+        input.selectionStart === 0 && input.selectionEnd === 0,
+        attachments,
+      );
+      if (!backspaced) return;
+      event.preventDefault();
+      setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
     }
   };
   const edit = (next: string) => {
@@ -596,6 +633,19 @@ export function NewTabPage({
               ))}
             </fieldset>
           </div>
+          <AttachmentStrip
+            attachments={attachments}
+            pending={pending}
+            {...(attachError ? { error: attachError } : {})}
+            codex={false}
+            onRemove={(id) => {
+              setAttachments((current) => current.filter((item) => item.id !== id));
+              field.current?.focus();
+            }}
+          />
+          {dropHost && (
+            <DropOverlay state={drop} onLanded={dropLanded} container={dropHost} landingTarget={dropLandingTarget} />
+          )}
           <div className="acpmux-newtab-under" data-kind-switch={kindSwitch}>
             <span className="acpmux-newtab-context">
               {kind !== "browser" && (
@@ -641,7 +691,7 @@ export function NewTabPage({
         {rows.length > 0 && (
           <div
             ref={attachList}
-            className="acpmux-omni"
+            className="acpmux-omni ui-popup ui-glass"
             id="acpmux-omni"
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="listbox"

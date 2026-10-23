@@ -49,12 +49,12 @@
     },
     "agentPane.display.inspector.placement" : {
       "default" : "overlay",
-      "description" : "Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
+      "description" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
       "enum" : [
         "push",
         "overlay"
       ],
-      "title" : "Inspector",
+      "title" : "Session Info",
       "type" : "string"
     },
     "agentPane.display.width" : {
@@ -3476,6 +3476,12 @@
       "default" : true,
       "description" : "On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only.",
       "title" : "Show All Chats on New Tab",
+      "type" : "boolean"
+    },
+    "sidebar.showColors" : {
+      "default" : true,
+      "description" : "Workspaces and groups draw their colors in the sidebar. Off, the sidebar draws no colors and keeps the colors you set.",
+      "title" : "Show Workspace Colors",
       "type" : "boolean"
     },
     "sidebar.showLocalMachine" : {

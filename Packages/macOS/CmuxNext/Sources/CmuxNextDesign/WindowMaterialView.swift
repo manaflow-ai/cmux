@@ -1,5 +1,6 @@
 public import AppKit
 import CoreImage
+import CmuxNextCompat
 
 /// The one material behind a window's content (``WindowMaterial``) and the
 /// one theme tint, as the window root's bottom subview.
@@ -36,7 +37,7 @@ public final class WindowMaterialView: NSView {
     /// Bumped by each wash fade: only the latest fade-out's completion hides the view (a
     /// replaced animation completes too).
     private var inactiveTintFade = 0
-    private var keyObservers: [NSObjectProtocol] = []
+    private var keyObservers: [MainActorObservation] = []
     /// Posted when `appearance.inactiveWindowDim` changes (``DesignSettings/inactiveWindowDim``).
     public static let inactiveDimDidChange = Notification.Name("WindowMaterialView.inactiveDimDidChange")
     /// The keyboard left the window's family: another app, or a window that is not this one, its
@@ -169,7 +170,6 @@ public final class WindowMaterialView: NSView {
 
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        for observer in keyObservers { NotificationCenter.default.removeObserver(observer) }
         keyObservers = []
         resignedKey = false
         familyHeldKey = false
@@ -181,14 +181,14 @@ public final class WindowMaterialView: NSView {
                      NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification,
                      NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification]
         keyObservers = names.map { name in
-            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            MainActorObservation(name) { [weak self] in
                 // main-proof: the observer runs on the main queue (queue: .main)
-                MainActor.assumeIsolated { self?.keyDidMove() }
+                self?.keyDidMove()
             }
         }
-        keyObservers.append(NotificationCenter.default.addObserver(forName: Self.inactiveDimDidChange, object: nil, queue: .main) { [weak self] _ in
+        keyObservers.append(MainActorObservation(Self.inactiveDimDidChange) { [weak self] in
             // main-proof: the observer runs on the main queue (queue: .main)
-            MainActor.assumeIsolated { self?.updateInactiveTint() }
+            self?.updateInactiveTint()
         })
         updateInactiveTint()
         keyDidMove()

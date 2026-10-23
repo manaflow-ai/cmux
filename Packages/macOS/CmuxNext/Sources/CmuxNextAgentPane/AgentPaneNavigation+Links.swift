@@ -43,8 +43,10 @@ extension AgentPaneNavigation {
     /// Whether `url` is a cmux app link a reply may draw and a click hands to the app: the `cmux`
     /// scheme or a build's `cmux-…` one, a workspace, pane, tab, session, Chief or agent host, and no user
     /// name, password or port. The app parses the ids again (DeepLink.parse) and opens nothing else.
+    /// The pane's own scheme (`cmux-agent://pane/…`, its page and media) is never one (media-safety R7).
     nonisolated static func isCmuxAppLink(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased(), scheme == "cmux" || scheme.hasPrefix("cmux-"),
+              scheme != AgentPaneSource.bundledScheme,
               url.user == nil, url.password == nil, url.port == nil,
               let host = url.host?.lowercased() else { return false }
         return ["workspace", "pane", "tab", "session", "chief", "agent"].contains(host)

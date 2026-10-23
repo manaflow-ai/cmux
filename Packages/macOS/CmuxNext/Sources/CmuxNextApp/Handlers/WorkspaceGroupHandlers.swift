@@ -91,6 +91,10 @@ enum WorkspaceGroupHandlers {
             }
             try edit(invocation, context) { .setGroupColor($0, color) }
         })
+        // No color (`none`): the header draws no dot, band or line (Lawrence 2026-10-22).
+        registry.bind("workspaceGroup.clearColor", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
+            try edit(invocation, context) { .setGroupColor($0, GroupTint.none) }
+        })
         for color in GroupColor.allCases {
             registry.bind(ActionID(rawValue: "workspaceGroup.color.\(color.rawValue)"), requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
                 try edit(invocation, context) { .setGroupColor($0, .palette(color)) }

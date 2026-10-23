@@ -212,6 +212,8 @@ export type AcpmuxRow = {
   retryAttachments?: ComposerAttachment[];
   status?: string;
   error?: string;
+  /// acpmux's typed reason for a failed turn (`errorCode`, a string), for its card (failureCopy.ts).
+  errorCode?: string;
   permission?: AcpmuxPermission;
   /// A `questionRecord` row's question, answered or cancelled (question/record.ts).
   question?: AgentQuestion;
@@ -225,6 +227,7 @@ export type AcpmuxRow = {
   /// A run of finished tool calls folded under one summary line (Debug toggle
   /// `agentPane.debug.codexToolRuns`, on by default; conversation/turns.ts `codexRuns`,
   /// conversation/toolRunSummary.ts).
+  /// False keeps a run waiting for edit permission in tool rows without collapsing it.
   foldRun?: boolean;
   /// The live turn's latest row, whose last thought may still stream (conversation/turns.ts).
   live?: boolean;
@@ -442,6 +445,7 @@ export type AcpmuxCatalogModel = {
   efforts?: string[];
   defaultEffort?: string;
   fast?: boolean;
+  serviceTiers?: (string | { id: string; name?: string; description?: string })[];
   contextWindow?: number;
   /** The catalog release an alias stands for (the picker catalog's alias rows). */
   release?: string;
@@ -842,7 +846,7 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
     // three files and for "Show N more"; one file is named in the head. Otherwise tool rows
     // (`.cv-tools`: 2px above 26px rows), which is also how a copy inside an open "Worked for" draws.
     const edits = row.items?.filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ?? [];
-    if (edits.length && !isFoldedCopy(row)) {
+    if (edits.length && row.foldRun === undefined && !isFoldedCopy(row)) {
       const files = new Set(
         edits.flatMap(
           (item) => item.tool?.diffs?.flatMap((diff) => (contentsUnknown(diff) ? [] : [pathKey(diff)])) ?? [],

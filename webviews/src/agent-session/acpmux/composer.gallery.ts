@@ -6,6 +6,7 @@ import { agentPaneEntry } from "../../gallery/format";
 import { minutesAgo } from "../../gallery/clock";
 import { assistant, CATALOG, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../gallery/play";
+import type { AcpmuxSnapshot } from "./model";
 import type { SessionPullRequest } from "./sessionList";
 import { composerStatePlays } from "./composerStatePlays";
 
@@ -306,6 +307,35 @@ function profileIdsChat() {
   };
 }
 
+/// A finished Claude chat that lists `/fast` as Claude Code does, its fast mode option at `fast`.
+function fastChat(fast: "on" | "off"): AcpmuxSnapshot {
+  const base = chat(finished, {
+    commands: [
+      { name: "compact", description: "Clear conversation history but keep a summary in context" },
+      { name: "fast", description: "Toggle fast mode (Opus 5.5)" },
+      { name: "review", description: "Review a pull request" },
+    ],
+  });
+  return {
+    ...base,
+    summary: {
+      ...base.summary!,
+      configOptions: [
+        {
+          id: "fast-mode",
+          name: "Fast mode",
+          category: "model_config",
+          currentValue: fast,
+          options: [
+            { value: "off", name: "Off" },
+            { value: "on", name: "On" },
+          ],
+        },
+      ],
+    },
+  };
+}
+
 // A new chat in a project on `branch`, before its first send.
 const onBranch = (branch: string) =>
   noChat([session({ sessionId: "older", title: "An older chat" })], {
@@ -360,6 +390,8 @@ export default agentPaneEntry({
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/ComposerPickers.tsx#Picker",
     "agent-session/acpmux/FastToggle.tsx",
+    // The `/` menu's Fast row (slash-menu-fast-on, slash-menu-fast-off).
+    "agent-session/acpmux/BoltIcon.tsx#BoltIcon",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "agent-session/acpmux/composer/PromptEditor.tsx",
     "agent-session/acpmux/MarkdownField.tsx",
@@ -1351,6 +1383,26 @@ export default agentPaneEntry({
         await ctx.click({ selector: "[contenteditable='true']" });
         await ctx.type("/");
         await ctx.waitFor(() => ctx.document.querySelector("[role='listbox'], [role='menu']"));
+      },
+    },
+    // Leo 2026-10-22 (relayed by claude-sr2): "Match theirs: icon, plain name, a sentence saying what
+    // selecting it does in the current state." Claude Code's `/fast` row as ChatGPT's Fast row.
+    "slash-menu-fast-on": {
+      note: "Play: type /fast in a Claude chat with Fast on; the row is the bolt, Fast, and what picking it does now: turn Fast off.",
+      snapshot: fastChat("on"),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/fast");
+        await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu [role='option']"));
+      },
+    },
+    "slash-menu-fast-off": {
+      note: "Play: type / in a Claude chat with Fast off; the Fast row says picking it turns Fast on, among the other commands.",
+      snapshot: fastChat("off"),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/");
+        await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu [role='option']"));
       },
     },
     "slash-menu-full": {

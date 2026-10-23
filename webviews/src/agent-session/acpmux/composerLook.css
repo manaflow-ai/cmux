@@ -60,6 +60,13 @@
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip::after {
   content: none;
 }
+/* On an opaque window the tray's fill is the solid composer surface, which blurs nothing it can show
+   (glass is never opaque, test/accent-glass-invariants.test.ts), so it drops the strip's frost. Over
+   art or a see-through window the surface is glass (composerStates.css) and keeps it. */
+:root:not([data-cmux-see-through]) .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box,
 .nt-composer[data-composer-look="codex"] > .nt-box {
   position: relative;

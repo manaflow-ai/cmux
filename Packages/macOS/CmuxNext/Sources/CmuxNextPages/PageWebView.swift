@@ -6,6 +6,7 @@ import Observation
 import os
 import CmuxNextErrorJournal
 public import WebKit
+import CmuxNextWakeups
 
 /// A view that is a cmux page. The key dispatcher reads it to know the focused surface is a page
 /// (`surfaceKind == page`); a page view adds no key handling of its own.
@@ -329,12 +330,18 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         if engineDecision.engine == .cef, let hosting = chromium {
             startChromium(hosting: hosting)
         } else {
+            #if DEBUG
+            traceMark(.navigationStart)
+            #endif
             webView.load(URLRequest(url: descriptor.url(route: route)))
         }
     }
 
     /// The current document painted its first frame (``PagePaintProbe``, either engine).
     func notePainted() {
+        #if DEBUG
+        traceMark(.pagePainted)
+        #endif
         paintedUptime = ProcessInfo.processInfo.systemUptime
         let waiters = paintWaiters
         paintWaiters = []

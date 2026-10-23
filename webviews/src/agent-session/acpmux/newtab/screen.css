@@ -111,7 +111,9 @@
    no fill, a small gap, the card's rim whole (Lucas #21133, Lawrence's pick 2026-10-16). The
    variants keep the filled strip above as their base. */
 :root:not([data-top-strip]) .nt-screen .nt-composer {
-  gap: 6px;
+  /* Read by the Codex tray's mask too (composerStates.css). */
+  --nt-composer-gap: 6px;
+  gap: var(--nt-composer-gap);
 }
 :root:not([data-top-strip]) .nt-screen .nt-composer .acpmux-composer-strip {
   --acpmux-strip-height: 26px;
@@ -344,7 +346,7 @@
 .nt-style-option::after{content:"";width:6px;height:6px;border-radius:50%;background:color-mix(in srgb,var(--agent-text) 26%,transparent);transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}
 .nt-style-option:hover::after{background:color-mix(in srgb,var(--agent-text) 50%,transparent)}
 .nt-style-option:has(:focus-visible)::before{content:"";position:absolute;width:14px;height:14px;border-radius:50%;outline:var(--cmux-focus-ring-width,1.5px) solid var(--cmux-focus-ring-color,color-mix(in srgb,var(--agent-text) 40%,transparent))}
-.nt-style-input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;appearance:none;cursor:default}
+.nt-style-input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;appearance:none;cursor:default;font-size:var(--text-detail)}
 .nt-style-mark{position:absolute;top:0;left:0;display:flex;align-items:center;justify-content:center;width:24px;height:24px;pointer-events:none}
 .nt-style-mark::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--agent-accent,var(--agent-text))}
 .nt-style-options[data-settled] .nt-style-mark{transition:transform var(--agent-motion-move,180ms) var(--agent-ease-out,ease-out)}
@@ -818,6 +820,11 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
    little over it. */
 .nt-screen[data-minimal] {
   padding-top: max(32px, calc(50vh - 150px));
+}
+/* The second dot's quick action pills (tabDots.ts) sit centered under the composer, as the greeting
+   over it is. */
+.nt-screen[data-minimal] .nt-create {
+  justify-content: center;
 }
 .nt-greeting {
   flex: none;

@@ -13,7 +13,13 @@
 // scripts/cmux-next/check-scrollbars.sh enforces that.
 //
 // One exception: a minimal scroller (`MINIMAL_SCROLLER_ATTRIBUTE`, the agent chat's composer) keeps
-// its thin thumb the whole time its content overflows (Leo 2026-10-21).
+// its thin thumb the whole time its content overflows (Leo 2026-10-21), unless the scrollbar fade
+// is on (`SCROLLER_FADE_ATTRIBUTE`; the agent pane turns it on by default since Lawrence
+// 2026-10-23, msg 11494: "auto-fades away").
+//
+// Every scroller drawn here also widens and darkens its thumb while the pointer is near its
+// trailing edge (`NEAR_ATTRIBUTE`, `installScrollerProximity`), as a macOS overlay scroller does,
+// so it is easy to grab.
 //
 // Libraries that draw their own scrollers (Monaco; the @pierre/diffs code rows and the
 // @pierre/trees list show theirs on hover) follow the same rule: hidden at rest and while the
@@ -179,6 +185,20 @@ export function wheelTarget(event: Pick<WheelEvent, "composedPath" | "deltaX" | 
 
 const installed = new WeakSet<Document>();
 
+/** When the user last turned a wheel, pressed a key or a button in each document (ms, `now()`). */
+const lastUserInput = new WeakMap<Document, number>();
+
+/**
+ * Whether a scroll event on `element` is the user's: always, except on a scroller whose thumb is
+ * shown or fades by script (`SHOWN_SCROLLER_ATTRIBUTE`, `MINIMAL_SCROLLER_ATTRIBUTE`), where a
+ * scroll with no wheel, key or button in the last `SCROLLING_HIDE_MS` is the page following new rows
+ * or the caret, which must not flash the thumb (Leo 2026-10-21: it never flashes as rows arrive).
+ */
+export function isUserScroll(element: Element, lastInput: number | undefined, now: number): boolean {
+  if (!element.hasAttribute(SHOWN_SCROLLER_ATTRIBUTE) && !element.hasAttribute(MINIMAL_SCROLLER_ATTRIBUTE)) return true;
+  return lastInput !== undefined && now - lastInput <= SCROLLING_HIDE_MS;
+}
+
 /**
  * Marks the element each wheel event scrolls, and every element that scrolls however it does
  * (keys, a click on the track, find, code), the page's own scroller as <html> (passive capture
@@ -196,15 +216,111 @@ export function installScrollingMarks(document: Document, timers: ScrollTimers =
     },
     { capture: true, passive: true },
   );
+  const now = () => document.defaultView?.performance.now() ?? Date.now();
+  const input = () => lastUserInput.set(document, now());
+  for (const type of ["wheel", "keydown", "pointerdown"])
+    document.addEventListener(type, input, { capture: true, passive: true });
   document.addEventListener(
     "scroll",
     (event) => {
       const target = event.target;
       if (target === document) markScrolling(document.documentElement, timers);
-      else if (target && "setAttribute" in target) markScrolling(target as Element, timers);
+      else if (
+        target &&
+        "setAttribute" in target &&
+        isUserScroll(target as Element, lastUserInput.get(document), now())
+      )
+        markScrolling(target as Element, timers);
     },
     { capture: true, passive: true },
   );
+}
+
+/** On a scroller while the pointer is within `NEAR_PX` of its trailing edge: its thumb shows and
+    widens, as a macOS overlay scroller does (Lawrence 2026-10-23, msg 11494: "grows bigger on
+    near-hover so it's easier to grab"). */
+export const NEAR_ATTRIBUTE = "data-cmux-scroller-near";
+/** How close to a scroller's trailing edge the pointer counts as near (ThinScroller.nearDistance). */
+export const NEAR_PX = 20;
+
+/** Whether a point at `x`, `y` is near the trailing edge of a box with `rect`'s bounds. */
+export function nearTrailingEdge(
+  rect: { left: number; right: number; top: number; bottom: number },
+  x: number,
+  y: number,
+): boolean {
+  return x <= rect.right && x >= Math.max(rect.left, rect.right - NEAR_PX) && y >= rect.top && y <= rect.bottom;
+}
+
+function overflowsVertically(element: Element): boolean {
+  if (element.scrollHeight <= element.clientHeight) return false;
+  const style = element.ownerDocument.defaultView?.getComputedStyle(element);
+  if (!style) return false;
+  const root = element === element.ownerDocument.documentElement;
+  return root
+    ? style.overflowY !== "hidden" && style.overflowY !== "clip"
+    : ["auto", "scroll", "overlay"].includes(style.overflowY);
+}
+
+/**
+ * The scroller the pointer is near: the first element on `path` (the pointer event's composed path,
+ * innermost first) that scrolls vertically and whose trailing edge is within `NEAR_PX` of the
+ * pointer; the page's own scroller as <html>, whose edge is the viewport's.
+ */
+export function nearScroller(path: readonly EventTarget[], x: number, y: number): Element | null {
+  for (const node of path) {
+    const element = node as Element;
+    if (typeof element.getBoundingClientRect !== "function" || typeof element.scrollHeight !== "number") continue;
+    if (!overflowsVertically(element)) continue;
+    const view = element.ownerDocument.defaultView;
+    const rect =
+      element === element.ownerDocument.documentElement && view
+        ? { left: 0, top: 0, right: view.innerWidth, bottom: view.innerHeight }
+        : element.getBoundingClientRect();
+    if (nearTrailingEdge(rect, x, y)) return element;
+  }
+  return null;
+}
+
+const proximityInstalled = new WeakSet<Document>();
+
+/**
+ * Keeps `NEAR_ATTRIBUTE` on the scroller the pointer is near (at most one per document), from
+ * pointer moves only (passive capture listener, one per document, coalesced to a frame). Idempotent.
+ */
+export function installScrollerProximity(document: Document): void {
+  const view = document.defaultView;
+  if (proximityInstalled.has(document) || !view) return;
+  proximityInstalled.add(document);
+  let marked: Element | null = null;
+  // The last move's path and point: a path read after its event has dispatched is empty.
+  let pending: { path: EventTarget[]; x: number; y: number } | null = null;
+  let frame = 0;
+  const mark = (next: Element | null) => {
+    if (next === marked) return;
+    marked?.removeAttribute(NEAR_ATTRIBUTE);
+    marked = next;
+    marked?.setAttribute(NEAR_ATTRIBUTE, "");
+  };
+  document.addEventListener(
+    "pointermove",
+    (event) => {
+      // While a button is down (a thumb drag, a selection) the marked scroller stays.
+      const pointer = event as PointerEvent;
+      if (pointer.buttons !== 0) return;
+      pending = { path: pointer.composedPath(), x: pointer.clientX, y: pointer.clientY };
+      if (frame) return;
+      frame = view.requestAnimationFrame(() => {
+        frame = 0;
+        const last = pending;
+        pending = null;
+        if (last) mark(nearScroller(last.path, last.x, last.y));
+      });
+    },
+    { capture: true, passive: true },
+  );
+  document.documentElement.addEventListener("pointerleave", () => mark(null), { passive: true });
+  view.addEventListener("blur", () => mark(null));
 }
 
 /**
@@ -238,9 +354,24 @@ export const MONACO_SCROLLER_CSS = `
 `;
 
 /**
+ * On a transcript block's sideways scroller while its lines run past its width (an unwrapped diff,
+ * Shell block or call output; conversation/sideways.ts `watchSideways` keeps it current). Such a
+ * block keeps its thin thumb at rest, on no track, whatever the macOS setting: a line cut at the
+ * edge with nothing at rest to say it scrolls read as clipped (Leo 2026-10-21, ask-d900f5acf9:
+ * "doesn't really display properly or even show that there's a horizontal scrollbar"). The thumb
+ * is the root rule's color (`--cmux-scroller-thumb`), in a lane `--cmux-sideways-lane` tall that
+ * the block makes room for (conversation.css `--cv-lane`).
+ */
+export const SIDEWAYS_ATTRIBUTE = "data-cmux-sideways";
+
+/** The thumb's color: the root rule's, or its value where the root rules are not installed. */
+const SIDEWAYS_THUMB = "var(--cmux-scroller-thumb, color-mix(in srgb, currentColor 38%, transparent))";
+
+/**
  * Appended to every @pierre/diffs `unsafeCSS`. The library's code rows have a custom horizontal
  * scrollbar whose thumb shows on hover; here it shows only while the row scrolls
- * (`--cmux-scroller-rest` is unset: nothing at rest).
+ * (`--cmux-scroller-rest` is unset: nothing at rest), except in a transcript block whose rows run
+ * past its edge (`SIDEWAYS_ATTRIBUTE`), where it stays, in the same color while it scrolls.
  */
 export const PIERRE_DIFFS_SCROLLER_CSS = `
 [data-code]::-webkit-scrollbar-thumb,
@@ -250,7 +381,57 @@ export const PIERRE_DIFFS_SCROLLER_CSS = `
 [data-code][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb {
   background-color: var(--diffs-bg-context);
 }
+[data-code][${SIDEWAYS_ATTRIBUTE}] {
+  --cmux-scroller-rest: ${SIDEWAYS_THUMB};
+}
+[data-code][${SIDEWAYS_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb {
+  background-color: var(--cmux-scroller-rest);
+}
 `;
+
+/**
+ * On a transcript block's own sideways box (a Shell block's or a call output's body) from the
+ * moment it is made (its JSX), as `SIDEWAYS_SCROLLER_CSS` is installed with the page's other
+ * scroller rules: the engine picks a scroller's kind (overlay or styled) when it makes it, and
+ * WebKit keeps that kind when the style changes later.
+ */
+export const SIDEWAYS_SCROLLER_ATTRIBUTE = "data-cmux-sideways-scroller";
+
+/**
+ * The page side of `SIDEWAYS_ATTRIBUTE`: such a box's scrollbar is a thin thumb on no track, drawn
+ * whenever it has one (an `overflow: auto` box has one only while its lines run past it), at rest
+ * too. `--cmux-sideways-lane` is its lane's height while it has one. The `:root` prefix outranks
+ * the "Always" rule's hidden thumb (`SCROLLER_ROOT_CSS`).
+ */
+export const SIDEWAYS_SCROLLER_CSS = `
+:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}][${SIDEWAYS_ATTRIBUTE}] {
+  --cmux-sideways-lane: var(--cmux-scroller-size, 8px);
+}
+:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar {
+  width: var(--cmux-scroller-size, 8px);
+  height: var(--cmux-scroller-size, 8px);
+  background: transparent;
+}
+:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-track,
+:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-corner {
+  background: transparent;
+}
+:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb {
+  min-width: 24px;
+  border: 2px solid transparent;
+  border-radius: var(--cmux-scroller-size, 8px);
+  background: ${SIDEWAYS_THUMB} padding-box;
+}
+`;
+
+/** Installs `SIDEWAYS_SCROLLER_CSS` once per document: with the others (`installScrollers`), or by `watchSideways` on a page without them. */
+export function installSidewaysScrollers(document: Document): void {
+  if (document.getElementById("cmux-sideways-scrollers")) return;
+  const style = document.createElement("style");
+  style.id = "cmux-sideways-scrollers";
+  style.textContent = SIDEWAYS_SCROLLER_CSS;
+  (document.head ?? document.documentElement).appendChild(style);
+}
 
 /** Appended to every @pierre/trees `unsafeCSS`: the same rule for the tree's list. */
 export const PIERRE_TREES_SCROLLER_CSS = `
@@ -273,6 +454,9 @@ export const SCROLLER_ROOT_CSS = `
 :root {
   --cmux-scroller-size: 8px;
   --cmux-scroller-thumb: color-mix(in srgb, currentColor 38%, transparent);
+  /* Near the pointer the thumb widens (a thinner transparent border) and darkens. */
+  --cmux-scroller-near-border: 1px;
+  --cmux-scroller-thumb-near: color-mix(in srgb, currentColor 55%, transparent);
 }
 html[data-scrollers="legacy"] ::-webkit-scrollbar {
   width: var(--cmux-scroller-size);
@@ -294,6 +478,12 @@ html[data-scrollers="legacy"][${SCROLLING_ATTRIBUTE}] > body::-webkit-scrollbar-
 html[data-scrollers="legacy"] ::-webkit-scrollbar-thumb:hover,
 html[data-scrollers="legacy"] ::-webkit-scrollbar-thumb:active {
   background-color: var(--cmux-scroller-thumb);
+}
+html[data-scrollers="legacy"] [${NEAR_ATTRIBUTE}]::-webkit-scrollbar-thumb,
+html[data-scrollers="legacy"][${NEAR_ATTRIBUTE}]::-webkit-scrollbar-thumb,
+html[data-scrollers="legacy"][${NEAR_ATTRIBUTE}] > body::-webkit-scrollbar-thumb {
+  border-width: var(--cmux-scroller-near-border);
+  background-color: var(--cmux-scroller-thumb-near);
 }
 :root [${SHOWN_SCROLLER_ATTRIBUTE}] {
   --cmux-shown-scroller-ink: 38%;
@@ -325,6 +515,11 @@ html[data-scrollers="legacy"] ::-webkit-scrollbar-thumb:active {
 :root[${SCROLLER_FADE_ATTRIBUTE}] [${SHOWN_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:active {
   background-color: var(--cmux-scroller-thumb);
 }
+:root [${SHOWN_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}]::-webkit-scrollbar-thumb,
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${SHOWN_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}]::-webkit-scrollbar-thumb {
+  border-width: var(--cmux-scroller-near-border);
+  background-color: var(--cmux-scroller-thumb-near);
+}
 `;
 
 /** The attribute of a scrollable card (hover cards, the update card's popover): the shared
@@ -340,7 +535,10 @@ export function scrollEdges(box: { scrollTop: number; clientHeight: number; scro
   above: boolean;
   below: boolean;
 } {
-  return { above: box.scrollTop > 0.5, below: box.scrollTop + box.clientHeight < box.scrollHeight - 0.5 };
+  return {
+    above: box.scrollTop > 0.5,
+    below: box.scrollTop + box.clientHeight < box.scrollHeight - 0.5,
+  };
 }
 
 /**
@@ -395,6 +593,10 @@ export const CARD_SCROLLER_CSS = `
 [${CARD_SCROLL_ATTRIBUTE}]::-webkit-scrollbar-thumb:active {
   background-color: var(--cmux-scroller-thumb);
 }
+[${CARD_SCROLL_ATTRIBUTE}][${NEAR_ATTRIBUTE}]::-webkit-scrollbar-thumb {
+  border-width: 0.5px;
+  background-color: var(--cmux-scroller-thumb-near);
+}
 [${CARD_SCROLL_ATTRIBUTE}][${MORE_BELOW_ATTRIBUTE}] {
   --cmux-card-mask: linear-gradient(to bottom, #000 calc(100% - var(--cmux-card-fade)), transparent);
 }
@@ -425,7 +627,9 @@ export const MINIMAL_SCROLLER_ATTRIBUTE = "data-cmux-minimal-scroller";
  * `auto` rule, since its track is transparent and a box with nothing to scroll draws no thumb.
  * (`scrollbar-gutter: stable` does not do it: WebKit ignores it on a custom scrollbar.) Take
  * `--cmux-scroller-size` out of the scroller's right padding to keep its text width. The track
- * stops `--cmux-minimal-scroller-inset` short of each end, clear of a rounded corner. The `:root`
+ * stops `--cmux-minimal-scroller-inset` short of each end, clear of a rounded corner;
+ * `--cmux-minimal-scroller-inset-end`, when set, replaces it at the bottom end (the composer's
+ * track stops above Send, composerLocation.css). The `:root`
  * prefix outranks the legacy rule's hidden thumb above and the scroller's own `overflow-y`.
  */
 export const MINIMAL_SCROLLER_CSS = `
@@ -439,7 +643,7 @@ export const MINIMAL_SCROLLER_CSS = `
 }
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-track {
   margin-top: var(--cmux-minimal-scroller-inset, 0px);
-  margin-bottom: var(--cmux-minimal-scroller-inset, 0px);
+  margin-bottom: var(--cmux-minimal-scroller-inset-end, var(--cmux-minimal-scroller-inset, 0px));
   background: transparent;
 }
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-corner {
@@ -449,12 +653,23 @@ export const MINIMAL_SCROLLER_CSS = `
   min-height: 24px;
   border: 2px solid transparent;
   border-radius: var(--cmux-scroller-size);
-  background: var(--cmux-scroller-thumb) padding-box;
+  background: color-mix(in srgb, currentColor var(--cmux-shown-scroller-ink, 38%), transparent) padding-box;
+}
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${MINIMAL_SCROLLER_ATTRIBUTE}] {
+  --cmux-shown-scroller-ink: 0%;
+}
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${MINIMAL_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}] {
+  --cmux-shown-scroller-ink: 38%;
+}
+:root [${MINIMAL_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}]::-webkit-scrollbar-thumb,
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:hover {
+  border-width: var(--cmux-scroller-near-border);
+  background-color: var(--cmux-scroller-thumb-near);
 }
 `;
 
-/** Installs the root rules, the card and minimal scrollers, the Monaco rule and the wheel marks
-    once per document. */
+/** Installs the root rules, the card and minimal scrollers, the Monaco rule, the wheel marks and
+    the pointer-near marks once per document. */
 export function installScrollers(document: Document, timers: ScrollTimers = defaultTimers): void {
   if (!document.getElementById("cmux-scrollers")) {
     const style = document.createElement("style");
@@ -462,5 +677,7 @@ export function installScrollers(document: Document, timers: ScrollTimers = defa
     style.textContent = SCROLLER_ROOT_CSS + CARD_SCROLLER_CSS + MINIMAL_SCROLLER_CSS + MONACO_SCROLLER_CSS;
     (document.head ?? document.documentElement).appendChild(style);
   }
+  installSidewaysScrollers(document);
   installScrollingMarks(document, timers);
+  installScrollerProximity(document);
 }

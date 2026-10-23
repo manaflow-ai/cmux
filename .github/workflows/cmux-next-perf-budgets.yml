@@ -1,73 +1,206 @@
-name: cmux-next perf budgets
+name: cmux-next perf cron
 
-# The perf regression gate (Lawrence 2026-10-21: "a ton of performance issues ... introduced
-# recently"). Every push to feat-cmux-next that touches the app measures the pushed tip with
-# scripts/cmux-next/perf-budgets.py on a fleet mini (class exclusive, through the allowlisted
-# scripts/measure/split-spring.sh --suite=budgets) and fails when any budget row's p95 is more than
-# 10 % (and its noise floor) over scripts/cmux-next/perf-budgets-baseline/<chip>-macos<major>.json.
-# The concurrency group keeps one run going and one waiting: a burst of pushes is measured at its
-# newest commit; a red run's culprit is in the range since the last green run of this workflow
-# (bisect it with the same fleet step at --arg=--only=<bench>).
-# A push lands before this measures it: the red check on the commit is the signal, and the fix (or
-# a revert) is the next push. To accept a deliberate cost, refresh the baseline in the same push
-# (perf-budgets.py --write-baseline on a fleet run of that commit).
+# The perf measurement of feat-cmux-next, off every push, pull request and nightly path (Lawrence
+# 2026-10-23: "I don't want a CI gate for now that slows down pushes/nightlies, but we can have one
+# running on a cron job"; then: not enough Mac minis for a fixed schedule, so it is opportunistic and
+# lowest priority, and nightly and dev builds always come first).
+#
+# main's cmux-next-perf-cron-dispatch.yml starts this every 20 minutes (scheduled workflows run only
+# from the default branch; this file keeps its old name because GitHub dispatches only a workflow it
+# has registered). Each run is one cheap tick of scripts/cmux-next/perf-cron.py:
+#   plan     (Linux, seconds) the next part of the measurement in flight, else the newest
+#            feat-cmux-next commit with a published cmux-tui tree when it is newer than the last one
+#            measured (the commits in between are skipped), else one bisect step of an open
+#            regression; nothing while a nightly or dev build waits for a runner.
+#   measure  (gateway, only when plan picked a part) nothing unless the bench host (cmux20-bench, a
+#            controller worker that takes no build) is idle and no dev build waits in the controller
+#            queue; then ONE part, at most 15 minutes with its app build, as a background (lowest
+#            priority) measurement step, cancelled when another job queues for the bench host.
+#   report   (Linux) stores the part; after the last part compares every row with the last good run
+#            and opens, updates or closes the one issue "cmux-next perf regression" (the table, the sha
+#            range, the runs); a missing measurement for 24 h is noted there. No job fails on a
+#            regression, and nothing reads this workflow's result.
+# Parts: the STRESS session's pane motion (once perf-stress-session.py is on the branch), the perf
+# budgets (scripts/cmux-next/perf-budgets.py, in five groups) and the perf counter gate
+# (scripts/cmux-next/perf-gate.py), each through the allowlisted scripts/measure/split-spring.sh.
+# CMUX_NEXT_PERF_CRON_YIELD=running (repository variable) also yields while a nightly or dev build
+# runs, not only while one waits.
 
 on:
-  push:
-    branches: [feat-cmux-next]
-    paths:
-      - "Packages/macOS/**"
-      - "webviews/**"
-      - "cmux-tui/**"
-      - "ghostty-next"
-      - "scripts/cmux-next/perf-budgets*"
-      - "scripts/cmux-next/perf-budgets-baseline/**"
-      - ".github/workflows/cmux-next-perf-budgets.yml"
   workflow_dispatch:
     inputs:
-      ref:
-        description: "commit to measure (empty: the branch tip)"
+      yield_mode:
+        description: "queued: yield while a nightly or dev build waits for a runner (default); running: also while one runs"
+        required: false
         default: ""
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
-  group: cmux-next-perf-budgets
+  group: cmux-next-perf-cron
   cancel-in-progress: false
 
+env:
+  YIELD_MODE: ${{ inputs.yield_mode || vars.CMUX_NEXT_PERF_CRON_YIELD || 'queued' }}
+
 jobs:
-  budgets:
-    if: github.repository_owner == 'manaflow-ai' && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY != ''
-    runs-on: ${{ vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY }}
-    timeout-minutes: 180
+  plan:
+    name: perf cron plan
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: read
+      contents: read
+    timeout-minutes: 10
+    outputs:
+      action: ${{ steps.plan.outputs.action }}
+      sha: ${{ steps.plan.outputs.sha }}
+      part: ${{ steps.plan.outputs.part }}
+      args: ${{ steps.plan.outputs.args }}
+      artifact: ${{ steps.plan.outputs.artifact }}
+      run_seconds: ${{ steps.plan.outputs.run_seconds }}
+    steps:
+      # The branch tip with the trees of its recent commits (the cmux-tui tree key of each candidate)
+      # and no blobs beyond the scripts.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          fetch-depth: 300
+          filter: blob:none
+          sparse-checkout: scripts
+          persist-credentials: false
+          submodules: false
+
+      - name: Read the state and pick this tick's work
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/perf-cron"
+          python3 -I scripts/cmux-next/perf-cron.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$dir"
+          python3 -I scripts/cmux-next/perf-cron.py plan --repo "$GITHUB_REPOSITORY" --dir "$dir" \
+            --yield-mode "$YIELD_MODE" --output "$GITHUB_OUTPUT" | tee "$RUNNER_TEMP/plan.log"
+          { echo "### perf cron plan"; echo; sed -n 's/^perf-cron plan: //p' "$RUNNER_TEMP/plan.log"; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the working state for the report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: perf-cron-work-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/perf-cron
+          retention-days: 1
+          if-no-files-found: error
+
+  measure:
+    name: perf cron part (fleet, background)
+    needs: plan
+    if: ${{ needs.plan.outputs.action == 'part' && (vars.CI_PERF_CRON_GATEWAY != '' || vars.CI_COMPILE_CHECK_GATEWAY != '') }}
+    runs-on: ${{ vars.CI_PERF_CRON_GATEWAY || vars.CI_COMPILE_CHECK_GATEWAY }}
+    permissions:
+      contents: read
+    # One part: up to 5 minutes in the queue and 15 running (STRESS 25), plus the checks and the artifact.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.sha }}
-          fetch-depth: 1
+          persist-credentials: false
           submodules: false
-      - name: perf budgets on a fleet mini
+          fetch-depth: 1
+          sparse-checkout: scripts/cmux-next/perf-cron.py
+          sparse-checkout-cone-mode: false
+
+      - name: Run one part on the bench host when the fleet is idle
+        env:
+          SHA: ${{ needs.plan.outputs.sha }}
+          PART: ${{ needs.plan.outputs.part }}
+          PART_ARGS: ${{ needs.plan.outputs.args }}
+          PART_ARTIFACT: ${{ needs.plan.outputs.artifact }}
+          RUN_SECONDS: ${{ needs.plan.outputs.run_seconds || '900' }}
         run: |
           set -uo pipefail
+          out="$RUNNER_TEMP/perf-cron-part"
+          mkdir -p "$out"
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
           if ! [[ -x "$client" ]]; then
-            echo "::error title=Build fleet client missing::$client is not installed on runner $RUNNER_NAME; the budgets did not run."
-            exit 127
+            echo "::notice title=perf cron::the build-fleet client is not installed on runner $RUNNER_NAME; no part ran"
+            exit 0
           fi
-          sha="$(git rev-parse HEAD)"
-          status=0
-          # The AWS minis have no console login: the app never shows a window there, so every row would
-          # read n/a. cmuxs-Mac-mini (user cmux at the console, M4 Pro, macOS 27) is the baseline's host.
-          "$client" run --class exclusive --measurement --label measure --target-worker cmuxs-Mac-mini.local \
-            --script scripts/measure/split-spring.sh --ref "$sha" --timeout 7200 \
-            --key "perf-budgets-$sha" --artifact artifacts/split-spring/report.json \
-            --arg=--suite=budgets --arg=--gate | tee "$RUNNER_TEMP/budgets.log" || status=$?
-          sed -n '/^# cmux-next perf budgets/,/^PERF-BUDGETS /p' "$RUNNER_TEMP/budgets.log" >> "$GITHUB_STEP_SUMMARY" || true
-          grep '^PERF-BUDGETS' "$RUNNER_TEMP/budgets.log" >> "$GITHUB_STEP_SUMMARY" || true
-          if [ "$status" -ne 0 ] && grep -q '^PERF-BUDGETS-REGRESSION' "$RUNNER_TEMP/budgets.log"; then
-            grep '^PERF-BUDGETS-REGRESSION' "$RUNNER_TEMP/budgets.log" | while read -r _ row rest; do
-              echo "::error title=Perf budget regressed: $row::$rest"
-            done
-          fi
-          exit "$status"
+          python3 -I scripts/cmux-next/perf-cron.py fleet-check --client "$client" --yield-mode "$YIELD_MODE" \
+            --output "$RUNNER_TEMP/fleet.out" | tee "$RUNNER_TEMP/fleet.log"
+          { echo "### perf cron fleet check"; echo; sed -n 's/^perf-cron fleet: //p' "$RUNNER_TEMP/fleet.log"; } >> "$GITHUB_STEP_SUMMARY"
+          grep -qx 'ok=true' "$RUNNER_TEMP/fleet.out" || exit 0
+          python3 -I scripts/cmux-next/perf-cron.py run-part --client "$client" --sha "$SHA" --args "$PART_ARGS" \
+            --artifact "$PART_ARTIFACT" --run-seconds "$RUN_SECONDS" --key "perf-cron-${SHA:0:12}-${PART}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --out "$out" | tee "$RUNNER_TEMP/part.log"
+          { echo "### perf cron part $PART at ${SHA:0:12}"; echo; sed -n 's/^perf-cron part: //p' "$RUNNER_TEMP/part.log"; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the part's result
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: perf-cron-part-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/perf-cron-part
+          retention-days: 14
+          if-no-files-found: ignore
+
+  report:
+    name: perf cron report
+    needs: [plan, measure]
+    if: ${{ always() && needs.plan.result == 'success' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/cmux-next/perf-cron.py
+            scripts/cmux-next/perf-budgets.py
+            scripts/cmux-next/perf-budgets.json
+            scripts/cmux-next/perf-profile-split.py
+            scripts/perf-bench
+          sparse-checkout-cone-mode: false
+
+      - name: Download the working state
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: perf-cron-work-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/perf-cron
+
+      - name: Download the part's result
+        if: ${{ needs.measure.result != 'skipped' }}
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: perf-cron-part-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/perf-cron-part
+
+      - name: Store the part, compare, keep the regression issue
+        id: report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PART: ${{ needs.measure.result != 'skipped' && needs.plan.outputs.part || '' }}
+          FINISH: ${{ needs.plan.outputs.action == 'finish' && '--finish' || '' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2086 # FINISH is one flag or empty
+          python3 -I scripts/cmux-next/perf-cron.py report --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/perf-cron" \
+            --part "$PART" --part-dir "$RUNNER_TEMP/perf-cron-part" --run-url "$RUN_URL" --issues $FINISH \
+            --output "$GITHUB_OUTPUT" | tee "$RUNNER_TEMP/report.log"
+          { echo "### perf cron report"; echo; sed -n 's/^perf-cron report: //p' "$RUNNER_TEMP/report.log"; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save the state for the next tick
+        if: ${{ steps.report.outputs.changed == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: perf-cron-state
+          path: ${{ runner.temp }}/perf-cron
+          retention-days: 90
+          if-no-files-found: error

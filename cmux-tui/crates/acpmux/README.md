@@ -563,8 +563,9 @@ allows four, so a client has room for one.
 ### Bring your own ACP harness
 
 Every harness is a `harnesses` entry in `~/.acpmux/config.json`. Discovery fills in the ones on
-PATH (Claude Code, Codex, OpenCode, pi, oh-my-pi, prime-agent, Gemini, `sr claude proxy`); a
-configured entry always wins over a discovered one. A complete entry:
+PATH (Claude Code, Codex, OpenCode, pi, oh-my-pi, prime-agent, Gemini, `sr claude proxy`, and
+Muse Code through the [cmux-muse-acp](https://github.com/manaflow-ai/cmux-muse-acp) adapter
+`muse-acp`, else Muse Code in a terminal tab); a configured entry always wins over a discovered one. A complete entry:
 
 ```jsonc
 {

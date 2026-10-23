@@ -53,7 +53,8 @@ extension SidebarBridge {
             // A placeholder row is no workspace: never claimed or shown.
             guard !model.isPlaceholder(id) else { return }
             model.apply(intent)
-            services.windows.show(workspaceID: id.rawValue, in: state)
+            // A pick in this window's sidebar shows here, also a workspace another window lists.
+            services.windows.show(workspaceID: id.rawValue, in: state, from: .thisWindow)
         case let .selectTab(_, tab):
             _ = services.revealTab(tab.rawValue)
         case .moveTab:
@@ -95,11 +96,9 @@ extension SidebarBridge {
             if !organizationQueue.hold(intent, local: services.machines.local) { refuseOrganization() }
         case .closeGroup(let group):
             let members = (model.group(group)?.workspaces ?? []).compactMap { services.machines.workspace(id: $0.id.rawValue) }
-                .compactMap { workspace, daemon in workspace.key.map { (daemon, $0, WorkspaceClose.closing(workspace, on: daemon)) } }
             model.apply(intent)
-            for (daemon, key, terminals) in members {
-                command("close-workspace", on: daemon) { c in try await WorkspaceClose.close(key, terminals: terminals, on: c) }
-            }
+            // One gesture, one closed group per daemon: one Reopen Closed brings the group's workspaces back.
+            WorkspaceBulkClose.close(members) { daemon, label, body in command(label, on: daemon, body) }
         case .switchProfile(let profile):
             services.windows.switchProfile(ProfileID(rawValue: profile.rawValue), in: state)
         case .newProfile:

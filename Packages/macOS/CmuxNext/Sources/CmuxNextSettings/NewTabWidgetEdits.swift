@@ -78,6 +78,17 @@ extension SettingsController {
         try await setSetting(descriptor, to: descriptor.defaultValue == .bool(true) ? .bool(false) : nil, by: .caller("page"))
     }
 
+    /// The New Tab page's second dot (Claude Minimal with the quick actions, webviews
+    /// newtab/tabDots.ts): turns the widget on as its Settings switch does (a widget that is on by
+    /// default leaves the file).
+    public func showNewTabWidget(_ widget: String) async throws {
+        let path = ["tabs", "newTabWidgets", widget]
+        guard let descriptor = SettingsSchema.descriptor(for: path), descriptor.kind == .toggle else {
+            throw SettingNotInSchema(key: path.joined(separator: "."))
+        }
+        try await setSetting(descriptor, to: descriptor.defaultValue == .bool(true) ? nil : .bool(true), by: .caller("page"))
+    }
+
     /// The New Tab page's drag in edit mode: the movable widgets it shows, in their new order. A
     /// widget it does not show (off) keeps its place in the saved order; the default order leaves
     /// the file.

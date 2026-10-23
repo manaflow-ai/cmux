@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextTerminal
 
 /// The TextBox composer's actions (inventory row 23) on the targeted or focused terminal: Toggle
 /// TextBox, Focus TextBox (back and forth between the box and the terminal), Cycle TextBox Submit
