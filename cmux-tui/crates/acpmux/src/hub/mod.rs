@@ -36,8 +36,10 @@ mod launchers;
 mod live_models;
 pub mod media_read;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
+mod config_writer;
 mod hosts;
 mod lifecycle;
+pub(crate) mod meta_writer;
 pub(crate) mod model_availability;
 mod model_options;
 mod new_request;
@@ -301,7 +303,11 @@ pub(super) struct StreamState {
 
 pub struct Hub {
     pub config: RwLock<Config>,
-    pub(super) store: Box<dyn Store>,
+    pub(super) store: Arc<dyn Store>,
+    /// Writes session records off the request path (`meta_writer.rs`).
+    pub(super) meta_writer: meta_writer::MetaWriter,
+    /// Writes `config.json` and `start-mode.json` off the request path (`config_writer.rs`).
+    pub(super) config_writer: config_writer::ConfigWriter,
     pub(super) mailbox: Mailbox,
     /// The forum log (`forum.rs`, `hub/forum.rs`).
     pub(super) forum: std::sync::OnceLock<crate::forum::Forum>,
@@ -450,8 +456,11 @@ impl Hub {
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
         let handoffs = handoff::Handoffs::open(store.handoff_dir());
+        let store: Arc<dyn Store> = Arc::from(store);
         let hub = Arc::new(Self {
             config: RwLock::new(config),
+            meta_writer: meta_writer::MetaWriter::start(store.clone()),
+            config_writer: Default::default(),
             store,
             mailbox,
             forum: std::sync::OnceLock::new(),
@@ -754,7 +763,8 @@ impl Hub {
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
             applied: StdMutex::new(session::Applied::default()),
-            purged: AtomicBool::new(false),
+            purged: Arc::new(AtomicBool::new(false)),
+            watch_end: Notify::new(),
             replaced: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             state_seq: AtomicU64::new(0),
@@ -932,6 +942,16 @@ impl Hub {
             remote: None,
         });
         (record, stored)
+    }
+
+    /// Saves `cfg` to its file (`Config::save`) through the config writer
+    /// (`config_writer.rs`): the bytes are made here, the disk write runs on its thread. An error
+    /// is the config's own (it does not serialize); a disk error is logged by the writer.
+    pub(crate) fn save_config(&self, cfg: &Config) -> Result<()> {
+        if let Some((path, bytes)) = cfg.disk_bytes()? {
+            self.config_writer.queue(path, bytes);
+        }
+        Ok(())
     }
 
     pub fn set_rules(&self, session: &Session, rules: Option<Value>) {
@@ -1128,20 +1148,18 @@ impl Hub {
     /// the turn, a tag) would write its record back after the purge deleted it, and the next daemon
     /// start loaded it as a closed session: the Chief's compactor, which purges each node's session
     /// when the node is built, left about 450 of them in two hours (2026-10-20).
+    ///
+    /// The write itself runs on the record writer's thread (`meta_writer.rs`): this takes the
+    /// snapshot and returns, with no disk access.
     pub(super) fn save_meta(&self, session: &Session) {
         if session.purged.load(Ordering::SeqCst) {
             return;
         }
-        let meta = session.meta();
-        if let Err(e) = self.store.save(&meta) {
-            tracing::warn!(session = %session.id, "save meta failed: {e}");
-        }
-        // The purge ran between the check and the save: delete it again.
-        if session.purged.load(Ordering::SeqCst)
-            && let Err(e) = self.store.delete(&session.id)
-        {
-            tracing::warn!(session = %session.id, "delete of a purged session failed: {e}");
-        }
+        let (meta, version) = {
+            let meta = session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            (meta.clone(), self.meta_writer.next_version())
+        };
+        self.meta_writer.queue(&*self.store, meta, version, session.purged.clone());
     }
 
     /// Lists the temporary folders of sessions this daemon no longer has
@@ -1197,6 +1215,9 @@ impl Hub {
                 self.subsession_status(&session.id, link, was, status);
             }
             session.mark_waiting(status == SessionStatus::Waiting);
+            if status == SessionStatus::Closed {
+                session.watch_end.notify_one();
+            }
             self.append(session, "mux", "status", json!({"status": status.to_string()}));
             self.save_meta(session);
             self.care_status(status);

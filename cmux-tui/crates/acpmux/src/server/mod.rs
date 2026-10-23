@@ -76,6 +76,10 @@ pub struct Conn {
     /// The ephemeral sessions it created, purged when it closes (`ephemeral.rs`);
     /// None once it closed.
     ephemeral: StdMutex<Option<Vec<String>>>,
+    /// Notifications left out because its queue was full, not yet reported: the next one that
+    /// fits is `_acpmux/lagged {dropped}` (D5: a slow client is told and reads again, never
+    /// silently handed a stream with holes).
+    dropped: std::sync::atomic::AtomicU64,
 }
 
 impl Conn {
@@ -149,21 +153,50 @@ impl Conn {
         }
     }
 
-    fn send(&self, msg: &Message) {
+    /// The line `msg` goes out as. No message larger than one frame (`rpc::MAX_MESSAGE_BYTES`):
+    /// a reply goes as its error, a notification is left out (None) and the client reads again
+    /// from its last record.
+    fn line(&self, msg: &Message) -> Option<String> {
         let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
         let msg = masked.as_ref().unwrap_or(msg);
-        // No message larger than one frame (`rpc::MAX_MESSAGE_BYTES`): a reply goes as its error,
-        // a notification is left out and the client reads again from its last record.
         match msg.bounded_line() {
-            Ok(line) => {
-                let _ = self.out.try_send(line);
-            }
+            Ok(line) => Some(line),
             Err(bytes) => {
                 tracing::warn!(conn = %self.id, method = ?msg.method(), bytes, "left out a notification too large to send");
-                let _ = self.out.try_send(
-                    Message::notification("_acpmux/lagged", json!({"dropped": 1})).to_line(),
-                );
+                None
             }
+        }
+    }
+
+    /// Queues notification `msg` without waiting. A full queue (the client reads slower than
+    /// its sessions stream) leaves it out and counts it; the first notification that fits
+    /// again is preceded by `_acpmux/lagged {dropped}`, and the client reads again from its
+    /// last record. Other connections never wait for this one.
+    fn send(&self, msg: &Message) {
+        let Some(line) = self.line(msg) else {
+            self.dropped.fetch_add(1, Ordering::SeqCst);
+            return;
+        };
+        let dropped = self.dropped.swap(0, Ordering::SeqCst);
+        if dropped > 0 {
+            let lagged =
+                Message::notification("_acpmux/lagged", json!({"dropped": dropped})).to_line();
+            if self.out.try_send(lagged).is_err() {
+                self.dropped.fetch_add(dropped + 1, Ordering::SeqCst);
+                return;
+            }
+        }
+        if let Err(tokio::sync::mpsc::error::TrySendError::Full(_)) = self.out.try_send(line) {
+            self.dropped.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// Queues reply `msg`, waiting for room: a reply is never left out (its caller would wait
+    /// forever). Only the request it answers waits; the connection's other traffic goes on.
+    /// (`bounded_line` turns a reply past the frame limit into its error, so one always goes.)
+    async fn reply(&self, msg: &Message) {
+        if let Some(line) = self.line(msg) {
+            let _ = self.out.send(line).await;
         }
     }
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
@@ -827,6 +860,7 @@ async fn serve_connection_from(
         unproven_caller: std::sync::OnceLock::new(),
         peer_leases: StdMutex::new(Some(Vec::new())),
         ephemeral: StdMutex::new(Some(Vec::new())),
+        dropped: std::sync::atomic::AtomicU64::new(0),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -839,7 +873,7 @@ async fn serve_connection_from(
         let msg = match Message::parse(&line) {
             Ok(m) => m,
             Err(e) => {
-                conn.send(&Message::err(Value::Null, e));
+                conn.reply(&Message::err(Value::Null, e)).await;
                 continue;
             }
         };
@@ -852,10 +886,11 @@ async fn serve_connection_from(
                 let conn = conn.clone();
                 tokio::spawn(async move {
                     let result = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
-                    conn.send(&match result {
+                    conn.reply(&match result {
                         Ok(v) => Message::ok(id, v),
                         Err(e) => Message::err(id, e),
-                    });
+                    })
+                    .await;
                 });
             }
             // A read-only machine's notifications (a cancel) change nothing.

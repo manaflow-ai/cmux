@@ -140,11 +140,19 @@ impl Hub {
         self.append(s, "mux", "turn_result", result);
     }
 
+    /// Waits until every session record and settings file queued so far is on disk
+    /// (`meta_writer.rs`, `config_writer.rs`): before a restart reads them back.
+    pub fn flush_writes(&self) {
+        self.meta_writer.flush();
+        self.config_writer.flush();
+    }
+
     /// Save every session's meta and sync the event log to disk.
     pub fn flush(&self) {
         for s in self.sessions() {
             self.save_meta(&s);
         }
+        self.flush_writes();
         if let Err(e) = self.store.flush() {
             tracing::warn!("store flush failed: {e}");
         }

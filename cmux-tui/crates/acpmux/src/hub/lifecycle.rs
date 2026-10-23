@@ -1020,7 +1020,7 @@ impl Hub {
         profile: &HarnessProfile,
     ) -> anyhow::Result<usize> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-        let tap: crate::agent::Tap = Arc::new(|_, _, _| true);
+        let tap: crate::agent::Tap = Arc::new(|_, _, _| Some(crate::agent::WriteTicket::done()));
         // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).
         let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
             .await
