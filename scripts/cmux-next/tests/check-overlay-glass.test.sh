@@ -40,6 +40,29 @@ expect_fail menu-panel popup-host 'final class DemoMenuPanel: NSPanel {
 expect_fail picker-host popup-host '        popup.panel.adoptPopupStyle(card: plainView)'
 expect_fail native-host popup-host '    private let popup = NativePopupHost(panel: NativePopupPanel(identifier: "cmux.demo"))'
 expect_fail ns-popover popup-host '        let pop = NSPopover()'
+# Glass elsewhere in the file is not the host's: the panel class itself must build it.
+expect_fail menu-panel-other-glass popup-host 'final class BadMenuPanel: NSPanel { let card = NSVisualEffectView() }
+let other = Glass.makeOverlayPanel(content: otherView)'
+expect_fail menu-panel-sibling-glass popup-host 'final class BadMenuPanel: NSPanel {
+    let card = NSVisualEffectView()
+}
+
+final class OtherCard: NSView {
+    let other = Glass.makeOverlayPanel(content: otherView)
+}'
+expect_fail host-call-sibling-glass popup-host 'final class BadPicker {
+    private let popup = NativePopupHost(panel: NativePopupPanel(identifier: "cmux.bad"))
+    func show() { popup.panel.adoptPopupStyle(card: NSVisualEffectView()) }
+}
+
+final class OtherCard: NSView {
+    let other = Glass.makeOverlayPanel(content: otherView) // "{" in a comment
+    let url = "https://example.com/{"
+}'
+expect_fail top-level-host-type-glass popup-host 'popup.panel.adoptPopupStyle(card: plainView)
+final class OtherCard: NSView {
+    let other = Glass.makeOverlayPanel(content: otherView)
+}'
 
 expect_pass glass '        let panel = Glass.makeOverlayPanel(content: body, cornerRadius: 10)'
 expect_pass glass-menu-host 'final class DemoPickerPanel: ContentChildPanel {
@@ -48,6 +71,32 @@ expect_pass glass-menu-host 'final class DemoPickerPanel: ContentChildPanel {
 expect_pass menu-glass-host '        let card = Glass.makeMenuPanel(content: body)
         popup.panel.adoptPopupStyle(card: card)'
 expect_pass host-comment '/// Shows it in a NativePopupHost(panel:) like the others.'
+# The host's own body: a method of the host type, an extension of the panel class, or the panel
+# class a NativePopupHost(panel:) call constructs.
+expect_pass host-method-glass 'final class DemoPopover {
+    private let popup = NativePopupHost(panel: NativePopupPanel(identifier: "cmux.demo"))
+    func show() {
+        let card = Glass.makeOverlayPanel(content: body, cornerRadius: 10)
+        popup.panel.adoptPopupStyle(card: card)
+    }
+}'
+expect_pass menu-extension-glass 'final class DemoMenuPanel: NSPanel {}
+
+extension DemoMenuPanel {
+    func build() { adoptPopupStyle(card: Glass.makeMenuPanel(content: rows)) }
+}'
+expect_pass hosted-panel-glass 'final class DemoHost {
+    private func makePopup() -> NativePopupHost {
+        NativePopupHost(panel: DemoRowsPanel(onPick: { id in pick(id) }))
+    }
+}
+
+final class DemoRowsPanel: ContentChildPanel {
+    init(onPick: @escaping (String) -> Void) {
+        super.init()
+        adoptPopupStyle(card: Glass.makeOverlayPanel(content: rows))
+    }
+}'
 expect_pass translucent '        box.fillColor = NSColor.textBackgroundColor.withAlphaComponent(0.35)'
 expect_pass comment '/// The popup surface (`Palette.popupSurface`) only under Reduce Transparency.'
 expect_pass escaped '        // glass-opaque-allow: Reduce Transparency draws every surface solid.
