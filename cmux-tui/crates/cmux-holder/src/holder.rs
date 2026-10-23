@@ -5,9 +5,10 @@
 //! finish their last frame, a self-pipe for SIGCHLD (and a launchd SIGTERM),
 //! the start report of each child that has not run its program yet, and
 //! every PTY master. No handler waits: a SPAWN forks and returns, and its
-//! SPAWNED (or its error) follows when the child's report arrives. While no daemon is attached to a terminal its
-//! output is read as soon as it is ready and its ring keeps the newest
-//! bytes. While a daemon is attached nothing is lost: the holder reads a
+//! SPAWNED (or its error) follows when the child's report arrives. While no
+//! daemon is attached to a terminal its output is read as soon as it is
+//! ready and its ring keeps the newest bytes. While a daemon is attached
+//! nothing is lost: the holder reads a
 //! master only while fewer than [`UNSENT_HIGH_WATER`] bytes wait unsent,
 //! sends at most [`wire::CREDIT_WINDOW`] past what the daemon acknowledged
 //! it parsed, and a shell that prints faster than that blocks in its PTY,
