@@ -54,15 +54,16 @@ final class MacScreenText: NSTextField, MacScreenInked {
     /// A wrapping label lays its lines out at the width it was given.
     override func layout() {
         super.layout()
-        guard wraps, bounds.width > 0, abs(preferredMaxLayoutWidth - bounds.width) > 0.5 else { return }
+        fitLines()
+    }
+
+    /// A wrapping label takes its frame's width as its line width; true when that changed its height.
+    @discardableResult
+    func fitLines() -> Bool {
+        guard wraps, bounds.width > 0, abs(preferredMaxLayoutWidth - bounds.width) > 0.5 else { return false }
         preferredMaxLayoutWidth = bounds.width
         invalidateIntrinsicContentSize()
-        // Its height changed: the views that size from it (a page framed by hand) lay out again.
-        var ancestor = superview
-        while let view = ancestor {
-            view.needsLayout = true
-            ancestor = view.superview
-        }
+        return true
     }
 }
 

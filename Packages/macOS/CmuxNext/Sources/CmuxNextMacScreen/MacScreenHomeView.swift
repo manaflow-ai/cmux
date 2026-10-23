@@ -89,9 +89,13 @@ final class MacScreenHomeView: MacScreenThemedView {
         let width = scroll.contentSize.width
         let target = max(0, min(620, width - 64))
         if abs(columnWidth.constant - target) > 0.5 { columnWidth.constant = target }
-        // Twice: wrapping labels learn their width on the first pass and report their height on the second.
-        column.layoutSubtreeIfNeeded()
-        column.layoutSubtreeIfNeeded()
+        // Wrapping labels learn their width from one pass and report their height to the next.
+        for _ in 0..<4 {
+            column.layoutSubtreeIfNeeded()
+            var changed = false
+            for case let label as MacScreenText in views(under: column) where label.fitLines() { changed = true }
+            if !changed { break }
+        }
         let height = max(scroll.contentSize.height, ceil(column.fittingSize.height) + 72)
         let size = NSSize(width: width, height: height)
         if document.frame.size != size { document.setFrameSize(size) }
