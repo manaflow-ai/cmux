@@ -13,7 +13,8 @@ import Testing
 /// row says why; going into the pane hides the ring but keeps the dot; a new request rings again.
 @MainActor
 @Suite struct TabAttentionTests {
-    private final class Woke: @unchecked Sendable { var value = false }
+    /// Set by an observation's onChange, which runs synchronously on the mutating (main) thread.
+    private nonisolated final class Woke: @unchecked Sendable { var value = false }
 
     private static func attention(_ reason: String, at: UInt64) -> TabAttention {
         TabAttention(reason: reason, atMs: at)
