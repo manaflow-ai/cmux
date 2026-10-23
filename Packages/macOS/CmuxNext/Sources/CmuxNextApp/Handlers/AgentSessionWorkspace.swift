@@ -88,7 +88,7 @@ enum AgentSessionWorkspace {
                     // session, so a lost reply after a bind ends nothing. WorkspaceCreation's close above
                     // takes only an empty workspace, and this one holds the terminal.
                     do {
-                        try await WorkspaceClose.close(key, terminals: [], on: connection, reason: .sessionEnd)
+                        try await closeFailedAdopt(key, on: daemon, present: { services.machines.daemons.contains { $0 === daemon } })
                     } catch let closeError {
                         daemon.logger.error("agent.openSessionWorkspace: closing a failed adopt's workspace failed: \(String(describing: closeError), privacy: .public)")
                     }
@@ -105,6 +105,12 @@ enum AgentSessionWorkspace {
                 return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
             }
         }
+    }
+
+    /// Closes workspace `key` that a failed adopt made on `daemon`, with its terminal and any tab.
+    static func closeFailedAdopt(_ key: WorkspaceKey, on daemon: DaemonService, present: @escaping @MainActor @Sendable () -> Bool) async throws {
+        guard let connection = daemon.connection else { throw DaemonError.notConnected }
+        try await WorkspaceClose.close(key, terminals: [], on: connection, reason: .sessionEnd)
     }
 
     /// Refuses before anything is made when this build has no agent page to show the chat in (a local

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import Foundation
 import Testing
 
@@ -144,11 +145,72 @@ struct AgentSessionAdoptNoPageTests {
             let left = Set(store.workspaces.map(\.id)).subtracting(before)
             #expect(left.isEmpty, "the refused adopt left a workspace on the other machine: \(left) \(failures)")
             #expect(services.machines.workspace(id: key) == nil, "the refused adopt's workspace is still listed")
+            // Its repair claim goes with it: a failed adopt never leaves the key settling.
+            let repair = services.machines.emptyWorkspaceRepair(machine.daemon.machineID, local: services.emptyWorkspaces)
+            #expect(!repair.isSettling(WorkspaceKey(rawValue: key)), "the refused adopt's workspace is still settling in the repair")
             result = .success(())
         } catch {
             result = .failure(error)
         }
         await CloudMoveTests.end(machine.daemon)
+        for controller in services.windows.controllers { controller.window?.close() }
+        try result.get()
+    }
+
+    /// A failed adopt whose failure is the other machine's link dropping still closes the workspace
+    /// it made there: the close waits for the link to come back, never runs on the dead connection.
+    @Test func aFailedAdoptsWorkspaceClosesOnceTheMachineReconnects() async throws {
+        let binary = try #require(SameTreeDaemonBinary.url)
+        let root = URL(fileURLWithPath: "/private/tmp/cn-adopt-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let environment: @Sendable () -> [String: String] = {
+            ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"]
+        }
+        let vm = DaemonLauncher(configuration: .init(binary: binary, session: "cn-adopt-vm-\(UUID().uuidString.prefix(6).lowercased())",
+                                                     stateDirectory: root.appendingPathComponent("vm-state")), environment: environment)
+        _ = NSApplication.shared
+        let vmSocket = try await vm.endpointProvider().socketPath
+        let services = AppServices(environment: AppEnvironment.current([:]), agentPaneEnvironment: ["CMUX_NEXT_AGENT_PANE_MOCK": "1"])
+        AppActions.bind(services)
+        services.windows.ordersWindowsIn = false
+        let machine = CloudMoveTests.machine(services, cli: URL(fileURLWithPath: "/usr/bin/false"), root: root)
+        services.machines.add(machine)
+        let daemon = machine.daemon
+        daemon.start(remote: { vmSocket })
+
+        let result: Result<Void, any Error>
+        do {
+            let connectDeadline = ContinuousClock.now + .seconds(60)
+            while !daemon.isLive || daemon.identity == nil, ContinuousClock.now < connectDeadline {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            let connection = try #require(daemon.connection, "the other machine did not connect")
+            // The workspace an adopt made there: a terminal, as the adopt's first step leaves it.
+            let key = WorkspaceKey.generate()
+            _ = try await connection.createWorkspaceRetryingLateReplies(name: "adopt", key: key)
+            try await connection.createTerminal(in: key, cwd: nil)
+
+            // The link drops (the adopt's failure), then comes back while the close is under way.
+            daemon.shutdownConnection()
+            #expect(!daemon.isLive)
+            let closing = Task { @MainActor in
+                try await AgentSessionWorkspace.closeFailedAdopt(key, on: daemon, present: { true })
+            }
+            daemon.start(remote: { vmSocket })
+            let closeResult = await closing.result
+            #expect((try? closeResult.get()) != nil, "the close failed: \(closeResult)")
+
+            let reconnectDeadline = ContinuousClock.now + .seconds(60)
+            while !daemon.isLive, ContinuousClock.now < reconnectDeadline { try? await Task.sleep(for: .milliseconds(100)) }
+            let live = try #require(daemon.connection, "the other machine did not reconnect")
+            await daemon.store.applied(through: await live.eventSequence())
+            #expect(!daemon.store.workspaces.contains { $0.key == key }, "the failed adopt's workspace stayed on the other machine")
+            result = .success(())
+        } catch {
+            result = .failure(error)
+        }
+        await CloudMoveTests.end(daemon)
         for controller in services.windows.controllers { controller.window?.close() }
         try result.get()
     }
