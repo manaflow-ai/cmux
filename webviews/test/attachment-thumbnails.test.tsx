@@ -45,6 +45,8 @@ const { SentImages } = await import("../src/agent-session/acpmux/conversation/Us
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 const { ImageViewerContext } = await import("../src/agent-session/acpmux/conversation/imageViewerContext");
 const { AttachmentStrip } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+const { resetLinkStore, seedLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
 const { imageLabel } = await import("../src/agent-session/acpmux/imageLabel");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
 
@@ -52,6 +54,8 @@ const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
 const opened: { src: string; alt: string }[] = [];
 const SRC = "data:image/png;base64,AA==";
+const MOVIE_PATH = "/Users/you/src/atlas-web/out/login-tests.mp4";
+const MOVIE_SRC = "data:video/mp4;base64,AAAA";
 
 /// Fires the image's load at `width`×`height`, as the engine does once it decodes it.
 async function load(img: Element, width: number, height: number) {
@@ -167,6 +171,40 @@ try {
     await renderDraft("empty.png");
     await load(host.querySelector(".acpmux-attachment-image img")!, 0, 0);
     expect(host.querySelector(".acpmux-attachment-image-failed")).not.toBeNull();
+  });
+
+  test("a local movie link uses the checked media preview and stays removable", async () => {
+    const calls: string[] = [];
+    resetLinkStore();
+    seedLinkStore({ paths: { [MOVIE_PATH]: { place: "root", folder: false } } });
+    setChipHost(async (method) => {
+      calls.push(method);
+      return method === "media.load" ? { src: MOVIE_SRC } : {};
+    });
+    try {
+      await act(async () => {
+        root.render(
+          <AttachmentStrip
+            attachments={[
+              { id: "movie", kind: "link", name: "login-tests.mp4", mimeType: "", size: 0, path: MOVIE_PATH },
+            ]}
+            onRemove={() => {}}
+          />,
+        );
+        await Promise.resolve();
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(host.querySelector(".cv-media")).not.toBeNull();
+      expect(host.querySelector(".cv-media video")).not.toBeNull();
+      expect(host.querySelector(".acpmux-attachment-remove")).not.toBeNull();
+      expect(calls).toContain("media.load");
+    } finally {
+      setChipHost(undefined);
+      resetLinkStore();
+    }
   });
 } finally {
   afterAll(() => {
