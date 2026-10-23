@@ -882,8 +882,11 @@ class WebviewsChecksGate(unittest.TestCase):
                                            "".join(errors) + "Found 0 warnings and 4 errors.\n"), [])
         self.assertEqual(self.module.added(f"{errors[0]}Found 2 warnings and 1 error.\n",
                                            f"{errors[0]}Found 1 warning and 1 error.\n"), [])
-        # a line that only starts like the summary is still a finding
+        # a line that only starts like the summary is still a finding, and so is text after a whole summary
         self.assertEqual(self.module.added("Found 1 warning and the rest\n", ""), ["Found 1 warning and the rest"])
+        for crash in ("Found 1 warning and 1 error: panic", "Found 1 error and 0 warnings in 9 files (1.0s) then a panic"):
+            self.assertEqual(self.module.added(f"{errors[0]}{crash}\n", f"{errors[0]}Found 0 warnings and 1 error.\n"),
+                             [crash])
 
     def test_the_base_worktree_is_removed(self):
         base = self.findings({}, "base")
