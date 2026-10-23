@@ -8,6 +8,7 @@ needs `--target machine:vm-…`; without it the run is refused.
 
 | Sidebar or palette item | CLI |
 | --- | --- |
+| List Cloud Machines (the Cloud sidebar) | `cmux cloud list-machines` (returns `machines`) |
 | New Cloud Machine… | `cmux cloud new-machine` (returns `machine_id`) |
 | New Cloud Workspace | `cmux cloud new-workspace` |
 | New workspace on a machine | `cmux workspace new-on-machine --machine machine:vm-…` |
