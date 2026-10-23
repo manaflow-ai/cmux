@@ -81,15 +81,31 @@ afterAll(async () => {
   }
 });
 
-const settle = async (rounds = 20) => {
-  for (let round = 0; round < rounds; round++)
-    await act(async () => {
-      await new Promise((done) => setTimeout(done, 5));
-    });
-};
+/// One turn of the page's event loop: what is due now runs, and React renders it.
+const tick = () =>
+  act(async () => {
+    await new Promise((done) => setTimeout(done, 0));
+  });
+/// Waits for `check` to hold, a turn at a time; fails with `what` if it never does.
 async function until(check: () => boolean, what: string) {
-  for (let round = 0; round < 200 && !check(); round++) await settle(1);
+  const deadline = Date.now() + 10_000;
+  while (!check() && Date.now() < deadline) await tick();
   expect(check(), what).toBe(true);
+}
+
+/// The calls the page made to the mock daemon, and those still unanswered (a turn's own
+/// `session/prompt` aside: it answers when the scripted turn ends).
+const daemon = { calls: 0, open: 0 };
+/// Waits until the page has stopped talking to the daemon: every call answered, and no new one
+/// for a run of turns. Whatever a refusal or a send sets off has happened by then.
+async function quiet(what: string) {
+  let seen = -1;
+  let still = 0;
+  await until(() => {
+    if (daemon.open === 0 && daemon.calls === seen) still += 1;
+    else [seen, still] = [daemon.calls, 0];
+    return still >= 20;
+  }, what);
 }
 
 type Answer = (method: string, params: Record<string, unknown>) => Promise<unknown>;
@@ -111,7 +127,9 @@ async function mountClassic(
   const prompts: string[] = [];
   const started: string[] = [];
   let attempts = 0;
-  proto.answer = async function (this: unknown, method, params) {
+  daemon.calls = 0;
+  daemon.open = 0;
+  const answerCounted: Answer = async function (this: unknown, method, params) {
     if (method === "session/new") {
       started.push(String(params.cwd ?? ""));
       if (params.cwd === folder) {
@@ -124,6 +142,12 @@ async function mountClassic(
       return { cwd: folder, level: "trusted", harnesses: { claude: "trusted", codex: "trusted" } };
     if (method === "session/prompt") prompts.push(String((params.prompt as { text?: string }[])?.[0]?.text ?? ""));
     return answer.call(this, method, params);
+  };
+  proto.answer = function (this: unknown, method, params) {
+    daemon.calls += 1;
+    if (method === "session/prompt") return answerCounted.call(this, method, params);
+    daemon.open += 1;
+    return answerCounted.call(this, method, params).finally(() => (daemon.open -= 1));
   };
 
   const { createRoot } = await import("react-dom/client");
@@ -221,11 +245,11 @@ test("classic Return with no agent named: a start refused for the folder's trust
 
   await act(async () => trustButton()!.click());
   await until(() => prompts.length > 0, "the prompt went after Trust");
-  await settle();
+  await quiet("the page settles after the send");
   expect(prompts).toEqual(["hello"]);
   // The refused start, then the one after Trust, both in the picked folder: the prompt went there.
   expect(started).toEqual([folder, folder]);
-});
+}, 30_000);
 
 test("a start refused after a while keeps the prompt ahead of what was typed in the composer meanwhile", async () => {
   const folder = "/tmp/slow-untrusted-project";
@@ -250,9 +274,9 @@ test("a start refused after a while keeps the prompt ahead of what was typed in 
 
   await act(async () => trustButton()!.click());
   await until(() => prompts.length > 0, "the prompt went after Trust");
-  await settle();
+  await quiet("the page settles after the send");
   expect(prompts).toEqual(["hello\n\nand one more thing"]);
-});
+}, 30_000);
 
 test("a start refused for another reason leaves the prompt in the composer, and sending it starts the chat in the folder", async () => {
   const folder = "/tmp/busy-project";
@@ -265,7 +289,7 @@ test("a start refused for another reason leaves the prompt in the composer, and 
   await until(() => started.length === 1, "the start went");
   await until(() => composerText() === "hello", "the composer holds the prompt");
   // No trust question for a refusal that is not about trust.
-  await settle();
+  await quiet("the page settles after the refusal");
   expect(trustButton()).toBeUndefined();
   expect(prompts).toEqual([]);
 
@@ -276,7 +300,7 @@ test("a start refused for another reason leaves the prompt in the composer, and 
       .dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })),
   );
   await until(() => prompts.length > 0, "the prompt went");
-  await settle();
+  await quiet("the page settles after the send");
   expect(prompts).toEqual(["hello"]);
   expect(started).toEqual([folder, folder]);
-});
+}, 30_000);
