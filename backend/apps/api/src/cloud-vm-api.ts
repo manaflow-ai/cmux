@@ -5,6 +5,7 @@ import type { VmApiSettings } from "./cloud-vm-api-config.ts"
 import { sha256Hex } from "./cloud-link.ts"
 import { VmApiSnapshotCaptures } from "./cloud-vm-api-snapshot.ts"
 import { DriverError } from "./team-vm-driver.ts"
+import type { VmApiCloudNetwork, CloudNetworkTarget } from "./cloud-vm-api-network.ts"
 
 const unavailable = (message: string, final = false) => new DriverError("cloud.provider.unavailable", `VM API: ${message}`, final)
 const VM_ID = /^vm_[0-9a-hjkmnp-tv-z]{26}$/
@@ -12,11 +13,11 @@ const SNAPSHOT_ID = /^snap_[0-9a-hjkmnp-tv-z]{26}$/
 const NAME_LABEL = "cmux/name"
 type Snapshot = components["schemas"]["SnapshotSummary"]
 
-/** The generated public API is the only transport here; provider IDs and credentials never enter it. */
+/** Only public VM API routes; provider IDs and credentials never enter the Cloud contract. */
 export class VmApiCloudDriver implements RawCloudDriver {
   private readonly captures: VmApiSnapshotCaptures
   private readonly client
-  constructor(private readonly settings: VmApiSettings, tenant: string, private readonly team: string, fetchFn: typeof fetch = fetch) {
+  constructor(private readonly settings: VmApiSettings, tenant: string, private readonly team: string, fetchFn: typeof fetch = fetch, private readonly network?: VmApiCloudNetwork) {
     this.client = createCmuxVmClient({ token: settings.key, teamId: tenant, baseUrl: settings.origin, fetch: (request) =>
       fetchFn(new Request(request, { redirect: "manual", signal: AbortSignal.any([request.signal, AbortSignal.timeout(request.url.endsWith("/exec") ? 310_000 : 30_000)]) })) })
     this.captures = new VmApiSnapshotCaptures(this.client, team, (name, expected) => this.findSnapshot(name, expected))
@@ -82,6 +83,15 @@ export class VmApiCloudDriver implements RawCloudDriver {
     return { id: r.id, tag: null }
   }
   async delete(id: string): Promise<void> { this.empty(await this.request(() => this.client.DELETE("/v1/vms/{vmId}", { params: { path: { vmId: id } } }))) }
+  async prepareNetwork(): Promise<CloudNetworkTarget> {
+    if (!this.network) throw unavailable("network routing is not configured", true)
+    return this.network.prepare()
+  }
+  async attachNetwork(id: string, tag: VmTag, target: CloudNetworkTarget) {
+    const vm = await this.vm(id)
+    if (!this.network || tag.team !== this.team || vm?.labels.cmux_next_machine !== tag.machine) throw unavailable("unconfirmed VM attachment owner", true)
+    return this.network.attach(id, target)
+  }
   private async vm(id: string): Promise<Vm | null> {
     const r = await this.request(() => this.client.GET("/v1/vms/{vmId}", { params: { path: { vmId: id } } }))
     if (r.response.status === 404) return null

@@ -1,5 +1,5 @@
 import type { Domain, EventFrame, OpFrame, OwnerFrame, Principal } from "@cmux/ownership"
-import { CloudMachineList, planRequiredDetails } from "@cmux/protocol"
+import { CloudMachineList, planRequiredDetails, type CloudVmNetwork } from "@cmux/protocol"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { VmApiSnapshotOutcome } from "./cloud-vm-api-snapshot.ts"
@@ -365,7 +365,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
       } catch { routingError = new DriverError("cloud.provider.unavailable", "the VM tenant route is still being confirmed", false) }
       // Tenant provisioning can await identity I/O. A delete committed meanwhile changes this to lookup-only work.
       if (row.op === "create" && !row.cancel && this.ledger(row.key)?.cancel) continue
-      let result: { key: string; ok: boolean; provider_id?: string; bind_token_sha256?: string; error?: { code: string; message: string }; final?: boolean; snapshot_outcome?: "deleted" | "absent"; resources?: { cpu: number; memory_mb: number; disk_mb: number } }
+      let result: { key: string; ok: boolean; provider_id?: string; bind_token_sha256?: string; network?: typeof CloudVmNetwork.Type; error?: { code: string; message: string }; final?: boolean; snapshot_outcome?: "deleted" | "absent"; resources?: { cpu: number; memory_mb: number; disk_mb: number } }
       // P1-1: a create runs only for a team with a plan (the allowlist may have changed since the intent). Deletes always run: they only stop cost.
       if (planDenied && !captureRecovery) result = { key: row.key, ok: false, error: { code: "cloud.plan.required", message: "this team has no Cloud plan" }, final: true }
       // Review P3-a: the bind file's origin and env tag are checked before ensure, so a misconfiguration never leaves a running VM.
@@ -387,7 +387,12 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
             // A restore boots its snapshot (a recorded, guarded slug); every other create the deployment's image.
             const fromSnapshot = m?.from_snapshot
             const edgeRule = await this.edge.ruleForCreate(row.machine, m?.creator, Date.now() + this.skewMs)
+            const target = await driver.prepareNetwork()
+            if (this.ledger(row.key)?.cancel) continue
             const id = (await driver.ensure(row.provider_name, tag, { idleSeconds: 0, ...(fromSnapshot ? { snapshot: fromSnapshot } : {}), ...(edgeRule ? { edgeRules: [edgeRule] } : {}) })).id
+            if (this.ledger(row.key)?.cancel) continue
+            const network = await driver.attachNetwork(row.provider_name, tag, target)
+            if (this.ledger(row.key)?.cancel) continue
             if (edgeRule) this.edge.created(row.machine, Date.now() + this.skewMs)
             // 5.8 item 1: a fresh one-time bind token into the VM; only its sha256 is committed.
             const token = newBindToken()
@@ -395,7 +400,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
             const cfg = this.bindFileConfig()!
             await driver.writeBindFile(row.provider_name, tag, JSON.stringify({ team: tag.team, machine: row.machine, bind_token: token, ...cfg }))
             const res = await driver.resourcesOf(row.provider_name, tag).catch(() => null)
-            result = { key: row.key, ok: true, provider_id: id, bind_token_sha256: await sha256Hex(token), ...(res ? { resources: { cpu: res.cpu, memory_mb: res.memory, disk_mb: res.storage } } : {}) }
+            result = { key: row.key, ok: true, provider_id: id, bind_token_sha256: await sha256Hex(token), ...(network ? { network } : {}), ...(res ? { resources: { cpu: res.cpu, memory_mb: res.memory, disk_mb: res.storage } } : {}) }
           }
           else if (row.op === "pause" || row.op === "start") result = (await driver.power(row.provider_name, tag, row.op), { key: row.key, ok: true })
           else if (row.op === "snapshot" && row.snapshot_name) result = { key: row.key, ok: true, provider_id: (await driver.snapshot(row.provider_name, tag, row.snapshot_name)).id }

@@ -5,6 +5,7 @@ import { transportOf, vmApiSettings, type CloudTransport } from "./cloud-vm-api-
 import { VmApiCloudDriver } from "./cloud-vm-api.ts"
 import { DriverError } from "./team-vm-driver.ts"
 import type { EnsurePersonalTenantReply } from "./team-vm-api-personal.ts"
+import { VmApiCloudNetwork } from "./cloud-vm-api-network.ts"
 
 /** Each call routes from an owner row. New deployment defaults never reinterpret an old resource. */
 export const cloudDriverFor = async (env: Env, sql: SqlStore, team: string, row: { readonly transport?: CloudTransport }, purpose: "operate" | "cleanup" = "operate", fetchFn: typeof fetch = fetch, provision = false): Promise<GuardedCloudDriver | null> => {
@@ -25,5 +26,10 @@ export const cloudDriverFor = async (env: Env, sql: SqlStore, team: string, row:
     target = await owner.vmApiTenant(team, purpose).catch(() => null)
   }
   if (!target || target.team !== team || target.project !== env.STACK_PROJECT_ID || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(target.tenant)) return null
-  return new GuardedCloudDriver(new VmApiCloudDriver(settings, target.tenant, team, fetchFn), prefix)
+  const route = { team: target.team, tenant: target.tenant, project: target.project, origin: settings.origin }
+  const network = new VmApiCloudNetwork(settings, route, sql, (request) => fetchFn(request), async () => {
+    const current = await owner.vmApiTenant(team, "operate").catch(() => null)
+    return current?.team === route.team && current.tenant === route.tenant && current.project === route.project
+  })
+  return new GuardedCloudDriver(new VmApiCloudDriver(settings, target.tenant, team, fetchFn, network), prefix)
 }

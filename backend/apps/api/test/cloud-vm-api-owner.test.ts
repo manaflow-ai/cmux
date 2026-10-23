@@ -35,6 +35,13 @@ it.each(["shared", "personal", "lost-capture", "cancel-capture"] as const)("runs
     expect(url.origin).toBe(e.CLOUD_VM_API_ORIGIN)
     expect(r.headers.get("x-cmux-team-id")).toBe(t.stackTeam)
     calls.push(`${r.method} ${url.pathname}`)
+    const mesh = { id: "mesh_" + "0".repeat(26), ipv4Cidr: "10.128.0.0/20", displayName: "Cloud", createdAt: "2026-10-19T00:00:00Z" }
+    if (url.pathname === "/v1/meshes") return Response.json({ items: [mesh] })
+    if (url.pathname === `/v1/meshes/${mesh.id}`) return Response.json(mesh)
+    if (url.pathname.startsWith(`/v1/meshes/${mesh.id}/vms/`)) {
+      const vmId = url.pathname.split("/").at(-1)!
+      return Response.json({ meshId: mesh.id, vmId, ipv4: `10.128.0.${Number(vmId.slice(-2)) + 5}`, attachedAt: mesh.createdAt })
+    }
     const parts = url.pathname.split("/"), id = parts[3] ?? ""
     const selected = (labels: Record<string, string>, selectors: string[]) => selectors.every((s) => { const at = s.indexOf("="); return labels[s.slice(0, at)] === s.slice(at + 1) })
     if (r.method === "GET" && (url.pathname === "/v1/vms" || url.pathname === "/v1/snapshots")) {
