@@ -18,8 +18,9 @@ public enum MemoryPressureLevel: String, Hashable, Sendable, Codable {
 public struct WarmSetBudget: Hashable, Sendable {
     /// Hidden terminal surfaces kept beyond the visible ones (LRU).
     public var terminalCapacity: Int
-    /// Hidden live web pages (either engine) kept beyond the shown ones, their neighbors and
-    /// each pane's shown tab; the least valuable of the others hibernate. Hidden agent chat pages
+    /// Hidden live web pages (either engine) kept beyond the shown ones and their neighbors
+    /// (each pane's shown tab counts, ranked last); the least valuable of the others hibernate.
+    /// Hidden agent chat pages
     /// are counted against it on their own (`AgentPageHibernation`).
     public var pageCapacity: Int
 

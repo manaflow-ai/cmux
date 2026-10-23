@@ -19,7 +19,8 @@ import os
 /// Hidden chat pages also share the page warm budget (`WarmSetBudget.pageCapacity`, as the browser
 /// pages do, perf-lead.md row 15): past it the chats the person left longest ago go once hidden
 /// `HibernationPlanner.overBudgetMinimumHidden`, not after the whole timeout. Each pane's shown
-/// chat (`fronts`, a parked workspace's too) stays out of the budget, so a switch shows a live page.
+/// chat (`fronts`, a parked workspace's too) counts but goes last, so a switch to a recently left
+/// workspace shows a live page and the parked workspaces do not hold a page each.
 ///
 /// A page stays when its tab is pinned (unless the setting includes pinned tabs), its chat's
 /// turn runs or waits on the person (acpmux's turn state, `AgentTurnStateStore`), it is a New
@@ -53,9 +54,9 @@ final class AgentPageHibernation {
     /// never loads).
     var wakeState: @MainActor (AgentPaneView) async -> AgentPaneWakeState? = { await $0.wakeState(limit: .seconds(3)) }
     var isPinned: (String) -> Bool = { _ in false }
-    /// Hidden chat pages kept live beyond each pane's shown chat (nil: no budget, the timeout alone).
+    /// Hidden chat pages kept live (nil: no budget, the timeout alone).
     var warmPages: () -> Int? = { nil }
-    /// The tab each pane shows, on screen or not (`BrowserHibernation.fronts`): out of the budget.
+    /// The tab each pane shows, on screen or not (`BrowserHibernation.fronts`): last to go for the budget.
     var fronts: () -> Set<String> = { [] }
     /// The pane still hosting tab `key`'s page lets it go (it shows the tab again on demand).
     var displace: (String) -> Void = { _ in }
@@ -179,13 +180,18 @@ final class AgentPageHibernation {
         }
     }
 
-    /// The hidden pages past the warm budget: all but the `warmPages` most recently hidden, leaving
-    /// out each pane's shown chat (`fronts`). Pages that must stay (a busy turn, pinned) are not in
-    /// `hidden`, so they neither go for the budget nor hold a place in it.
+    /// The hidden pages past the warm budget: all but the `warmPages` most valuable, which are each
+    /// pane's shown chat (`fronts`, a parked workspace's too) first, then the most recently hidden.
+    /// Pages that must stay (a busy turn, pinned) are not in `hidden`, so they neither go for the
+    /// budget nor hold a place in it.
     static func overBudget(_ hidden: [String: ContinuousClock.Instant], fronts: Set<String>, warmPages: Int?) -> Set<String> {
         guard let warmPages else { return [] }
-        let budgeted = hidden.filter { !fronts.contains($0.key) }.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
-        return Set(budgeted.dropFirst(max(0, warmPages)).map(\.key))
+        let valuable = hidden.sorted {
+            let (front0, front1) = (fronts.contains($0.key), fronts.contains($1.key))
+            if front0 != front1 { return front0 }
+            return $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key
+        }
+        return Set(valuable.dropFirst(max(0, warmPages)).map(\.key))
     }
 
     /// Why tab `key`'s hidden page stays, or nil when it can go. `onScreen: false` leaves out

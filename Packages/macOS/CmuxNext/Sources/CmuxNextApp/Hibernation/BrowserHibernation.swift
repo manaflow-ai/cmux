@@ -35,9 +35,10 @@ import os
 /// hidden, how often the person showed it in the last hour, and under memory pressure how much
 /// memory it holds. A few pages go per pass (`HibernationPlanner.Pace`), never all at once.
 /// Hidden live pages share one memory budget (`WarmSetBudget.pageCapacity`, 4 to 16 by memory):
-/// past it the least valuable go once hidden a minute, before the timeout. Each pane's shown tab
-/// (`fronts`, parked workspaces too) and its neighbors stay out of the budget, so a switch shows
-/// a live page; a page the budget let go wakes to its picture as any hibernated page.
+/// past it the least valuable go once hidden a minute, before the timeout. The neighbors stay
+/// out of the budget; each pane's shown tab (`fronts`, parked workspaces too) counts but goes
+/// last, so a switch to a recently left workspace shows a live page and parked workspaces do not
+/// each hold a renderer. A page the budget let go wakes to its picture as any hibernated page.
 /// A page never hibernates while it shows, plays, captures, has DevTools open, an agent holds
 /// its lease or called it lately, a download it started runs, or it holds the person's form
 /// input; pinned tabs and Never Hibernate hosts stay unless the setting says otherwise.
@@ -98,7 +99,7 @@ final class BrowserHibernation {
     private var neighbors = NeighborTabs()
     /// Tabs kept awake now because they sit beside a shown tab.
     private(set) var awakeNeighbors: Set<String> = []
-    /// The tab each pane shows, on screen or not (`NeighborTabs.fronts`): out of the page warm budget.
+    /// The tab each pane shows, on screen or not (`NeighborTabs.fronts`): last to go for the page warm budget.
     private(set) var fronts: Set<String> = []
     /// When the pointer last rested on each hidden tab's strip cell (`noteHover`).
     private var hoveredAt: [String: ContinuousClock.Instant] = [:]
@@ -351,7 +352,7 @@ final class BrowserHibernation {
         let nextFronts = neighbors.fronts
         if nextFronts != fronts {
             fronts = nextFronts
-            // A tab that stopped being its pane's front now counts in the budget: plan its deadline.
+            // The budget ranks fronts last: a tab that became or stopped being one changes its deadline.
             if next == awakeNeighbors, replans { replan() }
         }
         guard next != awakeNeighbors else { return }
