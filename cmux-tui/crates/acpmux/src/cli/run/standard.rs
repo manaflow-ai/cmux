@@ -292,7 +292,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // Checked before connecting, so the error needs no daemon.
             let launch = launch::Launch::prepare(&args)?;
             let cwd = match &launch.worktree {
-                Some((_, repo)) => repo.clone(),
+                Some((_, repo)) => Some(repo.clone()),
                 None => new_session_cwd(args.host.as_deref(), args.cwd.clone())?,
             };
             let client = connect(true).await?;
@@ -366,7 +366,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 reused = launch::existing(&client, key).await?;
             }
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
-            p["cwd"] = json!(cwd);
+            if let Some(cwd) = &cwd {
+                p["cwd"] = json!(cwd);
+            }
             let v = match reused.clone() {
                 Some(info) => info,
                 None => match if ephemeral || probe {

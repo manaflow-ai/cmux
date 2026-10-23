@@ -116,7 +116,7 @@ palette linear grouping (Aziz 59564e6e), WebKit title coalesce (Aziz ff167aa9).
 | F11 | Ghostty integration (audit) | 20 idle terminals 7.3 % CPU, 7.8 MB per terminal; possible double VT parsing (daemon + app) | ghostty-integration-DESIGN.md (PL-ghostty) | now |
 | F12 | Two web engines for browser tabs (every feature built twice) | WebKitEngine + CEFEngine, per-tab engine | Lawrence 2026-10-23: KEEP BOTH ENGINES. Every perf target applies to both; no removal | closed |
 | F13 | Codebase health: god target CmuxNextApp 141,651 lines, 152 singletons, 162 broadcast observers, 290 assumeIsolated, Debug-only perf counters | text search counts | PL-arch (architecture-refactor-DESIGN.md), PL-guardrails (pre-push ratchet, OWNERS.md, perf-hot markers, codebase-health.md) | now |
-| F9 | Lag regressions land unseen: timings only warn, fleet minis have no lit display (frame checks skipped) | perf-gate.py header | Lawrence: no CI gate on push or nightly; a scheduled cron perf run (perf budgets + STRESS) opens one regression issue (PL-perf-cron) | now |
+| F9 | Lag regressions land unseen: timings only warn, fleet minis have no lit display (frame checks skipped) | perf-gate.py header | Lawrence: no CI gate on push or nightly; a scheduled cron perf run (perf budgets + STRESS) opens one regression issue (PL-perf-cron) | landed: `cmux-next-perf-budgets.yml` is now the perf cron (`scripts/cmux-next/perf-cron.py`), one part per 20-min tick on idle cmux20-bench time, issue "cmux-next perf regression" |
 
 User data: Lawrence 2026-10-23: opt-in hang reports from nightly users, private data removed (PL-telemetry, hang-reports-DESIGN.md; privacy policy text needs Lawrence).
 
@@ -152,4 +152,5 @@ Batch 2 (after batch 1 lands): issues 8, 9, 11, 15-20.
 | Date | Workstream | sha range on feat-cmux-next | Row | Before | After |
 |---|---|---|---|---|---|
 | 2026-10-23 | PL-guardrails | this push | pre-push guardrails (guardrails.py), perf-hot markers, OWNERS.md, codebase-health.md | no rule; hooks on this Mac from 10-19 | 8 rules refuse new debt in added lines; 0.16-0.20 s per typical push (Lawrence's Mac, loaded); no CI change |
+| 2026-10-23 | PL-perf-cron | this push | perf off the push / PR / nightly path; perf cron | every PR and push scheme compile ran the launch-time budget (3 warm launches) and the perf counter gate (perf-gate.py, up to 15 min, its own red check `cmux-next perf gate`) on the compile Mac; `cmux-next-perf-budgets.yml` on every app push (skipped: no gateway variable, 200 of 200 runs) | 0 perf steps on push, PR and nightly (kept: perf source guard and the perf scripts' unit tests, seconds, Linux); the cron measures STRESS pane motion, the perf budgets, the counter gate and launch on cmux20-bench as background steps of at most 15 min, only when that host is idle and no nightly or dev build waits; compares with the last good run; one issue |
 | | | | | | |
