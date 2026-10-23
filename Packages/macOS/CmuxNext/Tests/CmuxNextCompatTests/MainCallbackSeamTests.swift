@@ -51,7 +51,7 @@ private final class CallbackLog {
         defer { CFRunLoopObserverInvalidate(tracking.keep) }
         let log = CallbackLog()
         MainRunLoopBlock.perform { log.record("common") }
-        MainRunLoopBlock.perform(modes: .defaultMode) { log.record("default") }
+        MainRunLoopBlock.perform(mode: .defaultMode) { log.record("default") }
         runMainRunLoopPass(tracking.mode)
         #expect(log.events == ["common"])
         runMainRunLoopPass()

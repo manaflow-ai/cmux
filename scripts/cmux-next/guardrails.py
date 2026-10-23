@@ -423,19 +423,23 @@ def big_new_app_file(changes: list[FileChange], moved: collections.Counter) -> l
     return hits
 
 
-# A main-thread callback written by hand: a block or observer on the main run loop, or a Core Animation
-# completion. Each such site needs its own `MainActor.assumeIsolated` proof; the CmuxNextCompat adapters
-# (MainRunLoopBlock, MainRunLoopObserver, CATransaction.setMainCompletion) prove main once and take a plain
-# `@MainActor` closure. The adapters themselves live in CmuxNextCompat, which the rule does not read.
-RAW_MAIN_CALLBACK = re.compile(r"\bCFRunLoop(PerformBlock|AddObserver)\(\s*CFRunLoopGetMain\(\)"
-                               r"|\bCATransaction\.setCompletionBlock\b|\bRunLoop\.main\.perform\(")
+# A main-thread callback written by hand: a block or observer on a run loop, or a Core Animation completion.
+# Each such site needs its own `MainActor.assumeIsolated` proof; the CmuxNextCompat adapters (MainRunLoopBlock,
+# MainRunLoopObserver, CATransaction.setMainCompletion) prove main once and take a plain `@MainActor` closure.
+# The APIs match whatever run loop they get: `let main = CFRunLoopGetMain()` then `CFRunLoopPerformBlock(main, ...)`
+# is the same debt. `RunLoop.main.perform` counts with a closure (trailing or `inModes:`), not in its
+# `#selector` form, which runs an Objective-C method and needs no assumeIsolated.
+RAW_MAIN_CALLBACK = re.compile(r"\bCFRunLoopPerformBlock\(|\bCFRunLoopObserverCreate(WithHandler)?\("
+                               r"|\bCATransaction\.setCompletionBlock\b|\bRunLoop\.main\.perform\b(?!\s*\(\s*#selector)")
 RAW_MAIN_CALLBACK_ALLOW = re.compile(r"//\s*callback-seam-allow:\s*\S")
-CALLBACK_SEAMS = f"{SOURCES}CmuxNextCompat/"
+# The adapters themselves, by path: any other CmuxNextCompat file is read like the rest of Sources.
+CALLBACK_SEAMS = frozenset(f"{SOURCES}CmuxNextCompat/{name}" for name in (
+    "MainRunLoopBlock.swift", "MainRunLoopObserver.swift", "CATransaction+MainCompletion.swift"))
 
 
 def outside_callback_seams(version: Version, index: int) -> tuple[bool, list[int]]:
-    """A raw main-thread callback is debt everywhere but in the CmuxNextCompat adapters."""
-    return not version.path.startswith(CALLBACK_SEAMS), []
+    """A raw main-thread callback is debt everywhere but in the three CmuxNextCompat adapters."""
+    return version.path not in CALLBACK_SEAMS, []
 
 
 # A generic class whose deinit is implicit. In a main-actor target (the default of every UI and test
