@@ -83,6 +83,11 @@ if "--suite=pane-bench" in sys.argv:
 if "--suite=every-action" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "every-action-sweep.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=every-action"])
+# `--suite=typing-frame`: key to frame in a terminal, the Home composer and the omnibar, idle and under load
+# (optionally in the STRESS session), scripts/cmux-next/typing-frame-bench.py.
+if "--suite=typing-frame" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "typing-frame-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=typing-frame"])
 if "--suite=anim-perf" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "anim-perf-terminal.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=anim-perf"])
