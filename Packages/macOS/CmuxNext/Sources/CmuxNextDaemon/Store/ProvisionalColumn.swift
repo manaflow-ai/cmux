@@ -33,3 +33,4 @@ public struct ProvisionalColumn: Sendable, Hashable {
     /// The tree column's handle (a split-tree screen gets two columns at once).
     var treeHandle: ColumnID { ColumnID(rawValue: handle.rawValue | (1 << 61)) }
 }
+
