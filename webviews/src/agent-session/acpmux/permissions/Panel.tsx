@@ -92,8 +92,14 @@ function askOf(item: PermissionGroupItem, fallback: string) {
     command,
     cwd: text(input?.cwd),
     scope:
-      text(input?.app) ?? text(input?.application) ?? text(input?.appName) ?? paths[0] ??
-      text(input?.file_path) ?? text(input?.path) ?? text(input?.url) ?? text(input?.cwd),
+      text(input?.app) ??
+      text(input?.application) ??
+      text(input?.appName) ??
+      paths[0] ??
+      text(input?.file_path) ??
+      text(input?.path) ??
+      text(input?.url) ??
+      text(input?.cwd),
     paths,
     input: tool?.rawInput,
   };

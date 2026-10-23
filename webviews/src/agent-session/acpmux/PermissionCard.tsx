@@ -330,7 +330,12 @@ export function PermissionCard({
         </div>
       )}
       {!writing && scopeText && (
-        <p id={scopeId} className="acpmux-permission-scope" data-scope-kind={permission.scope?.kind} aria-label={scopeText}>
+        <p
+          id={scopeId}
+          className="acpmux-permission-scope"
+          data-scope-kind={permission.scope?.kind}
+          aria-label={scopeText}
+        >
           {scopeText}
         </p>
       )}

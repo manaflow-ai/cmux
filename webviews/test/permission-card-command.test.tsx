@@ -77,7 +77,12 @@ test("an ACP subject's app scope reaches the approval card without broadening it
       request: {
         subject: {
           type: "tool_call",
-          toolCall: { toolCallId: "t1", title: "Open Calculator", kind: "computer_use", rawInput: { app: "Calculator" } },
+          toolCall: {
+            toolCallId: "t1",
+            title: "Open Calculator",
+            kind: "computer_use",
+            rawInput: { app: "Calculator" },
+          },
         },
         options: [
           { optionId: "allow", name: "Allow", kind: "allow_once" },
