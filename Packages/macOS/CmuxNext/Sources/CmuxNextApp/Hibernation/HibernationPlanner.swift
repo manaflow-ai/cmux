@@ -31,10 +31,23 @@ struct HibernationPlanner {
         /// ranks after the others, so it does not hold up the relief of the rest. It is live for
         /// a reason, so it neither goes for the warm budget nor holds a place in it.
         var recentlyKept = false
-        /// The tab its pane shows, in a parked workspace or an off-screen column too: what a
-        /// switch shows again. It counts in the warm budget but ranks after every other page, so
-        /// past the budget the workspaces left longest ago let theirs go first.
-        var isFront = false
+        /// Its pane shows it (off screen: a parked workspace or an off-screen column), so a switch
+        /// shows it again: `.warm` stays out of the warm budget, `.parked` counts with
+        /// `frontCredit`; nil for a tab no pane shows.
+        var front: Front?
+    }
+
+    /// How near a hidden tab its pane shows (`NeighborTabs.fronts`) is to the next switch, for the
+    /// page warm budget.
+    enum Front: Hashable {
+        /// Shown by a pane of a workspace on screen (an off-screen column: the next scroll shows it)
+        /// or of the workspace left last (the next switch back shows all of them at once). Out of
+        /// the budget, as the neighbors are; the timeout still applies. Bounded by two workspaces'
+        /// panes, not by the number of workspaces.
+        case warm
+        /// Shown by a pane of a workspace left before that. Counts in the budget, in one idleness
+        /// order with every other page, `frontCredit` less idle.
+        case parked
     }
 
     /// How many pages one pass hibernates and how soon the next pass runs while more are due,
@@ -157,13 +170,36 @@ struct HibernationPlanner {
     /// (a quick look at another tab and back), as `Pace.warning.minimumHidden` says under pressure.
     static let overBudgetMinimumHidden: Double = Pace.warning.minimumHidden
 
+    /// The share of the timeout a parked workspace's shown tab (`Front.parked`) counts as less
+    /// idle for the warm budget: as much as one show (`focusCreditPerDoubling`), 5 minutes at the
+    /// 30 minute default. A switch back to its workspace shows it, so it is worth more than a tab
+    /// left as long ago that nobody shows; but bounded, so a tab the person left a minute ago in
+    /// the pane they work in still ranks before a workspace left twenty minutes ago.
+    static let frontCreditShare: Double = focusCreditPerDoubling
+
+    /// The pages past the warm budget, least valuable first: all `pages` but the `warmPages` most
+    /// valuable, in one order of idleness (larger goes first). A warm front (`Front.warm`) neither
+    /// goes for the budget nor holds a place in it; a parked front counts `frontCreditShare` of
+    /// `timeout` less idle. Shared by browser pages (`plan`) and agent chat pages
+    /// (`AgentPageHibernation`); nil `warmPages` means no budget.
+    static func overBudget(_ pages: [(key: String, idleness: Double, front: Front?)], warmPages: Int?, timeout: Double) -> [String] {
+        guard let warmPages else { return [] }
+        let credit = frontCreditShare * timeout
+        var counted: [(key: String, rank: Double)] = []
+        for page in pages where page.front != .warm {
+            counted.append((page.key, page.front == .parked ? page.idleness - credit : page.idleness))
+        }
+        counted.sort { $0.rank != $1.rank ? $0.rank > $1.rank : $0.key < $1.key }
+        return counted.prefix(max(0, counted.count - warmPages)).map(\.key)
+    }
+
     /// The pages to hibernate now, least valuable first, and when to look again.
     ///
     /// A page is due once its idleness reaches the timeout (`browser.hibernation`; 10 minutes at
     /// most under pressure). Under memory pressure, when no page is due, the least valuable page
     /// hidden at least `Pace.minimumHidden` goes anyway, to relieve it. Past the warm budget
     /// (`warmPages`, `WarmSetBudget.pageCapacity`: hidden live pages kept beyond the probe's
-    /// keeps, each pane's shown tab ranked last) the least valuable pages are due once hidden
+    /// keeps and the warm fronts, `overBudget`) the least valuable pages are due once hidden
     /// `overBudgetMinimumHidden`, so hidden pages cost a bounded amount, not 55 MB each for half
     /// an hour. Each pass takes at most `Pace.perPass` pages and looks again after `Pace.interval`
     /// while more are waiting.
@@ -175,26 +211,26 @@ struct HibernationPlanner {
             return plan
         }
         let pace = Pace.at(pressure)
-        var ranked: [(key: String, idleness: Double, hiddenFor: Double, kept: Bool, budgeted: Bool, front: Bool)] = []
+        var ranked: [(key: String, idleness: Double, hiddenFor: Double, kept: Bool, budgeted: Bool, front: Front?)] = []
         for candidate in candidates {
             if let exemption = exemption(candidate, setting: setting) {
                 plan.exemptions[candidate.key] = exemption
                 continue
             }
             ranked.append((candidate.key, idleness(candidate, pressure: pressure, timeout: threshold), candidate.hiddenFor,
-                           pressure != .normal && candidate.recentlyKept, !candidate.recentlyKept, candidate.isFront))
+                           pressure != .normal && candidate.recentlyKept, !candidate.recentlyKept, candidate.front))
         }
         ranked.sort {
             if $0.kept != $1.kept { return !$0.kept }
             return $0.idleness != $1.idleness ? $0.idleness > $1.idleness : $0.key < $1.key
         }
-        // Past the budget: every page it counts but the `warmPages` most valuable. Each pane's
-        // shown tab (a parked workspace's too) is worth more than any tab nobody shows, so it goes
-        // only after them, the workspace left longest ago first: hidden-page memory is bounded by
-        // the budget, not by the number of workspaces.
-        let budgeted = ranked.filter { $0.budgeted && !$0.front } + ranked.filter { $0.budgeted && $0.front }
-        let over = budgeted.prefix(max(0, budgeted.count - (warmPages ?? budgeted.count)))
-        let overBudget = Set(over.map(\.key))
+        // Past the budget: every page it counts but the `warmPages` most valuable, parked
+        // workspaces' shown tabs in the same order (with a bounded credit): hidden-page memory is
+        // bounded by the budget and two workspaces' panes, not by the number of workspaces.
+        let byKey = Dictionary(ranked.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+        let over = overBudget(ranked.filter { $0.budgeted }.map { (key: $0.key, idleness: $0.idleness, front: $0.front) }, warmPages: warmPages, timeout: threshold)
+            .compactMap { byKey[$0] }
+        let overKeys = Set(over.map(\.key))
         let overMinimum = max(pace.minimumHidden, overBudgetMinimumHidden)
         // A page the person just left never goes, whatever its memory or the mode.
         let oldEnough = ranked.filter { $0.hiddenFor >= pace.minimumHidden }
@@ -218,7 +254,7 @@ struct HibernationPlanner {
             // Under pressure any page old enough is relief: look again once this one is.
             if pressure != .normal { wait = min(wait, max(young, pace.interval)) }
             // Over the budget: due once the person has been away from it long enough.
-            if overBudget.contains(page.key) { wait = min(wait, overMinimum - page.hiddenFor) }
+            if overKeys.contains(page.key) { wait = min(wait, overMinimum - page.hiddenFor) }
             plan.nextCheck = min(plan.nextCheck ?? .infinity, max(wait, 0.001))
         }
         return plan

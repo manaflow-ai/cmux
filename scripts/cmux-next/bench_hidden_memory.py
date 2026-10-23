@@ -11,7 +11,9 @@ and shows the front tab again, so every bench tab is hidden well inside the 30 m
 
 Then it opens --parked workspaces, each showing one Chromium bench page (its pane's shown tab,
 as the STRESS session's "10 other workspaces with Chromium pages"), and goes back to the first
-workspace: those pages are hidden in parked workspaces. They count in the live check too.
+workspace: those pages are hidden in parked workspaces. They count in the live check too, except
+the workspace left last (the one a switch back shows): its shown page stays out of the budget
+(`HibernationPlanner.Front.warm`), so the live check allows the budget + 1 with --parked.
 
 Then it waits (up to --wait s) for the hidden live pages to come down to the budget the app
 reports (`debug.surfaces` hibernation `page_budget`; --budget on a build that reports none,
@@ -19,8 +21,8 @@ default 4), samples the footprint again and wakes --wakes hibernated tabs, readi
 own record (`wakes`: snapshot shown, mounted_ms).
 
 PASS when all hold:
-  live      hidden live bench pages <= the budget
-  bounded   footprint after - footprint before <= budget x --live-page-mb (default 90, a live
+  live      hidden live bench pages <= the budget (+ 1: the workspace left last, with --parked)
+  bounded   footprint after - footprint before <= that x --live-page-mb (default 90, a live
             renderer with its heap) + tabs opened after the sample x --max-mb-per-tab (default 3,
             a hibernated tab's record and pictures)
   picture   every woken tab showed its snapshot
@@ -28,7 +30,8 @@ PASS when all hold:
 On a build before the budget (e.g. 415ee799b49) every bench page stays live until the timeout:
 live = all 18, the delta ~1 GB against a bound of ~410 MB, so it FAILS; with the budget it passes.
 On a build where a pane's shown tab is out of the budget (before the parked-fronts fix) every
-parked workspace keeps its page until the timeout: live = budget + --parked, so it FAILS.
+parked workspace keeps its page until the timeout: live = budget + --parked, so it FAILS
+(with --parked 2 or more).
 Printed too: per_tab_mb, the delta over the tabs opened after the sample.
 
 Usage (a fleet GUI mini, never a laptop; a DEV build, it reads debug.surfaces):
@@ -138,10 +141,13 @@ def main() -> int:
         status = bh.hibernation(sock)
         budget = status.get("page_budget")
         budget = args.budget if budget is None else int(budget)
-        print(f"PERF-HIDDEN opened={len(tabs)} parked={args.parked} budget={budget} reported_budget={status.get('page_budget') is not None}", flush=True)
+        # The workspace left last keeps its shown page out of the budget (a switch back wakes nothing).
+        allowed = budget + (1 if args.parked else 0)
+        print(f"PERF-HIDDEN opened={len(tabs)} parked={args.parked} budget={budget} allowed={allowed} "
+              f"reported_budget={status.get('page_budget') is not None}", flush=True)
         # Agent grace (30 s after the last script call), the minute a page over the budget stays
         # hidden, then the planner's pace (2 pages per 5 s).
-        done = bh.wait_for(lambda: len(live_hidden(sock, tabs)) <= budget, args.wait, 1)
+        done = bh.wait_for(lambda: len(live_hidden(sock, tabs)) <= allowed, args.wait, 1)
         live = live_hidden(sock, tabs)
         settled_s = round(time.monotonic() - opened_at, 1)
         time.sleep(10)  # test script: renderers exit and the app settles
@@ -149,9 +155,9 @@ def main() -> int:
         delta = round(after["total_footprint_mb"] - before["total_footprint_mb"], 1)
         added = max(len(tabs) - in_baseline, 1)
         per_tab = round(delta / added, 2)
-        bound = round(budget * args.live_page_mb + added * args.max_mb_per_tab, 1)
+        bound = round(allowed * args.live_page_mb + added * args.max_mb_per_tab, 1)
         status = bh.hibernation(sock)
-        print(f"PERF-HIDDEN live={len(live)} budget={budget} settled={bool(done)} settled_s={settled_s} "
+        print(f"PERF-HIDDEN live={len(live)} budget={budget} allowed={allowed} settled={bool(done)} settled_s={settled_s} "
               f"delta_mb={delta} bound_mb={bound} per_tab_mb={per_tab} hidden_live_pages={status.get('hidden_live_pages')} "
               f"snapshots={status.get('snapshots')} snapshot_bytes={status.get('snapshot_bytes')} "
               f"exemptions={json.dumps(status.get('exemptions') or {})}", flush=True)
@@ -161,14 +167,14 @@ def main() -> int:
             app.run("tab.focus", target=front)
             time.sleep(1)  # test script: the woken tab hides again before the next wake
         pictures = all(w.get("snapshot") for w in report["wakes"])
-        checks = {"live": len(live) <= budget, "bounded": delta <= bound,
+        checks = {"live": len(live) <= allowed, "bounded": delta <= bound,
                   "picture": pictures if report["wakes"] else False}
         verdict = 0 if all(checks.values()) else 1
-        report.update({"tabs": tabs, "budget": budget, "live": live, "delta_mb": delta, "bound_mb": bound,
+        report.update({"tabs": tabs, "budget": budget, "allowed": allowed, "live": live, "delta_mb": delta, "bound_mb": bound,
                        "per_tab_mb": per_tab, "settled_s": settled_s,
                        "checks": checks, "pass": verdict == 0})
         mounted = [w.get("app_mounted_ms") for w in report["wakes"]]
-        print(f"PERF-HIDDEN-RESULT {'PASS' if verdict == 0 else 'FAIL'} live={len(live)}/{budget} "
+        print(f"PERF-HIDDEN-RESULT {'PASS' if verdict == 0 else 'FAIL'} live={len(live)}/{allowed} "
               f"delta_mb={delta}/{bound} per_tab_mb={per_tab} pictures={sum(1 for w in report['wakes'] if w.get('snapshot'))}/"
               f"{len(report['wakes'])} app_mounted_ms_p50={bh.percentile(mounted, 0.5)} checks={json.dumps(checks)}", flush=True)
     finally:

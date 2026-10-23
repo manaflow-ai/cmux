@@ -36,9 +36,11 @@ import os
 /// memory it holds. A few pages go per pass (`HibernationPlanner.Pace`), never all at once.
 /// Hidden live pages share one memory budget (`WarmSetBudget.pageCapacity`, 4 to 16 by memory):
 /// past it the least valuable go once hidden a minute, before the timeout. The neighbors stay
-/// out of the budget; each pane's shown tab (`fronts`, parked workspaces too) counts but goes
-/// last, so a switch to a recently left workspace shows a live page and parked workspaces do not
-/// each hold a renderer. A page the budget let go wakes to its picture as any hibernated page.
+/// out of the budget, and so does each pane's shown tab in a workspace on screen (an off-screen
+/// column) or in the workspace left last (`fronts`, `HibernationPlanner.Front.warm`), so a scroll
+/// or a switch back shows live pages. The shown tabs of workspaces left before that count, in
+/// one idleness order with the rest and a bounded credit, so parked workspaces do not each hold
+/// a renderer. A page the budget let go wakes to its picture as any hibernated page.
 /// A page never hibernates while it shows, plays, captures, has DevTools open, an agent holds
 /// its lease or called it lately, a download it started runs, or it holds the person's form
 /// input; pinned tabs and Never Hibernate hosts stay unless the setting says otherwise.
@@ -99,8 +101,8 @@ final class BrowserHibernation {
     private var neighbors = NeighborTabs()
     /// Tabs kept awake now because they sit beside a shown tab.
     private(set) var awakeNeighbors: Set<String> = []
-    /// The tab each pane shows, on screen or not (`NeighborTabs.fronts`): last to go for the page warm budget.
-    private(set) var fronts: Set<String> = []
+    /// The tab each pane shows, on screen or not, and whether it counts in the page warm budget (`NeighborTabs.fronts`).
+    private(set) var fronts: [String: HibernationPlanner.Front] = [:]
     /// When the pointer last rested on each hidden tab's strip cell (`noteHover`).
     private var hoveredAt: [String: ContinuousClock.Instant] = [:]
     /// Seconds a hovered tab stays awake after the hover, as for an agent's call.
@@ -310,9 +312,10 @@ final class BrowserHibernation {
 
     /// A pane's tab order, shown tab or presence changed (a switch, reorder, close, new tab, a
     /// parked workspace); `selected` is nil while the pane shows nothing, `visible` false while it
-    /// is off screen (its shown tab stays its front, and wakes no neighbors).
-    func paneDidChange(_ pane: ObjectIdentifier, order: [String], selected: String?, visible: Bool = true) {
-        neighbors.set(pane, order: order, selected: selected, visible: visible)
+    /// is off screen (its shown tab stays its front, and wakes no neighbors). `group`: the pane's
+    /// workspace (nil: the pane alone), whose fronts stay warm while it is on screen or left last.
+    func paneDidChange(_ pane: ObjectIdentifier, order: [String], selected: String?, visible: Bool = true, group: ObjectIdentifier? = nil) {
+        neighbors.set(pane, order: order, selected: selected, visible: visible, group: group)
         refreshNeighbors()
     }
 
@@ -350,12 +353,19 @@ final class BrowserHibernation {
         guard let cache else { return }
         let next = neighbors.awake(radius: neighborRadius).filter { cache.browsers[$0] != nil }
         let nextFronts = neighbors.fronts
-        if nextFronts != fronts {
+        let frontsMoved = nextFronts != fronts
+        if frontsMoved {
+            let changed = Set(nextFronts.keys).union(fronts.keys).filter { nextFronts[$0] != fronts[$0] }
             fronts = nextFronts
-            // The budget ranks fronts last: a tab that became or stopped being one changes its deadline.
-            if next == awakeNeighbors, replans { replan() }
+            // A tab that became or stopped being a front, or a warm one, changes its place in the
+            // budget. The chats too: a pane withdraws its old tab (and the chat planned with the
+            // fronts before this change) before it reports its new one.
+            agentPages?.frontsDidChange(changed)
         }
-        guard next != awakeNeighbors else { return }
+        guard next != awakeNeighbors else {
+            if frontsMoved, replans { replan() }
+            return
+        }
         let left = awakeNeighbors.subtracting(next)
         let joined = next.subtracting(awakeNeighbors)
         awakeNeighbors = next
@@ -551,7 +561,7 @@ final class BrowserHibernation {
         candidate.memoryBytes = memoryBytes[key]
         candidate.isDownloading = isDownloading(key)
         candidate.hasAgentLease = leased.contains(key)
-        candidate.isFront = fronts.contains(key)
+        candidate.front = fronts[key]
         return candidate
     }
 
