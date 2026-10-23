@@ -28,9 +28,21 @@ public protocol PaneMotionSettling: NSView {
     func paneMotionDidSettle()
 }
 
+/// A window whose chrome resizes the content area over several frames: the sidebar sliding
+/// open or closed moves the content edge on every display frame of its width animation, which
+/// resizes every pane in it. Content whose resize is costly defers it to the landing, as it
+/// does inside a pane's own layout spring (``RestingPlacement``).
+@MainActor
+public protocol ContentAreaMotionHosting: NSWindow {
+    /// Whether the window's chrome is resizing the content area on an animation now.
+    var isContentAreaInMotion: Bool { get }
+}
+
 public extension NSView {
-    /// Whether the nearest enclosing ``RestingPlacement`` is still on a layout spring.
+    /// Whether the nearest enclosing ``RestingPlacement`` is still on a layout spring, or the
+    /// window's chrome is resizing the content area (``ContentAreaMotionHosting``).
     var isInPaneMotion: Bool {
+        if let host = window as? any ContentAreaMotionHosting, host.isContentAreaInMotion { return true }
         var ancestor = superview
         while let view = ancestor {
             if let placement = view as? RestingPlacement { return placement.isOnLayoutSpring }

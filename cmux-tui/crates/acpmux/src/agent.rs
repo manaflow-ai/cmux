@@ -4,6 +4,7 @@
 //! the session log holds the raw wire traffic.
 
 use crate::config::HarnessProfile;
+use crate::no_panic::RwLockExt;
 use crate::rpc::{Id, Message, RpcError};
 use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
@@ -15,6 +16,8 @@ use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 mod command;
+#[cfg(unix)]
+pub(crate) mod session_tmp;
 pub(crate) use command::{
     REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env, command_env_cleared, harness_command,
     host_environment,
@@ -102,7 +105,7 @@ struct Hosted {
 
 impl Hosted {
     fn link(&self) -> Arc<crate::agent_host::link::Link> {
-        self.link.read().unwrap().clone()
+        self.link.read_or_recover().clone()
     }
 }
 
@@ -736,8 +739,9 @@ impl ChildAgent {
     pub async fn await_response(&self, id: Id) -> oneshot::Receiver<Result<Value, RpcError>> {
         let (tx, rx) = oneshot::channel();
         let mut p = self.pending.lock().await;
-        if let Some(i) = p.orphans.iter().position(|(k, _)| *k == key(&id)) {
-            let (_, answer) = p.orphans.remove(i).expect("position is in range");
+        let orphan =
+            p.orphans.iter().position(|(k, _)| *k == key(&id)).and_then(|i| p.orphans.remove(i));
+        if let Some((_, answer)) = orphan {
             let _ = tx.send(answer);
         } else {
             p.map.insert(key(&id), tx);
@@ -839,7 +843,7 @@ impl ChildAgent {
             Connect::Ready(link, _) => Arc::from(link),
             Connect::Incompatible { .. } => return Err(anyhow!("agent host refused this build")),
         };
-        *h.link.write().unwrap() = link.clone();
+        *h.link.write_or_recover() = link.clone();
         h.broken.store(false, Ordering::SeqCst);
         self.start_reader(link);
         Ok(())

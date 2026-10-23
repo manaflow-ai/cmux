@@ -71,7 +71,6 @@ await requireBrowserLane("reasoning-menu-check.test.ts", async () => {
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
     await page.mouse.up();
-    await page.waitForTimeout(300);
   };
 
   for (const [engine] of engines)
@@ -82,6 +81,15 @@ await requireBrowserLane("reasoning-menu-check.test.ts", async () => {
       await page.getByRole("menuitem", { name: /^Effort/ }).click();
       await page.waitForFunction(() => document.querySelectorAll(".acpmux-quick-menu").length >= 2);
       await page.locator(".acpmux-quick-menu").last().locator("[role=menuitemradio][aria-checked=true]").waitFor();
+      // Measure the open menu, not its open motion (finite animations only).
+      await page.evaluate(() =>
+        Promise.all(
+          document
+            .getAnimations()
+            .filter((animation) => Number.isFinite(Number(animation.effect?.getComputedTiming().endTime)))
+            .map((animation) => animation.finished.catch(() => undefined)),
+        ),
+      );
       const geometry = await page.evaluate(() => {
         const menus = document.querySelectorAll(".acpmux-quick-menu");
         const menu = menus[menus.length - 1]!;

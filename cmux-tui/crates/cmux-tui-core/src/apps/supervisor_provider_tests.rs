@@ -127,6 +127,40 @@ fn cmux_next_agent_cli_list_routes_a_scoped_read_to_the_verified_provider() {
     assert!(f.router.calls.lock().unwrap().is_empty());
 }
 
+/// The Agent Memory app's search reaches the Mac's agent memory index:
+/// `memory` is a provider family (registering it beside the others keeps
+/// them), and `memory.search` needs only `memory:read`.
+#[test]
+fn cmux_next_memory_search_routes_a_scoped_read_to_the_verified_provider() {
+    let root = temp_dir();
+    write_app(&root.0.join("bundled"), "demo", "cmux/demo", json!({"memory:read":"search memory"}));
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/demo");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    let rx = provider(&f, &["coderouter", "memory"]);
+    let params = json!({"roots":["root_home"],"query":"deploy key","limit":5});
+    f.supervisor
+        .dispatch(CLIENT, "m1", "n1", "tap", json!({"op":"memory.search", "params":params}), false)
+        .unwrap();
+    let request = next_request(&rx);
+    assert_eq!(request["op"], "memory.search");
+    assert_eq!(request["params"], params);
+    assert!(request["idempotency_key"].is_null(), "a read must not get a mutation key");
+    let value =
+        json!({"hits":[{"root":"agent-memory","path":"notes","line":0,"text":"[deploy] key"}]});
+    f.supervisor
+        .provider_result(
+            PROVIDER,
+            request["request_id"].as_u64().unwrap(),
+            true,
+            json!({"value":value}),
+        )
+        .unwrap();
+    let update =
+        f.wait("search result", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
+    assert_eq!(update["ops"][0]["props"]["result"], json!({"ok":true,"body":{"value":value}}));
+}
+
 #[test]
 fn no_provider_fails_at_once_and_a_provider_leaving_fails_its_pending_calls() {
     let f = fixture();

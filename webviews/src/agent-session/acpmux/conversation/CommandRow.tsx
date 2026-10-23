@@ -5,7 +5,7 @@
 // opening to its Shell block. A command that went on in the background shows how it stands there
 // instead (BackgroundMark.tsx), and its time once it ends.
 import { useFindReveal } from "./chatFind";
-import { useId, useMemo } from "react";
+import { useId, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { commandFolder } from "./commandFolder";
@@ -16,16 +16,21 @@ import { BackgroundMark } from "./BackgroundMark";
 import { Check, ChevronRight, Spinner, TerminalSquare } from "./icons";
 import { isFailed, isRunning, toolDuration } from "./toolGroups";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
-import { shortCommand } from "./shortCommand";
+import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { useFold } from "./fold";
 
 export function CommandRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
   const tool = item.tool!;
   const [open, setOpen] = useTranscriptDisclosure(`command:${tool.id}`);
+  // Find in Chat counts matches in the whole output, so a command it reveals shows all of it.
+  const [reveal, setReveal] = useState(0);
   useFindReveal(
     useMemo(() => [item], [item]),
-    () => setOpen(true),
+    () => {
+      setOpen(true);
+      setReveal((count) => count + 1);
+    },
   );
   const fold = useFold(open);
   const detailsId = useId();
@@ -36,7 +41,7 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
   const duration = toolDuration(t, tool);
   // Find counts the line without its leading cd (chatFind.ts), so a line shortened past that is
   // skipped; opened, the Shell block draws it.
-  const short = shortCommand(tool.command ?? "");
+  const short = shortCommand(tool.command ?? "", ROW_WIDTH);
   const whole = short === commandFolder(tool.command ?? "").rest.trim();
   const exited = tool.exitCode !== undefined && tool.exitCode !== 0;
   // "Ran {command}" in the reader's language, the command drawn as code where the string puts it.
@@ -98,6 +103,7 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
             command={tool.command}
             output={tool.output?.replace(/\n$/, "")}
             exitCode={tool.exitCode}
+            reveal={reveal}
           />
         </div>
       )}

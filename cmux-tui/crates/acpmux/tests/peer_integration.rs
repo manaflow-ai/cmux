@@ -565,6 +565,7 @@ async fn an_app_prompt_forwarded_by_a_peer_waits_for_the_owning_daemons_trust() 
         codex_config: root.join("home").join("config.toml"),
         record: root.join("home").join("trust.json"),
         agent_home: None,
+        cmux_worktrees: None,
     }));
     let (port, peer_token) = listen_with_peer_token(b.clone(), "trust").await;
     let mut cb = client(b.clone()).await;
@@ -601,6 +602,133 @@ async fn an_app_prompt_forwarded_by_a_peer_waits_for_the_owning_daemons_trust() 
     // Trusted on B (B's own user answers): A's pane prompt goes.
     cb.call("acp.trust.set", json!({"cwd": work, "level": "trusted"})).await.unwrap();
     let r = app.call(method::SESSION_PROMPT, prompt("app-after-trust")).await;
+    assert!(r.is_ok(), "{r:?}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A TCP relay in front of `port` that keeps every byte the server sends:
+/// a WebSocket server's frames are not masked, so B's replies to A read as
+/// text there.
+async fn recording_relay(port: u16) -> (u16, Arc<std::sync::Mutex<Vec<u8>>>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_port = l.local_addr().unwrap().port();
+    let kept = seen.clone();
+    tokio::spawn(async move {
+        while let Ok((client, _)) = l.accept().await {
+            let Ok(server) = tokio::net::TcpStream::connect(("127.0.0.1", port)).await else {
+                continue;
+            };
+            let (mut cr, mut cw) = client.into_split();
+            let (mut sr, mut sw) = server.into_split();
+            let kept = kept.clone();
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 64 * 1024];
+                while let Ok(n) = sr.read(&mut buf).await {
+                    if n == 0 {
+                        break;
+                    }
+                    kept.lock().unwrap().extend_from_slice(&buf[..n]);
+                    if cw.write_all(&buf[..n]).await.is_err() {
+                        break;
+                    }
+                }
+            });
+            tokio::spawn(async move {
+                let _ = tokio::io::copy(&mut cr, &mut sw).await;
+            });
+        }
+    });
+    (relay_port, seen)
+}
+
+/// The pane's Trust for a chat on a peer (Leo, 2026-10-21: only `cmux setup
+/// trust` on the peer cleared it). The folder is the peer's, so A's app sends
+/// `acp.trust.set` for it and A forwards it without looking for the folder on
+/// its own disk: B checks the folder itself (one B lacks is refused by B) and
+/// records the answer, and the pane's prompt then goes. A's Web client still
+/// cannot answer, and a set for no peer's session is still checked on A.
+#[tokio::test]
+async fn an_app_trust_answer_for_a_peers_folder_is_checked_and_recorded_by_the_peer() {
+    let root = std::env::temp_dir().join(format!("api-tp-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("work")).unwrap();
+    std::fs::create_dir_all(root.join("home")).unwrap();
+    let root = std::fs::canonicalize(&root).unwrap();
+    let work = root.join("work");
+    let record = root.join("home").join("trust.json");
+    let b = hub(config(PermissionPolicy::ApproveAll)).await;
+    b.set_trust_gate(Some(acpmux::trust::Paths {
+        claude_json: root.join("home").join(".claude.json"),
+        codex_config: root.join("home").join("config.toml"),
+        record: record.clone(),
+        agent_home: None,
+        cmux_worktrees: None,
+    }));
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "trust-set").await;
+    let (relay, from_b) = recording_relay(port).await;
+    let mut cb = client(b.clone()).await;
+    cb.call(
+        method::SESSION_NEW,
+        json!({"cwd": work, "mcpServers": [], "_meta": {"acpmux": {"name": "t2"}}}),
+    )
+    .await
+    .unwrap();
+    let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{relay}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let connect = |origin: acpmux::server::Origin| {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(acpmux::server::serve_connection_with(a.clone(), in_rx, out_tx, origin));
+        C { tx: in_tx, rx: out_rx, next: 0 }
+    };
+    let mut app = connect(acpmux::server::Origin::LocalApp);
+    let mut web = connect(acpmux::server::Origin::Web);
+    let set = |cwd: &std::path::Path, session: Option<&str>| {
+        let mut p = json!({"cwd": cwd, "level": "trusted"});
+        if let Some(s) = session {
+            p["sessionId"] = json!(s);
+        }
+        p
+    };
+    let refused_by_b =
+        || String::from_utf8_lossy(&from_b.lock().unwrap()).contains("cwd is refused");
+
+    // A folder that is not on this disk, for the chat on B: A passes it on, and B, which lacks
+    // it too, refuses it.
+    let elsewhere = root.join("only-on-the-peer");
+    let err = app.call("acp.trust.set", set(&elsewhere, Some("b/t2"))).await.unwrap_err();
+    assert!(err.starts_with("cwd is refused"), "{err}");
+    assert!(refused_by_b(), "A refused the peer's folder itself instead of forwarding it");
+    assert!(!record.exists(), "a folder B lacks was recorded");
+
+    // A Web client of A answers nothing, whatever the folder.
+    for cwd in [&work, &elsewhere] {
+        let err = web.call("acp.trust.set", set(cwd, Some("b/t2"))).await.unwrap_err();
+        assert!(err.starts_with("trust.remote"), "{err}");
+    }
+    assert!(!record.exists(), "a Web client's answer was recorded");
+
+    // With no peer's session named, A still checks the folder on its own disk.
+    for session in [None, Some("no-such-chat")] {
+        let err = app.call("acp.trust.set", set(&elsewhere, session)).await.unwrap_err();
+        assert!(err.starts_with("cwd is refused"), "{err}");
+    }
+
+    // B's folder: forwarded, recorded on B, and the pane's prompt goes.
+    let prompt =
+        |text: &str| json!({"sessionId": "b/t2", "prompt": [{"type": "text", "text": text}]});
+    let err = app.call(method::SESSION_PROMPT, prompt("before-trust")).await.unwrap_err();
+    assert!(err.starts_with("trust.pending"), "{err}");
+    let ok = app.call("acp.trust.set", set(&work, Some("b/t2"))).await.unwrap();
+    assert_eq!(ok["peer"], "b", "{ok}");
+    assert_eq!(ok["level"], "trusted", "{ok}");
+    let on_b = cb.call("acp.trust.get", json!({"cwd": work})).await.unwrap();
+    assert_eq!(on_b["level"], "trusted", "{on_b}");
+    let r = app.call(method::SESSION_PROMPT, prompt("after-trust")).await;
     assert!(r.is_ok(), "{r:?}");
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -1099,6 +1227,113 @@ async fn opening_a_long_peer_chat_stays_within_its_payload_budget_on_the_link() 
     );
     assert!(link <= 80 * 1024, "an older page sent {} KiB over the peer link", link / 1024);
     assert_eq!(older["hasMore"], true);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// No message on a peer link is larger than one frame every acpmux reads (16 MiB). At
+/// 2026-10-21 06:23Z a 32.8 MB reply from huge-blue reset cosmic-gray's link with its 29 chats:
+/// a history read with no `maxBytes`, 5000 records of a chat with long tool outputs. Here a
+/// 33 MB prompt pushed over the link fails alone, with an error; a 60 MB history comes in a page
+/// that fits, and a record too large for any message comes as a stub; the link never drops.
+#[tokio::test]
+async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
+    use acpmux::store::EventRecord;
+    let dir = std::env::temp_dir().join(format!("acpmux-peer-frame-{}", uuid::Uuid::now_v7()));
+    let mut cfg = config(PermissionPolicy::ApproveAll);
+    cfg.store.mode = StoreMode::Local;
+    cfg.store.segment_bytes = 64 * 1024 * 1024;
+
+    // B owns a chat of 40 tool outputs of 1 MB, then one of 20 MB, written straight to its store:
+    // no hub runs the chat before B, so no other record lands after them.
+    let store = acpmux::store::open(&cfg.store, &dir).unwrap();
+    let id = uuid::Uuid::now_v7().to_string();
+    let meta: acpmux::store::SessionMeta = serde_json::from_value(json!({
+        "schema": acpmux::store::META_SCHEMA, "id": id, "name": "big", "harness": "fake",
+        "cwd": std::env::temp_dir(), "status": "idle", "createdAt": 1, "updatedAt": 1,
+    }))
+    .unwrap();
+    store.save(&meta).unwrap();
+    let mut seq = 0;
+    let mut output = |bytes: usize| {
+        seq += 1;
+        let msg = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "agent-1",
+            "update": {"sessionUpdate": "tool_call_update", "toolCallId": format!("call-{seq}"),
+            "status": "completed",
+            "content": [{"type": "content", "content": {"type": "text", "text": "x".repeat(bytes)}}]}}});
+        let rec = EventRecord {
+            seq,
+            at: seq,
+            dir: "in".into(),
+            kind: "tool_call_update".into(),
+            msg,
+            host_seq: None,
+        };
+        store.append(&id, &rec).unwrap();
+    };
+    for _ in 0..40 {
+        output(1024 * 1024);
+    }
+    output(20 * 1024 * 1024);
+    let last = seq;
+    let b = Hub::new(cfg.clone(), store);
+    let _ = b.person.install_spawn_key(PERSON_KEY);
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "frame").await;
+    let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+
+    // A 33 MB prompt for B's chat: refused with an error, never sent as one frame.
+    let huge = "y".repeat(33 * 1024 * 1024);
+    let refused = ca
+        .call(
+            method::SESSION_PROMPT,
+            json!({"sessionId": "b/big", "prompt": [{"type": "text", "text": huge}]}),
+        )
+        .await
+        .expect_err("a 33 MB prompt went over the peer link");
+    assert!(refused.contains("too large"), "{refused}");
+
+    // The whole history, asked with no maxBytes: one page that fits in a frame, newest last.
+    let att =
+        ca.call(method::MUX_ATTACH, json!({"session": "b/big", "limit": 5000})).await.unwrap();
+    let wire = serde_json::to_string(&att).unwrap().len();
+    assert!(wire < 16 * 1024 * 1024, "the history page was {} MiB", wire >> 20);
+    assert_eq!(att["peer"], "b");
+    assert_eq!(att["hasMore"], true, "60 MB of history came in one page");
+    let events = att["events"].as_array().unwrap();
+    assert_eq!(events.last().unwrap()["seq"], last, "the page ends on the latest record");
+    // The 20 MB record, too large for any message, is a stub that says what it left out.
+    let omitted = &events.last().unwrap()["msg"]["_meta"]["acpmux"]["omitted"];
+    assert!(omitted["bytes"].as_u64().unwrap() > 20 * 1024 * 1024, "{omitted}");
+
+    // A live update too large for a frame: B leaves it out of A's link and says so, and A tells
+    // its client reading that chat to read it again.
+    let mut cb = client(b.clone()).await;
+    let live = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "live"}}})).await.unwrap();
+    let live = live["sessionId"].as_str().unwrap().to_owned();
+    ca.call(method::MUX_ATTACH, json!({"session": "b/live", "limit": 1})).await.unwrap();
+    cb.call(
+        method::SESSION_PROMPT,
+        json!({"sessionId": live, "prompt": [{"type": "text", "text": "big-output:16"}]}),
+    )
+    .await
+    .unwrap();
+    ca.wait("_acpmux/lagged", |_| true).await;
+
+    // The link held through all of it: no reconnect, and B still answers.
+    let peer = &a.peers()[0];
+    assert_eq!(peer["connected"], true, "{peer}");
+    assert!(peer["error"].is_null(), "the peer link dropped: {peer}");
+    let page = ca
+        .call(
+            method::MUX_EVENTS,
+            json!({"session": "b/big", "beforeSeq": last, "limit": 2, "maxBytes": 4 << 20}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(page["events"].as_array().unwrap().len(), 2, "{}", page["hasMore"]);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

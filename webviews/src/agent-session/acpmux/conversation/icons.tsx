@@ -63,6 +63,14 @@ export const Expand = (p: CvIconProps) => (
   </Svg>
 );
 
+/** Open in tab: a window with its right side split off, where the new tab opens. */
+export const OpenTab = (p: CvIconProps) => (
+  <Svg {...p}>
+    <rect x="2.5" y="3.5" width="11" height="9" rx="1.5" />
+    <path d="M9 3.5v9" />
+  </Svg>
+);
+
 export const ChevronDown = (p: CvIconProps) => (
   <Svg {...p}>
     <path d="M4.25 6.25 8 10l3.75-3.75" />
@@ -419,6 +427,19 @@ export const Envelope = (p: CvIconProps) => (
   <Svg strokeWidth={1.1} {...p}>
     <rect x="2.25" y="3.75" width="11.5" height="8.5" rx="1.75" />
     <path d="m2.75 4.75 5.25 4 5.25-4" />
+  </Svg>
+);
+
+/** A small bot: another agent's message to this chat when its harness has no mark (IncomingMessageCard.tsx). */
+export const Bot = (p: CvIconProps) => (
+  <Svg strokeWidth={1.1} {...p}>
+    <rect x="2.75" y="5.25" width="10.5" height="7.5" rx="2.5" />
+    <path d="M8 5.25V3.5" />
+    <circle cx="8" cy="2.9" r="0.6" />
+    <path d="M1.75 8.25v1.5M14.25 8.25v1.5" />
+    <circle cx="6" cy="8.75" r="0.5" fill="currentColor" />
+    <circle cx="10" cy="8.75" r="0.5" fill="currentColor" />
+    <path d="M6.75 10.75c.75.4 1.75.4 2.5 0" />
   </Svg>
 );
 

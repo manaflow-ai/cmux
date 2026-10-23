@@ -159,11 +159,39 @@ await requireBrowserLane("composer-type-scale.test.ts", async () => {
     "agent-pane.composer-context": ["closed", "folder-menu", "computer-menu", "ssh-chat"],
     "agent-pane.composer-pickers": ["closed", "model-menu", "effort-menu"],
   };
-  for (const [entry, variants] of Object.entries(ENTRIES)) {
-    for (const variant of variants) {
-      test(`${entry} ${variant} draws its text on the type scale`, async () => {
-        expect(await offScale(entry, variant)).toEqual([]);
-      });
+  // One variant at a time spends most of its ~2.2 s loading the stage (each page is a fresh
+  // context, so it fetches its ~700 dev-server modules again), and 41 of them in a row ran past the
+  // runner's 120 s file limit. So a few pages read variants at once, each variant still in its own
+  // page, and each test awaits its own result.
+  const PAGES = 4;
+  const states = Object.entries(ENTRIES).flatMap(([entry, variants]) =>
+    variants.map((variant) => ({ entry, variant })),
+  );
+  const results = new Map<string, Promise<string[]>>();
+  beforeAll(() => {
+    let free = PAGES;
+    const waiting: (() => void)[] = [];
+    const inPage = async (work: () => Promise<string[]>) => {
+      if (free > 0) free--;
+      else await new Promise<void>((resolve) => waiting.push(resolve));
+      try {
+        return await work();
+      } finally {
+        const next = waiting.shift();
+        if (next) next();
+        else free++;
+      }
+    };
+    for (const { entry, variant } of states) {
+      const result = inPage(() => offScale(entry, variant));
+      // A test left out by a filter never awaits its result; its failure is not the run's.
+      result.catch(() => {});
+      results.set(`${entry} ${variant}`, result);
     }
+  });
+  for (const { entry, variant } of states) {
+    test(`${entry} ${variant} draws its text on the type scale`, async () => {
+      expect(await results.get(`${entry} ${variant}`)!).toEqual([]);
+    });
   }
 });

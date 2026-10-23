@@ -14,6 +14,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page switched to or created `sessionId`; the host keeps it so a
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)
+    /// `chat.missing` with `{session, reason}`: the page says this tab's chat isn't available
+    /// (`notListedAtOpen`, `leftListWhileShown`); the host logs it, so the views can be counted.
+    case missingChat(session: String, reason: String)
     /// A new chat's typed text before it has a session (`chat.unsentDraft`, cx-z5vd): the App
     /// keeps it with the tab, so a relaunch opens the chat with it.
     case unsentDraft(String)
@@ -54,11 +57,13 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The agent picked on the new tab screen, to remember for the next
     /// new tab (`newTab.remember`).
     case rememberNewTab(AgentPaneRememberedPick)
-    /// The new tab page's style switch (`newTab.setTemplate`): the template to
-    /// save as `tabs.newTabTemplate` (the App checks the value).
-    case setNewTabTemplate(String)
+    /// The new tab page's style switch (`newTab.setTemplate`) or edit mode (`newTab.editWidgets`):
+    /// ``AgentPaneNewTabEdit``.
+    case editNewTab(AgentPaneNewTabEdit)
     /// The New Tab page player's control (`nowPlaying.command {command, seconds}`).
     case nowPlaying(AgentPaneNowPlaying.Command)
+    /// An import card's button on the New Tab page (`importCards.act {id, action}`).
+    case importCard(AgentPaneImportCards.Act)
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched
@@ -136,6 +141,13 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A chat this one made (a fork, a Continue In…), opened at a destination of its own: a tab,
     /// a split, a new workspace or a new window (`placement`; none is a tab).
     case chatTab(String, AgentForkDestination)
+    /// `chat.offer.open {sessionId, sender?}`: the person opened a session the chat shows (a
+    /// sub-session its agent started, the session that started it, with `sender` the chat that sent
+    /// it a message): its tab, else one beside this chat, focused (``AgentPaneOfferOpen``).
+    case offerOpen(String, sender: Bool)
+    /// `chat.asks.open {sessionId}`: Needs you went to another chat's ask: that chat's tab, else a
+    /// new tab beside this chat; never this chat replaced in place (``AgentPaneAskOpen``).
+    case asksOpen(String)
     /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
     /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
     case subagentPane(String, focus: Bool)
@@ -148,8 +160,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)
     /// `pane.painted`: the document drew its first frame after the handshake
-    /// (once per document).
-    case painted
+    /// (once per document). `fromKeptTail` is the page's own account of what it
+    /// drew there: a chat it took from a kept tail (tailCache.ts), which is
+    /// already on screen in that frame, or a chat read cold, which the pane's
+    /// loading state fades in. An older page says nothing, which means cold.
+    case painted(fromKeptTail: Bool)
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
     /// `dictation.openSettings` with `{permission}`, or `dictation.audio` with `{enabled}`.
     case dictation(AgentPaneDictationCommand)

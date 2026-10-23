@@ -141,10 +141,12 @@ public nonisolated enum ActionCatalog {
         HibernationActionCatalog.self,
         LayoutActionCatalog.self,
         HistoryActionCatalog.self,
+        StashActionCatalog.self,
         MusicActionCatalog.self,
         NowPlayingCardActionCatalog.self,
         BookmarkActionCatalog.self,
         SidebarSectionActionCatalog.self,
+        SidebarPriorityActionCatalog.self,
         AppStoreActionCatalog.self,
         TasksActionCatalog.self,
         PhoneActionCatalog.self,
@@ -155,6 +157,7 @@ public nonisolated enum ActionCatalog {
         MarkdownPageActionCatalog.self,
         ListActionCatalog.self,
         PaletteKeyActionCatalog.self,
+        ImportActionCatalog.self,
     ]
 
     private static func makeAll() -> [ActionDescriptor] {

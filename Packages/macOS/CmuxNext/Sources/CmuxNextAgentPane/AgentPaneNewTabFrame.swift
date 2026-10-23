@@ -84,7 +84,7 @@ public final class AgentPaneNewTabFrame {
                 // One page frame first: an answer handed to the page before this is drawn by then.
                 await withCheckedContinuation { done in redraw.afterNextFrame { done.resume() } }
                 guard view.window != nil, !view.isHiddenOrHasHiddenAncestor, view.isDescendant(of: host), host.bounds.size == size,
-                      let snapshot = try? await view.webView.takeSnapshot(configuration: nil), snapshot.size == size,
+                      let snapshot = await view.pageSnapshot(), snapshot.size == size,
                       takenAt == self.generation, self.shows(view.model) == before else { return }
                 self.store(snapshot, size: size, appearance: appearance, generation: takenAt)
             }
@@ -109,6 +109,7 @@ public final class AgentPaneNewTabFrame {
     /// `model`'s New Tab page picked an agent or model (or dismissed the harness hint).
     public func modelChanged(_ pick: AgentPaneRememberedPick, by model: AgentPaneModel) {
         let picked = pick.agent + "/" + (pick.model ?? "") + (pick.dismissesHarnessHint ? "/hint-dismissed" : "")
+            + (pick.started.map { "/started:" + $0 } ?? "")
         pages[ObjectIdentifier(model), default: Page(model: model)].picked = picked
         update(\.model, picked)
     }

@@ -26,6 +26,9 @@ export type AgentSessionTheme = {
   softText: string;
   accent: string;
   accentSoft: string;
+  /// A lit (pressed, on) control's glyph or label: the accent lifted to at least the muted text's
+  /// contrast (`ThemeTokens.litGlyph`); without it, `accent`.
+  litGlyph?: string;
   /// Labels on the accent; the cmux-next pane sends it, others fall back to white.
   accentText?: string;
   /// Glyphs on `accent` where it fills a control (Send); without it, `accentText`.
@@ -71,6 +74,14 @@ export type AgentSessionTheme = {
   /// How agent work shows (Debug Settings `status.working`, CmuxNextDesign StatusWorkingLook): sets
   /// `data-working-look` on the root. Absent means the stylesheet default, the breathing dot.
   workingLook?: "breathe" | "shimmer" | "spinner";
+  /// Running subagents in one tray above the composer, a line where each ended (Debug Settings
+  /// `agentPane.debug.subagentTray`, acpmux subagents/runningTray.ts). Absent or true is the tray;
+  /// false keeps the transcript's group cards and the agents pill.
+  subagentTray?: boolean;
+  /// The transcript's scrollbar fades out at rest (Debug Settings `agentPane.debug.scrollerFade`):
+  /// sets `data-cmux-scroller-fade` on the root (scrollers.ts). Absent or false keeps it shown while
+  /// the chat overflows.
+  scrollerFade?: boolean;
 };
 
 export type AppContext = {

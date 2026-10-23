@@ -19,8 +19,16 @@ import type { DiffViewerOptions } from "./pierre-options";
  * On the shared page host the prefs are `diff.*` settings: `cmux.diff.prefs.get` and
  * `cmux.diff.prefs.set {key, value}` (diff/pageStore.ts), and web storage is never touched (the
  * page host pool clears it). The host seeds first paint through `payload.viewerOptions`.
+ *
+ * `groupByKind` is persisted like the rest since it got its `diff.groupByKind` schema row: it
+ * shipped as a toolbar toggle that reset itself on every reopen, because the host refuses a
+ * `diff.*` key it has no row for (`DiffPrefKey.booleans`) and `saveViewerPrefs` swallows that
+ * refusal. `test/viewer-prefs-host-keys.test.ts` fails if the two lists drift apart again. It
+ * stays off by default (state.ts): a reorder of the file column is the reader's to ask for.
  */
-export type ViewerPrefs = Partial<Omit<DiffViewerOptions, "collapsed">> & { collapsedFiles?: string[] };
+export type ViewerPrefs = Partial<Omit<DiffViewerOptions, "collapsed">> & {
+  collapsedFiles?: string[];
+};
 
 const persistedOptionsKey = "cmux.diffViewer.options";
 // Layout-only key from before options were persisted as one object.
@@ -41,7 +49,14 @@ export function sanitizeViewerPrefs(raw: unknown): ViewerPrefs {
   if (source.colors === "theme" || source.colors === "muted" || source.colors === "standard") {
     prefs.colors = source.colors;
   }
-  for (const key of ["wordWrap", "wordDiffs", "lineNumbers", "showBackgrounds", "expandUnchanged"] as const) {
+  for (const key of [
+    "wordWrap",
+    "wordDiffs",
+    "lineNumbers",
+    "showBackgrounds",
+    "expandUnchanged",
+    "groupByKind",
+  ] as const) {
     if (typeof source[key] === "boolean") {
       prefs[key] = source[key];
     }

@@ -81,6 +81,8 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
     await page.goto(`http://127.0.0.1:${port}/test/browser/streaming-text.html`);
     await page.waitForFunction(() => "__streamingText" in window);
     await page.getByText("History answer 6.").waitFor();
+    // The page's first paints and the dev server's start-up settle before sampling.
+    // fixed-wait: nothing marks the page's start-up as done
     await page.waitForTimeout(500);
     const report = await page.evaluate(
       (cadence) =>

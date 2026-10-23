@@ -300,25 +300,27 @@ async fn a_web_handoff_start_moves_a_new_target_to_an_asking_mode_first() {
 }
 
 // D10: opencode has no mode that asks before each change, so a Web handoff
-// never starts an opencode target; the new target is ended.
+// never starts an opencode target. Since 307889914b9 (remote authority is
+// bound when the session is resolved) the prepare itself is refused, before
+// any target session exists.
 #[tokio::test]
-async fn a_web_handoff_start_to_an_opencode_target_is_refused_and_the_target_ended() {
+async fn a_web_handoff_to_an_opencode_target_is_refused_before_a_target_exists() {
     let d = dir("handoff-opencode");
     let hub = hub(&d, None);
     let mut web = Client::new(&hub, Origin::Web);
     let mut local = Client::person(&hub, Origin::Local).await;
-    let (id, target) = web_handoff(&mut web, &d, "k-oc", "fopencode").await;
-    let r = web.call("_acpmux/handoff_start", start(&id)).await;
-    assert!(r.get("error").is_some(), "{r}");
-    let info = local.call("_acpmux/info", json!({"sessionId": target})).await;
-    assert_ne!(info["result"]["modes"]["currentModeId"], json!("plan"), "{info}");
+    let src = web.new_session(&d).await;
+    assert!(web.prompt(&src, "some work").await.get("error").is_none());
+    let p = json!({"sessionId": src, "harness": "fopencode", "handoffKey": "k-oc"});
+    let r = web.call("_acpmux/handoff_prepare", p).await;
+    assert_eq!(reason(&r), "remote.mode_not_asking", "{r}");
     let sessions = local.call("_acpmux/sessions", json!({})).await;
-    let live = sessions["result"]["sessions"]
+    let made = sessions["result"]["sessions"]
         .as_array()
         .unwrap()
         .iter()
-        .any(|x| x["sessionId"] == json!(target) && x["status"] != json!("ended"));
-    assert!(!live, "the refused target was ended: {sessions}");
+        .any(|x| x["harness"] == json!("fopencode") && x["status"] != json!("ended"));
+    assert!(!made, "a refused handoff left an opencode target: {sessions}");
     let _ = std::fs::remove_dir_all(&d);
 }
 

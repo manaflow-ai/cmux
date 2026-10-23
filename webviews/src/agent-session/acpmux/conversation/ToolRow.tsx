@@ -10,7 +10,7 @@ import { mediaKind, ReplyMedia } from "../chips/ReplyMedia";
 import { pathName } from "../chips/paths";
 import { toolImages } from "../toolImages";
 import { toolLabel } from "../toolPaths";
-import { shortCommand } from "./shortCommand";
+import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
 import { CopyButton } from "./CopyButton";
@@ -21,9 +21,12 @@ import { BackgroundHint } from "./BackgroundHint";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { toolDuration } from "./toolGroups";
-import { OutputMore, useOutput } from "./toolOutput";
+import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
+import { useBlockWrap } from "./blockWrap";
+import { Lines, lineCount, PreviewMore, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
 import { cleanText } from "./mcpCalls";
 import { useFold } from "./fold";
+import { WriteLabel, writeCall } from "./WriteLabel";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
 /// ACP tool kinds (`ToolKind`) to row glyphs.
@@ -79,6 +82,8 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
     t(foreground ? "tools.runningUnnamed" : "tools.ranUnnamed"),
   );
   const failed = tool.status === "failed";
+  // A Write reads as an edit does: "Writing notes.md", then "Wrote notes.md +18" (WriteLabel.tsx).
+  const write = writeCall(tool);
   // A shell that went on in the background says how it stands there, and its time once it ended.
   const background = !failed && !foreground && tool.background;
   // A finished call's check and run time, at the row's right edge and only on hover
@@ -87,7 +92,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   // Only a call with a command line is a shell; an MCP call can also say "execute".
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // Find counts a shell's whole line: a label that is its description or a shortened line is skipped.
-  const drawsCommand = !tool.description && shortCommand(tool.command ?? "") === tool.command?.trim();
+  const drawsCommand = !tool.description && shortCommand(tool.command ?? "", ROW_WIDTH) === tool.command?.trim();
   // A shell prints what it printed; any other output loses the context a host injects into it.
   const body = useMemo(
     () => (shell || !tool.output ? tool.output : cleanText(tool.output))?.replace(/\n$/, ""),
@@ -98,8 +103,8 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
     <>
       <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
       <span className="cv-tool__text" data-find-skip={(shell && (open || !drawsCommand)) || undefined}>
-        {label}
-        {failed && <span className="cv-tool__detail"> {t("tools.failed")}</span>}
+        {write ? <WriteLabel tool={tool} write={write} t={t} /> : label}
+        {failed && <span className="cv-tool__failed"> {t("tools.failed")}</span>}
       </span>
       {background ? (
         <span className="cv-command__meta cv-tool__meta">
@@ -145,7 +150,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
           ) : files.length > 0 ? (
             <div id={detailsId}>
               {files.map((file) => (
-                <EditDiff key={file.path} file={file} />
+                <EditDiff key={file.path} file={file} reveal={reveal} />
               ))}
             </div>
           ) : (
@@ -159,28 +164,36 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
 
 /// A call's output when it is not a shell's: copyable whole from its right-click menu (Copy Output;
 /// the `hover-actions` experiment's "all" arm adds a Copy in its corner on hover), the end of a long
-/// one shown.
+/// one shown. Wrap lines sits in its corner on hover; past eight lines it shows its first ones under
+/// a fade, with Show all N lines (BlockParts.tsx).
 function ToolOutput({ id, output, reveal }: { id: string; output: string; reveal: number }) {
   const t = useT();
-  const shown = useOutput(output, reveal);
+  const raw = useOutput(output, reveal);
+  const [wrap] = useBlockWrap("output");
+  // All the output's lines, though a long one draws only its end until opened.
+  const preview = usePreview(lineCount(raw.text), reveal);
+  const shown = previewedOutput(raw, preview);
+  const body = useSidewaysRef<HTMLPreElement>();
   return (
     <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: shown.text })}>
-      {experimentArm(hoverActions) === "all" && (
-        <CopyButton
-          text={shown.text ?? ""}
-          label={t("turn.copy")}
-          className="cv-codeblock__action cv-tool-output__copy"
-        />
-      )}
-      <pre className="cv-tool-output selectable">
-        {shown.cut && (
-          <span className="cv-output-cut" aria-hidden="true">
-            …{"\n"}
-          </span>
-        )}
-        {shown.shown}
-      </pre>
-      <OutputMore output={shown} />
+      <div className="cv-tool-output__box">
+        <span className="cv-tool-output__actions">
+          <WrapButton kind="output" />
+          {experimentArm(hoverActions) === "all" && (
+            <CopyButton text={shown.text ?? ""} label={t("turn.copy")} className="cv-codeblock__action" />
+          )}
+        </span>
+        <pre ref={body} className="cv-tool-output selectable" data-wrap={wrap} data-preview={preview.attribute}>
+          {shown.cut && (
+            <span className="cv-output-cut" aria-hidden="true">
+              …{"\n"}
+            </span>
+          )}
+          {shown.shown && <Lines text={shown.shown} />}
+        </pre>
+      </div>
+      <PreviewMore preview={preview} />
+      {!preview.long && <OutputMore output={shown} />}
     </div>
   );
 }

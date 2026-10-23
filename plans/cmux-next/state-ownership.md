@@ -83,7 +83,8 @@ names the caller's own terminal.
    it before resolving targets. Targets resolve by exact public id or unique prefix; an
    id that matches nothing after the barrier is `not_found`.
 4. Every mutation carries an idempotency key. The CLI generates it, prints it on any
-   failure after sending, and `--idempotency-key K` retries safely. The app passes the
+   failure after sending that the app does not mark `not_run` (refused before anything
+   ran), and `--idempotency-key K` retries safely. The app passes the
    key through as the daemon mutation id. A timeout says whether the request never ran
    (`not_run`) or may still apply (`in_progress`).
 5. No sleeps: waits use `session.events`, `events.stream`, `terminal.wait`, or a

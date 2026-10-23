@@ -53,9 +53,26 @@ impl Mux {
                 "terminal {terminal_id} is not available for agent hook projection"
             )));
         };
-        // How the CLI was started is read once, while it runs, at its session
-        // start; before the fences lock, which serializes every terminal's hooks.
-        let job = (ingress.kind == "agent.session.started")
+        // How the CLI was started is read once, while it runs, at the first
+        // hook of its session this terminal applies: its start, or a later
+        // hook when that one was applied first (each hook is its own
+        // connection, and the fence then drops the older start). Read before
+        // the fences lock, which serializes every terminal's hooks.
+        let first_of_session = ingress.kind == "agent.session.started" || {
+            let session_id = ingress
+                .payload
+                .get("normalized")
+                .and_then(|value| value.get("agent_session_id"))
+                .and_then(Value::as_str)
+                .filter(|session_id| !session_id.is_empty());
+            let fences = self.agent_hook_fences.lock().unwrap();
+            session_id.is_some_and(|session_id| {
+                fences
+                    .get(&terminal_id)
+                    .is_none_or(|fence| fence.ended || fence.session_id != session_id)
+            })
+        };
+        let job = first_of_session
             .then(|| {
                 self.state
                     .lock()

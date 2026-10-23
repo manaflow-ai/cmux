@@ -1,0 +1,187 @@
+// The chat composer's input box is glass, never opaque (Leo 2026-10-21, "we need a bit more glass on
+// the input box"; the standing rule: glass, never solid). On every window (opaque, or over art
+// under Plain or Lens glass) and in a light and a dark theme, the card (.acpmux-composer-box) and its
+// location strip have a translucent fill under a backdrop blur, and the card draws the glass's light
+// rim: a top-lit line one device pixel (--cmux-hairline) inside its edge and a fainter one along its
+// bottom. The prompt stays legible: on an opaque window its ink against the card laid over the
+// brightest and the darkest page is 4.5:1 or more. Only Reduce Transparency makes the card opaque.
+//
+// Before: on an opaque window the card was the solid composer surface (alpha 1) with no blur, so the
+// transcript rows that scroll under it (Leo 2026-10-19) vanished behind a slab.
+//
+// Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import path from "node:path";
+import { chromium, type Browser, type Page } from "playwright";
+import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
+
+type Rgba = [number, number, number, number];
+type Look = { fill: Rgba; backdrop: string; shadow: string; ink: Rgba };
+
+await requireBrowserLane("composer-glass.test.ts", async () => {
+  /** Parses a computed color (`rgb()`, `rgba()` or `color(srgb …)`) into 0-1 channels and alpha. */
+  function parse(color: string): Rgba {
+    const srgb = color.match(/color\(srgb\s+([\d.e-]+)\s+([\d.e-]+)\s+([\d.e-]+)(?:\s*\/\s*([\d.e-]+))?\)/);
+    if (srgb) return [Number(srgb[1]), Number(srgb[2]), Number(srgb[3]), srgb[4] === undefined ? 1 : Number(srgb[4])];
+    const rgb = color.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)/);
+    if (rgb)
+      return [
+        Number(rgb[1]) / 255,
+        Number(rgb[2]) / 255,
+        Number(rgb[3]) / 255,
+        rgb[4] === undefined ? 1 : Number(rgb[4]),
+      ];
+    throw new Error(`unparsed color ${color}`);
+  }
+
+  function over(top: Rgba, under: [number, number, number]): [number, number, number] {
+    return [0, 1, 2].map((i) => top[i]! * top[3] + under[i]! * (1 - top[3])) as [number, number, number];
+  }
+
+  function luminance([r, g, b]: [number, number, number]): number {
+    const lin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  }
+
+  function contrast(a: [number, number, number], b: [number, number, number]): number {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return (hi! + 0.05) / (lo! + 0.05);
+  }
+
+  setDefaultTimeout(120_000);
+  try {
+    await (await chromium.launch({ headless: true })).close();
+  } catch {
+    console.warn("composer-glass: skipping (run `bunx playwright install chromium`)");
+    describe.skip("composer glass", () => test("chromium", () => {}));
+    return;
+  }
+  const { createServer } = await import("vite");
+  const webviews = path.resolve(import.meta.dir, "..");
+  let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+  let browser: Browser | undefined;
+  beforeAll(async () => {
+    vite = await createServer({
+      root: webviews,
+      configFile: path.join(webviews, "vite.config.ts"),
+      server: { port: 0, host: "127.0.0.1", strictPort: false, watch: { ignored: () => true } },
+      logLevel: "error",
+    });
+    await vite.listen();
+    await warmViteServer(vite, "/test/browser/composer-rim.html");
+    browser = await chromium.launch({ headless: true });
+  });
+  afterAll(async () => {
+    await browser?.close();
+    await vite?.close();
+  });
+
+  async function open(colorScheme: "light" | "dark", attributes: Record<string, string>): Promise<Page> {
+    const page = await browser!.newPage({ viewport: { width: 420, height: 480 }, deviceScaleFactor: 2, colorScheme });
+    const { port } = vite!.httpServer!.address() as { port: number };
+    await page.goto(`http://127.0.0.1:${port}/test/browser/composer-rim.html`);
+    await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
+    await page.evaluate((attributes) => {
+      for (const [name, value] of Object.entries(attributes)) document.documentElement.setAttribute(name, value);
+    }, attributes);
+    return page;
+  }
+
+  async function look(page: Page, id: string, field?: string): Promise<Look> {
+    const raw = await page.evaluate(
+      ([id, field]) => {
+        const style = getComputedStyle(document.getElementById(id!)!);
+        const ink = field ? getComputedStyle(document.getElementById(field)!).color : "rgb(0, 0, 0)";
+        return { fill: style.backgroundColor, backdrop: style.backdropFilter, shadow: style.boxShadow, ink };
+      },
+      [id, field],
+    );
+    return { fill: parse(raw.fill), backdrop: raw.backdrop, shadow: raw.shadow, ink: parse(raw.ink) };
+  }
+
+  const windows: { name: string; attributes: Record<string, string> }[] = [
+    { name: "an opaque window", attributes: {} },
+    { name: "art under Plain glass", attributes: { "data-cmux-see-through": "", "data-glass": "plain" } },
+    { name: "art under Lens glass", attributes: { "data-cmux-see-through": "", "data-glass": "lens" } },
+  ];
+  const boxes = [
+    ["composer", "composer-field"],
+    ["strip-composer", "strip-composer-field"],
+    ["queue-composer", "queue-composer-field"],
+    ["shell", "shell-field"],
+  ] as const;
+
+  for (const colorScheme of ["light", "dark"] as const)
+    for (const window of windows)
+      test(`${colorScheme}, ${window.name}: the input box is translucent glass with a light rim`, async () => {
+        const page = await open(colorScheme, window.attributes);
+        for (const [id, field] of boxes) {
+          const { fill, backdrop, shadow, ink } = await look(page, id, field);
+          expect(fill[3], `${id} fill alpha (glass is never opaque)`).toBeLessThan(0.9);
+          expect(fill[3], `${id} fill alpha (still a surface)`).toBeGreaterThan(0.2);
+          expect(backdrop, `${id} blurs what is under it`).toContain("blur(");
+          // On an opaque window the rows under the card can be anything: the prompt over the card laid
+          // on the brightest and the darkest page. Over art the window's tint floor already keeps
+          // primary text at 4.5:1 (desktop.ts), whatever the art.
+          const pages: [number, number, number][] =
+            window.attributes["data-cmux-see-through"] === undefined
+              ? [
+                  [1, 1, 1],
+                  [0, 0, 0],
+                ]
+              : [];
+          for (const page of pages) {
+            const card = over(fill, page);
+            expect(
+              contrast(over(ink, card), card),
+              `${id} prompt contrast over ${page.join(",")}`,
+            ).toBeGreaterThanOrEqual(4.5);
+          }
+          // The light rim: a top line one device pixel (0.5 CSS px at 2x) that is not transparent.
+          if (window.attributes["data-glass"] !== "lens")
+            expect(shadow, `${id} draws the top-lit hairline`).toMatch(
+              /color\(srgb 1 1 1 \/ [\d.]+\) 0px 0\.5px 0px 0px inset/,
+            );
+          else expect(shadow, `${id} draws the liquid glass's specular hairline`).toMatch(/0px 0\.5px 0px 0px inset/);
+        }
+        // The location strip is part of the box: the same glass.
+        const strip = await look(page, "strip");
+        expect(strip.fill[3], "strip fill alpha").toBeLessThan(0.9);
+        expect(strip.backdrop, "strip blurs what is under it").toContain("blur(");
+        await page.close();
+      });
+
+  test("the plain top strip, bare text with no fill, frosts nothing under it", async () => {
+    const page = await open("light", { "data-top-strip": "plain" });
+    const strip = await look(page, "strip");
+    expect(strip.fill[3], "plain top strip stays unfilled").toBe(0);
+    expect(strip.backdrop).toBe("none");
+    expect((await look(page, "strip-composer")).backdrop, "the card under it is still glass").toContain("blur(");
+    await page.close();
+  });
+
+  test("system Reduce Transparency keeps a see-through strip opaque", async () => {
+    const page = await open("light", { "data-cmux-see-through": "", "data-glass": "plain" });
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Emulation.setEmulatedMedia", {
+      features: [{ name: "prefers-reduced-transparency", value: "reduce" }],
+    });
+    const strip = await look(page, "strip");
+    expect(strip.fill[3], "system Reduce Transparency makes the strip solid").toBe(1);
+    expect(strip.backdrop).toBe("none");
+    await page.close();
+  });
+
+  test("Reduce Transparency is the one case the box is opaque", async () => {
+    for (const colorScheme of ["light", "dark"] as const) {
+      const page = await open(colorScheme, { "data-reduce-transparency": "" });
+      for (const [id] of boxes) {
+        const { fill, backdrop } = await look(page, id);
+        expect(fill[3], `${id} under Reduce Transparency`).toBe(1);
+        expect(backdrop, `${id} under Reduce Transparency`).toBe("none");
+      }
+      await page.close();
+    }
+  });
+});

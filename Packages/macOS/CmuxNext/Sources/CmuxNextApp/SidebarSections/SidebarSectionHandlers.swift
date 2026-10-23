@@ -15,7 +15,8 @@ enum SidebarSectionHandlers {
     /// Chief's own card. Get is Add to Sidebar, Remove takes every such item out.
     static func storeItems(chief: SettingsAppFeatures.SidebarItems?, document: @escaping @MainActor () -> SidebarLayoutDocument,
                            registry: ActionRegistry) -> SettingsAppFeatures.SidebarItems {
-        let items: Set<String> = ["home", "notifications", "history", "bookmarks"]
+        // Every sidebar item the Features tab lists but the Chief's, so a new card needs no change here.
+        let items = Set(AppFeature.catalog.compactMap(\.sidebarItem)).subtracting([SidebarBuiltIn.chief.rawValue])
         return .init(names: items.union(chief?.names ?? []), isShown: { name in
             guard items.contains(name) else { return chief?.isShown(name) == true }
             // Home is an app now (R63), as Add to Sidebar adds it.
@@ -146,9 +147,6 @@ enum SidebarSectionHandlers {
                 let section = try SidebarSectionResolve.section(invocation.target, in: doc)
                 return .sectionMove(section.id, region: region, index: region == .middle ? 0 : Int.max)
             }
-        }
-        bind("sidebar.section.moveToBottom", unavailable: { SidebarSectionStrings.noBottomArea }) { _, _ in
-            throw ActionFailure(message: SidebarSectionStrings.noBottomArea)
         }
         let looks: [(ActionID, SectionLook)] = [("sidebar.section.useBuiltInLook", .builtIn), ("sidebar.section.useListLook", .list)]
         for (id, look) in looks {

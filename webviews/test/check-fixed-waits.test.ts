@@ -2,7 +2,7 @@
 // lets one stay.
 import { expect, test } from "bun:test";
 import path from "node:path";
-import { findFixedWaits } from "../scripts/check-fixed-waits";
+import { compareToBaseline, findFixedWaits } from "../scripts/check-fixed-waits";
 
 const file = path.resolve(import.meta.dir, "a.test.ts");
 const lines = (found: string[]) => found.map((at) => Number(at.split(":").at(-1)));
@@ -156,4 +156,17 @@ test("an export list, a typeof and a recursive call are not uses", () => {
     "}",
   ].join("\n");
   expect(lines(findFixedWaits(file, source))).toEqual([1, 5]);
+});
+
+test("a baseline row for a deleted file passes, and a file still there below its row fails", () => {
+  // #23339 deleted a test that still had a row; every PR then failed the check.
+  const found = new Map([["test/kept.test.ts", ["test/kept.test.ts:4"]]]);
+  const baseline = new Map([
+    ["test/deleted.test.ts", 6],
+    ["test/kept.test.ts", 1],
+    ["test/cleaned.test.ts", 2],
+  ]);
+  const { grew, shrank } = compareToBaseline(found, baseline, (file) => file !== "test/deleted.test.ts");
+  expect(grew).toEqual([]);
+  expect(shrank).toEqual(["  test/cleaned.test.ts: 0 fixed waits, baseline 2"]);
 });

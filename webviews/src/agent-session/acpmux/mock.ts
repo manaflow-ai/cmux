@@ -477,7 +477,7 @@ export class MockAcpmuxSocket {
         const named = this.events.some(
           (event) =>
             event.sessionId === target &&
-            event.kind === "user_message" &&
+            ["user_message", "queued", "queue_updated"].includes(event.kind) &&
             Array.isArray(event.msg?.images) &&
             event.msg.images.some((image: { id?: string }) => image.id === id),
         );
@@ -531,7 +531,8 @@ export class MockAcpmuxSocket {
             return { id, mimeType: block.mimeType ?? "image/png", ...(block.name ? { name: block.name } : {}) };
           });
         const queued = this.pending > 0 && promptId !== undefined;
-        if (queued) this.emit(target, { mux: "queued", msg: { promptId, text } });
+        // A queued prompt's record names its images too, so its row shows them (ComposerQueue.tsx).
+        if (queued) this.emit(target, { mux: "queued", msg: { promptId, text, ...(images.length && { images }) } });
         this.pending += 1;
         const turn = this.queue
           .then(() => {

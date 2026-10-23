@@ -67,14 +67,19 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         observeAttention()
     }
 
+    /// Parked but on screen beside the shown workspace (`sidebar.multiView`): its attention rings draw, so it follows them.
+    func followAttention() { observeAttention() }
+
     /// Installed: one topology (the coordinator restores its pane), whose ring draws in this frame.
     func didShow() {
         sendTopology()
         layoutView.syncWithModel()
     }
 
-    init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState) {
+    /// `parked`: mounted beside the shown workspace (`sidebar.multiView`), so its first apply sends the window no topology.
+    init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState, parked: Bool = false) {
         self.workspace = workspace
+        isParked = parked
         self.daemon = daemon
         self.services = services
         self.state = state
@@ -162,7 +167,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         }
     }
 
-    /// Panes whose shown tab holds an unread notification draw the attention
+    /// Panes whose shown tab reads unread (a notification or Mark as Unread) draw the attention
     /// ring; this window's tab selection decides which tab a pane shows.
     private func observeAttention() {
         let notifications = services.notifications, workspace = workspace

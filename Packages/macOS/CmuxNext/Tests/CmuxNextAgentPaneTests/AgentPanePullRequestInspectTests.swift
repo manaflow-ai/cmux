@@ -49,23 +49,33 @@ struct AgentPanePullRequestInspectTests {
         #expect(json["author"] as? String == "octocat")
     }
 
-    @MainActor @Test func answersWithWhatTheHostReads() async throws {
+    @MainActor @Test func answersWithWhatTheHostReads() throws {
         let links = AgentPaneReplyLinks()
         var asked: [URL] = []
         links.pullRequest = { url in
             asked.append(url)
-            return AgentPanePullRequest(url: url.absoluteString, number: 7, title: "Retry", state: "open",
-                                        checks: .init(state: "passing", passed: 2, total: 2), author: "octocat")
+            return AgentPanePullRequestAnswer(
+                pullRequest: AgentPanePullRequest(url: url.absoluteString, number: 7, title: "Retry", state: "open",
+                                                  checks: .init(state: "passing", passed: 2, total: 2),
+                                                  baseRef: "main", headRef: "fix", author: "octocat"),
+                fetchedAt: 1_760_000_000)
         }
         let url = try #require(URL(string: "https://github.com/o/r/pull/7"))
-        let reply = await links.respondToPullRequest(url)
+        let reply = links.respondToPullRequest(url)
         #expect(asked == [url])
         let value = try #require(reply["value"] as? [String: Any])
         let pullRequest = try #require(value["pullRequest"] as? [String: Any])
         #expect(pullRequest["title"] as? String == "Retry")
         #expect(pullRequest["author"] as? String == "octocat")
-        links.pullRequest = { _ in nil }
-        let none = try #require(await links.respondToPullRequest(url)["value"] as? [String: Any])
+        #expect(pullRequest["baseRef"] as? String == "main")
+        #expect(pullRequest["headRef"] as? String == "fix")
+        // The card says how old the answer is instead of showing a rate-limit message.
+        #expect(value["fetchedAt"] as? Double == 1_760_000_000)
+        #expect(value["reading"] as? Bool == false)
+        links.pullRequest = { _ in AgentPanePullRequestAnswer(reading: true) }
+        let none = try #require(links.respondToPullRequest(url)["value"] as? [String: Any])
         #expect(none["pullRequest"] is NSNull)
+        #expect(none["fetchedAt"] == nil)
+        #expect(none["reading"] as? Bool == true)
     }
 }

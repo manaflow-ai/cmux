@@ -99,11 +99,19 @@ async fn a_web_connection_never_gets_the_token_or_the_web_url() {
             "{m} sent a peer's token to a Web connection: {reply}"
         );
         assert!(!reply.contains("webUrl"), "{m} sent webUrl to a Web connection: {reply}");
+        assert!(!reply.contains("argv"), "{m} sent the daemon's command line: {reply}");
     }
     // The local socket still gets the dashboard link (`acpmux web`, the app).
     let mut local = client(Origin::Local).await;
     let status = call(&mut local, 1, method::MUX_STATUS).await;
     assert!(status.contains(&format!("token={TOKEN}")), "{status}");
+    // Who runs it (host enroll reads this instead of scanning processes):
+    // its executable and whether it runs as `cmux-tui acp`, never its
+    // command line, which may carry `--token`.
+    let result = &serde_json::from_str::<Value>(&status).unwrap()["result"];
+    assert!(result["exe"].as_str().is_some_and(|e| e.starts_with('/')), "{result}");
+    assert_eq!(result["runsAsCmuxTuiAcp"], json!(false), "{result}");
+    assert!(result.get("argv").is_none(), "{result}");
 }
 
 /// A daemon this test started; killed if the test ends early.
@@ -222,6 +230,14 @@ fn a_saved_token_from_before_the_fix_rotates_once() {
     // runs (a policy change here) never writes it to config.json.
     let (child, flagged) = start(&home, &["--token", "flag-token-abc"]);
     unix_call(&home, "_acpmux/set_default_policy", json!({"policy": "ask"}));
+    // Its status names its executable, never the command line holding --token.
+    let status = unix_call(&home, method::MUX_STATUS, json!({}));
+    assert!(status["result"]["exe"].is_string(), "{status}");
+    assert_eq!(status["result"]["runsAsCmuxTuiAcp"], json!(false), "{status}");
+    assert!(status["result"].get("argv").is_none(), "{status}");
+    let flag_in_status = status.to_string().contains("flag-token-abc");
+    let web_url = status["result"]["webUrl"].as_str().unwrap_or("").contains("flag-token-abc");
+    assert!(!flag_in_status || web_url, "only the local dashboard link may hold it: {status}");
     stop(child);
     assert_eq!(url_token(&flagged), "flag-token-abc");
     assert_eq!(saved(&home)["websocket"]["token"], rotated.as_str());

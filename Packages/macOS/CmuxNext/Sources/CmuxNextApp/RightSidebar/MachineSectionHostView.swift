@@ -1,22 +1,25 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextServer
 import SwiftUI
 
-/// Hosts the Cloud section: follows the machine registry and opens a
-/// workspace on a machine through `workspace.newOnMachine`.
+/// Hosts the Machines section: follows the machine registry and each machine's last check, opens a
+/// workspace on a machine through `workspace.newOnMachine` and Add Device through `device.add`.
 final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     let model = MachineSectionModel()
     private let machines: MachineRegistry
+    private let health: MachineHealthStore
     private var observation: Task<Void, Never>?
 
     init(services: AppServices) {
         machines = services.machines
+        health = services.machineHealth
         super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
         let registry = services.registry
         let hosting = NSHostingView(rootView: MachineSectionListView(model: model, newWorkspace: { id in
             registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string(id)]))
-        }))
+        }, addMachine: { registry.perform("device.add") }))
         hosting.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hosting)
         NSLayoutConstraint.activate([
@@ -26,9 +29,9 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
             hosting.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         refresh()
-        let machines = self.machines
+        let machines = self.machines, health = self.health
         observation = Task { [weak self] in
-            for await rows in ObservationStream({ MachineSectionModel.rows(machines) }) {
+            for await rows in ObservationStream({ MachineSectionModel.rows(machines, health: health) }) {
                 self?.model.update(rows)
             }
         }
@@ -44,6 +47,6 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     }
 
     func refresh() {
-        model.update(MachineSectionModel.rows(machines))
+        model.update(MachineSectionModel.rows(machines, health: health))
     }
 }

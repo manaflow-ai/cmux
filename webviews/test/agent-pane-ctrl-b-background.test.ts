@@ -134,6 +134,23 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
   let backgroundReply: "moved" | "nothing" | "refused" | "silent" | "closed" = "moved";
   /// Background requests the daemon has answered.
   let backgroundAnswers = 0;
+  /// Called after each background request the daemon hears, and each it answers.
+  const heard = new Set<() => void>();
+  /// Resolves once `done` holds, checking after each background request heard or answered.
+  const once = (done: () => boolean, what: string) =>
+    new Promise<void>((resolve, reject) => {
+      const check = () => {
+        if (!done()) return;
+        heard.delete(check);
+        resolve();
+      };
+      heard.add(check);
+      check();
+      setTimeout(() => {
+        heard.delete(check);
+        if (!done()) reject(new Error(`the daemon never ${what}`));
+      }, 2_500);
+    });
   const SILENT = Symbol("silent");
   const REFUSED = Symbol("refused");
   const CLOSED = Symbol("closed");
@@ -152,6 +169,7 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
         return { events: [], hasMore: false, lastSeq: 0 };
       case "_acpmux/process/background":
         backgrounded.push(params ?? {});
+        for (const check of heard) check();
         if (backgroundReply === "silent") return SILENT;
         if (backgroundReply === "refused") return REFUSED;
         if (backgroundReply === "closed") return CLOSED;
@@ -183,7 +201,10 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
           const result = answer(message.method, message.params);
           if (result === SILENT) return;
           if (result === CLOSED) return ws.close();
-          if (message.method === "_acpmux/process/background") backgroundAnswers += 1;
+          if (message.method === "_acpmux/process/background") {
+            backgroundAnswers += 1;
+            for (const check of heard) check();
+          }
           if (result === REFUSED)
             ws.send(
               JSON.stringify({
@@ -227,6 +248,13 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
 
   const open = async (session: string): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    const frames: string[] = [];
+    Object.assign(page, { backgroundFrames: frames });
+    page.on("websocket", (socket) =>
+      socket.on("framesent", (frame) => {
+        if (String(frame.payload).includes("_acpmux/process/background")) frames.push(String(frame.payload));
+      }),
+    );
     // The pane ships on macOS, where the editor's Mod is Cmd: Cmd-B is bold and Ctrl-B is the
     // caret's, unbound. On Linux, CI's platform, Mod is Ctrl and the editor took Ctrl-B as bold.
     await page.addInitScript(() => Object.defineProperty(Navigator.prototype, "platform", { get: () => "MacIntel" }));
@@ -255,8 +283,18 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
   const noticeText = (page: Page, kind: keyof typeof BACKGROUND_NOTICE_TEXT) =>
     page.locator(".acpmux-background-notice").getByText(translate(BACKGROUND_NOTICE_TEXT[kind]));
   const requested = async () => {
-    for (let wait = 0; wait < 50 && backgrounded.length === 0; wait++) await Bun.sleep(50);
+    await once(() => backgrounded.length > 0, "heard a background request").catch(() => {});
     return backgrounded;
+  };
+  /// The background requests the page sent, up to the moment it handled everything before this
+  /// call: a console marker the page logs after them comes after their frames.
+  const sentBackground = async (page: Page) => {
+    const marker = `ctrl-b-mark-${Math.random()}`;
+    await Promise.all([
+      page.waitForEvent("console", (message) => message.text() === marker),
+      page.evaluate((marker) => console.log(marker), marker),
+    ]);
+    return (page as Page & { backgroundFrames: string[] }).backgroundFrames;
   };
 
   test("a running command's live line says Ctrl-B runs it in the background", async () => {
@@ -265,8 +303,16 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
     // and liveLineBelow, on by default): the live line at the turn's foot names it and offers the
     // hint its row did (Thinking.tsx).
     const line = page.locator(".cv-worked.is-below");
-    await line.getByText("⌃B to run in background").waitFor({ timeout: 5_000 });
+    const hint = line.getByText("⌃B to run in background");
+    await hint.waitFor({ timeout: 5_000 });
     expect(await line.locator(".cv-thinking").textContent()).toBe("Running cargo test --workspace");
+    // The hint shows only while the pointer is on the line (Leo, 2026-10-21).
+    const opacity = () => hint.evaluate((node) => getComputedStyle(node).opacity);
+    expect(await opacity()).toBe("0");
+    await line.hover();
+    await page.waitForFunction(
+      () => getComputedStyle(document.querySelector(".cv-worked.is-below .cv-command__bg")!).opacity === "1",
+    );
     await page.close();
   });
 
@@ -286,7 +332,7 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
     await composer(page).click();
     await page.keyboard.press("Control+b");
     expect(await requested()).toEqual([{ sessionId: CLAUDE }]);
-    for (let wait = 0; wait < 50 && backgroundAnswers === 0; wait++) await Bun.sleep(50);
+    await once(() => backgroundAnswers > 0, "answered the background request").catch(() => {});
     expect(backgroundAnswers).toBe(1);
     // The answer reaches the page and React draws what it earns within two frames.
     await page.evaluate(
@@ -360,7 +406,7 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
     await page.keyboard.type("X");
     expect(await ctrlBTaken(page)).toEqual([false]);
     expect(await composer(page).innerText()).toContain("X");
-    await Bun.sleep(300);
+    expect(await sentBackground(page)).toEqual([]);
     expect(backgrounded).toEqual([]);
     expect(await page.getByText("⌃B to run in background").count()).toBe(0);
     await page.close();
@@ -386,7 +432,7 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
       await composer(page).click();
       await page.keyboard.press("Control+b");
       expect(await ctrlBTaken(page)).toEqual([false]);
-      await Bun.sleep(300);
+      expect(await sentBackground(page)).toEqual([]);
       expect(backgrounded).toEqual([]);
       expect(await page.getByText("⌃B to run in background").count()).toBe(0);
       await page.close();

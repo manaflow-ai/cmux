@@ -11,7 +11,7 @@ extension Motion {
     public static func attentionRestingOpacity(_ settings: AttentionSettings,
                                                look: AttentionHighlightLook = AttentionHighlightLook.tunable.value) -> Float {
         let style = attentionStyle(settings)
-        guard style != .none, settings.persists else { return 0 }
+        guard style != .none, settings.ringStyle != .none, settings.persists else { return 0 }
         return style == .steady ? look.steadyOpacity : look.restingOpacity
     }
 
@@ -27,9 +27,10 @@ extension Motion {
     }
 
     /// How far the steady ring's arrival pulse rises over its rest, and how long it takes:
-    /// one small, fast swell (motion.md), never a blink.
+    /// one small, fast swell (motion.md), never a blink. The swell is a one-off arrival, so it
+    /// takes the motion scale's ceiling (Leo 2026-10-20; it was 0.3 s).
     static let steadyPulseRise: Float = 0.2
-    static let steadyPulseDuration: TimeInterval = 0.3
+    static let steadyPulseDuration: TimeInterval = MotionScale.large
 }
 
 extension MotionGate {
@@ -39,7 +40,7 @@ extension MotionGate {
     public func attentionAnimation(_ settings: AttentionSettings,
                                    look: AttentionHighlightLook = AttentionHighlightLook.tunable.value,
                                    showing: Bool = false) -> CAAnimation? {
-        guard animatesFades, settings.style != .none else { return nil }
+        guard animatesFades, settings.drawsRing else { return nil }
         // Static status indicators (cx-sya4n): the steady ring, no blink or pulse.
         var settings = settings
         settings.style = Motion.attentionStyle(settings)
@@ -114,7 +115,7 @@ extension MotionGate {
     /// animations off get none: the ring just goes.
     public func attentionDismissAnimation(_ settings: AttentionSettings,
                                           look: AttentionHighlightLook = AttentionHighlightLook.tunable.value) -> CAAnimation? {
-        guard animatesFades, animatesLoops, settings.style != .none else { return nil }
+        guard animatesFades, animatesLoops, settings.drawsRing else { return nil }
         let flash = CAKeyframeAnimation(keyPath: "opacity")
         guard DesignSettings.shared.statusIndicator.animation != .static else {
             flash.values = [Motion.attentionRestingOpacity(settings, look: look), 0]

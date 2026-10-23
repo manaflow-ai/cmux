@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""cmux-next fast gates: five checks, in fail mode, on a pull request merged with its base.
+"""cmux-next fast gates: six checks, in fail mode, on a pull request merged with its base.
 
 .github/workflows/cmux-next-fast-gates.yml runs this for every pull request into feat-cmux-next
 and on dispatch (`pr=N`, against the current tip). It posts `cmux-next/fast-gates` with
@@ -10,19 +10,28 @@ result is fresh for the tip they merge into.
   prepare --event workflow_dispatch --pr N --head SHA --base SHA
                                                   fetch the PR head and the tip, merge them here
       The workflow's resolve job names HEAD and BASE without running this checkout's code;
-      prepare fails unless the merge it gates is exactly BASE + HEAD. Writes merge= and web=
-      (true when web lint has something to lint) to --output (GITHUB_OUTPUT).
-  run --base BASE [--web true|false]              every gate on BASE..HEAD (the merge); exit 1
+      prepare fails unless the merge it gates is exactly BASE + HEAD. Writes merge=, web=
+      (true when web lint has something to lint) and checks= (true on a dispatch, or for a
+      string catalog or protocol spec change, which ci-web's routing does not check) to --output
+      (GITHUB_OUTPUT).
+  run --base BASE [--web true|false] [--checks true|false]
+                                                  every gate on BASE..HEAD (the merge); exit 1
                                                   when any gate fails, after running all of them
 
 The gates, each the same invocation as its push-time job:
-  web lint        scripts/web_lint_prepush.py --base BASE --head MERGE (cmux-next-web.yml, web lint (fast))
+  web lint        scripts/web_lint_prepush.py --base BASE --head MERGE --new-only (cmux-next-web.yml's
+                  web lint (fast); only findings the PR adds, per error)
   crash ratchet   scripts/ci/crash_ratchet_compare.py on the merge and BASE's exported tree (cmux-next-guards.yml)
   defaults stamp  scripts/ci/defaults_guard.py check-stamp --base BASE (cmux-next-guards.yml, defaults-snapshot)
   prepush gate    scripts/cmux-next/prepush-gate.py --base BASE --head MERGE (only violations the PR adds)
   crash-class rules  scripts/ci/crash_class_fast_gate.py on the merge and BASE's exported tree
                   (cmux-next-crash-class.yml: concurrency crash classes, super-call selectors and the
                   Chromium Objective-C contract; only findings the PR adds)
+  webviews checks scripts/ci/fast_gate_webviews_checks.py --base BASE (ci-web.yml's fail-mode webviews
+                  checks; only findings the PR adds), on a dispatch, or for a pull request that changes a string catalog or
+                  the acpmux protocol spec: otherwise ci-web runs them for a webviews/ change on this same merge. A merger
+                  dispatches when a check path (scripts/ci/check-paths.txt) changed on the base after the
+                  pull request's last fast-gates base, so a check that landed since runs before the merge.
 """
 from __future__ import annotations
 
@@ -83,12 +92,40 @@ def web_needed(repo: Path, base: str, merge: str) -> bool:
     return bool(plan.script_packages or plan.eslint_files)
 
 
+# Inputs of the webviews checks outside webviews/, where ci-web's react-apps routing does not run them on a pull
+# request: check:catalog-keys reads every string catalog, acpmux-protocol:check the protocol spec.
+CHECK_INPUTS_OUTSIDE_WEBVIEWS = re.compile(r"\.xcstrings$|^cmux-tui/crates/acpmux/spec/")
+
+
+def checks_needed(repo: Path, event: str, base: str, merge: str) -> bool:
+    """Whether the webviews checks gate runs: on a dispatch, or a pull request that changes one of their inputs
+    outside webviews/ (on a pull request ci-web runs them for a webviews/ change, on this same merge)."""
+    if event == "workflow_dispatch":
+        return True
+    changed = git(repo, "diff", "--name-only", base, merge).stdout.split()
+    return any(CHECK_INPUTS_OUTSIDE_WEBVIEWS.search(path) for path in changed)
+
+
 def fetch_for_merge(repo: Path, remote: str, pr: str, base: str) -> None:
-    """Fetch the PR head and the branch tip shallowly, then deepen until BASE is here and meets the head."""
+    """Fetch the PR head and the branch tip shallowly, then deepen until BASE is here and meets the head at its
+    true merge base."""
     refspecs = [f"+refs/pull/{pr}/head:{HEAD_REF}", f"+refs/heads/{BRANCH}:{BASE_REF}"]
 
     def met() -> bool:
-        return bool(rev(repo, base)) and git(repo, "merge-base", HEAD_REF, base, check=False).returncode == 0
+        if not rev(repo, base):
+            return False
+        bases = git(repo, "merge-base", "--all", HEAD_REF, base, check=False).stdout.split()
+        if not bases:
+            return False
+        # A cut commit shows no parents, so a merge base found here can be an older common ancestor than the
+        # true one, hidden past the cut on one side (#24250: spurious conflicts in files the PR never touched).
+        # One found base is the true one once every cut either side reaches lies behind it. Several can be
+        # stale even then (a cut at one hides that it descends from another), and git merges them into a
+        # virtual base from their own history, so they count only once no cut is reachable at all.
+        shallow = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path", "shallow").stdout.strip())
+        cuts = set(shallow.read_text().split()) if shallow.exists() else set()
+        behind = ["--not", *bases] if len(bases) == 1 else []
+        return not cuts.intersection(git(repo, "rev-list", HEAD_REF, base, *behind).stdout.split())
 
     # A depth flag only in a checkout that is already shallow (the CI checkout): in a full clone it would make
     # every worktree sharing it shallow (tests/test_ci_no_shallow_dev_fetch.py), so there it fetches whole.
@@ -148,7 +185,8 @@ def prepare(args: argparse.Namespace) -> int:
         if first != base:
             log(f"fast-gates: the merge ref's first parent {first} is not the resolved base {base}")
             return 1
-    write_outputs(args.output, {"merge": merge, "web": "true" if web_needed(repo, base, merge) else "false"})
+    write_outputs(args.output, {"merge": merge, "web": "true" if web_needed(repo, base, merge) else "false",
+                                "checks": "true" if checks_needed(repo, args.event, base, merge) else "false"})
     return 0
 
 
@@ -161,16 +199,24 @@ def export_tree(repo: Path, ref: str, into: Path) -> None:
     subprocess.run(["tar", "-x", "-C", str(into)], input=archive, check=True)
 
 
-def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool) -> list[tuple[str, list[str] | None]]:
-    """(name, argv) in order; argv None is a skipped gate."""
+SKIPPED = {"web lint": "no web path changed",
+           "webviews checks": "a pull_request event with no catalog or protocol spec change: ci-web runs them "
+                              "for a webviews/ change on this merge"}
+
+
+def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
+          checks: bool = False) -> list[tuple[str, list[str] | None]]:
+    """(name, argv) in order; argv None is a skipped gate (SKIPPED says why)."""
     py = sys.executable
     return [
-        ("web lint", [py, "scripts/web_lint_prepush.py", "--base", base, "--head", merge, "--timings"] if web else None),
+        ("web lint", [py, "scripts/web_lint_prepush.py", "--base", base, "--head", merge, "--timings", "--new-only"]
+         if web else None),
         ("crash ratchet", [py, "scripts/ci/crash_ratchet_compare.py", "--script", "scripts/cmux-next/crash_ratchet.py",
                            "--head", str(repo), "--base", str(base_tree)]),
         ("defaults stamp", [py, "scripts/ci/defaults_guard.py", "check-stamp", "--base", base]),
         ("prepush gate", [py, "-I", "scripts/cmux-next/prepush-gate.py", "--base", base, "--head", merge]),
         ("crash-class rules", [py, "scripts/ci/crash_class_fast_gate.py", "--base", str(base_tree)]),
+        ("webviews checks", [py, "scripts/ci/fast_gate_webviews_checks.py", "--base", base] if checks else None),
     ]
 
 
@@ -187,9 +233,9 @@ def run(args: argparse.Namespace) -> int:
     rows: list[tuple[str, str, float]] = []
     try:
         export_tree(repo, args.base, holder)
-        for name, argv in gates(repo, args.base, merge, holder, args.web == "true"):
+        for name, argv in gates(repo, args.base, merge, holder, args.web == "true", args.checks == "true"):
             if argv is None:
-                print(f"{name}: skipped (no web path changed)", flush=True)
+                print(f"{name}: skipped ({SKIPPED[name]})", flush=True)
                 rows.append((name, "skipped", 0.0))
                 continue
             print(f"::group::{name}", flush=True)
@@ -233,6 +279,7 @@ def main(argv: list[str] | None = None) -> int:
     gate.add_argument("--base", required=True)
     gate.add_argument("--merge", default="HEAD")
     gate.add_argument("--web", choices=("true", "false"), default="true")
+    gate.add_argument("--checks", choices=("true", "false"), default="false")
     gate.add_argument("--summary", type=Path)
     gate.add_argument("--repo", type=Path, default=Path.cwd())
     args = parser.parse_args(argv)

@@ -4,16 +4,20 @@
 /// host knows a dropped or pasted file's path, `chat.attach.dropped`; the page does not), else to
 /// the copy the chat's host saves (`chat.upload`).
 import { liftInlineImages } from "./inlineImages";
+import { pastedTextBlocks } from "./pastedText";
+
+import type { StringKey } from "./i18n";
 
 export type ComposerAttachment = {
   id: string;
-  kind: "image" | "text" | "document" | "link" | "audio";
+  /** `pasted`: a large paste kept as a chip (pastedText.ts), its `text` sent as a text block of its own. */
+  kind: "image" | "text" | "document" | "link" | "audio" | "pasted";
   name: string;
   mimeType: string;
   size: number;
   /** Base64 image, PDF or audio bytes, without the data: prefix. */
   data?: string;
-  /** A text file's contents. */
+  /** A text file's contents, or a pasted chip's text. */
   text?: string;
   /** The PDF page count when its catalog can be counted cheaply. */
   pageCount?: number;
@@ -30,7 +34,7 @@ export type AttachmentError = { name: string; reason: "tooLarge" | "unsupported"
 export type RefusedFile = AttachmentError & { file: File; unreadable?: boolean };
 
 export type PromptBlock =
-  | { type: "text"; text: string }
+  | { type: "text"; text: string; _meta?: { cmux: { pasted: true } } }
   | { type: "image"; mimeType: string; data: string; name?: string }
   | { type: "document"; mimeType: "application/pdf"; data: string; name?: string }
   | { type: "resource_link"; uri: string; name: string }
@@ -44,8 +48,11 @@ export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_IMAGE_SIDE = 2000;
 /** The bytes one attached image may have: past this it is re-encoded (as JPEG) or scaled down. */
 export const IMAGE_BUDGET_BYTES = 1536 * 1024;
-/** Keep PDF prompts bounded while leaving room for the rest of the request. */
-export const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024;
+/** The bytes a PDF may have to go as a document block: its base64 (13.4 MiB) stays under acpmux's
+ * 15 MiB bound on one message (#23247), below the WebSocket's 16 MiB frame, with room for the rest
+ * of the prompt; the same cap as a file sent to an ssh peer (`_acpmux/file_put`). A larger PDF goes
+ * as a link to its copy (intakeFiles.ts). */
+export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
 /** A text file this large is already a lot of prompt. */
 export const MAX_TEXT_BYTES = 256 * 1024;
 export const MAX_ATTACHMENTS = 10;
@@ -54,6 +61,14 @@ const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp
 /// can decode: they go as PNG or JPEG. One it cannot decode goes as a file instead.
 const CONVERTIBLE_TYPES = new Set(["image/heic", "image/heif", "image/tiff", "image/bmp", "image/avif"]);
 const CONVERTIBLE_NAME = /\.(heic|heif|tiff?|bmp|avif)$/i;
+
+/// Whether `file` is a picture the composer attaches as an image (as it is, or converted), by its
+/// type or name alone: what its chip looks like before its bytes are read.
+export function isImageFile(file: File): boolean {
+  return (
+    IMAGE_TYPES.has(file.type) || CONVERTIBLE_TYPES.has(file.type) || (!file.type && CONVERTIBLE_NAME.test(file.name))
+  );
+}
 
 function isPdf(file: File): boolean {
   return file.type === "application/pdf" || /\.pdf$/i.test(file.name);
@@ -284,13 +299,15 @@ export function promptText(text: string, attachments: ComposerAttachment[]): str
   return [text, ...files].filter(Boolean).join("\n\n");
 }
 
-/// ACP prompt blocks: the text (with text files) first, then each image, PDF, recording and file or folder link.
+/// ACP prompt blocks: the text (with text files) first, then each pasted text (pastedText.ts), then
+/// each image, PDF, recording and file or folder link.
 /// A `data:` image written into the text goes as an image block, never as text (inlineImages.ts).
 export function promptBlocks(input: string, chips: ComposerAttachment[]): PromptBlock[] {
   const { text, attachments } = liftInlineImages(input, chips);
   const blocks: PromptBlock[] = [];
   const body = promptText(text, attachments);
   if (body) blocks.push({ type: "text", text: body });
+  blocks.push(...pastedTextBlocks(attachments));
   for (const attachment of attachments)
     if (attachment.kind === "image" && attachment.data)
       blocks.push({ type: "image", mimeType: attachment.mimeType, data: attachment.data, name: attachment.name });
@@ -395,6 +412,13 @@ export function audioAttachment(
   };
 }
 
+/// The notice for a recording that goes no further than its transcript: the host left it out
+/// (`DictationUpdate.audioOmitted`), or `audioAttachment` refused it past `MAX_AUDIO_BYTES`
+/// (`tooLarge`). The byte cap only backs up the host's two-minute stop, so both read the same.
+export function recordingLeftOutNotice(reason: "tooLong" | "tooLarge" | "narrowband"): StringKey {
+  return reason === "narrowband" ? "dictation.recordingNarrowband" : "dictation.recordingTooLong";
+}
+
 /** Counts PDF page objects without parsing or rendering the document. */
 function pdfPageCount(bytes: Uint8Array): number | undefined {
   try {
@@ -493,10 +517,12 @@ export function dragHasFiles(transfer: DataTransfer | null): boolean {
   return Boolean(transfer && [...transfer.types].includes("Files"));
 }
 
-/** Installs the document-level file-drop contract used by the composer. */
+/** Installs the document-level file-drop contract used by the composer. `onActiveChange` gets the
+ *  drag event that changed it (none on a reset), so the drop overlay (composer/dropOverlayState.ts)
+ *  can read what the drag holds and where the pointer is, and refuse it (`dropEffect`). */
 export function installFileDropLifecycle(
   onDrop: (files: File[]) => void,
-  onActiveChange: (active: boolean) => void,
+  onActiveChange: (active: boolean, event?: DragEvent) => void,
   target: Document = document,
   view: Window = window,
 ): () => void {
@@ -509,17 +535,17 @@ export function installFileDropLifecycle(
     if (!dragHasFiles(event.dataTransfer)) return;
     event.preventDefault();
     depth += 1;
-    onActiveChange(true);
+    onActiveChange(true, event);
   };
   const over = (event: DragEvent) => {
     if (!dragHasFiles(event.dataTransfer)) return;
     event.preventDefault();
-    onActiveChange(true);
+    onActiveChange(true, event);
   };
   const leave = (event: DragEvent) => {
     if (!dragHasFiles(event.dataTransfer)) return;
     depth = Math.max(0, depth - 1);
-    if (depth === 0) onActiveChange(false);
+    if (depth === 0) onActiveChange(false, event);
   };
   const drop = (event: DragEvent) => {
     if (!dragHasFiles(event.dataTransfer)) return;

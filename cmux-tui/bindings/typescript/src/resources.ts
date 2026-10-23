@@ -64,6 +64,7 @@ import {
   type FrontendProjectionSnapshot,
   type LayoutColumn,
   type LayoutColumnDock,
+  type LayoutRow,
   type LayoutDocument,
   type LayoutNode,
   type MachineSnapshot,
@@ -760,6 +761,19 @@ function layoutColumnDock(value: unknown): LayoutColumnDock | undefined {
   });
 }
 
+function layoutRow(value: unknown): LayoutRow {
+  const row = record(value, "layout row");
+  strictObject(row, ["row_id", "height"], "layout row");
+  const height = requiredNumber(row, "height");
+  if (!Number.isInteger(height) || height < 100 || height > 1000) {
+    throw new CmuxProtocolError("layout row height must be an integer from 100 to 1000");
+  }
+  return Object.freeze({
+    ...optionalProperty("rowId", optionalId(row, ["row_id"], splitId)),
+    height,
+  });
+}
+
 function layoutNode(value: unknown): LayoutNode {
   const payload = record(value, "layout node");
   const kind = requiredString(payload, "kind");
@@ -840,7 +854,11 @@ function layoutNode(value: unknown): LayoutNode {
     }
     const columns: LayoutColumn[] = payload.columns.map((item) => {
       const column = record(item, "layout column");
-      strictObject(column, ["column_id", "width", "root", "dock", "sticky"], "layout column");
+      strictObject(
+        column,
+        ["column_id", "width", "root", "dock", "sticky", "rows"],
+        "layout column",
+      );
       const width = requiredNumber(column, "width");
       if (width < 0.1 || width > 1) {
         throw new CmuxProtocolError("layout column width must be between 0.1 and 1");
@@ -848,11 +866,18 @@ function layoutNode(value: unknown): LayoutNode {
       // `sticky` is the pre-R87 name of `dock`: a replayed or older result
       // still decodes; `dock` wins when both are present.
       const dock = layoutColumnDock("dock" in column ? column.dock : column.sticky);
+      if (column.rows !== undefined && !Array.isArray(column.rows)) {
+        throw new CmuxProtocolError("layout column rows must be an array");
+      }
+      const rows = column.rows === undefined
+        ? undefined
+        : Object.freeze(column.rows.map(layoutRow));
       return Object.freeze({
         columnId: requiredId(column, ["column_id"], splitId),
         width,
         root: layoutNode(column.root),
         ...(dock !== undefined ? { dock } : {}),
+        ...(rows !== undefined ? { rows } : {}),
       });
     });
     return Object.freeze({
@@ -1361,6 +1386,14 @@ function layoutNodeFields(node: LayoutNode): Record<string, unknown> {
           root: layoutNodeFields(column.root),
           ...(column.dock !== undefined
             ? { dock: { edge: column.dock.edge, mode: column.dock.mode } }
+            : {}),
+          ...(column.rows !== undefined
+            ? {
+              rows: column.rows.map((row) => ({
+                ...(row.rowId !== undefined ? { row_id: row.rowId } : {}),
+                height: row.height,
+              })),
+            }
             : {}),
         })),
       };

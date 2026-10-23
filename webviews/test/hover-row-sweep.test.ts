@@ -5,7 +5,7 @@
 // may still fade out, as the native sidebar's rows cross-fade (#20315).
 //
 // The page is the real stylesheets in a real engine: New Tab rows and agent-pane menu rows. The
-// mouse sweeps them at 1 px/ms; every frame, any hovered row must already show its full fill.
+// mouse sweeps them at 4 px a frame; every frame, any hovered row must already show its full fill.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
@@ -64,23 +64,39 @@ await requireBrowserLane("hover-row-sweep.test.ts", async () => {
     for (const id of ids) {
       const box = (await page.locator(`#${id}`).boundingBox())!;
       await page.mouse.move(box.x + 150, box.y + 14);
-      await page.waitForTimeout(250);
+      // Settled: the row is hovered and its fill transition has ended.
+      await page.waitForFunction(
+        (rowId) => {
+          const row = document.getElementById(rowId)!;
+          return row.matches(":hover") && row.getAnimations().length === 0;
+        },
+        id,
+        { polling: "raf" },
+      );
       await page.$eval(`#${id}`, (row) => {
         (row as HTMLElement).dataset.fill = getComputedStyle(row).backgroundColor;
       });
     }
     await page.mouse.move(150, 2);
-    await page.waitForTimeout(250);
+    // Back at the top: only the first row is hovered, and no row is still fading.
+    await page.waitForFunction(
+      (rowSelector) =>
+        [...document.querySelectorAll<HTMLElement>(rowSelector)].every(
+          (row, index) => row.matches(":hover") === (index === 0) && row.getAnimations().length === 0,
+        ),
+      selector,
+      { polling: "raf" },
+    );
     await page.evaluate(() => {
       (window as unknown as { partial: string[] }).partial = [];
     });
-    // The sweep: 1 px every ms, top to bottom.
+    // The sweep: 4 px a painted frame, top to bottom, so each row is under the pointer for 7 frames
+    // and every frame of the sweep is read.
     const end = ids.length * 28 + 10;
     for (let y = 2; y < end; y += 4) {
       await page.mouse.move(150, y);
-      await page.waitForTimeout(4);
+      await page.evaluate(() => window.cmuxPaintFrame());
     }
-    await page.waitForTimeout(50);
     return page.evaluate(() => {
       const state = window as unknown as { partial: string[]; stop: boolean };
       state.stop = true;
