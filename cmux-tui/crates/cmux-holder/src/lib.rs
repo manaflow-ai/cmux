@@ -10,6 +10,7 @@
 
 pub mod client;
 pub mod holder;
+pub mod link;
 pub mod pty;
 pub mod ring;
 pub mod wire;

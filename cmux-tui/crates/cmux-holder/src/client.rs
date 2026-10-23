@@ -81,6 +81,12 @@ impl HolderClient {
         Ok((client, listed))
     }
 
+    /// The authenticated socket and the bytes already read past the
+    /// handshake (for [`crate::link::HolderLink`]).
+    pub(crate) fn into_parts(self) -> (UnixStream, wire::Reader) {
+        (self.stream, self.reader)
+    }
+
     /// Start `request` on channel `chan`. Returns the child's pid and the
     /// daemon's custody dup of the PTY master.
     pub fn spawn(&mut self, chan: u32, request: &SpawnRequest) -> io::Result<(i32, OwnedFd)> {
