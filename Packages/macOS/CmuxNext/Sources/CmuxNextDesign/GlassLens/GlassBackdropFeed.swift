@@ -32,7 +32,7 @@ public final class GlassBackdropFeed {
     private var watched: [ObjectIdentifier] = []
     private var observers: [MainActorObservation] = []
     /// The one-shot frame that runs the next ``update()``; made on first use.
-    private var nextFrame: FrameClient?
+    private(set) var nextFrame: FrameClient?
 
     /// - Parameters:
     ///   - host: The view the page's viewport fills.
