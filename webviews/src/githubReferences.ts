@@ -4,6 +4,8 @@ export type GithubReference = {
   end: number;
   text: string;
   href: string;
+  /** A bare `#N`, which named no repository: its number (`href` is `repository`'s). */
+  bare?: number;
 };
 
 // Not after a word, a path or URL (`x.com/#12`) or an HTML entity (`&#123;`). GitHub numbers
@@ -45,6 +47,7 @@ export function githubReferences(
       end: match.index! + match[0].length,
       text: match[0],
       href: `https://github.com/${repo}/${kind}/${number.slice(1)}`,
+      ...(match.groups?.bareNumber ? { bare: Number(number.slice(1)) } : {}),
     });
   }
   return out;
@@ -59,19 +62,20 @@ export type CommitReference = GithubReference & { sha: string };
 const COMMIT =
   /(?<![\w./#&:@-])(?:(?<repository>[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*)@)?(?<sha>(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,40})(?![\w-])/g;
 
-/** Commits in `text`, linked to their GitHub page; a bare SHA needs `repository`. */
-export function commitReferences(text: string, repository?: string): CommitReference[] {
+/** Commits in `text`, linked to their GitHub page; a bare SHA needs `repository`, unless `bare`
+ * keeps it with an empty `href` (an agent's message draws every SHA the same quiet way). */
+export function commitReferences(text: string, repository?: string, bare = false): CommitReference[] {
   const out: CommitReference[] = [];
   for (const match of text.matchAll(COMMIT)) {
     const repo = match.groups?.repository ?? repository;
     const sha = match.groups!.sha!;
-    if (!repo) continue;
+    if (!repo && !bare) continue;
     out.push({
       start: match.index!,
       end: match.index! + match[0].length,
       text: match[0],
       sha,
-      href: `https://github.com/${repo}/commit/${sha}`,
+      href: repo ? `https://github.com/${repo}/commit/${sha}` : "",
     });
   }
   return out;
@@ -113,6 +117,8 @@ const NOT_OWNERS = new Set([
   "users",
 ]);
 const GITHUB_URL = /(?<![\w.-])(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9][\w.-]*\/[A-Za-z0-9][\w.-]*)/g;
+/** Whether `owner` (an address's first segment) can be an owner, not one of github.com's own pages. */
+export const isGithubOwner = (owner: string) => !NOT_OWNERS.has(owner.toLowerCase());
 
 /** The repository `text` mentions last in prose (`owner/repo#N` or a github.com address). */
 export function mentionedRepository(text: string): string | undefined {
