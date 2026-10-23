@@ -23,8 +23,9 @@ if grep -q 'unbound variable' <<<"$out"; then printf 'unbound variable:\n%s\n' "
 out=$(run 0)
 grep -q 'stub ensure-cef args=\[--optional\]$' <<<"$out" || { printf 'optional mode lost --optional:\n%s\n' "$out" >&2; exit 1; }
 # The embedded CEF Libraries ship without local symbols or debug stabs
-# (strip -S -x before signing): the stock libvk_swiftshader.dylib carries
-# 7 MiB of them. Exported symbols stay, since the Vulkan loader dlsyms them.
+# (strip -S -x before signing): the stock dylibs carry megabytes of them.
+# Exported symbols stay, since loaders dlsym them. An arm64-only app ships no
+# SwiftShader or Vulkan loader (every Apple Silicon Mac has a Metal GPU).
 # Builds a real library with the host compiler (a Mach-O dylib on macOS, an
 # ELF object on Linux CI, where `ditto` is stood in by cp) and reads it back.
 if ! { command -v cc && command -v nm && command -v strip; } >/dev/null; then
@@ -36,13 +37,15 @@ else
   : > "$fw/Chromium Embedded Framework"
   printf 'static int hidden_helper(int x) { return x * 3; }\nint vk_icdGetInstanceProcAddr(int x) { return hidden_helper(x); }\n' > "$TMP/lib.c"
   if [[ "$(uname)" == Darwin ]]; then
-    cc -g -dynamiclib -o "$fw/Libraries/libvk_swiftshader.dylib" "$TMP/lib.c"
+    cc -g -dynamiclib -o "$fw/Libraries/libcef_sandbox.dylib" "$TMP/lib.c"
   else
-    cc -g -O0 -shared -fPIC -o "$fw/Libraries/libvk_swiftshader.dylib" "$TMP/lib.c"
+    cc -g -O0 -shared -fPIC -o "$fw/Libraries/libcef_sandbox.dylib" "$TMP/lib.c"
     printf '#!/usr/bin/env bash\nmkdir -p "$(dirname "$2")"; cp -R "$1" "$2"\n' > "$TMP/bin/ditto"
     chmod +x "$TMP/bin/ditto"
   fi
-  nm -a "$fw/Libraries/libvk_swiftshader.dylib" | grep -q hidden_helper || { echo 'fixture has no local symbol' >&2; exit 1; }
+  for f in libvk_swiftshader.dylib libvulkan.dylib; do cp "$fw/Libraries/libcef_sandbox.dylib" "$fw/Libraries/$f"; done
+  printf '{"file_format_version": "1.0.0"}\n' > "$fw/Libraries/vk_swiftshader_icd.json"
+  nm -a "$fw/Libraries/libcef_sandbox.dylib" | grep -q hidden_helper || { echo 'fixture has no local symbol' >&2; exit 1; }
   printf '{"chromium": "1.0"}\n' > "$TMP/scripts/cef-manifest.json"
   for stub in install-cef-credits.sh install-cef-license.sh sign-cef.sh; do
     printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/scripts/$stub"
@@ -58,7 +61,11 @@ STUB
   out=$(env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" ARCHS=arm64 TARGET_BUILD_DIR="$TMP/build" WRAPPER_NAME=app.app \
     PRODUCT_NAME=app PRODUCT_BUNDLE_IDENTIFIER=test.app DERIVED_FILE_DIR="$TMP/derived" CMUX_NEXT_SKIP_UBLOCK=1 \
     /bin/bash "$TMP/scripts/embed-cef.sh" 2>&1) || { printf 'embed-cef.sh failed:\n%s\n' "$out" >&2; exit 1; }
-  lib="$TMP/build/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Libraries/libvk_swiftshader.dylib"
+  libs="$TMP/build/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Libraries"
+  for f in libvk_swiftshader.dylib libvulkan.dylib vk_swiftshader_icd.json; do
+    [[ ! -e "$libs/$f" ]] || { echo "arm64 embed still ships $f (SwiftShader fallback)" >&2; exit 1; }
+  done
+  lib="$libs/libcef_sandbox.dylib"
   syms=$(nm -a "$lib")
   grep -qE ' T _?vk_icdGetInstanceProcAddr$' <<<"$syms" || { printf 'the exported symbol is gone:\n%s\n' "$syms" >&2; exit 1; }
   # Apple's strip leaves one marker stab (radr://5614542) that says the file was stripped.
