@@ -904,6 +904,21 @@ server (`optchat-chief agent-memory mcp`) with `memory_search`, `memory_get` and
 acpmux reads `enabled` at each spawn and the Mac app at each Agent Memory search; the server
 reads the other keys at each call, so a change applies to the next session or call.
 
+## `media.pictureInPicture.enabled`
+
+Whether cmux offers Picture in Picture for a web page's video.
+
+```json
+{
+  "media": { "pictureInPicture": { "enabled": false } }
+}
+```
+
+- `true` (default): the tab's menu and the Now Playing card's menu offer Picture in Picture for a page playing a video, as do the command palette, `cmux media picture-in-picture` and MCP, the card's button and the toolbar media hub's button.
+- `false`: none of those offer it, and `cmux media picture-in-picture` answers that it is turned off. A video already floating stays until its window closes.
+
+A site's own video controls (a player's Picture in Picture button, the page's `requestPictureInPicture`) are the page's, not cmux's, and are not affected. Change it in **Settings > Browser > Media** or with `cmux settings set media.pictureInPicture.enabled false`.
+
 ## `browser.searchEngine`, `browser.customSearchEngine` and `browser.omnibar.*`
 
 The address bar's search engine and suggestions. Settings > Browser > Address Bar

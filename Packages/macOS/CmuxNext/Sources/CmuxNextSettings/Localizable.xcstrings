@@ -18087,6 +18087,137 @@
         }
       }
     },
+    "settings.group.media": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Media"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوسائط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mediji"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medier"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medien"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multimedia"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Médias"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contenuti multimediali"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メディア"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មេឌៀ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미디어"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medier"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multimedia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mídia"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Медиа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สื่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medya"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Медіа"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phương tiện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "媒体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "媒體"
+          }
+        }
+      }
+    },
     "settings.group.memory": {
       "extractionState": "manual",
       "localizations": {
@@ -138123,6 +138254,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "iPhone"
+          }
+        }
+      }
+    },
+    "settings.media.pictureInPicture.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Picture in Picture"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صورة داخل صورة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slika u slici"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Billede i billede"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bild-in-Bild"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imagen en imagen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Image dans l’image"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Picture in Picture"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピクチャ・イン・ピクチャ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រូបភាពក្នុងរូបភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 속 화면"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilde-i-bilde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obraz w obrazie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Picture in Picture"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Картинка в картинке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภาพซ้อนภาพ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resim içinde Resim"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Картинка в картинці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hình trong hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画中画"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子母畫面"
+          }
+        }
+      }
+    },
+    "settings.media.pictureInPicture.enabled.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offer Picture in Picture for a web page's video in menus, the command palette and the media controls. A site's own video controls are not affected."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض صورة داخل صورة لفيديو صفحة الويب في القوائم ولوحة الأوامر وعناصر التحكم في الوسائط. لا تتأثر عناصر التحكم في الفيديو الخاصة بالموقع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nudi sliku u slici za video na web stranici u menijima, paleti komandi i kontrolama medija. Vlastite kontrole videa na stranici nisu pogođene."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilbyd billede i billede for videoen på en webside i menuer, kommandopaletten og mediekontrollerne. Webstedets egne videokontroller påvirkes ikke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bietet Bild-in-Bild für Videos auf Webseiten in Menüs, der Befehlspalette und den Mediensteuerungen an. Die eigenen Videosteuerungen einer Website sind nicht betroffen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ofrece Imagen en imagen para el vídeo de una página web en los menús, la paleta de comandos y los controles multimedia. Los controles de vídeo propios del sitio no se ven afectados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Propose Image dans l’image pour la vidéo d’une page web dans les menus, la palette de commandes et les commandes multimédias. Les commandes vidéo propres au site ne sont pas concernées."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offre Picture in Picture per il video di una pagina web nei menu, nella palette dei comandi e nei controlli multimediali. I controlli video del sito non cambiano."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Webページのビデオに対して、メニュー、コマンドパレット、メディアコントロールでピクチャ・イン・ピクチャを提供します。サイト独自のビデオコントロールには影響しません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ដល់រូបភាពក្នុងរូបភាពសម្រាប់វីដេអូនៃទំព័របណ្ដាញ ក្នុងម៉ឺនុយ ផ្ទាំងពាក្យបញ្ជា និងការគ្រប់គ្រងមេឌៀ។ ការគ្រប់គ្រងវីដេអូផ្ទាល់របស់គេហទំព័រមិនរងផលប៉ះពាល់ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메뉴, 명령 팔레트, 미디어 컨트롤에서 웹 페이지 동영상의 화면 속 화면을 제공합니다. 사이트 자체의 동영상 컨트롤에는 영향을 주지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilby bilde-i-bilde for video på en nettside i menyer, kommandopaletten og mediekontrollene. Nettstedets egne videokontroller påvirkes ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oferuje obraz w obrazie dla wideo na stronie internetowej w menu, palecie poleceń i elementach sterowania multimediami. Własne elementy sterowania wideo witryny nie są zmieniane."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oferece Picture in Picture para o vídeo de uma página web nos menus, na paleta de comandos e nos controles de mídia. Os controles de vídeo do próprio site não são afetados."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предлагает режим «Картинка в картинке» для видео на веб-странице в меню, палитре команд и элементах управления медиа. Собственные элементы управления видео на сайте не затрагиваются."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงภาพซ้อนภาพสำหรับวิดีโอในหน้าเว็บในเมนู แผงคำสั่ง และตัวควบคุมสื่อ ตัวควบคุมวิดีโอของเว็บไซต์เองจะไม่ได้รับผลกระทบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir web sayfasındaki video için menülerde, komut paletinde ve medya denetimlerinde Resim içinde Resim sunar. Sitenin kendi video denetimleri etkilenmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пропонує режим «Картинка в картинці» для відео на вебсторінці в меню, палітрі команд і елементах керування медіа. Власні елементи керування відео на сайті не змінюються."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cung cấp Hình trong hình cho video trên trang web trong menu, bảng lệnh và các điều khiển phương tiện. Các điều khiển video riêng của trang web không bị ảnh hưởng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在菜单、命令面板和媒体控制中为网页视频提供画中画。网站自带的视频控件不受影响。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在選單、命令面板和媒體控制項中為網頁影片提供子母畫面。網站本身的影片控制項不受影響。"
           }
         }
       }
