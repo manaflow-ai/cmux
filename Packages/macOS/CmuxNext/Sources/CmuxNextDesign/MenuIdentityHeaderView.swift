@@ -278,7 +278,6 @@ public final class MenuSwatchStrip: NSView {
     private func setHovered(_ index: Int?) {
         guard index != hovered else { return }
         hovered = index
-        // tooltip-native-allow: a swatch row inside an NSMenu item's view; while the menu tracks, only the menu's own tool tip shows, as for an NSMenuItem.
         needsDisplay = true
     }
 
