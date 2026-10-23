@@ -186,3 +186,65 @@ import Testing
         #expect(indicator.level == .normal)
     }
 }
+
+/// A closed banner stays closed for its critical spell: a new spell starts each time the shown level
+/// enters critical again, and a force that leaves the shown level as it was starts none.
+@MainActor @Suite struct HostPressureBannerTests {
+    @Test func eachEntryIntoCriticalStartsANewSpell() async {
+        let store = TunableStore()
+        store.register(HostPressureTunables.all)
+        store.activate(file: nil)
+        let service = HostPressureService(acpmux: nil, store: store)
+        #expect(service.criticalSpell == 0)
+        func force(_ force: HostPressureForce, until done: () -> Bool) async {
+            _ = store.set(HostPressureTunables.force.key, force.tunableValue)
+            for _ in 0 ..< 50 where !done() { await Task.yield() }
+        }
+        await force(.critical) { service.level == .critical }
+        #expect(service.criticalSpell == 1)
+        await force(.warning) { service.level == .warning }
+        #expect(service.criticalSpell == 1)
+        await force(.critical) { service.level == .critical }
+        #expect(service.criticalSpell == 2)
+        service.stop()
+    }
+
+    @Test func theBannerShipsOffByDefault() {
+        let store = TunableStore()
+        store.register(HostPressureTunables.all)
+        store.activate(file: nil)
+        #expect(HostPressureTunables.banner.value(in: store) == false)
+        _ = store.set(HostPressureTunables.banner.key, true.tunableValue)
+        #expect(HostPressureTunables.banner.value(in: store) == true)
+    }
+
+    @Test func aForcedLevelCountsAsSeenOnlyWithTheToggleOnAndInAWindow() {
+        let store = TunableStore()
+        store.register(HostPressureTunables.all)
+        store.activate(file: nil)
+        _ = store.set(HostPressureTunables.force.key, HostPressureForce.critical.tunableValue)
+        var made: HostPressureService?
+        let indicator = HostPressureIndicatorView(services: AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SHOWCASE": "1"])),
+                                                  store: store, windowVisible: { _ in false },
+                                                  service: {
+                                                      let service = HostPressureService(acpmux: nil, store: store)
+                                                      made = service
+                                                      return service
+                                                  }) {}
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(indicator)
+        #expect(!indicator.sampling.samples) // the toggle is off
+        _ = store.set(HostPressureTunables.enabled.key, true.tunableValue)
+        #expect(indicator.sampling.samples) // forced: an occluded window counts as seen
+        indicator.removeFromSuperview()
+        #expect(!indicator.sampling.samples) // out of its window, a forced level never samples
+        #expect(!indicator.isSampling)
+        _ = store.set(HostPressureTunables.force.key, HostPressureForce.off.tunableValue)
+        made?.stop()
+    }
+
+    @Test func theLoadLabelReadsLoadOverLimit() {
+        #expect(HostPressureIndicatorView.loadText(HostPressureService.sample(.warning)) == "9.6 / 12")
+    }
+}

@@ -170,8 +170,18 @@ public nonisolated enum ActionCatalog {
 }
 
 extension ActionRegistry {
-    /// A registry seeded with the full cmux catalog and legacy aliases.
+    /// A registry seeded with the full cmux catalog and legacy aliases whose runs are not timed.
+    ///
+    /// A separate symbol, not a default argument of ``standard(runTiming:)``: objects compiled
+    /// before the timing was injected call this one (warm fleet build trees link them).
     public static func standard() -> ActionRegistry {
-        ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
+        standard(runTiming: NoActionRunTiming())
+    }
+
+    /// A registry seeded with the full cmux catalog and legacy aliases.
+    ///
+    /// - Parameter runTiming: Times every run (the App passes ``SignpostActionRunTiming``).
+    public static func standard(runTiming: any ActionRunTiming) -> ActionRegistry {
+        ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases, runTiming: runTiming)
     }
 }

@@ -24104,7 +24104,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -24112,15 +24112,17 @@
       },
       "help" : {
         "key" : "settings.tabs.newTabWidgets.greeting.help",
-        "text" : "A short greeting over the composer."
+        "text" : "A headline over the composer that asks what to work on, with the project as a picker."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.newTabWidgets.greeting",
       "keywords" : [
         "new tab",
         "widget",
+        "headline",
         "greeting",
-        "hello"
+        "project",
+        "question"
       ],
       "kind" : "toggle",
       "page_hidden" : false,
@@ -24138,7 +24140,7 @@
       "summary" : null,
       "title" : {
         "key" : "settings.tabs.newTabWidgets.greeting",
-        "text" : "Show Greeting on New Tab"
+        "text" : "Ask What to Work On on New Tab"
       },
       "validation" : "portable"
     },

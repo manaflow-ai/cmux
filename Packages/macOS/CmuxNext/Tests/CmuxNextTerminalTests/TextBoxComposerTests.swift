@@ -1,7 +1,4 @@
 import AppKit
-import CmuxNextActions
-@testable import CmuxNextApp
-import CmuxNextFocus
 @testable import CmuxNextTerminal
 import Testing
 
@@ -9,11 +6,11 @@ import Testing
 /// text to the terminal as a paste and then Return, Shift-Return adds a line, Escape gives the
 /// keyboard back to the terminal, Shift-Tab cycles the submit action (plain text, or an agent
 /// command with the text as its prompt), and attached files go in as shell-quoted paths.
+///
+/// Needs only `TerminalSession` (no App build); the App's side (the actions are bound, the key
+/// context) is `TextBoxActionTests` in CmuxNextAppTests.
 @MainActor @Suite(.serialized)
 struct TextBoxComposerTests {
-    static let ids: [ActionID] = ["focusTextBoxInput", "palette.terminalToggleTextBoxInput", "cycleTextBoxSubmitAction",
-                                  "attachTextBoxFile"]
-
     /// What a submit sent to the terminal, in order.
     @MainActor final class RecordingSink: TextBoxSink {
         enum Sent: Equatable { case paste(String), returnKey }
@@ -22,7 +19,7 @@ struct TextBoxComposerTests {
         func pressReturn() { sent.append(.returnKey) }
     }
 
-    @MainActor final class Ran { var ids: [ActionID] = [] }
+    @MainActor final class Ran { var commands: [TextBoxCommand] = [] }
 
     /// A live terminal in a borderless window, with a TextBox on a recording sink.
     struct Harness {
@@ -51,7 +48,7 @@ struct TextBoxComposerTests {
         session.view.frame = NSRect(x: 0, y: 0, width: 480, height: 240)
         session.view.layoutSubtreeIfNeeded()
         let sink = RecordingSink(), ran = Ran()
-        let textBox = TextBoxController(session: session, sink: sink, perform: { ran.ids.append(ActionID(rawValue: $0.rawValue)) })
+        let textBox = TextBoxController(session: session, sink: sink, perform: { ran.commands.append($0) })
         return Harness(session: session, io: io, window: window, sink: sink, textBox: textBox, ran: ran)
     }
 
@@ -59,15 +56,6 @@ struct TextBoxComposerTests {
         try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 1,
                                       windowNumber: window.windowNumber, context: nil, characters: characters,
                                       charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode))
-    }
-
-    @Test func everyTextBoxActionIsAvailable() {
-        _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        AppActions.bind(services)
-        for id in Self.ids {
-            #expect(services.registry.unavailableReason(for: id) == nil, "\(id) is still greyed out")
-        }
     }
 
     @Test func aShownTextBoxSitsUnderTheTerminalAndHidingGivesTheRowsBack() throws {
@@ -139,7 +127,17 @@ struct TextBoxComposerTests {
         defer { harness.close() }
         harness.textBox.show(focus: true)
         harness.textBox.textView.keyDown(with: try Self.key("\u{19}", keyCode: 48, .shift, in: harness.window))
-        #expect(harness.ran.ids == ["cycleTextBoxSubmitAction"])
+        #expect(harness.ran.commands == [.cycleSubmitAction])
+    }
+
+    @Test func theAddFilesButtonRunsTheAttachAction() throws {
+        let harness = try Self.harness()
+        defer { harness.close() }
+        harness.textBox.show(focus: true)
+        let attach = try #require(harness.textBox.view.subviews.compactMap { $0 as? NSButton }
+            .first { $0.accessibilityLabel() == TextBoxStrings.addFiles }, "no Add Files button")
+        #expect(attach.sendAction(attach.action, to: attach.target))
+        #expect(harness.ran.commands == [.attachFile])
     }
 
     @Test func cyclingWrapsThroughTheSubmitActions() {
@@ -174,16 +172,5 @@ struct TextBoxComposerTests {
         let empty = TextBoxModel()
         empty.insert(paths: ["/y"])
         #expect(empty.text == "'/y'")
-    }
-
-    @Test func theTextBoxHasItsOwnKeyContext() {
-        var focus = FocusState()
-        focus.resolved = .textField
-        let facts = KeyFacts(textBoxFocused: true)
-        let context = KeyRouter.keyContext(for: focus, appContext: [.terminalFocused], facts: facts)
-        #expect(context.bits.contains(.textBoxFocused))
-        #expect(!context.bits.contains(.terminalFocused))
-        let terminal = KeyRouter.keyContext(for: focus, appContext: [.textBoxFocused], facts: KeyFacts())
-        #expect(!terminal.bits.contains(.textBoxFocused), "a stale app-wide textBoxFocused leaked into the key context")
     }
 }

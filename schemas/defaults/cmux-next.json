@@ -716,7 +716,7 @@
     "setting.tabs.newTabTemplate": "minimal",
     "setting.tabs.newTabWidgets.actions": false,
     "setting.tabs.newTabWidgets.chats": false,
-    "setting.tabs.newTabWidgets.greeting": true,
+    "setting.tabs.newTabWidgets.greeting": false,
     "setting.tabs.newTabWidgets.order": ["projects", "actions", "chats"],
     "setting.tabs.newTabWidgets.projects": false,
     "setting.tabs.newTabWidgets.styleDots": false,
