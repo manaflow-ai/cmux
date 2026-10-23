@@ -167,11 +167,9 @@ struct Attachment {
     permissions: Mutex<VecDeque<String>>,
     /// Prompt ids waiting for `_acpmux/prompt_accepted`, with their reply slot.
     prompts: Mutex<HashMap<String, std::sync::mpsc::SyncSender<Value>>>,
-    /// The attach asked for `agent-session-mode` pushes (`mode_events`).
-    mode_events: bool,
-    /// The mode record kinds acpmux streams only for the daemon's mode pushes
-    /// ([`stream::hidden_mode_kinds`]); set again by a re-attach.
-    hidden_kinds: Mutex<Vec<&'static str>>,
+    /// What the newest attach asked of the stream: `agent-session-mode`
+    /// pushes, and so the mode record kinds hidden from the client.
+    view: Mutex<StreamView>,
     /// A mode read runs on a worker thread, and whether another change came
     /// since it began (it reads again): one reader at a time, in order.
     mode_reading: AtomicBool,
@@ -181,7 +179,27 @@ struct Attachment {
     children: Mutex<HashSet<String>>,
 }
 
+/// What an attach asked of its attachment's stream; each attach sets it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(super) struct StreamView {
+    /// The attach asked for `agent-session-mode` pushes (`mode_events`).
+    pub(super) mode_events: bool,
+    /// The mode record kinds acpmux streams only for those pushes
+    /// ([`stream::hidden_mode_kinds`]): never sent to the client.
+    pub(super) hidden: Vec<&'static str>,
+}
+
+impl StreamView {
+    pub(super) fn of(kinds: Option<&[String]>, mode_events: bool) -> Self {
+        Self { mode_events, hidden: stream::hidden_mode_kinds(kinds, mode_events) }
+    }
+}
+
 impl Attachment {
+    fn view(&self) -> std::sync::MutexGuard<'_, StreamView> {
+        self.view.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     fn note_permission(&self, id: &str) {
         let mut permissions = self.permissions.lock().unwrap_or_else(|e| e.into_inner());
         if permissions.iter().any(|known| known == id) {
@@ -684,8 +702,8 @@ fn attach(
         return refuse(writer, id, Refusal::UnknownTab);
     };
     let record_session = session.clone();
-    let hidden_kinds = stream::hidden_mode_kinds(params.kinds.as_deref(), params.mode_events);
-    let acpmux_params = match page_params(&session, &params, true, &hidden_kinds) {
+    let view = StreamView::of(params.kinds.as_deref(), params.mode_events);
+    let acpmux_params = match page_params(&session, &params, true, &view.hidden) {
         Ok(value) => value,
         Err(refusal) => return refuse(writer, id, refusal),
     };
@@ -704,7 +722,6 @@ fn attach(
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let surface = params.surface;
-    let mode_events = params.mode_events;
     let spawned = std::thread::Builder::new()
         .name("mux-agent-attach".into())
         .stack_size(THREAD_STACK_BYTES)
@@ -718,8 +735,7 @@ fn attach(
                 record_session,
                 acpmux_params,
                 read_only,
-                mode_events,
-                hidden_kinds,
+                view,
                 worker_writer,
             );
         });
@@ -845,13 +861,26 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
     match command {
         AgentSessionCommand::Attach(params) => {
             let newest_first = params.after_seq.is_none() || params.before_seq.is_some();
-            // The re-attach replaces the link's subscription (and its kinds).
-            let hidden = stream::hidden_mode_kinds(params.kinds.as_deref(), attachment.mode_events);
-            let params = page_params(session, &params, true, &hidden)?;
-            *attachment.hidden_kinds.lock().unwrap_or_else(|e| e.into_inner()) = hidden.clone();
-            let page = attachment.link.call("_acpmux/attach", params, CALL_TIMEOUT);
-            let mut page =
-                strip_kinds(bound_page(page.map_err(Refusal::of)?, newest_first), &hidden);
+            // The re-attach replaces the link's subscription and what the
+            // stream carries (its kinds, `mode_events`). The stream follows the
+            // new request from the send: a record acpmux sent under the old
+            // filter meanwhile reaches the client only if the new request asks
+            // for it. A re-attach that fails leaves the old subscription, so the
+            // old view comes back (unless a later attach set another meanwhile).
+            let view = StreamView::of(params.kinds.as_deref(), params.mode_events);
+            let params = page_params(session, &params, true, &view.hidden)?;
+            let old = std::mem::replace(&mut *attachment.view(), view.clone());
+            let page = match attachment.link.call("_acpmux/attach", params, CALL_TIMEOUT) {
+                Ok(page) => page,
+                Err(error) => {
+                    let mut current = attachment.view();
+                    if *current == view {
+                        *current = old;
+                    }
+                    return Err(Refusal::of(error));
+                }
+            };
+            let mut page = strip_kinds(bound_page(page, newest_first), &view.hidden);
             // As the first attach's reply: the chat's mode, for the bypass badge.
             if let Ok(facts) = agent_session_start::read_mode(
                 &attachment.link,

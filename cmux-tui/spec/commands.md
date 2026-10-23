@@ -9357,7 +9357,11 @@ the chat and never rests on what one app remembers:
   `kinds` leave those records out (`transcript` does), the daemon subscribes
   to them anyway and keeps them out of the client's page and stream (a page
   with more before it that holds nothing else keeps them, so the client can
-  page on). Reads run one at a time, so the last push is the newest mode.
+  page on). Reads run one at a time, so the last push is the newest mode; a
+  read that answers after the tab was closed or bound to another chat pushes
+  nothing and ends the attachment (`detached`). Each attach on a connection
+  sets `kinds` and `mode_events` again; one that acpmux refuses leaves the
+  ones before it.
 
 ### agent-session-trust
 
