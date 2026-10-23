@@ -141,7 +141,15 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                     title: String(localized: "action.showHideAllWindows", defaultValue: "Show/Hide All Windows", bundle: .module),
                     keywords: ["global", "hotkey", "summon"],
                     defaultShortcut: Shortcut(".", modifiers: [.control, .option, .command]), category: .window,
-                    symbol: "macwindow.on.rectangle", surfaces: [.keyboard], cliName: "app show-hide-all-windows"
+                    symbol: "macwindow.on.rectangle", surfaces: [.keyboard],
+                    // `hidden=true|false` sets the end state instead of toggling, for scripts and
+                    // the perf bench, whose app is never active (WindowHandlers).
+                    arguments: [
+                        ActionArgument(name: "hidden",
+                                       title: String(localized: "argument.hidden", defaultValue: "Hidden", bundle: .module),
+                                       kind: .bool, isRequired: false),
+                    ],
+                    cliName: "app show-hide-all-windows"
                 )
                 // Summons cmux from any app, so the key works while cmux is in the background.
                 showHide.isGlobalHotKey = true
