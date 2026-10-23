@@ -160,7 +160,7 @@ impl Mux {
                         seed: &self.terminal_respawns.take_seed(&terminal_hex).unwrap_or_default(),
                         // Its first record names the workspace, so the
                         // recovery mirror below needs no second synced write.
-                        workspace_key: workspace_key.unwrap_or_default(),
+                        workspace_key,
                         standby: spare,
                     },
                     Some(terminal_identity(tab_id)?),

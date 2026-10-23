@@ -28,15 +28,9 @@ use crate::panic_free::RecoverPoison;
 use super::super::TerminalHostRecord;
 use super::records::write_record_deferring_dir_sync;
 
-#[derive(Default)]
-struct Queue {
-    pending: HashMap<PathBuf, TerminalHostRecord>,
-    /// Records being written now; [`flush`] waits for them too.
-    writing: usize,
-}
-
 struct Mirror {
-    queue: Mutex<Queue>,
+    /// The newest record to write, per record path.
+    pending: Mutex<HashMap<PathBuf, TerminalHostRecord>>,
     changed: Condvar,
 }
 
@@ -48,37 +42,26 @@ fn mirror() -> &'static Mirror {
         if let Err(error) = spawned {
             eprintln!("cmux-tui: host record mirror writer did not start: {error}");
         }
-        Mirror { queue: Mutex::default(), changed: Condvar::new() }
+        Mirror { pending: Mutex::default(), changed: Condvar::new() }
     })
 }
 
 /// Queue `record` to be written at `path` (replacing an older queued one).
 pub(crate) fn queue(path: &Path, record: TerminalHostRecord) {
     let mirror = mirror();
-    mirror.queue.lock().recover_poison().pending.insert(path.to_path_buf(), record);
+    mirror.pending.lock().recover_poison().insert(path.to_path_buf(), record);
     mirror.changed.notify_all();
-}
-
-/// Wait until every queued record is written (daemon shutdown and tests).
-pub(crate) fn flush() {
-    let mirror = mirror();
-    let mut queue = mirror.queue.lock().recover_poison();
-    while !queue.pending.is_empty() || queue.writing > 0 {
-        queue = mirror.changed.wait(queue).recover_poison();
-    }
 }
 
 fn run() {
     let mirror = mirror();
     loop {
         let batch = {
-            let mut queue = mirror.queue.lock().recover_poison();
-            while queue.pending.is_empty() {
-                queue = mirror.changed.wait(queue).recover_poison();
+            let mut pending = mirror.pending.lock().recover_poison();
+            while pending.is_empty() {
+                pending = mirror.changed.wait(pending).recover_poison();
             }
-            let batch = std::mem::take(&mut queue.pending);
-            queue.writing = batch.len();
-            batch
+            std::mem::take(&mut *pending)
         };
         let mut dirs = BTreeSet::new();
         for (path, record) in batch {
@@ -92,8 +75,6 @@ fn run() {
         for dir in dirs {
             let _ = super::super::sys::barrier_sync_dir(&dir);
         }
-        mirror.queue.lock().recover_poison().writing = 0;
-        mirror.changed.notify_all();
     }
 }
 
