@@ -127,6 +127,10 @@ const LEADER_CHECK: std::time::Duration = std::time::Duration::from_millis(500);
 /// How long the reader keeps draining stdout after the agent process exits.
 const LEADER_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// How long, once stdout closed, the reader waits for stderr to close before it fails the
+/// agent's requests (a descendant that holds stderr open does not hold them longer).
+const STDERR_DRAIN: std::time::Duration = std::time::Duration::from_secs(1);
+
 struct Pending {
     map: HashMap<String, oneshot::Sender<Result<Value, RpcError>>>,
     /// Answers that arrived with nobody waiting (a replayed answer to a
@@ -286,15 +290,15 @@ impl ChildAgent {
         }
 
         // Stderr task.
-        {
+        let stderr_done = {
             let inbound = inbound.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let _ = inbound.send(Inbound::Stderr(line, None)).await;
                 }
-            });
-        }
+            })
+        };
 
         // Reader task.
         {
@@ -462,6 +466,10 @@ impl ChildAgent {
                     let closed = crate::codex_app_server::split(cx.tr.server_closed("it exited"));
                     agent_for_exit.codex_to_hub(cx, closed.hub).await;
                 }
+                // A dead process's last stderr lines go in before its requests fail, so the
+                // turn's error reads them (a limit or a sign-in is never continued:
+                // `turn_errors.rs` `resume_cause`). Bounded: a descendant may keep stderr open.
+                let _ = tokio::time::timeout(STDERR_DRAIN, stderr_done).await;
                 // Fail every pending request, then report exit.
                 let mut p = pending.lock().await;
                 for (_, tx) in p.map.drain() {

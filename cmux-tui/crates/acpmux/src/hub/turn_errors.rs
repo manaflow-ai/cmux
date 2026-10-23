@@ -1,6 +1,6 @@
 //! What a failed turn's error says about its cause: the account (`is_limit_error`, solved by
-//! the fallback profile, `turns.rs`) or the connection (`is_transport_error`, solved by an
-//! automatic continuation, `auto_resume.rs`).
+//! the fallback profile, `turns.rs`), or the connection or the agent's death (`resume_cause`,
+//! solved by an automatic continuation, `auto_resume.rs`).
 
 /// Does an agent error mean the account cannot serve, not that the prompt
 /// was wrong? Usage and rate limits, and missing or rejected credentials:
@@ -14,6 +14,10 @@ pub fn is_limit_error(message: &str) -> bool {
         || m.contains("invalid api key")
         || m.contains("401")
         || (m.contains("reached your") && m.contains("limit"))
+        // Claude Code: "You've hit your limit · resets 3pm" (2026-10-20).
+        || m.contains("hit your limit")
+        || m.contains("hit your usage limit")
+        || m.contains("usage limit reached")
         || m.contains("usage limit")
         || m.contains("rate limit")
         || m.contains("rate_limit")
@@ -63,6 +67,22 @@ pub fn is_transport_error(message: &str) -> bool {
             && (m.contains("handshake") || m.contains("closed") || m.contains("disconnect")))
 }
 
+/// Why a failed turn is continued by itself, if it is: `transport` (the connection dropped) or
+/// `agent_exited` (its agent process died mid-turn: "agent process closed"). `raw` is the
+/// agent's own error, `shown` the turn's error as recorded (with the dead process's last stderr
+/// line, or the sign-in explanation). A limit or sign-in failure in either is never continued:
+/// the fallback profile, or the reconciler that reads `lastTurn`, moves that session.
+pub fn resume_cause(raw: &str, shown: &str) -> Option<&'static str> {
+    if is_limit_error(raw) || is_limit_error(shown) || crate::claude_auth::is_sign_in_failure(shown)
+    {
+        return None;
+    }
+    if raw.starts_with("agent process closed") {
+        return Some("agent_exited");
+    }
+    is_transport_error(raw).then_some("transport")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,5 +110,41 @@ mod tests {
         ] {
             assert!(!is_transport_error(m), "{m}");
         }
+    }
+
+    #[test]
+    fn claude_limit_texts_are_limits() {
+        for m in [
+            "You've hit your limit · resets 3pm (America/Los_Angeles)",
+            "Claude AI usage limit reached|1760000000",
+            "You have hit your usage limit for Opus.",
+            "API Error: 429 rate_limit_error",
+        ] {
+            assert!(is_limit_error(m), "{m}");
+            assert!(!is_transport_error(m), "{m}");
+            assert_eq!(resume_cause(m, m), None, "{m}");
+        }
+        assert!(!is_limit_error("agent process closed"));
+        assert!(!is_limit_error("You've hit the end of the file"));
+    }
+
+    #[test]
+    fn a_dead_agent_is_continued_unless_it_died_of_a_limit_or_sign_in() {
+        let raw = "agent process closed";
+        assert_eq!(resume_cause(raw, raw), Some("agent_exited"));
+        assert_eq!(
+            resume_cause(raw, "agent process closed (claude): Segmentation fault"),
+            Some("agent_exited")
+        );
+        assert_eq!(resume_cause(raw, "agent process closed (claude): You've hit your limit"), None);
+        assert_eq!(
+            resume_cause(raw, "agent process closed (fake): Not logged in · Please run /login"),
+            None
+        );
+        assert_eq!(
+            resume_cause("API Error: Connection error.", "API Error: Connection error."),
+            Some("transport")
+        );
+        assert_eq!(resume_cause("simulated internal error", "simulated internal error"), None);
     }
 }
