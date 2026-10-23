@@ -45,7 +45,7 @@ public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
     /// showing its PR in a split) never renames the workspace: the anchor
     /// keeps naming it, so the row does not flip to whatever page is focused.
     public func label(name: String, title: String?, front: Front?, anchor: Front? = nil,
-                      nameSource: WorkspaceNameSource = .auto, nameRevision: UInt64 = 0,
+                      nameSource: WorkspaceNameSource = WorkspaceNameSource(), nameRevision: UInt64 = 0,
                       allowsLegacyDefaults: Bool = true) -> String? {
         guard enabled, !Self.isUserNamed(name: name, title: title, nameSource: nameSource,
                                          nameRevision: nameRevision, allowsLegacyDefaults: allowsLegacyDefaults), let front else { return nil }
@@ -61,7 +61,7 @@ public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
     /// one app run.
     public func persistedName(name: String, title: String?, front: Front?, isLocalMachine: Bool,
                               supportsNameSource: Bool = false, alreadyRenamed: Bool,
-                              nameSource: WorkspaceNameSource = .auto, nameRevision: UInt64 = 0,
+                              nameSource: WorkspaceNameSource = WorkspaceNameSource(), nameRevision: UInt64 = 0,
                               allowsLegacyDefaults: Bool = true) -> String? {
         guard enabled, variant == .persist, (isLocalMachine || supportsNameSource), !alreadyRenamed,
               !Self.isUserNamed(name: name, title: title, nameSource: nameSource, nameRevision: nameRevision,
@@ -74,14 +74,14 @@ public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
 
     /// Whether a rename decided earlier may still go out now that the
     /// workspace is named `currentName` and titled `currentTitle`.
-    public func confirmsRename(currentName: String, currentTitle: String?, nameSource: WorkspaceNameSource = .auto,
+    public func confirmsRename(currentName: String, currentTitle: String?, nameSource: WorkspaceNameSource = WorkspaceNameSource(),
                                nameRevision: UInt64 = 0, allowsLegacyDefaults: Bool = true) -> Bool {
         !Self.isUserNamed(name: currentName, title: currentTitle, nameSource: nameSource, nameRevision: nameRevision,
                           allowsLegacyDefaults: allowsLegacyDefaults)
     }
 
     /// Whether the user named the workspace: a title, or a name the daemon did not give.
-    public static func isUserNamed(name: String, title: String?, nameSource: WorkspaceNameSource = .auto,
+    public static func isUserNamed(name: String, title: String?, nameSource: WorkspaceNameSource = WorkspaceNameSource(),
                                    nameRevision: UInt64 = 0, allowsLegacyDefaults: Bool = true) -> Bool {
         return !(title ?? "").isEmpty || (nameSource == .user && (nameRevision > 0 || !allowsLegacyDefaults))
             || !NewWorkspaceName.isDefaultWorkspaceName(name)
