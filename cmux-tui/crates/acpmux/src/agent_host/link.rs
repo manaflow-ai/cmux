@@ -68,7 +68,9 @@ pub async fn spawn_within(
             Ok(())
         });
     }
-    let mut child = cmd.spawn().with_context(|| format!("start {}", launcher.exe.display()))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| crate::agent::spawn_error(&format!("start {}", launcher.exe.display()), e))?;
     let mut stdin = child.stdin.take().context("host stdin")?;
     let mut stdout = child.stdout.take().context("host stdout")?;
     // A host that never reports ready must not hold the session's spawn.

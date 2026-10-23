@@ -2,6 +2,7 @@ import AppKit
 import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// live-qa on nightly 3a63d6d: the light-mode Update Ready card had no top border. Its sides read
 /// about 208 gray, its top about 254, the white sidebar's own. The card draws no layer border off

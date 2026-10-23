@@ -109,6 +109,7 @@ public final class AgentPaneNewTabFrame {
     /// `model`'s New Tab page picked an agent or model (or dismissed the harness hint).
     public func modelChanged(_ pick: AgentPaneRememberedPick, by model: AgentPaneModel) {
         let picked = pick.agent + "/" + (pick.model ?? "") + (pick.dismissesHarnessHint ? "/hint-dismissed" : "")
+            + (pick.started.map { "/started:" + $0 } ?? "")
         pages[ObjectIdentifier(model), default: Page(model: model)].picked = picked
         update(\.model, picked)
     }

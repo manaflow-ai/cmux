@@ -15,6 +15,7 @@ final class HomeClientViewCache {
     var ownerSnapshot: @MainActor () -> HomeCacheSnapshot = { HomeCacheSnapshot() }
 
     private(set) var drafts: [ConversationID: String] = [:]
+    private(set) var draftAttachments: [ConversationID: [HomeCachedDraftAttachment]] = [:]
     private(set) var scrollAnchors: [ConversationID: HomeScrollAnchor] = [:]
     private var pendingWrite: Task<Void, Never>?
     private var writesSuppressed = false
@@ -33,6 +34,14 @@ final class HomeClientViewCache {
         scheduleWrite()
     }
 
+    /// Keeps the compose field's attachments; none clears them.
+    func setDraftAttachments(_ attachments: [HomeCachedDraftAttachment], for id: ConversationID) {
+        let value: [HomeCachedDraftAttachment]? = attachments.isEmpty ? nil : attachments
+        guard draftAttachments[id] != value else { return }
+        draftAttachments[id] = value
+        scheduleWrite()
+    }
+
     /// Where the reader is; nil when at the bottom.
     func setScrollAnchor(_ anchor: HomeScrollAnchor?, for id: ConversationID) {
         guard scrollAnchors[id] != anchor else { return }
@@ -46,6 +55,7 @@ final class HomeClientViewCache {
         writesSuppressed = true
         defer { writesSuppressed = false }
         drafts = snapshot.drafts
+        draftAttachments = snapshot.draftAttachments ?? [:]
         scrollAnchors = snapshot.scroll
         body()
     }
@@ -76,6 +86,7 @@ final class HomeClientViewCache {
         guard let cache else { return }
         var snapshot = ownerSnapshot()
         snapshot.drafts = drafts
+        snapshot.draftAttachments = draftAttachments.isEmpty ? nil : draftAttachments
         snapshot.scroll = scrollAnchors
         try? cache.save(snapshot)
     }

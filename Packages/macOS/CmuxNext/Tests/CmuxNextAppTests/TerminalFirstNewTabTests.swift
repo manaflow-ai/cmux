@@ -8,8 +8,8 @@ import CmuxNextTabs
 import Foundation
 import Testing
 
-/// #23021: with `tabs.terminalFirst` on, a person's Cmd-T, Cmd-D and Cmd-Shift-D open a terminal,
-/// as in cmux classic. Off (the default), Cmd-T opens the New Tab page and a split from the page
+/// #23021: with `tabs.terminalFirst` (cmux Classic Mode) on, a person's Cmd-T, Cmd-D, Cmd-Shift-D
+/// and Cmd-N open a terminal, as in cmux classic. Off (the default), Cmd-T opens the New Tab page and a split from the page
 /// opens the page again (cx-hvc57, cx-jfo7).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct TerminalFirstNewTabTests {
@@ -65,6 +65,18 @@ struct TerminalFirstNewTabTests {
             #expect(services.registry.perform("newTab.default", invocation: ActionInvocation(origin: .user)))
             try await PasswordManagerRouteTests.until({ terminals().count == terminalsBefore + 2 }, report: describe)
             #expect(pages().count == pagesBefore + 1, "\(describe())")
+
+            // Cmd-N: a new workspace whose only tab is a terminal, not the New Tab page.
+            let workspacesBefore = Set(services.daemon.store.workspaces.map(\.id))
+            #expect(services.registry.perform("newTab", invocation: ActionInvocation(origin: .user)))
+            @MainActor func created() -> [TabModel]? {
+                services.daemon.store.workspaces.first { !workspacesBefore.contains($0.id) }?.screens.flatMap(\.panes).flatMap(\.tabs)
+            }
+            try await PasswordManagerRouteTests.until({ created()?.isEmpty == false },
+                                                      report: { "new workspace tabs: \(String(describing: created()))" })
+            let first = try #require(created())
+            #expect(first.allSatisfy { $0.kind == .pty && !services.agentTabs.isNewTabPage($0.id) },
+                    "new workspace tabs: \(first.map { "\($0.id) \($0.kind)" })")
         }
     }
 }

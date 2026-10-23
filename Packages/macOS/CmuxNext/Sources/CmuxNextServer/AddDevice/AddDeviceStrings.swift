@@ -2,7 +2,8 @@ import Foundation
 
 /// Text of the Add Device card (Resources/AddDevice.xcstrings). Plain words for a person who
 /// does not know what ssh, a tailnet or a daemon is.
-public nonisolated enum AddDeviceStrings {
+public nonisolated struct AddDeviceStrings {
+    public nonisolated init() {}
     private static func s(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, table: "AddDevice", bundle: .module)
     }

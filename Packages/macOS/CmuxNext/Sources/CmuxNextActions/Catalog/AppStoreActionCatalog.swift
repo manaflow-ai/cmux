@@ -25,7 +25,7 @@ nonisolated enum AppStoreActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "appStore.showInstalled", title: t("action.appStore.showInstalled", "Installed Apps"),
                 keywords: ["apps", "installed", "extensions", "plugins", "permissions", "logs", "reload", "disable"],
-                category: .settings, symbol: "bag.badge.checkmark", surfaces: [.palette, .keyboard],
+                category: .settings, symbol: "checkmark.seal", surfaces: [.palette, .keyboard],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             // Hide is a per-user view preference (app-platform.md V9): the app keeps running

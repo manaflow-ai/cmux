@@ -190,8 +190,23 @@ html[data-cmux-page="changelog"] body {
 .cl-hood { margin-top: 12px; }
 /* A change with a pull request links it from its title and its number, in the theme's accent. */
 .cl-change-link { min-width: 0; color: var(--cmux-accent, currentColor); text-decoration: none; }
-.cl-pr { flex: none; margin-left: auto; color: var(--cmux-accent, currentColor); text-decoration: none; font-variant-numeric: tabular-nums; }
-:is(.cl-change-link, .cl-pr):hover { text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+/* The number is the agent pane's reference chip (chips.css .cv-chip.is-ref); both open the shared
+   pull request hover card (ChangePullRequest.tsx). */
+.cl-pr { flex: none; margin-left: auto; font-variant-numeric: tabular-nums; }
+.cl-change-link:hover { text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.cl-pr:hover { cursor: pointer; }
+/* The chip and its card draw in the agent pane's tokens (chips.css, linkCard.css), mapped here to
+   the page theme. */
+html[data-cmux-page="changelog"] {
+  --agent-text: var(--page-text);
+  --agent-muted: var(--page-text-2);
+  --agent-soft: var(--page-text-3);
+  --agent-border: var(--page-separator);
+  --agent-link: var(--cmux-accent, currentColor);
+  --cv-text: var(--page-text);
+  --cv-link: var(--cmux-accent, currentColor);
+  --agent-danger: var(--cmux-app-danger, #e5484d);
+}
 .cl-more {
   margin-top: 6px;
   padding: 0;

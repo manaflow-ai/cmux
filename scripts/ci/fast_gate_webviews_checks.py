@@ -47,8 +47,14 @@ DIAGNOSTIC = re.compile(r"^\s*[x!×⚠]\s+(?P<code>[\w/@-]+\([^)]*\)):\s*(?P<mes
 LOCATION = re.compile(r"^\s*(?:,-|╭─)\[(?P<path>[^\]]+?)(?::\d+:\d+)?\]\s*$")
 FRAME = re.compile(r"^\s*(?:\d+\s*[|│]|[:·]|`-+|╰─+)")
 HELP = re.compile(r"^\s*help:")
-# Lines that describe a run, not a finding: a count that falls when the change fixes one of the base's errors.
-NOISE = re.compile(r"^(?:error: (?:Type errors|Formatting issues|Lint issues) found$|Found \d+ errors? and \d+ warnings?\b|note: You are running)")
+# Lines that describe a run, not a finding: a count that falls when the change fixes one of the base's errors,
+# and `vp fmt`'s closing `Finished in 528ms on 2481 files using 4 threads.` (`vp lint`'s adds `with 162 rules`),
+# whose file count moves whenever the change adds or removes a file (#24274's and #24524's fast gates read it as
+# the one finding the merge added), and `vp fmt`'s `Format issues found in above N files.`, whose count falls when
+# the change fixes one of the base's files.
+NOISE = re.compile(r"^(?:error: (?:Type errors|Formatting issues|Lint issues) found$|Found \d+ errors? and \d+ warnings?\b"
+                   r"|Finished in \S+ on \d+ files?(?: with \d+ rules?)? using \d+ threads?\.$|note: You are running"
+                   r"|Format issues found in above \d+ files?\. Run without `--check` to fix\.$)")
 
 
 def run_check(webviews: Path, check: str) -> tuple[int, str]:

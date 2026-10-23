@@ -229,6 +229,27 @@
   background: var(--ui-line);
 }
 
+/* A long menu's search field (MenuSearchField): a row-high field above its rows. */
+.ui-menu-search {
+  appearance: none;
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--ui-row-height);
+  margin: 0 0 4px;
+  padding: 0 var(--ui-row-padding-inline);
+  border: 0;
+  border-radius: var(--ui-row-radius);
+  background: var(--ui-hover);
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.ui-menu-search:focus-visible {
+  box-shadow: inset 0 0 0 var(--cmux-focus-ring-width, 1.5px) var(--ui-ring);
+}
+
 .ui-toolbar .ui-separator {
   width: 1px;
   height: 16px;

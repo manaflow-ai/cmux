@@ -1,0 +1,207 @@
+/* The composer's looks (composerLook.ts; Leo 2026-10-22: "first dot claude, second dot codex. since
+   it's just all looks anyways"). Claude's, the default, sets nothing here: it is the composer as it
+   was. Codex's (data-composer-look="codex" on the chat's form and on New Tab's .nt-composer) lays the
+   same controls out as Codex desktop: one row inside the box under the prompt, + and the mode on the
+   left, the context ring, the model and effort, the mic and Send on the right, and the folder and
+   computer strip a tray tucked under the box's top edge. Our glass and the theme's accent (never
+   Codex's orange), Send our plain glyph (no disc). test/composer-look.test.tsx checks it. */
+
+/* The box's row: + first, then the mode, pushing the rest right; the ring before the model, as Codex
+   draws its own; the mic and Send last. The chips lay out as the row's own items. */
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips {
+  display: contents;
+}
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips > * {
+  order: 3;
+}
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips > .acpmux-access {
+  order: 1;
+}
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers) > .acpmux-context {
+  order: 2;
+  margin-inline-start: auto;
+}
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers) > .acpmux-composer-actions {
+  order: 4;
+  margin-inline-start: 0;
+}
+/* With no ring (New Tab, or the ring hidden), the model starts the right group. */
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers):not(:has(> .acpmux-context)) .acpmux-chips > .acpmux-model {
+  margin-inline-start: auto;
+}
+/* With neither (no harness yet), the mic and Send keep the right edge. */
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers):not(:has(> .acpmux-context, .acpmux-model)) > .acpmux-composer-actions {
+  margin-inline-start: auto;
+}
+
+/* The folder and computer strip: Codex's tray, set in from the box's sides where its corners end,
+   its bottom tucked under the box (which is raised over it), its top corners round, a faint wash of
+   the text colour over the card's glass. A new chat's strip and New Tab's (.nt-above). The plain
+   top strip (data-top-strip="plain", composerLocation.css) keeps the chat's strip bare text in this
+   look too: this sheet loads after that one, so the tray's rules skip it rather than outrank it
+   (:where adds no specificity, so every other rule wins or loses here as before). */
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] {
+  --acpmux-tray-inset: 22px;
+  --acpmux-tray-tuck: 10px;
+}
+:where(:root:not([data-top-strip="plain"])) .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip,
+.nt-composer[data-composer-look="codex"] > .nt-above {
+  position: relative;
+  z-index: var(--layer-base, 0);
+  margin: 0 var(--acpmux-tray-inset) calc(-1 * var(--acpmux-tray-tuck));
+  padding: 4px 8px calc(4px + var(--acpmux-tray-tuck));
+  border-radius: 14px 14px 0 0;
+  background: color-mix(in srgb, var(--agent-text) 5%, var(--acpmux-composer-surface, transparent));
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip {
+  height: auto;
+}
+.nt-composer[data-composer-look="codex"] > .nt-above {
+  padding-block: 2px var(--acpmux-tray-tuck);
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip::after {
+  content: none;
+}
+/* On an opaque window the chat's tray is the card's glass, not the solid composer surface: glass
+   is never opaque, and the card and its strip are glass on every window (composerStates.css, Leo
+   2026-10-21 "a bit more glass on the input box"). The wash goes over the card's tint (70% of the
+   surface) and the strip keeps the card's blur (--glass-backdrop). Over art or a see-through window
+   the surface rule above is already glass. Reduce Transparency, by the app's attribute or the
+   system's setting, keeps the solid fill above and no blur (composerStates.css); WebKit matches
+   neither value of prefers-reduced-transparency, so this is scoped to `not reduce`, never to
+   `no-preference`. The plain top strip (data-top-strip="plain") drops the strip's fill and blur, so
+   this leaves it alone. New Tab's tray (.nt-above) keeps the solid surface on an opaque window,
+   where its box is solid too. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root:not([data-cmux-see-through], [data-reduce-transparency], [data-top-strip="plain"])
+    .acpmux-composer[data-composer-look="codex"]
+    > .acpmux-composer-strip {
+    background: color-mix(in srgb, var(--agent-text) 5%, var(--glass-tint));
+  }
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box,
+.nt-composer[data-composer-look="codex"] > .nt-box {
+  position: relative;
+  z-index: var(--layer-raised, 1);
+}
+/* The box keeps its own four corners and whole rim over the tray (not the default's joined top). */
+:root .acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-strip) > .acpmux-composer-box {
+  /* glass-opaque-allow: a keyword the lens reads, not a color; the box joins nothing */
+  --glass-join: initial;
+  border-top-left-radius: var(--acpmux-composer-radius);
+  border-top-right-radius: var(--acpmux-composer-radius);
+}
+:root .acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-strip) > .acpmux-composer-box::before {
+  content: none;
+}
+/* Full access names its risk in the theme's accent, where Codex draws orange. */
+:is(.acpmux-composer, .nt-composer, .acpmux-newtab)[data-composer-look="codex"] .acpmux-access.acpmux-unrestricted :is(.acpmux-picker-button, .acpmux-access-trigger) {
+  color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
+}
+
+/* The Classic New Tab page (NewTabPage.tsx) draws the same look in its own box: the row under the
+   field takes Codex's order, the mode first, then the project and the agent, the model and effort
+   pushed right next to Send. */
+.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under :is(.acpmux-newtab-context, .acpmux-chips) {
+  display: contents;
+}
+.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under .acpmux-chips > * {
+  order: 2;
+}
+.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under .acpmux-chips > .acpmux-access {
+  order: 0;
+}
+.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under :is(.acpmux-project, .acpmux-newtab-chip) {
+  order: 1;
+}
+.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under .acpmux-chips > .acpmux-model {
+  margin-inline-start: auto;
+}
+.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under > .acpmux-send {
+  order: 3;
+}
+/* A terminal or a browser tab has no model: Send keeps the right edge. */
+.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under:not(:has(.acpmux-model)) > .acpmux-send {
+  margin-inline-start: auto;
+}
+
+/* The New Tab page's dots (newtab/PageDots.tsx): the looks, then the page's styles, one row under
+   the page where the style switch sat (newtab/screen.css .nt-style). */
+.nt-page-dots {
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  display: flex;
+  gap: 12px;
+  max-width: calc(100% - 32px);
+  transform: translateX(-50%);
+}
+.nt-page-dots > .nt-style {
+  position: relative;
+  bottom: auto;
+  left: auto;
+  max-width: none;
+  transform: none;
+}
+
+/* The look dots in a chat (LookSwitch.tsx): the New Tab page's dots (newtab/screen.css .nt-style),
+   centered on the composer, in one element after the box for both looks (ComposerBox.tsx), so a look
+   switch keeps the dots and their focus. With Claude's look the element is empty height after the
+   quiet row and the dots sit over the row's empty middle, out of its flow, so the row lays out as
+   without them; with Codex's it is the band under the box, the room the composer's bottom padding
+   held. They show while the pointer is over that area or a
+   dot has the keyboard, at once, and fade when it leaves (an exit, never an entry). */
+.acpmux-look-slot {
+  position: absolute;
+  left: 50%;
+  width: 0;
+  height: 24px;
+}
+.nt-style.acpmux-look-dots {
+  top: 0;
+  bottom: auto;
+  max-width: none;
+  opacity: 0;
+  transition: opacity var(--agent-motion-out, 80ms) var(--agent-ease-out, ease-out);
+}
+.acpmux-composer:has(.acpmux-composer-foot:hover) .acpmux-look-dots,
+.acpmux-composer-under:hover .acpmux-look-dots,
+.acpmux-look-dots:focus-within {
+  opacity: 1;
+  transition: none;
+}
+/* The name shows after the two dots, on their line (DotSwitch nameAside). */
+.acpmux-look-dots .nt-style-name {
+  bottom: auto;
+  top: 50%;
+  padding: 0 0 0 4px;
+  transform: translateY(-50%);
+}
+/* Codex's look: the band under the box takes the composer's bottom padding. */
+.acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-under) {
+  padding-bottom: 0;
+}
+.acpmux-composer-under {
+  position: relative;
+  height: 16px;
+}
+.acpmux-composer-under:not([data-beside-foot]) .acpmux-look-slot {
+  height: 16px;
+}
+.acpmux-composer-under:not([data-beside-foot]) :is(.nt-style-option, .nt-style-mark) {
+  height: 16px;
+}
+/* Claude's look: no height of its own after the quiet row; the 24px dots ride up over the row's
+   middle (the row is 28px with a 10px bottom margin, composerLocation.css .acpmux-composer-foot). */
+.acpmux-composer-under[data-beside-foot] {
+  height: 0;
+}
+.acpmux-composer-under[data-beside-foot] .acpmux-look-slot {
+  bottom: 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-style.acpmux-look-dots {
+    transition: none;
+  }
+}

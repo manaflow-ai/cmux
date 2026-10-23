@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 655baaa1d0f11bd63754ffcda70267c4b8f07a2d8d415bf0c302c2ccab838a96.
+// cmux-tui mux protocol 12, IR 5d3ff5ed972a33f5c4bb6a49a9dd6aeed437faa9b1ef702813aa5522af7f0eb0.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1167,7 +1167,11 @@ pub enum NameSource {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewRowResult {
     pub pane: Id,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub pane_id: Option<String>,
     pub surface: Id,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1611,6 +1615,13 @@ pub struct Screen {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub short_id: Option<String>,
     pub zoomed_pane: Nullable<Id>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SendExpectAgent {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub session: Optional<String>,
 }
 
 #[rustfmt::skip]

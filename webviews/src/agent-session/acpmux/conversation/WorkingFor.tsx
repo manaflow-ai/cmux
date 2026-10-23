@@ -25,6 +25,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { type PaneLanguage, type Translate, usePaneLanguage, useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { TerminalSquare } from "./icons";
+import { BackgroundHint } from "./BackgroundHint";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { formatDuration } from "./turns";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
@@ -140,6 +141,9 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
           </button>
         </span>
       ))}
+      {/* A running command's ⌃B hint (BackgroundHint.tsx): on the line, never on its row. Keyed by
+          the call, so each command's hint waits its moment again. */}
+      {!waiting && row.doingCommand && !row.doingDraft && <BackgroundHint key={row.doing} />}
     </div>
   );
 }

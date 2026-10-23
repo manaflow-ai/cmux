@@ -20,7 +20,7 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "remote.connect",
                 title: String(localized: "action.remote.connect", defaultValue: "Connect to Machine…", table: "RemoteActions", bundle: .module),
-                keywords: ["ssh", "remote", "host", "server", "machine", "cmux-tui"], category: .remote, symbol: "server.rack",
+                keywords: ["ssh", "remote", "host", "server", "machine", "cmux-tui"], category: .remote, symbol: "cable.connector",
                 surfaces: [.palette, .menu, .contextMenu],
                 arguments: [CatalogArgument.destinationString, CatalogArgument.sessionString, CatalogArgument.binaryString,
                             CatalogArgument.stateDirString],
@@ -34,7 +34,7 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.device.add", defaultValue: "Add Device…", table: "RemoteActions", bundle: .module),
                 keywords: ["device", "add", "computer", "phone", "iphone", "mac", "linux", "windows", "server", "machine",
                            "pair", "code", "tailscale", "tailnet", "network", "join", "enroll", "approve"],
-                category: .remote, symbol: "plus.rectangle.on.rectangle", surfaces: [.palette, .menu, .contextMenu],
+                category: .remote, symbol: "ipad.and.iphone", surfaces: [.palette, .menu, .contextMenu],
                 arguments: [CatalogArgument.addDeviceWay],
                 cliName: "device add", mainMenu: .file
             ),

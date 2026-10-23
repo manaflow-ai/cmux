@@ -114,7 +114,17 @@ final class PaneHostView: NSView, RestingPlacement {
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         if superview == nil { isOnLayoutSpring = false }
+        // Another screen (or none) places it now: its clip and overlay are computed afresh.
+        stripClipInput = nil
+        overlaySyncKey = nil
     }
+
+    /// What the host's strip clip was last computed from (`ScreenContentView.clipToStrip`).
+    var stripClipInput: StripClipInput?
+    /// What its ring and dim were last placed from (`LayoutRootView.syncOverlay`).
+    var overlaySyncKey: PaneOverlaySyncKey?
+    /// The chrome state last applied (`setChrome`); nil before the first.
+    private var chromeInputs: PaneChromeInputs?
 
     /// Whether the pane sits in a docked column: it then shows the
     /// user's docks background under its content (`appearance.surfaces.docks`).
@@ -164,11 +174,19 @@ final class PaneHostView: NSView, RestingPlacement {
     }
 
     override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
         super.setFrameSize(newSize)
-        layoutClip()
+        // `frame =` with only a new origin calls this too: the clip and content keep their size
+        // (held content is pinned by the rest offset, which a move changes: it lays out).
+        if changed || heldContentSize != nil { layoutClip() }
     }
 
+    /// Clip and content layouts this host ran, cumulative (PaneMotionWorkTests: a pane that only
+    /// moves lays out nothing).
+    private(set) var clipLayouts = 0
+
     private func layoutClip() {
+        clipLayouts += 1
         var style = LayoutStyle()
         style.panePadding = padding
         style.paneCornerRadius = cornerRadius
@@ -255,6 +273,15 @@ final class PaneHostView: NSView, RestingPlacement {
                    ringAlphaOverride: CGFloat? = nil, tabEmphasis: ChromeEmphasis = .full, border: PaneOverlayView.Border,
                    attention: AttentionMark?, attentionSettings: AttentionSettings, readByEntry: Bool = false,
                    focused: Bool = false, flashesFocus: Bool = false, animated: Bool) {
+        // A split or close re-runs every pane's chrome; a pane whose ring, dim, border, emphasis and
+        // attention are what they were keeps them as they are (no layer transactions per pane). A
+        // focus flash always runs: it is an event, not a state.
+        let inputs = PaneChromeInputs(showsRing: showsRing, dim: dim, dimFill: dimFill, focusRing: focusRing,
+                                      ringAlphaOverride: ringAlphaOverride, tabEmphasis: tabEmphasis, border: border,
+                                      attention: attention, attentionSettings: attentionSettings, readByEntry: readByEntry,
+                                      focused: focused)
+        guard flashesFocus || inputs != chromeInputs else { return }
+        chromeInputs = inputs
         reporter?.setChromeEmphasis(tabEmphasis, animated: animated)
         chrome.update(showsRing: showsRing, dim: dim, dimFill: dimFill, focusRing: focusRing, ringAlphaOverride: ringAlphaOverride, border: border,
                       attention: attention, attentionSettings: attentionSettings, readByEntry: readByEntry,

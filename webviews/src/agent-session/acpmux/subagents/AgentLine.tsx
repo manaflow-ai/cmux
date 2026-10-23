@@ -1,11 +1,16 @@
 // One running or finished piece of the chat's work on one line: a subagent or a background
 // command. The tray above the composer (SubagentTray.tsx) and the summary card's Subagents list
 // (summary/SubagentStatusList.tsx) both draw their rows with it, so a subagent looks the same in
-// either place (Leo 2026-10-20: one style for the tray, the chip and the popover). Its icon carries
-// the status badge (summary.css `.acpmux-lineage__icon`) and is in the theme's accent while it runs,
-// never a brand color; then its name, a dim detail (what it does now, or its kind), its time and
+// either place (Leo 2026-10-20: one style for the tray, the chip and the popover). Its icon
+// (summary.css `.acpmux-lineage__icon`) is in the theme's accent while it runs, never a brand color,
+// and carries no corner dot, since the line says its state in words; then its name, a dim detail (what it does now, or its kind), its time and
 // its state. A click opens it. With a `card` (the Inspector's Subagents) a hover card names it and
 // says its state, as Claude Code desktop's session panel does, in place of the plain tooltip.
+//
+// In the tray a line also says what kind of thing it is before its name, "Command" or "Subagent"
+// (Leo 2026-10-21 on a tray line that showed a raw shell line: "is that a command or a
+// subagent?"), and a line that opens something ends in a chevron. A line with nothing to open is
+// a disabled button with no hover at all (subagents.css).
 import type { ReactNode } from "react";
 import { Tooltip } from "../../../ui/Tooltip";
 import { waveProps } from "../../../ui/wave";
@@ -27,6 +32,8 @@ export function AgentLine({
   current = false,
   title,
   label,
+  kind,
+  chevron = false,
   onOpen,
   after,
   card,
@@ -51,6 +58,10 @@ export function AgentLine({
   title?: string;
   /// The accessible name, when the visible text is not enough ("Open Reviewer").
   label?: string;
+  /// What kind of thing it is, before its name ("Command", "Subagent"); the tray's lines say it.
+  kind?: string;
+  /// A trailing chevron when a click opens it (the tray's lines).
+  chevron?: boolean;
   onOpen?: () => void;
   /// Drawn after the line, outside its button (a running subagent's stop button).
   after?: ReactNode;
@@ -82,11 +93,17 @@ export function AgentLine({
         <Icon name={icon} size={iconSize} row />
       </span>
       <span className="acpmux-summary-text">
+        {kind && <span className="acpmux-agent-line__kind">{kind}</span>}
         <span className="acpmux-summary-agent__name">{name}</span>
         {detail && detail !== name && <span className="acpmux-summary-agent__kind">{detail}</span>}
       </span>
       {time !== undefined && <span className="acpmux-summary-meta acpmux-agent-line__time">{time}</span>}
       <span className="acpmux-summary-meta acpmux-summary-agent__state">{state}</span>
+      {chevron && onOpen && (
+        <span className="acpmux-agent-line__chevron" aria-hidden="true">
+          <Icon name="disclosure.collapsed" size={12} />
+        </span>
+      )}
     </button>
   );
   return (
