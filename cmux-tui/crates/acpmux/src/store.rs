@@ -268,6 +268,9 @@ pub struct SessionMeta {
     /// The full HEAD commit of `cwd` when the session started, as `git_branch`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git_head: Option<String>,
+    /// The linked worktree `cwd` is in: a start adds it back if gone (`worktree_care/revive.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<crate::git_state::WorktreeOrigin>,
     /// The sum of what this session's turns reported (`hub/turn_usage.rs`).
     /// `None` until a harness reports any; a fork starts its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -345,29 +348,6 @@ pub struct TurnUsage {
     pub cache_read_tokens: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_write_tokens: Option<u64>,
-}
-
-impl TurnUsage {
-    pub fn is_empty(&self) -> bool {
-        *self == Self::default()
-    }
-
-    /// Adds `turn` in, field by field; a field neither reported stays absent.
-    pub fn add(&mut self, turn: &TurnUsage) {
-        fn sum(a: Option<u64>, b: Option<u64>) -> Option<u64> {
-            a.zip(b).map(|(a, b)| a.saturating_add(b)).or(a).or(b)
-        }
-        self.cost_usd = self
-            .cost_usd
-            .zip(turn.cost_usd)
-            .map(|(a, b)| a + b)
-            .or(self.cost_usd)
-            .or(turn.cost_usd);
-        self.input_tokens = sum(self.input_tokens, turn.input_tokens);
-        self.output_tokens = sum(self.output_tokens, turn.output_tokens);
-        self.cache_read_tokens = sum(self.cache_read_tokens, turn.cache_read_tokens);
-        self.cache_write_tokens = sum(self.cache_write_tokens, turn.cache_write_tokens);
-    }
 }
 
 /// The tools a chat has (`hub/tools.rs`): cmux's own, recorded at each
