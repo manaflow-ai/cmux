@@ -1,15 +1,5 @@
 import Foundation
 
-/// Where a create pressed on a pane goes now (``DaemonStore/createTarget(for:)``).
-enum CreateTarget: Equatable {
-    /// The daemon's pane to name.
-    case pane(PaneID)
-    /// A stand-in whose create is still in flight and has no daemon pane yet: wait.
-    case pending
-    /// Nothing to name: an unknown stand-in.
-    case gone
-}
-
 // The send-time target of every key-turn create (Cmd-D, Cmd-Shift-D, New Column, New Row, a new
 // terminal tab, a chat's split): a create pressed on a pending create's stand-in waits for that
 // stand-in's daemon pane, and one whose stand-in's create was cancelled or refused goes to that
@@ -62,7 +52,9 @@ extension DaemonStore {
             case .gone:
                 throw CreateTargetGone(pane: handle)
             case .pending:
-                await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in standInWaiters.append(resume) }
+                await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
+                    standInWaiters.append((handle: handle, resume: resume))
+                }
             }
         }
     }
@@ -73,14 +65,17 @@ extension DaemonStore {
         guard !standInWaiters.isEmpty else { return }
         let waiters = standInWaiters
         standInWaiters.removeAll()
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume.resume() }
     }
 
     /// A stand-in stays known while a pending intent shows it, names it as its pane, or can fall
-    /// back through it (the anchors of the kept ones, transitively).
+    /// back through it (the anchors of the kept ones, transitively), and while a create waits on it.
+    /// A reply-path create (Split Left/Up, a New Row without row client keys) has no intent in the
+    /// log: when its stand-in's create settles in the same lift that brings its daemon pane, the
+    /// waiter still has to find that pane after the lift (``resumeStandInWaiters()``).
     func releaseStandIns() {
         guard !standIns.isEmpty else { return }
-        var kept: Set<PaneID> = []
+        var kept = Set(standInWaiters.map { $0.handle })
         for entry in intentLog.entries {
             switch entry.kind {
             case .splitPane(let target, _, _, let provisional):
