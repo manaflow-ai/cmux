@@ -72,13 +72,14 @@ extension SidebarListViewComponents {
         drag.restFrame.origin.x -= stepIn
         drag.restFrame.size.width += stepIn
         drag.morphs = rows.count == 1
-        if case .group = payload { drag.groupHeadHeight = rows.first?.height }
         self.drag = drag
         // The document's acceptance table: the drag's one reducer call before its drop.
         if let doc = model.docDrag, let items = doc.items(payload) {
             drag.docItems = items
             drag.docAcceptance = doc.begin(items)
         }
+        // A group drag freezes its base and cuts its card here (`SidebarListView+GroupDrag`).
+        if case .group = payload { beginGroupDrag(drag, lifted: rows, card: rowFrame) }
         suppressed.formUnion(hidden)
         setHovered(nil)
         for key in hidden { rowViews[key]?.alphaValue = 0 }
@@ -105,6 +106,7 @@ extension SidebarListViewComponents {
             drag.movingUp = point.y < drag.lastY
             drag.lastY = point.y
         }
+        if drag.group != nil { return updateGroupDrag(drag) }
         if drag.docItems != nil { return updateDocDrag(drag, point: point) }
         let sections = listSections // the held rows as shown (`SidebarRowHold`)
         let base = SidebarLayout.make(sections: sections, metrics: metrics, options: options(includeGap: false))
@@ -116,10 +118,11 @@ extension SidebarListViewComponents {
         showDragLayout()
     }
     func finishDrag() {
-        showNestedDrop(nil)
         guard let drag else { return }
         autoscroll.stop()
         if SidebarListPinDrop.finish(self, drag) { return }
+        // A group dropped where it came from, or where nothing takes it, moves nothing: it goes back as for a cancel.
+        if let group = drag.group, group.slot == group.plan.origin || group.drops[group.slot] == nil { return cancelDrag() }
         if let items = drag.docItems, let doc = model.docDrag {
             guard let target = drag.docTarget else { return cancelDrag() }
             // The list keeps the drop's look until the move lands; the card settles into the slot it shows.
@@ -174,34 +177,14 @@ extension SidebarListViewComponents {
             drag.docGeometry = doc.geometry(base, width: bounds.width, acceptance: drag.docAcceptance, blocks: drag.blockBases)
             // The outliner rule: at a nested block's bottom edge the pointer's x picks the level (`SidebarIndent`).
             drag.docGeometry?.0.outline = (indent, inset, indentWidth)
-            if drag.groupHeadHeight != nil {
-                drag.groupBlocks = SidebarGroupReorder.blocks(of: base.rows)
-                drag.groupAnchors = SidebarGroupReorder.anchors(of: base.rows)
-            }
         }
         guard let (geometry, rows) = drag.docGeometry else { return }
         // The rest shape's centre under the pointer: it does not move when the card morphs (no hit oscillation at a block edge).
-        // A dragged group is a tall card (its header and every member row): its header decides, where the pointer
-        // holds it, not the card's centre many rows away.
         let displayY = drag.morphs || drag.tileSource != nil ? point.y - drag.grabOffsetY * drag.restFrame.height / max(1, drag.lift.frame.height)
-            + drag.restFrame.height / 2 : drag.groupHeadHeight.map { drag.lift.frame.minY + $0 / 2 } ?? drag.probeCard.midY
+            + drag.restFrame.height / 2 : drag.probeCard.midY
         var y = drag.blockTarget != nil ? baseY(displayY: displayY, blockGap: drag.blockTarget, bases: drag.blockBases)
             : SidebarDragGeometry.baseY(displayY: displayY, gapY: displayed.gapY, gapHeight: displayed.gapShift)
-        // A dragged group moves by its edges (u2455): its bottom past the middle of the block below moves it down,
-        // its top past the middle of the block above moves it up (`SidebarGroupReorder`), for tall and short groups.
-        if drag.groupHeadHeight != nil, drag.blockTarget == nil, let gapY = displayed.gapY, !drag.groupBlocks.isEmpty {
-            var reorder = SidebarGroupReorder(blocks: drag.groupBlocks, shift: displayed.gapShift)
-            let current = reorder.index(ofGapAt: gapY)
-            // The blocks below the gap as drawn: the gap plus the spacing between groups (6 pt more than `gapShift`).
-            let shown = SidebarGroupReorder.blocks(of: displayed.rows.filter { !drag.hiddenKeys.contains($0.key) })
-            if current < min(shown.count, drag.groupBlocks.count) { reorder.shift = shown[current].lowerBound - drag.groupBlocks[current].lowerBound }
-            let card = drag.lift.frame
-            let index = reorder.index(top: card.minY, bottom: card.maxY, current: current)
-            // The drop goes beside a whole top-level block, never into a group or among its members (u9772: since
-            // nested groups the acceptance table takes those, and a probe at a group's last member nested the
-            // dragged group into it).
-            return showGroupReorder(drag, index: index, geometry: geometry, displayY: displayY, point: point)
-        } else if drag.groupHeadHeight == nil, drag.blockTarget == nil {
+        if drag.blockTarget == nil {
             // A row moves by its edges too (Lawrence 2026-10-20): its top past the middle of the row above moves it up,
             // its bottom past the middle of the row below moves it down (`SidebarDragGeometry.edgeY`). The rest shape's
             // edges, as for the centre above, so a morph does not move them. A block's tiles keep the centre.
@@ -224,7 +207,6 @@ extension SidebarListViewComponents {
             return
         }
         drag.probe = SidebarDropProbe(hit, displayY: displayY, baseY: y)
-        showNestedDrop(nestedDropMark(hit, geometry: geometry, rows: rows))
         // A refused place keeps the last open gap (the drop goes there): the rows do not spring shut and open
         // again at every row the drop cannot take, and the card dims only while no gap shows.
         if hit.target == nil, drag.docTarget != nil, drag.target != nil || drag.blockTarget != nil { return }
@@ -280,7 +262,6 @@ extension SidebarListViewComponents {
     }
 
     func cancelDrag() {
-        showNestedDrop(nil)
         guard let drag else { return }
         autoscroll.stop()
         SidebarListPinDrop.end(self)
@@ -500,13 +481,24 @@ extension SidebarListViewComponents {
         for (key, view) in rowViews where layout.row(for: key) == nil && !suppressed.contains(key) {
             SidebarDragSpring.fade(view, to: 0)
         }
-        // A tile dropped among rows opens the list's slot underlay with the rows.
-        let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) } : nil
+        // A tile dropped among rows opens the list's slot underlay with the rows. The gap is the drop's one mark
+        // (no line over the rows, Lawrence 2026-10-23): it starts at the x its rows take in the group it joins.
+        let stepIn = dropStepIn(layout)
+        let gapFrame = layout.gapHeight > 0 ? layout.gapY.map {
+            NSRect(x: inset + stepIn, y: $0, width: max(0, bounds.width - inset * 2 - stepIn), height: layout.gapHeight)
+        } : nil
         decorations.frame = bounds
         decorations.setGap(gapFrame, animated: true)
         let lines = groupLineViews.update(groupLines(layout), from: groupLines(layout, current: true), in: self, above: decorations, animated: true)
         SidebarDragSpring.move(lines.springs, in: self)
         Motion.sidebar.animate(.move, in: self, { lines.changes() }, completion: { [leaving = lines.leaving] in leaving.forEach { $0.removeFromSuperview() } })
+    }
+
+    /// How far in the held drag's gap starts: the x of the rows of the group its drop joins (`SidebarIndent`).
+    func dropStepIn(_ layout: SidebarLayout) -> CGFloat {
+        guard case let .position(position)? = shownDrag?.target, let group = position.group,
+              let header = layout.row(for: .group(group)) else { return 0 }
+        return indent.offset(level: header.depth + 1, width: indentWidth)
     }
 
     /// An adopting apply's motion: kept rows spring from where they are,

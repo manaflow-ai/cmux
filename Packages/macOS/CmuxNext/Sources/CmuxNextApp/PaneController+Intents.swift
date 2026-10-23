@@ -103,6 +103,8 @@ extension PaneController {
     func newTerminalTab(cwd: String? = nil, typing text: String? = nil, typingAhead page: String? = nil, keep: Bool? = nil,
                         fromSelectedTab: Bool = false, daemonResolvesCwd: Bool = false,
                         then: (@MainActor (SurfaceID) -> Void)? = nil) {
+        // Nothing opens in Home's dock: without a placement of the caller's, the tab moves beside it.
+        let then = then ?? HomeDockOpens.placing(pane, services: services, focus: true, then: nil)
         let handle = pane.handle
         // From an agent tab, the agent's cwd (#16620), asked when the tab is made.
         let agent = cwd == nil && fromSelectedTab && !daemonResolvesCwd ? selectedAgentView : nil
@@ -204,8 +206,27 @@ extension PaneController {
     /// out until the daemon's records drop them, and come back only when the
     /// daemon refused the close (tab-spam-race).
     func close(_ ids: [StripTabID]) {
-        guard !ids.isEmpty else { return }
-        var commands: [(label: String, run: DaemonCommandBody)] = []
+        guard let prepared = prepareClose(ids) else { return }
+        let daemon = daemon
+        let runs = daemon.closeRuns(surfaces: prepared.surfaces, commands: prepared.commands)
+        let userClose = CloseUndoToasts.isUserClose // a refused user close shows RefusedCloseNotice
+        services.registry.track(Task { [services] in
+            let outcome = await daemon.runReportingOutcomes(runs)
+            if outcome.failed, userClose { RefusedCloseNotice(services: services).show(codes: outcome.codes, in: view.window) }
+            await prepared.finish(outcome.failed, outcome.unknown)
+            return outcome.failed ? "close failed (see the app log)" : nil
+        })
+    }
+
+    /// The local half of a close of `ids`: app-local tabs and tabs still being
+    /// created go now; the daemon tabs leave the visible state through one
+    /// close intent, and the pane starts leaving when its last tab goes. Nil
+    /// when no daemon tab is left to close. The caller sends the returned
+    /// commands (alone, or with other panes' in one batch, `PaneController.close(_:)`)
+    /// and then calls its `finish`.
+    func prepareClose(_ ids: [StripTabID]) -> PreparedTabClose? {
+        guard !ids.isEmpty else { return nil }
+        var commands: [DaemonService.CloseRun] = []
         var surfaces: [SurfaceID] = []
         var keys: [String] = []
         for id in ids {
@@ -219,23 +240,21 @@ extension PaneController {
             guard let tab = tab(id) else { continue }
             surfaces.append(tab.surface)
             keys.append(tab.id)
-            commands.append(daemon.closeCommand(for: tab))
+            // Built from the records before the intent takes the tabs out of them.
+            let command = daemon.closeCommand(for: tab)
+            commands.append((command.label, command.run))
             // Its terminal's only view closes: that session may end it.
             if tab.kind == .remoteTerminal { services.remoteTerminals.viewClosed(tab) }
         }
-        // The runs are built from the records before the intent takes the tabs out of them.
-        let runs = commands.isEmpty ? [] : daemon.closeRuns(surfaces: surfaces, commands: commands.map { ($0.label, $0.run) })
+        let daemon = daemon
         let store = daemon.store
         let transaction = store.intendClose(surfaces)
         BenchSpans.measure("pane.apply") { apply(snapshot()) }
-        guard !runs.isEmpty else { return }
+        guard !commands.isEmpty else { return nil }
         // Its last tab closes: the whole pane leaves now, its neighbours springing into its space
         // (close-animation DESIGN.md); the strip has nothing left to animate.
         let paneClose = stripModel.tabs.isEmpty ? showPaneClose() : nil
-        let userClose = CloseUndoToasts.isUserClose // a refused user close shows RefusedCloseNotice
-        services.registry.track(Task { [services] in
-            let (failed, unknown, codes) = await daemon.runReportingOutcomes(runs)
-            if failed, userClose { RefusedCloseNotice(services: services).show(codes: codes, in: view.window) }
+        return PreparedTabClose(surfaces: surfaces, commands: commands) { [self, services] failed, unknown in
             if let transaction {
                 if failed {
                     // The daemon kept some: the records show what it has.
@@ -257,8 +276,7 @@ extension PaneController {
             finishPaneClose(paneClose, failed: failed)
             for key in keys { services.cache.release(key) }
             if failed || unknown { resyncStrip() }
-            return failed ? "close failed (see the app log)" : nil
-        })
+        }
     }
 
     /// Moves a tab into `target` at `index` (display order), optimistic.

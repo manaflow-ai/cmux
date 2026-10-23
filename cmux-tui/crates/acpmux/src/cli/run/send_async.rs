@@ -42,6 +42,9 @@ pub(super) async fn queue(
         return Err(anyhow!("{error}"));
     }
     let steered = status.pointer("/accepted/steer") == Some(&json!(true));
+    if !json_out {
+        warn_host_pressure(&status["accepted"]);
+    }
     if json_out {
         let session_id = status.pointer("/accepted/sessionId").cloned().unwrap_or(json!(key));
         let accepted = status.get("accepted").cloned().unwrap_or(Value::Null);

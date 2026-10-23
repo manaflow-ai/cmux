@@ -6,6 +6,7 @@ import { isImeKeyEvent } from "../../pages/shared/imeKeys";
 import { activeFormats, applyFormat, type MarkdownFormat } from "./markdownFormat";
 import "./markdownField.css";
 import { followScrollEdges } from "./summary/scrollEdges";
+import { followActionsWidth } from "./composerScrollLane";
 import { MINIMAL_SCROLLER_ATTRIBUTE } from "../../scrollers";
 import {
   Editor,
@@ -747,6 +748,12 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
       wrapper.current && typeof ResizeObserver === "function" && typeof MutationObserver === "function"
         ? followScrollEdges(wrapper.current)
         : undefined,
+    [],
+  );
+  // In the composer's box, its scrollbar runs down the box's right edge, clear of the actions
+  // (composerScrollLane.ts).
+  useEffect(
+    () => (wrapper.current && typeof ResizeObserver === "function" ? followActionsWidth(wrapper.current) : undefined),
     [],
   );
   const handle = useRef<MarkdownFieldHandle>(undefined);

@@ -87,7 +87,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     // MARK: ProviderAccessSource
 
     /// The interim extension rule (plans/cmux-next/passwords.md, section 3.4),
-    /// the same formula as `AppBrowserPage.agentExtensionRefusal`.
+    /// reported to the host for display only: since #24413 it gates nothing.
     func access(forTab targetID: String) -> ProviderTabAccess {
         guard let services else { return ProviderTabAccess(extensionHostAccess: false, userOverride: false, extensions: []) }
         let cache: TabContentCache = services.cache

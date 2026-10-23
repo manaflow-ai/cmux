@@ -712,6 +712,15 @@ CMUX_SHIM_EXPORT int cmux_shim_renderer_client_ids(int browser_id, int* out, int
 // 127.0.0.1:port, which accepts only this app's processes. Returns 1 when
 // stored.
 CMUX_SHIM_EXPORT int cmux_shim_set_context_proxy(const char* profile_cache_path, int port);
+// A browser profile's own proxy (#24432): profile_cache_path's request
+// context uses exactly `server` ("http|https|socks5://host:port", one server,
+// no credentials), bypassing the hosts of bypass_list (";"-separated, may be
+// empty), with WebRTC UDP kept inside the proxy. A dead proxy fails closed:
+// Chromium never falls back to direct. An empty server clears it (system
+// proxy settings again). Applies to a context made earlier this launch now
+// and to a later one when it initializes. Returns 1 when stored, 0 for an
+// invalid server or a remote machine's context.
+CMUX_SHIM_EXPORT int cmux_shim_set_context_proxy_server(const char* profile_cache_path, const char* server, const char* bypass_list);
 // 2 applied to the request context, 1 pending (not initialized yet),
 // 0 none, -1 Chromium refused the preference.
 CMUX_SHIM_EXPORT int cmux_shim_context_proxy_state(const char* profile_cache_path);

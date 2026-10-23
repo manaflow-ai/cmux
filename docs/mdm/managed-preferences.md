@@ -237,7 +237,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.font.lineHeight` | real | `1.625` | 1.2 to 2.4 | Chat Line Height |
 | `agentPane.display.code.family` | string |  |  | Chat Code Font. The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font. |
 | `agentPane.display.code.scale` | real |  | 0.6 to 1.25 | Chat Code Size. Code as a share of the chat's text size. Empty uses the Markdown viewer's. |
-| `agentPane.display.inspector.placement` | string | `"overlay"` | `push`, `overlay` | Inspector. Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat. |
+| `agentPane.display.inspector.placement` | string | `"overlay"` | `push`, `overlay` | Session Info. Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat. |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
 | `terminal.linkOpener.default` | string | `"cmux"` |  | Open Program Links In. Where a URL goes when a program in a terminal opens a browser, such as aws login or gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, a profile after @ (chrome@Profile 1), or command:<command> to let your script decide. A BROWSER you set yourself wins. |

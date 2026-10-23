@@ -326,16 +326,16 @@ export default agentPaneEntry({
     // and the composer, with chats on this Mac it does not list. `minimal-default` is a host that
     // sends no template (the app's unset key); `minimal-widgets` turns the stage's widgets on.
     "minimal-default": {
-      note: "Minimal, New Tab's default layout: a quiet greeting over the composer, which keeps its folder and machine, model, effort, mic and Send, and under the page the two composer look dots (Claude, Codex). No project card, quick actions, chats or other template dots: those are widgets, off by default.",
+      note: "Minimal, New Tab's default layout: a quiet greeting over the composer, which keeps its folder and machine, model, effort, mic and Send, and under the page the three dots (Claude Minimal, Claude Minimal with the quick actions, Codex Minimal), the first marked. No project card, quick actions, chats or other template dots: those are widgets, off by default.",
       ready: newTab({ template: undefined }),
       snapshot: noChat(manySessions(12)),
       play: async (ctx: PlayContext) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-greeting") !== null);
         const extra = ctx.document.querySelector(".nt-stage, .nt-cards, .nt-create");
         if (extra) throw new Error(`the minimal page shows ${extra.className}`);
-        // The two look dots only (newtab/PageDots.tsx, Leo 2026-10-22), not the other styles.
+        // The three dots only (newtab/tabDots.ts, Leo 2026-10-23), not the other styles.
         const dots = ctx.document.querySelectorAll(".nt-style input[type=radio]").length;
-        if (dots !== 2) throw new Error(`the minimal page shows ${dots} dots, not the two looks`);
+        if (dots !== 3) throw new Error(`the minimal page shows ${dots} dots, not the three`);
       },
     },
     "minimal-widgets": {
