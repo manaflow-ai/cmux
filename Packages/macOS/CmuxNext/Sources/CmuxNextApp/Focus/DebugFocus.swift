@@ -98,6 +98,8 @@ enum DebugFocus {
     private static func mismatches(state: FocusState, actual: FocusEvent.Responder, isKey: Bool, layoutFocus: String?,
                                    ghostty: [String], controller: WindowController) -> [String] {
         var problems: [String] = []
+        // A top page covers the parked workspace, whose pane the model still names (InputInvariants.world).
+        guard controller.shownTopPage == nil else { return problems }
         let resolved = state.resolved
         if let pane = state.pane, layoutFocus != pane { problems.append("layout focus \(layoutFocus ?? "nil") != model pane \(pane)") }
         let childPage = controller.focusApplier.focusedChildWindowPageID == nil ? nil : resolved.tab
