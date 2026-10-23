@@ -60,6 +60,10 @@ final class BrowserHibernation {
     var pendingWakes: [String: HibernatedBrowserTab.Wake] = [:]
     private var probing: Set<String> = []
     private let deadline = DemandTimer(owner: "BrowserHibernation")
+    /// A replan is queued for after this turn.
+    private(set) var replanQueued = false
+    /// Replans run (tests): a switch that hides N pages and moves N panes replans once.
+    private(set) var replanCount = 0
     /// Hidden pages frozen now (`browser.freezeHiddenTabs`); they thaw when shown or driven.
     private(set) var frozen: Set<String> = []
     /// Pages a freeze probe is asking (media, Web Audio, capture).
@@ -380,6 +384,7 @@ final class BrowserHibernation {
     /// Hibernates every due page and arms one deadline for the next.
     func replan() {
         guard let cache else { return }
+        replanCount &+= 1
         let now = ContinuousClock.now
         var graceEnds: Double?
         let candidates = cache.lifecycle.keys(in: .mountedHidden).compactMap { key -> HibernationPlanner.Candidate? in
