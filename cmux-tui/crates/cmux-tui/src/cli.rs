@@ -259,6 +259,9 @@ pub(crate) fn removed_route_requested(args: &[String]) -> bool {
                 .iter()
                 .position(|word| word == "route")
                 .is_some_and(|index| {
+                    if index == 1 && command.first().is_some_and(|word| word == "help") {
+                        return true;
+                    }
                     command[..index]
                         .iter()
                         .all(|word| word != "--" && word.starts_with('-'))
