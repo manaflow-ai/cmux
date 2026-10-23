@@ -37,6 +37,11 @@ Create-on-the-key guard (red before the fix, green after), light and STRESS:
 `--commands` picks the commands (default all but new_column, which PL-motion-core owns); `--workspaces 10,100` runs every phase again at
 each workspace count (the app holds that many terminal workspaces; the bench's is the shown one).
 
+Each phase records the host's 1-minute load before it starts (`load_avg`): an `idle` phase on a
+loaded host is not idle. A phase whose bench terminal is lost ends there and is listed in `aborts`
+(a budget run fails, the other phases still run), and the JSON is written after every phase. The
+tag's daemon session is stopped before the launch, so a reused tag starts from a fresh session.
+
 Usage: instant-new-surfaces-bench.py --tag TAG --app PATH [--runs 12] [--commands new_terminal]
        [--workspaces 10,100] [--browser-tabs 60] [--sessions light,stress] [--budget-key-p95-ms 4]
        [--out DIR] [--json FILE]
@@ -74,6 +79,8 @@ CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.env
            "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
            "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{TAG}", "CMUX_BUNDLED_CLI_PATH": CLI}
 LAUNCHED, LOAD = [], []
+# Phases a lost bench terminal ended early (the rest of the run goes on; a budget run fails).
+ABORTS = []
 COMMANDS = [c for c in opts.commands.split(",") if c]
 
 
@@ -182,21 +189,32 @@ def ensure_terminal():
     return ok
 
 
+def abort(phase, where):
+    """The bench lost its terminal: this phase ends here and says so; the rows so far stay."""
+    print(f"ABORT {phase} at {where}: no focused terminal: " + json.dumps(panes())[:400], flush=True)
+    ABORTS.append(f"{phase}/{where}")
+
+
 def bench(phase, window):
     rows = []
     if not ensure_terminal():
-        sys.exit("no focused terminal: " + json.dumps(panes())[:800])
+        abort(phase, "start")
+        return rows
     for command in COMMANDS:
         for index in range(opts.runs):
             if command != "new_workspace" and not ensure_terminal():
-                sys.exit("no focused terminal: " + json.dumps(panes())[:800])
+                abort(phase, f"{command}#{index}")
+                return rows
             before = len(panes())
             result = rpc("debug.new_tab", {"action": "bench_create", "command": command}, timeout=20) or {}
             result.update({"phase": phase, "run": index})
             rows.append(result)
+            # Marks (ms 0) by time after the key, spans by their main-thread ms: the streamed log
+            # keeps the breakdown even when the run dies before it writes its JSON.
             marks = {s["name"]: round(s["at"], 1) for s in result.get("spans") or [] if s.get("ms", 0) == 0}
+            spans = {s["name"]: round(s["ms"], 2) for s in result.get("spans") or [] if s.get("ms", 0) > 0}
             print(f"{phase} {command} #{index}: key={result.get('key_ms')} visible={result.get('visible_ms')} "
-                  f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} marks={marks} "
+                  f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} spans={spans} marks={marks} "
                   f"err={result.get('error')}", flush=True)
             time.sleep(0.4)  # test harness: let the creation's shell start before closing it
             undo(command, window, before, result)
@@ -325,6 +343,13 @@ def build_stress():
 app = None
 
 
+def stop_session():
+    """Ends the tag's daemon session and its terminals. The app reattaches to a session its tag
+    left running, so a reused tag would measure the last run's workspaces and STRESS content."""
+    subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
+                   env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
+
+
 def cleanup():
     stop_load()
     if not LAUNCHED:
@@ -335,8 +360,7 @@ def cleanup():
             app.wait(timeout=20)
         except subprocess.TimeoutExpired:
             os.kill(app.pid, signal.SIGKILL)
-    subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
-                   env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
+    stop_session()
     ps = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
     for line in ps.splitlines():
         parts = line.split(None, 1)
@@ -356,6 +380,7 @@ def main():
         if any(line.startswith(APP + "/Contents/MacOS/") for line in ps.splitlines()):
             sys.exit(f"{SOCKET} exists and a {TAG} app runs; pick a fresh tag")
         os.remove(SOCKET)
+    stop_session()
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
@@ -367,8 +392,19 @@ def main():
         sys.exit("the tagged app did not come up")
     time.sleep(2)  # test harness: shell prompt
     window = window_key()
+    start_workspaces = workspace_count()
+    print(f"workspaces at launch: {start_workspaces}", flush=True)
     server = seed_browser_tabs(opts.browser_tabs) if opts.browser_tabs else None
-    rows, stress = [], None
+    rows, stress, loads = [], None, {}
+
+    def write(final):
+        """The JSON so far: after each phase (`partial`), so a run that dies keeps every phase it ran."""
+        result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "partial": not final,
+                  "workspaces_at_launch": start_workspaces,
+                  "aborts": ABORTS, "load_avg": loads, "stress_session": stress, "summary": summary(rows), "runs": rows}
+        if opts.json:
+            open(opts.json, "w").write(json.dumps(result, indent=1))
+        return result
     counts = [int(c) for c in opts.workspaces.split(",") if c] or [None]
     for session in [s for s in opts.sessions.split(",") if s]:
         if session == "stress":
@@ -379,17 +415,22 @@ def main():
                 ensure_terminal()
                 suffix += f"@{grow_workspaces(count)}ws"
             for phase in opts.phases.split(","):
+                # Measurement validity: the host's 1-minute load before the phase (and before its
+                # own load starts). An `idle` phase on a host whose load is near its core count is
+                # not idle; the number says so next to the rows.
+                loads[phase + suffix] = round(os.getloadavg()[0], 1)
+                print(f"phase {phase + suffix}: host load {loads[phase + suffix]} on {os.cpu_count()} cores", flush=True)
                 if phase == "load":
                     start_load()
                 try:
                     rows += bench(phase + suffix, window)
                 finally:
                     stop_load()
-    result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "stress_session": stress,
-              "summary": summary(rows), "runs": rows}
+                write(final=False)
+    result = write(final=True)
     print("\nSUMMARY", json.dumps(result["summary"], indent=1), flush=True)
-    if opts.json:
-        open(opts.json, "w").write(json.dumps(result, indent=1))
+    if ABORTS:
+        print("ABORTS", ", ".join(ABORTS), flush=True)
     if server:
         server.shutdown()
     if opts.budget_frames or opts.budget_key_p95_ms:
@@ -397,12 +438,13 @@ def main():
                if v["missed"] or (opts.budget_frames and (v["frames_p95"] or 99) > opts.budget_frames)
                or (opts.budget_frames and (v["key_max"] or 0) > opts.budget_key_ms)
                or (opts.budget_key_p95_ms and (v["key_p95"] or 99) > opts.budget_key_p95_ms)]
+        bad += [f"aborted {where}" for where in ABORTS]
         for k, v in result["summary"].items():
             print(f"BUDGET {k}: key p50/p95/max {v['key_p50']}/{v['key_p95']}/{v['key_max']} ms, "
                   f"frame p95 {v['frames_p95']}, missed {v['missed']}", flush=True)
         print("BUDGET", "FAIL " + ", ".join(bad) if bad else "PASS", flush=True)
         return not bad
-    return True
+    return not ABORTS
 
 
 ok = False
