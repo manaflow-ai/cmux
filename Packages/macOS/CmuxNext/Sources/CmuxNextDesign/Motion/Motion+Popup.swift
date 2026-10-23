@@ -44,13 +44,7 @@ public extension NSWindow {
         }
         let reopening = layer.animation(forKey: "opacity") != nil || layer.animation(forKey: "sublayerTransform") != nil
         let fresh = !reopening && alphaValue < 1
-        guard Motion.canAnimate(in: content) else {
-            layer.removeAnimation(forKey: "opacity")
-            layer.removeAnimation(forKey: "sublayerTransform")
-            setPopupLayer(layer, opacity: 1, transform: CATransform3DIdentity)
-            alphaValue = 1
-            return
-        }
+        guard Motion.canAnimate(in: content) else { return showPopupAtOnce() }
         Motion.overlays.set(layer, "opacity", to: NSNumber(value: Float(1)), fade: .fadeIn,
                    from: fresh ? NSNumber(value: Float(0)) : nil)
         if Motion.overlays.animatesMovement {
@@ -64,6 +58,20 @@ public extension NSWindow {
         // The card's first frame (opacity 0) reaches the screen before the window turns opaque.
         // perf-gate-ok: one commit per popup open (no flash of the full card); a theme change never opens one.
         CATransaction.flush()
+        alphaValue = 1
+    }
+
+    /// Shows the popup's card at its size and full opacity in this frame, ending any open or close
+    /// on screen: the open with no entrance (a page that asks for none, the New Tab; or no motion).
+    func showPopupAtOnce() {
+        if let content = contentView {
+            content.wantsLayer = true
+            if let layer = content.layer {
+                layer.removeAnimation(forKey: "opacity")
+                layer.removeAnimation(forKey: "sublayerTransform")
+                setPopupLayer(layer, opacity: 1, transform: CATransform3DIdentity)
+            }
+        }
         alphaValue = 1
     }
 

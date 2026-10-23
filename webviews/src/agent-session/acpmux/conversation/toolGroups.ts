@@ -109,6 +109,15 @@ export function groupCalls(items: readonly AcpmuxActivity[]): AcpmuxActivity[] {
   return items.filter((item) => item.tool);
 }
 
+/// A file change (an edit, a delete, a move) still waiting for its permission: its row stays in
+/// sight, never folded under a run's summary line, so the change it asks about can be seen.
+export function awaitsPermission(tool: Tool | undefined): boolean {
+  return (
+    tool?.status === "pending" &&
+    (tool.kind === "edit" || tool.kind === "delete" || tool.kind === "move" || tool.kind === "fileChange")
+  );
+}
+
 export function isRunning(tool: Tool): boolean {
   return tool.status === "pending" || tool.status === "in_progress";
 }

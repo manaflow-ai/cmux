@@ -4,8 +4,9 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { SUBAGENTS } from "../subagents/subagentFold";
+import { childRows } from "../subagents/childRows";
 import type { PlayContext } from "../../../gallery/play";
-import type { AcpmuxActivity } from "../model";
+import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { workedTurnRows } from "../workedTurn";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import {
@@ -16,6 +17,46 @@ import {
 } from "../../../gallery/fixtures/toolImages";
 
 const prompt = "Add retries with backoff to the fetch helper";
+
+/// A turn's rows as the transcript maps its ACP updates (subagents/childRows.ts, the parent
+/// transcript's rules): Claude Code's ToolSearch, then a Read and a command, then the reply.
+function toolSearchTurn(): AcpmuxRow[] {
+  const call = (id: string, tool: string, title: string, kind: string, extra: Record<string, unknown> = {}) => ({
+    sessionUpdate: "tool_call",
+    toolCallId: id,
+    title,
+    kind,
+    status: "completed",
+    _meta: { claude: { tool } },
+    ...extra,
+  });
+  const updates = [
+    call("ts-search", "ToolSearch", "ToolSearch", "other", { rawInput: { query: "select:Grep" } }),
+    call("ts-read", "Read", "Read src/net/retry.ts", "read", {
+      locations: [{ path: "/Users/you/src/atlas-web/src/net/retry.ts" }],
+    }),
+    call("ts-test", "Bash", "bun test src/net", "execute", {
+      rawInput: { command: "bun test src/net" },
+      rawOutput: { exit_code: 0 },
+    }),
+    {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "The retry helper backs off and its tests pass." },
+    },
+  ];
+  const turn = childRows(
+    "gallery-toolsearch",
+    updates.map((update, index) => ({ event: { seq: index + 1, at: minutesAgo(1.9 - index * 0.2) }, update })),
+    new Map(),
+    1,
+  );
+  const toolCount = turn.reduce((sum, item) => sum + (item.kind === "activity" ? (item.toolCount ?? 0) : 0), 0);
+  return [
+    user("Find the retry helper and run its tests", 2, { id: "gallery-toolsearch-user" }),
+    ...turn,
+    summary(1.1, { id: "gallery-toolsearch-summary", status: "completed", toolCount, durationMs: 54_000 }),
+  ];
+}
 
 /// Pull requests a leo-workspace chat names by bare number, as the App's cache has them
 /// (`pr.inspect`): five of manaflow-ai/cmux, and #843 in both repositories.
@@ -255,6 +296,14 @@ const EDIT_LONG_CODE =
     "}",
   ].join("\n") + "\n";
 
+/// Code past the eight-line preview, every line wider than the column.
+const EDIT_LONG_CODE_CUT =
+  Array.from(
+    { length: 14 },
+    (_, index) =>
+      `export const uploadRoute${index + 1} = { path: "/v2/uploads/:id/parts/${index + 1}", method: "PUT", timeoutMs: 30_000, retry: retryPolicy, headers: { "content-type": "application/octet-stream" } } as const;`,
+  ).join("\n") + "\n";
+
 const EDIT_LONG_PROSE =
   Array.from({ length: 21 }, (_, index) =>
     index % 4 === 0
@@ -262,17 +311,144 @@ const EDIT_LONG_PROSE =
       : `- Day ${index}: the trail climbs past the old lighthouse and the tide pools, then follows the ridge back to the harbour, where the ferry waits until the last walkers are on board.`,
   ).join("\n") + "\n";
 
-const SHELL_LONG_LOG = Array.from(
-  { length: 6 },
-  (_, index) =>
-    `2026-10-21T09:0${index}:12.481Z retry attempt=${index + 1} url=https://api.example.test/v2/uploads/9f3c2a71/parts?part=${index + 1}&checksum=sha256-4b1f0c9e2d7a6b5c status=503 delayMs=${250 * 2 ** index}`,
-).join("\n");
+const shellLogLine = (index: number) =>
+  `2026-10-21T09:${String(index).padStart(2, "0")}:12.481Z retry attempt=${index + 1} url=https://api.example.test/v2/uploads/9f3c2a71/parts?part=${index + 1}&checksum=sha256-4b1f0c9e2d7a6b5c status=503 delayMs=${250 * 2 ** (index % 6)}`;
+const SHELL_LONG_LOG = Array.from({ length: 6 }, (_, index) => shellLogLine(index)).join("\n");
+/// A log past the eight-line preview, every line wider than the column.
+const SHELL_LONG_LOG_CUT = Array.from({ length: 14 }, (_, index) => shellLogLine(index)).join("\n");
+
+/// A command still running, its output streaming in, in its own row: the turn went on past it
+/// (a lone running call reads only on the turn's live line).
+const liveShellRows = (id: string, output: string) => [
+  user("Follow the retry log", 1, { id: `${id}-user` }),
+  activity(
+    [
+      tool("tail -f logs/retry.log", "execute", "in_progress", {
+        command: "tail -f logs/retry.log",
+        output,
+        startedAt: minutesAgo(0.9),
+      }),
+    ],
+    0.8,
+    { id: `${id}-activity` },
+  ),
+  activity([tool("Read retryPolicy.ts", "read", "in_progress")], 0.5, { id: `${id}-read` }),
+];
+
+/// Opens the one call's row (inside the turn's fold once it is done; a running turn shows it) and
+/// turns its Wrap lines off.
+const unwrapCall = (body: string, actions: string) => async (ctx: PlayContext) => {
+  if (!ctx.document.querySelector(".cv-tool.is-toggle")) await openWorked(ctx);
+  await ctx.click({ selector: ".cv-tool.is-toggle" });
+  await ctx.waitFor(() => Boolean(ctx.document.querySelector(body)));
+  await ctx.click({ selector: `${actions} button[aria-label="Wrap lines"]` });
+  await ctx.waitFor(() => ctx.document.querySelector(body)?.getAttribute("data-wrap") === "false");
+};
 
 const shellDisclosureChecks = {
   layoutShiftMax: {
     value: 0.25,
     reason: "Opening command details intentionally reveals the shell block below its focused row.",
   },
+};
+
+/// One long finished turn, shaped like the ones Lawrence and Leo pasted (synthetic text): runs of
+/// commands, short narration, a compaction and a subagent ending, two answers to the person, a
+/// command after the second and a closing line. Only the work folds, each stretch under its own
+/// line between the answers (turns.ts `foldSegments`).
+const takeawayTurnRows = [
+  user("Why is the agent pane slow, and what should we fix first?", 12, { id: "gallery-takeaway-user" }),
+  activity(
+    [
+      tool("rg -n useLayoutEffect src", "execute", "completed", { command: "rg -n useLayoutEffect src", exitCode: 0 }),
+      tool("bun run bench:transcript", "execute", "completed", { command: "bun run bench:transcript", exitCode: 0 }),
+    ],
+    11.8,
+    { id: "gallery-takeaway-run-1" },
+  ),
+  assistant("Both audits are still running.", 11.5, { id: "gallery-takeaway-narration" }),
+  row("compaction", 11.2, {
+    id: "gallery-takeaway-compaction",
+    compaction: { state: "completed", preTokens: 123_000, postTokens: 13_000 },
+  }),
+  activity(
+    [
+      tool("Read src/transcript/VirtualList.tsx", "read", "completed"),
+      tool("bun test src/transcript", "execute", "completed", { command: "bun test src/transcript", exitCode: 0 }),
+    ],
+    10.4,
+    { id: "gallery-takeaway-run-2" },
+  ),
+  assistant(
+    "The first audit is done. Most of the time goes to measuring rows twice:\n\n1. Every new token re-measures the whole visible list.\n2. Opening a fold re-lays out the rows above it.\n\nShould I start with the first one?",
+    9,
+    { id: "gallery-takeaway-first" },
+  ),
+  activity(
+    [
+      tool("git diff --stat", "execute", "completed", { command: "git diff --stat", exitCode: 0 }),
+      tool("bun run typecheck", "execute", "completed", { command: "bun run typecheck", exitCode: 0 }),
+    ],
+    6,
+    { id: "gallery-takeaway-run-3" },
+  ),
+  assistant(
+    "Why it is slow, and the fixes:\n\n- Measure only the row that changed, not the visible list.\n- Keep the fold's header in place and grow its content downward.\n- Cache each row's height by its version.\n\nThe first fix is on the branch; the other two follow.",
+    4.6,
+    { id: "gallery-takeaway-second" },
+  ),
+  activity([tool("git push", "execute", "completed", { command: "git push", exitCode: 0 })], 4.4, {
+    id: "gallery-takeaway-push",
+  }),
+  assistant("Pushed.", 4.3, { id: "gallery-takeaway-pushed" }),
+  summary(4.3, { id: "gallery-takeaway-summary", status: "completed", durationMs: 456_000, toolCount: 7 }),
+];
+
+/// A finished turn whose "Worked for" folds four calls, then a later turn below it: opening or
+/// closing the line slides the rows below and fades what it shows or hides (turnFold.ts).
+const turnFoldRows = [
+  user("Add retries with backoff to the fetch helper", 8, { id: "gallery-turnfold-user" }),
+  activity(
+    [
+      thought("The retry wrapper swallows the status code, so check how the helper parses errors first."),
+      tool("Read src/net/client.ts", "read", "completed"),
+      tool("Search for fetchWithRetry", "search", "completed"),
+      tool("bun test src/net", "execute", "completed", { command: "bun test src/net", output: "12 pass", exitCode: 0 }),
+      tool("bun run typecheck", "execute", "completed", { command: "bun run typecheck", exitCode: 0 }),
+    ],
+    7.9,
+    { id: "gallery-turnfold-activity" },
+  ),
+  assistant(
+    "Retries now back off from 200 ms, doubling up to three tries.\n\nOnly timeouts and 5xx answers retry; a 4xx fails at once.",
+    7.5,
+    { id: "gallery-turnfold-answer" },
+  ),
+  summary(7.5, { id: "gallery-turnfold-summary", status: "completed", toolCount: 4 }),
+  user("Now cover it with a test that fakes two timeouts", 6, { id: "gallery-turnfold-next-user" }),
+  assistant("Added `client.retry.test.ts`: it passes, and fails with the retry taken out.", 5.5, {
+    id: "gallery-turnfold-next-answer",
+  }),
+  summary(5.5, { id: "gallery-turnfold-next-summary", status: "completed" }),
+];
+
+/// Holds every running animation halfway, so the still shows the fold mid-motion (a base that
+/// plays none shows the line already open or closed).
+const holdFoldHalfway = (ctx: PlayContext) => {
+  for (const animation of ctx.document.getAnimations()) {
+    const duration = Number(animation.effect?.getComputedTiming().duration) || 0;
+    animation.pause();
+    animation.currentTime = duration / 2;
+  }
+};
+
+/// Clicks "Worked for" so it ends `expanded`, and holds its fold halfway.
+const toggleWorkedHalfway = async (ctx: PlayContext, expanded: boolean) => {
+  const line = ctx.find({ selector: ".cv-worked" }) as HTMLElement;
+  // A plain click: a play step waits for the page to settle, which would let the fold finish.
+  line.click();
+  await ctx.waitFor(() => line.getAttribute("aria-expanded") === String(expanded));
+  holdFoldHalfway(ctx);
 };
 
 const longChatRows = Array.from({ length: 24 }, (_, index) => {
@@ -673,6 +849,56 @@ const shellTool = (command: string) =>
     endedAt: minutesAgo(2.79),
   });
 
+/// A running turn with a run of mixed work between two messages, then the run it works in now: the
+/// first run collapses to one line (Leo 2026-10-22: "this is pretty good ui: … the collapsing i
+/// mean"). `extra` joins that run's calls (a failed one).
+const collapsedRunChat = (extra: AcpmuxActivity[] = []) =>
+  chat(
+    [
+      user("Retries for the net client, then run its tests.", 4),
+      assistant("I'll add a retry helper around fetchJson and wire it into the client.", 3.9),
+      activity(
+        [
+          tool("Edit retry.ts", "edit", "completed", {
+            locations: [{ path: "src/net/retry.ts" }],
+            diffs: [{ path: "src/net/retry.ts", oldText: "", newText: "export async function withRetry() {}\n" }],
+          }),
+          tool("Read client.ts", "read", "completed", { locations: [{ path: "src/net/client.ts" }] }),
+          tool("Edit client.ts", "edit", "completed", {
+            locations: [{ path: "src/net/client.ts" }],
+            diffs: [
+              {
+                path: "src/net/client.ts",
+                oldText: "  return request(url);\n",
+                newText: "  return withRetry(() => request(url));\n",
+              },
+            ],
+          }),
+          tool("Read errors.ts", "read", "completed", { locations: [{ path: "src/net/errors.ts" }] }),
+          shellTool("bun test src/net"),
+          shellTool("git diff --stat"),
+          ...extra,
+        ],
+        3.5,
+      ),
+      assistant(
+        "The helper is in and the client uses it. Next I check that nothing else in src/net already retries, so a failing request never backs off twice.",
+        3,
+      ),
+      activity(
+        [
+          shellTool("rg -n retry src/net"),
+          tool("bun run typecheck", "execute", "in_progress", {
+            command: "bun run typecheck",
+            startedAt: minutesAgo(0.2),
+          }),
+        ],
+        0.3,
+      ),
+    ],
+    { isWorking: true },
+  );
+
 const MCP_THREAD = "01a14822-c01a-76a1-9fc5-1268687464d4";
 /// Codex's MCP call shape: `<server>.<tool> call`, arguments nested under `arguments`.
 const mcpTool = (name: string, args: unknown, output: string) =>
@@ -702,6 +928,76 @@ const MCP_READ = mcpTool(
     ],
   }),
 );
+
+/// Results a harness passes on as JSON text (toolResult.ts): a one-line JSON object, an MCP
+/// content list whose text is Markdown, a `{result, error}` envelope, Codex's `{output, metadata}`,
+/// and a JSON file a tool read, which stays JSON as printed.
+const ENVELOPE_TOOLS = [
+  tool("TaskStop", "other", "completed", {
+    output: JSON.stringify({
+      message: "Successfully stopped task: b5muqfh92 (bun test src/net --watch)",
+      task_id: "b5muqfh92",
+      task_type: "local_bash",
+      command: "bun test src/net --watch",
+    }),
+  }),
+  tool("Search open issues", "search", "completed", {
+    output: JSON.stringify([
+      {
+        type: "text",
+        text: "## Open issues\n\n- **#12** Crash on launch when the cache is empty\n- **#14** Slow scroll in long chats\n- **#19** Retry button stays disabled",
+      },
+    ]),
+  }),
+  tool("Review gate", "other", "failed", {
+    output: JSON.stringify({
+      error: null,
+      result: {
+        _meta: null,
+        content: [{ type: "text", text: "Tool call rejected by review. Continue without it." }],
+        structuredContent: null,
+      },
+    }),
+  }),
+  tool("Run focused tests", "other", "completed", {
+    output: JSON.stringify({
+      output: "3 pass\n0 fail\nRan 3 tests across 1 file. [118.00ms]\n",
+      metadata: { exit_code: 0, duration_seconds: 0.4 },
+    }),
+  }),
+  // An MCP result whose text repeats its structured content: the sentence, then the payload once.
+  tool("Look up the forecast", "fetch", "completed", {
+    output: JSON.stringify({
+      content: [
+        { type: "text", text: "Sunny in Lisbon, 21 °C, wind 12 km/h from the north." },
+        { type: "text", text: JSON.stringify({ city: "Lisbon", tempC: 21, sky: "sunny", windKmh: 12 }) },
+      ],
+      structuredContent: { city: "Lisbon", tempC: 21, sky: "sunny", windKmh: 12 },
+      isError: false,
+    }),
+  }),
+  // A JSON-RPC error: its message, then its data.
+  tool("Create issue", "other", "failed", {
+    output: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 7,
+      error: { code: -32602, message: "Invalid params: a title is required.", data: { field: "title", got: "" } },
+    }),
+  }),
+  // An MCP screenshot: its sentence, and its image in the call's strip instead of base64 JSON.
+  tool("Take a screenshot", "other", "completed", {
+    output: JSON.stringify({
+      content: [
+        { type: "text", text: "Captured the build-times chart." },
+        { type: "image", mimeType: "image/png", data: BUILD_TIMES_PNG },
+      ],
+    }),
+  }),
+  tool("Read package.json", "read", "completed", {
+    output:
+      '{\n  "name": "@cmux/webviews",\n  "private": true,\n  "type": "module",\n  "scripts": {\n    "test": "bun test"\n  }\n}\n',
+  }),
+];
 
 /// A render call (renderCall.ts); one with `update` redraws the card it names and draws nothing itself.
 function renderTool(page: string, update?: string) {
@@ -1050,6 +1346,11 @@ export default agentPaneEntry({
           throw new Error("harness health went to the host bridge");
       },
     },
+    "toolsearch-hidden": {
+      note: "A worked turn whose agent called Claude Code's ToolSearch (it only loads deferred tools' schemas) before a Read and a command, its fold open. The rows come from the transcript's own ACP-to-row mapping (childRows), so ToolSearch draws no row and the summary counts two calls.",
+      snapshot: chat(toolSearchTurn()),
+      play: openWorked,
+    },
     "side-chat-acpmux": {
       note: "Play: New side chat (the chat menu's chat.side action) forks the chat, has acpmux tag the fork the chat's side chat on the pane's own connection (cx-jlzsf), then asks the app only to open it beside the chat.",
       ready: { transport: "mock" },
@@ -1263,6 +1564,15 @@ export default agentPaneEntry({
         if (!at?.closest(".cv-thought__text"))
           throw new Error(`the current match is not in the thought's text: ${at?.className ?? "none"}`);
       },
+    },
+    "takeaways-stay-open": {
+      note: 'A long finished turn (synthetic text): every answer to the person stays in sight, and only the work folds, each stretch under its own Worked for line between the answers. The closing "Pushed." stays too.',
+      snapshot: chat(takeawayTurnRows),
+    },
+    "takeaways-fold-open": {
+      note: "The same turn with its first Worked for opened: the commands, the short narration and the compaction, in order, then the first answer.",
+      snapshot: chat(takeawayTurnRows),
+      play: (ctx) => ctx.click({ selector: ".cv-worked" }),
     },
     "working-tools": {
       note: "Tool calls running in a live turn; the status line names the call in flight.",
@@ -1520,6 +1830,53 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "collapsed-run": {
+      note: 'A run of mixed work between two messages collapses to one quiet line naming its work in the order it came, "Edited 2 files, read 2 files, ran 2 commands", under the glyph of its main kind (the pencil when it edited). The run the agent works in now keeps its call in flight out, on the live line (Leo 2026-10-22: "this is pretty good ui: … the collapsing i mean").',
+      snapshot: collapsedRunChat(),
+    },
+    "collapsed-run-open": {
+      note: "The same line opened: the rows it holds, drawn as they are on their own.",
+      snapshot: collapsedRunChat(),
+      play: openFoldedRun,
+    },
+    "collapsed-run-spacing-tight": {
+      note: "Gallery comparison: the tool rows use a 20px line and 2px after the run.",
+      snapshot: collapsedRunChat(),
+      documentAttributes: { "transcript-tool-spacing": "tight" },
+      play: openFoldedRun,
+    },
+    "collapsed-run-spacing-selected": {
+      note: "Selected gallery rhythm: compact 22px tool rows and a 4px gap before the reply, matching the Codex reference.",
+      snapshot: collapsedRunChat(),
+      play: openFoldedRun,
+    },
+    "collapsed-run-spacing-roomy": {
+      note: "Gallery comparison: the prior 26px tool rows and 8px after-run gap.",
+      snapshot: collapsedRunChat(),
+      documentAttributes: { "transcript-tool-spacing": "roomy" },
+      play: openFoldedRun,
+    },
+    "collapsed-run-failed": {
+      note: "A failed call in the collapsed run is counted on its line.",
+      snapshot: collapsedRunChat([
+        tool("bun run lint", "execute", "completed", { command: "bun run lint", exitCode: 1, output: "1 error\n" }),
+      ]),
+    },
+    "collapsed-run-pencil": {
+      note: "Gallery version: the pencil on every collapsed run, as the Codex app draws it (theme toolRunLook pencil).",
+      snapshot: collapsedRunChat(),
+      theme: { toolRunLook: "pencil" },
+    },
+    "collapsed-run-quiet": {
+      note: "Gallery version: the line's words in the quiet rows' colour (theme toolRunLook quiet).",
+      snapshot: collapsedRunChat(),
+      theme: { toolRunLook: "quiet" },
+    },
+    "collapsed-run-quiet-pencil": {
+      note: "Gallery version: quiet words and the pencil, closest to the Codex app (theme toolRunLook quiet-pencil).",
+      snapshot: collapsedRunChat(),
+      theme: { toolRunLook: "quiet-pencil" },
+    },
     "agent-messages": {
       note: "Messages to other agents say how far they got in one word at the line's end (Sent, Queued, Delivered, or why not) without the receipt's id; a shell call reads without its leading cd and, opened, names its folder beside Shell.",
       snapshot: chat(
@@ -1621,6 +1978,40 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "codex-turn-command-under-messages": {
+      note: 'Leo, 2026-10-22: "the ran thing basiclly replcaes the thinking usually". A command still running in an earlier run while the agent writes and messages others: it is the live line at the bottom (Running cp … with its time, ⌃B to run in background at its right on hover), not a Ran cp row with the hint over a Thinking line. Play: the line names the cp, no transcript row draws the hint or runs.',
+      snapshot: chat(
+        [
+          user("Copy the session log into recovery and tell the lanes what changed.", 3),
+          activity(
+            [
+              tool("cp", "execute", "in_progress", {
+                command: "cp /private/tmp/session-export/session.jsonl ~/recovery/",
+                startedAt: minutesAgo(1.2),
+              }),
+            ],
+            1.2,
+          ),
+          assistant(
+            "While the copy runs I'll tell the lanes what changed: the live line now names the command in flight, the Ctrl-B hint sits at its right, and finished commands keep their rows.",
+            1,
+          ),
+          activity([shellTool("acpmux send --no-wait coord-deputy '[lanes] summary sent'")], 0.8),
+        ],
+        { isWorking: true },
+      ),
+      play: async (ctx: PlayContext) => {
+        const doc = ctx.document;
+        await ctx.waitFor(() =>
+          (doc.querySelector(".cv-worked.is-below .cv-thinking")?.textContent ?? "").startsWith("Running cp "),
+        );
+        const stray = [...doc.querySelectorAll(".cv-command__bg")].filter((node) => !node.closest(".cv-worked"));
+        if (stray.length) throw new Error(`${stray.length} transcript rows draw the ⌃B hint`);
+        const live = doc.querySelectorAll(".cv-tool.is-live").length;
+        if (live) throw new Error(`${live} running rows draw over the live line`);
+        await liveLineClear(ctx);
+      },
+    },
     "codex-turn-raw-commands": {
       note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, 16px clear of the run over it; ⌃B to run in background shows on hover. Play: hover the line.",
       snapshot: chat(
@@ -1692,6 +2083,34 @@ export default agentPaneEntry({
         if (lines !== 1) throw new Error(`${lines} live lines, not one`);
         const live = doc.querySelectorAll(".cv-tool.is-live").length;
         if (live) throw new Error(`${live} running rows stack over the live line`);
+      },
+    },
+    "tool-run-scrolled-fade": {
+      note: 'Leo 2026-10-21, "in that top section fade would be good": a long run ("Read files, ran commands") opened past its nine-row cap and scrolled so a row sits half under its summary line. The list\'s top fades out there instead of cutting the row in half against the line. Play: open the turn and the run, scroll the list 3.5 rows.',
+      snapshot: chat([
+        user("Find where the sidebar's drag reorder loses its index.", 3),
+        activity(
+          Array.from({ length: 6 }, (_, index) => [
+            tool(`Read sidebar${index}.ts`, "read", "completed", {
+              locations: [{ path: `webviews/src/sidebar/sidebar${index}.ts` }],
+            }),
+            tool(`Read sidebar${index}.test.ts`, "read", "completed", {
+              locations: [{ path: `webviews/test/sidebar${index}.test.ts` }],
+            }),
+            describedShell(DENSE_COMMANDS[index]!, `Search the sidebar code (${index + 1})`),
+          ]).flat(),
+          2.9,
+        ),
+        assistant("The index is read before the drop moves the row; the fix reads it after.", 2),
+        summary(2, { status: "completed", toolCount: 18, durationMs: 64_000 }),
+      ]),
+      play: async (ctx) => {
+        await openGroupedRun(ctx);
+        const list = () => ctx.find({ selector: ".cv-tool-run" });
+        await ctx.waitFor(() => list().scrollHeight > list().clientHeight + 26);
+        // 3.5 rows of 26px: the fourth row sits half under the summary line.
+        list().scrollTop = 26 * 3.5;
+        await ctx.waitFor(() => list().scrollTop > 0);
       },
     },
     "codex-turn-run-open": {
@@ -1782,6 +2201,26 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "tool-result-envelopes": {
+      note: "Opened tool results read as their content, not the JSON a harness wrapped them in: one-line JSON pretty-printed, an MCP text list as Markdown, a result envelope and Codex's output as their text, a JSON file kept as printed.",
+      height: 1100,
+      snapshot: chat(
+        [user("Stop the watcher, check the issues and run the tests.", 1), activity(ENVELOPE_TOOLS, 0.8)],
+        { isWorking: true },
+      ),
+      play: async (ctx) => {
+        // A settled run folds to its line; opened, it lists the calls, each opened in turn.
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-tool.is-toggle")));
+        if (ctx.document.querySelector(".cv-tools > .cv-tool.is-toggle")) await openFoldedRun(ctx);
+        const closed = '.cv-tool.is-toggle[aria-expanded="false"]';
+        await ctx.waitFor(() => ctx.document.querySelectorAll(closed).length === ENVELOPE_TOOLS.length);
+        for (let opened = 0; opened < ENVELOPE_TOOLS.length; opened++) await ctx.click({ selector: closed });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-tool-output-card").length === ENVELOPE_TOOLS.length);
+        if (!ctx.document.querySelector(".cv-tool-output__markdown h2"))
+          throw new Error("the MCP text list did not render as Markdown");
+        if (ctx.document.body.textContent?.includes('"type":"text"')) throw new Error("an envelope shows raw");
+      },
+    },
     "tool-calls": {
       note: "An ended turn: its work folds under Worked for.",
       snapshot: chat([
@@ -1823,6 +2262,32 @@ export default agentPaneEntry({
         ),
         assistant("Lint fails on one unused variable; I can remove it.", 11.5),
         summary(11.5, { status: "completed", toolCount: 1 }),
+      ]),
+    },
+    "turn-stopped": {
+      note: 'The last turn, stopped by the reader: its footer says "You stopped after 40s" at rest and offers Continue, as Codex does. Continue sends a continue prompt through the composer\'s send; the button goes once that prompt shows (Leo, 2026-10-22: "and we should add a continue button if things were stopped, just like codex").',
+      snapshot: chat([
+        user(prompt, 3),
+        activity(
+          [
+            thought("Find where the fetch helper gives up on a failed request."),
+            tool("Read src/net/client.ts", "read", "completed"),
+          ],
+          2.8,
+        ),
+        assistant("The helper throws on the first failure. I'll wrap it in a retry loop with backoff next.", 2.5),
+        summary(2.33, { status: "cancelled", durationMs: 40_000, toolCount: 1 }),
+      ]),
+    },
+    "turn-stopped-then-continued": {
+      note: "A stopped turn that a prompt followed: only the last turn can offer Continue, so the earlier stopped turn offers none, and neither does the completed last turn.",
+      snapshot: chat([
+        user(prompt, 6),
+        assistant("The helper throws on the first failure. I'll wrap it in a retry loop with backoff next.", 5.5),
+        summary(5.33, { status: "cancelled", durationMs: 40_000 }),
+        user("Continue", 4),
+        assistant("Retries now back off from 200 ms, doubling up to three tries.", 3),
+        summary(3, { status: "completed", durationMs: 60_000 }),
       ]),
     },
     "turn-error": {
@@ -2475,7 +2940,7 @@ export default agentPaneEntry({
       },
     },
     "edit-long-line-code": {
-      note: "An Edited card's diff for code: long lines stay whole, the right edge fades while more lies past it (trackpad or Shift-wheel scrolls it), and Wrap lines sits beside Copy.",
+      note: "An Edited card's diff for code: long lines stay whole, the right edge fades while more lies past it, a thin sideways scrollbar shows under the lines at rest (trackpad or Shift-wheel scrolls it), and Wrap lines sits beside Copy.",
       checks: shellDisclosureChecks,
       snapshot: chat(editedRows("gallery-edit-code", "src/net/retryPolicy.ts", EDIT_LONG_CODE)),
       play: openEditedDiff,
@@ -2499,7 +2964,7 @@ export default agentPaneEntry({
       },
     },
     "shell-unwrapped-long-line": {
-      note: "A command's output with Wrap lines off: each line stays whole and the right edge fades while more lies past it.",
+      note: "A command's output with Wrap lines off: each line stays whole, the right edge fades while more lies past it, and a thin sideways scrollbar shows under the lines at rest.",
       checks: shellDisclosureChecks,
       snapshot: chat(
         shellRows("gallery-shell-unwrapped", "Print the retry log", "cat logs/retry.log", {
@@ -2512,6 +2977,67 @@ export default agentPaneEntry({
         await ctx.click({ selector: '.cv-shell__actions button[aria-label="Wrap lines"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-shell__body")?.getAttribute("data-wrap") === "false");
       },
+    },
+    "edit-long-line-code-cut": {
+      note: "An Edited card's diff for code past eight lines, lines whole: the first eight under a fade, and below them the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(editedRows("gallery-edit-code-cut", "src/net/uploadRoutes.ts", EDIT_LONG_CODE_CUT)),
+      play: openEditedDiff,
+    },
+    "shell-unwrapped-long-cut": {
+      note: "A long command output with Wrap lines off: the first eight lines under a fade, and below them the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(
+        shellRows("gallery-shell-unwrapped-cut", "Print the retry log", "cat logs/retry.log", {
+          output: SHELL_LONG_LOG_CUT,
+          exitCode: 0,
+        }),
+      ),
+      play: async (ctx) => {
+        await openSingleShell(ctx);
+        await ctx.click({ selector: '.cv-shell__actions button[aria-label="Wrap lines"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-shell__body")?.getAttribute("data-wrap") === "false");
+      },
+    },
+    "shell-live-unwrapped-long-line": {
+      note: "A running command's output with Wrap lines off: the thin sideways scrollbar's lane stays under the lines while it runs, so a line that starts or stops running past the edge does not move the transcript.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(liveShellRows("gallery-shell-live", SHELL_LONG_LOG), { isWorking: true }),
+      play: unwrapCall(".cv-shell__body", ".cv-shell__actions"),
+    },
+    "shell-live-unwrapped-long-cut": {
+      note: "A running command's long output with Wrap lines off: the first eight lines under a fade and the sideways scrollbar's lane under them while it runs.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(liveShellRows("gallery-shell-live-cut", SHELL_LONG_LOG_CUT), { isWorking: true }),
+      play: unwrapCall(".cv-shell__body", ".cv-shell__actions"),
+    },
+    "output-unwrapped-long-line": {
+      note: "A call's output with Wrap lines off: each line stays whole and a thin sideways scrollbar shows at rest in the output's bottom padding.",
+      checks: shellDisclosureChecks,
+      snapshot: chat([
+        user("Fetch the retry log", 3, { id: "gallery-output-unwrapped-user" }),
+        activity([tool("Fetch the retry log", "fetch", "completed", { output: SHELL_LONG_LOG })], 2.8, {
+          id: "gallery-output-unwrapped-activity",
+        }),
+        assistant("The output stays inside the transcript row.", 2.6, { id: "gallery-output-unwrapped-answer" }),
+        summary(2.6, { id: "gallery-output-unwrapped-summary", status: "completed", toolCount: 1 }),
+      ]),
+      play: unwrapCall(".cv-tool-output", ".cv-tool-output__actions"),
+    },
+    "output-unwrapped-long-cut": {
+      note: "A call's long output with Wrap lines off: its first eight lines whole under a fade, and the thin sideways scrollbar under them in the output's bottom padding, the preview that much taller (Codex review of #23967).",
+      checks: shellDisclosureChecks,
+      snapshot: chat([
+        user("Fetch the whole retry log", 3, { id: "gallery-output-unwrapped-cut-user" }),
+        activity([tool("Fetch the whole retry log", "fetch", "completed", { output: SHELL_LONG_LOG_CUT })], 2.8, {
+          id: "gallery-output-unwrapped-cut-activity",
+        }),
+        assistant("Its first eight lines show; Show all opens the rest.", 2.6, {
+          id: "gallery-output-unwrapped-cut-answer",
+        }),
+        summary(2.6, { id: "gallery-output-unwrapped-cut-summary", status: "completed", toolCount: 1 }),
+      ]),
+      play: unwrapCall(".cv-tool-output", ".cv-tool-output__actions"),
     },
     "shell-failed-exit": {
       note: "A failed command exposes its nonzero exit status alongside its output.",
@@ -2544,6 +3070,26 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-command").length === 2);
         const lines = [...ctx.document.querySelectorAll(".cv-command__line")].map((line) => line.textContent);
         if (lines[0] !== LONG_CP) throw new Error(`the cp row reads ${lines[0]}, not the whole command`);
+      },
+    },
+    "worked-for-opening": {
+      note: "Play: open Worked for and hold its fold halfway: the rows below slide down from where they were, the steps it shows fade in and the chevron turns. With animations off or under Reduce Motion it opens at once.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(turnFoldRows),
+      play: (ctx) => toggleWorkedHalfway(ctx, true),
+    },
+    "worked-for-closing": {
+      note: "Play: open Worked for, then close it and hold the fold halfway: the steps fade out where they were while the rows below slide up over them.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(turnFoldRows),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-worked" });
+        await ctx.waitFor(
+          () =>
+            ctx.find({ selector: ".cv-worked" }).getAttribute("aria-expanded") === "true" &&
+            ctx.document.getAnimations().every((animation) => animation.playState !== "running"),
+        );
+        await toggleWorkedHalfway(ctx, false);
       },
     },
     "fold-holds-clicked-line": {

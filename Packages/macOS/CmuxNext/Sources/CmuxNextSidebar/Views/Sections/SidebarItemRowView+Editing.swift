@@ -27,6 +27,7 @@ extension SidebarItemRowView {
     func layoutEditing() {
         // The ✕ takes the unread badge's place on a row.
         badge.alphaValue = isEditing ? 0 : 1
+        rowBadge.alphaValue = isEditing ? 0 : 1
         guard isEditing else {
             layer?.removeAnimation(forKey: Self.wiggleKey)
             return

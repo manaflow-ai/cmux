@@ -133,8 +133,10 @@ test("one session replacing its own device row moves nothing", async () => {
   expect(animated).toEqual([]);
 });
 
-test("a chat that starts while the page shows still fades in", async () => {
+// No entry animations on the New Tab (Leo 2026-10-22): a new chat is drawn in its slot at once.
+// (jsdom lays nothing out, so the rows under it have no distance to slide here.)
+test("a chat that starts while the page shows appears at once", async () => {
   await render(device);
   await render([card("lane-9", "A new chat"), ...device.slice(0, 3)]);
-  expect(animated).toContain("A new chat");
+  expect(animated).toEqual([]);
 });

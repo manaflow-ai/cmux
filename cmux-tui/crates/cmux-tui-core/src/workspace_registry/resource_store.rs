@@ -3853,6 +3853,9 @@ fn tombstone_resource_tab_row(
          WHERE active_tab_id = ?2 AND deleted_revision IS NULL",
         params![revision, tab_id],
     )?;
+    // tab-attention-v1: a closed tab no longer needs the person; a reopen
+    // keeps the tab id, so the mark must not come back with it.
+    crate::state::tab_state_store::clear_closed_tab_attention(transaction, tab_id)?;
     tombstone_resource_identity(transaction, tab_id, revision)
 }
 

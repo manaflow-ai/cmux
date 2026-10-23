@@ -17,7 +17,9 @@ public import Foundation
 ///    `data:`, `mailto:`, ...) is searched, so typed text can never run
 ///    script or open another app.
 /// 3. `/abs/path`, `~`, and `~/path` are file URLs, spaces allowed.
-/// 4. Remaining text with whitespace is a search.
+/// 4. Remaining text with whitespace is a search, except an explicit
+///    `http`, `https` or `file` URL whose spaces all come after its host:
+///    it loads with them percent-encoded, as in Chrome.
 /// 5. Scheme-less text: userinfo (`user@host`) is refused, loopback hosts
 ///    and non-unique hosts (private IPs, `devbox:8080`, `router/`,
 ///    `nas.local`) get `http`, other dotted hosts, IPv6 literals or hosts
@@ -40,12 +42,29 @@ public nonisolated struct BrowserURLResolver: Sendable {
         if let fileURL = fileURL(for: text) {
             return fileURL
         }
-        guard !text.contains(where: \.isWhitespace) else { return nil }
+        guard !text.contains(where: \.isWhitespace) else { return encodingSpaces(text) }
 
         if let scheme = explicitScheme(of: text) {
             return explicitURL(text, scheme: scheme)
         }
         return schemeLessURL(text)
+    }
+
+    // MARK: Spaces
+
+    /// An `http`, `https` or `file` URL with spaces only after its host
+    /// (`https://x.com/search?q=a b`, `file:///My Notes.html`): the spaces
+    /// percent-encoded, as Chrome loads them. Nil for everything else with
+    /// a space, which is searched.
+    private func encodingSpaces(_ text: String) -> URL? {
+        guard let scheme = explicitScheme(of: text), ["http", "https", "file"].contains(scheme),
+              let authorityStart = text.range(of: "://")?.upperBound,
+              let authorityEnd = text[authorityStart...].firstIndex(where: { "/?#".contains($0) }),
+              let firstSpace = text.firstIndex(where: \.isWhitespace), authorityEnd < firstSpace,
+              text.allSatisfy({ !$0.isWhitespace || $0 == " " }) else {
+            return nil
+        }
+        return explicitURL(text.replacingOccurrences(of: " ", with: "%20"), scheme: scheme)
     }
 
     // MARK: Wrapped paste

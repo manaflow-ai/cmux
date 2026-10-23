@@ -1,6 +1,6 @@
 import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject } from "react";
 import type { ComposerAttachment } from "./attachments";
-import { AttachmentStrip, type PendingAttachment } from "./composer/attachmentIntake";
+import { AttachmentStrip, backspacedAttachment, type PendingAttachment } from "./composer/attachmentIntake";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
@@ -68,6 +68,9 @@ export type ComposerBoxProps = {
   trailing?: React.ReactNode;
   /// The hideable controls the row's right-click shows again (composerChrome.tsx).
   chromeItems: readonly HideableChromeItem[];
+  /// Drawn in the composer's bottom area, centered: the chat's look dots (LookSwitch.tsx), in the
+  /// quiet row's empty middle, or under the box in Codex's look.
+  bottom?: React.ReactNode;
 };
 
 /// The one composer box every surface draws (one-composer: the chat pane, New Tab, Quick
@@ -99,6 +102,7 @@ export function ComposerBox({
   accessory,
   trailing,
   chromeItems,
+  bottom,
 }: ComposerBoxProps) {
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css): the
   // chips as plain text. With Claude's look (composerLook.ts, the default) they sit in the quiet row
@@ -179,7 +183,17 @@ export function ComposerBox({
             // ui-allow: the prompt field's own editing keys (⌘⇧V's paste stays text), before the host's.
             onKeyDown={(event) => {
               // Every key belongs to the input method while it composes.
-              if (!event.isComposing && event.keyCode !== 229 && isPasteAsPlainTextKey(event)) pastedChips.plainPaste();
+              const composing = event.isComposing || event.keyCode === 229;
+              if (!composing && isPasteAsPlainTextKey(event)) pastedChips.plainPaste();
+              // Backspace at the prompt's start takes back the last chip (backspacedAttachment).
+              const backspaced = composing
+                ? undefined
+                : backspacedAttachment(event, prompt.current?.atStart() ?? false, attachments);
+              if (backspaced) {
+                event.preventDefault();
+                setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
+                return;
+              }
               onKeyDown?.(event);
             }}
           />
@@ -223,6 +237,14 @@ export function ComposerBox({
             {ring}
           </ComposerFoot>
         </ChromeArea>
+      )}
+      {/* One place for both looks, so a look switched from the dots by keys keeps the same dots and
+          their focus (they would remount under the box and drop it): with the quiet row they draw
+          over its empty middle, with Codex's look in the band under the box (composerLook.css). */}
+      {bottom && (
+        <div className="acpmux-composer-under" data-beside-foot={quietRow ? "" : undefined}>
+          {bottom}
+        </div>
       )}
     </>
   );

@@ -24,7 +24,7 @@ extension KeyBindingTable {
     /// The step a key with `readings` takes after the armed `keys` (empty
     /// for a first key).
     public func step(after keys: [Shortcut], readings: [Shortcut], in context: KeyContext,
-                     isRunnable: (ActionID) -> Bool) -> SequenceStep {
+                     isRunnable: (ActionID) -> Bool) -> SequenceStep { // perf-hot: 0.5ms key-dispatch (every chord key-down)
         // A bare sequence goes on only while the context still owns bare
         // keys: focus that moved into a text field mid-sequence types the key.
         if let first = keys.first, first.isBare, !context.ownsBareKeys { return .none }

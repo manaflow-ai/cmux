@@ -614,6 +614,7 @@ Also from earlier rounds, each kept as a regression row with its own red SHA:
 | T-REG-R41 | R4-1 (swipe-back from the key bar) | T-SCROLL-17 |
 | T-REG-R42 | R4-2 (Files and Links fragments) | T-SEL-04 |
 | T-REG-B1 | SPEC B1 (blank rows above) | T-REND-09 |
+| T-REG-ATTACH-TUI | User report 2026-10-21 (iPhone over 5G): opening a Claude Code tab showed an almost black screen with only the spinner line, the cursor and a few status digits, then the whole screen. The attach replay of a full-screen TUI draws its rows from the cursor, which entering the alternate screen copied from the phone's shifted primary screen, so the rows landed below the TUI's rows and only absolutely positioned live updates showed. `TerminalAltScreenReplaySurfaceTests` (real Ghostty surface) | T-LIFE-02, T-AGENT-06 (attach to a running full-screen TUI: the first frame after the held frame has the TUI's whole screen) |
 | T-REG-OPEN | terminal-scroll-model.md "open": `scroll_while_streaming` failed 1 in 3 runs (frame 1591) | T-SCROLL-02 must pass **20 of 20** consecutive runs of `scroll_while_streaming` per path |
 
 ---

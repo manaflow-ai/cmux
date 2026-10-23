@@ -3,7 +3,7 @@
 // the prompt's text (an adopted Claude session's history, `client: "adopt"`). incomingMessage.ts
 // reads them.
 import { expect, test } from "bun:test";
-import { incomingPrompt, messagePreview, renderedReply, unsigned } from "./incomingMessage";
+import { incomingPrompt, messagePreview, unsigned } from "./incomingMessage";
 
 const adopted = { client: "adopt" };
 
@@ -450,29 +450,21 @@ test("an agent_digest from one chat answers its newest message; from several, no
 });
 
 test("a reply in place reaches the sender's chat as the replying chat's message, linked and answerable", () => {
-  // Chat `parent` answers message m-1 from `child-3` in place (direct.ts `reply`); acpmux records
-  // it in child-3's chat with the replying chat's address and its own name (`app_reply_fits`).
-  const text = renderedReply({
-    from: "acp:parent",
-    fromName: "Fix the\ngrid\u200b",
-    msgId: "m-2",
+  // Chat `parent` answers m-1 from `child-3` in place (direct.ts `reply`); the app sends it as
+  // parent's cmux agent message (acpmux server/app_reply.rs signs it), so cmux stores it as msg_2,
+  // signs it with the chat's own name and delivers it as any agent message, with its `Reply with`
+  // line.
+  const text = rendered("Merged; thanks.\nShip it.", {
+    id: "msg_2",
+    from: "Fix the grid (acp:parent)",
     replyTo: "m-1",
-    text: "Merged; thanks.\nShip it.",
   });
-  expect(text).toBe(
-    rendered("Merged; thanks.\nShip it.", {
-      id: "m-2",
-      from: "Fix the grid (acp:parent)",
-      replyTo: "m-1",
-      reply: false,
-    }),
-  );
   const recorded = {
     kind: "agent_message",
     from: "acp:parent",
     fromName: "Fix the grid",
     to: "acp:child-3",
-    msgId: "m-2",
+    msgId: "msg_2",
     threadId: "t-1",
     replyTo: "m-1",
   };
@@ -482,16 +474,12 @@ test("a reply in place reaches the sender's chat as the replying chat's message,
     message: {
       name: "Fix the grid",
       sessionId: "parent",
-      msgId: "m-2",
+      msgId: "msg_2",
       threadId: "t-1",
       text: "Merged; thanks.\nShip it.",
       raw: text,
     },
   });
-  // Without a title the address stands in.
-  expect(renderedReply({ from: "acp:parent", msgId: "m-2", replyTo: "m-1", text: "hi" }).split("\n")[0]).toBe(
-    "[cmux agent message] from acp:parent",
-  );
 });
 
 test("a message's closed line previews its first line of text, its spaces collapsed", () => {
@@ -510,10 +498,12 @@ test("a message addressed sender first is that agent's when it names this chat o
   const here = { isThisChat: (name: string) => name.toLowerCase() === "claude-sr2" };
   const sent =
     "summary-panel -> claude-sr2: Confirmed. On feat-cmux-next today, the overlay card is **as tall** as its content.";
+  // Relayed from another machine, so its files are that machine's (#24190).
   expect(incomingPrompt(sent, peer, here)).toEqual({
     kind: "message",
     message: {
       name: "summary-panel",
+      remote: true,
       text: "Confirmed. On feat-cmux-next today, the overlay card is **as tall** as its content.",
       raw: sent,
     },
@@ -525,11 +515,13 @@ test("a message addressed sender first is that agent's when it names this chat o
     "summary-panel→claude-sr2:\nDone.",
     "summary-panel  ->  Claude-SR2: Done.",
   ])
-    for (const client of ["acpmux-peer#01a161", "acpmux-cli#a1b2c3"])
+    for (const client of ["acpmux-peer#01a161", "acpmux-cli#a1b2c3"]) {
+      const remote = client.startsWith("acpmux-peer#") ? { remote: true as const } : {};
       expect(incomingPrompt(text, { client }, here)).toEqual({
         kind: "message",
-        message: { name: "summary-panel", text: "Done.", raw: text },
+        message: { name: "summary-panel", ...remote, text: "Done.", raw: text },
       });
+    }
   // To another chat, from a listed one.
   const listed = {
     isThisChat: (name: string) => name === "coordinator",

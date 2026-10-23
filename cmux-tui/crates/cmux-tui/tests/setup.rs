@@ -592,6 +592,47 @@ fn cmux_setup_list_names_every_task_and_bad_arguments_exit_2() {
     assert_eq!(world.record(), None);
 }
 
+/// An agent, or the person, reads a Chief prompt for every task from `setup
+/// list`, and docs/chief-setup-prompts.md is exactly what `setup list
+/// --prompts-md` prints: a change to the task list that is not regenerated
+/// fails here (`cmux setup list --prompts-md > docs/chief-setup-prompts.md`).
+#[test]
+fn cmux_setup_list_gives_a_chief_prompt_per_task_and_the_page_matches() {
+    let world = World::new("prompts");
+    let list = world.json(&["setup", "list"]);
+    let status_prompt = list["status_prompt"].as_str().unwrap_or_default();
+    assert!(status_prompt.contains("`cmux setup status`"), "{list}");
+    for task in list["tasks"].as_array().unwrap() {
+        let prompt = task["prompt"].as_str().unwrap_or_default();
+        assert!(!prompt.is_empty(), "{task}");
+        if let Some(setup) = task["setup"].as_str() {
+            let words = setup.split_whitespace().take(3).collect::<Vec<_>>().join(" ");
+            assert!(prompt.contains(&format!("`{words}")), "{task}");
+        }
+    }
+    let machine = list["tasks"].as_array().unwrap().iter().find(|t| t["id"] == "machine").unwrap();
+    assert!(
+        machine["prompt"].as_str().unwrap().contains(
+            "`cmux acp host doctor <name> --json`, where <name> is the `name` that result reports"
+        ),
+        "{machine}"
+    );
+
+    let output = world.run(&["setup", "list", "--prompts-md"]);
+    assert_eq!(output.status.code(), Some(0), "{}", String::from_utf8_lossy(&output.stderr));
+    let page = String::from_utf8(output.stdout).unwrap();
+    let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs/chief-setup-prompts.md");
+    let checked_in = std::fs::read_to_string(&file).unwrap_or_default();
+    assert!(
+        page == checked_in,
+        "{} differs from `cmux setup list --prompts-md`; regenerate it:\n{page}",
+        file.display()
+    );
+    for task in list["tasks"].as_array().unwrap() {
+        assert!(page.contains(task["prompt"].as_str().unwrap()), "{task}");
+    }
+}
+
 /// A fake acpmux daemon on the world's socket that keeps a peer list the
 /// way the real one answers `_acpmux/peers`, `peer_add`, `peer_reconnect`
 /// and `peer_remove`: a peer added or reconnected is connected and on this

@@ -228,7 +228,7 @@ struct ClassicMigrationTests {
             for _ in 0..<2 {
                 try center.perform("cmux.classic", .start)
                 await center.settled("cmux.classic")
-                runs.statuses.append(center.list(for: .settings).cards.first { $0.id == "cmux.classic" }?.status)
+                runs.statuses.append(center.list().cards.first { $0.id == "cmux.classic" }?.status)
             }
         }
         let first = try #require(runs.opened.first ?? nil)

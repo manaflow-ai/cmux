@@ -5,7 +5,7 @@ import Foundation
 /// A daemon's cloud proxy without a daemon: it answers the reads a Cloud
 /// source makes when it connects (an empty inbox, live subscriptions) and
 /// records every command the tests look at.
-actor FakeCloudDaemon: CloudConversationCommands, CloudLeaseSessions {
+actor FakeCloudDaemon: CloudConversationCommands {
     /// One `cloud-inbox-op` as the daemon received it.
     struct InboxOp: Equatable {
         var conversation: String
@@ -105,3 +105,8 @@ actor FakeCloudDaemon: CloudConversationCommands, CloudLeaseSessions {
         return selfHost
     }
 }
+
+// In an extension: listed on the actor itself, the `nonisolated protocol` conformance makes
+// swift-frontend 6.3.3 (-default-isolation MainActor) infer `nonisolated` on the actor and reject
+// it ("'nonisolated' on an actor's synchronous initializer is invalid").
+extension FakeCloudDaemon: CloudLeaseSessions {}

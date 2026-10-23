@@ -312,6 +312,10 @@ pub(super) enum PtyRuntime {
         writer: Box<dyn Write + Send>,
         master: Option<Box<dyn MasterPty + Send>>,
         killer: Box<dyn ChildKiller + Send>,
+        /// The holder runs this terminal's shell (`holder_runtime`): a
+        /// daemon shutdown detaches instead of killing it.
+        #[cfg(unix)]
+        holder: Option<Arc<crate::holder_runtime::HolderTerminal>>,
     },
     #[cfg(any(unix, windows))]
     Hosted(Box<crate::terminal_host_runtime::HostAttachment>),

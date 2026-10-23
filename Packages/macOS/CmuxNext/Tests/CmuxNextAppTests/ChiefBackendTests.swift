@@ -11,12 +11,13 @@ import Testing
 /// local create path that hands `harness: "unii"` to this Mac's Chief owner.
 @Suite struct ChiefBackendTests {
     @Test func theOfficialBackendsAreClaudeCodexAndUniiChatInThatOrder() {
-        #expect(ChiefBackend.official.map(\.id) == ["claude", "codex", "unii"])
+        #expect(ChiefBackend.official.map(\.id) == ["claude", "codex", "muse", "unii"])
         #expect(ChiefBackend.official.filter(\.isDefault) == [.claude])
         // Claude stays on the cloud path; UniiChat's sign-in is this Mac's, so its Chiefs are too.
         #expect(!ChiefBackend.claude.createsOnThisMac)
         #expect(ChiefBackend.unii.createsOnThisMac)
         #expect(ChiefBackend.codex.createsOnThisMac)
+        #expect(ChiefBackend.muse.createsOnThisMac)
     }
 
     @Test func titlesNameEachBackendAndShowAnUnknownIdAsItIs() {
@@ -28,12 +29,16 @@ import Testing
         #expect(ChiefBackend(id: "unii") == .unii)
         #expect(ChiefBackend(id: "claude-sr") == nil)
         #expect(ChiefBackend.unii.hint != nil)
+        #expect(ChiefBackend(id: "muse") == .muse)
+        #expect(ChiefBackend.title(for: "muse") == ChiefBackend.muse.title && ChiefBackend.muse.title != "muse")
+        #expect(ChiefBackend.muse.hint != nil)
         #expect(ChiefBackend.claude.hint == nil)
     }
 
     @Test func onlyAChiefOffTheDefaultEngineGetsABadge() {
         #expect(ChiefBackend.badge(for: "unii") == ChiefBackend.unii.title)
         #expect(ChiefBackend.badge(for: "codex") == ChiefBackend.codex.title)
+        #expect(ChiefBackend.badge(for: "muse") == ChiefBackend.muse.title)
         #expect(ChiefBackend.badge(for: "gemini") == "gemini")
         for harness in [nil, "", "default", "claude", "claude-cr", "claude-sr"] as [String?] {
             #expect(ChiefBackend.badge(for: harness) == nil, "\(String(describing: harness))")
@@ -41,11 +46,23 @@ import Testing
     }
 
     @MainActor @Test func theHarnessPickerOffersUniiChatWithAndWithoutTheCodeRouterRoute() {
-        #expect(HomeChiefSettingsView.harnesses(routeConfigured: false) == ["claude", "codex", "unii"])
-        #expect(HomeChiefSettingsView.harnesses(routeConfigured: true) == ["claude", "claude-cr", "codex", "unii"])
+        #expect(HomeChiefSettingsView.harnesses(routeConfigured: false) == ["claude", "codex", "muse", "unii"])
+        #expect(HomeChiefSettingsView.harnesses(routeConfigured: true) == ["claude", "claude-cr", "codex", "muse", "unii"])
         let items = HomeChiefSettingsView.harnessItems(routeConfigured: true)
         #expect(items.first { $0.value == "unii" }?.title == ChiefBackend.unii.title)
         #expect(items.first { $0.value == "claude-cr" }?.title == "claude-cr")
+    }
+
+    /// Lawrence 2026-10-23: "chief can choose between literally all the acpmux stuff". After the
+    /// official engines, the picker offers every harness this Mac's acpmux lists, once each.
+    @MainActor @Test func theHarnessPickerOffersEveryAcpmuxHarness() {
+        let listed = ["claude", "codex", "opencode", "pi", "gemini", "claude-sr", "claude-cr", "muse", "unii"]
+        #expect(HomeChiefSettingsView.harnesses(routeConfigured: false, listed: listed)
+            == ["claude", "codex", "muse", "unii", "opencode", "pi", "gemini", "claude-sr", "claude-cr"])
+        #expect(HomeChiefSettingsView.harnesses(routeConfigured: true, listed: listed)
+            == ["claude", "claude-cr", "codex", "muse", "unii", "opencode", "pi", "gemini", "claude-sr"])
+        let items = HomeChiefSettingsView.harnessItems(routeConfigured: false, listed: ["gemini"])
+        #expect(items.last?.value == "gemini" && items.last?.title == "gemini")
     }
 
     @MainActor @Test func theNewChiefSheetHandsTheChosenBackendToItsCreate() async throws {

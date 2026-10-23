@@ -123,10 +123,24 @@ fn new_tab_first_text(debug_env: &[(&str, String)]) -> (u64, u64) {
     let serial = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let terminal_id = format!("{:08x}00004000800{:013x}", std::process::id(), serial);
     let sent = Instant::now();
-    client.call(json!({"cmd": "new-tab", "pane": pane, "terminal_id": terminal_id,
+    let created = client.call(json!({"cmd": "new-tab", "pane": pane, "terminal_id": terminal_id,
         "cols": 80, "rows": 24, "env": {"SHELL": "/bin/sh"},
         "shell_args": ["-c", "printf ready; sleep 30"]}));
     let reply_ms = sent.elapsed().as_millis() as u64;
+    // A terminal holder outlives the daemon on purpose: end it (and its
+    // shells) with the test.
+    let holder = debug_env
+        .iter()
+        .any(|(key, value)| *key == "CMUX_TUI_TERMINAL_HOST_MODEL" && value == "holder");
+    let holder_pid = holder.then(|| {
+        let resources = client
+            .call(json!({"cmd": "terminal-resources", "surfaces": [created["surface"].clone()]}));
+        let shell = resources["terminals"][0]["pid"].as_i64().unwrap_or(0);
+        let out = Command::new("ps").args(["-o", "ppid=", "-p", &shell.to_string()]).output();
+        out.ok()
+            .and_then(|out| String::from_utf8_lossy(&out.stdout).trim().parse::<i32>().ok())
+            .unwrap_or(0)
+    });
 
     let deadline = Instant::now() + Duration::from_secs(30);
     let first_text_us = loop {
@@ -144,6 +158,10 @@ fn new_tab_first_text(debug_env: &[(&str, String)]) -> (u64, u64) {
     };
     let _ = daemon.kill();
     let _ = daemon.wait();
+    if let Some(pid) = holder_pid.filter(|pid| *pid > 1) {
+        // SAFETY: SIGKILL of the holder this test's daemon started.
+        unsafe { libc::kill(pid, libc::SIGKILL) };
+    }
     let _ = fs::remove_dir_all(&dir);
     (first_text_us / 1000, reply_ms)
 }
@@ -186,4 +204,17 @@ fn a_new_terminals_first_text_waits_for_at_most_one_discovery_file_sync() {
         first_text_ms < 2 * SLOW_DISCOVERY_SYNC_MS,
         "the first text came {first_text_ms} ms after the request: it waited for several discovery-file syncs ({SLOW_DISCOVERY_SYNC_MS} ms each)"
     );
+}
+
+/// Holder item 3: a terminal on the holder (`CMUX_TUI_TERMINAL_HOST_MODEL=
+/// holder`) reports its first text to the create spans as a hosted one
+/// does (`new_tab_first_text` fails without the `first_printable_output`
+/// mark), so new-terminal-100x times it. Whether that text waits for a
+/// durable commit is the hosted test's question above (registry commits,
+/// the daemon-speed workstream), not this one's.
+#[test]
+fn a_holder_terminals_first_text_is_timed() {
+    let (first_text_ms, _) =
+        new_tab_first_text(&[("CMUX_TUI_TERMINAL_HOST_MODEL", "holder".to_string())]);
+    assert!(first_text_ms < 30_000, "the first text came {first_text_ms} ms after the request");
 }

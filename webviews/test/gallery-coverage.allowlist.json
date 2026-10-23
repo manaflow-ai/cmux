@@ -4,6 +4,7 @@
     "agent-session/acpmux/changes/": "Leo: Sources and Changes (entry agent-pane.sources)"
   },
   "components": [
+    "agent-session/acpmux/App.tsx#ChatComposerChips",
     "agent-session/acpmux/App.tsx#NewTabComposerChips",
     "agent-session/acpmux/ComposerPickers.tsx#ArrowUpIcon",
     "agent-session/acpmux/ComposerPickers.tsx#AtIcon",
@@ -22,7 +23,6 @@
     "agent-session/acpmux/ComposerPickers.tsx#SlashIcon",
     "agent-session/acpmux/ComposerPickers.tsx#StopIcon",
     "agent-session/acpmux/Keycap.tsx#Keycap",
-    "agent-session/acpmux/NewTabImportCards.tsx#NewTabImportCards",
     "agent-session/acpmux/ProjectBadge.tsx#ProjectBadge",
     "agent-session/acpmux/SwitchNotice.tsx#SwitchNotice",
     "agent-session/acpmux/changeIcons.tsx#AlertCircle",
@@ -90,6 +90,7 @@
     "agent-session/acpmux/icons/Icon.tsx#Icon",
     "agent-session/acpmux/icons/IconsContext.tsx#IconsProvider",
     "agent-session/acpmux/started/SessionStatusLine.tsx#SessionStatusLine",
+    "agent-session/acpmux/summary/SourcesAddMenu.tsx#SourcesAddMenu",
     "agent-session/acpmux/summary/SubagentsTab.tsx#SubagentsTab",
     "agent-session/shared/AgentMark.tsx#AgentMark",
     "comments/CommentComposer.tsx#CommentComposer",
@@ -123,6 +124,7 @@
     "ui/DrillList.tsx#DrillList",
     "ui/KeyboardScope.tsx#KeyboardScope",
     "ui/Listbox.tsx#Listbox",
+    "ui/Menu.tsx#MenuSearchField",
     "ui/PickerPrimitives.tsx#PickerButton",
     "ui/PickerPrimitives.tsx#PickerComboboxInput",
     "ui/PickerPrimitives.tsx#PickerDialog",
