@@ -1,9 +1,10 @@
 // The composer's location strip (hq#1957 composer location strip). Leo: the folder and host row
 // ("Choose folder ⌄ · cosmic-gray ⌄") sat inside the card as a second row under the controls,
-// wasting space. It is now a tab on the card's top edge in the chat composer, and text a few px
-// over the card in the New Tab's (#21133):
-//   - the strip's bottom edge is the card's top edge (New Tab: a few px above it), and it stays
-//     within the card's sides;
+// wasting space. It is now a tab on the card's top edge in the chat composer, and in the New Tab's
+// Claude look text leading the one row under the card (Leo 2026-10-23: "the claw thing should be
+// one single row"):
+//   - the strip's bottom edge is the card's top edge (New Tab: its top a few px under the card's
+//     bottom), and it stays within the card's sides;
 //   - the card holds one controls row and no location row;
 //   - the strip is as tall with no project, with one and while the host loads;
 //   - only a new chat has the strip, before its first send: a started chat's card stands alone,
@@ -134,8 +135,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       variant: "no-project",
       card: ".acpmux-composer-box",
     },
-    // The strip heads the New Tab card in the top-of-page templates (Threads here); Cards draws it
-    // under its pill field and Default's stage layout in the footer under the box.
+    // The New Tab composer in Claude's look (Threads here): the strip leads the one row under the
+    // card (Leo 2026-10-23: "the claw thing should be one single row"); Codex's look keeps it over
+    // the card (composer-top-strip-variants.test.ts).
     { name: "the New Tab composer", entry: "agent-pane.new-tab", variant: "template-threads", card: ".nt-box" },
   ];
   for (const surface of surfaces)
@@ -148,11 +150,11 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
         expect(measured.strip).not.toBeNull();
         expect(measured.stripFolder).toBe(true);
         const { strip, card } = measured as { strip: Rect; card: Rect };
-        // The New Tab's strip is text a few px over its card (Cursor's home, #21133); the chat's
+        // The New Tab's strip is text in the one row under its card (Leo 2026-10-23); the chat's
         // stands on the card's top edge.
         if (surface.card === ".nt-box") {
-          expect(card.top - strip.bottom).toBeGreaterThanOrEqual(2);
-          expect(card.top - strip.bottom).toBeLessThanOrEqual(8);
+          expect(strip.top - card.bottom).toBeGreaterThanOrEqual(0);
+          expect(strip.top - card.bottom).toBeLessThanOrEqual(12);
         } else expect(Math.abs(strip.bottom - card.top)).toBeLessThanOrEqual(1);
         expect(strip.left).toBeGreaterThanOrEqual(card.left - 0.5);
         expect(strip.right).toBeLessThanOrEqual(card.right + 0.5);
@@ -160,7 +162,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
         expect(measured.locationInCard).toBe(0);
       });
 
-  // The New Tab's strip has its own height (text over the card, #21133), so only the chat's compare.
+  // The New Tab's strip has its own height (text in the row under the card), so only the chat's compare.
   test("the strip is as tall with no project, with a project and while the host loads", async () => {
     const heights: Record<string, number> = {};
     for (const [entry, variant] of [
@@ -357,7 +359,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
 
   // The seam: one column through the strip's empty fill and down into the card, at 2x. A line across
   // the seam is a row far from its neighbors' tone; the strip's and the card's fills are the same.
-  // The New Tab has no seam: its strip is text over the card, which keeps its whole rim (#21133).
+  // The New Tab has no seam: its strip is text in the row under the card, which keeps its whole rim.
   for (const surface of [
     { name: "the chat composer", entry: "agent-pane.composer-strip", variant: "project", card: ".acpmux-composer-box" },
   ])
