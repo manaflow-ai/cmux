@@ -112,6 +112,9 @@ public final class DaemonStore: StateResourceQueries {
     /// O(1) lookups kept in step with the records (StoreIndex.swift).
     @ObservationIgnored var index = StoreIndex()
     var tabsBySurface: [SurfaceID: TabModel] { index.tabsBySurface }
+    /// The tabs of the tree that carry a status fact (``StatusFactTabs``): what a reader that asks
+    /// whether any tab works reads, instead of every tab of the tree.
+    public var statusFactTabs: StatusFactTabs { index.statusFactTabs }
     var panesByHandle: [PaneID: PaneModel] { index.panesByHandle }
     var screensByHandle: [ScreenID: ScreenModel] { index.screensByHandle }
     var workspacesByKey: [WorkspaceKey: WorkspaceModel] { index.workspacesByKey }

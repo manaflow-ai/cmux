@@ -194,6 +194,17 @@ public final class TabModel: Identifiable {
         kind == .conversation ? conversation?.agentSession : nil
     }
 
+    /// Whether the record carries a fact a status report can come from (`StatusMapping.reports`):
+    /// an agent hook record, OSC 7501 program status records, a running shell command, or an
+    /// agent session. A tab without one never reports a status (``StatusFactTabs``).
+    public var carriesStatusFact: Bool {
+        agent != nil || !programStatus.isEmpty || commandSinceMs != nil || agentSession != nil
+    }
+
+    /// The store's ``StatusFactTabs`` while this record is indexed, nil otherwise (``StoreIndex``):
+    /// each status write tells it.
+    @ObservationIgnored weak var statusFactTabs: StatusFactTabs?
+
     /// The app an app tab shows (a frontend tab of an app workspace, `app-screens-v1`).
     public var appTab: AppTabRef? {
         kind == .browser ? app : nil
@@ -288,6 +299,7 @@ public final class TabModel: Identifiable {
         if remote != s.remote { remote = s.remote }
         if conversation != s.conversation { conversation = s.conversation }
         if app != s.app { app = s.app }
+        statusFactTabs?.note(self)
     }
 
     /// Lays the daemon's tab record and terminal progress over the record.
@@ -317,6 +329,7 @@ public final class TabModel: Identifiable {
             lastOutputSeenAt = lastOutputMs.map { _ in Date() }
             self.lastOutputMs = lastOutputMs
         }
+        statusFactTabs?.note(self)
     }
 
     /// Reads the running command's age again after `delay`: one one-shot timer per running command,
@@ -358,6 +371,7 @@ public final class TabModel: Identifiable {
 
     func setAgent(_ value: AgentStatus?) {
         if agent != value { agent = value }
+        statusFactTabs?.note(self)
     }
 
     func setPresence(_ value: AgentPresence?) {

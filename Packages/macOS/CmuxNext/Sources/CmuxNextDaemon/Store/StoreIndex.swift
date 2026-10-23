@@ -33,6 +33,9 @@ import Foundation
     private(set) var tabGroupsByID: [TabGroupID: TabGroupModel] = [:]
     /// Indexed tabs the intent overlay shows (``isOverlayTab(id:surface:)``).
     private(set) var provisionalTabCount = 0
+    /// The indexed tabs that carry a status fact: noted as each tab record is keyed, dropped as
+    /// it is unkeyed. One object for the store's life (``rebuild(_:)`` keeps it).
+    private(set) var statusFactTabs = StatusFactTabs()
     /// An order-free digest of which tab sits in which pane and which panes
     /// are listed (XOR of one hash per indexed tab and its pane, and one per
     /// listed pane id): a remove and re-add of the same tab in the same pane,
@@ -102,7 +105,13 @@ import Foundation
 
     /// Indexes `workspaces` only (snapshot apply; the one O(tree) write).
     mutating func rebuild(_ workspaces: [WorkspaceModel]) {
+        let statusFactTabs = statusFactTabs
+        for case let tab as TabModel in entries.values.lazy.map(\.record) {
+            tab.statusFactTabs = nil
+            statusFactTabs.drop(tab)
+        }
         self = StoreIndex()
+        self.statusFactTabs = statusFactTabs
         for workspace in workspaces { insert(workspace) }
         tabOrderChanged = true
     }
@@ -223,6 +232,8 @@ import Foundation
             if let resource { tabsByResource[resource] = tab }
             if let terminalResource { tabsByTerminalResource[terminalResource] = tab }
             if Self.isOverlayTab(id: id, surface: surface) { provisionalTabCount += 1 }
+            tab.statusFactTabs = statusFactTabs
+            statusFactTabs.note(tab)
         }
     }
 
@@ -265,6 +276,10 @@ import Foundation
             if let resource { Self.drop(resource, from: &tabsByResource, if: record) }
             if let terminalResource { Self.drop(terminalResource, from: &tabsByTerminalResource, if: record) }
             if Self.isOverlayTab(id: id, surface: surface) { provisionalTabCount -= 1 }
+            if let tab = record as? TabModel {
+                tab.statusFactTabs = nil
+                statusFactTabs.drop(tab)
+            }
             recordsBySurface[surface]?.removeAll { $0 == ObjectIdentifier(record) }
             if recordsBySurface[surface]?.isEmpty == true { recordsBySurface[surface] = nil }
             if recordsBySurface[surface] == nil {
