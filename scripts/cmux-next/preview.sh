@@ -97,6 +97,36 @@ else
   repo_key="$(printf '%s' "$repo_root" | cksum | awk '{print $1}')"
 fi
 state_file="$state_root/$repo_key.state"
+lock_dir="$state_file.lock"
+lock_acquired=0
+
+release_lock() {
+  if ((lock_acquired)); then
+    rm -rf "$lock_dir"
+  fi
+}
+
+acquire_lock() {
+  mkdir -p "$state_root"
+  if mkdir "$lock_dir" 2>/dev/null; then
+    printf '%s\n' "$$" > "$lock_dir/pid"
+    lock_acquired=1
+    trap release_lock EXIT
+    return 0
+  fi
+  local owner=""
+  [[ -f "$lock_dir/pid" ]] && owner="$(cat "$lock_dir/pid" 2>/dev/null || true)"
+  if [[ "$owner" =~ ^[0-9]+$ ]] && ! kill -0 "$owner" 2>/dev/null; then
+    rm -rf "$lock_dir"
+    if mkdir "$lock_dir" 2>/dev/null; then
+      printf '%s\n' "$$" > "$lock_dir/pid"
+      lock_acquired=1
+      trap release_lock EXIT
+      return 0
+    fi
+  fi
+  fail "another preview command is updating this checkout; retry after it exits${owner:+ (pid $owner)}" 1
+}
 
 state_repo=""
 state_sha=""
@@ -417,6 +447,7 @@ if [[ "$command" == status ]]; then
 fi
 
 if [[ "$command" == web ]]; then
+  acquire_lock
   ensure_web
   open_url "$index_result_url" "cmux-next web · $branch · ${sha:0:12}"
   print_result web "" "$index_result_url" "$gallery_result_url" "" "$pid_result" "$log_result" "$reused_result" "$phase_result"
@@ -443,6 +474,7 @@ if ((compare)); then
   exit 0
 fi
 
+acquire_lock
 ensure_web
 [[ -n "$gallery_result_url" ]] || fail "the live gallery is unavailable; web-dev did not start a gallery server (check vite.config.gallery-dev.ts)" 1
 
