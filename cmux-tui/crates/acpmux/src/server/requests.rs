@@ -248,8 +248,6 @@ async fn dispatch_brief(
         .and_then(Value::as_str)
         .unwrap_or_else(|| brief.lines().next().unwrap_or("dispatch"))
         .to_owned();
-    // Sender attribution comes from the authenticated connection, never a
-    // caller supplied field (cx3-s30).
     let from = params
         .pointer("/_meta/acpmux/dispatchSource/from")
         .and_then(Value::as_str)
@@ -354,9 +352,6 @@ async fn dispatch_brief(
     }
     let row = hub.briefs.put(record);
     let prompt = json!({"sessionId":session.id,"text":row.get("brief"),"_meta":{"acpmux":{"briefId":id,"fromAgent":row.get("from")}}});
-    // Use the same prompt path as every ACP client; this makes steer/report
-    // attribution independent of Claude, Codex or any other harness. Dispatch
-    // returns after recording the brief; the turn continues in the background.
     let task_hub = hub.clone();
     let task_conn = conn.clone();
     let task_id = id.clone();
@@ -457,8 +452,6 @@ async fn steer_brief(hub: &Arc<Hub>, conn: &Arc<Conn>, params: Value) -> Result<
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("steer text is required"))?;
     let p = json!({"sessionId":sid,"text":text,"steer":true,"_meta":{"acpmux":{"briefId":id,"steer":true}}});
-    // Re-enter the normal prompt guard: a Web caller must not turn a brief id
-    // into an unscoped steer of another session.
     Box::pin(handle_request(hub, conn, method::SESSION_PROMPT, p)).await?;
     let row = hub
         .briefs
