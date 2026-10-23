@@ -125,6 +125,10 @@ public final class PageInputReadiness {
     /// A function body that makes `edit` in the focused editable element; false when none has focus.
     static func editScript(_ edit: Edit, token: String? = nil) -> String {
         let tokenLiteral = token.map { JSONValue.string($0).compactText } ?? "null"
+        let allowsNewToken: Bool = if case .insert = edit { true } else { false }
+        let tokenCheck = allowsNewToken
+            ? "if (prior !== undefined && prior !== token) { return false; }"
+            : "if (prior !== token) { return false; }"
         return """
         \(editable)
         const el = document.activeElement;
@@ -132,7 +136,7 @@ public final class PageInputReadiness {
         const token = \(tokenLiteral);
         if (token !== null) {
           const prior = el.__cmuxInputEditToken;
-          if (prior !== undefined && prior !== token) { return false; }
+          (tokenCheck)
           el.__cmuxInputEditToken = token;
         }
         \(edit.script)

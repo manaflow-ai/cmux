@@ -50,6 +50,8 @@ struct TypeAheadQueue: Equatable {
         return deletesAfterTaken
     }
 
+    var pendingDeletes: Int { deletesAfterTaken }
+
     /// Drops text that has not been taken for delivery while keeping Deletes already typed for the
     /// in-flight text. A chord or focus move may cancel the waiting text, but it must not reorder a
     /// Delete behind that text or lose it before `flushTypeAhead` takes it.
