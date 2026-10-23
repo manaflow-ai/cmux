@@ -366,3 +366,34 @@ test("without a change list the hover card shows the versions and See release no
   await act(async () => link!.click());
   expect(opened).toBe(1);
 });
+
+// Review of #22099: the footer counts what the popup shows. Only internal work: no list, so it
+// offers the release notes, not "See all changes" of nothing.
+test("an update whose every change is internal offers See release notes, not See all changes", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { UpdateReadyHighlights } = await import("../src/pages/changelog/UpdateSurfaces");
+  const { createStrings } = await import("../src/pages/shared/i18n");
+  const table = (await import("../src/pages/changelog/generated/strings.json")).default;
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const data = {
+    ...readyData([]),
+    source: "summary" as const,
+    items: [
+      {
+        id: "summary-0",
+        title: "Export-backdrop-art reads each entry's subject box and…",
+        summary: "Export-backdrop-art reads each entry's subject box and exports it",
+        category: "improved" as const,
+      },
+    ],
+  };
+  await act(async () =>
+    root!.render(
+      <UpdateReadyHighlights data={data} strings={createStrings(table)} actions={{ openChangelog: () => undefined }} />,
+    ),
+  );
+  expect(host.querySelector(".wn-pop-list")).toBeNull();
+  expect(host.querySelector(".wn-pop-all")?.textContent).toContain("See release notes");
+  expect(host.textContent).not.toContain("See all changes");
+});
