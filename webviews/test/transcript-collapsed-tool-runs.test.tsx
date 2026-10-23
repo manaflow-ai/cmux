@@ -10,10 +10,12 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { layoutConversation } from "../src/agent-session/acpmux/model";
 import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { mainToolRunCategory } from "../src/agent-session/acpmux/conversation/toolRunSummary";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { configureToolRunLook } from "../src/agent-session/acpmux/toolRunLook";
+import { isEditRow } from "../src/agent-session/acpmux/turnChanges/sessionRows";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -95,6 +97,13 @@ test("a run between two messages is one line naming its work in the order it cam
   expect(words(work)).toContain("Edited 2 files, read 2 files, ran a command");
   // Closed: none of its calls draws under the line.
   expect(words(work)).not.toContain("bun test net");
+});
+
+test("the app routes a folded mixed run to tool rows and estimates one summary line", () => {
+  const work = shaped(mixed).find((entry) => entry.id === "work")!;
+  expect(work.foldRun).toBe(true);
+  expect(isEditRow(work)).toBe(false);
+  expect(layoutConversation([work], 760).heights[0]).toBe(36);
 });
 
 test("the line's glyph is the run's main kind of work", () => {
