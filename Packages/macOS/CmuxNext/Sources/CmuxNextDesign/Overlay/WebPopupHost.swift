@@ -217,7 +217,9 @@ final class WebPopupRows: NSView {
     }
 
     func update(_ items: [WebPopupHost.Item], highlighted: String?) {
-        if items != self.items && !updateLabelsInPlace(items) { rebuild(items) }
+        if plain != builtPlain || rows.isEmpty != items.isEmpty || (items != self.items && !updateLabelsInPlace(items)) {
+            rebuild(items)
+        }
         self.highlighted = highlighted
         for (item, view) in rows { (view as? PopupRowView)?.isHighlighted = item.id == highlighted }
         setFrameSize(NSSize(width: superview?.bounds.width ?? frame.width, height: contentHeight))
