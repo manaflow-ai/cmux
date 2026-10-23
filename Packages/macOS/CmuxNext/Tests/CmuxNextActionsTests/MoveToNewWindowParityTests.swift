@@ -19,7 +19,7 @@ import Testing
         #expect(descriptor.surfacePlan.palette.isOffered)
         #expect(descriptor.surfacePlan.cli?.isOffered == true)
         #expect(descriptor.surfacePlan.mcp?.isOffered == true)
-        #expect(!ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: .tab)).contains(descriptor.id))
+        #expect(ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: .tab)).contains(descriptor.id))
     }
 
     /// The Move to New Window action of a menu: the placed action whose CLI
