@@ -5,10 +5,13 @@ import Foundation
 /// `HomeCache` snapshot. HomeStore owns one; the owner state that goes into
 /// each snapshot (mirror, intent log, me) comes from `ownerSnapshot`.
 ///
-/// A write happens only when the snapshot differs from the one last written
-/// (or restored): owner events that change nothing the cache holds (typing,
-/// a connection change, an owner recovery) write nothing, so disk writes
-/// follow new information (speed-of-sound-DESIGN.md 3.5).
+/// A write is scheduled only by a change to what the snapshot holds: a draft,
+/// an attachment list or a scroll anchor here (equal values are no change),
+/// and the store's mirror and log through `scheduleWrite()` when their cache
+/// change counts moved. Owner events that change nothing the cache holds
+/// (typing, a connection change, an owner recovery) schedule nothing, wake
+/// nothing and build no snapshot, so disk writes follow new information
+/// (speed-of-sound-DESIGN.md 3.5). No copy of the written snapshot is kept.
 @MainActor
 final class HomeClientViewCache {
     /// The client's durable copy, nil for none.
@@ -24,8 +27,10 @@ final class HomeClientViewCache {
     private(set) var scrollAnchors: [ConversationID: HomeScrollAnchor] = [:]
     private var pendingWrite: Task<Void, Never>?
     private var writesSuppressed = false
-    /// What the file holds now, as far as this cache knows: the last snapshot written or restored.
-    private var written: HomeCacheSnapshot?
+    /// Something changed since the last successful write (or the restore).
+    private var dirty = false
+    /// A coalesced write is waiting for its delay.
+    var hasPendingWrite: Bool { pendingWrite != nil }
 
     init(cache: HomeCache?, writeDelay: Duration, clock: any Clock<Duration>) {
         self.cache = cache
@@ -61,16 +66,17 @@ final class HomeClientViewCache {
     func restore(_ snapshot: HomeCacheSnapshot, _ body: () -> Void) {
         writesSuppressed = true
         defer { writesSuppressed = false }
-        written = snapshot
         drafts = snapshot.drafts
         draftAttachments = snapshot.draftAttachments ?? [:]
         scrollAnchors = snapshot.scroll
         body()
     }
 
-    /// Writes the cache soon (coalesced), or at once with no delay.
+    /// Notes a change to what the snapshot holds and writes the cache soon
+    /// (coalesced), or at once with no delay. Call it only for a real change.
     func scheduleWrite() {
         guard cache != nil, !writesSuppressed else { return }
+        dirty = true
         guard writeDelay > .zero else { return write() }
         guard pendingWrite == nil else { return }
         let clock = clock
@@ -83,7 +89,7 @@ final class HomeClientViewCache {
         }
     }
 
-    /// Writes the coalesced batch now (app quit, stop).
+    /// Writes the coalesced batch now (app quit, stop); nothing when nothing changed.
     func flush() {
         pendingWrite?.cancel()
         pendingWrite = nil
@@ -91,17 +97,16 @@ final class HomeClientViewCache {
     }
 
     private func write() {
-        guard let cache else { return }
+        guard let cache, dirty else { return }
         var snapshot = ownerSnapshot()
         snapshot.drafts = drafts
         snapshot.draftAttachments = draftAttachments.isEmpty ? nil : draftAttachments
         snapshot.scroll = scrollAnchors
-        guard snapshot != written else { return }
         do {
             try cache.save(snapshot)
-            written = snapshot
+            dirty = false
         } catch {
-            // The next change writes again.
+            // Still dirty: the next change or the flush at quit writes again.
         }
     }
 }
