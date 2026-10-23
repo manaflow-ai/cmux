@@ -78,6 +78,21 @@ struct PageRenderRateTests {
         #expect(try rendersNear60(spare) == false)
     }
 
+    /// WebKit holds the rate a page is made with: on cmux20 (macOS 27, 120 Hz) a shown page whose
+    /// preference was written to near60 later still rendered at 120 fps. So a Low Power Mode change
+    /// drops the parked spare, and the next claim gets one made at the new rate.
+    @Test func aLowPowerModeChangeDropsTheSpare() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let lowPowerMode = LowPowerMode(enabled: false)
+        let pool = PageHostPool(lowPowerMode: lowPowerMode, activity: { 0 }, isTrackingMenu: { false })
+        defer { pool.dropSpare() }
+        pool.spare = PageWebView(recipe: try spareRecipe(pool))
+        pool.spareReady = true
+        lowPowerMode.override = true
+        #expect(pool.spare == nil, "the spare made at full rate stayed for claims in Low Power Mode")
+        #expect(!pool.isSpareReady)
+    }
+
     /// A page follows Low Power Mode as a browser tab does: near 60 while it is on, full rate again
     /// when it turns off, without being made again.
     @Test func aPageFollowsLowPowerMode() throws {
