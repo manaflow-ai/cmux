@@ -26,6 +26,7 @@ import {
   setInspectorOpen,
 } from "../src/agent-session/acpmux/inspector/inspectorState";
 import { openPicker } from "../src/agent-session/acpmux/pickerOpeners";
+import { ARTIFACT_COVERS_PANE, useArtifactCoversPane } from "../src/agent-session/acpmux/conversation/ArtifactPanel";
 import { chat } from "../src/gallery/fixtures/acpmux";
 
 let dom: JSDOM | undefined;
@@ -162,6 +163,8 @@ test("left open, it steps aside while a diff is in place and is back, still open
   expect(inspectorState().open).toBe(true);
 });
 
+// The toggle is in reach over a covered chat when the diff sits beside the transcript (a pane 1160px
+// and wider, header.css): the hook's part is that a click there closes the view and opens the panel.
 test("its toggle over a covered chat closes that view and opens the Inspector over the chat", async () => {
   const container = await mount(true);
   await act(async () => setInspectorOpen(false));
@@ -249,4 +252,48 @@ test("floating beside a side panel, the card's right edge is the chat's", async 
   expect(css).toMatch(
     /\[data-placement="overlay"\] \{[^}]*right: calc\(var\(--acpmux-inspector-side, 0px\) \+ var\(--acpmux-inspector-inset\)\)/,
   );
+});
+
+test("in a narrow pane the side panel covers the whole pane: the query is the stylesheet's", () => {
+  const css = readFileSync(
+    new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
+    "utf8",
+  );
+  const rule = css.match(/@media ([^{]+)\{\s*\.acpmux-artifact \{[^}]*position: absolute;[^}]*inset: 0;/);
+  expect(rule?.[1]?.trim()).toBe(ARTIFACT_COVERS_PANE);
+});
+
+test("the side panel's covering follows the pane's width as it crosses the query", async () => {
+  const container = installDom();
+  let matches = false;
+  const listeners = new Set<() => void>();
+  scope.matchMedia = (query: string) => {
+    expect(query).toBe(ARTIFACT_COVERS_PANE);
+    return {
+      get matches() {
+        return matches;
+      },
+      addEventListener: (_: string, listener: () => void) => listeners.add(listener),
+      removeEventListener: (_: string, listener: () => void) => listeners.delete(listener),
+    };
+  };
+  saved.set("matchMedia", undefined);
+  const seen: boolean[] = [];
+  function Probe() {
+    seen.push(useArtifactCoversPane());
+    return null;
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<Probe />);
+  });
+  await act(async () => {
+    matches = true;
+    for (const listener of listeners) listener();
+  });
+  expect(seen.at(0)).toBe(false);
+  expect(seen.at(-1)).toBe(true);
+  await act(async () => root!.unmount());
+  root = undefined;
+  expect(listeners.size).toBe(0);
 });

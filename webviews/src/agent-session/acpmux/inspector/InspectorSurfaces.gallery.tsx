@@ -9,7 +9,7 @@ import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { activity, chat, CWD, tool } from "../../../gallery/fixtures/acpmux";
-import { ArtifactPanel } from "../conversation/ArtifactPanel";
+import { ArtifactPanel, useArtifactCoversPane } from "../conversation/ArtifactPanel";
 import { DiffPanel } from "../DiffPanel";
 import { diffHunks, diffLines, type TurnFile } from "../diff";
 import { ChatHeaderTools } from "../header/ChatHeaderTools";
@@ -78,19 +78,15 @@ type Surface = "transcript" | "diff" | "document";
 type Props = { surface: Surface };
 
 function GalleryPane({ surface: initial }: Props) {
-  const [surface, setSurface] = useState<Surface>(() => {
-    // The viewer left the Inspector open (it holds in every chat tab), and the header offers it.
-    setHeaderState({ inspector: true });
-    setInspectorOpen(true);
-    return initial;
-  });
+  const [surface, setSurface] = useState<Surface>(initial);
+  const narrowPane = useArtifactCoversPane();
   const [shell, setShell] = useState<HTMLElement | null>(null);
   const diff = surface === "diff";
   const inspector = useChatInspector({
     snapshot,
     machineName: "Studio Mac",
     shell,
-    covered: diff,
+    covered: diff || (narrowPane && surface === "document"),
     onUncover: () => setSurface("transcript"),
     beside: surface === "document" ? 1 : undefined,
   });
@@ -151,7 +147,12 @@ export default componentEntry<Props>({
   height: 640,
   widths: { narrow: 900, normal: 1280 },
   covers: ["agent-session/acpmux/inspector/ChatInspector.tsx#InspectorPanel"],
-  load: async () => GalleryPane,
+  load: async () => {
+    // The viewer left the Inspector open (it holds in every chat tab), and the header offers it.
+    setHeaderState({ inspector: true });
+    setInspectorOpen(true);
+    return GalleryPane;
+  },
   variants: {
     transcript: {
       note: "The Inspector open over the transcript: it starts under the header, so its toggle (pressed) and its own x both close it.",
