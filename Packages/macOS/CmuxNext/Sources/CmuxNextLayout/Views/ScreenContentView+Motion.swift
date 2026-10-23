@@ -83,7 +83,7 @@ extension ScreenContentView {
     /// is: the host, its tab strip and its terminal or page take that size now), then clips each
     /// host by the docks and by the panes in front of it.
     ///
-    /// Work per frame is O(what changed): a host whose placed frame, alpha, clip and covers are as
+    /// AppKit work per frame is O(what changed) (input compares stay O(hosts)): a host whose placed frame, alpha, clip and covers are as
     /// they were is not touched, nor is a divider that kept its frame, and a pass that changed
     /// nothing asks for no overlay sync and no hover refresh (`PaneMotionBench`, perf-lead issue 3).
     /// `force`: a structural or style change; everything is re-placed and the overlay syncs.

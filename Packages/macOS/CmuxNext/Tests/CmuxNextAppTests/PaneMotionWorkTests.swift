@@ -44,6 +44,29 @@ struct PaneMotionWorkTests {
         #expect(worstClips <= 0, "a frame computed \(worstClips) strip clips of panes that did not move")
     }
 
+    /// Review 2 of PL-motion-core: each motion frame walked `panesAbove()` (O(n²) in the hosts)
+    /// twice, in the presentation pass and the overlay sync, and again on frames at rest. One
+    /// frame now walks it at most once, and a frame where no host moved walks it not at all.
+    @Test func aMotionFrameWalksThePanesAboveAtMostOnce() async throws {
+        let harness = PaneMotionBench.Harness(PaneMotionBench.grid(6, 5), focused: PaneID("p0-0"))
+        _ = await harness.frame()
+        let screen = try #require(harness.root.screenViews.values.first)
+        harness.model.apply(screens: PaneMotionBench.split(6, 5, axis: .horizontal))
+        _ = await harness.frame()
+        var frames = 0, worst = 0, moving = true
+        while moving, frames < 240 {
+            let walks = screen.panesAboveMemo.walks
+            moving = await harness.frame().moving
+            frames += 1
+            worst = max(worst, screen.panesAboveMemo.walks - walks)
+        }
+        #expect(frames > 3, "the split sprang: \(frames) frames")
+        #expect(worst <= 1, "a motion frame walked the panes above \(worst) times")
+        let walks = screen.panesAboveMemo.walks
+        _ = screen.panesAbove()
+        #expect(screen.panesAboveMemo.walks == walks, "a frame at rest walked the panes above again")
+    }
+
     /// New Column at 30 panes: the strip camera moves every pane sideways at its size. A pane that
     /// only moves lays out no clip and no content on any frame (no strip layout, no terminal resize).
     @Test func panesThatOnlyMoveLayOutNothing() async throws {
