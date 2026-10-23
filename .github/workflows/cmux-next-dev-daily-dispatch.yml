@@ -70,7 +70,9 @@ jobs:
               (run.name === `cmux NEXT DEV daily · ${run.head_sha}` ||
                run.display_title === `cmux NEXT DEV daily · ${run.head_sha}`));
             let finishedDev;
-            for (const run of finishedRuns.slice(0, 10)) {
+            // Inspect the complete page. A burst of source runs without an
+            // app must not hide an older successful app from the handoff.
+            for (const run of finishedRuns) {
               const { data: jobs } = await github.rest.actions.listJobsForWorkflowRun({
                 owner,
                 repo,

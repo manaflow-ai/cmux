@@ -115,14 +115,13 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/cmux-next-dev-daily/source"
           artifact_name="cmux-next-dev-daily-unsigned-${SOURCE_SHA}"
-          if gh run download "$SOURCE_RUN_ID" --repo "$GH_REPO" --name "$artifact_name" --dir "$RUNNER_TEMP/cmux-next-dev-daily/source"; then
-            archive="$(find "$RUNNER_TEMP/cmux-next-dev-daily/source" -type f -name '*.zip' -print -quit)"
-            test -f "$archive"
-            echo "archive=$archive" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::cmux-next run $SOURCE_RUN_ID has no current Release app artifact; skipping daily publication"
-            echo "available=false" >> "$GITHUB_OUTPUT"
+          if ! gh run download "$SOURCE_RUN_ID" --repo "$GH_REPO" --name "$artifact_name" --dir "$RUNNER_TEMP/cmux-next-dev-daily/source"; then
+            echo "::error::cmux-next run $SOURCE_RUN_ID has no current Release app artifact; retry the handoff" >&2
+            exit 1
           fi
+          archive="$(find "$RUNNER_TEMP/cmux-next-dev-daily/source" -type f -name '*.zip' -print -quit)"
+          test -f "$archive" || { echo "::error::source run $SOURCE_RUN_ID artifact has no app archive" >&2; exit 1; }
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
       - name: Checkout trusted signing and updater scripts
         if: steps.source-artifact.outputs.archive != ''
