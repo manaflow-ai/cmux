@@ -150,7 +150,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var chromiumMenuWait: (@MainActor () async -> Void)?
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
-    /// The Low Power Mode observation of a ``PageRenderRate/display`` page (PageWebView+RenderRate.swift).
+    /// The Low Power Mode a ``PageRenderRate/display`` page follows (PageWebView+RenderRate.swift):
+    /// the app's `LowPowerMode.system`, or a test's own, given at init.
+    let lowPowerMode: LowPowerMode
+    /// The Low Power Mode observation of a ``PageRenderRate/display`` page.
     var renderRateObservation: LowPowerModeObservation?
     /// The re-show that applies a changed render rate to the page on screen.
     var renderRateReshow: Task<Void, Never>?
@@ -160,16 +163,19 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var pageID: String { descriptor.id }
 
     /// Nil when the page is missing from the resource bundle and no root is registered for it
-    /// (``PageID/registerBundledRoot(_:for:)``).
+    /// (``PageID/registerBundledRoot(_:for:)``). `lowPowerMode` is the Low Power Mode a
+    /// ``PageRenderRate/display`` page renders by and follows (the app's observer by default).
     public convenience init?(descriptor: PageDescriptor, routes: [PageRoute], route: String? = nil,
                              documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
-                             surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil) {
+                             surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
+                             lowPowerMode: LowPowerMode = .system) {
         guard let root = Self.servedRoot(for: descriptor) else { return nil }
         let handler = PageSchemeHandler(page: descriptor, root: root, dynamicSource: dynamicResources)
-        let host = Self.hostConfiguration(handler: handler, documentAttributes: documentAttributes, options: options)
+        let host = Self.hostConfiguration(handler: handler, documentAttributes: documentAttributes, options: options,
+                                          lowPowerMode: lowPowerMode)
         self.init(descriptor: descriptor, configuration: host.configuration, inputReadiness: host.inputReadiness,
                   routes: routes, route: route, options: options, surface: surface,
-                  dynamicResources: dynamicResources, pooled: false, load: true)
+                  dynamicResources: dynamicResources, pooled: false, load: true, lowPowerMode: lowPowerMode)
     }
 
     /// The root a page is served from without an explicit one: the DEBUG override, else this
@@ -242,26 +248,32 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// the descriptor's dynamic prefixes (a 404 without one).
     ///
     /// `chromium` makes the page's Chromium view when the policy picks Chromium (the app's
-    /// ``chromiumHosting`` by default; tests pass a fake).
+    /// ``chromiumHosting`` by default; tests pass a fake). `lowPowerMode` is the Low Power Mode a
+    /// ``PageRenderRate/display`` page renders by and follows (the app's observer by default;
+    /// tests pass their own).
     public convenience init?(descriptor: PageDescriptor, root: URL, routes: [PageRoute], route: String? = nil,
                              documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
                              surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
-                             chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting) {
+                             chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
+                             lowPowerMode: LowPowerMode = .system) {
         guard Self.mayServe(descriptor, from: root) else { return nil }
         let host = Self.hostConfiguration(handler: PageSchemeHandler(page: descriptor, root: root,
                                                                        dynamicSource: dynamicResources),
-                                          documentAttributes: documentAttributes, options: options)
+                                          documentAttributes: documentAttributes, options: options,
+                                          lowPowerMode: lowPowerMode)
         self.init(descriptor: descriptor, configuration: host.configuration, inputReadiness: host.inputReadiness,
                   routes: routes, route: route, options: options, surface: surface,
-                  dynamicResources: dynamicResources, pooled: false, load: true, chromium: chromium)
+                  dynamicResources: dynamicResources, pooled: false, load: true, chromium: chromium,
+                  lowPowerMode: lowPowerMode)
     }
 
     init(descriptor: PageDescriptor, configuration: WKWebViewConfiguration,
          inputReadiness: PageInputReadiness, routes: [PageRoute], route: String?, options: PageEngineOptions,
          surface: SurfaceKind?, dynamicResources: (any PageDynamicResourceSource)?, pooled: Bool, load: Bool,
-         chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting) {
+         chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting, lowPowerMode: LowPowerMode) {
         self.descriptor = descriptor
         engineOptions = options
+        self.lowPowerMode = lowPowerMode
         isPooled = pooled
         pooledOwner = nil
         themeSurface = surface

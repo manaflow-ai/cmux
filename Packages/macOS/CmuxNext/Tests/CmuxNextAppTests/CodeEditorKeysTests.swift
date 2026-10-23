@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
@@ -94,7 +95,8 @@ import WebKit
         let configuration = WKWebViewConfiguration()
         return PageWebView(descriptor: PageDescriptor(id: id, resource: "keys", namespaces: []), configuration: configuration,
                            inputReadiness: PageInputReadiness(configuration: configuration), routes: [], route: nil,
-                           options: .standard, surface: nil, dynamicResources: nil, pooled: false, load: false, chromium: nil)
+                           options: .standard, surface: nil, dynamicResources: nil, pooled: false, load: false, chromium: nil,
+                           lowPowerMode: LowPowerMode(enabled: false))
     }
 
     /// Shift-Cmd-L opened a browser tab while the editor had the keyboard: the focus model still named
