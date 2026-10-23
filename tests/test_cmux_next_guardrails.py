@@ -930,13 +930,14 @@ class WarningTests(Fixture):
             calls.append(args)
             return subprocess.Popen(args, *rest, **kwargs)
 
-        # A stand-in for the module guardrails.py imported, so subprocess's own internals are not counted.
-        guardrails.subprocess = types.SimpleNamespace(run=run, Popen=popen, PIPE=subprocess.PIPE,
-                                                      DEVNULL=subprocess.DEVNULL)
+        # A stand-in for the module guardrails.py and its git helper imported, so subprocess's own internals are
+        # not counted.
+        stand_in = types.SimpleNamespace(run=run, Popen=popen, PIPE=subprocess.PIPE, DEVNULL=subprocess.DEVNULL)
+        guardrails.subprocess = guardrails.git_batch.subprocess = stand_in
         try:
             refusals, _ = self.check()
         finally:
-            guardrails.subprocess = subprocess
+            guardrails.subprocess = guardrails.git_batch.subprocess = subprocess
         self.assertEqual(refusals, [])
         self.assertEqual(len(calls), 3, calls)
 

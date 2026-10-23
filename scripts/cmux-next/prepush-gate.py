@@ -171,14 +171,20 @@ def log(message: str) -> None:
     print(message, file=sys.stderr)
 
 
-def git(repo: Path, *args: str, check: bool = True, data: bytes | None = None) -> bytes:
-    # Request bytes go through a file, not a pipe: a big `cat-file --batch` answer fills the
-    # stdout pipe while the request is still being written.
-    with tempfile.TemporaryFile() as stdin:
-        if data is not None:
-            stdin.write(data)
-            stdin.seek(0)
-        result = subprocess.run(["git", "-C", str(repo), *args], stdin=stdin, capture_output=True)
+def load_sibling(name: str, filename: str):
+    """The module FILENAME beside this file (scripts/cmux-next in a checkout; the hook folder for the installed copy)."""
+    spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(filename))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+# Request bytes go through a file, not a pipe (git_batch.py says why); guardrails.py uses the same helper.
+git_batch = load_sibling("cmux_next_git_batch", "git_batch.py")
+
+
+def git(repo: Path, *args: str, check: bool = True) -> bytes:
+    result = git_batch.run(repo, list(args))
     if check and result.returncode != 0:
         raise SystemExit(f"prepush-gate: git {' '.join(args)} failed: {result.stderr.decode(errors='replace').strip()}")
     return result.stdout
@@ -276,22 +282,19 @@ def ensure_tool(lock: Path, tool: str) -> Path:
 def write_tree(repo: Path, dest: Path, files: dict[str, str]) -> None:
     """Write {path: rev} blobs into dest (one `git cat-file --batch`), then index them for ls-files."""
     paths = sorted(files)
-    request = "".join(f"{files[p]}:{p}\n" for p in paths).encode()
-    out = git(repo, "cat-file", "--batch", data=request)
-    cursor = 0
+    try:
+        blobs = git_batch.cat_file(repo, [f"{files[p]}:{p}" for p in paths])
+    except git_batch.GitError as error:
+        raise SystemExit(f"prepush-gate: {error}")
     for path in paths:
-        header_end = out.index(b"\n", cursor)
-        header = out[cursor:header_end].split()
-        cursor = header_end + 1
-        if len(header) < 3 or header[1] != b"blob":
+        blob = blobs[f"{files[path]}:{path}"]
+        if blob is None:
             continue  # missing at this rev (added or deleted file)
-        size = int(header[2])
         target = dest / path
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(out[cursor:cursor + size])
+        target.write_bytes(blob)
         if path.endswith(".sh"):
             target.chmod(0o755)
-        cursor += size + 1
     (dest / PKG / "Sources").mkdir(parents=True, exist_ok=True)
     (dest / PKG / "Tests").mkdir(parents=True, exist_ok=True)
     # A hook runs with GIT_DIR (and maybe GIT_INDEX_FILE, GIT_WORK_TREE) of the pushing checkout:
