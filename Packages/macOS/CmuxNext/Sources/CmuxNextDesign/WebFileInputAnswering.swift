@@ -1,9 +1,13 @@
 public import AppKit
 
-/// Answers a web page's `<input type="file">` with a file picker: the one path every WebKit view takes, whether an
-/// agent composer page (`PageOpenPanel`) or a WebKit browser tab (`WebKitTab`), so the made-ahead panel and its
-/// dead-panel guard apply to every file input. ``MadeAheadOpenPanel`` is the app's answerer; a test passes a
+/// Answers a WebKit page's `<input type="file">` with a file picker: the one path every WebKit view takes, whether a
+/// cmux page on WebKit (`PageOpenPanel`) or a WebKit browser tab (`WebKitTab`), so the made-ahead panel and its
+/// dead-panel guard apply to every WebKit file input. ``MadeAheadOpenPanel`` is the app's answerer; a test passes a
 /// stand-in, since a test host cannot make an `NSOpenPanel` without its view service.
+///
+/// Chromium views do not take this path yet: the CEF shim has no file-dialog handler, so a Chromium browser tab's or
+/// a Chromium-hosted cmux page's file input gets Chromium's own new `NSOpenPanel` per click (open; the CEF owners
+/// add the handler that answers through this protocol).
 ///
 /// ```swift
 /// public func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,

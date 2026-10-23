@@ -2,14 +2,15 @@ public import AppKit
 public import CmuxNextDesign
 public import WebKit
 
-/// Answers a page's `<input type="file">` with the system open panel, as a sheet on the page's
-/// window (the agent composer's + then Attach files). WebKit shows no chooser for a web view
-/// without a UI delegate that implements `runOpenPanelWith`, so a file input does nothing there.
-/// The chosen files go back to the page, which reads them as it reads a drop. The panel is the
-/// app's one made ahead (`MadeAheadOpenPanel`; an agent pane warms it), so the click pays only
-/// the sheet, not the panel's making; a WebKit browser tab's file input takes the same path
-/// (`WebFileInputAnswering`). A web view holds its UI delegate weakly: the view that sets
-/// this as its delegate keeps it.
+/// Answers a WebKit-hosted page's `<input type="file">` with the system open panel, as a sheet on
+/// the page's window (the agent composer's + then Attach files). WebKit shows no chooser for a web
+/// view without a UI delegate that implements `runOpenPanelWith`, so a file input does nothing
+/// there. The chosen files go back to the page, which reads them as it reads a drop. The panel is
+/// the app's one made ahead (`MadeAheadOpenPanel`; an agent pane warms it), so once it is made the
+/// click pays only the sheet; a WebKit browser tab's file input takes the same path
+/// (`WebFileInputAnswering`). A page hosted in Chromium does not come here (the CEF shim has no
+/// file-dialog handler yet). A web view holds its UI delegate weakly: the view that sets this as
+/// its delegate keeps it.
 @MainActor
 public final class PageOpenPanel: NSObject, WKUIDelegate {
     private let openPanel: MadeAheadOpenPanel

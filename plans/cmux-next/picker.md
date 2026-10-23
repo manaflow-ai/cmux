@@ -20,9 +20,24 @@ Diff: `DiffPageService` conforms to `DiffViewerOpening` and is `ViewerService.di
 
 ## The system open panel on the click path (PL-fleet-gui, 2026-10-23)
 
-Home's "+", an agent composer's Add Files / Attach and every web view's `<input type="file">` (cmux pages and WebKit browser
-tabs, one path: `WebFileInputAnswering`) still use `NSOpenPanel` (the made-ahead `MadeAheadOpenPanel`, one instance made at
-the composition root). What of it can block the main thread, measured with
+Home's "+", an agent composer's Add Files / Attach and every WebKit view's `<input type="file">` (cmux pages on WebKit and
+WebKit browser tabs, one path: `WebFileInputAnswering`) still use `NSOpenPanel` (the made-ahead `MadeAheadOpenPanel`, one
+instance made at the composition root).
+
+Chromium is not on that path. Chromium is the default engine for browser tabs and for cmux pages (`PageWebView` follows
+`browser.defaultEngine`), and the CEF shim (`shim_client.mm`) has no `CefDialogHandler`: a Chromium file input runs
+Chromium's own `SelectFileDialog`, which makes a new `NSOpenPanel` on the main thread for each click, not made ahead and
+with no dead-panel guard (a cold 160 to 830 ms per click; with a hung or absent panel service about 40 s, and the page may
+wait forever). Open, routed to the CEF owners (session cmux-b6): `CefDialogHandler::OnFileDialog` sends a file-dialog event
+to Swift, which answers through `WebFileInputAnswering` (`Continue` with the paths, `Cancel` on nil), for Chromium browser
+tabs and Chromium-hosted cmux pages.
+
+Browser tabs do not start the warm-up (`warmWhenIdle`); an agent pane and Home do. Decision (2026-10-23): almost every
+session has a browser tab and few of them use a file input, so warming from a tab would put the panel's 160 to 830 ms (and,
+with a hung panel service, the 40 s freeze) on nearly every session to save it on a rare click. A session with only
+browser tabs pays the cold panel on its first file-input click. cmux's own picker (below) removes the cost for both.
+
+What of the panel can block the main thread, measured with
 `debug.open_panel_bench` (`scripts/cmux-next/open-panel-bench.py`; `split-spring.sh --suite=open-panel` on the fleet):
 
 | Where | Panel | Getting it (`init_ms`) | `beginSheetModal` call | Sheet on screen |
@@ -50,13 +65,15 @@ The options:
   `NSOpenPanel()` on the main thread, so for a console user whose panel service hangs or respawns slowly it freezes
   the main thread once, up to about 40 s, before the dead panel stops it. No deadline is possible around it (below).
 - A light in-app placeholder while the panel comes up: it cannot help the one case left, a click with no panel made ahead
-  (before the first warm-up, after a dead panel). That wait is the `NSOpenPanel()` init on the main thread, and a placeholder
+  (before the first warm-up, in a session that never warms, after a dead panel). That wait is the `NSOpenPanel()` init on the main thread, and a placeholder
   needs the same main thread to draw. AppKit has no public way to make an `NSOpenPanel` off the main thread or to ask its
   view service ahead without making one.
 
 So AppKit leaves no non-blocking path for a click or a warm-up that has to make its panel: about 300 ms on a working
 host, 40 s with no view service or a hung one. The made-ahead panel removes it for every click after the warm-up. The way to remove it for every click is
-the decision at the top of this file: cmux's own picker (`CmuxPicker`, no XPC service) for these three entry points too.
+the decision at the top of this file: cmux's own picker (`CmuxPicker`, no XPC service) for these entry points too.
+The dead-panel guard does not shorten that block: a click whose new panel comes back dead still waits it out, then ends
+the input as a cancel instead of a sheet that never ends.
 
 Open: the STRESS rows and a rerun with the display link running into the click (frames from 120 ms before it) are fleet
 steps 783852f9bdbf32290748032c (open-panel) and f26d6dae44358f76a3454389 (bench-smoke) at 3577c3e9407.

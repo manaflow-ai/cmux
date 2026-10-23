@@ -16,9 +16,12 @@ public import AppKit
 /// the warm-up may run is ``OpenPanelWarmGate``'s.
 ///
 /// The app makes one, at its composition root (`AppServices.openPanel`), and passes it to every picker that takes
-/// it: `AgentPaneView` (and its `AgentPaneFilePicker`), Home's `HomeAttachmentPanel`, and every web view's
-/// `<input type="file">` (``WebFileInputAnswering``: `PageOpenPanel` and the WebKit browser engine's
-/// `fileInput`). Each instance keeps its own panel, so a test makes its own and never shares one with the app.
+/// it: `AgentPaneView` (and its `AgentPaneFilePicker`), Home's `HomeAttachmentPanel`, and a WebKit view's
+/// `<input type="file">` (``WebFileInputAnswering``: `PageOpenPanel` for a cmux page on WebKit, and the WebKit
+/// browser engine's `fileInput`). Chromium does not take it: a Chromium browser tab or a cmux page hosted in
+/// Chromium (the default engine) has no file-dialog handler in the CEF shim, so Chromium makes its own new
+/// `NSOpenPanel` on the main thread for each click, not made ahead and with no dead-panel guard (open, routed to
+/// the CEF owners). Each instance keeps its own panel, so a test makes its own and never shares one with the app.
 @MainActor
 public final class MadeAheadOpenPanel {
     private let store: MadeAheadPanelStore<NSOpenPanel>

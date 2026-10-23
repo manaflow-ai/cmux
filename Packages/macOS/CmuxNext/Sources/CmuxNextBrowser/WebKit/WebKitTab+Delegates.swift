@@ -291,7 +291,7 @@ extension WebKitTab: WKUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping @MainActor ([URL]?) -> Void
     ) {
-        // The one file-input path (WebFileInputAnswering) every web view shares: in the app the made-ahead panel.
+        // The one file-input path (WebFileInputAnswering) every WebKit view shares: in the app the made-ahead panel.
         // A tab whose engine is gone ends the input as a cancel.
         guard let engine else {
             completionHandler(nil)
