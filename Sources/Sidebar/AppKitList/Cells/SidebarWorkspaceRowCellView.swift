@@ -55,7 +55,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let branchIconView = NSImageView()
     private var branchLines: [SidebarRowIconTextLine] = []
     private var pullRequestRows: [SidebarRowPullRequestLine] = []
-    private var portButtons: [SidebarRowLinkButton] = []
+    private var portLabels: [SidebarRowPortLabel] = []
     private let checklistSection = SidebarRowChecklistSection()
     /// Presents the legacy SwiftUI `SidebarWorkspaceStatusPopover` from the
     /// manual status glyph (min width 200, max height 400, below the glyph).
@@ -1076,18 +1076,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             }
         }
         let ports = settings.visibleAuxiliaryDetails.showsPorts ? snapshot.listeningPorts : []
-        Self.pool(&portButtons, count: ports.count, parent: contentContainer) { SidebarRowLinkButton() }
+        Self.pool(&portLabels, count: ports.count, parent: contentContainer) { SidebarRowPortLabel() }
         for (index, port) in ports.enumerated() {
-            portButtons[index].configure(
+            portLabels[index].configure(
                 title: SidebarPortDisplayText.label(for: port),
                 font: .monospacedSystemFont(ofSize: model.scaled(10), weight: .regular),
-                color: palette.secondary(0.75),
-                underlined: true,
-                toolTip: String(localized: "sidebar.port.openTooltip", defaultValue: "Open localhost port")
-            ) { [weak self] in
-                self?.actions?.commands.updateSelection()
-                self?.actions?.onOpenPort(port)
-            }
+                color: palette.secondary(0.75)
+            )
         }
     }
 
@@ -1483,7 +1478,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             y -= 1
         }
 
-        let visiblePorts = portButtons.filter { !$0.isHidden }
+        let visiblePorts = portLabels.filter { !$0.isHidden }
         if !visiblePorts.isEmpty {
             y += spacing
             var portX = leading
