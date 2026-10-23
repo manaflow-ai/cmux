@@ -78,4 +78,22 @@ import Testing
         #expect(layout.catcherAreas == layout.dividerAreas, "at rest the catchers cover the dividers: \(layout.catcherAreas) vs \(layout.dividerAreas)")
         #expect(layout.catcherAreas.count == before.count + 1, "the new split's divider has its area at rest: \(before) -> \(layout.catcherAreas)")
     }
+
+    /// Review 1 (2026-10-23): a layout parked mid-spring (a workspace switch during a split) never
+    /// steps to its landing, so the catchers kept the other layout's divider places after it came back.
+    @Test func aLayoutParkedMidSpringGetsItsCatchersWhenItShowsAgain() throws {
+        let layout = Layout()
+        defer { layout.window.close() }
+        let column = LayoutColumn(id: "c", width: 1, root: .split("s", axis: .horizontal, ratio: 1.0 / 3, a: .leaf("a"),
+                                                                    b: .split("t", axis: .horizontal, ratio: 0.5, a: .leaf("b"), b: .leaf("c"))))
+        layout.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .columns([column]))])
+        layout.root.syncWithModel()
+        for _ in 0..<3 { layout.root.advanceFrame(1.0 / 120) }
+        try #require(layout.root.isInLayoutMotion, "the split is under way")
+        layout.root.isHidden = true
+        layout.root.isHidden = false
+        layout.settle()
+        #expect(!layout.root.isInLayoutMotion)
+        #expect(layout.catcherAreas == layout.dividerAreas, "the shown layout's catchers cover its dividers: \(layout.catcherAreas) vs \(layout.dividerAreas)")
+    }
 }
