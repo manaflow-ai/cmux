@@ -198,6 +198,29 @@ Pending for the next batch (lead, from cmux-4f's review of pl-arch B3): after re
 `GhosttyRuntime+DefaultTheme.swift:78` calls `ColorTransition.current(for: themeScope.store)` instead of the
 no-argument `ColorTransition.current`, which is then removed (PL-ghostty is its last caller).
 
+### G9: the echo does not wait for the main thread (next batch; lead, 2026-10-23)
+
+Goal (the model of Chrome's compositor thread): a terminal key press and its echo reach the screen
+with the app's main thread busy. The key handler only writes the bytes (PL-typing owns the key
+router); the parse is off main (G4); the frame is the gap. Today every Ghostty frame reaches the
+screen through the main thread: the Metal completion handler `dispatch_async`es `setSurface` to main
+(`gn:src/renderer/metal/IOSurfaceLayer.zig` `setSurface`), and the main run loop's Core Animation
+commit carries `layer.contents`. A main thread blocked 100 ms holds the echo 100 ms.
+
+Plan: a frame that changes only content (same drawable size, no geometry change pending) is
+presented without the main thread: set `contents` on the completion thread inside an explicit
+`CATransaction` (begin, set, commit; legal off main for a layer whose geometry main does not change
+in that transaction), or move the surface to a `CAMetalLayer` and `presentDrawable` (render server,
+no app commit). A frame for a new size keeps going through the main commit with its geometry (G1),
+so content and geometry never land out of order: the off-main path is taken only when the frame's
+size equals the layer's committed size, under the same size generation as the fresh-frame present.
+
+Guard (fails first on the current code): bench-typing with `debug.stall` blocking main 100 ms
+around each key; terminal key-to-frame (`contents_ms`, or a render-server presented timestamp) p95
+< 8 ms. Check the content-only path on macOS 14, 15, 26 and 27 for tearing and for frames out of
+order with a resize. Owners: PL-typing (key router, Home composer), PL-main in cmux-4f (main-thread
+scheduler); PL-ghostty (terminal present path).
+
 ## 5. Measurements
 
 Filled in as fleet runs land: host, build sha, refresh rate, light and STRESS side by side.
