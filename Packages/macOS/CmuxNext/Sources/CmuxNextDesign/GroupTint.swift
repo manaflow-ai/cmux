@@ -68,11 +68,12 @@ public nonisolated enum GroupTint: Hashable, Sendable {
     /// green header).
     @MainActor public var headerChip: (fill: ThemeRGB, ink: ThemeRGB) {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        // No color: the bar is the sidebar itself, its ink the sidebar's text.
+        if isNone { return (tokens.sidebarBackground.withAlpha(1), tokens.textPrimary) }
         let color = switch self {
         case let .palette(token): token.headerRGB(tokens)
         case let .custom(rgb): Self.readable(rgb)
-        // No color: the bar is the sidebar itself, its ink the sidebar's text.
-        case .none: return (tokens.sidebarBackground.withAlpha(1), tokens.textPrimary)
+        case .none: tokens.sidebarBackground.withAlpha(1)
         }
         return tokens.chip(color, inks: .onColor)
     }
