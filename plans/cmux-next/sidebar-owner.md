@@ -33,6 +33,7 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 | --- | --- | --- |
 | Row close (X) | The original close: a small x at the row's trailing end, shown on hover, in its rounded box. Not the top-right "dog-ear" fold. | Lawrence 11405 ("revert styling back to original, for the X button") |
 | Group rail | The rail's left edge is the group header pill's left edge, at every depth, every density, light and dark. | Lawrence 11240, 11371, 11405 |
+| Group rail shape | Chrome's line on that edge: 2 pt, flat ends, the header bar's own color, a 6 pt cut below the header, down to the last member's bottom. Debug `sidebar.groupLineLayout`: `edge` (default, the row above), `joined` (no cut, the bar's bottom-left corner square: one L, band header only), `inside` (the header reaches the corner inset further left, 4 pt compact and 5 pt comfortable, capped at the list's edge: the line under its corner). Members never move. | Leo 2026-10-23 ("WTF HAPPENED TO FOLLOWING CHROME"; asks ask-5b16be6ee9, ask-40133bf821, ask-7e10ebd553), #24513 |
 | Row text | As far left as it originally was. A row with no icon starts its title at the row inset; no empty icon slot pushes it right. A top-level group's rows keep the ungrouped rows' left edge. Only nested groups step in. | Lawrence 11405 ("text needs to be as left as possible (how it originally was)"); #23975 |
 | Home unread | A blue dot, the same dot as other unread rows. No count badge. | Lawrence 11384 |
 | Drag and reorder | The lifted row follows the pointer and a gap opens where it drops. No stray blue line during the drag, and nothing stays after a drop or a cancel. | Lawrence 11405 |
@@ -153,6 +154,10 @@ the gap, no row left out of place after drop or cancel).
 
 ## Open work (Oct 23)
 
+- #24513 (Leo's lane, held): the group rail's Chrome shape above, on Lawrence's rail reach (ab905adeadd). Takes back
+  only the rail's round caps, its 3 pt width (Lawrence's `groupRailReach` follows: 4 pt) and its swatch color under
+  the band header; the rail's x and the members' x are base's.
+
 - Base red, not ours: `SidebarPinnedRowWidthTests` fails on feat-cmux-next before these changes (36 issues: the group
   header sits 4 pt off the pinned rows since the a579 height commits). Next for the owner.
 - a593 (multi-window routing, 5dceeca..ef02482): behavior only in SidebarBridge+Sections/PinnedItems and
@@ -167,6 +172,7 @@ the gap, no row left out of place after drop or cancel).
 
 | Range | Change |
 | --- | --- |
+| [cf06a288808..e6b30d6e82f](https://github.com/manaflow-ai/cmux/compare/cf06a288808...e6b30d6e82f) | sb-churn-b follow-up 1 (cf06a288808 red, e6b30d6e82f fix): `EmptyWorkspaceRepair` examines only a workspace whose last pane came or went (one pane-flag observation per workspace, plus the store's new `workspaceSetRevision` and `liveTreeEpoch`); a move, group change or status examines none (it examined all 400, the 111.8 ms worst hang). A new connection's first tree still examines each workspace once (same reconnect rule); a close that could not start retries from a small set. Bench on cmux12s logged below when done. Follow-up 2 (tab search order after a move) is not landed: see the report. |
 | [92bf50b1c92..35a6f075512](https://github.com/manaflow-ai/cmux/compare/92bf50b1c92...35a6f075512) | sb-churn-b (92bf50b1c92 red, 35a6f075512 fix): a move, a group change or a one-workspace change no longer runs `WindowManager.reconcileMembership` (the store hook compares the workspace set, not the ordered list; `observeMembership` reads load state and room rules, not order or the personal revision). `workspace <id> update --task-status` sent `tree-changed`, so the app refetched and re-applied the whole tree at 10 Hz; a notes-only `workspace.update` (description, task status) now sends none (the raw tree does not carry them; the state feed patches the one workspace). No event shape change. Bench at 400 workspaces, cmux8s, before e6048d7c387 (step a7135ee58f10398c68d0bba0) / after (step 94375ca84f7ad361e1c23fff): churn p95 165.0 / 143.4 ms, hangs 149 / 109, worst hang 354.0 / 116.1 ms; resync + `apply(snapshot:)` 9.3% / 0%, `workspaceListMayHaveChanged` 405 / 12 samples. Still over 8 ms: `SidebarSameTurn.observe` 17.5%, `ControlSnapshotPublisher.publishNow` 12.1%, `SidebarDocStore.show` 10.4%. No look change. |
 | [5846e103ece..d46123a6d79](https://github.com/manaflow-ai/cmux/compare/5846e103ece...d46123a6d79) | a576 churn fix (f533c272408 red, d295dc19007 fix): a reorder rewrites no row; `SidebarRowFeed.fill` writes only new or re-mapped rows (was 31% of main at 400 workspaces). No look change. |
 | [6205b02791b..710e98db4c2](https://github.com/manaflow-ai/cmux/compare/6205b02791b...710e98db4c2) | a576 bench: `scripts/cmux-next/sidebar-churn-typing.py` (`split-spring.sh --suite=sidebar-churn`, cmux8s only, needs a logged-in console); `debug.key` takes the client's send time. At 400 workspaces after the fix: churn p95 70.7 ms, worst hang 258 ms, idle p95 27.8 ms (target 8 ms). Owner continues. |
@@ -423,3 +429,8 @@ the gap, no row left out of place after drop or cancel).
 | [51b858dd146](https://github.com/manaflow-ai/cmux/commit/51b858dd146cb61717d632bada94e97d5f7c959d) | 10-19 13:25 | Leo's agents (Leo) | fix(cmux-next): running spinners draw bare, with no disc or ring behind them (#22047) |
 | [126426d9674](https://github.com/manaflow-ai/cmux/commit/126426d9674468f33ea7b6a0e47748e9a82a2b6a) | 10-19 13:02 | Leo's agents (Leo) | cmux-next sidebar: selected rows read as one selection in every theme (#21940) |
 | [2e9e3125d34](https://github.com/manaflow-ai/cmux/commit/2e9e3125d34ef20dd6eafcd51f118318ef3d4051) | 10-19 12:40 | Leo's agents (Leo) | Now Playing card: level bars and a filled Play/Pause (#21697) |
+
+
+## Codex follow-up
+
+- 2026-10-23: Codex #24513 follow-up keeps the `inside` Chrome corner inset for a parent group whose rows are only nested groups; the regression test covers the previously unmeasured parent rail.

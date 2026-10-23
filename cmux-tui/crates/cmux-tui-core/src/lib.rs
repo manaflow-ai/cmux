@@ -123,7 +123,7 @@ pub use cmux_tui_platform::unix_process_scope;
 pub use cmux_tui_util::user_settings;
 
 pub use agent_hooks::{
-    AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, LIVE_PROMPT_CHARS,
+    AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, LIVE_MESSAGE_CHARS, LIVE_PROMPT_CHARS,
     agent_hook_journal_ingress, agent_hook_live_fields, agent_hook_live_prompt,
     agent_hook_live_reply, stamp_agent_hook_observed_now,
 };

@@ -59,17 +59,9 @@ extension ActionRegistry {
     static func inputAgeMilliseconds(origin: ActionOrigin, event: NSEvent?, carried: Double? = nil,
                                      now: TimeInterval) -> Double {
         guard origin == .user else { return -1 }
-        if let stamp = inputTimestamp(of: event) {
-            return stamp <= now ? (now - stamp) * 1_000 : -1
-        }
-        // A carried press 1 s or more old held a person's dwell (a sheet they read, a menu they
-        // browsed) and is no input latency; SwitchFrameTimer drops such ages the same way.
-        guard let carried, carried <= now, now - carried < Self.carriedPressLimit else { return -1 }
-        return (now - carried) * 1_000
+        guard let stamp = inputTimestamp(of: event) ?? carried, stamp <= now else { return -1 }
+        return (now - stamp) * 1_000
     }
-
-    /// The oldest carried press a run still reports (seconds).
-    static let carriedPressLimit: TimeInterval = 1
 
     /// `event`'s timestamp when it is a key or a click, else nil.
     static func inputTimestamp(of event: NSEvent?) -> Double? {

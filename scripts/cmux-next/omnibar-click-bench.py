@@ -196,8 +196,8 @@ def cleanup():
 
 def main():
     global app, SOCKET
-    if os.path.exists(SOCKET):
-        os.remove(SOCKET)
+    # No socket check here: BenchApp.launch() refuses a live same-tag app (any bundle path) and unlinks only a
+    # socket nothing accepts on.
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,

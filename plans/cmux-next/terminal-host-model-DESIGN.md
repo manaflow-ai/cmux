@@ -195,12 +195,17 @@ processes and ~2,000 threads fewer.
 
 ## 7. Durability of replies (decided 2026-10-23, perf lead)
 
-Lands with PL-daemon batch 1 (branch `pl-daemon-wip`, the daemon request speed workstream). No daemon reply waits for the disk. Registry commits run `synchronous=NORMAL`: a commit is in the
-WAL, in the kernel's page cache, when it returns, and a crash, kill or update of the daemon keeps
-it. One syncer thread F_FULLFSYNCs the WAL for every commit since its last flush, off every lock
-(`workspace_registry/wal_durability.rs`). Trade-off: a power loss or kernel panic within that one
-flush (about 5 ms) can take back a reply the client already has; the same loss ends every shell,
-host and holder, so the terminal the reply described is gone anyway, and a workspace rename or
-layout change made in those milliseconds is lost. Before: each commit F_FULLFSYNCed inside the
-registry lock (about 4.5 ms on a fleet M4 Pro, 20 ms on a busy Apple SSD), 1-3 per create or close
-reply, and every request that needed the lock waited behind it (60-80 ms p95 on every op).
+No daemon reply waits for the disk. Registry commits (and the conversation store's and chief
+registry's) run `synchronous=NORMAL`: a commit is in the WAL, in the kernel's page cache, when it
+returns, and a crash, kill or update of the daemon keeps it. One syncer thread per database runs
+the WAL checkpoints off every lock (SQLite syncs the WAL before each), and flushes the drive cache
+(F_FULLFSYNC) once at close (`workspace_registry/wal_durability.rs`). These are SQLite's own
+`synchronous=NORMAL` WAL rules, with the checkpoint moved off the request. Trade-off: a power loss
+or kernel panic can take back the tail of replies since the last checkpoint that the kernel had not
+yet written back (a tail, never out of order). The same loss ends every shell, host and holder, so
+the terminals those replies described are gone anyway; a workspace rename or layout change made in
+that tail is lost. A sync per reply was measured and rejected: the next request's WAL writes
+waited for it (same fleet mini, new browser tab 4.2 ms p50 without, 22-25 ms with F_FULLFSYNC,
+about 11 ms with F_BARRIERFSYNC). Before: each commit F_FULLFSYNCed inside the registry lock (about
+4.5 ms on a fleet M4 Pro, 20 ms on a busy Apple SSD), 1-3 per create or close reply, and every
+request that needed the lock waited behind it.
