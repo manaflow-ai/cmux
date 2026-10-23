@@ -17895,7 +17895,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.display.inspector.help",
-        "text" : "Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."
+        "text" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.display.inspector.placement",
@@ -17905,6 +17905,8 @@
         "acp",
         "display",
         "reading",
+        "session",
+        "info",
         "inspector",
         "panel",
         "side",
@@ -17930,7 +17932,7 @@
       "summary" : null,
       "title" : {
         "key" : "settings.agentPane.display.inspector",
-        "text" : "Inspector"
+        "text" : "Session Info"
       },
       "validation" : "portable"
     },

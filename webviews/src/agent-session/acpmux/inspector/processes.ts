@@ -363,15 +363,9 @@ export function inspectorLists(
 }
 
 /// The Inspector section a background command opens (App.tsx `openCommands` and
-/// `openTrayCommand`): Background tasks while a command that is not a dev server runs, Servers when
-/// every running command is one (the Inspector draws no Background tasks for those), else
-/// Subagents (only subagents and started chats run). `running` is the chat's running commands,
-/// servers included, as the running line counts them.
-export function backgroundSection(
-  processes: readonly InspectorProcess[],
-  running: readonly BackgroundCommand[],
-): "tasks" | "servers" | "subagents" {
-  const serving = servingIds(processes);
-  if (running.some((command) => !served(command, serving))) return "tasks";
-  return running.length > 0 ? "servers" : "subagents";
+/// `openTrayCommand`): Background tasks while any command runs, a dev server included (its rows head
+/// that section), else Subagents (only subagents and started chats run). `running` is the chat's
+/// running commands, servers included, as the running line counts them.
+export function backgroundSection(running: readonly BackgroundCommand[]): "tasks" | "subagents" {
+  return running.length > 0 ? "tasks" : "subagents";
 }

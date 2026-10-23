@@ -54,6 +54,10 @@ root = "cmux-tui/bindings/examples/rust-sidebar-monitor"
 covered_by = ".github/workflows/cmux-tui-sdks.yml"
 
 [[workspace]]
+root = "Native/OptChat/chief-turn"
+run = true
+
+[[workspace]]
 root = "Native/OptChat/optchat-chief"
 run = true
 
