@@ -67,6 +67,8 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
             "tab.create_browser",
         ),
         (vec!["tab", TAB, "update", "--marked-unread", "true"], "tab.update"),
+        (vec!["attention", "request", "--tab", TAB, "--reason", "Confirm"], "tab.update"),
+        (vec!["attention", "clear", "--tab", TAB], "tab.update"),
         (vec!["workspace", WORKSPACE, "close", "--report-closed-ids"], "workspace.close"),
         (
             vec![

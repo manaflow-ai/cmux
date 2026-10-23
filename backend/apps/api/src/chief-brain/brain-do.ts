@@ -444,6 +444,9 @@ export class ChiefBrainDO extends DurableObject<Env> {
 
   /** The Claude Code route's turn machine (POST /v1/chief-cc/<agent>/<conversation>/notes, chief-brain-cc/turn.ts). */
   async ccNotes(token: string, body: { run?: unknown; events?: unknown; result?: unknown; net?: unknown }): Promise<{ status: number; json?: unknown }> {
+    // A turn machine outlives an evicted object: its post must start the object (onStart resumes the running
+    // turn, which waits for this post), else the post meets no running turn (401) and the ready reply is lost.
+    await this.lifecycle.start()
     return ccNotes(this, token, body)
   }
 

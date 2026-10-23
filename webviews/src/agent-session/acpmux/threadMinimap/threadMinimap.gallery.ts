@@ -111,7 +111,7 @@ export default agentPaneEntry({
   },
   variants: {
     rest: {
-      note: "At rest mid-thread. Off (the default): no minimap, the left edge empty. Full height: the rail spans the transcript, each prompt a longer tick and each reply a shorter one set in, at its place in the chat, under a bar for the view. Compact: every tick the same 6 px, the prompts on screen brighter.",
+      note: "At rest mid-thread. Compact (the default, the wave): every tick the same 6 px, the prompts on screen brighter. Full height: the rail spans the transcript, each prompt a longer tick and each reply a shorter one set in, at its place in the chat, under a bar for the view. Off: no minimap, the left edge empty.",
       snapshot: chat(rows, { title: "Thread minimap at rest" }),
       play: async (ctx) => {
         if (!ctx.document.querySelector('[data-tick="8"]')) return;
@@ -139,6 +139,21 @@ export default agentPaneEntry({
         if (ctx.document.querySelector(".acpmux-scrollmap")) return;
         // The rail has scrolled to keep the band in view: rows past both of its edges.
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__list[data-fade-top][data-fade-bottom]"));
+      },
+    },
+    "seventy-prompts-bottom": {
+      note: "Seventy prompts, scrolled back down to the bottom after reading mid-thread. Compact: the rail's list has scrolled to its end with the chat, so the last prompts' ticks show lit at the rail's foot with no fade over them.",
+      snapshot: chat(long, { title: "Thread minimap, a long chat at the bottom" }),
+      play: async (ctx) => {
+        if (!ctx.document.querySelector('[data-tick="40"]')) return;
+        await ctx.scroll({ selector: ".acpmux-scroll" }, 4000);
+        await ctx.scroll({ selector: ".acpmux-scroll" }, 1_000_000);
+        if (ctx.document.querySelector(".acpmux-scrollmap")) return;
+        await ctx.waitFor(
+          () =>
+            !!ctx.document.querySelector('[data-tick="69"][aria-current="true"]') &&
+            !ctx.document.querySelector(".acpmux-minimap__list[data-fade-bottom]"),
+        );
       },
     },
     "long-chat": {

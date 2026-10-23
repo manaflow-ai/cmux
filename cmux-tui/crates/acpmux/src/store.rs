@@ -139,6 +139,10 @@ pub struct SessionMeta {
     /// agent again, still steers instead of stopping the turn for every prompt sent now.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub steering: bool,
+    /// Its agent was launched to write question previews as HTML (`hub/questions.rs`
+    /// `PreviewFormat`), kept for the same reason: an adopted agent keeps its launch's format.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub html_previews: bool,
     #[serde(default)]
     pub modes: Option<Value>,
     #[serde(default)]
@@ -1294,31 +1298,4 @@ mod permission_tests {
 }
 
 #[cfg(all(test, unix))]
-mod line_rev_tests {
-    use super::*;
-    use std::os::unix::fs::PermissionsExt;
-
-    /// Lines come newest first, whole, whatever blocks they span; blank lines are skipped.
-    #[test]
-    fn lines_across_blocks_come_back_whole_newest_first() {
-        let path = std::env::temp_dir().join(format!(
-            "acpmux-line-rev-{}-{}",
-            std::process::id(),
-            uuid::Uuid::now_v7()
-        ));
-        let lines =
-            ["a".to_owned(), "x".repeat(200_000), String::new(), "b".repeat(65_535), "c".into()];
-        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
-        let mut seen = Vec::new();
-        for_each_line_rev(&path, &mut |line| {
-            seen.push(String::from_utf8(line.to_vec()).unwrap());
-            true
-        })
-        .unwrap();
-        let _ = std::fs::remove_file(&path);
-        let want: Vec<String> = lines.iter().rev().filter(|l| !l.is_empty()).cloned().collect();
-        assert_eq!(seen.len(), want.len());
-        assert!(seen == want, "lines came back changed or out of order");
-    }
-}
+mod line_rev_tests;

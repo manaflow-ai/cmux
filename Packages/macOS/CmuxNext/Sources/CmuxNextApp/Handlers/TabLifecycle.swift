@@ -32,7 +32,7 @@ enum TabLifecycle {
             let daemon = ctx.services.daemon(for: focused)
             let selected = ctx.services.paneController(for: focused)?.selectedTab
             let start = cwd ?? NewTerminalStart.uninherited(.window, services: ctx.services, daemon: daemon, besides: selected)
-                ?? NewTerminalStart.folder(of: selected, services: ctx.services) ?? selected?.cwd ?? focused.tabs.first?.cwd
+                ?? NewTerminalStart.inherited(besides: selected, in: focused, services: ctx.services) ?? selected?.cwd ?? focused.tabs.first?.cwd
             ctx.registry.track(Task {
                 _ = try? await windows.createWorkspace(WorkspaceSpawn(cwd: start, keep: keep == true), on: daemon, into: windowID)
                 return nil
@@ -53,7 +53,7 @@ enum TabLifecycle {
             // From the docked agent chat, a tab in the strip (ChatColumnPlacement). Its
             // cwd is the explicit one, else the chat's, else nil for the daemon's resolver (NEW-TERMINAL-INHERITS-CWD).
             // The chat's folder here, not the daemon's: its resolver skips chats (the strip, the dock's respawn).
-            let chatStart = tabCwd ?? NewTerminalStart.folder(of: controller.selectedTab, services: ctx.services)
+            let chatStart = tabCwd ?? NewTerminalStart.inherited(besides: controller.selectedTab, in: pane, services: ctx.services)
             var target: PaneController? = controller
             if invocation.origin == .user {
                 let spawn = SpawnOptions(cwd: chatStart, workspace: ctx.services.workspaceKey(of: pane), keep: keep)

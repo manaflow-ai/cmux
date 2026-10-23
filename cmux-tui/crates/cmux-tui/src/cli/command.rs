@@ -181,6 +181,9 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         "terminal" => parse_terminal(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "browser" => parse_browser(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "notification" => parse_notification(&tokens.words[1..], &mut tokens.flags)?,
+        "attention" => {
+            state::parse_attention(&strs(&tokens.words[1..]), &mut selectors, &mut tokens.flags)?
+        }
         "room" => state::parse_room(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "closed" => state::parse_closed(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "git" => git::parse_git(&strs(&tokens.words[1..]), &mut tokens.flags)?,

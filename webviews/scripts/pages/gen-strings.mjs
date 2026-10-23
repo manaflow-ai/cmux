@@ -279,6 +279,30 @@ export const PAGES = {
       },
     ],
   },
+  // The changelog's pull request chips draw the agent pane's link hover card (chips/LinkHoverCard.tsx,
+  // PullRequestCard.tsx, OpenInMenu.tsx), which read the pane's table; the page installs only these.
+  "changelog-pane": {
+    out: "webviews/src/pages/changelog/generated/pane-strings.json",
+    catalogs: [
+      {
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        keys: (all) =>
+          all.filter(
+            (key) =>
+              /^(prCard|header\.prBadge|header\.prReview)\./.test(key) ||
+              [
+                "chatInspector.changes.failingOnBase",
+                "header.prConflicts",
+                "header.prNoChecks",
+                "image.open",
+                "preview.cmuxBrowser",
+                "preview.copyLink",
+                "preview.openIn",
+              ].includes(key),
+          ),
+      },
+    ],
+  },
   // The icon picker (cmux-page://cmux.icon-picker/) has no Swift page; its table lives next to it.
   "icon-picker": {
     out: "webviews/src/pages/icon-picker/generated/strings.json",

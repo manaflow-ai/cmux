@@ -50,13 +50,12 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         self.leading = leading()
     }
 
-    /// The listed Macs (a computer registered twice shows once: ``MacRoster``).
-    private var macs: [MacDevice] { macText.roster(store.activeTeam?.macs ?? [], now: MinuteClock.shared.now).visible }
+    /// The listed Macs (one per computer, whatever builds run on it: ``MacRoster``).
+    private var macs: [MacDevice] { macText.roster(store.activeTeam?.macs ?? []).visible }
 
     private var labels: HomeMacLabels {
-        let now = MinuteClock.shared.now
-        return HomeMacLabels(macs: macs, scope: macFilter.scope(in: store.activeTeam),
-                             accountMacs: MacRoster(MacNameDisambiguation.scope(store.teams), now: now).visible)
+        HomeMacLabels(macs: macs, scope: macFilter.scope(in: store.activeTeam),
+                             accountMacs: MacRoster.accountMacs(store.teams))
     }
 
     /// The default Chief: compose, New Message and the first pin.

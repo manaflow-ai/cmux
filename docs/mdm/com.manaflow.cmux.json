@@ -49,12 +49,12 @@
     },
     "agentPane.display.inspector.placement" : {
       "default" : "overlay",
-      "description" : "Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
+      "description" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
       "enum" : [
         "push",
         "overlay"
       ],
-      "title" : "Inspector",
+      "title" : "Session Info",
       "type" : "string"
     },
     "agentPane.display.width" : {
@@ -3478,6 +3478,12 @@
       "title" : "Show All Chats on New Tab",
       "type" : "boolean"
     },
+    "sidebar.showColors" : {
+      "default" : true,
+      "description" : "Workspaces and groups draw their colors in the sidebar. Off, the sidebar draws no colors and keeps the colors you set.",
+      "title" : "Show Workspace Colors",
+      "type" : "boolean"
+    },
     "sidebar.showLocalMachine" : {
       "default" : false,
       "description" : "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too.",
@@ -4179,8 +4185,8 @@
     },
     "tabs.terminalFirst" : {
       "default" : false,
-      "description" : "When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page.",
-      "title" : "New Tabs and Splits Open a Terminal",
+      "description" : "New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab.",
+      "title" : "cmux Classic Mode",
       "type" : "boolean"
     },
     "tabs.toolbarButtons" : {

@@ -1,9 +1,9 @@
 // One running or finished piece of the chat's work on one line: a subagent or a background
 // command. The tray above the composer (SubagentTray.tsx) and the summary card's Subagents list
 // (summary/SubagentStatusList.tsx) both draw their rows with it, so a subagent looks the same in
-// either place (Leo 2026-10-20: one style for the tray, the chip and the popover). Its icon carries
-// the status badge (summary.css `.acpmux-lineage__icon`) and is in the theme's accent while it runs,
-// never a brand color; then its name, a dim detail (what it does now, or its kind), its time and
+// either place (Leo 2026-10-20: one style for the tray, the chip and the popover). Its icon
+// (summary.css `.acpmux-lineage__icon`) is in the theme's accent while it runs, never a brand color,
+// and carries no corner dot, since the line says its state in words; then its name, a dim detail (what it does now, or its kind), its time and
 // its state. A click opens it. With a `card` (the Inspector's Subagents) a hover card names it and
 // says its state, as Claude Code desktop's session panel does, in place of the plain tooltip.
 //

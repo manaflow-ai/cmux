@@ -83,11 +83,18 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
     setClosing(!open && motionAllowed() && animates());
   }
   const running = useRef<Animation | undefined>(undefined);
+  /// Stops watching an opening body's late content (below), when its fold ends or another starts.
+  const watching = useRef<(() => void) | undefined>(undefined);
+  const stopWatching = () => {
+    watching.current?.();
+    watching.current = undefined;
+  };
   // The `open` the box was last drawn for: the first render, and a StrictMode re-run, play nothing.
   const played = useRef(open);
   useLayoutEffect(() => {
     if (played.current === open) return;
     played.current = open;
+    stopWatching();
     const node = ref.current;
     // A box a close left pinned shut (below) opens from its own size again.
     if (node) pin(node, undefined);
@@ -115,8 +122,44 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
       { duration: ms, easing: foldMotion.easing(node) },
     );
     running.current = animation;
+    // An open whose body draws its content late (a diff, highlighted code) grows to it in the same
+    // motion: a later size takes over from the drawn height for the time left, instead of the box
+    // stopping short and then snapping to its full height. It stops watching when the fold ends.
+    const content = open && typeof ResizeObserver === "function" ? node.firstElementChild : null;
+    if (content) {
+      const until = performance.now() + ms;
+      let target = toHeight;
+      const grows = new ResizeObserver(() => {
+        const now = performance.now();
+        const next = node.scrollHeight;
+        const playing = running.current;
+        if (!playing || next <= target + 0.5 || now >= until) return;
+        target = next;
+        const drawn = node.getBoundingClientRect().height;
+        const opacity = Number(styleOf(node)?.opacity ?? 1) || 0;
+        const rest = node.animate(
+          [
+            { height: `${drawn}px`, opacity },
+            { height: `${next}px`, opacity: 1 },
+          ],
+          { duration: until - now, easing: foldMotion.easing(node) },
+        );
+        playing.onfinish = null;
+        playing.cancel();
+        running.current = rest;
+        rest.onfinish = () => {
+          if (running.current !== rest) return;
+          running.current = undefined;
+          stopWatching();
+          node.style.overflow = "";
+        };
+      });
+      grows.observe(content);
+      watching.current = () => grows.disconnect();
+    }
     animation.onfinish = () => {
       if (running.current !== animation) return;
+      stopWatching();
       running.current = undefined;
       if (open) {
         node.style.overflow = "";
@@ -131,6 +174,7 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
   }, [open]);
   useLayoutEffect(
     () => () => {
+      stopWatching();
       running.current?.cancel();
     },
     [],
