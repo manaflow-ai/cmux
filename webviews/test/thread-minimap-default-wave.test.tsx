@@ -12,6 +12,7 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { transcriptColumn } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { threadMinimapLayout } from "../src/agent-session/acpmux/threadMinimap/layout.experiment";
+import { LIT_OPACITY, threadMinimapLit } from "../src/agent-session/acpmux/threadMinimap/lit.experiment";
 import { experimentArm } from "../src/experiments/experiment";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -221,4 +222,64 @@ test("the rail's list never draws a scroller of its own, and the rail takes no r
   expect(shell).toMatch(/height:\s*0/);
   // No solid accent line in the map: it draws in the theme's text tones only.
   expect(css).not.toMatch(/--(agent|cmux)-accent|Highlight\b|-webkit-focus-ring-color/);
+});
+
+// The lit band (the prompts on screen) carried over from #24065: 75% over the resting 40% (#22228 drew
+// 60%, which barely showed where the reader was), still lit with the pointer on the rail, and gliding
+// as it moves at rest. lit.experiment.ts keeps 60, 70, 75 and 85% side by side in the gallery.
+test("the lit band ships at 75%, and each lit arm reaches the rail", async () => {
+  expect(threadMinimapLit.defaultArm).toBe("lit-75");
+  expect(experimentArm(threadMinimapLit, { overrides: {}, stored: {} })).toBe("lit-75");
+  expect(Object.keys(threadMinimapLit.arms)).toEqual(Object.keys(LIT_OPACITY));
+  for (const [arms, opacity] of [
+    [undefined, 0.75],
+    [{ "thread-minimap-lit": "lit-60" }, 0.6],
+    [{ "thread-minimap-lit": "lit-85" }, 0.85],
+  ] as const) {
+    const { host, root } = await render(arms);
+    try {
+      const rail = host.querySelector<HTMLElement>("nav.acpmux-minimap__rail")!;
+      expect(Number(rail.style.getPropertyValue("--acpmux-minimap-lit"))).toBe(opacity);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  }
+  delete (globalThis as { cmuxExperiments?: unknown }).cmuxExperiments;
+});
+
+const minimapCss = () =>
+  readFileSync(new URL("../src/agent-session/acpmux/threadMinimap/threadMinimap.css", import.meta.url), "utf8").replace(
+    /\/\*[\s\S]*?\*\//g,
+    "",
+  );
+
+test("the lit band draws at --acpmux-minimap-lit (75% by default) and stays lit with the pointer on the rail", () => {
+  const css = minimapCss();
+  const current =
+    /\.acpmux-minimap__tick\[data-tone="current"\] \.acpmux-minimap__bar\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  expect(current).toMatch(/opacity:\s*var\(--acpmux-minimap-lit,\s*0\.75\)/);
+  // No rule takes the rail's band back to rest while a tick is hovered (the full map keeps its own).
+  expect(css).not.toMatch(/\[data-hovering\][^{,]*\.acpmux-minimap__tick\[data-tone="current"\]/);
+});
+
+test("at rest the lit band glides as it moves (the wave); hover, scrub and Reduce Motion switch at once", () => {
+  const css = minimapCss();
+  const atRest =
+    ".acpmux-minimap__rail:not(.acpmux-scrollmap):not([data-hovering]):not([data-scrubbing]):not([data-reduce])";
+  const block = (selector: string) =>
+    new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? "";
+  const bar = block(`${atRest} .acpmux-minimap__bar`);
+  expect(bar).toMatch(/transform var\(--cmux-motion-micro\)/);
+  expect(bar).toMatch(/opacity var\(--cmux-motion-micro\)/);
+  expect(block(`${atRest} .acpmux-minimap__tick`)).toMatch(/color var\(--cmux-motion-micro\)/);
+  // Both rules sit inside the no-preference query, so Reduce Motion never runs them.
+  for (const selector of [`${atRest} .acpmux-minimap__bar`, `${atRest} .acpmux-minimap__tick`]) {
+    const at = css.indexOf(selector);
+    expect(at).toBeGreaterThan(-1);
+    const query = css.lastIndexOf("@media (prefers-reduced-motion: no-preference)", at);
+    expect(query).toBeGreaterThan(-1);
+    // No block closes the query between it and the rule.
+    expect(css.slice(query, at)).not.toMatch(/\}\s*\}/);
+  }
 });

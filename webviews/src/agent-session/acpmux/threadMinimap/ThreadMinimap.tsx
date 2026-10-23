@@ -19,6 +19,7 @@ import { animateScroll, highlightBubble, reducedMotion, settleScroll, stopScroll
 import { PreviewCard } from "./PreviewCard";
 import { ScrollMap } from "./ScrollMap";
 import { threadMinimapLayout } from "./layout.experiment";
+import { LIT_OPACITY, threadMinimapLit } from "./lit.experiment";
 import { experimentArm } from "../../../experiments/experiment";
 import {
   CARD_DELAY,
@@ -121,6 +122,8 @@ export function ThreadMinimap({
   /// The compact Codex rail below (the wave, the default), the full-height map (ScrollMap.tsx), or
   /// none (`off`: the turn steps below still run), read once per pane.
   const [arm] = useState(() => experimentArm(threadMinimapLayout));
+  /// How bright the prompts on screen draw (lit.experiment.ts), read once per pane.
+  const [lit] = useState(() => LIT_OPACITY[experimentArm(threadMinimapLit)]);
   const full = arm === "full";
   const marks = usePromptMarks(sessionId);
   /// The turns of the last commit: the next render reads from them and leaves them as they are, so
@@ -573,7 +576,15 @@ export function ThreadMinimap({
         ref={rail}
         className="acpmux-minimap__rail"
         aria-label={t("minimap.label")}
-        style={{ left: RAIL_LEFT, top: railTop, width: ROW_WIDTH, height }}
+        style={
+          {
+            left: RAIL_LEFT,
+            top: railTop,
+            width: ROW_WIDTH,
+            height,
+            "--acpmux-minimap-lit": lit,
+          } as React.CSSProperties
+        }
         data-hovering={hovered !== undefined || undefined}
         data-scrubbing={scrubbing || undefined}
         data-reduce={reduce || undefined}
