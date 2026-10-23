@@ -29,7 +29,7 @@
 	<key>CMUXDevTag</key>
 	<string>$(CMUX_DEV_TAG)</string>
 	<key>CMUXCloudVPNProviderBundleIdentifier</key>
-	<string>$(CMUX_CLOUD_VPN_BUNDLE_IDENTIFIER)</string>
+	<string>$(CMUX_CLOUD_VPN_PROVIDER_BUNDLE_IDENTIFIER)</string>
 	<key>CMUXKeychainAccessGroup</key>
 	<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CMUXGitSHA</key>
