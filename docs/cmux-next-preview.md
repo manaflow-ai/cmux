@@ -49,7 +49,7 @@ Open a browser tab only with an explicit `--open` or a user action.
 Once the branch has a pushed commit, use the repository's compare helper:
 
 ```sh
-scripts/gallery-compare.sh --open --entry sidebar.closeNotch
+scripts/gallery-compare.sh --open --entry agent-pane.composer
 ```
 
 The helper requires the local `HEAD` to match its upstream branch. It asks the
@@ -89,8 +89,8 @@ question. For example, `WorkspaceRowCloseNotchGalleryTests` writes the
 
 ## Sidebar close-notch example
 
-The close-notch work is a good preview matrix because it has a tunable visual
-choice and input semantics. Inspect these states together:
+The close-notch work is a good **native** preview matrix because it has a tunable
+visual choice and input semantics. Inspect these states together:
 
 * every `SidebarCloseNotch` look;
 * hovered and selected-hovered rows;
@@ -104,6 +104,9 @@ The source of truth is the real sidebar code and tests, including
 and `WorkspaceRowDogEarTests.swift`. The offscreen gallery gives a visual matrix;
 the dog-ear tests cover geometry and hit testing. A native scene should reuse
 the same fixtures and expose a stable scene id before it is used in a PR capture.
+Until that scene is registered, use the hosted `WorkspaceRowCloseNotchGalleryTests`
+artifact; do not pass `sidebar.closeNotch` to the web gallery wrapper, because it
+is a native tunable rather than a web gallery entry.
 
 ## Agent-friendly wrapper
 
@@ -114,10 +117,10 @@ Use the checked-in wrapper for the repeatable local and branch-gallery loop:
 scripts/cmux-next/preview.sh web --json
 
 # Open a local HMR gallery entry without changing focus unless --open is given.
-scripts/cmux-next/preview.sh gallery --entry sidebar.closeNotch --open --json
+scripts/cmux-next/preview.sh gallery --entry agent-pane.composer --open --json
 
 # For a pushed branch, compare against its merge base.
-scripts/cmux-next/preview.sh gallery --compare --entry sidebar.closeNotch --open --json
+scripts/cmux-next/preview.sh gallery --compare --entry agent-pane.composer --open --json
 
 # Print the current preview record without opening a tab.
 scripts/cmux-next/preview.sh status --json
@@ -145,6 +148,9 @@ The agent contract is deliberately small:
 * repeated `web` and `gallery` calls reuse the task-local process when the repo
   and SHA still match. A changed SHA stops the old managed process before
   starting a new one, instead of silently reusing old preview proof;
+* concurrent starts for the same checkout fail fast with the recorded owner
+  process id; retry after that command finishes rather than starting a second
+  Vite session;
 * failures identify the owning lane and the next command, with a non-zero exit
   status. No polling loop or duplicate fleet dispatch is hidden inside the
   wrapper.
@@ -160,8 +166,8 @@ receipt looks like this:
   "branch": "sidebar-row-dogear",
   "sha": "<full-40-character-sha>",
   "worktree_dirty": true,
-  "gallery_url": "http://127.0.0.1:4178/gallery/?entry=sidebar.closeNotch",
-  "entry": "sidebar.closeNotch",
+  "gallery_url": "http://127.0.0.1:4178/gallery/#/agent-pane.composer",
+  "entry": "agent-pane.composer",
   "pid": 12345,
   "reused": true,
   "opened": false,

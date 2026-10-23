@@ -18,7 +18,7 @@ Commands:
   status    Report whether this checkout's preview is running.
 
 Options:
-  --entry <id>   Select a gallery entry (gallery command; passed as ?entry=).
+  --entry <id>   Select a gallery entry (gallery command; uses the #/<entry> route).
   --open         Open the resulting URL with `cmux browser open` when available.
   --no-open      Do not open a browser (the default).
   --compare      Use scripts/gallery-compare.sh for a pushed before/after
@@ -481,7 +481,10 @@ ensure_web
 gallery_result_url="${gallery_result_url%/}/"
 if [[ -n "$entry" ]]; then
   encoded_entry="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$entry")"
-  gallery_result_url="${gallery_result_url}?entry=$encoded_entry"
+  # The gallery shell uses hash history: /gallery/#/<entry> redirects to that
+  # entry's first variant. A query parameter here would be ignored and land on
+  # the default composer, which is particularly confusing for agents.
+  gallery_result_url="${gallery_result_url}#/${encoded_entry}"
 fi
 open_url "$gallery_result_url" "cmux-next gallery · ${entry:-all} · ${sha:0:12}"
 print_result gallery "" "$index_result_url" "$gallery_result_url" "$entry" "$pid_result" "$log_result" "$reused_result" "$phase_result"

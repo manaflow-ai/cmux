@@ -96,4 +96,7 @@ assert second["index_url"] == first["index_url"]
 PY
 
 grep -q 'No native build is performed' <("$ROOT/scripts/cmux-next/preview.sh" --help)
+# Entry links must use the gallery shell's hash-history contract. A query-only
+# link silently redirects to the default composer and is a bad agent receipt.
+grep -q 'gallery_result_url="\${gallery_result_url}#/' "$ROOT/scripts/cmux-next/preview.sh"
 printf 'preview wrapper: ok\n'
