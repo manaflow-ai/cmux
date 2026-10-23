@@ -28,7 +28,7 @@ final class CEFMediaBridge {
         guard let tab else { return }
         tab.agentRelay.mediaListens = true
         let channel = BrowserMediaState.channel
-        let observer = BrowserMediaState.observerScript(post: "\(channel)(JSON.stringify(report))", ready: "typeof \(channel) === 'function'")
+        let observer = BrowserMediaState.observerScript(post: "\(channel)(JSON.stringify(message))", ready: "typeof \(channel) === 'function'")
         let calls: [(String, [String: Any])] = [
             // Blink runs new-document scripts only while the Page domain is
             // on; its events are a few per navigation.
@@ -89,9 +89,9 @@ final class CEFMediaBridge {
               message["method"] as? String == "Runtime.bindingCalled",
               let params = message["params"] as? [String: Any], params["name"] as? String == BrowserMediaState.channel
         else { return false }
-        if let tab, let payload = params["payload"] as? String, let media = BrowserMediaState.report(json: payload) {
-            tab.machine.apply(.mediaChanged(media))
-            tab.keepAudioMute(after: media)
+        if let tab, let payload = params["payload"] as? String, let report = BrowserMediaState.frameReport(json: payload) {
+            tab.machine.apply(.mediaChanged(report.media, frame: report.frame))
+            tab.keepAudioMute(after: report.media)
         }
         return true
     }
