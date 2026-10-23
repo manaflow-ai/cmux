@@ -64,17 +64,80 @@ test("an engine that launches is closed again and the file goes on, required or 
   }
 });
 
+// A launched browser whose close() rejects is neither a skip nor a leak: the probe tries close()
+// again, and if that fails too it rejects, required or not (#24458 review round 3).
+test("a browser that launches but does not close is closed again, and never makes the file skip", async () => {
+  for (const env of [{ CI: "true", GITHUB_ACTIONS: "true" }, { CMUX_BROWSER_TESTS: "1" }]) {
+    // Once: the second close() closes it, and the file goes on.
+    let closes = 0;
+    const once = await probe(env, async () => ({
+      close: async () => {
+        closes += 1;
+        if (closes === 1) throw new Error("Target page, context or browser has been closed");
+      },
+    }));
+    expect(await once.result).toBe(true);
+    expect(closes).toBe(2);
+    expect(once.skips).toEqual([]);
+    // Always: the probe rejects, naming the close error; it does not report a skip.
+    let tries = 0;
+    const never = await probe(env, async () => ({
+      close: async () => {
+        tries += 1;
+        throw new Error("close failed");
+      },
+    }));
+    await expect(never.result).rejects.toThrow(/thread minimap motion: webkit launched but did not close \(Error: close failed\)/);
+    expect(tries).toBe(2);
+    expect(never.skips).toEqual([]);
+    expect(never.reports).toEqual([]);
+  }
+});
+
+/// What keeps `file` (its source `text`) from failing where the lane is required: no call of
+/// probeEngineOrSkip, or a skip of its own (a describe, test or it `.skip`), which would report the
+/// file's tests as passing on GitHub Actions with none run.
+function probedSourceProblems(file: string, text: string): string[] {
+  const code = text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  const problems = (code.match(/\b(?:describe|test|it)\.skip(?:If)?\b/g) ?? []).map((skip) => `${file}: ${skip}`);
+  if (!/\bprobeEngineOrSkip\(/.test(code)) problems.push(`${file}: no probeEngineOrSkip call`);
+  return problems;
+}
+
 /// The files whose engine probe goes through probeEngineOrSkip: none skips itself, so a failed
 /// launch where the lane is required fails it.
 const PROBED = ["thread-minimap-motion.test.ts"];
 
 test("the probed files skip only through probeEngineOrSkip", () => {
-  for (const file of PROBED) {
-    const code = readFileSync(new URL(`./${file}`, import.meta.url), "utf8")
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/\/\/.*$/gm, "");
-    // A skip of its own would report the file's tests as passing on GitHub Actions with none run.
-    expect({ file, skips: code.match(/\b(?:describe|test|it)\.skip(?:If)?\b/g) ?? [] }).toEqual({ file, skips: [] });
-    expect({ file, probes: /\bprobeEngineOrSkip\(/.test(code) }).toEqual({ file, probes: true });
-  }
+  for (const file of PROBED)
+    expect(probedSourceProblems(file, readFileSync(new URL(`./${file}`, import.meta.url), "utf8"))).toEqual([]);
+});
+
+// The check reads code, not text: a string or a comment that names the helper or a skip changes
+// nothing (#24458 review round 3).
+test("the probe check reads code: strings and comments neither hide a skip nor stand in for the call", () => {
+  const head = 'import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";\n';
+  const probe = '  if (!(await probeEngineOrSkip("m", "webkit", () => webkit.launch()))) return;\n';
+  const lane = (body: string) => `${head}await requireBrowserLane("m", async () => {\n${body}});\n`;
+  // A skip after a string that holds "//".
+  expect(probedSourceProblems("a", lane(`${probe}  const url = \`http://127.0.0.1:\${port}/\`; describe.skip("m", () => {});\n`))).toEqual([
+    "a: describe.skip",
+  ]);
+  // The call only in a string, and in a comment.
+  expect(probedSourceProblems("b", lane('  const name = "probeEngineOrSkip(";\n  // probeEngineOrSkip(\n'))).toEqual([
+    "b: no probeEngineOrSkip call",
+  ]);
+  // A skip named in a string or a comment is not one; test.skip and it.skip are.
+  expect(probedSourceProblems("c", lane(`${probe}  const note = "describe.skip";\n  /* test.skip */\n`))).toEqual([]);
+  expect(probedSourceProblems("d", lane(`${probe}  test.skip("x", () => {});\n  it.skip("y", () => {});\n`))).toEqual([
+    "d: test.skip",
+    "d: it.skip",
+  ]);
+  // A local function of the same name is not the helper.
+  expect(
+    probedSourceProblems(
+      "e",
+      'await requireBrowserLane("m", async () => {\n  const probeEngineOrSkip = async () => true;\n  await probeEngineOrSkip();\n});\n',
+    ),
+  ).toEqual(["e: no probeEngineOrSkip call"]);
 });
