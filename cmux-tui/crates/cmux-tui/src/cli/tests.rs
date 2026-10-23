@@ -11,6 +11,14 @@ fn strings(values: &[&str]) -> Vec<String> {
 }
 
 #[test]
+fn removed_route_is_detected_after_global_options() {
+    assert!(removed_route_requested(&strings(&["route", "list"])));
+    assert!(removed_route_requested(&strings(&["--json", "route", "list"])));
+    assert!(removed_route_requested(&strings(&["--socket", "/tmp/cmux.sock", "route", "list"])));
+    assert!(!removed_route_requested(&strings(&["--socket", "route", "workspace", "list"])));
+}
+
+#[test]
 fn global_modes_are_mutually_exclusive() {
     let error = parse_globals(&strings(&["--json", "--quiet", "workspace", "list"])).unwrap_err();
     assert!(error.0.0.contains("another output mode"));
