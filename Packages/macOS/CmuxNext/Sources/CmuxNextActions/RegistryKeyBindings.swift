@@ -29,7 +29,19 @@ public struct RegistryKeyBindings {
         let table = makeTable()
         registry.shortcutIndex?.bindingTable = table
         registry.shortcutIndex?.bindingTableHasWorkspaceTabKeys = workspaceTabKeys
+        registry.shortcutIndex?.subtables = [:]
         return table
+    }
+
+    /// The entries of ``table`` that `keep` keeps, as a table, built once per binding change and
+    /// cached under `name` (the palette resolves every key-down against its own entries).
+    /// `keep` must give the same answer for a name every time.
+    public func subtable(_ name: String, keeping keep: (KeyBinding) -> Bool) -> KeyBindingTable {
+        let full = table
+        if let cached = registry.shortcutIndex?.subtables[name] { return cached }
+        let sub = KeyBindingTable(full.entries.filter(keep))
+        registry.shortcutIndex?.subtables[name] = sub
+        return sub
     }
 
     /// Bound, available in `context` (the key window's facts), and enabled.
