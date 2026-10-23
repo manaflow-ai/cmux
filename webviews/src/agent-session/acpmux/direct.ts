@@ -1630,9 +1630,14 @@ export class AcpmuxDirectClient {
     this.historyExhausted = kept.historyExhausted;
     this.configSeq = kept.configSeq;
     this.usageFromSeq = kept.usageFromSeq;
+    // Seed replay from the kept session identity before rebuilding: SubagentFold must know the
+    // native root while it consumes the historical events, not after the malformed tree is drawn.
+    const keptSummary = { ...kept.summary, ...listed };
+    this.summary = keptSummary;
     this.rebuild();
-    // After the replay, not before: a `session_changed` the tail holds would take the live state back.
-    this.summary = { ...kept.summary, ...listed };
+    // A session_changed can carry newer live state than the kept tail. Restore it after replay;
+    // only the root identity needs to be visible during the fold rebuild itself.
+    this.summary = keptSummary;
     // A paused queue's failed turn no longer runs, whatever status acpmux last listed (`staleRun`).
     this.turnOpen = listed?.status === "running" && !this.staleRun(listed);
     // Only acpmux says what is pending (attach's `session.pending`): a replayed ask is history
@@ -2590,6 +2595,9 @@ export class AcpmuxDirectClient {
     this.toolRows.clear();
     this.planCalls.clear();
     this.subagents = new SubagentFold(this.subagentStops);
+    // Replay knows the native harness id from the session summary. Seed it before any persisted
+    // acpmux records so an echoed root thread cannot be reconstructed as a child of its reporter.
+    this.subagents.setRoot(text(this.summary?.agentSessionId));
     this.pendingPermission = undefined;
     this.waitingPermissions = new Map();
     this.pendingSecret = undefined;
@@ -2812,6 +2820,12 @@ export class AcpmuxDirectClient {
   /// The subagent group rows that changed, into the transcript.
   private takeSubagentRows(): void {
     for (const row of this.subagents.takeRows()) {
+      // A late root seed can empty a previously emitted group after removing a phantom root.
+      // Remove that stale row instead of leaving a blank disclosure in the transcript.
+      if (!row.subagents?.length) {
+        this.rows.delete(row.id);
+        continue;
+      }
       // A new group ends the text and tool calls before it, like a tool call does.
       if (!this.rows.has(row.id)) {
         this.endAssistantSegment();
