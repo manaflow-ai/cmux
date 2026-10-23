@@ -1835,137 +1835,6 @@
         }
       }
     },
-    "accounts.error.noLocalPane": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open a workspace on this Mac first, then try again."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "先にこの Mac でワークスペースを開いてから、もう一度お試しください。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "افتح مساحة عمل على جهاز Mac هذا أولًا، ثم حاول مرة أخرى."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prvo otvorite radni prostor na ovom Macu, pa pokušajte ponovo."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Åbn først et arbejdsområde på denne Mac, og prøv så igen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Öffne zuerst einen Arbeitsbereich auf diesem Mac und versuche es dann erneut."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abre primero un espacio de trabajo en este Mac y vuelve a intentarlo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ouvrez d’abord un espace de travail sur ce Mac, puis réessayez."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Apri prima uno spazio di lavoro su questo Mac, poi riprova."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បើកកន្លែងធ្វើការនៅលើ Mac នេះជាមុនសិន រួចព្យាយាមម្តងទៀត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "먼저 이 Mac에서 작업 공간을 연 뒤 다시 시도하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Åpne først et arbeidsområde på denne Macen, og prøv igjen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Najpierw otwórz obszar roboczy na tym Macu i spróbuj ponownie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abra primeiro um espaço de trabalho neste Mac e tente novamente."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сначала откройте рабочее пространство на этом Mac и повторите попытку."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เปิดพื้นที่ทำงานบน Mac เครื่องนี้ก่อน แล้วลองอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Önce bu Mac’te bir çalışma alanı açın, sonra yeniden deneyin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Спершу відкрийте робочий простір на цьому Mac і повторіть спробу."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hãy mở một không gian làm việc trên máy Mac này trước rồi thử lại."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "请先在这台 Mac 上打开一个工作区，然后重试。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "請先在這台 Mac 上開啟一個工作區，然後再試一次。"
-          }
-        }
-      }
-    },
     "accounts.error.notSignedIn": {
       "extractionState": "manual",
       "localizations": {
@@ -6027,264 +5896,657 @@
         }
       }
     },
-    "accounts.action.signOut": {
+    "accounts.team.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign Out"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サインアウト"
+            "value": "Active Team"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تسجيل الخروج"
+            "value": "الفريق النشط"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Odjava"
+            "value": "Aktivni tim"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Log ud"
+            "value": "Aktivt team"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abmelden"
+            "value": "Aktives Team"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cerrar sesión"
+            "value": "Equipo activo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se déconnecter"
+            "value": "Équipe active"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esci"
+            "value": "Team attivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティブなチーム"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ចេញ"
+            "value": "ក្រុមសកម្ម"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "로그아웃"
+            "value": "활성 팀"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Logg ut"
+            "value": "Aktivt team"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wyloguj"
+            "value": "Aktywny zespół"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sair"
+            "value": "Equipe ativa"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Выйти"
+            "value": "Активная команда"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ออกจากระบบ"
+            "value": "ทีมที่ใช้งานอยู่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Oturumu Kapat"
+            "value": "Etkin ekip"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вийти"
+            "value": "Активна команда"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đăng xuất"
+            "value": "Nhóm đang dùng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "退出登录"
+            "value": "当前团队"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "登出"
+            "value": "目前團隊"
           }
         }
       }
     },
-    "accounts.hint.shellSignIn": {
+    "accounts.team.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your shell provides this sign-in, and it wins over a sign-in made here. Remove it from your shell setup for Re-authenticate or Sign Out to take effect."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このサインインはシェルから提供されており、ここでのサインインより優先されます。再認証やサインアウトを反映させるには、シェルの設定から削除してください。"
+            "value": "Cloud machines, CodeRouter and phone access use this team."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يوفّر الـ shell تسجيل الدخول هذا، وهو يتقدّم على أي تسجيل دخول يتم هنا. أزله من إعداد الـ shell لكي تسري إعادة المصادقة أو تسجيل الخروج."
+            "value": "تستخدم أجهزة السحابة وCodeRouter والهاتف هذا الفريق."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vaš shell daje ovu prijavu, koja ima prednost nad prijavom napravljenom ovdje. Uklonite je iz postavki shella da bi ponovna prijava ili odjava imale efekta."
+            "value": "Cloud mašine, CodeRouter i telefon koriste ovaj tim."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Din shell leverer dette login, og det vinder over et login foretaget her. Fjern det fra din shell-opsætning, så Godkend igen eller Log ud får virkning."
+            "value": "Cloud-maskiner, CodeRouter og telefonen bruger dette team."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diese Anmeldung kommt aus deiner Shell und hat Vorrang vor einer Anmeldung hier. Entferne sie aus deiner Shell-Konfiguration, damit „Erneut authentifizieren“ oder „Abmelden“ wirkt."
+            "value": "Cloud-Maschinen, CodeRouter und Telefon nutzen dieses Team."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tu shell proporciona este inicio de sesión, que tiene prioridad sobre uno hecho aquí. Quítalo de la configuración de tu shell para que Volver a autenticar o Cerrar sesión surtan efecto."
+            "value": "Las máquinas Cloud, CodeRouter y el móvil usan este equipo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cette connexion vient de votre shell et l’emporte sur une connexion faite ici. Retirez-la de la configuration de votre shell pour que Réauthentifier ou Se déconnecter prenne effet."
+            "value": "Machines Cloud, CodeRouter et téléphone utilisent l’équipe."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Questo accesso arriva dalla tua shell e prevale su un accesso fatto qui. Rimuovilo dalla configurazione della shell perché Riautentica o Esci abbiano effetto."
+            "value": "Macchine Cloud, CodeRouter e telefono usano questo team."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシン、CodeRouter、電話からのアクセスはこのチームを使います。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell របស់អ្នកផ្ដល់ការចូលនេះ ដែលមានអាទិភាពលើការចូលដែលធ្វើនៅទីនេះ។ សូមលុបវាចេញពីការកំណត់ shell របស់អ្នក ដើម្បីឱ្យការផ្ទៀងផ្ទាត់ម្ដងទៀត ឬការចេញមានប្រសិទ្ធភាព។"
+            "value": "ម៉ាស៊ីន Cloud, CodeRouter និងការចូលពីទូរសព្ទ ប្រើក្រុមនេះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 로그인은 셸에서 제공되어 여기서 한 로그인보다 우선합니다. 다시 인증이나 로그아웃이 적용되려면 셸 설정에서 제거하세요."
+            "value": "클라우드 머신, CodeRouter, 휴대폰 접근이 이 팀을 사용합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skallet ditt gir denne innloggingen, og den går foran en innlogging gjort her. Fjern den fra skalloppsettet for at Autentiser på nytt eller Logg ut skal virke."
+            "value": "Cloud-maskiner, CodeRouter og telefonen bruker dette teamet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "To logowanie pochodzi z Twojej powłoki i ma pierwszeństwo przed logowaniem wykonanym tutaj. Usuń je z konfiguracji powłoki, aby Uwierzytelnij ponownie lub Wyloguj zadziałały."
+            "value": "Maszyny Cloud, CodeRouter i telefon używają tego zespołu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Este login vem do seu shell e tem prioridade sobre um login feito aqui. Remova-o da configuração do seu shell para que Autenticar novamente ou Sair tenham efeito."
+            "value": "Máquinas Cloud, CodeRouter e o telefone usam esta equipe."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Этот вход задаёт ваша оболочка, и он важнее входа, выполненного здесь. Удалите его из настроек оболочки, чтобы повторная аутентификация или выход вступили в силу."
+            "value": "Облачные машины, CodeRouter и телефон работают с командой."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เชลล์ของคุณให้การลงชื่อเข้าใช้นี้ ซึ่งมีผลเหนือการลงชื่อเข้าใช้ที่ทำที่นี่ ลบออกจากการตั้งค่าเชลล์เพื่อให้การยืนยันตัวตนอีกครั้งหรือการออกจากระบบมีผล"
+            "value": "เครื่อง Cloud, CodeRouter และการเข้าถึงจากโทรศัพท์ใช้ทีมนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu giriş kabuğunuzdan geliyor ve burada yapılan bir girişten önce gelir. Yeniden Kimlik Doğrula veya Oturumu Kapat'ın etkili olması için onu kabuk ayarlarınızdan kaldırın."
+            "value": "Bulut makineleri, CodeRouter ve telefon bu ekibi kullanır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Цей вхід задає ваша оболонка, і він має перевагу над входом, виконаним тут. Видаліть його з налаштувань оболонки, щоб повторна автентифікація або вихід набули чинності."
+            "value": "Хмарні машини, CodeRouter і телефон працюють із командою."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lần đăng nhập này đến từ shell của bạn và được ưu tiên hơn lần đăng nhập ở đây. Hãy xóa nó khỏi cấu hình shell để Xác thực lại hoặc Đăng xuất có hiệu lực."
+            "value": "Máy Cloud, CodeRouter và điện thoại dùng nhóm này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这个登录来自你的 shell，它优先于在这里完成的登录。从 shell 配置中移除它，重新验证或退出登录才会生效。"
+            "value": "云端机器、CodeRouter 和手机访问都使用此团队。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這個登入來自你的 shell，它優先於在這裡完成的登入。從 shell 設定中移除它，重新驗證或登出才會生效。"
+            "value": "雲端機器、CodeRouter 與手機存取都使用此團隊。"
+          }
+        }
+      }
+    },
+    "accounts.team.managed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your organization chose this device's team."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختارت مؤسستك فريق هذا الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaša organizacija je odabrala tim ovog uređaja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din organisation har valgt denne enheds team."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Organisation hat das Team dieses Geräts festgelegt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu organización eligió el equipo de este dispositivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre organisation a choisi l’équipe de cet appareil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La tua organizzazione ha scelto il team del dispositivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスのチームは組織が指定しています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ថាប័នរបស់អ្នកបានជ្រើសរើសក្រុមរបស់ឧបករណ៍នេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "조직에서 이 기기의 팀을 지정했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Organisasjonen din har valgt teamet til denne enheten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoja organizacja wybrała zespół tego urządzenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua organização escolheu a equipe deste dispositivo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команду этого устройства выбрала ваша организация."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "องค์กรของคุณเลือกทีมของอุปกรณ์นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu cihazın ekibini kuruluşunuz seçti."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команду цього пристрою вибрала ваша організація."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tổ chức của bạn đã chọn nhóm cho thiết bị này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的组织已指定此设备的团队。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的組織已指定此裝置的團隊。"
+          }
+        }
+      }
+    },
+    "accounts.team.switchFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not switch teams. Try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تبديل الفريق. حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Promjena tima nije uspjela. Pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke skifte team. Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Team konnte nicht gewechselt werden. Versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cambiar de equipo. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de changer d’équipe. Réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile cambiare team. Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームを切り替えられませんでした。もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចប្ដូរក្រុមបានទេ។ សូមព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀을 전환하지 못했습니다. 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke bytte team. Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się zmienić zespołu. Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível trocar de equipe. Tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось сменить команду. Попробуйте ещё раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับทีมไม่สำเร็จ ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekip değiştirilemedi. Yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося змінити команду. Спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể chuyển nhóm. Hãy thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法切换团队，请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法切換團隊，請再試一次。"
+          }
+        }
+      }
+    },
+    "accounts.detail.savedAPIKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API key"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "APIキー"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مفتاح API"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API ključ"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API-nøgle"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API-Schlüssel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clave de API"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clé API"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiave API"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កូនសោ API"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 키"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API-nøkkel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klucz API"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chave de API"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API-ключ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คีย์ API"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API anahtarı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API-ключ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khóa API"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 密钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 金鑰"
           }
         }
       }
@@ -7730,133 +7992,395 @@
         }
       }
     },
-    "accounts.detail.savedAPIKey": {
+    "accounts.error.noLocalPane": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "API key"
+            "value": "Open a workspace on this Mac first, then try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "APIキー"
+            "value": "先にこの Mac でワークスペースを開いてから、もう一度お試しください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مفتاح API"
+            "value": "افتح مساحة عمل على جهاز Mac هذا أولًا، ثم حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "API ključ"
+            "value": "Prvo otvorite radni prostor na ovom Macu, pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "API-nøgle"
+            "value": "Åbn først et arbejdsområde på denne Mac, og prøv så igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "API-Schlüssel"
+            "value": "Öffne zuerst einen Arbeitsbereich auf diesem Mac und versuche es dann erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clave de API"
+            "value": "Abre primero un espacio de trabajo en este Mac y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clé API"
+            "value": "Ouvrez d’abord un espace de travail sur ce Mac, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chiave API"
+            "value": "Apri prima uno spazio di lavoro su questo Mac, poi riprova."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កូនសោ API"
+            "value": "បើកកន្លែងធ្វើការនៅលើ Mac នេះជាមុនសិន រួចព្យាយាមម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "API 키"
+            "value": "먼저 이 Mac에서 작업 공간을 연 뒤 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "API-nøkkel"
+            "value": "Åpne først et arbeidsområde på denne Macen, og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klucz API"
+            "value": "Najpierw otwórz obszar roboczy na tym Macu i spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chave de API"
+            "value": "Abra primeiro um espaço de trabalho neste Mac e tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "API-ключ"
+            "value": "Сначала откройте рабочее пространство на этом Mac и повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "คีย์ API"
+            "value": "เปิดพื้นที่ทำงานบน Mac เครื่องนี้ก่อน แล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "API anahtarı"
+            "value": "Önce bu Mac’te bir çalışma alanı açın, sonra yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "API-ключ"
+            "value": "Спершу відкрийте робочий простір на цьому Mac і повторіть спробу."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Khóa API"
+            "value": "Hãy mở một không gian làm việc trên máy Mac này trước rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "API 密钥"
+            "value": "请先在这台 Mac 上打开一个工作区，然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "API 金鑰"
+            "value": "請先在這台 Mac 上開啟一個工作區，然後再試一次。"
+          }
+        }
+      }
+    },
+    "accounts.action.signOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign Out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウト"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الخروج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odjava"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log ud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abmelden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerrar sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se déconnecter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esci"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그아웃"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logg ut"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyloguj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sair"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выйти"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ออกจากระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturumu Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вийти"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đăng xuất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出登录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登出"
+          }
+        }
+      }
+    },
+    "accounts.hint.shellSignIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your shell provides this sign-in, and it wins over a sign-in made here. Remove it from your shell setup for Re-authenticate or Sign Out to take effect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサインインはシェルから提供されており、ここでのサインインより優先されます。再認証やサインアウトを反映させるには、シェルの設定から削除してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يوفّر الـ shell تسجيل الدخول هذا، وهو يتقدّم على أي تسجيل دخول يتم هنا. أزله من إعداد الـ shell لكي تسري إعادة المصادقة أو تسجيل الخروج."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš shell daje ovu prijavu, koja ima prednost nad prijavom napravljenom ovdje. Uklonite je iz postavki shella da bi ponovna prijava ili odjava imale efekta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din shell leverer dette login, og det vinder over et login foretaget her. Fjern det fra din shell-opsætning, så Godkend igen eller Log ud får virkning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Anmeldung kommt aus deiner Shell und hat Vorrang vor einer Anmeldung hier. Entferne sie aus deiner Shell-Konfiguration, damit „Erneut authentifizieren“ oder „Abmelden“ wirkt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu shell proporciona este inicio de sesión, que tiene prioridad sobre uno hecho aquí. Quítalo de la configuración de tu shell para que Volver a autenticar o Cerrar sesión surtan efecto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette connexion vient de votre shell et l’emporte sur une connexion faite ici. Retirez-la de la configuration de votre shell pour que Réauthentifier ou Se déconnecter prenne effet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo accesso arriva dalla tua shell e prevale su un accesso fatto qui. Rimuovilo dalla configurazione della shell perché Riautentica o Esci abbiano effetto."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell របស់អ្នកផ្ដល់ការចូលនេះ ដែលមានអាទិភាពលើការចូលដែលធ្វើនៅទីនេះ។ សូមលុបវាចេញពីការកំណត់ shell របស់អ្នក ដើម្បីឱ្យការផ្ទៀងផ្ទាត់ម្ដងទៀត ឬការចេញមានប្រសិទ្ធភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 로그인은 셸에서 제공되어 여기서 한 로그인보다 우선합니다. 다시 인증이나 로그아웃이 적용되려면 셸 설정에서 제거하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skallet ditt gir denne innloggingen, og den går foran en innlogging gjort her. Fjern den fra skalloppsettet for at Autentiser på nytt eller Logg ut skal virke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To logowanie pochodzi z Twojej powłoki i ma pierwszeństwo przed logowaniem wykonanym tutaj. Usuń je z konfiguracji powłoki, aby Uwierzytelnij ponownie lub Wyloguj zadziałały."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este login vem do seu shell e tem prioridade sobre um login feito aqui. Remova-o da configuração do seu shell para que Autenticar novamente ou Sair tenham efeito."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот вход задаёт ваша оболочка, и он важнее входа, выполненного здесь. Удалите его из настроек оболочки, чтобы повторная аутентификация или выход вступили в силу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชลล์ของคุณให้การลงชื่อเข้าใช้นี้ ซึ่งมีผลเหนือการลงชื่อเข้าใช้ที่ทำที่นี่ ลบออกจากการตั้งค่าเชลล์เพื่อให้การยืนยันตัวตนอีกครั้งหรือการออกจากระบบมีผล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu giriş kabuğunuzdan geliyor ve burada yapılan bir girişten önce gelir. Yeniden Kimlik Doğrula veya Oturumu Kapat'ın etkili olması için onu kabuk ayarlarınızdan kaldırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей вхід задає ваша оболонка, і він має перевагу над входом, виконаним тут. Видаліть його з налаштувань оболонки, щоб повторна автентифікація або вихід набули чинності."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lần đăng nhập này đến từ shell của bạn và được ưu tiên hơn lần đăng nhập ở đây. Hãy xóa nó khỏi cấu hình shell để Xác thực lại hoặc Đăng xuất có hiệu lực."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个登录来自你的 shell，它优先于在这里完成的登录。从 shell 配置中移除它，重新验证或退出登录才会生效。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個登入來自你的 shell，它優先於在這裡完成的登入。從 shell 設定中移除它，重新驗證或登出才會生效。"
           }
         }
       }
