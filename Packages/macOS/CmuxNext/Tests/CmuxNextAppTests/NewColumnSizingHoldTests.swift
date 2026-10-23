@@ -60,6 +60,43 @@ struct NewColumnSizingHoldTests {
         #expect(treeWidth() == 0.75)
     }
 
+    /// Review 2 of PL-motion-core: the commit (the create's reply) came while the create was still
+    /// in the store's log, and an unrelated layout (the store's overlay, its stand-in column at the
+    /// new widths) matched the hold, which dropped it. When the create settled, the daemon's tree
+    /// column showed at full width until the width echo arrived: the spring-back frame again. The
+    /// hold now stays until its width command was answered and the store applied that answer.
+    @Test func aCommitBeforeTheCreateSettlesKeepsTheHoldThroughAnUnrelatedLayout() throws {
+        let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(.leaf("p1")))], activeScreenID: "s",
+                                focusedPane: "p1")
+        model.followsDesignMetrics = false
+        model.newColumnWidthModeOverride = .fixed
+        model.defaultColumnWidthOverride = 0.5
+        let sent = Sent()
+        model.intentHandler = { intent in sent.intents.append(intent) }
+        let treeWidth = { model.screens.first?.layout.column(containing: "p1")?.width }
+
+        let sizing = model.showNewColumnSizing(model.prepareNewColumn(nextTo: "p1"))
+        model.apply(screens: Self.columns(tree: "column:standin-tree", width: 0.5, new: "column:standin"))
+        // The create replied; its intent is still in the store's log (awaiting its records).
+        model.commitNewColumnSizing(sizing)
+        guard case .setColumnWidth(_, _, _, let transaction, .ended)? = sent.intents.last else {
+            Issue.record("no width intent at the commit: \(sent.intents)")
+            return
+        }
+        // An unrelated layout while the overlay still shows the stand-in at the new width.
+        model.apply(screens: Self.columns(tree: "column:standin-tree", width: 0.5, new: "column:standin"))
+        #expect(treeWidth() == 0.5)
+        // The create settled: the daemon's tree column at full width, its width command not applied yet.
+        model.apply(screens: Self.columns(tree: "column:1", width: 1, new: "column:2"))
+        #expect(treeWidth() == 0.5, "the hold left on a match with the overlay: the column sprang back at the handoff")
+        // The width command was answered and its events applied.
+        model.settleTransaction(transaction)
+        model.apply(screens: Self.columns(tree: "column:1", width: 0.5, new: "column:2"))
+        #expect(treeWidth() == 0.5)
+        model.apply(screens: Self.columns(tree: "column:1", width: 0.75, new: "column:2"))
+        #expect(treeWidth() == 0.75, "the hold outlived its settled width command")
+    }
+
     /// A refused New Column takes its widths back.
     @Test func aRefusedNewColumnTakesItsWidthsBack() {
         let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(.leaf("p1")))], activeScreenID: "s",

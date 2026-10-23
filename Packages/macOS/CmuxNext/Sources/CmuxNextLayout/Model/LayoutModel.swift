@@ -244,9 +244,9 @@ public final class LayoutModel {
         return order[..<index].last(where: live.contains) ?? order[(index + 1)...].first(where: live.contains)
     }
 
-    /// The daemon accepted the command carrying `transaction`. An ended
-    /// gesture's override is dropped at the next snapshot; a live gesture
-    /// keeps tracking the pointer.
+    /// The daemon accepted the command carrying `transaction` and the store holds its result (the
+    /// caller waits for the reply's events, a read-your-writes barrier). An ended gesture's
+    /// override is dropped at the next snapshot; a live gesture keeps tracking the pointer.
     public func settleTransaction(_ transaction: LayoutTransactionID) {
         for (key, value) in splitOverrides where value.transaction == transaction && value.ended {
             splitOverrides[key]?.settled = true
@@ -296,11 +296,15 @@ public final class LayoutModel {
                 }
             }
             // A New Column's width changes, on whichever column holds the pane now (a
-            // drag of that column, below, wins).
+            // drag of that column, below, wins). A match is not the daemon's width yet: the
+            // incoming layout carries the store's overlay, whose stand-in column already shows
+            // the widths, and the daemon's column replaces it at full width when the create
+            // settles. So a hold leaves only once its width command was answered and the store
+            // applied that answer's events (`settled`), never on a match alone.
             for (pane, hold) in columnWidthHolds {
                 guard let column = layout.column(containing: pane) else { continue }
                 if abs(column.width - hold.value) < 0.002 {
-                    if hold.ended { columnWidthHolds[pane] = nil }
+                    if hold.ended && hold.settled { columnWidthHolds[pane] = nil }
                 } else {
                     layout = layout.settingWidth(hold.value, for: column.id)
                 }
