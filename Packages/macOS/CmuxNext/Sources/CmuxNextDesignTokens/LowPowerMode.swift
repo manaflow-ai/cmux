@@ -54,6 +54,9 @@ public final class LowPowerMode {
         LowPowerModeObservation(handlers.add(handler))
     }
 
+    /// Calls each handler registered when the change began, skipping one that an earlier handler
+    /// removed: the page pool's handler closes its spare, and the spare's own handler must not
+    /// then write a preference and re-show a closed web view (whichever order they run in).
     private func update() {
         let enabled = override ?? systemEnabled
         guard enabled != isEnabled else { return }
