@@ -100,6 +100,10 @@ nonisolated enum AcpmuxPaneMethods {
         // The composer's Account menu (direct.ts routes, setChatRoute): read the routes, and pick
         // one for a chat in the pane's scope. Adding or changing a route stays the unix socket's.
         "_acpmux/route/list", "_acpmux/chat/route.set",
+        // The forum's current rules for the rules card above the composer (direct.ts forumRules,
+        // RulesNotice.tsx; acpmux server/forum.rs, hq#2570). Read only and without params: the
+        // rules every agent on this Mac is told already. Posting, acking and retiring stay off the pane.
+        "_acpmux/forum/rules",
     ]
 
     /// Notifications (no `id`).
