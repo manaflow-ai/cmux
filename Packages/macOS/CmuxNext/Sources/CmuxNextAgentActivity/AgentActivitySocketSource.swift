@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 import Network
@@ -57,25 +58,17 @@ public final class AgentActivitySocketSource: AgentActivitySource {
     private let config: Configuration
     private var sink: (@MainActor (AgentActivityUpdate) -> Void)?
     private var subscription: AgentActivityLineConnection?
-    private var directoryWatch: (any DispatchSourceFileSystemObject)?
-    private var reconnect: Task<Void, Never>?
+    private var directoryWatch: MainDirectoryWatch?
+    private var reconnect: OwnedTask?
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
     private var followed: Set<String> = []
     private var lastSeq: [String: UInt64] = [:]
     private var fetching: Set<String> = []
 
+    // No deinit: the reconnect task, the subscription and the directory watch each end when
+    // released (OwnedTask, AgentActivityLineConnection, MainDirectoryWatch), on any thread.
     public init(configuration: Configuration) {
         config = configuration
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            reconnect?.cancel()
-            subscription?.cancel()
-            directoryWatch?.cancel()
-        }
     }
 
     public func start(_ sink: @escaping @MainActor (AgentActivityUpdate) -> Void) {
@@ -111,7 +104,6 @@ public final class AgentActivitySocketSource: AgentActivitySource {
             watchForSocket()
             return
         }
-        directoryWatch?.cancel()
         directoryWatch = nil
         let connection = AgentActivityLineConnection(path: config.socketPath,
                                                      acceptsServer: CuaHelperIdentity.isHelperServer)
@@ -152,14 +144,13 @@ public final class AgentActivitySocketSource: AgentActivitySource {
         guard subscription === connection else { return }
         subscription = nil
         sink?(.connection(machine: config.machine, FileManager.default.fileExists(atPath: config.socketPath) ? .unreachable : .notStarted))
-        reconnect?.cancel()
-        reconnect = Task { [weak self] in
+        reconnect = OwnedTask(Task { [weak self] in
             guard var backoff = self?.backoff else { return }
             // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
             do { try await backoff.wait(owner: "agent-activity.reconnect") } catch { return }
             self?.backoff = backoff
             self?.connect()
-        }
+        })
     }
 
     /// Waits for the socket's directory to change (the host creates the
@@ -167,25 +158,17 @@ public final class AgentActivitySocketSource: AgentActivitySource {
     private func watchForSocket() {
         guard directoryWatch == nil else { return }
         let directory = (config.socketPath as NSString).deletingLastPathComponent
-        let fd = open(directory, O_EVTONLY)
-        guard fd >= 0 else {
-            reconnect?.cancel()
-            reconnect = Task { [weak self] in
+        guard let watch = MainDirectoryWatch(directory, { [weak self] in self?.connect() }) else {
+            reconnect = OwnedTask(Task { [weak self] in
                 guard var backoff = self?.backoff else { return }
                 // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
                 do { try await backoff.wait(owner: "agent-activity.socket-dir") } catch { return }
                 self?.backoff = backoff
                 self?.connect()
-            }
+            })
             return
         }
-        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
-        source.setEventHandler { [weak self] in
-            MainActor.assumeIsolated { self?.connect() } // main-proof: dispatch source on queue: .main
-        }
-        source.setCancelHandler { close(fd) }
-        directoryWatch = source
-        source.resume()
+        directoryWatch = watch
     }
 
     // MARK: Requests
