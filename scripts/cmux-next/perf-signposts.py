@@ -19,8 +19,14 @@ What the action rows mean:
   action.commit.missed     commits the boundary missed (end message commit=missed): excluded
                            from action.commit, counted here
   action.input_to_commit   action.commit plus the begin's input_age_ms, for runs a person started
-                           inside an OS input event's dispatch (input_age_ms >= 0); socket, CLI,
-                           MCP and page runs record -1 and are left out
+                           (input_age_ms >= 0: the key or click being dispatched, or for a run a
+                           confirmation or the palette let through in a later turn, the press
+                           that started it); socket, CLI, MCP and page runs record -1 and are
+                           left out
+  action.gate              a confirmation presenter or the palette opening to ask for an
+                           argument: never a run of the action, so never in the action's
+                           perform, commit or input_to_commit rows (the run it lets through has
+                           its own)
 
 The stream is drained on a reader thread while the scenario runs (a full pipe would block
 `log stream` and logd would drop events). Lost-message reports from `log stream` are counted;
@@ -215,6 +221,8 @@ Filtering the log data using "subsystem == ..."
 {"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"action","signpostName":"action.commit","signpostID":10,"signpostType":"begin","processID":1,"machTimestamp":3000000000,"timestamp":"2026-10-23 04:55:43.000000-0700","eventMessage":"id=tab.new origin=user input_age_ms=0.50"}
 {"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"action","signpostName":"action.commit","signpostID":10,"signpostType":"end","processID":1,"machTimestamp":3900000000,"timestamp":"2026-10-23 04:55:43.900000-0700","eventMessage":"commit=missed"}
 {"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"action","signpostName":"action.commit","signpostID":11,"signpostType":"begin","processID":1,"machTimestamp":4000000000,"timestamp":"2026-10-23 04:55:44.000000-0700","eventMessage":"id=tab.close origin=user input_age_ms=1.00"}
+{"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"action","signpostName":"action.gate","signpostID":12,"signpostType":"begin","processID":1,"machTimestamp":5000000000,"timestamp":"2026-10-23 04:55:45.000000-0700","eventMessage":"id=tabGroup.close origin=user input_age_ms=0.20"}
+{"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"action","signpostName":"action.gate","signpostID":12,"signpostType":"end","processID":1,"machTimestamp":5000500000,"timestamp":"2026-10-23 04:55:45.000500-0700","eventMessage":""}
 {"eventType":"lossEvent","eventMessage":"lost 3 unreliable messages","timestamp":"2026-10-23 04:55:44.100000-0700"}
 {"eventType":"signpostEvent","subsystem":"other","category":"action","signpostName":"action.commit","signpostID":7,"signpostType":"end","processID":1,"machTimestamp":1009000000,"timestamp":"2026-10-23 04:55:41.259635-0700","eventMessage":""}
 """
@@ -233,6 +241,9 @@ def self_test() -> int:
     # A missed commit is reported apart and kept out of action.commit.
     assert rows[("action.commit.missed", "tab.new")]["count"] == 1, rows
     assert rows[("action.commit", "*")]["count"] == 2, rows
+    # A gate is its own row, never one of the action's run rows.
+    assert abs(rows[("action.gate", "tabGroup.close")]["p50_ms"] - 0.5) < 1e-6, rows
+    assert ("action.commit", "tabGroup.close") not in rows and ("action.input_to_commit", "tabGroup.close") not in rows, rows
     assert parsed["lost"] == 1 and parsed["unpaired"] == 1, parsed
     assert parse(["Dropped 12 messages"], None)["lost"] == 1
     print("self-test ok")

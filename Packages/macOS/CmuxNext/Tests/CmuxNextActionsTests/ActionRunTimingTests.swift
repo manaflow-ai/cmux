@@ -2,7 +2,8 @@ import AppKit
 @testable import CmuxNextActions
 import Testing
 
-/// Records each timed run instead of writing signposts, and whether work ran inside the timing.
+/// Records each timed run and gate instead of writing signposts, whether work ran inside a run's
+/// timing, and the order intervals begin and end in (`events`), so a test can see nesting.
 @MainActor
 private final class RunTimingRecorder: ActionRunTiming {
     struct Run: Equatable {
@@ -12,6 +13,9 @@ private final class RunTimingRecorder: ActionRunTiming {
     }
 
     var runs: [Run] = []
+    var gates: [Run] = []
+    /// `run.begin id`, `run.end id`, `gate.begin id`, `gate.end id`, in order.
+    var events: [String] = []
     private(set) var isTiming = false
     /// For each handler run: whether it ran inside the timing.
     var handlerRanTimed: [Bool] = []
@@ -20,9 +24,20 @@ private final class RunTimingRecorder: ActionRunTiming {
 
     func time<T>(_ id: ActionID, _ origin: ActionOrigin, inputAge: () -> Double, _ body: () -> T) -> T {
         runs.append(Run(id: id, origin: origin, inputAge: inputAge()))
+        events.append("run.begin \(id.rawValue)")
+        let wasTiming = isTiming
         isTiming = true
-        defer { isTiming = false }
+        defer {
+            isTiming = wasTiming
+            events.append("run.end \(id.rawValue)")
+        }
         return body()
+    }
+
+    func beginGate(_ id: ActionID, _ origin: ActionOrigin, inputAge: () -> Double) -> (@MainActor () -> Void)? {
+        gates.append(Run(id: id, origin: origin, inputAge: inputAge()))
+        events.append("gate.begin \(id.rawValue)")
+        return { [weak self] in self?.events.append("gate.end \(id.rawValue)") }
     }
 }
 
@@ -106,5 +121,126 @@ private final class RunTimingRecorder: ActionRunTiming {
                                                    windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
         #expect(ActionRegistry.inputAgeMilliseconds(origin: .user, event: move, now: 101) == -1)
         #expect(ActionRegistry.inputAgeMilliseconds(origin: .user, event: nil, now: 101) == -1)
+    }
+
+    // MARK: Gates (confirmation, argument collection)
+
+    private static let gatedCatalog = [
+        ActionDescriptor(id: "closeWorkspace", title: "Close Workspace", category: .other, destructive: true),
+        ActionDescriptor(id: "tabGroup.close", title: "Close Group", category: .other, destructive: true),
+        ActionDescriptor(id: "test.ask", title: "Ask", category: .other,
+                         arguments: [ActionArgument(name: "name", title: "Name", kind: .string)]),
+    ]
+
+    private static func gatedRegistry(_ recorder: RunTimingRecorder, ran: @escaping @MainActor (ActionID, ActionInvocation) -> Void) -> ActionRegistry {
+        let registry = ActionRegistry(catalog: gatedCatalog, runTiming: recorder)
+        for descriptor in gatedCatalog {
+            let id = descriptor.id
+            registry.bind(id, invoke: { ran(id, $0) })
+        }
+        return registry
+    }
+
+    /// The App's Close Workspace presenter runs the confirmed close at once, inside the gate
+    /// (DestructiveConfirmation): one press is one run, and the gate does not enclose it.
+    @Test func aPresenterThatRunsAtOnceGivesOneRunAndNoNesting() throws {
+        let recorder = RunTimingRecorder()
+        var closes = 0
+        let registry = Self.gatedRegistry(recorder) { id, _ in if id == "closeWorkspace" { closes += 1 } }
+        registry.confirmationPresenter = { [unowned registry] id, invocation, _ in
+            registry.perform(id, invocation: invocation.confirmed())
+        }
+        let key = try Self.key(at: ProcessInfo.processInfo.systemUptime - 0.005)
+        registry.dispatchingInputEvent = { key }
+        #expect(registry.perform("closeWorkspace"))
+        #expect(closes == 1)
+        #expect(recorder.runs.map(\.id) == ["closeWorkspace"], "one press timed as \(recorder.runs.count) runs")
+        #expect(recorder.gates.map(\.id) == ["closeWorkspace"])
+        #expect(recorder.events == ["gate.begin closeWorkspace", "gate.end closeWorkspace",
+                                    "run.begin closeWorkspace", "run.end closeWorkspace"])
+        #expect((recorder.runs.first?.inputAge ?? -1) >= 5)
+    }
+
+    /// Group close confirms in a later turn (a `Task` awaiting the daemon): that run happens
+    /// outside the key's dispatch and still reports the key's age, carried in the invocation.
+    @Test func aRunConfirmedInALaterTurnReportsThePressesAge() throws {
+        let recorder = RunTimingRecorder()
+        var closes: [ActionInvocation] = []
+        let registry = Self.gatedRegistry(recorder) { id, invocation in if id == "tabGroup.close" { closes.append(invocation) } }
+        var pending: (@MainActor () -> Void)?
+        registry.confirmationPresenter = { _, _, proceed in pending = proceed }
+        let key = try Self.key(at: ProcessInfo.processInfo.systemUptime - 0.005)
+        var dispatching: NSEvent? = key
+        registry.dispatchingInputEvent = { dispatching }
+        #expect(registry.perform("tabGroup.close"))
+        #expect(recorder.runs.isEmpty, "the gate was timed as a run of the action")
+        #expect(recorder.gates.map(\.id) == ["tabGroup.close"])
+
+        dispatching = nil  // the key's dispatch ended; the daemon answered later
+        let proceed = try #require(pending)
+        proceed()
+        #expect(closes.count == 1)
+        #expect(closes.first?.isConfirmed == true)
+        #expect(recorder.runs.map(\.id) == ["tabGroup.close"])
+        #expect((recorder.runs.first?.inputAge ?? -1) >= 5, "the confirmed run lost the press's age")
+    }
+
+    /// The palette opening for a missing argument is a gate; the run after it is a run.
+    @Test func collectingArgumentsIsAGateNotARun() throws {
+        let recorder = RunTimingRecorder()
+        var ran: [ActionID] = []
+        let registry = Self.gatedRegistry(recorder) { id, _ in ran.append(id) }
+        var collected: [ActionInvocation] = []
+        registry.argumentCollector = { _, invocation in collected.append(invocation) }
+        #expect(registry.perform("test.ask"))
+        #expect(recorder.runs.isEmpty)
+        #expect(recorder.gates.map(\.id) == ["test.ask"])
+        var full = try #require(collected.first)
+        full.arguments["name"] = .string("x")
+        #expect(registry.perform("test.ask", invocation: full))
+        #expect(ran == ["test.ask"])
+        #expect(recorder.runs.map(\.id) == ["test.ask"])
+    }
+
+    /// A socket run carries no stamp, even one copied from a person's run: only a person's run
+    /// reports an age.
+    @Test func aCarriedStampCountsOnlyForAPersonsRun() {
+        #expect(ActionRegistry.inputAgeMilliseconds(origin: .user, event: nil, carried: 100, now: 100.5) == 500)
+        #expect(ActionRegistry.inputAgeMilliseconds(origin: .cli, event: nil, carried: 100, now: 100.5) == -1)
+    }
+
+    // MARK: Previews
+
+    /// Running another action while a preview shows puts the look back inside the run's timing
+    /// (the person waits for it); a refused run reverts too, and records nothing.
+    @Test func revertingAPreviewIsPartOfTheRun() {
+        let recorder = RunTimingRecorder()
+        let registry = Self.registry(recorder)
+        registry.register(Action(id: "test.style", title: "Style") {})
+        var revertedTimed: [Bool] = []
+        registry.bindPreview("test.style", ActionPreview(group: "style") { { [weak recorder] in revertedTimed.append(recorder?.isTiming ?? false) } })
+
+        registry.showPreview("test.style")
+        #expect(registry.perform("test.run"))
+        #expect(revertedTimed == [true], "the revert ran outside the run's timing")
+
+        registry.showPreview("test.style")
+        #expect(!registry.perform("test.off"))
+        #expect(revertedTimed == [true, false])
+        #expect(recorder.runs.map(\.id) == ["test.run"])
+    }
+
+    // MARK: Key-down dispatch
+
+    /// `NSApp.currentEvent` keeps a key after its dispatch: the package default must not read it,
+    /// or a CLI Copy after a key press passes for Cmd-C (TerminalHandlers) and menu validation
+    /// applies key-equivalent rules to a click.
+    @Test func aStaleKeyIsNoKeyDownDispatch() throws {
+        _ = NSApplication.shared
+        let key = try Self.key(at: ProcessInfo.processInfo.systemUptime)
+        NSApp.postEvent(key, atStart: true)
+        _ = NSApp.nextEvent(matching: .keyDown, until: .distantPast, inMode: .default, dequeue: true)
+        try #require(NSApp.currentEvent?.type == .keyDown, "the test could not leave a stale key in currentEvent")
+        #expect(!ActionRegistry().isDispatchingKeyDown())
     }
 }

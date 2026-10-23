@@ -171,7 +171,10 @@ public nonisolated enum ActionCatalog {
 
 extension ActionRegistry {
     /// A registry seeded with the full cmux catalog and legacy aliases.
-    public static func standard() -> ActionRegistry {
-        ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
+    ///
+    /// - Parameter runTiming: Times every run (the App passes ``SignpostActionRunTiming``); the
+    ///   default records nothing.
+    public static func standard(runTiming: any ActionRunTiming = NoActionRunTiming()) -> ActionRegistry {
+        ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases, runTiming: runTiming)
     }
 }
