@@ -1155,6 +1155,16 @@ pre.cv-math-source {
   /* VirtualTranscript owns bottom-following. Letting WebKit also anchor the growing row makes
      each streamed token compete with that correction and produces the one-pixel shake at rest. */
   overflow-anchor: none;
+  /* Its scrollbar stays shown (scrollers.ts SHOWN_SCROLLER_ATTRIBUTE); under the opt-in fade it
+     paces with the pane's other fades, the host's durations after ui.animationSpeed and Reduce
+     Motion (0 with animations off). */
+  --cmux-scroller-fade-in: var(--agent-motion-in, 120ms);
+  --cmux-scroller-fade-out: var(--agent-motion-move, 180ms);
+}
+/* The spacer runs across the scrollbar's lane (VirtualTranscript `lane`), so the column matches the
+   composer's; the transcript never scrolls sideways. */
+.acpmux-scroll[data-cmux-shown-scroller] {
+  overflow-x: hidden;
 }
 .acpmux-main:has(.acpmux-asks-stack) .acpmux-scroll {
   margin-bottom: 0;
@@ -2024,6 +2034,14 @@ pre.cv-math-source {
 .cv-message__text.has-more {
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
   mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}
+/* A send that did not arrive says why at the line's end ("Not delivered: agent stopped"), in a
+   muted warning tone rather than the danger red: the message is fine, the other agent was gone. */
+.cv-message[data-delivery="failed"] .cv-message__status {
+  color: color-mix(in srgb, var(--agent-warning, var(--agent-danger)) 75%, var(--cv-text-dim));
+}
+.cv-message[data-delivery="failed"] .cv-agentmsg__icon {
+  color: inherit;
 }
 /* Copy, at the sent line's end: shown while the message is pointed at or focused, as a received
    message's row is. Opacity, not display, so the line never reflows under the pointer. */
@@ -3579,6 +3597,13 @@ a.cv-sha:focus-visible {
   min-height: 0;
 }
 .acpmux-row.acpmux-row--before-step {
+  padding-bottom: 0;
+}
+/* A row whose renderer draws nothing (a render update that joined an earlier card, a note whose
+   payload never came) takes no room: the 34px floor and the gap under it were a blank band each,
+   between "Worked for" and the reply. The element selector outranks every row-kind padding. */
+article.acpmux-row:empty {
+  min-height: 0;
   padding-bottom: 0;
 }
 .acpmux-row--after-step > .cv-tools {

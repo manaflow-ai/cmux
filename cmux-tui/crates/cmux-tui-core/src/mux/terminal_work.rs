@@ -231,7 +231,7 @@ impl Mux {
                     launch_opts.clone(),
                     Arc::downgrade(self),
                     terminal_id,
-                    cell_pixels,
+                    (cell_pixels, workspace_key.as_deref().unwrap_or_default()),
                     standby,
                 )
             };

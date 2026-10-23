@@ -129,6 +129,7 @@ impl HostLaunchAdopt {
             default_colors,
             kitty_graphics_limits,
             seed: Vec::new(),
+            workspace_key: String::new(),
         };
         Ok(Self { launch, child_pid, session_id, incarnation, seed, program_status })
     }
@@ -402,6 +403,7 @@ pub(crate) fn launch_terminal_host_adopting_with_program_status(
             default_colors: adoption.default_colors,
             kitty_graphics_limits: adoption.kitty_graphics_limits,
             seed: Vec::new(),
+            workspace_key: String::new(),
         },
         child_pid: adoption.custody.child_pid,
         session_id: adoption.custody.session_id,
@@ -501,6 +503,7 @@ mod tests {
                 default_colors: DefaultColors::default(),
                 kitty_graphics_limits: KittyGraphicsLimits::default(),
                 seed: Vec::new(),
+                workspace_key: String::new(),
             },
             child_pid: 4242,
             session_id: 4242,
