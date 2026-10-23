@@ -28,6 +28,20 @@ struct PaletteRootMenuTests {
         #expect(visible.filter { $0.id.hasPrefix("rootFamily:") }.count == 8)
     }
 
+    @Test func rootFamilyPagesShowTheirMembersOnEmptyQuery() throws {
+        let items = try catalogProvider().makeItems()
+        for familyID in ["rootFamily:workspace", "rootFamily:tab", "rootFamily:terminal"] {
+            let row = try #require(items.first { $0.id == familyID })
+            guard case .push(let page) = row.primary.effect.resolved() else {
+                Issue.record("\(familyID) does not open a page")
+                continue
+            }
+            let members = page.providers.compactMap { $0 as? StaticPaletteProvider }.flatMap(\.itemsList)
+            #expect(!members.isEmpty, "\(familyID) has no members")
+            #expect(members.allSatisfy { !$0.hidesWhenQueryEmpty }, "\(familyID) members are hidden on its empty page")
+        }
+    }
+
     @Test func curationPreservesTheCatalogAndOnlyChangesTheRoot() throws {
         let root = try catalogProvider()
         let all = RegistryPaletteProvider(registry: root.registry, includeUnbound: true).makeItems()

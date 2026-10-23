@@ -59,7 +59,13 @@ extension RegistryPaletteProvider {
         let section = PaletteSection(id: "rootFamilies", title: PaletteStrings.commandsTitle, order: -100)
         for family in Self.rootFamilies {
             let sections = Set(family.members.map(\.paletteSectionID))
-            let members = items.filter { sections.contains($0.section.id) }
+            let members = items.filter { sections.contains($0.section.id) }.map { member in
+                var member = member
+                // Root category pages are empty-query lists. Family members were hidden in
+                // the root by the normal family arranger; clear that flag in the drilldown.
+                member.hidesWhenQueryEmpty = false
+                return member
+            }
             guard members.contains(where: { $0.actionID.map { eligible.contains($0) } ?? false }) else { continue }
             let id = "rootFamily:\(family.category.rawValue)"
             var row = PaletteItem(
