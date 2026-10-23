@@ -1,3 +1,4 @@
+import type { ChatUnavailable } from "./chatUnavailable";
 import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
@@ -205,6 +206,8 @@ export type AcpmuxRow = {
   from?: "chief";
   /// The originating prompt row, so Retry can restore image/PDF attachments.
   retryRowId?: string;
+  /// A turn footer's answer row (turns.ts), whose right-click menu the footer's More opens.
+  answerId?: string;
   retryAttachments?: ComposerAttachment[];
   status?: string;
   error?: string;
@@ -450,6 +453,19 @@ export type QueueEdit =
   /** Runs a queue a failed turn paused; any of its prompts names it. */
   | { op: "resume" };
 
+/// Claude Code's /context breakdown as acpmux keeps it (claude_stdio `context_breakdown`).
+export type AcpmuxContextBreakdown = {
+  /// `id` is Claude Code's (`system_prompt`, `mcp_tools_deferred`, `free_space`, ...) when it names
+  /// one; `name` is its display name.
+  categories: { id?: string; name: string; tokens: number; kind: "used" | "free" | "buffer" | "deferred" }[];
+  memoryFiles: { path: string; type: string; tokens: number }[];
+  mcpTools: { name: string; serverName: string; tokens: number }[];
+  /// Only when skills take context.
+  skills?: { name: string; tokens: number }[];
+  totalTokens: number;
+  maxTokens: number;
+};
+
 /** Why a tab's chat is missing: the daemon's list lacked it when the pane opened
  * (`notListedAtOpen`), or it left the list while the pane showed it (`leftListWhileShown`). */
 export type MissingSessionReason = "notListedAtOpen" | "leftListWhileShown";
@@ -474,8 +490,12 @@ export type AcpmuxSnapshot = {
     sessionId: string;
     cwd?: string;
     turnCount?: number;
-    /// Context-window tokens used of the session's window, from the agent's last usage update.
-    usage?: { used: number; size: number };
+    /// Context-window tokens used of the session's window, from the agent's last usage update, and
+    /// `setup`, the part the agent took before the conversation (its system prompt, tools and
+    /// memory), when the harness reports it (`_meta.acpmux.setup`).
+    usage?: { used: number; size: number; setup?: number };
+    /// What the context holds by category, as Claude Code's /context reports it.
+    contextBreakdown?: AcpmuxContextBreakdown;
     host?: string;
     peer?: string;
     hostKind?: "local" | "cloud";
@@ -611,6 +631,9 @@ export type AcpmuxSnapshot = {
   /** A `cmux://session/<id>` link named this session and the daemon has none: the pane says so
    * instead of showing another chat. Unset once a session is selected. */
   missingSession?: string;
+  /** Why `missingSession` is not here: deleted, or on a machine that is not connected (or still
+   * connecting, which the pane shows as loading). chatUnavailable.ts. */
+  unavailable?: ChatUnavailable;
   /** Why `missingSession` is set (the pane reports each one to the app's log, `chat.missing`). */
   missingReason?: MissingSessionReason;
   /** The outside chat this pane adopts is still open in another process (acpmux refused with
@@ -997,6 +1020,16 @@ function lexIncrementally(entry: PreparedRow, text: string): void {
   entry.text = text;
 }
 
+/// An activity row whose items are all thoughts that draw no row once done (thoughts.ts
+/// `isQuietThought`, after `mergeThoughts` joins neighbours as ToolRows does). The live turn's latest
+/// step may still stream its thought, so it is never one. Such a row draws no element at all
+/// (App.tsx ToolActivityRow), so its article is empty and takes no room (conversation.css).
+export const onlyQuietThoughts = (row: AcpmuxRow) =>
+  row.kind === "activity" &&
+  !row.live &&
+  (row.items?.length ?? 0) > 0 &&
+  mergeThoughts(row.items!).every((item) => isThought(item) && isQuietThought(item));
+
 function measuredRowHeight(
   row: AcpmuxRow,
   width: number,
@@ -1025,6 +1058,8 @@ function measuredRowHeight(
   if (row.incoming?.kind === "notice") return 2 + 26 + MESSAGE_GAP;
   // Bookkeeping alone: a turn's start that draws nothing (conversation/turns.ts).
   if (row.incoming?.kind === "hidden") return 0;
+  // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx).
+  if (onlyQuietThoughts(row)) return 0;
   // A preview row's text is its address, not prose: the card's height is fixed.
   if (!row.text || row.kind === PREVIEW) return fallbackRowHeight(row, width, beforeFooter, lastFooter);
   let entry = cache.get(row.id);
@@ -1139,8 +1174,9 @@ export function placeRows(
   let top = kept > 0 ? tops[kept - 1]! + heights[kept - 1]! : 0;
   for (let index = kept; index < heights.length; index += 1) {
     tops[index] = top;
+    // A drawn 0 is a row that draws nothing (App.tsx drawnHeightOf): it takes no room.
     const known = heightAt(index);
-    const height = known !== undefined && known > 0 ? known : estimate.heights[index];
+    const height = known !== undefined && known >= 0 ? known : estimate.heights[index];
     heights[index] = height;
     top += height;
   }
@@ -1207,6 +1243,7 @@ export function scrollLeadRanges(
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
 import { isFoldedRun } from "./conversation/toolRunSummary";
+import { isQuietThought, isThought, mergeThoughts } from "./conversation/thoughts";
 import { previewCardHeight } from "./conversation/previewUrl";
 import { RENDER_FRAME_MIN_HEIGHT } from "./conversation/renderCall";
 import {
