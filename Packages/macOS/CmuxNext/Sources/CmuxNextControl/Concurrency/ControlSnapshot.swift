@@ -76,15 +76,37 @@ public final class ControlSnapshotStore: Sendable {
     }
 
     private let state = Mutex(State())
-    private let waiterAdded = Mutex<(@Sendable () -> Void)?>(nil)
+    /// The continuations of ``waiterAdditions()``'s streams, by subscription.
+    private let waiterStreams = Mutex(WaiterStreams())
+
+    private struct WaiterStreams {
+        var next: UInt64 = 0
+        var continuations: [UInt64: AsyncStream<Void>.Continuation] = [:]
+    }
 
     public init() {}
 
-    /// Calls `handler` (on the waiting task) each time a reader starts waiting for a snapshot
-    /// the current one does not satisfy; nil removes it. The publisher uses it to publish a
-    /// held update at once instead of at its next deadline.
-    public func onWaiterAdded(_ handler: (@Sendable () -> Void)?) {
-        waiterAdded.withLock { $0 = handler }
+    /// Yields each time a reader starts waiting for a snapshot the current one does not
+    /// satisfy. The publisher iterates it on the main actor to publish a held update at once
+    /// instead of at its next deadline (a compat read waiting on its write barrier).
+    ///
+    /// Each call is its own subscription; it ends when the iterating task is cancelled.
+    /// Additions that arrive faster than they are read coalesce into one element.
+    ///
+    /// ```swift
+    /// for await _ in store.waiterAdditions() { pacer.readerWaits() }
+    /// ```
+    public func waiterAdditions() -> AsyncStream<Void> {
+        let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let id = waiterStreams.withLock { streams -> UInt64 in
+            streams.next &+= 1
+            streams.continuations[streams.next] = continuation
+            return streams.next
+        }
+        continuation.onTermination = { [weak self] _ in
+            _ = self?.waiterStreams.withLock { $0.continuations.removeValue(forKey: id) }
+        }
+        return stream
     }
 
     /// The latest published snapshot.
@@ -157,7 +179,7 @@ public final class ControlSnapshotStore: Sendable {
                 if case .some(let result) = now {
                     continuation.resume(returning: result)
                 } else {
-                    waiterAdded.withLock { $0 }?()
+                    for continuation in waiterStreams.withLock({ Array($0.continuations.values) }) { continuation.yield() }
                 }
             }
         } onCancel: {
