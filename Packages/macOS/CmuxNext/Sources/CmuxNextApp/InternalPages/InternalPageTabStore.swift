@@ -270,9 +270,9 @@ final class InternalPageTabStore {
     /// Lets the view of every store page tab `store` listed and lists no
     /// longer go (closed here or on another client).
     func closeGoneStoreTabs(in store: DaemonStore) {
-        guard let live = Self.liveTabs(store) else { return }
+        guard store.liveTabListRevision != nil else { return }
         for (id, owner) in storeTabStores where owner === store {
-            if live.contains(id) {
+            if store.tab(id: id) != nil {
                 seenLive.insert(id)
             } else if seenLive.contains(id) {
                 seenLive.remove(id)
@@ -307,10 +307,11 @@ final class InternalPageTabStore {
     }
 
     /// Closes the page tabs of every pane `store` no longer lists, once it
-    /// is connected with a live tree.
+    /// is connected with a live tree. Costs the panes this store holds page
+    /// tabs in (O(1) lookups), not the tree: every pane teardown calls it.
     func closeGonePanes(in store: DaemonStore) {
-        guard let live = Self.livePanes(store) else { return }
-        for (paneKey, owner) in paneStores where owner === store && !live.contains(paneKey) {
+        guard store.liveTabListRevision != nil else { return }
+        for (paneKey, owner) in paneStores where owner === store && store.pane(id: paneKey) == nil {
             closePane(paneKey)
         }
     }
@@ -321,22 +322,13 @@ final class InternalPageTabStore {
         if let page = LocalPageTab.page(of: key) { providers[page]?.tabClosed(key) }
     }
 
-    private static func liveTabs(_ store: DaemonStore) -> Set<String>? {
-        guard case .connected = store.connectionState, store.isLoaded else { return nil }
-        return Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
-    }
-
-    private static func livePanes(_ store: DaemonStore) -> Set<String>? {
-        guard case .connected = store.connectionState, store.isLoaded else { return nil }
-        return Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).map(\.id))
-    }
-
     private func watch(_ store: DaemonStore) {
         let id = ObjectIdentifier(store)
         guard watches[id] == nil else { return }
         // task-owner: stored in watches; cancelled once the store has no page tabs
         watches[id] = Task { [weak self] in
-            for await live in ObservationStream({ Self.livePanes(store).map { [$0, Self.liveTabs(store) ?? []] } }) where live != nil {
+            // One tracked read: `tabListRevision` also moves when a pane comes or goes.
+            for await revision in ObservationStream({ store.liveTabListRevision }) where revision != nil {
                 guard let self else { return }
                 self.closeGonePanes(in: store)
                 self.closeGoneStoreTabs(in: store)

@@ -22,6 +22,7 @@ import Foundation
     private(set) var tabsByResource: [ResourceID: TabModel] = [:]
     private(set) var tabsByTerminalResource: [ResourceID: TabModel] = [:]
     private(set) var panesByHandle: [PaneID: PaneModel] = [:]
+    private(set) var panesByID: [String: PaneModel] = [:]
     private(set) var panesByResource: [ResourceID: PaneModel] = [:]
     private(set) var screensByHandle: [ScreenID: ScreenModel] = [:]
     private(set) var screensByResource: [ResourceID: ScreenModel] = [:]
@@ -32,10 +33,12 @@ import Foundation
     private(set) var tabGroupsByID: [TabGroupID: TabGroupModel] = [:]
     /// Indexed tabs the intent overlay shows (``isOverlayTab(id:surface:)``).
     private(set) var provisionalTabCount = 0
-    /// An order-free digest of which tab sits in which pane (XOR of one
-    /// hash per indexed tab and its pane): a remove and re-add of the same
-    /// tab in the same pane leaves it as it was, so a refresh changes it only
-    /// when a tab came, went or moved to another pane.
+    /// An order-free digest of which tab sits in which pane and which panes
+    /// are listed (XOR of one hash per indexed tab and its pane, and one per
+    /// indexed pane): a remove and re-add of the same tab in the same pane, or
+    /// of the same pane, leaves it as it was, so a refresh changes it only
+    /// when a tab came, went or moved to another pane, or a pane came or went
+    /// (a pane with no tab too).
     private var tabMembership = 0
     private var takenMembership = 0
     /// An order change inside a pane, or of the workspaces, noted by its
@@ -45,7 +48,7 @@ import Foundation
     private enum Keys {
         case workspace(handle: WorkspaceHandle, key: WorkspaceKey?, id: String, resource: ResourceID?)
         case screen(handle: ScreenID, resource: ResourceID?)
-        case pane(handle: PaneID, resource: ResourceID?, groups: [TabGroupModel])
+        case pane(handle: PaneID, id: String, resource: ResourceID?, groups: [TabGroupModel])
         case tab(surface: SurfaceID, id: String, terminal: TerminalID?, resource: ResourceID?, terminalResource: ResourceID?)
     }
 
@@ -54,7 +57,7 @@ import Foundation
         var keys: Keys
         var parent: ObjectIdentifier?
         var children: Set<ObjectIdentifier> = []
-        /// A tab's share of `tabMembership` (0 for other records).
+        /// A tab's or a pane's share of `tabMembership` (0 for other records).
         var membership = 0
     }
 
@@ -113,6 +116,14 @@ import Foundation
         return hasher.finalize()
     }
 
+    /// A pane's share: by its durable id, so a refresh that re-indexes it changes nothing.
+    private static func membership(_ pane: PaneModel) -> Int {
+        var hasher = Hasher()
+        hasher.combine("pane")
+        hasher.combine(pane.id)
+        return hasher.finalize()
+    }
+
     mutating func insert(_ workspace: WorkspaceModel) {
         remove(workspace)
         add(workspace, .workspace(handle: workspace.handle, key: workspace.key, id: workspace.id, resource: workspace.resourceID), parent: nil)
@@ -127,7 +138,7 @@ import Foundation
 
     mutating func insert(_ pane: PaneModel, in screen: ScreenModel) {
         remove(pane)
-        add(pane, .pane(handle: pane.handle, resource: pane.resourceID, groups: pane.tabGroups), parent: screen)
+        add(pane, .pane(handle: pane.handle, id: pane.id, resource: pane.resourceID, groups: pane.tabGroups), parent: screen)
         for tab in pane.tabs { insert(tab, in: pane) }
     }
 
@@ -156,8 +167,10 @@ import Foundation
         var entry = Entry(record: record, keys: keys, parent: parentID)
         if let tab = record as? TabModel {
             entry.membership = Self.membership(tab, (parent as? PaneModel)?.handle)
-            tabMembership ^= entry.membership
+        } else if let pane = record as? PaneModel {
+            entry.membership = Self.membership(pane)
         }
+        tabMembership ^= entry.membership
         entries[id] = entry
         if let parentID { entries[parentID]?.children.insert(id) }
         key(keys, record)
@@ -175,9 +188,10 @@ import Foundation
             guard let screen = record as? ScreenModel else { return }
             screensByHandle[handle] = screen
             if let resource { screensByResource[resource] = screen }
-        case .pane(let handle, let resource, let groups):
+        case .pane(let handle, let id, let resource, let groups):
             guard let pane = record as? PaneModel else { return }
             panesByHandle[handle] = pane
+            panesByID[id] = pane
             if let resource { panesByResource[resource] = pane }
             for group in groups { tabGroupsByID[group.id] = group }
         case .tab(let surface, let id, let terminal, let resource, let terminalResource):
@@ -202,8 +216,9 @@ import Foundation
         case .screen(let handle, let resource):
             Self.drop(handle, from: &screensByHandle, if: record)
             if let resource { Self.drop(resource, from: &screensByResource, if: record) }
-        case .pane(let handle, let resource, let groups):
+        case .pane(let handle, let id, let resource, let groups):
             Self.drop(handle, from: &panesByHandle, if: record)
+            Self.drop(id, from: &panesByID, if: record)
             if let resource { Self.drop(resource, from: &panesByResource, if: record) }
             for group in groups { Self.drop(group.id, from: &tabGroupsByID, if: group) }
         case .tab(let surface, let id, let terminal, let resource, let terminalResource):
