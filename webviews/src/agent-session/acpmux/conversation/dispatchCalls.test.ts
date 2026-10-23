@@ -1,0 +1,93 @@
+// l10n-allow-file: test fixtures.
+import { expect, test } from "bun:test";
+import type { AcpmuxActivity } from "../model";
+import { dispatchCall } from "./dispatchCalls";
+import { briefAnchor, lineLabel } from "./DispatchCard";
+import { toolGroups } from "./toolGroups";
+
+type Tool = NonNullable<AcpmuxActivity["tool"]>;
+
+const activity = (title: string, input: unknown, output?: unknown, status = "completed"): AcpmuxActivity => {
+  const tool: Tool = {
+    id: title,
+    title,
+    status,
+    inputSummary: JSON.stringify(input),
+    ...(output === undefined ? {} : { output: typeof output === "string" ? output : JSON.stringify(output) }),
+  };
+  return { kind: "tool", text: title, tool };
+};
+
+test("parses a non-Claude/Codex ACP dispatch event from the shared metadata envelope", () => {
+  const item = activity(
+    "acp.dispatch",
+    {
+      title: "Diff viewer on the right",
+      brief: "Move the diff viewer right.",
+      target: "cx3-s14-header",
+      host: "cmux16",
+    },
+    {
+      event: {
+        kind: "dispatch",
+        briefId: "b-17",
+        title: "Diff viewer on the right",
+        from: "opus",
+        to: "cx3-s14-header",
+        host: "cmux16",
+        status: "running",
+      },
+    },
+  );
+  expect(dispatchCall(item)).toMatchObject({
+    kind: "dispatch",
+    briefId: "b-17",
+    title: "Diff viewer on the right",
+    from: "opus",
+    to: "cx3-s14-header",
+    host: "cmux16",
+    status: "running",
+  });
+  expect(toolGroups([item])[0]?.type).toBe("dispatch");
+});
+
+test("recognizes steer, report and briefs aliases without classifying ordinary shell work", () => {
+  expect(
+    dispatchCall(activity("mcp__acpmux__steer", { brief_id: "b-17", text: "Keep the title short." })),
+  ).toMatchObject({
+    kind: "steer",
+    briefId: "b-17",
+  });
+  expect(dispatchCall(activity("cmux.report", { briefId: "b-17", summary: "Done", status: "reported" }))).toMatchObject(
+    {
+      kind: "report",
+      briefId: "b-17",
+      summary: "Done",
+    },
+  );
+  expect(dispatchCall(activity("acpmux.briefs_ls", {}, { briefs: [{ id: "b-17" }, { id: "b-18" }] }))).toMatchObject({
+    kind: "briefs",
+    summary: "2 briefs",
+  });
+  const shell = activity("Shell", { command: "bun run dispatch" });
+  expect(dispatchCall(shell)).toBeUndefined();
+  expect(toolGroups([shell])[0]?.type).toBe("item");
+  const cli = activity("Shell", { command: "acpmux dispatch brief.md --host cmux16" });
+  cli.tool!.command = "acpmux dispatch brief.md --host cmux16";
+  expect(dispatchCall(cli)).toMatchObject({ kind: "dispatch" });
+  expect(toolGroups([cli])[0]?.type).toBe("dispatch");
+});
+
+test("dispatch cards use the compact copy and link wording", () => {
+  const call = {
+    kind: "dispatch" as const,
+    briefId: "b-17",
+    title: "Diff viewer on the right",
+    to: "cx3-s14-header",
+    host: "cmux16",
+  };
+  expect(lineLabel(call, "'Diff viewer on the right'", "cx3-s14-header on cmux16")).toBe(
+    "Sent brief 'Diff viewer on the right' → cx3-s14-header on cmux16",
+  );
+  expect(briefAnchor("b:17")).toBe("brief-b-17");
+});
