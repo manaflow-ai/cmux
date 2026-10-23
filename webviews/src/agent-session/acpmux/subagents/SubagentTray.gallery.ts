@@ -158,9 +158,12 @@ function codexLineage(): Subagent[] {
   return fold.all().map((agent) => ({ ...agent, action: agent.parent === null ? "git show --stat" : "Edit 2 files" }));
 }
 
-/** Waits for the tray's `count` lines, and checks no group card is left in the transcript. */
+/** Waits for the tray's live `count` lines, and checks no group card is left in the transcript. */
 const trayLines = (count: number) => async (ctx: PlayContext) => {
-  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length === count);
+  await ctx.waitFor(
+    () =>
+      ctx.document.querySelectorAll(".acpmux-running-tray li:not([data-finished]) .acpmux-agent-line").length === count,
+  );
   if (ctx.document.querySelector(".cv-subagents"))
     throw new Error("a running subagent must not draw a transcript card");
   if (ctx.document.querySelector(".acpmux-agents-pill"))
@@ -210,7 +213,7 @@ export default agentPaneEntry({
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
     },
     "several-running": {
-      note: "Two subagents and a background command: a header with the counts and the time since the first started, a line each (up to three show open). The one that ended left its line in the transcript.",
+      note: "Two subagents and a background command: a header with the counts and the time since the first started, a line each (up to three show open). The ended task remains a compact status card.",
       play: trayLines(3),
       snapshot: chat(
         [
