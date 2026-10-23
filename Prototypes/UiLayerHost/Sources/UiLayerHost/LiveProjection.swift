@@ -204,9 +204,9 @@ private struct IdentifyFingerprint: Equatable, Sendable {
     }
 }
 
-private enum EventKind { case event, heartbeat }
+enum EventKind: Equatable { case event, heartbeat }
 
-private struct EventCursor {
+struct EventCursor {
     let bootID: String
     var sequence: Int64
 
@@ -249,7 +249,7 @@ private struct EventCursor {
     }
 }
 
-private enum LiveProjectionError: LocalizedError {
+enum LiveProjectionError: LocalizedError {
     case invalidIdentify
     case missingReadMethods
     case identityChanged
