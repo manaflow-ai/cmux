@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBridge
 @testable import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -345,7 +346,7 @@ import Testing
         init() throws {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
-            hibernation = BrowserHibernation(cache: services.cache)
+            hibernation = BrowserHibernation(cache: services.cache, memoryPressure: MemoryPressureEvents())
             services.cache.hibernation = hibernation
             hibernation.apply(BrowserHibernationSetting(mode: .moderate))
             hibernation.pressureDidChange(.critical)
