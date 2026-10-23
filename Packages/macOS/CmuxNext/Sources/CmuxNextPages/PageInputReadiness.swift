@@ -45,7 +45,7 @@ public final class PageInputReadiness {
                 "return document.execCommand('insertText', false, \(JSONValue.string(text).compactText));"
             case .deleteBackward(let count):
                 // One `delete` per key, as the keys would: each is an input event the page's handlers see.
-                "for (let i = 0; i < \(max(0, count)); i += 1) { if (!document.execCommand('delete', false)) { return false; } } return true;"
+                "for (let i = 0; i < \(max(0, count)); i += 1) { if (document.activeElement !== el || window.__cmuxInputFocusEpoch !== cmuxEditEpoch || (token !== null && el.__cmuxInputEditToken !== token)) { return false; } if (!document.execCommand('delete', false)) { return false; } } return true;"
             }
         }
     }
@@ -138,6 +138,7 @@ public final class PageInputReadiness {
         const el = document.activeElement;
         if (!editable(el)) { return false; }
         \(epochCheck)
+        const cmuxEditEpoch = window.__cmuxInputFocusEpoch;
         const token = \(tokenLiteral);
         if (token !== null) {
           const prior = el.__cmuxInputEditToken;
@@ -174,7 +175,7 @@ public final class PageInputReadiness {
           document.addEventListener('focusin', () => {
             epoch += 1;
             window.__cmuxInputFocusEpoch = epoch;
-            try { window.webkit.messageHandlers.\(handlerName).postMessage({ ready: editable(document.activeElement), epoch }); } catch (_) {}
+            try { window.webkit.messageHandlers.\(handlerName).postMessage({ ready: sent || editable(document.activeElement), epoch }); } catch (_) {}
             report();
           }, true);
           document.addEventListener('focusout', () => setTimeout(report, 0), true);
