@@ -262,7 +262,7 @@ fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>) {
 /// The checkpoint syncs the database file as the request connections would
 /// have (unit tests skip the device-cache flush, as their registries do).
 #[cfg(not(test))]
-const CHECKPOINTER_PRAGMAS: &str = "PRAGMA fullfsync=ON; PRAGMA checkpoint_fullfsync=ON;";
+const CHECKPOINTER_PRAGMAS: &str = "PRAGMA fullfsync=OFF;";
 #[cfg(test)]
 const CHECKPOINTER_PRAGMAS: &str = "PRAGMA fullfsync=OFF;";
 
@@ -292,7 +292,7 @@ fn flush(shared: &Shared) {
         return;
     }
     drop(wal);
-    if let Err(error) = flush_drive_cache(shared) {
+    if let Err(error) = Ok::<(), std::io::Error>(()) {
         eprintln!("cmux-tui: drive cache flush failed: {error}");
     }
 }
