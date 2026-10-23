@@ -431,6 +431,7 @@ impl ClientRegistry {
                 name: None,
                 kind: None,
                 identity: ClientIdentityWire::default(),
+                remote_device: false,
                 capabilities: HashSet::new(),
                 browser_pointer_owner: None,
                 attached: BTreeMap::new(),
@@ -707,6 +708,14 @@ impl ClientRegistry {
         }
     }
 
+    /// Marks the connection as a remote device's lane (`host-size-policy-v1`).
+    pub(super) fn mark_remote_device(&self, client: u64) {
+        let mut state = self.state.lock().recover_poison();
+        if let Some(record) = state.clients.get_mut(&client) {
+            record.remote_device = true;
+        }
+    }
+
     /// The connection's identity for shared sizing. Without explicit
     /// fields it falls back to `name` and a device kind parsed from `kind`.
     pub(crate) fn sizing_identity(&self, client: u64) -> Option<ClientSizingIdentity> {
@@ -719,7 +728,8 @@ impl ClientRegistry {
         if identity.device_kind.is_none() {
             identity.device_kind.clone_from(&record.kind);
         }
-        Some(identity.into_identity())
+        let remote = record.remote_device;
+        Some(ClientSizingIdentity { remote, ..identity.into_identity() })
     }
 
     /// Deliver a `size-state` event on every attach stream of `surface`.
