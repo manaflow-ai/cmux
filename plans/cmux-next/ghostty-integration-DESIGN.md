@@ -181,6 +181,19 @@ Reviewers #1 and #2 (PR 46/47 at 7d5fa1573 and the cmux side), finding by findin
 | ghostty-next red runs on PR heads, not main commits | Open: rerun on the main commits after PR 49 merges |
 | ghostty-next CI test filter added | Removed (8ffdf01); tests run on the fleet by the agent (Lawrence 2026-10-23) |
 
+G1 result (2026-10-23, aws-m4pro-9, 60 Hz, bench-terminal-resize light drag: 2 terminals with 20k lines,
+240 moves): the pre-commit presenter (branch plghx-g1-full, `TerminalHostFramePresenter` +
+`ghostty_surface_present_host_frame`) works: `TerminalResizeFrameTests` red without it (2f8b5a190ad: every
+resize commit carried the previous size's frame; reveal after a hidden resize too) and green with it
+(7f4133df957), and in the drag 136 / 106 fresh presents per round, 0 late, no display pass on main. It does
+NOT land: frame pacing got worse. Before (scratch 4d4bc00456e) dropped 39 of 200 / 2 of 235 frames, main
+p95 20.5 / 12.2 ms; after dropped 47 of 190 / 38 of 200, main p95 24.1 / 21.7 ms. The wait for the
+renderer's frame (up to 4 ms from set_size, per turn) sits on the main thread every drag frame. Next: a
+present that never waits on main (take the fresh frame if it is ready at the pre-commit observer, else keep
+the last frame and let the async frame land), or the renderer rebuilding cells for the new size before the
+layout pass ends; measured against these rows. Also open: the after run's idle-cursor phase drew 8 frames in
+5 s at rest (before: 0); not explained yet.
+
 ## 5. Measurements
 
 Filled in as fleet runs land: host, build sha, refresh rate, light and STRESS side by side.
