@@ -321,13 +321,6 @@ private final class UnixLineSocket: @unchecked Sendable {
             Darwin.close(descriptor)
             throw LiveProjectionError.socket(message)
         }
-        var descriptorInfo = stat()
-        guard fstat(descriptor, &descriptorInfo) == 0,
-              descriptorInfo.st_mode & S_IFMT == S_IFSOCK,
-              descriptorInfo.st_uid == geteuid() else {
-            Darwin.close(descriptor)
-            throw LiveProjectionError.socket("connected endpoint is not a current-user Unix socket")
-        }
         handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
     }
 
