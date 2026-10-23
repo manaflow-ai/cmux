@@ -130,11 +130,11 @@ async fn an_answer_the_form_does_not_offer_cancels() {
         "Tags": "Web", "Note": "No answer",
     });
     let bad = [
-        ("Replicas", "x"),                                       // a number that does not parse
-        ("Where should this deploy go? — Region", "Mars"),       // a choice not offered
-        ("Canary", "Maybe"),                                      // neither yes nor no
-        ("Tags", "Web, Web"),                                     // chosen twice
-        ("Tags", "Web, Mars"),                                    // one not offered
+        ("Replicas", "x"),                                 // a number that does not parse
+        ("Where should this deploy go? — Region", "Mars"), // a choice not offered
+        ("Canary", "Maybe"),                               // neither yes nor no
+        ("Tags", "Web, Web"),                              // chosen twice
+        ("Tags", "Web, Mars"),                             // one not offered
         ("Where should this deploy go? — Region", "No answer"), // required, left out
     ];
     for (prompt, value) in bad {
