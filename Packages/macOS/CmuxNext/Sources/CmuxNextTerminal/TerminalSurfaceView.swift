@@ -199,8 +199,19 @@ public final class TerminalSurfaceView: NSView {
         if shown {
             updateContentScale()
             updateSurfaceSize()
+            presentIfStale()
         }
         updateFocus()
+    }
+
+    /// Shown again with a frame of another size on its layer (resized while hidden, or none left):
+    /// the frame at its size goes into this turn's commit (``TerminalHostFramePresenter``).
+    private func presentIfStale() {
+        guard let surface, lastOcclusionVisible == true else { return }
+        let pixels = convertToBacking(bounds.size)
+        let shown = presentedFrame
+        guard shown?.width != Int(pixels.width) || shown?.height != Int(pixels.height) else { return }
+        GhosttyRuntime.shared.hostFramePresenter.sizeChanged(surface, of: self)
     }
 
     private func observeWindow(_ observe: Bool) {
