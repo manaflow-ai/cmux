@@ -81,6 +81,8 @@ CASES = {
                       "import Observation\n@Observable final class Model {\n    var x = 0\n}\n"),
     "generic-class-deinit": ("@MainActor final class Once<T> {\n    var value: T?\n}\n",
                              "@MainActor final class Once<T> {\n    var value: T?\n    nonisolated deinit {}\n}\n"),
+    "raw-main-callback": ("func f() {\n    CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { print(1) }\n}\n",
+                          "func f() {\n    MainRunLoopBlock.perform { print(1) }\n}\n"),
     "row-store": ("import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n"
                   "    @Environment(SidebarStore.self) private var store\n    var body: some View { Text(title) }\n}\n",
                   "import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n    let onSelect: () -> Void\n"
@@ -166,6 +168,13 @@ class RuleTests(Fixture):
                 self.commit(f"right pattern for {rule}")
                 refusals, _ = self.check()
                 self.assertEqual([r.id for r, _ in refusals], [], f"{rule}: the right pattern was refused")
+
+    def test_the_callback_adapters_may_use_the_raw_callbacks(self):
+        self.write(f"{PKG}/Sources/CmuxNextCompat/MainRunLoopBlock.swift", CASES["raw-main-callback"][0])
+        self.write(f"{KIT}/Fade.swift", "func f() {\n    CATransaction.setCompletionBlock { print(1) }\n}\n")
+        self.commit("an adapter and a raw completion")
+        refused = [h.path for r, hits in self.check()[0] if r.id == "raw-main-callback" for h in hits]
+        self.assertEqual(refused, [f"{KIT}/Fade.swift"])
 
     def test_base_debt_and_moved_lines_never_count(self):
         self.git("mv", f"{KIT}/Old.swift", f"{KIT}/Moved.swift")
