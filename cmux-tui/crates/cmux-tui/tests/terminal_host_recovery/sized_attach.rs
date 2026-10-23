@@ -517,3 +517,151 @@ fn an_earlier_connections_lease_never_ends_a_later_drops_hold() {
     close_terminal_surface(&harness.socket, surface, 50);
     wait_for_no_host_records(&harness.host_root());
 }
+
+/// A phone view that cannot show a grid larger than its own (every phone
+/// build so far: it renders the PTY's output into its own grid, so a wider
+/// PTY overprints and cuts its rows): like `attach_sized`, with the given
+/// client capabilities.
+fn attach_phone_with_capabilities(
+    path: &Path,
+    surface: u64,
+    cols: u16,
+    rows: u16,
+    request_id: u64,
+    capabilities: &[&str],
+) -> (Box<dyn transport::Stream>, BufReader<Box<dyn transport::Stream>>) {
+    let stream = transport::connect(path).unwrap();
+    stream.set_read_timeout(Some(test_timeout(Duration::from_secs(10)))).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    stream_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": request_id + 1000, "cmd": "set-client-info", "name": "phone",
+            "kind": "ios", "device_kind": "iphone", "capabilities": capabilities,
+        }),
+    );
+    stream_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": request_id, "cmd": "attach-surface", "surface": surface,
+            "cols": cols, "rows": rows,
+        }),
+    );
+    (writer, reader)
+}
+
+/// The PTY grid stays `want` for `window` (sampled).
+fn assert_grid_stays(path: &Path, surface: u64, want: (u16, u16), window: Duration, what: &str) {
+    let started = Instant::now();
+    while started.elapsed() < window {
+        let state = request(path, serde_json::json!({"cmd": "vt-state", "surface": surface}));
+        assert_eq!(
+            (state["cols"].as_u64(), state["rows"].as_u64()),
+            (Some(u64::from(want.0)), Some(u64::from(want.1))),
+            "{what}: the grid left {want:?} after {:?}",
+            started.elapsed()
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// Under the default policy (last active) a Mac that was active last keeps
+/// the grid when a phone attaches. A phone that cannot show a larger grid
+/// (it does not list `host-grid-view-v1`, as no phone build does yet) then
+/// rendered the Mac's wider output into its own grid: a Claude Code session
+/// on the user's TestFlight phone overprinted and cut every row
+/// (2026-10-23). The PTY grid now never exceeds such a phone's own size
+/// while it is attached with one, whoever is active, and follows the Mac
+/// again once the phone leaves.
+#[test]
+fn a_phone_that_cannot_show_a_larger_grid_caps_it_under_last_active() {
+    let mut harness = RecoveryHarness::start_unstarted("sized-attach-phone-cap");
+    harness.extra_env.push(("CMUX_TUI_TEST_DEPARTED_GRID_HOLD_MS".into(), "300".into()));
+    harness.restart();
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1, "cmd": "run", "argv": ["/bin/sh", "-c", "exec /bin/cat"],
+            "new_workspace": true, "name": "phone-cap", "cols": 120, "rows": 39,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    // The default policy: no `set-size-policy`.
+    let (mut mac_writer, mut mac_reader, _) = attach_sized(&harness.socket, surface, 120, 39, 2);
+    wait_for_vt_size(&harness.socket, surface, 120, 39);
+
+    // The old phone attaches (its attach is not activity): the grid fits it.
+    let (phone_writer, phone_reader) =
+        attach_phone_with_capabilities(&harness.socket, surface, 53, 42, 3, &[]);
+    wait_for_vt_size(&harness.socket, surface, 53, 39);
+
+    // The Mac types (activity): it is last active, and the phone still sees
+    // a grid no wider than its own.
+    stream_request(
+        &mut mac_writer,
+        &mut mac_reader,
+        serde_json::json!({"id": 4, "cmd": "send", "surface": surface, "text": "x"}),
+    );
+    assert_grid_stays(
+        &harness.socket,
+        surface,
+        (53, 39),
+        Duration::from_millis(1200),
+        "the Mac's input widened the grid past the phone",
+    );
+
+    // The phone leaves: the grid is the Mac's again.
+    drop(phone_writer);
+    drop(phone_reader);
+    wait_for_vt_size(&harness.socket, surface, 120, 39);
+
+    close_terminal_surface(&harness.socket, surface, 50);
+    wait_for_no_host_records(&harness.host_root());
+}
+
+/// A phone that lists `host-grid-view-v1` shows a larger grid itself
+/// (letterbox or pan): it is not capped, and under last active the Mac that
+/// was active keeps its grid when the phone only attaches.
+#[test]
+fn a_phone_that_shows_a_larger_grid_does_not_cap_it() {
+    let mut harness = RecoveryHarness::start_unstarted("sized-attach-phone-host-grid");
+    harness.restart();
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1, "cmd": "run", "argv": ["/bin/sh", "-c", "exec /bin/cat"],
+            "new_workspace": true, "name": "phone-host-grid", "cols": 120, "rows": 39,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let identify = request(&harness.socket, serde_json::json!({"cmd": "identify"}));
+    assert!(
+        identify["capabilities"]
+            .as_array()
+            .is_some_and(|list| list.iter().any(|capability| capability == "host-grid-view-v1")),
+        "identify lists no host-grid-view-v1: {identify}"
+    );
+    let (_mac_writer, _mac_reader, _) = attach_sized(&harness.socket, surface, 120, 39, 2);
+    wait_for_vt_size(&harness.socket, surface, 120, 39);
+    let (_phone_writer, _phone_reader) = attach_phone_with_capabilities(
+        &harness.socket,
+        surface,
+        53,
+        42,
+        3,
+        &["host-grid-view-v1"],
+    );
+    assert_grid_stays(
+        &harness.socket,
+        surface,
+        (120, 39),
+        Duration::from_millis(1200),
+        "a phone that shows larger grids took the grid by attaching",
+    );
+
+    close_terminal_surface(&harness.socket, surface, 50);
+    wait_for_no_host_records(&harness.host_root());
+}
