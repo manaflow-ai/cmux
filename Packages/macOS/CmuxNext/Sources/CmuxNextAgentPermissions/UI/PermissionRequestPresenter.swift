@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+public import CmuxNextDesign
 
 /// Shows the permission card while a request waits: follows
 /// ``AgentPermissionRequests`` and draws its ``AgentPermissionRequests/current``
@@ -14,7 +15,8 @@ public final class PermissionRequestPresenter {
         actions: .init(deny: { [weak self] in self?.requests.denyCurrent() },
                        proceed: { [weak self] in self?.requests.continueCurrent() },
                        close: { [weak self] in self?.closeGuide() }),
-        appURL: appURL))
+        appURL: appURL), theme: theme)
+    private let theme: ThemeScope
     private let appURL: (PermissionKind) -> URL?
     private var following: Task<Void, Never>?
     /// The guide the person closed: the request still waits for its grant, the card stays hidden.
@@ -23,10 +25,12 @@ public final class PermissionRequestPresenter {
     /// - Parameters:
     ///   - requests: the request store.
     ///   - appURL: the app that gets a grant (cmux, or the Computer Use helper).
+    ///   - theme: the scope the card draws in (the app's root: it belongs to no room).
     ///   - screen: the screen to show the card on (cmux's key window's).
-    public init(requests: AgentPermissionRequests, appURL: @escaping (PermissionKind) -> URL?,
+    public init(requests: AgentPermissionRequests, appURL: @escaping (PermissionKind) -> URL?, theme: ThemeScope,
                 screen: @escaping () -> NSScreen? = { NSApp.keyWindow?.screen ?? NSScreen.main }) {
         self.requests = requests
+        self.theme = theme
         self.appURL = appURL
         self.screen = screen
     }

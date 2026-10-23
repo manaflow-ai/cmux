@@ -124,7 +124,7 @@ final class ThemeCoordinator {
             var input = $0.input
             input.accent = store.accent
             // Art Color: pages take the app's art hue (a workspace's own art tints its chrome only).
-            if store.accentFollowsArt, let hue = ThemeScope.app.backdropArt?.accentHue { input.accentColor = hue }
+            if store.accentFollowsArt, let hue = services.themeRoot.backdropArt?.accentHue { input.accentColor = hue }
             return AppTheme.derive(from: input)
         })
     }
@@ -144,11 +144,12 @@ final class ThemeCoordinator {
         // change in them re-derives (and re-applies the surfaces).
         var fileAccents: [String: ThemeRGB] = [:]
         catalog.onRead = { [weak self] in
+            guard let self else { return }
             let read = catalog.colors.compactMapValues(\.accent)
             guard read != fileAccents else { return }
             fileAccents = read
-            ThemeBridge.refresh(store: self?.services.themeStore ?? ThemeScope.app.store)
-            self?.resolver.changed()
+            ThemeBridge.refresh(store: services.themeStore)
+            resolver.changed()
         }
         catalog.load()
         // Other sources (layout templates) keep the lists their owners installed.

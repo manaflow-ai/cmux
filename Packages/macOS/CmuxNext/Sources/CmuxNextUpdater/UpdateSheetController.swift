@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextCompat
-import CmuxNextDesign
+public import CmuxNextDesign
 import Observation
 import SwiftUI
 
@@ -14,9 +14,14 @@ public final class UpdateSheetController {
     private var panel: UpdateSheetPanel?
     private var hosting: NSHostingView<UpdateSheetView>?
     private var watch: Task<Void, Never>?
+    private let theme: ThemeStore
 
-    public init(source: any UpdateSheetSource) {
+    /// - Parameters:
+    ///   - source: What the sheet shows.
+    ///   - theme: The app's theme store (`AppServices.themeStore`): the sheet belongs to no room.
+    public init(source: any UpdateSheetSource, theme: ThemeStore) {
         self.source = source
+        self.theme = theme
     }
 
     public var isPresented: Bool { panel != nil }
@@ -27,7 +32,7 @@ public final class UpdateSheetController {
         guard panel == nil else { return }
         let panel = UpdateSheetPanel(contentRect: NSRect(x: 0, y: 0, width: 1, height: 1), styleMask: [.borderless],
                                      backing: .buffered, defer: true)
-        ThemeScope.app.store.adopt(panel)
+        theme.adopt(panel)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true

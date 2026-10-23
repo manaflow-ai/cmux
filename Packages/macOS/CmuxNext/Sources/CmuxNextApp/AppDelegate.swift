@@ -86,13 +86,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TerminalThemeSetting.prime(settingsRead.snapshot)
         DebugTimings.markLaunch("dfl.settings_read")
         // Chrome colors derive from the Ghostty theme; load it before any window.
-        ThemeBridge.start(store: ThemeScope.app.store)
+        // The composition root's one read of the ambient theme root; everything below gets it injected.
+        let themeRoot = ThemeScope.app  // theme-root-allow: the composition root; Palette still falls back to it
+        ThemeBridge.start(store: themeRoot.store)
+        DesignSettings.shared.repaintAll = { [store = themeRoot.store] in store.repaintAll() }
         // The diff page's files live in the app bundle (markdown-viewer/webviews-app).
         PageDescriptor.registerDiffRoot()
         PageDescriptor.registerFilePageRoots()
         PageDescriptor.registerAgentActivityRoot()
         DebugTimings.markLaunch("dfl.theme")
-        let services = AppServices(environment: environment)
+        let services = AppServices(environment: environment, themeRoot: themeRoot)
         AppProcessRoot.shared.adopt(services)
         self.services = services
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.

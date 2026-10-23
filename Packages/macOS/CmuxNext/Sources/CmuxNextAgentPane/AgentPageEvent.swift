@@ -21,8 +21,9 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
     public var data: JSONValue { ["kind": .string(kind), "value": value] }
 
     /// The shared web theme for `surface` (`web`, `--cmux-*`) and the pane's own values (`agent`).
-    @MainActor public static func theme(_ tokens: ThemeTokens, surface: SurfaceKind) -> AgentPageEvent? {
-        guard let web = try? JSONValue.parse(Data(AgentPaneTheme.webTheme(tokens, surface: surface).payloadJSON.utf8)),
+    /// - Parameter store: The pane's scope's theme store (`themeScope.store`).
+    @MainActor public static func theme(_ tokens: ThemeTokens, surface: SurfaceKind, store: ThemeStore?) -> AgentPageEvent? {
+        guard let web = try? JSONValue.parse(Data(AgentPaneTheme.webTheme(tokens, surface: surface, store: store).payloadJSON.utf8)),
               let agent = JSONValue(foundation: AgentPaneTheme.values(tokens, surface: surface)) else { return nil }
         return AgentPageEvent(kind: "theme", value: ["web": web, "agent": agent])
     }

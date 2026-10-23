@@ -219,7 +219,7 @@ public final class WindowMaterialView: NSView {
         // fading out keeps its color until it is gone.
         if let wash, layer.backgroundColor != wash {
             if layer.backgroundColor != nil, showing, window?.isVisible == true {
-                ColorTransition.current.animate(layer, to: wash)
+                ColorTransition.current(for: themeScope.store).animate(layer, to: wash)
             } else {
                 layer.removeAnimation(forKey: ColorTransition.layerKey)
                 layer.backgroundColor = wash
@@ -330,7 +330,7 @@ public final class WindowMaterialView: NSView {
         if let layer = tintView.layer, layer.backgroundColor != tint {
             // The tint over the desktop blends like the opaque sheet (appearance.colorTransition).
             if tint != nil, layer.backgroundColor != nil, window?.isVisible == true {
-                ColorTransition.current.animate(layer, to: tint)
+                ColorTransition.current(for: themeScope.store).animate(layer, to: tint)
             } else {
                 layer.removeAnimation(forKey: ColorTransition.layerKey)
                 layer.backgroundColor = tint
