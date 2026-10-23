@@ -130,6 +130,10 @@ public protocol TerminalSession: AnyObject {
     func stop()
     /// Rows of the remote screen this session mirrors (nil: a local session).
     var remoteRows: Int? { get }
+    /// Columns of the remote screen (the Mac's PTY grid; nil: a local
+    /// session, or not known yet). When they are not the phone's own, the
+    /// screen renders them exactly and pans (`TerminalHostGridLayout`).
+    var remoteColumns: Int? { get }
     /// Whether the session shows the Mac's terminal now. Read once when the
     /// screen is built; changes arrive as ``TerminalSessionEvent/connection(_:)``.
     var connectionState: TerminalConnectionState { get }
@@ -149,6 +153,8 @@ extension TerminalSession {
     /// (a terminal on the Mac). The screen then maps the remote primary
     /// screen onto the bottom of its taller surface (``TerminalRowShift``).
     public var remoteRows: Int? { nil }
+
+    public var remoteColumns: Int? { nil }
 
     /// Sessions that do not report a connection are always attached.
     public var connectionState: TerminalConnectionState { .attached }

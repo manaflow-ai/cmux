@@ -46,6 +46,9 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The Mac terminal's rows (`vt-state`, `resized`), else the size asked for.
     public var remoteRows: Int? { reportedRows ?? lastSize?.rows ?? 24 }
     private var reportedRows: Int?
+    /// The Mac terminal's columns (`vt-state`, `resized`); nil before the
+    /// first attach. The screen renders this grid when it is not the phone's.
+    public var remoteColumns: Int? { reportedColumns }
     /// The last attach or send failure (shown nowhere yet; logged).
     public private(set) var lastError: String?
 
@@ -432,7 +435,9 @@ public final class DaemonTerminalSession: TerminalSession {
             sizeClaimed = false
             // One write: the client info (it opts into the size lease) and identify.
             var info: [String: Any] = clientInfo
-            info["capabilities"] = [Self.sizeLeaseCapability]
+            // `host-grid-view-v1`: this phone renders a Mac grid larger than its
+            // own (pans, letterboxes), so the daemon need not cap the PTY at it.
+            info["capabilities"] = [Self.sizeLeaseCapability, Self.hostGridViewCapability]
             let setup = await client.requests(
                 [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
             )
@@ -824,6 +829,7 @@ public final class DaemonTerminalSession: TerminalSession {
 
     /// Listed in `set-client-info` and by the daemon in `identify`.
     static let sizeLeaseCapability = "size-lease-v1"
+    static let hostGridViewCapability = "host-grid-view-v1"
 
     /// While the size is claimed and the daemon leases it: the same size
     /// again every `sizeLeaseRefresh` (a same-size `resize-surface` renews
