@@ -67,7 +67,7 @@ final class PageScriptPipeline {
             for waiter in waiters { waiter.resume() }
         }
 
-        fileprivate func opened() async {
+    func opened() async {
             guard !isOpen else { return }
             await withCheckedContinuation { openWaiters.append($0) }
         }
