@@ -262,6 +262,24 @@ class PrePushGateTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, output)
         self.assertIn("sidebar: move the title", output)
 
+    def test_a_sidebar_change_the_owner_logged_passes_in_the_ci_sweep(self):
+        # dcd4316ef5c (2026-10-23) reached the branch from an old hook copy; the owner logs it once.
+        self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let flash = true\n}\n")
+        self.commit("scrollers: flash on enter")
+        first = self.git("rev-parse", "HEAD").stdout.strip()
+        base = self.git("rev-parse", "HEAD^").stdout.strip()
+        gate = self.repo / "scripts/cmux-next/prepush-gate.py"
+        sweep = lambda: subprocess.run(["python3", "-I", str(gate), "--only", "sidebar", "--commits", f"{base}..HEAD"],
+                                       cwd=self.repo, env=self.env, text=True, capture_output=True)
+        unlogged = sweep()
+        self.assertNotEqual(unlogged.returncode, 0, unlogged.stdout + unlogged.stderr)
+        self.write("plans/cmux-next/sidebar-owner.md", f"# owner\n- {first[:11]} scrollers (a595), no look change\n")
+        self.commit("plans: log the scroller commit")
+
+        logged = sweep()
+
+        self.assertEqual(logged.returncode, 0, logged.stdout + logged.stderr)
+
     def test_a_fixture_that_mentions_one_marker_passes(self):
         self.write("docs/merging.md", "Git writes a line such as\n<<<<<<< HEAD\nat the top of a hunk.\n")
         self.commit("docs mention a marker")

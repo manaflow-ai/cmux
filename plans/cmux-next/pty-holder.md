@@ -101,6 +101,27 @@ The holder binary is distributed content-addressed (as `host-exe` does
 today); a cmux update that does not change the holder reuses the same file,
 and old holders keep running their own copy, pinned by its lock.
 
+Built (terminals, holder item 2, 2026-10-23): crate `cmux-holder`, bin
+`cmux-holder`, std and libc only, about 3.6k lines with its unit tests. It ships as
+`Contents/Resources/bin/cmux-holder` beside `bin/cmux` (artifact
+`cmux-tui-holder-<target>`, built in its own cargo invocation, signed like
+every helper by `sign-cmux-bundle-helpers.sh`, notices mapped). The daemon
+starts every holder from a verified content-addressed copy of it under
+`~/Library/Application Support/cmux-tui/host-exe/<sha256>/cmux-holder`
+(`host_exe::holder_executable`), named by the holder's own hash; the binary
+carries no build identity, so a build whose holder code did not change reuses
+the copy. `cmux-holder --version` prints `cmux-holder wire MIN-MAX`; a daemon
+starts only a holder whose range it speaks, else the holder built into
+`cmux-tui-host` (`__holder`). A running holder holds its copy's
+`in-use.lock` shared for its whole life. An update keeps every holder: the
+socket is derived from the session's host root, which an update keeps, and
+the new daemon adopts the running (older) holder by the lower wire version
+(test: `holder_terminals.rs`
+`a_new_daemon_adopts_an_older_holder_by_its_wire_version` against the
+frozen version 3 fixture `cmux-holder-v3`). The terminal wire is
+`magic "CMHX"` (terminal-host-model-DESIGN.md section 4), versions 1-4; the
+`CMHL` v1 below is the earlier draft and is superseded for terminals.
+
 ### 2.1 Holder wire protocol v1 (frozen)
 
 Full spec (frame layouts, kind values, error codes, corpus):

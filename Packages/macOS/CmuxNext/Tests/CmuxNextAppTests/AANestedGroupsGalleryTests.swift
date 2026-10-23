@@ -35,7 +35,7 @@ import Testing
         root.wantsLayer = true
         root.appearance = window.appearance
         window.contentView = root
-        _ = ThemeStore.shared.apply(try input(theme))
+        _ = ThemeScope.app.store.apply(try input(theme))
         let scope = ThemeScope(level: .room)
         scope.setOverride(ThemeSpec(theme), input: try input(theme), animated: false)
         scope.root(root)
@@ -54,17 +54,14 @@ import Testing
             let press = SidebarPress(key: row.key, point: NSPoint(x: frame.minX + 40, y: frame.midY))
             list.press = press
             list.beginDrag(press)
+            // The drag held where the scenario names, as a pointer there holds it (the gap or a header's fill).
+            list.holdNestedFixtureDrop(fixture)
             // The card under the pointer, over the drop the scenario names.
             if let lift = list.subviews.first(where: { $0 is DragLiftView }) {
-                // Beside the drop, never over the label it points at: below the line, right of the names.
+                // Beside the drop, never over the label it points at: right of the names.
                 lift.frame.origin.y = (list.nestedDropY(fixture) ?? frame.minY) + lift.frame.height * 0.35
                 lift.frame.origin.x += 70
             }
-        }
-        switch fixture.drop {
-        case let .into(group)?: list.showNestedDrop(list.nestedDropMark(into: group))
-        case let .after(workspace, level)?: list.showNestedDrop(list.nestedDropMark(beside: .workspace(workspace), after: true, level: level))
-        case nil: break
         }
         root.layoutSubtreeIfNeeded()
         for view in Self.all(root) { view.needsDisplay = true; view.displayIfNeeded() }

@@ -5,7 +5,6 @@
 
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
-use std::sync::mpsc::sync_channel;
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::Duration;
 
@@ -28,6 +27,9 @@ pub(crate) struct LocalLaunch {
     pub command: Vec<String>,
     pub cwd: Option<String>,
     pub supports_clear_history_key_fallback: bool,
+    /// The holder terminal this launch runs on, if any (`holder_runtime`).
+    #[cfg(unix)]
+    pub holder: Option<Arc<crate::holder_runtime::HolderTerminal>>,
 }
 
 /// The surface-side inputs of [`Surface::spawn_local`].
@@ -42,6 +44,8 @@ pub(crate) struct LocalSpawn {
     pub lifetime: PtyLifetime,
     pub cell_pixels: (u16, u16),
     pub initial_geometry: PtyGeometry,
+    /// The registry identity a holder terminal carries; `None` otherwise.
+    pub host_identity: Option<crate::terminal_host_runtime::TerminalHostIdentity>,
 }
 
 impl Surface {
@@ -62,6 +66,7 @@ impl Surface {
             lifetime,
             cell_pixels,
             initial_geometry,
+            host_identity,
         } = spawn;
         let LocalLaunch {
             master,
@@ -73,7 +78,14 @@ impl Surface {
             command: argv,
             cwd,
             supports_clear_history_key_fallback,
+            #[cfg(unix)]
+            holder,
         } = launch;
+        // A holder terminal's reader confirms each chunk it parsed under the
+        // terminal lock, so a hand-off to a new holder after a holder crash
+        // reads the screen and what is still unparsed at one instant.
+        #[cfg(unix)]
+        let parsed_sink = holder.as_ref().map(|terminal| terminal.sink.clone());
         // Query responses generated while parsing pty output are queued
         // here and flushed to the pty after each vt_write (the callback
         // runs under the terminal lock; writing to the pty from inside it
@@ -114,7 +126,7 @@ impl Surface {
         let mut mouse_encoders = MouseEncoders::new()?;
         mouse_encoders.sync_from_terminal(&term);
         let render_state = RenderState::new()?;
-        let (frame_requests, frame_rx) = sync_channel(1);
+        let frame_requests = frame_producer::FrameRequests::new();
         #[cfg(test)]
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
         let surface = Arc::new(Surface::Pty(PtySurface {
@@ -154,13 +166,19 @@ impl Surface {
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",
-                    PtyRuntime::Local { writer, master: Some(master), killer },
+                    PtyRuntime::Local {
+                        writer,
+                        master: Some(master),
+                        killer,
+                        #[cfg(unix)]
+                        holder,
+                    },
                 ),
                 lifetime,
                 supports_clear_history_key_fallback: AtomicBool::new(
                     supports_clear_history_key_fallback,
                 ),
-                host_identity: None,
+                host_identity,
                 #[cfg(any(unix, windows))]
                 pending_host_binding: Mutex::new(None),
                 #[cfg(any(unix, windows))]
@@ -236,7 +254,7 @@ impl Surface {
             surface.kill();
             return Err(error);
         }
-        spawn_frame_producer(&surface, frame_rx)?;
+        spawn_frame_producer(&surface)?;
 
         // PTY reader: pty bytes -> terminal state -> SurfaceOutput events.
         let reader_thread =
@@ -309,6 +327,10 @@ impl Surface {
                                 &buf[..n],
                                 &mut shell_marks,
                             );
+                            #[cfg(unix)]
+                            if let Some(sink) = parsed_sink.as_ref() {
+                                sink.confirm_parsed();
+                            }
                             terminal_notifications = pty.observe_terminal_output(&buf[..n]);
                             finished_commands = pty.observe_shell_marks(&mut term, || {
                                 mux.upgrade()
@@ -495,6 +517,8 @@ impl Surface {
             command,
             cwd: None,
             supports_clear_history_key_fallback: false,
+            #[cfg(unix)]
+            holder: None,
         };
         let spawn = LocalSpawn {
             id,
@@ -507,6 +531,7 @@ impl Surface {
             lifetime: PtyLifetime::DaemonOwned,
             cell_pixels,
             initial_geometry,
+            host_identity: None,
         };
         Self::spawn_local(spawn, launch)
     }

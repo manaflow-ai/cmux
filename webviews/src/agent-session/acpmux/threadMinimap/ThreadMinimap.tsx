@@ -3,12 +3,11 @@
 // like the Dock and, after the app's hover delay (ui/hoverIntent.ts), opens a preview card (the prompt, its bookmark and
 // the start of the reply) beside the hovered row. A click scrolls the transcript so the prompt
 // lands near the top and flashes its bubble; dragging scrubs; Tab walks the rows. Bookmarks show
-// as a dot past the tick, and clicking the dot's spot toggles one. Geometry comes from the
+// as a dot past the tick, and the row's right spot toggles one. Geometry comes from the
 // transcript's layout (`tops`), so nothing here measures a transcript row; the rail reads only its
 // own list (during a scrub) and the card's height. Motion is transform only (threadMinimap.css);
 // the numbers are in model.ts.
 import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { flushSync } from "react-dom";
 import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
 import { MinimapTick } from "../../../ui/MinimapTick";
@@ -19,6 +18,7 @@ import { animateScroll, highlightBubble, reducedMotion, settleScroll, stopScroll
 import { PreviewCard } from "./PreviewCard";
 import { ScrollMap } from "./ScrollMap";
 import { threadMinimapLayout } from "./layout.experiment";
+import { LIT_OPACITY, threadMinimapLit } from "./lit.experiment";
 import { experimentArm } from "../../../experiments/experiment";
 import {
   CARD_DELAY,
@@ -121,6 +121,8 @@ export function ThreadMinimap({
   /// The compact Codex rail below (the wave, the default), the full-height map (ScrollMap.tsx), or
   /// none (`off`: the turn steps below still run), read once per pane.
   const [arm] = useState(() => experimentArm(threadMinimapLayout));
+  /// How bright the prompts on screen draw (lit.experiment.ts), read once per pane.
+  const [lit] = useState(() => LIT_OPACITY[experimentArm(threadMinimapLit)]);
   const full = arm === "full";
   const marks = usePromptMarks(sessionId);
   /// The turns of the last commit: the next render reads from them and leaves them as they are, so
@@ -226,7 +228,7 @@ export function ThreadMinimap({
       // The full-height map moves its own bar; no band to draw here.
       if (!live.current.shown) return;
       const next = visibleTurns(all, tops, total, node.scrollTop, height);
-      if (next.first !== drawn.first || next.last !== drawn.last) flushSync(() => setBandMoves((count) => count + 1));
+      if (next.first !== drawn.first || next.last !== drawn.last) setBandMoves((count) => count + 1);
     };
     // Captured, so it runs before the transcript's own scroll handler and that one's render finds the
     // band already drawn.
@@ -474,6 +476,19 @@ export function ThreadMinimap({
     followPointer(node);
   }, [onScreen.first, onScreen.last, turns.length, overflow, height, scrubbing, followPointer]);
 
+  // The previewed prompt stays lit while the pointer is on its card, as ChatGPT's rail does.
+  const active = hovered ?? focused ?? (showCard ? cardRow : undefined);
+  /// The band glides only when the scroll moves it (threadMinimap.css): a commit that changes the
+  /// active row, the hover or the scrub (the pointer leaving the rail, a key focusing a tick) marks
+  /// the rail `data-snap`, so the rows it changes switch at once. The rail's next render that changes
+  /// none of these (the scroll's next band move) drops the mark, and its rows glide.
+  const pose = `${active ?? ""}|${hovered !== undefined}|${scrubbing}`;
+  const committedPose = useRef(pose);
+  const snap = pose !== committedPose.current;
+  useLayoutEffect(() => {
+    committedPose.current = pose;
+  });
+
   /// The rows' actions: stable for the memoized rows, reading the latest state through `live`.
   const actions = useMemo<TickActions>(
     () => ({
@@ -560,8 +575,6 @@ export function ThreadMinimap({
   };
   const railTop = railTopAt(height, viewportHeight, foot);
   const fades = railFades(onScreen, turns.length, height, listTop);
-  // The previewed prompt stays lit while the pointer is on its card, as ChatGPT's rail does.
-  const active = hovered ?? focused ?? (showCard ? cardRow : undefined);
   const cardMarked = cardTurn ? marks.has(cardTurn) : false;
   const cardTop =
     cardRow === undefined
@@ -573,10 +586,19 @@ export function ThreadMinimap({
         ref={rail}
         className="acpmux-minimap__rail"
         aria-label={t("minimap.label")}
-        style={{ left: RAIL_LEFT, top: railTop, width: ROW_WIDTH, height }}
+        style={
+          {
+            left: RAIL_LEFT,
+            top: railTop,
+            width: ROW_WIDTH,
+            height,
+            "--acpmux-minimap-lit": lit,
+          } as React.CSSProperties
+        }
         data-hovering={hovered !== undefined || undefined}
         data-scrubbing={scrubbing || undefined}
         data-reduce={reduce || undefined}
+        data-snap={snap || undefined}
         onPointerLeave={(event) => {
           if (scrub.current?.moved) return;
           pointerY.current = undefined;
@@ -751,7 +773,7 @@ type TickActions = {
   click(index: number, target: EventTarget): void;
 };
 
-/// One prompt's row: a 10 px by 36 px button with its tick and, past the tick, the bookmark dot.
+/// One prompt's row: a 10 px by 36 px button with its tick and, when marked, the bookmark dot.
 const Tick = memo(function Tick({
   index,
   last,
@@ -811,7 +833,7 @@ const Tick = memo(function Tick({
       }}
     >
       <span className="acpmux-minimap__bar" style={{ transform: `scaleX(${length / TICK_BOX})` }} />
-      <span className="acpmux-minimap__dot" style={{ transform: `translateX(${length}px)` }} />
+      {marked && <span className="acpmux-minimap__dot" style={{ transform: `translateX(${length}px)` }} />}
       <span className="acpmux-minimap__dot-hit" data-dot-hit="" />
     </MinimapTick>
   );

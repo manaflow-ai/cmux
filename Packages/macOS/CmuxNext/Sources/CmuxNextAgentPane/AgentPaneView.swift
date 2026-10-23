@@ -80,8 +80,8 @@ public final class AgentPaneView: NSView {
     public var zoom: Double = 1 {
         didSet { guard zoom != oldValue else { return }; applyZoom() }
     }
-    private var reduceMotionObserver: (any NSObjectProtocol)?
-    private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
+    private var reduceMotionObserver: MainActorObservation?
+    private var reduceMotionOverrideObserver: MainActorObservation?
     /// Records the user's real key and mouse events in this pane (``AgentPaneUserGestures``).
     private var gestureMonitor: Any?
     var transportPacer: AgentPaneFramePacer?
@@ -259,13 +259,11 @@ public final class AgentPaneView: NSView {
             }
         }
         // Reduce Motion is not observable through Observation.
-        reduceMotionObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.applyTheme() } // main-proof: observer on queue: .main
+        reduceMotionObserver = MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
+            self?.applyTheme()
         }
-        reduceMotionOverrideObserver = NotificationCenter.default.addObserver(
-            forName: Motion.reduceMotionDidChange, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.applyTheme() } // main-proof: observer on queue: .main
+        reduceMotionOverrideObserver = MainActorObservation(Motion.reduceMotionDidChange) { [weak self] in
+            self?.applyTheme()
         }
     }
 
@@ -346,9 +344,8 @@ public final class AgentPaneView: NSView {
         motionObservation?.cancel()
         motionObservation = nil
         sessionStatusObservation?.cancel()
-        if let reduceMotionObserver { NSWorkspace.shared.notificationCenter.removeObserver(reduceMotionObserver) }
-        if let reduceMotionOverrideObserver { NotificationCenter.default.removeObserver(reduceMotionOverrideObserver) }
-        (reduceMotionObserver, reduceMotionOverrideObserver) = (nil, nil)
+        reduceMotionObserver = nil
+        reduceMotionOverrideObserver = nil
         dictation.close()
         model.shell.terminateAll()
         if let gestureMonitor { NSEvent.removeMonitor(gestureMonitor) }

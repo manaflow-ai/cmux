@@ -227,6 +227,8 @@ impl Mux {
         // (cx-b4sjc); unit tests start no daemon and install nothing.
         #[cfg(all(unix, not(test)))]
         crate::host_exe::prepare_in_background();
+        #[cfg(all(unix, not(test)))]
+        crate::holder_runtime::prepare_in_background();
     }
 
     pub fn server_lifecycle_ready(&self) -> bool {

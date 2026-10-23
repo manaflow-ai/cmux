@@ -53,7 +53,21 @@ extension LiveCoordinator {
             guard let self, let session else { return }
             self.apply(tree, session: session)
         }
-        session.workspaces.onNotification = { [weak session] in session?.terminalFeed.notificationPosted() }
+        session.terminalFeed.send = { [weak session] surface, text, expectForeground, agentSession, connection in
+            guard let agentSession else { throw LinkError(code: "no-session", message: "The agent session is not known") }
+            // A Feed reply into a terminal agent: this connection's channel only, pasted and
+            // submitted in one write, only while that program is still the terminal's foreground
+            // one and its agent waits at its prompt in that session (the daemon checks both).
+            guard let session, session.workspaces.connectionSerial == connection, let client = session.workspaces.daemon else {
+                throw LinkError(code: "no-link", message: "Not connected to the Mac")
+            }
+            let expectAgent: [String: Any] = ["session": agentSession]
+            return try await client.request("send", params: [
+                "surface": surface, "text": text, "paste": true, "submit": true,
+                "expect_foreground": expectForeground, "expect_agent": expectAgent,
+            ])
+        }
+        session.workspaces.onNotification = { [weak session] post in session?.terminalFeed.notificationPosted(post) }
         session.acpmux.onWatchEvent = { [weak session] event in
             guard let session else { return }
             session.feed.handle(event, sessions: session.acpmux.sessions)
@@ -79,6 +93,11 @@ extension LiveCoordinator {
     /// The session for a Mac id, when it has one.
     func session(macID: String?) -> MacSession? {
         macID.flatMap { sessions[$0] }
+    }
+
+    /// The terminal agents' Feed of the Mac `macID` (a Feed item's own Mac; never another's).
+    public func terminalFeed(macID: String?) -> TerminalFeed? {
+        session(macID: macID)?.terminalFeed
     }
 
     /// The session of the Mac that shows `tabID`: `macID` when given, else the
@@ -590,6 +609,10 @@ extension LiveCoordinator {
         // Try Again on Chief's unavailable bar opens the channel again on this link.
         session.reconnect = { [weak self] in self?.retryChief() }
         session.macName = owner.name
+        // A file a Chief message links to previews from this Mac (absolute paths only).
+        session.fileSource = LinkFileArtifactSource(macName: owner.name, baseDirectory: nil) { [weak owner] in
+            await owner?.servedLink
+        }
         // Chief's settings show this Mac's last known model until it answers.
         session.macID = owner.macID
         // A newer link (or another focused Mac) took over while this one was opening: leave it be.

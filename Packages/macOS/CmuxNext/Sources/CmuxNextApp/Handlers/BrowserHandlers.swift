@@ -56,8 +56,15 @@ enum BrowserHandlers {
         })
         // Classic's Design Mode (plans/cmux-next/design-mode-DESIGN.md): highlights become cards in
         // an agent chat. The toolbar shows the mode (BrowserPageModes); a new document starts with it off.
-        registry.bind("toggleBrowserDesignMode", run: { invocation in
+        registry.bind("toggleBrowserDesignMode", unavailable: {
+            let alreadyOn = context.services.cache.browsers.values.contains { $0.chrome.toolbarButtons.modes.designMode }
+            return BrowserPageTunables.uiPointer.value || alreadyOn ? nil :
+                "UI pointer picker is off. Turn it on in Debug Settings > Browser Page Loading."
+        }, run: { invocation in
             let entry = try context.page(invocation)
+            guard BrowserPageTunables.uiPointer.value || entry.chrome.toolbarButtons.modes.designMode else {
+                throw ActionFailure(message: "UI pointer picker is off. Turn it on in Debug Settings > Browser Page Loading.")
+            }
             guard let key = context.services.cache.key(of: entry.tab) else { return }
             context.services.designMode.toggle(entry, key: key)
         })
@@ -130,7 +137,7 @@ enum BrowserHandlers {
     /// new split in one daemon `split {tab}` call.
     private static func bindSplits(into registry: ActionRegistry, context: AppActionContext) {
         for (id, direction) in [("splitBrowserRight", SplitDirection.right), ("splitBrowserDown", .down)] {
-            registry.bind(ActionID(rawValue: id), requires: DaemonCapabilities.shared.frontendBrowserTabs, daemon: context.daemon, run: { invocation in
+            registry.bind(ActionID(rawValue: id), requires: DaemonCapabilities.frontendBrowserTabs, daemon: context.daemon, run: { invocation in
                 try splitBrowser(from: try context.pane(invocation), direction: direction, byPerson: invocation.origin == .user,
                                  context: context)
             })

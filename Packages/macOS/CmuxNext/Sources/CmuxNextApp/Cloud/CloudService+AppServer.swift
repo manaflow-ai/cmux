@@ -1,7 +1,6 @@
 import AppKit
 import CmuxNextCloud
 import CmuxNextDaemon
-import CmuxNextHomeEngine
 import CmuxNextSidebar
 import Foundation
 
@@ -31,7 +30,7 @@ extension CloudService {
         let ops = appOps
         // The team the relay's create bills: the install token's team claim,
         // captured now, when the person starts or confirms this create.
-        let team = Self.team(ofToken: try await installIdentity.installToken()) ?? ""
+        let team = MacInstallIdentity.team(ofToken: try await installIdentity.installToken()) ?? ""
         let flow = CloudMachineCreateFlow(
             run: { op, args, key, origin in
                 await onSent()
@@ -50,11 +49,6 @@ extension CloudService {
         guard let machine = CloudMachine(next: record) else { throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.machine.create answered no machine") }
         return machine
     }
-
-    /// The `team` claim of an install token (the owner's own token over
-    /// TLS; read for consistency, never trusted as a credential). Nil when
-    /// the token is not a JWT with a team.
-    nonisolated static func team(ofToken token: String) -> String? { HomeCloudLease.team(ofJWT: token) }
 
     /// POSTs to the API Worker as the signed-in person (Stack session), the
     /// way the feed does; used only to answer a G8 approval after the

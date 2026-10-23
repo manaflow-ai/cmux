@@ -36,6 +36,7 @@ import {
   canonicalAddress,
   defaultSelection,
   isAddress,
+  pairingLinkRefused,
   inlineCompletion,
   needsYouCards,
   recentChatCards,
@@ -48,8 +49,8 @@ import {
 } from "./screenModel";
 import { RowGlyph } from "./RowGlyph";
 import { WidgetCards } from "./WidgetCards";
+import { NewTabHeadline } from "./NewTabHeadline";
 import {
-  greetingKey,
   shownMovable,
   shownPageWidgets,
   type MovableWidget,
@@ -60,6 +61,8 @@ import {
 import { useWidgetEditing, WidgetEditBar, WidgetFrame } from "./WidgetEditing";
 import { useNoEntryMotion } from "./noEntryMotion";
 import { ContextMenu } from "../../../ui/ContextMenu";
+import { AmbientWidgets } from "./AmbientWidgets";
+import type { NewTabWeather } from "./ambient";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
 import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
@@ -79,6 +82,8 @@ import { useRowFit } from "../composerRowFit";
 import { useMenuPressGuard } from "../menuPressGuard";
 import { useMinuteClock } from "../clock";
 import { usePasteAnywhere } from "../composer/pasteAnywhere";
+import { SlashMenu } from "../SlashMenu";
+import { applyCommand, matchCommands, slashQuery, type SlashCommand } from "../slashCommands";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
@@ -175,6 +180,8 @@ type Props = NewTabScreenActions & {
   /// The host's folder panel; resolves with the folder picked, if any.
   onBrowseProject?(): Promise<string | undefined>;
   chips?: NewTabChips;
+  /// Lazily load the chosen harness's actual commands in a deferred chat.
+  onCommands?(harness: string, cwd?: string): void;
   /// false: the field does not take the keyboard when the screen appears (Cmd-L gave it to the
   /// omnibar); Cmd-L on the page still focuses it when the page shows no omnibar.
   focusField?: boolean;
@@ -183,13 +190,19 @@ type Props = NewTabScreenActions & {
   /// The widget view (Debug Settings `newTab.widgets`): the Projects and Needs you cards.
   widgets?: boolean;
   /// The page's widgets (`tabs.newTabWidgets.*`, pageWidgets.ts): on Minimal, without them the page
-  /// is the greeting and the composer. Unset shows the template's own (shownPageWidgets).
+  /// is the composer alone. Unset shows the template's own (shownPageWidgets).
   pageWidgets?: PageWidgets;
+  /// true: `tabs.newTabWidgets.greeting` is set to false (not the default): with the headline off,
+  /// Minimal keeps no room for it, so the composer sits where it sat with the greeting off.
+  headlineOff?: boolean;
   /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the recent chats show where
   /// the template would list All chats.
   allChats?: boolean;
   /// Minimal's edit mode saved an edit (WidgetEditing.tsx); unset, the page has no edit mode.
   onEditWidgets?(edit: WidgetEdit): void;
+  /// The weather widget's last reading (the handshake's `weather`, ambient.ts); drawn while the
+  /// `weather` widget is on.
+  weather?: NewTabWeather;
   /// Buttons before Send, such as the dictation mic (DictationMic).
   accessory?: React.ReactNode;
   /// Why dictation did not run (DictationNotice), under the field.
@@ -231,21 +244,24 @@ export function NewTabScreen(props: Props) {
   const widgets = props.pageWidgets ?? shownPageWidgets(template);
   // Claude Code desktop's new-session page (templates.ts stage, the Default template): the composer
   // at the foot, the environment and suggestions cards over it. On Minimal with neither the project
-  // card nor the chats on, the page is the plain one: the greeting and the composer, and with the
-  // quick actions on (the second dot, PageDots.tsx) New terminal, New browser tab and New chat as
-  // pills under it (Lucas 2026-10-22: "add the pills for "New terminal", "New browser", "New chat"
-  // back"), never the stage's card. Default, which always shows its cards, keeps its stage.
+  // card nor the chats on, the page is the plain one: the composer (and the headline, if it is on),
+  // and with the quick actions on (the second dot, PageDots.tsx) New terminal, New browser tab and New
+  // chat as pills under it (Lucas 2026-10-22: "add the pills for "New terminal", "New browser", "New
+  // chat" back"), never the stage's card. Default, which always shows its cards, keeps its stage.
   const stage =
     sections.stage &&
     (widgets.has("projects") || widgets.has("chats") || (template !== "minimal" && widgets.has("actions")));
-  // The greeting and the composer, and the pills when on (Minimal, Leo 2026-10-20): the composer sits
-  // about the window's middle.
+  // The composer, at most the headline over it and the pills when on (Minimal, Leo 2026-10-20): the
+  // composer sits about the window's middle.
   const minimal = !stage && !widgets.has("chats");
   // Minimal's edit mode (right-click > Edit New Tab): its widgets wiggle, move and close.
   const onEditWidgets = template === "minimal" ? props.onEditWidgets : undefined;
   const editing = useWidgetEditing(onEditWidgets);
   const order = shownMovable(widgets);
   const [text, setText] = useState(location ?? "");
+  const [commandActive, setCommandActive] = useState(0);
+  const [commandDismissed, setCommandDismissed] = useState<string>();
+  const requestedCommands = useRef<string | undefined>(undefined);
   // The location stays a suggestion until edited: no rows for it.
   const [touched, setTouched] = useState(false);
   // The highlighted row, by its rowKey (NO_ROW: none, so Enter is the prompt's). A key, not an
@@ -406,6 +422,27 @@ export function NewTabScreen(props: Props) {
     const model = entry.models.find((option) => option.id === chipSnapshot.summary?.model)?.name;
     return { harness, agent: entry.name, ...(model ? { model } : {}) };
   }, [snapshot.catalog, harness, chipSnapshot.summary?.model]);
+  const commandQuery = slashQuery(text, text.length);
+  const commandMatches = commandQuery === undefined ? [] : matchCommands(snapshot.commands ?? [], commandQuery);
+  const commandsOpen = commandQuery !== undefined && commandDismissed !== text && commandMatches.length > 0;
+  const commandIndex = Math.min(commandActive, Math.max(0, commandMatches.length - 1));
+  const onCommands = props.onCommands;
+  const pickCommand = (command: SlashCommand) => {
+    setText(applyCommand(text, text.length, command).text);
+    setCommandActive(0);
+    requestAnimationFrame(() => field.current?.focus());
+  };
+  useEffect(() => {
+    if (commandQuery === undefined) {
+      requestedCommands.current = undefined;
+      return;
+    }
+    const key = `${harness}\u0000${chatFolder}`;
+    if (harness && !snapshot.summary?.sessionId && requestedCommands.current !== key) {
+      requestedCommands.current = key;
+      onCommands?.(harness, chatFolder);
+    }
+  }, [commandQuery, harness, chatFolder, snapshot.summary?.sessionId, onCommands]);
   // A dismiss (a press outside the composer, Escape, or the host's: another app, a resize) hides
   // the rows until the text changes or the field is pressed; the text stays (Leo 10-13).
   const [dismissed, setDismissed] = useState<string>();
@@ -420,8 +457,11 @@ export function NewTabScreen(props: Props) {
     [props.onCreate, harness],
   );
   const suggested = useMemo(
-    () => (touched && !shell ? screenRows(text, { omnibar, home, create: creates, ...(ask ? { ask } : {}) }) : []),
-    [touched, shell, text, omnibar, home, ask, creates],
+    () =>
+      touched && !shell && commandQuery === undefined
+        ? screenRows(text, { omnibar, home, create: creates, ...(ask ? { ask } : {}) })
+        : [],
+    [touched, shell, text, omnibar, home, ask, creates, commandQuery],
   );
   const rows = text !== dismissed ? suggested : [];
   // New tabs or pages from the host can shorten the rows under a highlight.
@@ -662,6 +702,9 @@ export function NewTabScreen(props: Props) {
     setSelected(undefined);
   };
   const submit = () => {
+    // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
+    // with the address bar's word, and the page keeps the text.
+    if (!shell && pairingLinkRefused(text)) return props.onOpen(text.trim());
     // A screenshot pasted a moment ago is still being read: Return goes once its chip is ready.
     if (holdForAttachments(() => submitNow.current())) return;
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com).
@@ -694,7 +737,12 @@ export function NewTabScreen(props: Props) {
     if (created.current) return;
     created.current = true;
     const prompt = shell ? "" : text.trim();
-    askChat(harness, prompt && !isAddress(prompt, home) ? prompt : "", project, chipModel);
+    askChat(
+      harness,
+      prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
+      project,
+      chipModel,
+    );
   };
   const send = () => {
     touch();
@@ -779,6 +827,25 @@ export function NewTabScreen(props: Props) {
     touch();
     if (composing.current || event.nativeEvent.isComposing) return;
     const input = event.currentTarget;
+    if (commandsOpen) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setCommandDismissed(text);
+        return;
+      }
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        setCommandActive(
+          (commandIndex + (event.key === "ArrowDown" ? 1 : commandMatches.length - 1)) % commandMatches.length,
+        );
+        return;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        event.preventDefault();
+        pickCommand(commandMatches[commandIndex]!.command);
+        return;
+      }
+    }
     if (shell) {
       if (event.key === "Enter") {
         event.preventDefault();
@@ -1086,6 +1153,15 @@ export function NewTabScreen(props: Props) {
         {/* Above the box: the project strip (Cards draws it under the field). */}
         {!pill && <div className="nt-above">{folderStrip}</div>}
         <div ref={setBox} className="nt-box">
+          {commandsOpen && (
+            <SlashMenu
+              matches={commandMatches}
+              active={commandIndex}
+              empty={t("composer.noMatchingCommands")}
+              onHover={setCommandActive}
+              onPick={pickCommand}
+            />
+          )}
           {/* A press anywhere on the field's row (its padding, the glyph) focuses the field, as a
             browser's address bar does; the text itself keeps its own press (caret, selection).
             Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
@@ -1114,8 +1190,10 @@ export function NewTabScreen(props: Props) {
               placeholder={shell ? t("composer.shellPlaceholder") : dictating ? t("dictation.listening") : placeholder}
               data-dictation-listening={dictating && !shell ? "" : undefined}
               value={text}
-              aria-controls="nt-rows"
-              aria-activedescendant={rows[current] ? `nt-row-${current}` : undefined}
+              aria-controls={commandsOpen ? "acpmux-slash-menu" : "nt-rows"}
+              aria-activedescendant={
+                commandsOpen ? `acpmux-slash-${commandIndex}` : rows[current] ? `nt-row-${current}` : undefined
+              }
               spellCheck={!shell}
               autoCapitalize="off"
               autoCorrect="off"
@@ -1170,6 +1248,18 @@ export function NewTabScreen(props: Props) {
       </div>
     </>
   );
+  // The ambient widgets (weather, machines): their own row under the field, so they never move it;
+  // with the stage, whose composer sits at the foot, the row is in the stage, after the widgets. The
+  // edit mode does not frame or move them; Settings turns them on and off.
+  const ambient = (
+    <AmbientWidgets
+      {...(widgets.has("weather") && props.weather ? { weather: props.weather } : {})}
+      machines={widgets.has("machines")}
+      snapshot={snapshot}
+      localName={props.machineName ?? t("composer.thisMac")}
+      now={at}
+    />
+  );
   // The stage's widgets, in the user's order (`tabs.newTabWidgets.order`): Projects and Quick
   // Actions are cards (cards next to each other share a column), Recent Chats is the player and the
   // lists, as before the order; with Recent Chats off the player and the other lists come last.
@@ -1210,6 +1300,21 @@ export function NewTabScreen(props: Props) {
       {content}
     </WidgetFrame>
   );
+  // The headline (off by default): "What should we work on in <project>?", its project the folder
+  // Enter asks in, picked in place as the composer's strip picks it.
+  const headline =
+    widgets.has("greeting") &&
+    frame(
+      "greeting",
+      <NewTabHeadline
+        projects={props.projects ?? []}
+        {...(askFolder ? { folder: askFolder } : {})}
+        noProject={none}
+        onPick={(cwd) => pickProject(cwd)}
+        onNoProject={() => pickProject(undefined)}
+        {...(browseProject ? { onBrowse: browseProject } : {})}
+      />,
+    );
   return (
     <ContextMenu
       className="nt-menu-host"
@@ -1243,9 +1348,8 @@ export function NewTabScreen(props: Props) {
                 composer holds, centered, the environment card and the suggested actions card, then the
                 recent chats; it scrolls on its own, so nothing in it ever moves the composer. */}
             <div className="nt-stage">
-              {/* Minimal keeps its greeting over the stage when widgets are on (Default has none). */}
-              {widgets.has("greeting") &&
-                frame("greeting", <p className="nt-greeting">{nt(greetingKey(new Date(at).getHours()))}</p>)}
+              {/* Minimal keeps its headline over the stage when widgets are on (Default has none). */}
+              {headline}
               {stageRuns(order).map((run) =>
                 run[0] === "chats" ? (
                   frame("chats", playerAndLists)
@@ -1255,6 +1359,7 @@ export function NewTabScreen(props: Props) {
                   </div>
                 ),
               )}
+              {ambient}
               {!order.includes("chats") && playerAndLists}
             </div>
             {composerCard}
@@ -1263,10 +1368,18 @@ export function NewTabScreen(props: Props) {
           </>
         ) : (
           <>
-            {/* A quiet greeting over the composer (a widget, on by default), by the hour. */}
-            {widgets.has("greeting") &&
-              frame("greeting", <p className="nt-greeting">{nt(greetingKey(new Date(at).getHours()))}</p>)}
+            {/* The headline over the composer (a widget, off by default). On Minimal it sits in a
+                slot the old greeting's height, on or off, so the composer keeps the place it had
+                under the greeting (screen.css .nt-headline-slot). A greeting set to false in
+                cmux.json (`headlineOff`) keeps no slot while the headline is off: the composer
+                stays where it sat for those who had turned the greeting off. */}
+            {minimal && (headline || !props.headlineOff) ? (
+              <div className="nt-headline-slot">{headline}</div>
+            ) : (
+              headline
+            )}
             {composerCard}
+            {ambient}
             {props.notice}
             {environmentPanel}
             {/* The create actions (cx-ag5.7, dogfood call K2): a blank terminal in the tab's folder, a
