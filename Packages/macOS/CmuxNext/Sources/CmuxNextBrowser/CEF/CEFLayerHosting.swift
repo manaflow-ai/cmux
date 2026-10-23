@@ -57,9 +57,10 @@ final class CEFLayerHosting {
     }
 
     /// The first fork API with `cmux_browser_set_layer_hosting`.
-    static let forkAPI: Int32 = 26
-    /// The first fork API with `cmux_browser_set_resize_sync`.
-    static let resizeSyncForkAPI: Int32 = 27
+    nonisolated static let forkAPI: Int32 = 26
+    /// The first fork API with `cmux_browser_set_resize_sync`. Nonisolated: `CEFSwitches` reads it
+    /// where the browser process switches are worked out, off the main actor.
+    nonisolated static let resizeSyncForkAPI: Int32 = 27
 
     weak var view: NSView?
     /// The page's pixels in this window's layer tree; nil while the page
