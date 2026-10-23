@@ -109,18 +109,46 @@ nonisolated struct RustRowKey: Codable {
 nonisolated struct RustRow: Codable {
     /// The rows the drop resolver reads: Group by Folder's headers, "Done (N)"
     /// and "Show N more" rows are labels only (no drop target), so they stay out.
+    /// A drag keeps the "Done (N)" rows folded, so a group can end in such a row, or, with the fold open, in a Done
+    /// workspace drawn below it with its tab rows: the resolver then reads the group as it would with no fold
+    /// (`endingGroup`), and a drop below it can still leave the group.
     static func resolvable(_ rows: [SidebarRow]) -> [RustRow] {
-        rows.compactMap { row in
-            if case .folder = row.key { return nil }
-            if case .status = row.key { return nil }
-            if case .doneFold = row.key { return nil }
-            if case .showMore = row.key { return nil }
-            if case .item = row.key { return nil }
+        var resolvable: [RustRow] = []
+        var folded: [String] = []
+        for row in rows {
+            switch row.key {
+            case .doneFold:
+                // Closed, it ends its group; open, its Done workspaces (and their tab rows) do.
+                if let group = row.group?.rawValue, !folded.contains(group) { folded.append(group) }
+                continue
+            case .showMore:
+                if row.isLastInGroup, let group = row.group?.rawValue, !folded.contains(group) { folded.append(group) }
+                continue
             // An empty group's row: the pointer over it falls on the open header's lower part, a drop into the group.
-            if case .emptyGroup = row.key { return nil }
-            if case .custom = row.section { return nil } // the older resolver knows Pinned and machines only
-            return RustRow(row)
+            case .folder, .status, .item, .emptyGroup:
+                continue
+            default:
+                if case .custom = row.section { continue } // the older resolver knows Pinned and machines only
+                resolvable.append(RustRow(row))
+            }
         }
+        for group in folded { endingGroup(group, in: &resolvable) }
+        return resolvable
+    }
+
+    /// `group`'s rows, which a fold row ends, read as a group with no fold: its last drawn member is its last row and
+    /// takes in its tab rows (the resolver's tab rows never leave a group), so the bottom of it leaves the group; a
+    /// group that draws no member reads as folded, so the bottom of its header leaves the group.
+    static func endingGroup(_ group: String, in rows: inout [RustRow]) {
+        guard let header = rows.lastIndex(where: { $0.key.kind == "group" && $0.key.id == group }) else { return }
+        guard let last = rows[(header + 1)...].lastIndex(where: { $0.group == group && $0.key.kind == "workspace" }) else {
+            rows[header].isCollapsed = true
+            return
+        }
+        let tabs = rows[(last + 1)...].prefix { $0.key.kind == "tab" && $0.key.workspace == rows[last].key.id }
+        if let bottom = tabs.map({ $0.y + $0.height }).max() { rows[last].height = max(rows[last].height, bottom - rows[last].y) }
+        rows.removeSubrange((last + 1)..<(last + 1 + tabs.count))
+        rows[last].isLastInGroup = true
     }
 
     var key: RustRowKey
