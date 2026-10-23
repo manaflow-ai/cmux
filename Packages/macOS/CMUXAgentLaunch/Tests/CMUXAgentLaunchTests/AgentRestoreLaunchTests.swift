@@ -147,22 +147,48 @@ import Testing
         #expect(invocation.arguments.contains("-lc") == false)
     }
 
-    @Test func legacyCaptureWithCodexHomeConfigUsesSubrouterResume() throws {
-        let config = "model_provider = \"subrouter\"\n"
-        let routing = SubrouterCodexResumeRouting()
-        #expect(
-            routing.providerEvidenceWithCapturedConfig(
-                in: ["codex", "resume", sessionID],
-                launcher: "codex",
-                environment: nil,
-                verificationHome: nil
-            ) == .absent
+    @Test(arguments: [("subrouter", true), ("openai", false)])
+    func legacyCaptureWithCodexHomeConfigPlansThroughTheProvenProvider(
+        provider: String, routesThroughSubrouter: Bool
+    ) throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-legacy-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        try "model_provider = \"\(provider)\"\n".write(
+            to: home.appendingPathComponent("config.toml"), atomically: true, encoding: .utf8
         )
-        #expect(routing.providerEvidence(inConfigToml: config) == .provider("subrouter"))
-        #expect(
-            routing.providerEvidence(inConfigToml: "model_provider = \"subrouter\"\n")
-                == .provider("subrouter")
+        let workingDirectory = "/tmp/legacy-repo"
+        let launch = AgentLaunchCommand(
+            launcher: "codex",
+            executablePath: "/opt/bin/codex",
+            arguments: ["/opt/bin/codex"],
+            workingDirectory: workingDirectory,
+            environment: ["CODEX_HOME": home.path],
+            capturedAt: 1,
+            source: "test"
         )
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: workingDirectory,
+            environment: [:],
+            launchCommand: launch,
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(AgentRestorePlanner(isExecutableFile: { $0 == "/shim/codex" }).invocation(
+            for: request,
+            ambientEnvironment: ["PATH": "/usr/bin:/bin", "CMUX_CODEX_WRAPPER_SHIM": "/shim/codex"]
+        ))
+        if routesThroughSubrouter {
+            #expect(Array(invocation.arguments.prefix(4)) == ["sr", "codex", "resume", sessionID])
+        } else {
+            #expect(invocation.arguments.first != "sr")
+            #expect(invocation.arguments.contains("resume"))
+        }
     }
 
     @Test func markerlessCaptureRoutesOnlyWhenCodexHomeConfigProvesSubrouter() throws {
