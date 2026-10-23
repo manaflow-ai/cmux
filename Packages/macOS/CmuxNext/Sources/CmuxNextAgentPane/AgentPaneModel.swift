@@ -231,6 +231,10 @@ public final class AgentPaneModel {
     /// User input reached the page, or it ran any op beyond boot (the handshake, frame pacing, render
     /// rate, capabilities). A touched page is never recycled into the prewarm pool (coordinator: strictly untouched).
     public private(set) var userTouched = false
+    /// The page's document listed its own chats (it posted `newTab.warm`, which a page does only
+    /// then): it drops carried ones (`AgentPaneNewTab.warm`), so an adoption leaves them out. A
+    /// new document (`ready`) has listed nothing yet.
+    @ObservationIgnored var listedOwnChats = false
     /// The request that first touched the page, its case name only (diagnostics).
     public private(set) var touchedBy: String?
 
@@ -301,7 +305,11 @@ public final class AgentPaneModel {
                   let object = try? JSONSerialization.jsonObject(with: data) else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["newTab": object])
         // Another machine's chats are not this Mac's: only a local page's list warms the next page.
-        case .newTabWarm(let warm): if !remoteChat { AgentPaneNewTab.warmed = warm }; return AgentPaneReply.success()
+        // Posted only once the page listed its chats: carried ones are done for it (``listedOwnChats``).
+        case .newTabWarm(let warm):
+            listedOwnChats = true
+            if !remoteChat { AgentPaneNewTab.warmed = warm }
+            return AgentPaneReply.success()
         case .newTabInputReady(let token): guard newTab?.inputToken == token else { return Self.unsupported("newTab.inputReady") }; onNewTabInputReady?(token); return AgentPaneReply.success()
         case .rememberNewTab(let pick): guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }; onRememberNewTab(pick); return AgentPaneReply.success()
         case .editNewTab(let edit): guard let onEditNewTab else { return Self.unsupported(edit.method) }; onEditNewTab(edit); return AgentPaneReply.success()

@@ -6,8 +6,12 @@ import Foundation
 @MainActor
 enum AgentPaneHandshakeReply {
     static func reply(to request: AgentPaneRequest, in model: AgentPaneModel) async -> [String: Any] {
-        // A page that loaded again starts without the tab row: it is offered again.
-        if request == .ready { model.tabRow.pageLoaded() }
+        // A page that loaded again starts without the tab row and without a chat list of its own:
+        // the row is offered again, and its next adoption carries the chats again.
+        if request == .ready {
+            model.tabRow.pageLoaded()
+            model.listedOwnChats = false
+        }
         model.setCheckpointAvailable(false)
         do {
             var handshake = request == .ready

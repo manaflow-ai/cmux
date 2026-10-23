@@ -32,9 +32,15 @@ extension AgentPaneView {
         evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-places', {detail: \(json)}))")
     }
 
+    /// Sends `page` into the page as its new context. A page that listed its own chats drops
+    /// carried ones (webviews newtab/warmSnapshot.ts `listedOnce`), so they are left out for it:
+    /// up to ``AgentPaneNewTab/maximumWarmBytes`` of JSON text, escaped again in the context, on
+    /// the key's turn of every Cmd-T and Cmd-N. The model keeps them for the page's handshake.
     private func show(_ page: AgentPaneNewTab) {
-        guard model.newTab == page, let data = try? JSONEncoder().encode(page),
-              let json = String(data: data, encoding: .utf8) else { return }
+        guard model.newTab == page else { return }
+        var sent = page
+        if model.listedOwnChats { sent.warm = nil }
+        guard let data = try? JSONEncoder().encode(sent), let json = String(data: data, encoding: .utf8) else { return }
         evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-adopt', {detail: \(json)}))")
         applyTheme()
     }
