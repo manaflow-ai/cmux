@@ -176,12 +176,14 @@ impl Meter {
         }
         let v = evaluate(&self.host, &sample, rate, &budget);
         let was_ok = state.cached.as_ref().is_none_or(|(_, before)| before.ok);
+        state.cached = Some((now, v.clone()));
+        // Logged after the lock is released: a slow log writer never holds a turn.
+        drop(state);
         if let Some(line) = v.warning.as_deref().filter(|_| was_ok) {
             tracing::warn!("{line}");
         } else if v.ok && !was_ok {
             tracing::info!("host-budget: {} is within its CPU/RAM budget again", self.host);
         }
-        state.cached = Some((now, v.clone()));
         Some(v)
     }
 }

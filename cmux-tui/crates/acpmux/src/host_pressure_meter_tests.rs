@@ -77,12 +77,18 @@ async fn a_stalled_sample_never_holds_a_turn_or_status() {
     // A turn's acceptance never waits: no verdict yet, and one sample starts.
     let start = Instant::now();
     assert_eq!(m.peek(), None);
-    // Status waits at most SAMPLE_WAIT, then answers with what it has.
+    // Status does not wait behind a sample in flight: it answers with what it has.
     assert_eq!(m.current().await, None);
     assert_eq!(m.current().await, None);
-    assert!(start.elapsed() < SAMPLE_WAIT * 4, "{:?}", start.elapsed());
+    assert!(start.elapsed() < SAMPLE_WAIT, "{:?}", start.elapsed());
     // One sample at a time: the stalled one is the only read, and no other
     // blocking job queues behind it.
+    for _ in 0..200 {
+        if *probe.reads.lock().unwrap() > 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
     assert_eq!(*probe.reads.lock().unwrap(), 1);
     assert!(m.start_sample().is_none());
     release.send(()).unwrap();
