@@ -1,16 +1,18 @@
 // The images a tool call produced, for the strip under its row (ToolRow): the images it returned
-// (ACP `image` blocks, kept as data URLs) and the image files it wrote or printed (a screenshot
+// (ACP `image` blocks, kept as data URLs, and those in a JSON result envelope) and the image files it wrote or printed (a screenshot
 // it saved, a chart it rendered): the file it edited, its locations, and absolute image paths in
 // its output. Files load through the host like a reply's local image (ReplyImage), so only files
 // inside the session's folders show; a PDF shows its first page (the host draws it), and a video
 // plays inline (ReplyMedia). A running call shows none yet.
 import type { AcpmuxActivity } from "./model";
 import { editedPaths } from "./toolPaths";
+import { cleanText } from "./conversation/mcpCalls";
+import { envelopeImages, MAX_TOOL_IMAGES } from "./conversation/toolResult";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
-/// The most images one call shows.
-export const MAX_TOOL_IMAGES = 4;
+/// The most images one call shows (toolResult.ts keeps an envelope's images past it as JSON).
+export { MAX_TOOL_IMAGES };
 const IMAGE_FILE = /\.(png|jpe?g|gif|webp|svg|heic|tiff?|bmp|pdf|mp4|m4v|mov|webm)$/i;
 /// An absolute image path in output text, ended by space, a quote or a bracket.
 const IMAGE_PATH = /(?<![\w./:~-])\/[^\s"'`()<>[\]]+\.(?:png|jpe?g|gif|webp|svg|pdf|mp4|m4v|mov|webm)(?![\w-])/gi;
@@ -23,6 +25,9 @@ export function toolImages(tool: Tool): string[] {
     if (found.length < MAX_TOOL_IMAGES && !found.includes(source)) found.push(source);
   };
   for (const image of tool.images ?? []) add(image);
+  // Images inside a result a harness passed on as JSON text (an MCP result's `image` blocks), read
+  // as ToolRow reads its text: without the context a host put around it.
+  for (const image of envelopeImages(tool.output, cleanText)) add(image);
   const file = (path: string) => {
     if (path.startsWith("/") && IMAGE_FILE.test(path)) add(path);
   };
