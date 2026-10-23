@@ -14,8 +14,8 @@ private typealias JSON = CmuxNextSettings.JSONValue
 /// - `visible_ms`: the first display frame at which the result shows (Cmd-N: the window shows
 ///   another workspace; Cmd-T, Ctrl-`: the focused pane shows another tab; Cmd-D / Cmd-Shift-D /
 ///   New Column: the window's focused pane is a new pane; New Agent Chat: a tab the window did not
-///   show before is in one of its panes, wherever the chat placement puts it, a new workspace
-///   included);
+///   show before shows in one of its panes, wherever the chat placement puts it, a new workspace
+///   included, and a chat held hidden for its new dock only once the dock shows it);
 /// - `confirmed_ms`: the first frame at which the daemon's object replaced the provisional one
 ///   (no `pending_tab_` id, no provisional pane handle), or null within 5 s;
 /// - `frames_to_visible`: display frames from the key to `visible_ms` (1 = the next frame);
@@ -95,9 +95,11 @@ enum DebugInstantCreateBench {
         var paneHandle: UInt64?
         var paneCount: Int
         var tab: String?
-        /// Every tab id the window's panes hold (a new chat may open in another pane or a dock);
+        /// Every tab id the window's panes show (a new chat may open in another pane or a dock);
         /// read for New Agent Chat only, so the other commands' frame polls build no set of every
-        /// tab inside the frames they measure (STRESS: 72 tabs in the measured workspace).
+        /// tab inside the frames they measure (STRESS: 72 tabs in the measured workspace). A chat
+        /// bound for a new dock is held hidden in the pane it opened from until the dock takes it
+        /// (`dockBound`): it is not visible there, so it counts once its dock shows it.
         var tabs: Set<String> = []
 
         init(_ controller: WindowController, _ command: Command) {
@@ -108,7 +110,12 @@ enum DebugInstantCreateBench {
             paneHandle = focused?.pane.handle.rawValue
             paneCount = content?.panes.count ?? 0
             tab = focused?.currentTabKey
-            if command == .newChat { tabs = Set(content?.panes.values.flatMap { $0.pane.tabs.map(\.id) } ?? []) }
+            if command == .newChat, let content {
+                for controller in content.panes.values {
+                    let hidden = controller.dockBound
+                    tabs.formUnion(controller.pane.tabs.map(\.id).filter { !hidden.contains($0) })
+                }
+            }
         }
 
         func changed(_ command: Command, _ now: Probe) -> Bool {
