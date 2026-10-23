@@ -23,7 +23,7 @@ public final class HostSizePolicyModel {
     /// A save that failed (the shown policy went back to the Mac's).
     public private(set) var saveError: String?
     public private(set) var saving = false
-    private weak var service: (any TerminalSizingService)?
+    @ObservationIgnored private weak var service: (any TerminalSizingService)?
 
     public init(macID: String, surface: Int? = nil, service: (any TerminalSizingService)?) {
         self.macID = macID
@@ -137,7 +137,7 @@ struct HostSizePolicyEditor: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(info.policy.mode.explanation)
                 if let error = model.saveError {
-                    Text(error).foregroundStyle(theme.colors.danger)
+                    Text(error).foregroundStyle(theme.colors.dangerText)
                 }
             }
         }
