@@ -50,10 +50,14 @@ extension NotificationCenterService {
     private func postAttention(_ item: AgentPaneAttentionTabs.Item) {
         var arrival = NotificationPolicy.Arrival(source: .agent)
         arrival.appActive = NSApp.isActive
-        arrival.paneIsViewed = isViewed(item.tabId)
-        if let located = services?.locateTab(item.tabId), let services,
-           let workspace = services.daemon(for: located.1).store.workspace(containing: located.1.handle) {
-            arrival.workspaceMuted = preferences.mutedWorkspaces.contains(workspace.id)
+        // The row key names the tab's machine (tabs on two machines can share an id).
+        if let (machine, tab) = AttentionTabsWatch.split(item.tabId), let services {
+            arrival.paneIsViewed = isViewed(tab, onMachine: machine)
+            if let daemon = services.machines.daemons.first(where: { $0.machineID == machine }),
+               let model = daemon.store.tab(idOrResource: tab), let pane = daemon.store.pane(holding: model),
+               let workspace = daemon.store.workspace(containing: pane.handle) {
+                arrival.workspaceMuted = preferences.mutedWorkspaces.contains(workspace.id)
+            }
         }
         let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
         arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
@@ -65,6 +69,16 @@ extension NotificationCenterService {
         desktop.post(id: Self.attentionBannerID(item), title: content.title, subtitle: content.subtitle, body: content.body,
                      surface: nil, workspace: nil, defaultSound: decision.sound == "default", category: DesktopNotifier.attentionCategory)
         if let sound = decision.sound, sound != "default" { NotificationSounds.play(sound) }
+    }
+
+    /// Tab `tabID` of machine `machine` is the focused content of the key window while cmux is
+    /// active (``isViewed(_:)`` on that machine only).
+    private func isViewed(_ tabID: String, onMachine machine: String) -> Bool {
+        guard let services, NSApp.isActive else { return false }
+        return services.windows.controllers.contains { controller in
+            controller.focus.state.windowKey && Self.contentTab(controller.focus.state.resolved) == tabID
+                && controller.content?.daemon.machineID == machine
+        }
     }
 
     /// A Needs you banner's Show (or click): the tab, as a user's jump (``AgentPaneAttentionTabs/open(_:)``).
