@@ -1,8 +1,10 @@
 // The Minimal layout's widgets (Leo 2026-10-20: "only do the composer for the default"): the page
-// is a short greeting and the composer; everything else it can show is a widget the user turns on
-// in Settings (`tabs.newTabWidgets.*`, NewTabWidgetSettings.swift), which the host sends as the
-// handshake's `pageWidgets`. The other layouts (the page's dots, templates.ts) draw what they always
-// drew: they are there to compare against.
+// is a short greeting and the composer, with the quick action pills under it and the template dots
+// under the page (Leo 2026-10-22, about the pills and the dots: "let's turn it back on"); the project
+// card and the recent chats are widgets the user turns on in Settings (`tabs.newTabWidgets.*`,
+// NewTabWidgetSettings.swift), which the host sends as the handshake's `pageWidgets`. The other
+// layouts (the page's dots, templates.ts) draw what they always drew: they are there to compare
+// against.
 
 /// Every widget, in Settings' order.
 export const PAGE_WIDGETS = ["greeting", "projects", "actions", "chats", "styleDots"] as const;
@@ -14,8 +16,9 @@ export type PageWidgets = ReadonlySet<PageWidget>;
 export const MOVABLE_WIDGETS = ["projects", "actions", "chats"] as const;
 export type MovableWidget = (typeof MOVABLE_WIDGETS)[number];
 
-/// What Minimal shows when the host sends no list (Settings' defaults): the greeting.
-const MINIMAL_DEFAULT_LIST: readonly PageWidget[] = ["greeting"];
+/// What Minimal shows when the host sends no list (Settings' defaults): the greeting, the quick
+/// action pills and the template dots.
+const MINIMAL_DEFAULT_LIST: readonly PageWidget[] = ["greeting", "actions", "styleDots"];
 const MINIMAL_DEFAULT: PageWidgets = new Set<PageWidget>(MINIMAL_DEFAULT_LIST);
 /// What every other layout shows: everything it drew before the widgets, with no greeting.
 const OTHER_LAYOUTS: PageWidgets = new Set(PAGE_WIDGETS.filter((widget) => widget !== "greeting"));

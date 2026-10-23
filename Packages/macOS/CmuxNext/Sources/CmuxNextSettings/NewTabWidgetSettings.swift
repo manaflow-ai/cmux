@@ -2,8 +2,10 @@
 // (Schema/SettingsSchema+NewTabWidgets.generated.swift); this file only parses.
 
 /// `tabs.newTabWidgets.*` in cmux.json (Leo 2026-10-20: "only do the composer for the default"):
-/// the New Tab page is a greeting and the composer, and each other part of it is a widget the user
-/// turns on. The page gets the ones on as ``ids`` (webviews newtab/pageWidgets.ts).
+/// the New Tab page is a greeting and the composer, with the quick action pills under it and the
+/// template dots under the page (on by default; Leo 2026-10-22: "let's turn it back on"); each part
+/// is a widget the user turns on or off. The page gets the ones on as ``ids`` (webviews
+/// newtab/pageWidgets.ts).
 public nonisolated struct NewTabWidgetSettings: Sendable, Equatable {
     /// A short greeting by the time of day over the composer.
     public var greeting = NewTabWidgetSettings.greetingDefault

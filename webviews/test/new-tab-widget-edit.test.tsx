@@ -144,7 +144,8 @@ test("the host's order places the movable widgets; the others keep their places"
   expect(
     editedPageWidgets(["greeting", "projects", "chats", "styleDots"], { edit: "order", order: ["chats", "projects"] }),
   ).toEqual(["greeting", "chats", "projects", "styleDots"]);
-  expect(editedPageWidgets(undefined, { edit: "remove", widget: "greeting" })).toEqual([]);
+  // The defaults (no list from the host): the greeting, the quick actions and the template dots.
+  expect(editedPageWidgets(undefined, { edit: "remove", widget: "greeting" })).toEqual(["actions", "styleDots"]);
   expect(movedWidget(["projects", "actions", "chats"], "chats", -1)).toEqual(["projects", "chats", "actions"]);
   expect(movedWidget(["projects", "actions"], "projects", -1)).toEqual(["projects", "actions"]);
   expect(droppedWidget(["projects", "actions", "chats"], "projects", "chats", true)).toEqual([

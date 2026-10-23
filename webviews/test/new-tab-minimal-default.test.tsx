@@ -1,7 +1,8 @@
 // New Tab opens on Minimal (Leo 2026-10-20: "only do the composer for the default"), a layout of
 // its own beside the others: a quiet greeting and the composer, which keeps its project strip. The
 // project card, the quick actions, the recent chats and the template dots are Minimal's widgets
-// (`tabs.newTabWidgets.*`, newtab/pageWidgets.ts), off until the user turns them on. The page has
+// (`tabs.newTabWidgets.*`, newtab/pageWidgets.ts); the quick actions and the template dots are on by
+// default (new-tab-default-pills-and-dots.test.tsx), the others off until the user turns them on. The page has
 // no Search | Ask switch (new-tab-auto-action.test.tsx), with or without the widgets. The other
 // layouts draw what they always drew.
 import { afterAll, beforeAll, expect, test } from "bun:test";
@@ -176,7 +177,7 @@ test("the handshake's pageWidgets: known names in order, Settings' defaults when
   expect(newTabHost({ newTab: { pageWidgets: ["chats"] } })?.pageWidgets).toEqual(["chats"]);
   expect(newTabHost({ newTab: { pageWidgets: [] } })?.pageWidgets).toEqual([]);
   expect(newTabHost({ newTab: {} })?.pageWidgets).toBeUndefined();
-  expect([...shownPageWidgets("minimal")]).toEqual(["greeting"]);
+  expect([...shownPageWidgets("minimal")]).toEqual(["greeting", "actions", "styleDots"]);
   expect([...shownPageWidgets("minimal", [])]).toEqual([]);
   expect([...shownPageWidgets("cards", ["greeting"])]).toEqual(PAGE_WIDGETS.filter((widget) => widget !== "greeting"));
 });

@@ -8,20 +8,20 @@ extension NewTabWidgetSettings {
     /// `tabs.newTabWidgets.projects`: Off by default. On: Default's card of this Mac and its recent projects, with the page in Default's stage. The composer's project strip picks a folder either way.
     public nonisolated static let projectsPath = ["tabs", "newTabWidgets", "projects"]
     public nonisolated static let projectsDefault = false
-    /// `tabs.newTabWidgets.actions`: Off by default. On: the chats that need you, New Terminal, New Browser Tab and New Chat. The palette and the pane's + menu have them either way.
+    /// `tabs.newTabWidgets.actions`: On by default (Leo 2026-10-22: "let's turn it back on"). On Minimal alone: New Terminal, New Browser Tab and New Chat as pills under the composer; with the project card or the recent chats on, the stage's card of the chats that need you and the same three. The palette and the pane's + menu have them either way.
     public nonisolated static let actionsPath = ["tabs", "newTabWidgets", "actions"]
-    public nonisolated static let actionsDefault = false
+    public nonisolated static let actionsDefault = true
     /// `tabs.newTabWidgets.chats`: Off by default. On: the recent chats as rows under the composer. The palette (Cmd-P) finds a chat either way.
     public nonisolated static let chatsPath = ["tabs", "newTabWidgets", "chats"]
     public nonisolated static let chatsDefault = false
-    /// `tabs.newTabWidgets.styleDots`: Off by default. On: the dots under the page that switch its template (tabs.newTabTemplate).
+    /// `tabs.newTabWidgets.styleDots`: On by default (Leo 2026-10-22: "let's turn it back on"): the dots under the page that switch its template (tabs.newTabTemplate), after the composer's two look dots.
     public nonisolated static let styleDotsPath = ["tabs", "newTabWidgets", "styleDots"]
-    public nonisolated static let styleDotsDefault = false
+    public nonisolated static let styleDotsDefault = true
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum NewTabWidgetSettingsSchema {
-    /// The Minimal New Tab layout's widgets (Leo 2026-10-20: "only do the composer for the default"): Minimal, the default tabs.newTabTemplate, is a greeting and the composer; each other part is a widget, off by default. The other layouts draw what they always drew. The app sends the ones on as the page's pageWidgets (webviews newtab/pageWidgets.ts).
+    /// The Minimal New Tab layout's widgets (Leo 2026-10-20: "only do the composer for the default"): Minimal, the default tabs.newTabTemplate, is a greeting and the composer, with the quick action pills under it and the template dots under the page (Leo 2026-10-22, about the pills and the dots: "let's turn it back on"); the project card and the recent chats are widgets, off by default. The other layouts draw what they always drew. The app sends the ones on as the page's pageWidgets (webviews newtab/pageWidgets.ts).
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.tabs", "Tabs")
         return [

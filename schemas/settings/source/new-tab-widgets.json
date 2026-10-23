@@ -8,7 +8,7 @@
         "key": "settings.group.tabs",
         "text": "Tabs"
       },
-      "note": "The Minimal New Tab layout's widgets (Leo 2026-10-20: \"only do the composer for the default\"): Minimal, the default tabs.newTabTemplate, is a greeting and the composer; each other part is a widget, off by default. The other layouts draw what they always drew. The app sends the ones on as the page's pageWidgets (webviews newtab/pageWidgets.ts).",
+      "note": "The Minimal New Tab layout's widgets (Leo 2026-10-20: \"only do the composer for the default\"): Minimal, the default tabs.newTabTemplate, is a greeting and the composer, with the quick action pills under it and the template dots under the page (Leo 2026-10-22, about the pills and the dots: \"let's turn it back on\"); the project card and the recent chats are widgets, off by default. The other layouts draw what they always drew. The app sends the ones on as the page's pageWidgets (webviews newtab/pageWidgets.ts).",
       "rows": [
         {
           "key": "tabs.newTabWidgets.greeting",
@@ -42,7 +42,7 @@
         },
         {
           "key": "tabs.newTabWidgets.actions",
-          "note": "Off by default. On: the chats that need you, New Terminal, New Browser Tab and New Chat. The palette and the pane's + menu have them either way.",
+          "note": "On by default (Leo 2026-10-22: \"let's turn it back on\"). On Minimal alone: New Terminal, New Browser Tab and New Chat as pills under the composer; with the project card or the recent chats on, the stage's card of the chats that need you and the same three. The palette and the pane's + menu have them either way.",
           "title": {
             "key": "settings.tabs.newTabWidgets.actions",
             "text": "Show Quick Actions on New Tab"
@@ -52,7 +52,7 @@
             "text": "Chats that need you, and New Terminal, New Browser Tab and New Chat."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": ["new tab", "widget", "actions", "new terminal", "new browser tab", "new chat"]
         },
         {
@@ -73,7 +73,7 @@
         {
           "key": "tabs.newTabWidgets.styleDots",
           "name": "styleDots",
-          "note": "Off by default. On: the dots under the page that switch its template (tabs.newTabTemplate).",
+          "note": "On by default (Leo 2026-10-22: \"let's turn it back on\"): the dots under the page that switch its template (tabs.newTabTemplate), after the composer's two look dots.",
           "title": {
             "key": "settings.tabs.newTabWidgets.styleDots",
             "text": "Show Template Dots on New Tab"
@@ -83,7 +83,7 @@
             "text": "Dots under the page that switch its template."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": ["new tab", "widget", "template", "style", "dots"]
         }
       ]
