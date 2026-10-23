@@ -19,8 +19,11 @@ struct PaletteInputMethodKeysTests {
     private static func composingWindow(marked: String?) throws -> NSWindow {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 40), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         let field = NSTextView(frame: NSRect(x: 0, y: 0, width: 300, height: 40))
         window.contentView = field
+        // A window number, so a key event finds its window (`NSEvent.window`), as the palette panel's do.
+        window.orderFrontRegardless()
         try #require(window.makeFirstResponder(field))
         if let marked {
             field.setMarkedText(marked, selectedRange: NSRange(location: (marked as NSString).length, length: 0),
@@ -41,6 +44,7 @@ struct PaletteInputMethodKeysTests {
     @Test func returnEscapeAndArrowsReachAComposingInputMethod() throws {
         let palette = Self.palette()
         let window = try Self.composingWindow(marked: "にほん")
+        defer { window.orderOut(nil) }
         let down = String(Character(UnicodeScalar(NSDownArrowFunctionKey)!))
         for (characters, keyCode) in [("\r", UInt16(36)), ("\u{1b}", 53), (down, 125), ("\t", 48)] {
             let event = try Self.key(characters, keyCode: keyCode, in: window)
@@ -51,6 +55,7 @@ struct PaletteInputMethodKeysTests {
     @Test func withoutMarkedTextThePaletteStillTakesReturn() throws {
         let palette = Self.palette()
         let window = try Self.composingWindow(marked: nil)
+        defer { window.orderOut(nil) }
         #expect(palette.handleKeyDown(try Self.key("\u{1b}", keyCode: 53, in: window)))
     }
 }
