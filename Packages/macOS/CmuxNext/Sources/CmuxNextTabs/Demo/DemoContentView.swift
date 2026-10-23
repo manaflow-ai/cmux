@@ -21,14 +21,16 @@ final class DemoContentView: NSView {
         wire(top, other: bottom)
         wire(bottom, other: top)
 
-        let savedBar = SavedGroupsBarView(model: saved)
+        // One set of icon images for the demo window's strips and saved bar.
+        let iconCaches = TabIconCaches()
+        let savedBar = SavedGroupsBarView(model: saved, iconCaches: iconCaches)
         saved.intentHandler = { [weak self] intent in
             guard let self, case .open(let id) = intent, let item = self.saved.groups.first(where: { $0.id == id }) else { return }
             self.log.stringValue = Strings.demoLog(String(describing: intent))
             self.reopen(item)
         }
-        let topStrip = TabStripView(model: top, background: .glass)
-        let bottomStrip = TabStripView(model: bottom, background: .glass)
+        let topStrip = TabStripView(model: top, background: .glass, iconCaches: iconCaches)
+        let bottomStrip = TabStripView(model: bottom, background: .glass, iconCaches: iconCaches)
         topStrip.dragsWindowFromEmptySpace = false
         bottomStrip.dragsWindowFromEmptySpace = false
         for strip in [topStrip, bottomStrip] { strip.previewProvider = provider }
