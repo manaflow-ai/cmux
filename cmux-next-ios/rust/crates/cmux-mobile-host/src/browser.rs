@@ -462,15 +462,11 @@ impl<'a> PageGuard<'a> {
     }
 
     /// The host's `rb.file_policy` (its per-load check of every `file:` navigation
-    /// and subresource) when it differs from the one sent: the shared folders,
-    /// the files the Mac showed this tab, and those files' own folders when they
-    /// could be shared (never home, its parents or a credential tree).
+    /// and subresource) when it differs from the one sent: the shared folders and
+    /// the files the Mac showed this tab.
     fn policy_update(&mut self) -> Option<Vec<u8>> {
         let view = self.view.as_ref().map(|(_, view)| view.clone()).unwrap_or_default();
-        let home = std::env::var_os("HOME")
-            .filter(|h| !h.is_empty())
-            .and_then(|h| crate::services::stored_spelling(std::path::Path::new(&h)));
-        let body = file_policy(&view, &self.approved, home.as_deref());
+        let body = file_policy(&view, &self.approved);
         if self.sent_policy.as_ref() == Some(&body) {
             return None;
         }
@@ -489,28 +485,18 @@ impl<'a> PageGuard<'a> {
     }
 }
 
-/// The `rb.file_policy` body for the Mac's state and a tab's approved pages.
-fn file_policy(
-    view: &crate::browser_policy::MacView,
-    approved: &[String],
-    home: Option<&std::path::Path>,
-) -> Value {
-    let mut roots: Vec<PathBuf> = view.roots.iter().filter_map(|r| std::fs::canonicalize(r).ok()).collect();
+/// The `rb.file_policy` body for the Mac's state and a tab's approved pages: the
+/// shared folders as roots, and each page the Mac showed as one file (never its
+/// folder: its siblings load only when they are in a shared folder).
+fn file_policy(view: &crate::browser_policy::MacView, approved: &[String]) -> Value {
+    let roots: Vec<PathBuf> = view.roots.iter().filter_map(|r| std::fs::canonicalize(r).ok()).collect();
     let mut files: Vec<PathBuf> = Vec::new();
     for url in approved {
         if let crate::browser_policy::Target::File(path) = crate::browser_policy::classify(url)
             && let Ok(file) = std::fs::canonicalize(&path)
+            && !files.contains(&file)
         {
-            if let (Some(parent), Some(home)) = (file.parent(), home) {
-                for folder in crate::services::shareable_workspace_folders(vec![parent.to_path_buf()], home) {
-                    if !roots.contains(&folder) {
-                        roots.push(folder);
-                    }
-                }
-            }
-            if !files.contains(&file) {
-                files.push(file);
-            }
+            files.push(file);
         }
     }
     serde_json::json!({"t": "rb.file_policy", "roots": roots, "files": files})
@@ -1350,23 +1336,16 @@ mod tests {
             std::fs::create_dir_all(dir).unwrap();
         }
         std::fs::write(downloads.join("mac page.html"), "x").unwrap();
-        std::fs::write(home.join("loose.html"), "x").unwrap();
         let view = crate::browser_policy::MacView { roots: vec![shared.clone()], browser_urls: vec![] };
         let approved = vec![
             crate::browser_policy::file_url(&downloads.join("mac page.html")),
-            crate::browser_policy::file_url(&home.join("loose.html")),
             "chrome://version/".to_owned(),
         ];
-        let body = file_policy(&view, &approved, Some(&home));
+        let body = file_policy(&view, &approved);
         assert_eq!(body["t"], "rb.file_policy");
-        // The Mac page's own folder could be shared; home (the loose page's) never is.
-        assert_eq!(body["roots"], serde_json::json!([shared, downloads]));
-        assert_eq!(
-            body["files"],
-            serde_json::json!([downloads.join("mac page.html"), home.join("loose.html")])
-        );
-        // No home: only the shared folders and the pages themselves.
-        assert_eq!(file_policy(&view, &approved, None)["roots"], serde_json::json!([shared]));
+        // The Mac's page is one file; its folder (Downloads) is never a root.
+        assert_eq!(body["roots"], serde_json::json!([shared]));
+        assert_eq!(body["files"], serde_json::json!([downloads.join("mac page.html")]));
     }
 
     #[tokio::test]

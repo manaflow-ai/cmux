@@ -388,3 +388,27 @@ final class SinkBox: @unchecked Sendable {
         #expect(down["code"] as? String == "ArrowUp" && down["modifiers"] as? Int == 8)
     }
 }
+
+
+@MainActor @Suite struct FocusResetTests {
+    /// The host reports focus only when it changes: a new session starts with none.
+    @Test func aNewSessionForgetsTheFocusedField() async throws {
+        let stream = FakeStream()
+        let box = SinkBox()
+        let model = StreamedBrowserModel(tab: "s4", url: nil) { sink in
+            box.lock.withLock { box.sinks.append(sink) }
+            return stream
+        }
+        model.setVisible(true)
+        model.layout(points: CGSize(width: 402, height: 700), screenScale: 3)
+        for _ in 0..<200 where box.last == nil { try? await Task.sleep(for: .milliseconds(5)) }
+        let sink = try #require(box.last)
+        sink.browserMessage(Data(#"{"t":"welcome","caps":[]}"#.utf8))
+        sink.browserMessage(Data(#"{"t":"rb.text_input","input_type":"password","composition_rects":[],"caret":null}"#.utf8))
+        for _ in 0..<20 { await Task.yield() }
+        #expect(model.field?.inputType == "password")
+        sink.browserClosed(code: "link_closed", reason: "")
+        for _ in 0..<20 { await Task.yield() }
+        #expect(model.field == nil)
+    }
+}

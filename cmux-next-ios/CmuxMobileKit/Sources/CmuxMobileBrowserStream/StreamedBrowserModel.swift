@@ -323,6 +323,8 @@ public final class StreamedBrowserModel: BrowserTabState {
         case "welcome":
             welcomed = true
             appliedScreen = nil
+            // The host reports focus only when it changes: a new session starts with none.
+            field = nil
             if let screen, let connection {
                 screenSeq = 0
                 try? connection.send(message: wire.open(tab: tab, viewer: "phone", screen: screen))
@@ -354,6 +356,7 @@ public final class StreamedBrowserModel: BrowserTabState {
         connection = nil
         self.sink = nil
         welcomed = false
+        field = nil
         liveSince = nil
         decoder.reset()
         log.info("browser \(self.tab, privacy: .public) closed: \(code, privacy: .public) \(reason, privacy: .public)")

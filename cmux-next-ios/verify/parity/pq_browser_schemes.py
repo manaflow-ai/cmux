@@ -222,10 +222,14 @@ def keyboard(j):
 
 # ---------------------------------------------------------------- the host's own checks (rb.file_policy, rb.text_input)
 
-def embed_page(secret_path):
-    """A shared page that embeds a file outside the shared folders three ways."""
-    return f"""<!doctype html><title>Embeds</title><body style='font:28px -apple-system;padding:20px'>
-<p>EMBEDHOST {BODY}</p>
+def embed_page(secret_path, image_path, css_path):
+    """A shared page that embeds files outside the shared folders four ways: an
+    iframe, an image, a stylesheet and fetch. Each would put LEAKED on screen."""
+    return f"""<!doctype html><title>Embeds</title>
+<link rel=stylesheet href='file://{css_path}'>
+<body style='font:28px -apple-system;padding:20px'>
+<p>EMBEDHOST {BODY}</p><p id=css></p>
+<img src='file://{image_path}' style='width:340px;height:90px'>
 <iframe src='file://{secret_path}' style='width:90%;height:120px'></iframe>
 <p id=f>fetch: waiting</p>
 <script>fetch('file://{secret_path}').then(r=>r.text()).then(t=>document.getElementById('f').textContent='fetch: '+t)
@@ -236,7 +240,13 @@ def embed_page(secret_path):
 def embedded(j):
     proj = pq.rsh(f"mkdir -p {t.PROJ} && cd {t.PROJ} && pwd -P").stdout.strip()
     secret = write_page(f"{PAGES}/secret-{STAMP}.html", "Secret", f"LEAKED {BODY}")
-    pq.rsh(f"printf %s {shlex.quote(embed_page(secret))} > {proj}/embeds-{STAMP}.html")
+    svg = ("<svg xmlns='http://www.w3.org/2000/svg' width='340' height='90'>"
+           "<text x='10' y='60' font-size='48' font-family='Helvetica'>LEAKED</text></svg>")
+    css = "#css::after { content: 'LEAKED CSS'; font-size: 40px }"
+    pages = pq.rsh(f"cd {PAGES} && pwd -P").stdout.strip()
+    pq.rsh(f"printf %s {shlex.quote(svg)} > {pages}/secret-{STAMP}.svg && printf %s {shlex.quote(css)} > {pages}/secret-{STAMP}.css")
+    page = embed_page(secret, f"{pages}/secret-{STAMP}.svg", f"{pages}/secret-{STAMP}.css")
+    pq.rsh(f"printf %s {shlex.quote(page)} > {proj}/embeds-{STAMP}.html")
     a = t.seed(f"brs-embed-{STAMP}", terminals=1)
     t.open_ws(j, a["name"])
     pq.plus_menu(j, "New Browser Tab")
@@ -247,7 +257,8 @@ def embedded(j):
     j.sim.shot("embedded")
     leaked = j.sim.ocr_find("LEAKED")
     check(not leaked, "a file outside the shared folders showed inside the shared page")
-    return "a shared page's iframe and fetch of a file outside the shared folders show nothing (no 'LEAKED' on screen)"
+    return ("a shared page's iframe, image, stylesheet and fetch of files outside the shared folders "
+            "show nothing (no 'LEAKED' on screen)")
 
 
 FOCUS = """<!doctype html><title>Focus</title><body style='font:28px -apple-system;padding:20px'>

@@ -12,7 +12,7 @@
 //! PROTOCOL.md `browser`).
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 
@@ -103,19 +103,19 @@ pub fn file_path(url: &str) -> Option<PathBuf> {
     Some(PathBuf::from(std::ffi::OsStr::from_bytes(&bytes)))
 }
 
-static POLICY: Mutex<Option<FilePolicy>> = Mutex::new(None);
+static POLICY: Mutex<Option<Arc<FilePolicy>>> = Mutex::new(None);
 
 /// Sets (or replaces) the process's policy.
 pub fn set(policy: FilePolicy) {
-    *POLICY.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(policy);
+    *POLICY.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::new(policy));
 }
 
-/// Whether `url` may load under the process's policy (any thread). No policy: yes.
+/// Whether `url` may load under the process's policy (any thread; the IO thread
+/// for subresources). No policy: yes. The path is resolved after the lock is
+/// released, so a slow volume never holds up another thread's check.
 pub fn check(url: &str) -> bool {
-    match POLICY.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref() {
-        Some(policy) => policy.allows(url),
-        None => true,
-    }
+    let policy = POLICY.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+    policy.is_none_or(|policy| policy.allows(url))
 }
 
 /// The `rb.text_input` body for the shim's text input state: `ui::TextInputType`
