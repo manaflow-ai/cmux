@@ -178,7 +178,7 @@ extension AgentPaneImageCopies {
 
     /// `file`'s bytes when, as it is opened, it is a regular file (not a link, which the agent could
     /// swap in after the path was checked, nor a pipe that would block the read) of at most `limit` bytes.
-    static func regularFileBytes(_ file: URL, limit: Int) -> Data? {
+    nonisolated static func regularFileBytes(_ file: URL, limit: Int) -> Data? {
         let descriptor = open(file.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard descriptor >= 0 else { return nil }
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
