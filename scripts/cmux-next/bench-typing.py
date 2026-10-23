@@ -11,7 +11,9 @@ Each sample is one real key-down posted to the app by CuaDriver
 key is in flight at a time. The app's probe writes one CSV row per key:
 milliseconds after the event's timestamp at which AppKit dispatch began
 and ended, Ghostty called io_write, the attach socket took the input, the
-echo was decoded, reached the main actor, was parsed, and the first frame
+echo was decoded, reached the terminal session (`output_received_ms`: its
+off-main events loop since G4; rows from before G4 have `output_main_ms`, a
+main-actor hop, and are not comparable), was parsed, and the first frame
 after that parse was handed to Core Animation (`contents_ms`). The photon
 follows at the compositor's next vsync, at most one refresh later.
 
@@ -30,15 +32,15 @@ from pathlib import Path
 
 HOPS = [
     "dispatch_start_ms", "dispatch_end_ms", "io_write_ms", "socket_submit_ms",
-    "output_decoded_ms", "output_main_ms", "output_parsed_ms", "contents_ms",
+    "output_decoded_ms", "output_received_ms", "output_parsed_ms", "contents_ms",
 ]
 SEGMENTS = [
     ("event to dispatch", None, "dispatch_start_ms"),
     ("dispatch to io_write", "dispatch_start_ms", "io_write_ms"),
     ("io_write to socket", "io_write_ms", "socket_submit_ms"),
     ("socket to echo decoded (daemon, host, shell)", "socket_submit_ms", "output_decoded_ms"),
-    ("decoded to main actor", "output_decoded_ms", "output_main_ms"),
-    ("main actor to parsed", "output_main_ms", "output_parsed_ms"),
+    ("decoded to session", "output_decoded_ms", "output_received_ms"),
+    ("session to parsed", "output_received_ms", "output_parsed_ms"),
     ("parsed to frame contents", "output_parsed_ms", "contents_ms"),
 ]
 
