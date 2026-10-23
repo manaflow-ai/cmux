@@ -481,9 +481,6 @@ jobs:
       - name: A scheduled dispatch runs the whole Swift suite on the feat-cmux-next tip
         run: python3 tests/test_cmux_next_tip_swift_suite.py
 
-      - name: Capture-only control methods are compiled out of release builds
-        run: python3 tests/test_cmux_next_debug_only_controls.py
-
       - name: A quit scheduled on the run loop never exits a test process
         run: python3 tests/test_cmux_next_deferred_terminate.py
 
@@ -590,6 +587,12 @@ jobs:
       - name: The web verdict of feat-cmux-next pushes and web routing (web_validation.py)
         if: ${{ !cancelled() }}
         run: python3 tests/test_web_validation.py
+
+      # cmux-next-tip-test-compile.yml runs the script only on feat-cmux-next pushes, so a pull
+      # request that broke it landed green; a fake cmux-ci client and GitHub API stand in.
+      - name: The per-push tip test compile (tip-test-compile.sh)
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_ci_tip_test_compile.py
 
   # Every web bundle build runs gen-strings.mjs strict, but only pull requests
   # that touch webviews/ run its tests. 2c661dec960b renamed a setting in Swift

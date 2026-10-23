@@ -170,10 +170,21 @@ public final class HoverCardCoordinator {
         // nothing: the card goes on this move (Leo 2026-10-20). The gap between a row and its
         // card bridges only a pointer heading into the card: one going down past the row lets
         // the card go (Leo 2026-10-20).
-        let inGap = card != nil && panel?.escapeGeometry?.zone(at: now) == .gap
+        let inGap = card.map { panel?.escapeGeometry?.zone(at: now) == .gap || besideTarget(now, card: $0) } ?? false
         let bridging = hit == nil && !mouseButtonDown()
             && (onCard || (escaped == nil && (inGap ? aiming : bridges(at: now))))
         send(.hit(hit?.target, moved: true, aiming: aiming, bridging: bridging))
+    }
+
+    /// `point` is between the shown target's own frame and its card, beside the card (a sidebar
+    /// row's card stands at the sidebar's edge, past the row's end): only a pointer heading
+    /// into the card keeps it there.
+    private func besideTarget(_ point: CGPoint, card: CGRect) -> Bool {
+        guard let id = machine.shownTarget?.id,
+              let target = owners[id]?.source?.hoverCardTargetFrame(for: id),
+              point.y >= card.minY, point.y < card.maxY, !target.contains(point) else { return false }
+        return card.minX >= target.maxX ? point.x >= target.maxX && point.x < card.minX
+            : point.x < target.minX && point.x >= card.maxX
     }
 
     /// The shown card's frame on screen, nil while none shows.
@@ -494,6 +505,7 @@ public final class HoverCardCoordinator {
             "card_windows": "\(HoverCardPanel.liveInstances)",
             "card_showing": "\(panel?.isShowingCard == true)",
             "card_frame": panel.map { NSStringFromRect($0.cardFrame) } ?? "-",
+            "anchor_frame": panel.map { NSStringFromRect($0.anchorFrame) } ?? "-",
             "timer_armed": "\(timer.isScheduled)",
             "monitor": "\(monitor != nil)",
             "sources": "\(sources.values.filter { $0.source != nil }.count)",
