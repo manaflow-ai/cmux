@@ -17,6 +17,12 @@ Related references (not repeated here): [speed-of-sound-DESIGN.md](speed-of-soun
 
 ## 1. Targets
 
+Lawrence 2026-10-23: **every action < 10 ms p95 to its committed frame**, motion at full refresh
+with 0 drops, measured in a light session and in the STRESS session (60 workspaces; measured
+workspace 4 columns x 3 rows, 6 tabs per pane: terminals, Chromium, WebKit, chat; nested
+splits; 10 Chromium workspaces; 10 busy terminals; builder `scripts/cmux-next/perf-stress-session.py`).
+The table below is superseded where it says more than 10 ms.
+
 | Target | Budget | Proof |
 |---|---|---|
 | Key to frame (terminal, Home composer, omnibar) | p95 < 8 ms | `bench-typing.py`, `home.typing.*` budget row |
@@ -110,7 +116,7 @@ push), and writes its before/after table into this file's section 5.
   `ScreenContentView+Motion.swift`, `LayoutRootView*.swift`, `PaneHostView.swift`.
 - **PL-switch**: issues 4, 7, 12 (then 8). Workspace/tab/space switch < 16 ms with Chromium
   pages (Lawrence 2026-10-23: switching is slow when Chromium is involved; top priority).
-- **PL-cef-layer**: study of hosting the Chromium page's layer in the cmux window's own layer tree
+- **PL-cef-layer**: implementing (Lawrence: "do the real fix now") hosting the Chromium page's layer in the cmux window's own layer tree
   (no child page windows), plus the interim fix inside the child-window design. Output:
   `cef-layer-hosting-DESIGN.md`.
 - **PL-typing**: issue 5 and the terminal key-to-frame baseline; sidebar-caused lag goes to a576
