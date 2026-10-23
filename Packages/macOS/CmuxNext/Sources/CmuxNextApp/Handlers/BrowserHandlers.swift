@@ -156,7 +156,8 @@ enum BrowserHandlers {
         case .tab(let strip):
             return try browserTab(in: strip, url: url, profile: profile, context: context)
         case .besideDock(let dock):
-            // Home's pinned dock alone: the daemon makes a browser tab aimed at it in a new column right of it.
+            // Home's pinned dock alone: a browser tab aimed at it opens in a new column right of it
+            // (the daemon's reroute, or PaneBrowserTabOpener's move while the dock takes tabs).
             _ = dock.newBrowserTab(url: url, profile: profile)
             return
         }
