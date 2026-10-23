@@ -21,6 +21,12 @@ enum SidebarStyle {
     /// A workspace row's leading glyph: the size an icon takes beside the
     /// row title (cap height and stroke matched to the text).
     static var kindGlyphSize: CGFloat { .iconRowSize(forLabelPointSize: titleFont.pointSize) }
+    /// Where a list row's title text starts when its leading icon slot begins at `leading`: one
+    /// `iconBox` slot, drawn or empty, then a Chrome-like gap after the glyph's drawing, so rows
+    /// with and without an icon line up (Lawrence 2026-10-21: "weird spacing").
+    static func titleTextX(leading: CGFloat) -> CGFloat {
+        leading + iconBox + Metrics.space3 - Swift.max(0, (iconBox - kindGlyphSize) / 2)
+    }
     /// An item's glyph on its `iconBox` well (the list look), clear of the well's edge.
     static var wellGlyphSize: CGFloat { Swift.max(.iconFloor, iconBox - Metrics.space2) }
     static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }
@@ -40,10 +46,11 @@ enum SidebarStyle {
     /// As tall as the status glyph beside it (`Metrics.statusMarkSize`).
     static var badgeHeight: CGFloat { Metrics.statusMarkSize }
     static var searchHeight: CGFloat { Metrics.sidebarRowHeight }
-    /// The profile control's circle: its row-height square but a hairline, so the avatar reads as
-    /// big as the Search button's glyph beside it (Leo 2026-10-21: "make the icon slightly
-    /// bigger"; 22 pt at compact). It scales with the sidebar's density, as its square does.
-    static var avatarDiameter: CGFloat { SidebarDensityTokens.rowHeight - Metrics.space1 }
+    /// The profile control's circle at compact density (the icon box, 16 pt). The avatar lives in
+    /// the row-height square, so its click target scales with the display density. #23757 grew it
+    /// to the square but a hairline (22 pt); Lawrence 2026-10-21 reverted that: "bottom footer
+    /// thing too big, revert to old icon sizes".
+    static var avatarDiameter: CGFloat { iconBox }
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
     /// The margin under everything the sidebar draws (Leo 2026-10-20: the account row, the last
     /// rows and the scroller sat on the window's bottom edge): space4, as the agent composer's.
@@ -108,7 +115,7 @@ enum SidebarStyle {
     /// A top-level group's header and members line up with ungrouped rows: same leading x, same
     /// pill width (Leo 2026-10-21: "THE STUPID INDENT, IS THAT CHROME???? WHY IS THERE INDENT ON
     /// THIS INDENT"). Only a nested group's rows step in, one gutter per level below the first.
-    static func groupOffset(depth: Int) -> CGFloat { groupGutter * CGFloat(max(0, depth - 1)) }
+    static func groupOffset(depth: Int) -> CGFloat { SidebarIndent(step: groupGutter).offset(level: depth, width: .greatestFiniteMagnitude) }
     /// The members' line sits just left of their rows, in the list's leading inset for a
     /// top-level group, so no hover or selection fill covers it (cx-q5jw) and the rows keep
     /// the ungrouped rows' left edge.
