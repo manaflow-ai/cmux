@@ -229,7 +229,8 @@ nonisolated extension SidebarLayoutOptions {
         // Workspaces as tabs: one line at any density; attention states (the needs-you mark) still show.
         if workspacesAsTabs {
             var content = WorkspaceRowContent(ws, preferences: Self.tabRow, now: now)
-            (content.detail, content.status, content.trailingStatus, content.badgeTime) = (nil, nil, nil, nil)
+            (content.detail, content.trailingStatus, content.badgeTime) = (nil, nil, nil)
+            content.status = WorkspaceRowContent.bypassOnly(content.status)
             return content
         }
         if expanded && !minimal {
@@ -241,7 +242,7 @@ nonisolated extension SidebarLayoutOptions {
         var content = WorkspaceRowContent(ws, preferences: Self.minimalRow, now: now)
         content.detail = nil
         content.badgeTime = nil
-        content.status = nil
+        content.status = WorkspaceRowContent.bypassOnly(content.status)
         return content
     }
 }
