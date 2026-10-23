@@ -97,13 +97,36 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
     await page.evaluate(() => document.fonts.ready);
     return page;
   };
-  /** A real press and release at the centre of `name`'s chip. */
+  /** Resolves once nothing on the page is easing: no transition or animation left to run (a
+   *  looping one never ends). */
+  const eased = (page: Page) =>
+    page.waitForFunction(() =>
+      document
+        .getAnimations()
+        .every(
+          (animation) => animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity,
+        ),
+    );
+  /** Resolves once the pointer is over the first element `selector` matches, or off it, as the page sees it. */
+  const hovered = (page: Page, selector: string, over = true) =>
+    page.waitForFunction(([selector, over]) => document.querySelector(selector)?.matches(":hover") === over, [
+      selector,
+      over,
+    ] as const);
+  /** A real press and release at the centre of `name`'s chip, once its menu has opened or closed and
+   *  stopped easing. */
   const clickChip = async (page: Page, name: string) => {
-    const box = (await page.locator(chip(name)).first().boundingBox())!;
+    const locator = page.locator(chip(name)).first();
+    const expanded = await locator.getAttribute("aria-expanded");
+    const box = (await locator.boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
     await page.mouse.up();
-    await page.waitForTimeout(250);
+    await page.waitForFunction(
+      ([selector, expanded]) => document.querySelector(selector)?.getAttribute("aria-expanded") !== expanded,
+      [chip(name), expanded] as const,
+    );
+    await eased(page);
   };
   /** The outlines drawn now: the focused element's, the chip's, and any open popup's. */
   const rings = (page: Page, name: string) =>
@@ -160,16 +183,19 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
               });
             const box = (await locator.boundingBox())!;
             await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-            await page.waitForTimeout(200);
+            await hovered(page, chip(name));
+            await eased(page);
             const hover = await read();
             await page.mouse.down();
             const pressed = await read();
-            await page.waitForTimeout(200);
+            // Held: the tone the press settles to once nothing eases, which the first read must match.
+            await eased(page);
             const held = await read();
             await page.mouse.up();
             await page.keyboard.press("Escape");
             await page.mouse.move(1, 1);
-            await page.waitForTimeout(200);
+            await hovered(page, chip(name), false);
+            await eased(page);
             // The chip never moves under a press, whatever tone it shows (#21986). A drawn centre can
             // land a subpixel off (a 51.5 px centre rounds either way), so a move is a whole pixel or more.
             const moved = (read: { centre: number[] }) =>
@@ -309,7 +335,8 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
       const model = page.locator(chip("Model")).first();
       const modelBox = (await model.boundingBox())!;
       await page.mouse.move(modelBox.x + modelBox.width / 2, modelBox.y + modelBox.height / 2);
-      await page.waitForTimeout(100);
+      await hovered(page, chip("Model"));
+      await eased(page);
       const hover = await state("Model");
       expect(hover.background, "hover draws the pill").not.toBe(idle[0]!.background);
 

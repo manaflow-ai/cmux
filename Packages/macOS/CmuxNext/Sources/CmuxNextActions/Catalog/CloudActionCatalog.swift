@@ -223,6 +223,13 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.sizeChoice], targets: [.machine], cliName: "cloud resize-machine"
             ),
             ActionDescriptor(
+                id: "cloudSetIdlePause",
+                title: String(localized: "action.cloudSetIdlePause", defaultValue: "Pause When Idle…", bundle: .module),
+                keywords: ["vm", "cloud tree", "idle", "auto-pause", "pause", "sleep", "timeout"], category: .cloud,
+                symbol: "moon.zzz", surfaces: [.contextMenu],
+                arguments: [CatalogArgument.idlePauseChoice], targets: [.machine], cliName: "cloud set-idle-pause"
+            ),
+            ActionDescriptor(
                 id: "palette.cloud.deleteSnapshot",
                 title: String(localized: "action.palette.cloud.deleteSnapshot", defaultValue: "Delete Cloud Snapshot…", bundle: .module),
                 keywords: ["vm", "snapshot", "delete", "remove"], category: .cloud, symbol: "trash",
@@ -267,6 +274,10 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             "cloudTunnelAttach", "cloudTunnelDetach", "cloudTunnelRotateKey", "cloudNetworkList",
             "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete",
             "cloudDomainList", "cloudPublicationList",
+            // A CLI or agent run answers with the result: the machine's facts, the command's
+            // output, the new machine's or workspace's id (CloudHandlers+Results.swift).
+            "palette.cloud.status", "palette.cloud.ports", "palette.cloud.tools", "palette.cloud.handoff",
+            "palette.cloud.snapshot", "palette.cloud.promoteTemplate", "cloudExec", "newCloudMachine", "cloudNewTerminal",
         ]
         for index in actions.indices where waitsForResult.contains(actions[index].id) {
             actions[index].waitsForResult = true

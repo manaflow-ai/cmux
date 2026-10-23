@@ -172,7 +172,9 @@ test("tabs wrap backward and jump with Home/End", () => {
   expect(calls.at(-1)).toBe("installed");
 });
 
-test("the Apps entry point provides the resolved UI direction", () => {
+test("languageDirection matches the shared document RTL locale set", () => {
   expect(languageDirection("ar")).toBe("rtl");
+  expect(languageDirection("ug-CN")).toBe("rtl");
+  expect(languageDirection("fa")).toBe("rtl");
   expect(languageDirection("en")).toBe("ltr");
 });

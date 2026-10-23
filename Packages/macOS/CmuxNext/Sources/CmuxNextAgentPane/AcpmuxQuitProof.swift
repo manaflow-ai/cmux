@@ -92,9 +92,23 @@ public nonisolated struct AcpmuxQuitProof {
         return lockState(home.appendingPathComponent("daemon.lock")) == .free
     }
 
-    /// The Home Chief's sessions as last read from the daemon (census or
-    /// endAgents), so the proof does not count the kept Chief host.
-    static let knownChief = Mutex<Set<String>>([])
+    /// The Home Chief's sessions as last read from each daemon home (census
+    /// or endAgents), so the proof does not count the kept Chief host. Per
+    /// home: a census of another daemon (the Chief home's old one) must not
+    /// replace the app daemon's.
+    static let knownChief = Mutex<[String: Set<String>]>([:])
+
+    /// Records the Chief's sessions read from the daemon of `home`.
+    static func remember(chief: Set<String>, home: URL) {
+        knownChief.withLock { $0[home.standardizedFileURL.path] = chief }
+    }
+
+    /// The sessions an end with `keep` leaves out of the proof for the daemon
+    /// of `home`: none when it keeps nothing, so a Chief host still holding
+    /// its lock is an agent still running.
+    static func keptChief(home: URL, keep: AcpmuxQuit.Keep) -> Set<String> {
+        keep == .chief ? knownChief.withLock { $0[home.standardizedFileURL.path] ?? [] } : []
+    }
 
     /// A quit census saw this home's socket before a later end attempt. The
     /// socket is removed at the start of shutdown, so a missing socket on

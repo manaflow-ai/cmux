@@ -11,7 +11,8 @@ import { GalleryDialog } from "./GalleryDialog";
 import { chatGallery } from "./chatGallery";
 import { useScrollEdges } from "./scrollEdges";
 import { sessionSummary } from "./sessionSummary";
-import { SubagentStatusList, subagentStatus, waitingSubagents } from "./SubagentStatusList";
+import type { SubsessionRow } from "../subagents/subsessions";
+import { SUBSESSION_STATUS, SubagentStatusList, subagentStatus, waitingSubagents } from "./SubagentStatusList";
 import { SubagentsTab } from "./SubagentsTab";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
 import type { ChatToolsControl } from "./SourcesAddMenu";
@@ -23,6 +24,8 @@ import type { ProcessRegistry } from "../inspector/processes";
 const NO_SESSIONS: readonly StartedSession[] = [];
 const NO_TASKS: readonly SummaryBackgroundTask[] = [];
 const NO_REGISTRY: ProcessRegistry = { processes: [], listed: false };
+
+const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
 
 /// What the chat has produced so far. A wide pane reserves a quiet right column; a narrow pane
 /// uses a popover that dismisses on outside click or Escape. Folded popovers keep their header line,
@@ -42,6 +45,7 @@ export function SummaryCard({
   changes,
   onOpenChanges,
   subagents,
+  subsessions,
   onAttach,
   background,
   sessions,
@@ -66,6 +70,9 @@ export function SummaryCard({
     /// Whether new subagents open in panes of their own, and its switch; none where no pane opens.
     autoOpen?: { on: boolean; set: (on: boolean) => void };
   };
+  /// The chat's sub-sessions (subagents/subsessions.ts `subsessionRows`), listed after its
+  /// subagents, and how a row opens one's chat beside this one.
+  subsessions?: { rows: readonly SubsessionRow[]; onOpen: (sessionId: string) => void };
   /// Sources' + (Attach files or folders), for a chat on this computer.
   onAttach?: () => void;
   /// The chat's background commands: the process registry's records, the transcript's tasks still
@@ -154,17 +161,23 @@ export function SummaryCard({
       <aside className="acpmux-summary-card acpmux-summary-card--reserve" aria-hidden="true" data-placement="inline" />
     ) : null;
   }
-  const children = sessions?.list ?? NO_SESSIONS;
-  const count = (status: string) => agents.filter((agent) => subagentStatus(agent, waiting) === status).length;
+  const subsessionRows = subsessions?.rows ?? NO_SUBSESSIONS;
+  // A started chat that is also a sub-session shows once, as its sub-session row.
+  const children = (sessions?.list ?? NO_SESSIONS).filter(
+    (child) => !subsessionRows.some((row) => row.sessionId === child.sessionId),
+  );
+  const count = (status: string) =>
+    agents.filter((agent) => subagentStatus(agent, waiting) === status).length +
+    subsessionRows.filter((session) => SUBSESSION_STATUS[session.state] === status).length;
   // A started chat waiting on the person is counted with the waiting subagents.
   const waitingCount = count("waiting") + children.filter((child) => child.state === "waiting").length;
   const runningCommands = commands.filter((command) => command.state === "running").length;
-  const runningSessions = children.filter((child) => child.state === "running").length;
+  // A started chat whose turn runs is a running subagent too: one word, as the tray says.
+  const runningCount = count("running") + children.filter((child) => child.state === "running").length;
   const counts = [
     waitingCount > 0 && t("summary.subagents.waiting", { n: waitingCount }),
-    count("running") > 0 && t("summary.subagents.running", { n: count("running") }),
+    runningCount > 0 && t("summary.subagents.running", { n: runningCount }),
     runningCommands > 0 && t("turn.working.commands", { n: runningCommands }),
-    runningSessions > 0 && t("turn.working.sessions", { n: runningSessions }),
     count("failed") > 0 && t("summary.subagents.failed", { n: count("failed") }),
     count("stopped") > 0 && t("summary.subagents.stopped", { n: count("stopped") }),
     count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
@@ -172,7 +185,7 @@ export function SummaryCard({
   const title = t("summary.open");
   const foldLabel = card.collapsed ? t("summary.expand") : t("summary.collapse");
   const onSubagents = tab === "subagents";
-  const hasSubagents = agents.length > 0 || children.length > 0;
+  const hasSubagents = agents.length > 0 || children.length > 0 || subsessionRows.length > 0;
   return (
     <>
       <aside
@@ -273,7 +286,7 @@ export function SummaryCard({
         )}
         {summary && !onSubagents && (
           <div className="acpmux-summary-card__body" ref={edges}>
-            {/* The subagents and started chats first: they are what the card follows while a turn runs. */}
+            {/* The subagents, sub-sessions and started chats first: they are what the card follows while a turn runs. */}
             {hasSubagents && (
               <SubagentStatusList
                 agents={agents}
@@ -281,9 +294,11 @@ export function SummaryCard({
                 current={subagents.current}
                 onOpen={subagents.onOpen}
                 autoOpen={agents.length > 0 ? subagents.autoOpen : undefined}
+                // The tab lists subagents only; a chat with only sub-sessions or started chats has none to show there.
                 onShowAll={agents.length > 0 ? () => setTab("subagents") : undefined}
+                subsessions={subsessionRows}
                 sessions={children}
-                onOpenSession={sessions?.onOpen}
+                onOpenSession={sessions?.onOpen ?? subsessions?.onOpen}
                 stack={agents.length === 0 ? summary.subagents : undefined}
               />
             )}

@@ -222,10 +222,12 @@ pub fn install(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     if let Some(channel) = args.value("channel") {
         cfg.set_channel(channel);
     }
+    let report = apply_channel(ctx, args, &layout, &cfg)?;
+    // A rejected download or package cannot commit identity/channel intent.
+    // Keep the previous configuration until the signed profile is installed.
     if new_id || channel_changed {
         cfg.save()?;
     }
-    let report = apply_channel(ctx, args, &layout, &cfg)?;
     let mut warnings = Vec::new();
     ensure_shim(&layout, &mut warnings)?;
     let svc = services(ctx, &layout)?;

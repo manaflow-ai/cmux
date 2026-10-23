@@ -10877,6 +10877,923 @@
           }
         }
       }
+    },
+    "control.action.needsContext": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs %@ in the focused window."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب %@ في النافذة النشطة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erfordert %@ im aktiven Fenster."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Necesita %@ en la ventana activa."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nécessite %@ dans la fenêtre active."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティブなウインドウに %@ が必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성 창에 %@이(가) 필요합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要在当前窗口中有 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要在目前視窗中有 %@。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Potrebno je %@ u aktivnom prozoru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kræver %@ i det aktive vindue."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Richiede %@ nella finestra attiva."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវការ %@ នៅក្នុងបង្អួចសកម្ម។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krever %@ i det aktive vinduet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wymaga %@ w aktywnym oknie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requer %@ na janela ativa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нужно %@ в активном окне."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต้องมี %@ ในหน้าต่างที่ใช้งานอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etkin pencerede %@ gerekir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потрібно %@ в активному вікні."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cần %@ trong cửa sổ đang hoạt động."
+          }
+        }
+      }
+    },
+    "control.action.needsContextOrTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs %1$@ in the focused window, or pass --target %2$@:<id>."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب %1$@ في النافذة النشطة، أو مرّر ‎--target %2$@:<id>‎."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erfordert %1$@ im aktiven Fenster, oder übergib --target %2$@:<id>."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Necesita %1$@ en la ventana activa, o pasa --target %2$@:<id>."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nécessite %1$@ dans la fenêtre active, ou passez --target %2$@:<id>."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティブなウインドウに %1$@ が必要です。または --target %2$@:<id> を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성 창에 %1$@이(가) 필요하거나 --target %2$@:<id>를 전달하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要在当前窗口中有 %1$@，或传入 --target %2$@:<id>。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要在目前視窗中有 %1$@，或傳入 --target %2$@:<id>。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Potrebno je %1$@ u aktivnom prozoru ili proslijedite --target %2$@:<id>."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kræver %1$@ i det aktive vindue, eller angiv --target %2$@:<id>."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Richiede %1$@ nella finestra attiva, oppure passa --target %2$@:<id>."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវការ %1$@ នៅក្នុងបង្អួចសកម្ម ឬបញ្ជូន --target %2$@:<id>។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krever %1$@ i det aktive vinduet, eller angi --target %2$@:<id>."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wymaga %1$@ w aktywnym oknie lub podaj --target %2$@:<id>."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requer %1$@ na janela ativa ou passe --target %2$@:<id>."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нужно %1$@ в активном окне или передайте --target %2$@:<id>."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต้องมี %1$@ ในหน้าต่างที่ใช้งานอยู่ หรือส่ง --target %2$@:<id>"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etkin pencerede %1$@ gerekir veya --target %2$@:<id> verin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потрібно %1$@ в активному вікні або передайте --target %2$@:<id>."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cần %1$@ trong cửa sổ đang hoạt động, hoặc truyền --target %2$@:<id>."
+          }
+        }
+      }
+    },
+    "control.error.wheelOffset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.wheel needs params.dx or params.dy"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب browser.page.wheel المعامل params.dx أو params.dy"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.wheel zahtijeva params.dx ili params.dy"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.wheel kræver params.dx eller params.dy"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.wheel benötigt params.dx oder params.dy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.wheel necesita params.dx o params.dy"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.wheel nécessite params.dx ou params.dy"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.wheel richiede params.dx o params.dy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.wheel には params.dx または params.dy が必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.wheel ត្រូវការ params.dx ឬ params.dy"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.wheel에는 params.dx 또는 params.dy가 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.wheel trenger params.dx eller params.dy"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.wheel wymaga params.dx lub params.dy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.wheel precisa de params.dx ou params.dy"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для browser.page.wheel нужен params.dx или params.dy"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.wheel ต้องมี params.dx หรือ params.dy"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.wheel için params.dx veya params.dy gerekir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для browser.page.wheel потрібен params.dx або params.dy"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.wheel cần params.dx hoặc params.dy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.wheel 需要 params.dx 或 params.dy"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.wheel 需要 params.dx 或 params.dy"
+          }
+        }
+      }
+    },
+    "control.error.notEditable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The focused element takes no text; focus a text field first"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "العنصر المحدد لا يقبل نصًا؛ ركّز على حقل نص أولًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokusirani element ne prima tekst; prvo fokusirajte tekstualno polje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det fokuserede element tager ikke tekst; fokuser først et tekstfelt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das fokussierte Element nimmt keinen Text an; fokussiere zuerst ein Textfeld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El elemento enfocado no admite texto; enfoca primero un campo de texto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’élément actif n’accepte pas de texte ; activez d’abord un champ de texte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’elemento attivo non accetta testo; attiva prima un campo di testo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカスされている要素はテキストを受け付けません。先にテキストフィールドにフォーカスしてください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធាតុដែលកំពុងផ្ដោតមិនទទួលអត្ថបទទេ; សូមផ្ដោតលើប្រអប់អត្ថបទជាមុន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포커스된 요소는 텍스트를 받지 않습니다. 먼저 텍스트 필드에 포커스하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elementet i fokus tar ikke tekst; fokuser et tekstfelt først"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element z fokusem nie przyjmuje tekstu; najpierw ustaw fokus na polu tekstowym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O elemento em foco não aceita texto; foque um campo de texto primeiro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Элемент в фокусе не принимает текст; сначала переведите фокус на текстовое поле"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "องค์ประกอบที่โฟกัสอยู่ไม่รับข้อความ โปรดโฟกัสช่องข้อความก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaklanan öğe metin almıyor; önce bir metin alanına odaklanın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Елемент у фокусі не приймає текст; спочатку наведіть фокус на текстове поле"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phần tử đang được chọn không nhận văn bản; hãy chọn một ô văn bản trước"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前聚焦的元素不接受文本；请先聚焦一个文本框"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前聚焦的元素不接受文字；請先聚焦一個文字欄位"
+          }
+        }
+      }
+    },
+    "control.error.rawInputChoice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%1$@ must be one of %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون params.%1$@ إحدى القيم: %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%1$@ mora biti jedno od: %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%1$@ skal være en af %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%1$@ muss einer dieser Werte sein: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%1$@ debe ser uno de %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%1$@ doit valoir l’une de ces valeurs : %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%1$@ deve essere uno di %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%1$@ は %2$@ のいずれかである必要があります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%1$@ ត្រូវតែជាមួយក្នុងចំណោម %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%1$@은(는) %2$@ 중 하나여야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%1$@ må være en av %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%1$@ musi być jedną z wartości: %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%1$@ deve ser um de %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%1$@ должен быть одним из: %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%1$@ ต้องเป็นค่าใดค่าหนึ่งใน %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%1$@ şunlardan biri olmalıdır: %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%1$@ має бути одним із: %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%1$@ phải là một trong %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%1$@ 必须是以下之一：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%1$@ 必須是以下之一：%2$@"
+          }
+        }
+      }
+    },
+    "control.error.rawInputClickCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.click_count must be a whole number from 1 to 100"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون params.click_count عددًا صحيحًا من 1 إلى 100"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.click_count mora biti cijeli broj od 1 do 100"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.click_count skal være et heltal fra 1 til 100"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.click_count muss eine ganze Zahl von 1 bis 100 sein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.click_count debe ser un número entero de 1 a 100"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.click_count doit être un nombre entier de 1 à 100"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.click_count deve essere un numero intero da 1 a 100"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.click_count は 1 から 100 までの整数である必要があります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.click_count ត្រូវតែជាចំនួនគត់ពី 1 ដល់ 100"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.click_count는 1에서 100 사이의 정수여야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.click_count må være et heltall fra 1 til 100"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.click_count musi być liczbą całkowitą od 1 do 100"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.click_count deve ser um número inteiro de 1 a 100"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.click_count должен быть целым числом от 1 до 100"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.click_count ต้องเป็นจำนวนเต็มตั้งแต่ 1 ถึง 100"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.click_count 1 ile 100 arasında bir tam sayı olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.click_count має бути цілим числом від 1 до 100"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.click_count phải là số nguyên từ 1 đến 100"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.click_count 必须是 1 到 100 之间的整数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.click_count 必須是 1 到 100 之間的整數"
+          }
+        }
+      }
+    },
+    "control.error.rawInputModifiers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.modifiers may hold only shift, control, alt and meta"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن أن تحتوي params.modifiers على shift وcontrol وalt وmeta فقط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.modifiers smije sadržavati samo shift, control, alt i meta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.modifiers må kun indeholde shift, control, alt og meta"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.modifiers darf nur shift, control, alt und meta enthalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.modifiers solo puede contener shift, control, alt y meta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.modifiers ne peut contenir que shift, control, alt et meta"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.modifiers può contenere solo shift, control, alt e meta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.modifiers に指定できるのは shift、control、alt、meta だけです"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.modifiers អាចមានតែ shift, control, alt និង meta ប៉ុណ្ណោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.modifiers에는 shift, control, alt, meta만 넣을 수 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.modifiers kan bare inneholde shift, control, alt og meta"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.modifiers może zawierać tylko shift, control, alt i meta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.modifiers só pode conter shift, control, alt e meta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.modifiers может содержать только shift, control, alt и meta"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.modifiers มีได้เฉพาะ shift, control, alt และ meta"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.modifiers yalnızca shift, control, alt ve meta içerebilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.modifiers може містити лише shift, control, alt і meta"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.modifiers chỉ được chứa shift, control, alt và meta"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.modifiers 只能包含 shift、control、alt 和 meta"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.modifiers 只能包含 shift、control、alt 和 meta"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

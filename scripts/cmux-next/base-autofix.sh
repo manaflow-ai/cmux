@@ -174,7 +174,7 @@ fi
 
 # 1e3. The defaults snapshot, from the action and settings exports
 # (scripts/ci/defaults_guard.py). Rewriting it never passes the defaults guard:
-# a changed default still needs a call owner's approval on the pull request.
+# a changed default still needs a SHIP review receipt or a call owner's approval on the pull request.
 defaults_snapshot=schemas/defaults/cmux-next.json
 if (( unverified_exports || unverified_settings )); then
   waits=()

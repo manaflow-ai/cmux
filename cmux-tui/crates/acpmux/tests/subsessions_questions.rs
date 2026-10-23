@@ -184,8 +184,7 @@ async fn subsession_questions_a_parent_answers_its_childs_question_but_never_a_p
         .events(&child, 0, 1000)
         .unwrap()
         .into_iter()
-        .filter(|e| e.kind == "permission_decision")
-        .next_back()
+        .rfind(|e| e.kind == "permission_decision")
         .expect("a permission_decision record");
     assert_eq!(decision.msg["answeredBy"]["session"], parent.as_str(), "{:?}", decision.msg);
     // Spent: a second answer finds nothing pending.
@@ -198,9 +197,8 @@ async fn subsession_questions_a_parent_answers_its_childs_question_but_never_a_p
     let asking = p.child_that_asks("ask: rm -rf build").await;
     let row = p.ok("_acpmux/subsession/get", json!({"sessionId": asking})).await;
     assert_eq!(row["questions"], json!([]), "{row}");
-    let last = |kind: &str| {
-        hub.events(&asking, 0, 1000).unwrap().into_iter().filter(|e| e.kind == kind).next_back()
-    };
+    let last =
+        |kind: &str| hub.events(&asking, 0, 1000).unwrap().into_iter().rfind(|e| e.kind == kind);
     let ppid = last("permission_request").expect("a permission_request record").msg["permissionId"]
         .as_str()
         .unwrap()
@@ -296,6 +294,19 @@ async fn subsession_questions_a_parent_answers_its_childs_question_but_never_a_p
     let row = p.ok("_acpmux/subsession/get", json!({"sessionId": grandchild})).await;
     assert_eq!(row["lastReply"], r#"chose allow_once {"Deep?": "A"}"#, "{row}");
 
+    // An answer is text the child's agent acts on, as a message is: never to a child that asks
+    // less than the caller. The person narrows the parent's policy; the child still asks.
+    let lax = p.child_that_asks("question: Lax?").await;
+    let row = p.ok("_acpmux/subsession/get", json!({"sessionId": lax})).await;
+    let lax_pid = row["questions"][0]["permissionId"].as_str().unwrap().to_owned();
+    app.ok("_acpmux/set_policy", json!({"sessionId": parent, "policy": "deny-all"})).await;
+    let answer = json!({"sessionId": lax, "permissionId": lax_pid, "answers": {"Lax?": "A"}});
+    let e = p.refused(ANSWER, answer).await;
+    assert_eq!(e["data"]["reason"], "subsessions.receiver_asks_less", "{e}");
+    let row = p.ok("_acpmux/subsession/get", json!({"sessionId": lax})).await;
+    assert_eq!(row["status"], "waiting", "{row}");
+    app.ok("_acpmux/set_policy", json!({"sessionId": parent, "policy": "ask"})).await;
+
     // A child never answers its parent's question.
     app.0
         .send(
@@ -319,8 +330,7 @@ async fn subsession_questions_a_parent_answers_its_childs_question_but_never_a_p
         .events(&parent, 0, 1000)
         .unwrap()
         .into_iter()
-        .filter(|e| e.kind == "permission_request")
-        .next_back()
+        .rfind(|e| e.kind == "permission_request")
         .expect("the parent's question")
         .msg["permissionId"]
         .as_str()

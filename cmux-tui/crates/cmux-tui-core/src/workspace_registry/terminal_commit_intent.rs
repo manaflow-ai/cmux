@@ -65,6 +65,33 @@ impl WorkspaceRegistry {
     }
 }
 
+impl WorkspaceRegistry {
+    /// Commit several prepared terminal transitions in one request-side
+    /// transaction (one fsync), each under its own SAVEPOINT: an intent that
+    /// fails rolls back alone and gets its own error. The caller holds the
+    /// registry across prepare and commit, so no other writer runs between.
+    pub(crate) fn commit_terminals_together(
+        &self,
+        intents: Vec<TerminalCommitIntent>,
+    ) -> anyhow::Result<Vec<Result<TerminalRegistryCommit, String>>> {
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
+        let mut commits = Vec::with_capacity(intents.len());
+        for intent in intents {
+            let commit = RegistryIntent::Terminal(intent).apply_in_savepoint(&tx)?;
+            commits.push(
+                commit.and_then(|receipt| {
+                    receipt.into_terminal().map_err(|error| format!("{error:#}"))
+                }),
+            );
+        }
+        tx.commit()?;
+        drop(db);
+        self.connection.write_path_stats().request_effect_committed();
+        Ok(commits)
+    }
+}
+
 impl TerminalCommitIntent {
     /// Resident size for the writer's durable batch byte cap.
     pub(crate) fn estimated_bytes(&self) -> usize {

@@ -264,6 +264,35 @@ impl Hub {
     }
 }
 
+impl Hub {
+    /// An adopted agent whose host (an older build) recorded no caller token
+    /// cannot prove its session, so its sub-session tools are refused. It
+    /// restarts as `acpmux session restart` asks, in the same conversation
+    /// and keeping its sub-sessions, once it is between turns: a recovered
+    /// turn ends its process when it ends (`hosts.rs`), a later turn moves it
+    /// before the next one (`turns.rs`), and an idle agent ends now and starts
+    /// again at its next prompt. Never during a turn or an open permission
+    /// prompt.
+    pub(super) fn restart_unproven(self: &Arc<Self>, session: &Arc<Session>, proven: bool) {
+        if proven {
+            return;
+        }
+        tracing::info!(session = %session.id, "adopted agent has no caller token this daemon knows (an older host build): restarting it between turns for its sub-session tools");
+        session.route_switch.store(true, Ordering::SeqCst);
+        let hub = self.clone();
+        let session = session.clone();
+        tokio::spawn(async move {
+            let _turn = session.turn_lock.lock().await;
+            if session.turn().is_none()
+                && session.pending_permissions().is_empty()
+                && session.route_switch.swap(false, Ordering::SeqCst)
+            {
+                hub.detach_child(&session).await;
+            }
+        });
+    }
+}
+
 /// What `restart_harnesses` did: how many sessions restarted now, how many
 /// restart when their turn ends, and `(session, error)` for each whose
 /// harness could not start again.

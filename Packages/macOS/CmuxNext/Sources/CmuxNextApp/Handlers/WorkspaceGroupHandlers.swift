@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSettings
 import CmuxNextSidebar
 
 /// Workspace groups (sidebar sections): every verb from architecture.md 7
@@ -38,8 +39,9 @@ enum WorkspaceGroupHandlers {
             try createGroup(named: name, members: members, byUser: invocation.origin == .user, context)
         })
         registry.bind("groupSelectedWorkspaces", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
-            var members = try context.sidebar().model.orderedSelection
-            if members.isEmpty { members = [SidebarWorkspaceID(try context.workspace(invocation).model.id)] }
+            // The right-clicked row's selection, or the row alone: a right-click no longer selects its row (Leo
+            // 2026-10-21), so a row outside the selection must not group the selection.
+            let members = try WindowMembershipHandlers.workspaces(invocation, context).map(SidebarWorkspaceID.init)
             try createGroup(named: "", members: members, byUser: invocation.origin == .user, context)
         })
         registry.bind("moveWorkspaceToGroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
@@ -63,7 +65,7 @@ enum WorkspaceGroupHandlers {
             for workspace in grouped { context.ungroupPersonal(workspace) }
         })
         ActionTargetVisibility.hide("removeWorkspaceFromGroup", in: registry) { (try? context.workspace($0).model).map { (try? WorkspaceVerbHandlers.group(of: $0, context)) == nil } ?? false }
-        ActionTargetVisibility.hide("groupSelectedWorkspaces", in: registry) { _ in ((try? context.sidebar().model.orderedSelection.count) ?? 0) < 2 }
+        ActionTargetVisibility.hide("groupSelectedWorkspaces", in: registry) { ((try? WindowMembershipHandlers.workspaces($0, context).count) ?? 0) < 2 }
         registry.bind("workspaceGroup.newWorkspace", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             try newPersonalWorkspace(in: context.group(invocation).id, newTabPage: invocation.origin == .user, context)
         })
@@ -134,7 +136,7 @@ enum WorkspaceGroupHandlers {
             try WorkspaceGroupUndo.remove(invocation, context, message: WorkspaceGroupUndo.deletedToast)
         })
         registry.bind("workspaceGroup.copyID", run: { invocation in context.copy(try context.group(invocation).id.rawValue) })
-        registry.bind("workspaceGroup.editConfig", run: { _ in try SettingsHandlers.openCmuxConfig(context) })
+        registry.bind("workspaceGroup.editConfig", run: { invocation in try WorkspaceGroupConfigEditor(context: context).open(invocation) })
 
         // A pinned (saved) group stays when its workspaces close.
         registry.bind("workspaceGroup.togglePin", requires: DaemonCapabilities.shared.workspaceGroupPin, daemon: home, run: { invocation in
@@ -196,7 +198,9 @@ enum WorkspaceGroupHandlers {
         // The group's slot, the path a double-click in the group takes: the row shows in the group from the press
         // and is placed once the daemon lists it. Setting the group right after the create raced that listing:
         // without the workspace's public id the place went out as the raw command, and it stayed outside the group.
-        let slot = windows.controller(for: target).flatMap { shownGroupID(id, in: $0.sidebar.model) }.map(WorkspaceSlot.endOfGroup)
+        let slot = windows.controller(for: target).flatMap { controller in
+            shownGroupID(id, in: controller.sidebar.model).map { groupSlot($0, in: controller.sidebar.model, context) }
+        }
         spawn.slot = slot
         spawn.onListed = { key, bridge in
             // A slot that did not resolve where it is listed (the group is in another room) placed nothing.
@@ -217,6 +221,21 @@ enum WorkspaceGroupHandlers {
             } catch {
                 return ActionWorkFailure("new workspace", error)
             }
+        }
+    }
+
+    /// Where New Workspace in Group puts the new workspace in group `shown` (cmux.json
+    /// `workspaceGroups`, by the group's anchor folder): after its first workspace (`top`, and
+    /// `afterCurrent`, whose reference is the anchor for the header's + and the CLI), else last.
+    private static func groupSlot(_ shown: CmuxNextSidebar.GroupID, in model: SidebarModel, _ context: AppActionContext) -> WorkspaceSlot {
+        let members = model.group(shown)?.workspaces.map(\.id.rawValue) ?? []
+        let config = context.services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig()
+        let anchor = WorkspaceGroupConfigLook.anchorDirectory(of: members.compactMap { context.services.machines.workspace(id: $0)?.0 })
+        switch config.placement(for: anchor) {
+        case .top, .afterCurrent:
+            return members.first.map(WorkspaceSlot.below) ?? .endOfGroup(shown)
+        case .end:
+            return .endOfGroup(shown)
         }
     }
 

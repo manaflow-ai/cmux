@@ -20,7 +20,10 @@ Superseded means, for a push event only:
   - a cmux-tui-pin-* ref at GitHub's merge commit for a pull request
     ("Merge <head> into <base>", made by cmux-next-pr-merge-tree.yml) whose
     pull request is open with a different head now, and no pull request has
-    that head any more.
+    that head any more;
+  - such a pin whose pull request merged into feat-cmux-next at that head, and
+    no open pull request has it: feat-cmux-next's push of the merge tests its own tree, and the pin's
+    daemon tests held the side lane for hours after the merge (2026-10-21).
 main, feat-cmux-next and next-batch/* runs gate latest/ and nightly-next
 promotion and are never superseded here, nor is a dispatch, a pull request run,
 or a pin of anything other than a pull request merge commit (pin-cmux-tui.sh,
@@ -102,8 +105,15 @@ def pin_verdict(sha: str) -> tuple[bool, str]:
     if status != 200 or not isinstance(data, list):
         raise ApiError(f"GET commits/{head}/pulls: HTTP {status}")
     repo = os.environ["GITHUB_REPOSITORY"]
-    if any(pr.get("head", {}).get("sha") == head for pr in data):
+    owners = [pr for pr in data if pr.get("head", {}).get("sha") == head]
+    if any(pr.get("state") == "open" for pr in owners):
         return False, f"{head[:12]} is still a pull request head"
+    merged = [pr for pr in owners if pr.get("merged_at") and (pr.get("base") or {}).get("ref") == "feat-cmux-next"
+              and (pr.get("head", {}).get("repo") or {}).get("full_name") == repo]
+    if merged:
+        return True, f"#{merged[0].get('number')} merged at {head[:12]}; feat-cmux-next's push of it tests its own tree"
+    if owners:
+        return False, f"{head[:12]} is the head of a pull request closed without merging; keeping the run"
     moved = [pr for pr in data if pr.get("state") == "open"
              and (pr.get("head", {}).get("repo") or {}).get("full_name") == repo]
     if not moved:

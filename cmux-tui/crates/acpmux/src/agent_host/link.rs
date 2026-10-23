@@ -2,6 +2,7 @@
 //! controller started, and exchange frames with it.
 
 use super::*;
+use crate::no_panic::LockExt;
 use std::ffi::OsString;
 use std::sync::Arc;
 #[cfg(unix)]
@@ -51,6 +52,12 @@ pub async fn spawn_within(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .kill_on_drop(false);
+    // Debug builds only: the hello-stall test seam (`host.rs`) names a folder
+    // of marker files and carries no authority; release builds have no seam.
+    #[cfg(debug_assertions)]
+    if let Some(dir) = std::env::var_os(super::host::HELLO_STALL_DIR_ENV) {
+        cmd.env(super::host::HELLO_STALL_DIR_ENV, dir);
+    }
     // SAFETY: setsid is async-signal-safe and touches no Rust state. The host
     // leads its own session so it outlives the controller and its group.
     unsafe {
@@ -240,7 +247,7 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
                         modes,
                         config_options,
                     })) => {
-                        if let Some(reply) = queries.lock().unwrap().remove(&id) {
+                        if let Some(reply) = queries.lock_or_recover().remove(&id) {
                             let _ =
                                 reply.send(QueryReply { claude_session_id, modes, config_options });
                         }
@@ -249,7 +256,7 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
                 }
             }
             closed.store(true, std::sync::atomic::Ordering::SeqCst);
-            queries.lock().unwrap().clear();
+            queries.lock_or_recover().clear();
         });
     }
     tx.send((ControllerFrame::Resume { after: resume_after }, None))
@@ -332,12 +339,12 @@ impl Link {
     pub async fn query_within(&self, budget: std::time::Duration) -> Result<QueryReply> {
         let id = self.next_query.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
-        self.queries.lock().unwrap().insert(id, tx);
+        self.queries.lock_or_recover().insert(id, tx);
         self.send(ControllerFrame::Query { id }).await?;
         match within("query", budget, rx).await {
             Ok(reply) => reply.map_err(|_| anyhow!("agent host closed before it answered")),
             Err(timeout) => {
-                self.queries.lock().unwrap().remove(&id);
+                self.queries.lock_or_recover().remove(&id);
                 Err(timeout.into())
             }
         }

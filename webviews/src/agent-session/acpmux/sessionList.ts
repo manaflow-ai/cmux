@@ -50,6 +50,22 @@ export type AcpmuxSessionEntry = {
   parentId?: string;
   /** Started by another session's agent (acpmux `spawnedBy`): it folds under that chat, off every list. */
   spawnedBy?: string;
+  /** A sub-session: the chat whose agent started it with its `start_session` tool (acpmux
+   *  `startedBy`, kept at any depth and after that chat closes). */
+  startedBy?: string;
+  /** A sub-session's name among its parent's (acpmux `shortName`, "tests"). */
+  shortName?: string;
+  /** What it is doing (acpmux `lane.state`): working, waiting on the person, failed, lost or idle. */
+  lane?: SessionLane;
+  /** Prompts waiting behind its running turn, when any. */
+  queued?: number;
+  /** One line of what its running turn does now: its plan step and latest tool, as acpmux says it
+   *  to the parent's agent (`doing`). */
+  doing?: string;
+  /** What it waits on the person for, while it does: an agent question (with its first prompt)
+   *  or a tool's permission. acpmux names it on a sub-session's family rows (`waitingOn`,
+   *  subsession_send.rs `waiting_on`); a summary that does not leaves it unknown. */
+  waitingOn?: SessionWaiting;
   forkSeq?: number;
   /** Completed turns, the copied ones of a fork included. */
   turnCount?: number;
@@ -135,6 +151,32 @@ function trustPending(tags: unknown): string | undefined {
 export type SessionIndicator = "input" | "working" | "failed" | "lost" | "done";
 const INDICATORS: readonly string[] = ["input", "working", "failed", "lost", "done"];
 
+/** acpmux's lane states (`SessionSummary.lane.state`). */
+export type SessionLane = "working" | "input" | "failed" | "lost" | "idle";
+const LANES: readonly string[] = ["working", "input", "failed", "lost", "idle"];
+
+/** A running turn's line as acpmux's `doing_line` (hub/activity.rs) writes it: its plan step and
+ *  latest tool, either alone; else what the turn was asked (`lane.step`). */
+function doingLine(session: Record<string, any>): string | undefined {
+  if (session.lane?.state !== "working") return undefined;
+  const step = text(session.turn?.planStep);
+  const tool = text(session.turn?.activity);
+  if (step && tool && step !== tool) return `${step} · ${tool}`;
+  return step ?? tool ?? text(session.lane?.step);
+}
+
+/** What a session waits on the person for: only the person answers either, in the app. */
+export type SessionWaiting = { on: "question"; prompt?: string } | { on: "permission" };
+
+/** `waitingOn` while the session waits on the person, with a question's first prompt
+ *  (`waitingPrompt`) when acpmux gives it. */
+export function sessionWaiting(session: Record<string, any>): SessionWaiting | undefined {
+  if (session.waitingOn === "permission") return { on: "permission" };
+  if (session.waitingOn !== "question") return undefined;
+  const prompt = text(session.waitingPrompt);
+  return prompt ? { on: "question", prompt } : { on: "question" };
+}
+
 /** What a row draws at its right edge, most urgent first. */
 export type SessionMark = "input" | "running" | "error" | "unread" | undefined;
 
@@ -171,6 +213,12 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     preview: text(session.preview),
     parentId: text(session.parentId),
     spawnedBy: text(session.spawnedBy),
+    startedBy: text(session.startedBy),
+    shortName: text(session.shortName),
+    lane: LANES.includes(session.lane?.state) ? session.lane.state : undefined,
+    queued: Number(session.queued) > 0 ? Number(session.queued) : undefined,
+    doing: doingLine(session),
+    waitingOn: sessionWaiting(session),
     forkSeq: typeof session.forkSeq === "number" ? session.forkSeq : undefined,
     turnCount: typeof session.turnCount === "number" ? session.turnCount : undefined,
     unsent:
@@ -284,7 +332,7 @@ export function isAgentHome(cwd: string | undefined): boolean {
 export function mostRecentProject(
   sessions: readonly AcpmuxSessionEntry[],
   home?: string,
-  known?: readonly string[],
+  known?: readonly string[] | null,
 ): string | undefined {
   return firstProject(recentLocalFolders(sessions), home, known);
 }
@@ -308,8 +356,14 @@ export function recentLocalFolders(sessions: readonly AcpmuxSessionEntry[], limi
 }
 
 /// The first of `folders` (newest first) a New Tab may start in: not the home folder, and with
-/// `known` (the host's project list; empty is not loaded yet) one in it.
-export function firstProject(folders: readonly string[], home?: string, known?: readonly string[]): string | undefined {
+/// `known` (the host's project list; absent or empty is not loaded yet) one in it. `null`: the host
+/// answered and lists no project (every one removed or missing), so no folder is one.
+export function firstProject(
+  folders: readonly string[],
+  home?: string,
+  known?: readonly string[] | null,
+): string | undefined {
+  if (known === null) return undefined;
   const projects = known?.length ? new Set(known.map((path) => path.replace(/(.)\/+$/, "$1"))) : undefined;
   const homeFolder = home?.replace(/\/+$/, "");
   return folders.find((cwd) => cwd !== homeFolder && (!projects || projects.has(cwd)));

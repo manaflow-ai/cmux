@@ -74,7 +74,10 @@ pub(super) const GUIDES: &[Guide] = &[
         text: "Open an agent session's chat: the app action agent.openSessionWorkspace (MCP \
         app_agent_open {session, group}, CLI `cmux agent open SESSION [--group G]`) opens that \
         session's chat in a new workspace, in sidebar group G (made when missing) when given; \
-        the workspace the user looks at stays. Open a link: \
+        the workspace the user looks at stays. agent.openSessionTab (MCP app_agent_open_tab \
+        {session, target}, CLI `cmux agent open-tab SESSION [--target T]`) opens it as a tab of the \
+        target pane (a pane or tab id; default the focused pane) and selects it only with focus: \
+        true; a session a tab already shows gets no second tab. Open a link: \
         workspace_open_url {url, workspace} loads it in a browser tab on the workspace's right \
         side and keeps the keyboard focus, but it navigates a browser tab already there, so \
         when the user's page must stay use browser_profile_open {url, profile: \"default\", pane, \
@@ -105,6 +108,13 @@ pub(super) const GUIDES: &[Guide] = &[
             "enroll",
             "machine",
             "ssh",
+            "mcp",
+            "computer",
+            "grant",
+            "cloud",
+            "notifications",
+            "bookmarks",
+            "cookies",
         ],
         text: "`cmux setup list` names every setup task (folder trust, harness install and sign-in, \
         ssh machines, peer updates, accounts, Cloud machines, Tailscale, MCP wiring, Computer \
@@ -119,9 +129,36 @@ pub(super) const GUIDES: &[Guide] = &[
         back as needs_user with the ssh command to try. `cmux setup harness [ID ...]` reports \
         whether each harness (default: every configured or found one) is installed, signed in \
         and outdated; a missing CLI or sign-in is needs_user with the install docs or `cmux \
-        harness login ID`. `cmux setup status` lists every peer with connected and outdated, \
-        and every harness. Every `cmux setup` command prints one JSON object: state is ok, \
-        changed, planned, needs_user or failed.",
+        harness login ID`. `cmux setup mcp [claude|codex ...]` gives Claude Code and Codex \
+        started outside cmux the cmux MCP server through their own `mcp add`; until the \
+        person turns on `mcp.enabled` (\"mcp\": {\"enabled\": true}) in the settings file, \
+        it writes nothing and names that switch. `cmux setup computer-use` turns Computer Use \
+        on once the person allows it on the sheet cmux shows, and names each missing macOS \
+        grant with the command that opens its System Settings pane. `cmux setup \
+        cloud-machine` is ok when cmux shows a Cloud machine; otherwise, once the person is \
+        signed in, it creates one after the person allows it on the card cmux shows (it costs \
+        money every hour it runs). It keeps the request and reads cmux's list before anything \
+        else, so a rerun adopts the machine that appeared, waits for one on its way, and never \
+        creates a second; kind wait means run it again later, kind declined means ask first, \
+        kind many_machines means setup claims none, inferred: true means check the machine \
+        with the person before the undo, and its undo is `cmux cloud kill-machine --target \
+        machine:ID --confirm && cmux setup cloud-machine --forget` (--forget drops setup's \
+        record so it may ask again). `cmux setup notifications` lets cmux show macOS \
+        notifications: it shows the macOS prompt once, and when they are denied or their alert \
+        style is None names the command that opens cmux's page in System Settings > \
+        Notifications. `cmux setup browser-import --browser BROWSER[:PROFILE]` \
+        imports that browser's bookmarks (ok when any profile of it is in, or the named one; \
+        the undo removes the folders the run added); with \
+        --cookies it imports its sign-ins once the person allows it on the panel cmux shows, \
+        and that has no undo. History and passwords come in only from Import from Browser... \
+        in cmux. `cmux setup tailnet [--owner LOGIN]` serves this machine to the person's \
+        other machines over Tailscale (what `cmux host enable` does; undo `cmux host disable \
+        --json`); until Tailscale runs it names the person's one step (kind install, start, \
+        sign_in, approve or wait), and a tagged node with no owner is kind owner. \
+        `cmux setup status` lists every peer with connected and outdated, every \
+        harness, the MCP wiring, Computer Use, the Cloud machine, notifications, the \
+        imported browsers and the tailnet. Every `cmux setup` command prints one JSON object: state is ok, \
+        changed, planned, needs_user, failed or not_applicable.",
     },
 ];
 

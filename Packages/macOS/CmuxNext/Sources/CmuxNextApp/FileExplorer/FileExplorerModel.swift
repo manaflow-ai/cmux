@@ -7,6 +7,8 @@ import Observation
 /// out, with one selected row, each row with its git state. Listing runs off
 /// the main actor through the injected ``DirectoryListing`` and git through
 /// the injected runner, so tests drive it against a temp folder and a fake git.
+/// A file-system watch on the root and its repository's `.git` folder
+/// (``FileTreeWatching``) lists the tree again after a change made outside cmux.
 @MainActor
 @Observable
 final class FileExplorerModel {
@@ -30,10 +32,37 @@ final class FileExplorerModel {
     @ObservationIgnored private var resolvedRoot = ""
     @ObservationIgnored private var expanded: Set<URL> = []
     @ObservationIgnored private var generation = 0
+    @ObservationIgnored private let watcher: any FileTreeWatching
+    /// The folders the running watch covers, and its task.
+    @ObservationIgnored private var watched: [URL] = []
+    @ObservationIgnored private var watching: Task<Void, Never>?
 
-    init(lister: any DirectoryListing = DirectoryLister(), git: any MarkdownGitRunning = ProcessMarkdownGitRunner()) {
+    init(lister: any DirectoryListing = DirectoryLister(), git: any MarkdownGitRunning = ProcessMarkdownGitRunner(),
+         watcher: any FileTreeWatching = FileTreeWatcher()) {
         self.lister = lister
         self.git = git
+        self.watcher = watcher
+    }
+
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated { watching?.cancel() }
+    }
+
+    /// Watches `folders` (the root, and the repository's `.git` folder): each burst of changes
+    /// lists the tree again. The same folders keep the running watch.
+    private func watch(_ folders: [URL]) {
+        guard folders != watched else { return }
+        watched = folders
+        watching?.cancel()
+        let changes = watcher.changes(under: folders)
+        watching = Task { [weak self] in
+            for await _ in changes {
+                guard let self else { return }
+                await self.reload()
+            }
+        }
     }
 
     /// Shows the tree of `folder`; the same folder only re-reads it.
@@ -68,8 +97,9 @@ final class FileExplorerModel {
         guard mine == generation else { return }
         failure = nil
         children = listed
-        (resolvedRoot, gitStates, changedFolders) = status
+        (resolvedRoot, gitStates, changedFolders) = (status.root, status.states, status.folders)
         rebuild()
+        watch([root] + (status.top.map { [URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent(".git", isDirectory: true)] } ?? []))
     }
 
     /// Expands `folder` when it is collapsed (a new item goes inside it).
@@ -78,12 +108,12 @@ final class FileExplorerModel {
     }
 
     /// `git status` of the repository holding `root` (read-only, no optional locks): nothing outside one.
-    private func readGit(_ root: URL) async -> (String, [String: FileGitState], Set<String>) {
+    private func readGit(_ root: URL) async -> (root: String, states: [String: FileGitState], folders: Set<String>, top: String?) {
         let resolved = root.resolvingSymlinksInPath().path
-        guard let top = await git.run(["rev-parse", "--show-toplevel"], in: root.path), top.status == 0 else { return (resolved, [:], []) }
+        guard let top = await git.run(["rev-parse", "--show-toplevel"], in: root.path), top.status == 0 else { return (resolved, [:], [], nil) }
         let topPath = URL(fileURLWithPath: top.output.trimmingCharacters(in: .whitespacesAndNewlines)).resolvingSymlinksInPath().path
         guard !topPath.isEmpty, let output = await git.run(["status", "--porcelain=v1", "-z", "--untracked-files=all"], in: topPath),
-              output.status == 0 else { return (resolved, [:], []) }
+              output.status == 0 else { return (resolved, [:], [], nil) }
         var states: [String: FileGitState] = [:]
         var folders: Set<String> = []
         for (relative, state) in FileGitState.parse(output.output) {
@@ -94,7 +124,7 @@ final class FileExplorerModel {
                 parent = (parent as NSString).deletingLastPathComponent
             }
         }
-        return (resolved, states, folders)
+        return (resolved, states, folders, topPath)
     }
 
     /// The git state of the item at `url` (under the root).

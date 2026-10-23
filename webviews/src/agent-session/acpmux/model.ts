@@ -1,19 +1,21 @@
+import type { ChatUnavailable } from "./chatUnavailable";
 import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
+import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
 import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
-import type { IncomingPrompt } from "./conversation/incomingMessage";
+import type { IncomingMessage, IncomingPrompt } from "./conversation/incomingMessage";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
-import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
+import { SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
-import { BACKGROUND_WORK } from "./conversation/backgroundWork";
+import { PASTE_CHIP_HEIGHT, type PasteRange, collapsedPromptHeight, promptParts } from "./conversation/promptCollapse";
 import type { ChatTool } from "./summary/chatTools";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
@@ -25,6 +27,10 @@ export type AcpmuxBackgroundTask = {
   command: string;
   state: "completed" | "failed" | "stopped";
   reason?: string;
+  /// Claude Code's own words on how it ended (its task notification's summary).
+  summary?: string;
+  /// The exit code, when the harness reports one (Codex does; Claude Code does not).
+  exitCode?: number;
 };
 
 /// A shell call's life in the background, on the call that started it (direct.ts
@@ -52,6 +58,11 @@ export type AcpmuxCompaction = {
 
 /// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record).
 export type AcpmuxFailover = { from: string; to: string };
+
+/// The chat's permission policy (an acpmux policy id narrower than approve-all) that its harness
+/// cannot keep (a `policy_unenforced` record): OpenCode's own settings decide what it asks
+/// (`ownSettings`); another harness has no mode that asks (`noAskingMode`).
+export type AcpmuxPolicyUnenforced = { policy: string; why: "ownSettings" | "noAskingMode" };
 
 /// A message to this chat that acpmux holds while its pair is paused (`agent_pair_held`).
 export type AcpmuxHeldMessage = { promptId: string; text: string };
@@ -107,15 +118,36 @@ export type PromptDelivery = {
   /// No answer for a while: the row says it is still sending.
   slow?: boolean;
   hop?: PromptDeliveryHop;
+  /// The refusal's code and acpmux's reason (`trust.pending`): the failure's cause, which the card's
+  /// words and actions follow (sendFailure.ts). `error` is the refuser's own words, for Details.
   code?: string;
+  reason?: string;
   error?: string;
   /// The machine acpmux runs on, when it is not this one.
   connection?: string;
 };
 
-export type QueuedPrompt = { id: string; prompt: string; next?: boolean; sending?: boolean };
+/// A prompt waiting for the running turn, with the images it sends, in its order (Leo,
+/// 2026-10-21: a queued row showed only its text).
+export type QueuedPrompt = {
+  id: string;
+  prompt: string;
+  next?: boolean;
+  sending?: boolean;
+  images?: QueuedPromptImage[];
+  /// Another agent's message waiting here (direct.ts `queuedMessage`): its row draws as the
+  /// message's received line (ComposerQueue.tsx), not as the person's prompt.
+  message?: IncomingMessage;
+};
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
-export type PromptImage = { id: string; mimeType: string; name?: string };
+/// A prompt's image as acpmux names it; `width`/`height` are its natural size when the record
+/// carries them, so its thumbnail is reserved at its own shape before it is read.
+export type PromptImage = { id: string; mimeType: string; name?: string; width?: number; height?: number };
+/// A queued prompt's image: `src` is its data URL when the pane has its bytes (it sent them, or
+/// the `queued` record carries them), else the row reads it by `id`. acpmux names an image by the
+/// SHA-256 of its bytes; one the pane only sent so far has the composer's id (`local`) until
+/// acpmux names it, so an edit cannot keep or drop it by id yet.
+export type QueuedPromptImage = PromptImage & { src?: string; local?: boolean };
 
 export type AcpmuxRow = {
   id: string;
@@ -139,6 +171,8 @@ export type AcpmuxRow = {
   compaction?: AcpmuxCompaction;
   /// A failover row's harnesses.
   failover?: AcpmuxFailover;
+  /// A policy note's policy and why the chat's harness cannot keep it.
+  policyUnenforced?: AcpmuxPolicyUnenforced;
   /// An agent pair row's pause (conversation/AgentPairNote.tsx).
   agentPair?: AcpmuxAgentPair;
   /// A session start row's agent, version, model, route and folder.
@@ -165,11 +199,16 @@ export type AcpmuxRow = {
   checkpoint?: SummaryCheckpoint;
   /// A sent prompt's images, as acpmux names them in its user_message (hub/prompt_images.rs).
   images?: PromptImage[];
+  /// A sent prompt's pasted blocks (`user_message.pasted`, UTF-16 ranges into `text`), each drawn
+  /// as a chip that opens in place (conversation/promptCollapse.ts).
+  pasted?: PasteRange[];
   /// Who sent a prompt that the reader did not type here: `chief` for the Chief's task, tell,
   /// steer or restart message to a subagent (its `user_message` promptId `optchat-<kind>:…`).
   from?: "chief";
   /// The originating prompt row, so Retry can restore image/PDF attachments.
   retryRowId?: string;
+  /// A turn footer's answer row (turns.ts), whose right-click menu the footer's More opens.
+  answerId?: string;
   retryAttachments?: ComposerAttachment[];
   status?: string;
   error?: string;
@@ -200,11 +239,14 @@ export type AcpmuxRow = {
   below?: boolean;
   /// The Codex-style live line (conversation/turns.ts `codexLiveTurn`, Thinking.tsx): the call in
   /// flight's start on this computer's clock, which its time counts from; whether `doing` is a raw
-  /// command line, which reads "Running <command>" (or "Running a command" when empty); no time
-  /// beside "Thinking" (the turn's line over its work has it); and the streaming text it waits
+  /// command line, which reads "Running <command>" (or "Running a command" when empty); whether
+  /// the agent still writes that command (`doingDraft`: a pending shell call with no command yet,
+  /// "Writing a command"); no time beside "Thinking" (`untimed`, the older layout's line, whose
+  /// "Working for" over the work timed the turn); and the streaming text it waits
   /// behind, by id and version, while that text still moves.
   doingAt?: number;
   doingShell?: boolean;
+  doingDraft?: boolean;
   untimed?: boolean;
   quietKey?: string;
   /// The call it names is a command, so the line leads with the terminal glyph (WorkingFor.tsx).
@@ -273,7 +315,10 @@ export type AcpmuxActivity = {
     startedAt?: number;
     endedAt?: number;
     diffs?: AcpmuxFileDiff[];
-    locations?: { path: string; line?: number }[];
+    locations?: AcpmuxLocation[];
+    /// The input's file (`rawInput.file_path`) and its canonical path (acpmux
+    /// `_meta.acpmux.canonicalPath` on the update), when acpmux recorded one.
+    inputPath?: { path: string; canonical: string };
     /// Images the call returned (ACP `image` content blocks), as data URLs.
     images?: string[];
     /// A shell that went on in the background: running there, then how it ended.
@@ -285,6 +330,7 @@ export type AcpmuxActivity = {
 /// `line` is where the change starts, when the tool call's locations name it. `fragment`: the
 /// texts are part of the file, not all of it (`_meta.acpmux.fragment`, a reopened Codex hunk).
 /// `fromInput`: the page read it from the call's input, not a `diff` item (direct.ts `inputDiffs`).
+/// `canonical`: the file's one spelling, as acpmux recorded it (`_meta.acpmux.canonicalPath`).
 export type AcpmuxFileDiff = {
   path: string;
   oldText?: string;
@@ -292,7 +338,29 @@ export type AcpmuxFileDiff = {
   line?: number;
   fragment?: true;
   fromInput?: true;
+  canonical?: string;
 };
+
+/// A file a tool call names (ACP `locations`), with its canonical path as for `AcpmuxFileDiff`.
+export type AcpmuxLocation = { path: string; line?: number; canonical?: string };
+
+/// What tells two tool call paths apart: the canonical path acpmux recorded, absolute with links,
+/// `.`, `..` and the volume's letter case resolved, so `./notes.txt`, a folder link's path and
+/// `Notes.txt` on a volume that ignores case are one file; for a file in a repository it is the
+/// turn checkpoint's `${root}/${path}`. A path recorded without one (an older log or peer) is
+/// itself. Rows, diffs and Undo still use the agent's `path`.
+export const pathKey = (file: { path: string; canonical?: string }) => file.canonical ?? file.path;
+
+/// The canonical path a tool call recorded for `path`, one of its own: on a diff, a location or
+/// its input.
+export function toolCanonical(tool: NonNullable<AcpmuxActivity["tool"]>, path: string): string | undefined {
+  const named = (file: { path: string; canonical?: string }) => file.path === path && file.canonical !== undefined;
+  return (
+    tool.diffs?.find(named)?.canonical ??
+    tool.locations?.find(named)?.canonical ??
+    (tool.inputPath?.path === path ? tool.inputPath.canonical : undefined)
+  );
+}
 
 /// A Write whose old contents are unknown: its whole new text with no old text, still a fragment
 /// because its result neither confirmed a create nor carried the old text (acpmux claude_stdio
@@ -378,12 +446,30 @@ export type AcpmuxCatalogModel = {
 /// now (steered into the running turn, whose step stops, when its agent steers), or `interrupt`:
 /// stop the running turn and run it next.
 export type QueueEdit =
-  | { op: "update"; text: string }
+  /** New text; the prompt keeps its images, or with `images` (acpmux ids) only those. */
+  | { op: "update"; text: string; images?: string[] }
   | { op: "move"; index: number }
   | { op: "send_now" }
   | { op: "interrupt" }
   /** Runs a queue a failed turn paused; any of its prompts names it. */
   | { op: "resume" };
+
+/// Claude Code's /context breakdown as acpmux keeps it (claude_stdio `context_breakdown`).
+export type AcpmuxContextBreakdown = {
+  /// `id` is Claude Code's (`system_prompt`, `mcp_tools_deferred`, `free_space`, ...) when it names
+  /// one; `name` is its display name.
+  categories: { id?: string; name: string; tokens: number; kind: "used" | "free" | "buffer" | "deferred" }[];
+  memoryFiles: { path: string; type: string; tokens: number }[];
+  mcpTools: { name: string; serverName: string; tokens: number }[];
+  /// Only when skills take context.
+  skills?: { name: string; tokens: number }[];
+  totalTokens: number;
+  maxTokens: number;
+};
+
+/** Why a tab's chat is missing: the daemon's list lacked it when the pane opened
+ * (`notListedAtOpen`), or it left the list while the pane showed it (`leftListWhileShown`). */
+export type MissingSessionReason = "notListedAtOpen" | "leftListWhileShown";
 
 export type AcpmuxSnapshot = {
   type: "snapshot";
@@ -405,8 +491,12 @@ export type AcpmuxSnapshot = {
     sessionId: string;
     cwd?: string;
     turnCount?: number;
-    /// Context-window tokens used of the session's window, from the agent's last usage update.
-    usage?: { used: number; size: number };
+    /// Context-window tokens used of the session's window, from the agent's last usage update, and
+    /// `setup`, the part the agent took before the conversation (its system prompt, tools and
+    /// memory), when the harness reports it (`_meta.acpmux.setup`).
+    usage?: { used: number; size: number; setup?: number };
+    /// What the context holds by category, as Claude Code's /context reports it.
+    contextBreakdown?: AcpmuxContextBreakdown;
     host?: string;
     peer?: string;
     hostKind?: "local" | "cloud";
@@ -466,12 +556,23 @@ export type AcpmuxSnapshot = {
   /// The client has read the daemon's chat list once: `sessions` is the daemon's, not the empty
   /// list a connection starts with (newtab/chatStore.ts publishes only such a list).
   listedSessions?: true;
+  /// This page drew the chat from a kept tail (tailCache.ts) rather than from acpmux's attach, so
+  /// its rows were on screen in the frame the open landed on. The pane's host reads it in the
+  /// page's first-paint report: a chat read cold fades in over the loading state, this one shows
+  /// in one frame (AgentPaneView+Loading.swift).
+  drewKeptTail?: true;
+  /// The selected chat's rows are in this snapshot (its attach page, or a kept tail), or none is
+  /// selected: the first-paint report may say the chat is on screen (App.tsx `chatDrawn`).
+  chatRead?: true;
   sessionId?: string;
   isWorking: boolean;
   /// The running turn's tokens so far, its model calls added up, subagents' included (direct.ts
   /// `turnTokens`); unset when the harness does not report each call or the client missed the
   /// turn's start.
   turnTokens?: number;
+  /// The running turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
+  /// (direct.ts `silentTurn`): the turn's line says the model has not answered.
+  silentTurn?: true;
   /// This computer's clock minus the session's, for a session on a peer (SSH, Cloud) whose
   /// events carry the peer's clock; unset when they share a clock or it is not known yet.
   clockOffsetMs?: number;
@@ -491,6 +592,9 @@ export type AcpmuxSnapshot = {
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;
   secret?: AcpmuxSecretAsk;
+  /// Every chat's open permission requests, for the Needs you list (needsYou/asks.ts); the same
+  /// array until one comes or goes.
+  asks?: WatchedAsk[];
   /** `unavailable`: why acpmux will not run that model (its backend refused it), or that harness
    * (its launcher check or its model probe failed). */
   catalog: {
@@ -531,6 +635,11 @@ export type AcpmuxSnapshot = {
   /** A `cmux://session/<id>` link named this session and the daemon has none: the pane says so
    * instead of showing another chat. Unset once a session is selected. */
   missingSession?: string;
+  /** Why `missingSession` is not here: deleted, or on a machine that is not connected (or still
+   * connecting, which the pane shows as loading). chatUnavailable.ts. */
+  unavailable?: ChatUnavailable;
+  /** Why `missingSession` is set (the pane reports each one to the app's log, `chat.missing`). */
+  missingReason?: MissingSessionReason;
   /** The outside chat this pane adopts is still open in another process (acpmux refused with
    * `adopt.live`): the pane offers Open Anyway, and Fork It when the harness can fork. `command`
    * is the process that holds it, when acpmux found one. Unset once a choice is sent. */
@@ -578,14 +687,23 @@ const USER_STATUS_HEIGHT = 20;
 const META_GAP = 4;
 const META_ROW = 24;
 const MESSAGE_GAP = 8;
+/// How many lines of another agent's message its card shows before it is cut
+/// (conversation/IncomingMessageCard.tsx, `.cv-received__body[data-cut]`).
+export const RECEIVED_LINES = 6;
+/// The prepared texts of those messages, for their estimates; cleared past 256, as a row's are.
+const receivedPrepared = new Map<string, PreparedText | null>();
 const TURN_GAP = 24;
-/// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx), and the line under a steer the agent
-/// has not read yet (PendingSteer.tsx, `.cv-user__pending`); a read steer draws nothing more.
-/// A Chief's prompt (ChiefPromptBubble.tsx) draws no action row.
-const userMetaHeight = (row: AcpmuxRow) =>
-  (row.text && !row.failed && !row.queued && row.from !== "chief" && !chiefEnvelope(row.text)
-    ? META_GAP + META_ROW
-    : 0) + (row.steer === "waiting" ? USER_STATUS_HEIGHT : 0);
+/// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx). A steer the agent has not read yet
+/// draws its clock and Send now beside the bubble, adding no height (PendingSteer.tsx,
+/// `.cv-user__pending--beside`), except under a Chief's prompt (ChiefPromptBubble.tsx), which draws
+/// no action row and keeps that line under its bubble, and a prompt of images alone (no bubble).
+const userMetaHeight = (row: AcpmuxRow) => {
+  const chief = row.from === "chief" || chiefEnvelope(row.text) !== undefined;
+  return (
+    (row.text && !row.failed && !row.queued && !chief ? META_GAP + META_ROW : 0) +
+    (row.steer === "waiting" && (chief || !row.text?.trim()) ? USER_STATUS_HEIGHT : 0)
+  );
+};
 const chromeHeight = (row: AcpmuxRow) =>
   row.kind === "user" ? USER_BUBBLE_PADDING + userMetaHeight(row) + (row.status ? USER_STATUS_HEIGHT : 0) : 0;
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
@@ -647,27 +765,37 @@ export function editedCardHeight(files: number, plain = 0): number {
 /// What edits without a diff list as in the edited-files card: each path they name, once
 /// (toolPaths.ts), and one entry with no path for each call that names none ("Unknown file"). A
 /// Write whose old contents are unknown (`contentsUnknown`) lists its diff's path the same way.
-/// Never the tool input itself.
-export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string; path?: string }[] {
-  const out: { key: string; path?: string }[] = [];
-  const seen = new Set<string>();
+/// `failed`: only calls that failed named it, so it lists as failed. Never the tool input itself.
+/// Paths are one file by `pathKey`; an entry carries the canonical path when there is one.
+export function plainEditLabels(items: readonly AcpmuxActivity[]): PlainEditLabel[] {
+  const out: PlainEditLabel[] = [];
+  const at = new Map<string, number>();
   items.forEach((item, index) => {
-    if (!item.tool) return;
-    const diffs = item.tool.diffs ?? [];
-    // A Write still waiting for its permission, or one that failed, wrote nothing.
-    const wrote = item.tool.status !== "pending" && item.tool.status !== "failed";
-    const paths = diffs.length
-      ? diffs.filter((diff) => wrote && contentsUnknown(diff)).map((diff) => diff.path)
-      : editedPaths(item.tool);
-    if (!diffs.length && !paths.length) out.push({ key: `unknown-${item.tool.id}-${index}` });
-    for (const path of paths)
-      if (!seen.has(path)) {
-        seen.add(path);
-        out.push({ key: `path-${path}`, path });
-      }
+    // An edit still waiting for its permission has changed nothing yet.
+    const tool = item.tool;
+    if (!tool || tool.status === "pending") return;
+    const diffs = tool.diffs ?? [];
+    const failed = tool.status === "failed";
+    const mark = failed ? { failed: true as const } : {};
+    const files = diffs.length
+      ? diffs.filter(contentsUnknown)
+      : editedPaths(tool).map((path) => ({ path, canonical: toolCanonical(tool, path) }));
+    if (!diffs.length && !files.length) out.push({ key: `unknown-${tool.id}-${index}`, ...mark });
+    for (const file of files) {
+      const key = pathKey(file);
+      const listed = at.get(key);
+      const entry = { key: `path-${key}`, path: file.path, ...(file.canonical ? { canonical: file.canonical } : {}) };
+      if (listed === undefined) {
+        at.set(key, out.length);
+        out.push({ ...entry, ...mark });
+      } else if (!failed) out[listed] = entry;
+    }
   });
   return out;
 }
+
+/// An edited-files card entry without counts (`plainEditLabels`): `key` is its React key.
+export type PlainEditLabel = { key: string; path?: string; canonical?: string; failed?: true };
 
 /// First-layout estimates for rows not yet drawn; a drawn row places by its drawn height. Each
 /// includes the row's bottom padding (`.acpmux-row` in styles.css: the message gap for messages,
@@ -675,9 +803,13 @@ export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string
 /// The space under a message row: the meta gap over its turn's footer (`.acpmux-row--before-footer`,
 /// which also drops the row's 34px floor), else the message gap.
 const messageBelow = (beforeFooter: boolean) => (beforeFooter ? META_GAP : MESSAGE_GAP);
-/// A reply right over its turn's footer: App.tsx marks the same rows `acpmux-row--before-footer`.
-const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
-  row.kind === "assistant" && next?.kind === "turnSummary";
+/// A reply right over its turn's footer, or over the running turn's line drawn as its last row
+/// (`below`), which the footer takes the place of at its height when the turn ends: the reply keeps
+/// the one gap, so the end moves nothing (the message gap there slid the reply down 4px at every
+/// turn's end). App.tsx marks the same rows `acpmux-row--before-footer`.
+export const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
+  row.kind === "assistant" &&
+  (next?.kind === "turnSummary" || ((next?.kind === WORKING || next?.kind === THINKING) && next.below === true));
 /// A row that draws nothing (a turn's bookkeeping, conversation/turns.ts).
 const drawsNothing = (row: AcpmuxRow) => row.incoming?.kind === "hidden";
 /// The row after `index` that draws something.
@@ -686,11 +818,14 @@ export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxR
   return undefined;
 }
 /// The chat's last footer ends at the message gap, not the turn gap: no band over the composer
-/// (App.tsx marks it `acpmux-row--last-footer`). `next` is the next row that draws.
-/// The "Running in background" row after it (summary/backgroundWork.ts) leaves it the last: the
-/// row comes and goes under the footer without moving it.
+/// (App.tsx marks it `acpmux-row--last-footer`). So does a footer over another agent's line (a
+/// message, a notice or a started task's result): that line belongs with the agent's text above
+/// it, not a turn of its own after a band. `next` is the next row that draws.
 export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
-  row.kind === "turnSummary" && (!next || next.kind === BACKGROUND_WORK);
+  row.kind === "turnSummary" &&
+  (!next ||
+    (next.kind === "user" &&
+      (next.received !== undefined || next.incoming?.kind === "message" || next.incoming?.kind === "notice")));
 /// What the row after a row changes about its height (`beforeFooter`, `lastFooter`), as one key.
 const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   isBeforeFooter(row, next) ? "footer" : isLastFooter(row, next) ? "last" : undefined;
@@ -704,9 +839,11 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
     const edits = row.items?.filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ?? [];
     if (edits.length && !isFoldedCopy(row)) {
       const files = new Set(
-        edits.flatMap((item) => item.tool?.diffs?.flatMap((diff) => (contentsUnknown(diff) ? [] : [diff.path])) ?? []),
+        edits.flatMap(
+          (item) => item.tool?.diffs?.flatMap((diff) => (contentsUnknown(diff) ? [] : [pathKey(diff)])) ?? [],
+        ),
       );
-      const plain = plainEditLabels(edits).filter((entry) => !entry.path || !files.has(entry.path));
+      const plain = plainEditLabels(edits).filter((entry) => !entry.path || !files.has(entry.canonical ?? entry.path));
       return 14 + editedCardHeight(files.size, plain.length);
     }
     // A folded run (Debug toggle) draws one summary line until opened.
@@ -750,19 +887,21 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
     );
   // A paused agent pair: its sentence over the held count and Resume; resumed, one line.
   if (row.kind === "agentPair") return row.agentPair?.resumed ? 37 : 37 + 24;
-  // A session start: its facts line, and the compaction note's one line under it until it is
-  // dismissed (conversation/SessionStartNote.tsx); either opens below when asked.
-  if (row.kind === "sessionStart") return 37 + 26;
+  // A session start: its facts line (conversation/SessionStartNote.tsx); the full facts open
+  // below when asked.
+  if (row.kind === "sessionStart") return 37;
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return 40 + row.plan.length * 24;
-  // A turn's footer: its meta line, then the turn gap (the message gap for the chat's last one).
-  if (row.kind === "turnSummary") return META_ROW + (lastFooter ? MESSAGE_GAP : TURN_GAP);
+  // A turn's footer: its meta line, then the turn gap (the message gap for the chat's last one). An
+  // empty footer (only hover controls, conversation/turns.ts isEmptyFooter) takes no line.
+  if (row.kind === "turnSummary") return (isEmptyFooter(row) ? 0 : META_ROW) + (lastFooter ? MESSAGE_GAP : TURN_GAP);
   if (
     row.kind === "notice" ||
     row.kind === "backgroundTask" ||
-    row.kind === BACKGROUND_WORK ||
+    row.kind === SUBAGENT_DONE ||
     row.kind === "compaction" ||
     row.kind === "failover" ||
+    row.kind === "policyUnenforced" ||
     row.kind === "plan" ||
     row.kind === "typing"
   )
@@ -885,6 +1024,16 @@ function lexIncrementally(entry: PreparedRow, text: string): void {
   entry.text = text;
 }
 
+/// An activity row whose items are all thoughts that draw no row once done (thoughts.ts
+/// `isQuietThought`, after `mergeThoughts` joins neighbours as ToolRows does). The live turn's latest
+/// step may still stream its thought, so it is never one. Such a row draws no element at all
+/// (App.tsx ToolActivityRow), so its article is empty and takes no room (conversation.css).
+export const onlyQuietThoughts = (row: AcpmuxRow) =>
+  row.kind === "activity" &&
+  !row.live &&
+  (row.items?.length ?? 0) > 0 &&
+  mergeThoughts(row.items!).every((item) => isThought(item) && isQuietThought(item));
+
 function measuredRowHeight(
   row: AcpmuxRow,
   width: number,
@@ -896,14 +1045,25 @@ function measuredRowHeight(
   if (row.received) return 26 + MESSAGE_GAP;
   // A turn's footer carries its answer's text for Copy (conversation/turns.ts); it draws one line.
   if (row.kind === "turnSummary") return fallbackRowHeight(row, width, beforeFooter, lastFooter);
-  // Another agent's message: one 26px line in `.cv-received`'s 2px margins (opened, the row measures
-  // itself); a notice is a tool row's line under `.cv-tools`' 2px margin
-  // (conversation/IncomingMessageCard.tsx). Each with the row's message gap.
+  // Another agent's message: one 26px line in `.cv-received`'s 2px margins, then its glass card
+  // (4px above, 6px below, 8px padding each side, 22px in from the icon column and 12px padding
+  // across), its text cut to RECEIVED_LINES lines (opened, the row measures itself); a notice is a
+  // tool row's line under `.cv-tools`' 2px margin (conversation/IncomingMessageCard.tsx). Each with
+  // the row's message gap.
   // Its images' 120px row with 2px above and 6px below (UserBubble.tsx SENT_IMAGE_HEIGHT); no steer line.
-  if (row.incoming?.kind === "message") return 26 + 4 + MESSAGE_GAP + (row.images?.length ? 128 : 0);
+  if (row.incoming?.kind === "message") {
+    const { lineHeight } = metrics();
+    const text = row.incoming.message.text;
+    if (receivedPrepared.size > 256) receivedPrepared.clear();
+    const lines = text ? textHeight(text, Math.max(80, width - 46), receivedPrepared) : lineHeight;
+    const card = 4 + 16 + Math.min(lines, RECEIVED_LINES * lineHeight) + 6;
+    return 26 + 4 + card + MESSAGE_GAP + (row.images?.length ? 128 : 0);
+  }
   if (row.incoming?.kind === "notice") return 2 + 26 + MESSAGE_GAP;
   // Bookkeeping alone: a turn's start that draws nothing (conversation/turns.ts).
   if (row.incoming?.kind === "hidden") return 0;
+  // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx).
+  if (onlyQuietThoughts(row)) return 0;
   // A preview row's text is its address, not prose: the card's height is fixed.
   if (!row.text || row.kind === PREVIEW) return fallbackRowHeight(row, width, beforeFooter, lastFooter);
   let entry = cache.get(row.id);
@@ -911,15 +1071,33 @@ function measuredRowHeight(
     entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };
     cache.set(row.id, entry);
   }
-  if (entry.text !== row.text || entry.lexedLength === 0) {
+  const pasted = row.kind === "user" && Boolean(row.pasted?.length);
+  if (!pasted && (entry.text !== row.text || entry.lexedLength === 0)) {
     lexIncrementally(entry, row.text);
     // A streaming row prepares a new last block on every version; keep the cache bounded.
     if (entry.prepared.size > 64) entry.prepared.clear();
   }
-  if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastFooter);
   const contentWidth = Math.max(80, row.kind === "user" ? USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES : width);
-  let contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
-  for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared);
+  let contentHeight: number;
+  if (pasted) {
+    // A prompt with pasted blocks: its typed parts, each a line or more, and a chip per paste
+    // however long it is (conversation/UserBubble.tsx).
+    const { lineHeight } = metrics();
+    contentHeight = 0;
+    for (const part of promptParts(row.text, row.pasted!))
+      contentHeight +=
+        part.kind === "paste"
+          ? PASTE_CHIP_HEIGHT
+          : Math.max(lineHeight, textHeight(part.text, contentWidth, entry.prepared));
+  } else {
+    if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastFooter);
+    contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
+    for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared);
+  }
+  // A long prompt opens collapsed to its first lines over Show more (conversation/UserBubble.tsx); a
+  // Chief's draws its own bubble (ChiefPromptBubble.tsx).
+  if (row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text))
+    contentHeight = collapsedPromptHeight(contentHeight, metrics().lineHeight);
   const height = messageBelow(beforeFooter) + chromeHeight(row) + contentHeight;
   return beforeFooter ? height : Math.max(34, height);
 }
@@ -1000,8 +1178,9 @@ export function placeRows(
   let top = kept > 0 ? tops[kept - 1]! + heights[kept - 1]! : 0;
   for (let index = kept; index < heights.length; index += 1) {
     tops[index] = top;
+    // A drawn 0 is a row that draws nothing (App.tsx drawnHeightOf): it takes no room.
     const known = heightAt(index);
-    const height = known !== undefined && known > 0 ? known : estimate.heights[index];
+    const height = known !== undefined && known >= 0 ? known : estimate.heights[index];
     heights[index] = height;
     top += height;
   }
@@ -1068,9 +1247,20 @@ export function scrollLeadRanges(
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
 import { isFoldedRun } from "./conversation/toolRunSummary";
+import { isQuietThought, isThought, mergeThoughts } from "./conversation/thoughts";
 import { previewCardHeight } from "./conversation/previewUrl";
 import { RENDER_FRAME_MIN_HEIGHT } from "./conversation/renderCall";
-import { ACTIVITY_LINE, DATE, isFoldedCopy, PREVIEW, RENDER, THINKING, WORKED, WORKING } from "./conversation/turns";
+import {
+  ACTIVITY_LINE,
+  DATE,
+  isEmptyFooter,
+  isFoldedCopy,
+  PREVIEW,
+  RENDER,
+  THINKING,
+  WORKED,
+  WORKING,
+} from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { type Translate, translate } from "./i18n";

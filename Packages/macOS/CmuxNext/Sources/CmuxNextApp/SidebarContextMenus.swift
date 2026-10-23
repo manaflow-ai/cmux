@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDesign
+import CmuxNextSettings
 import CmuxNextSidebar
 
 /// A sidebar right-click's menu, by target. The layout sections' menus stay
@@ -43,6 +44,17 @@ enum SidebarContextMenus {
             let target = ActionTargetRef(kind: .workspaceGroup, id: id.rawValue)
             let menu = registry.makeContextMenu(for: .workspaceGroup, target: target)
             let group = model.group(id)
+            // cmux.json `workspaceGroups.byCwd`: the group's own rows, after the menu's first group.
+            let configured = WorkspaceGroupConfigLook(config: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(), machines: services.machines)
+                .menuItems(for: group, target: target, registry: registry)
+            if !configured.isEmpty {
+                var at = menu.items.firstIndex(where: \.isSeparatorItem) ?? menu.items.count
+                menu.insertItem(.separator(), at: at)
+                for item in configured {
+                    at += 1
+                    menu.insertItem(item, at: at)
+                }
+            }
             MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: group?.name ?? "", rename: "workspaceGroup.rename",
                                        current: group?.custom == nil ? group?.color : nil)
             menu.themeRows(in: scope)
@@ -68,6 +80,9 @@ enum SidebarContextMenus {
                                                 arguments: [PictureInPictureHandlers.cardArgument: .bool(true)])
             menu.themeRows(in: scope)
             return menu
+        case .priorityChat(let id):
+            // A Priority row: the actions its hover buttons run, on its chat.
+            return registry.makeContextMenu(for: .priorityRow, target: SidebarPriorityRowActions.target(id)).themeRows(in: scope)
         case .layoutItem, .layoutSection:
             return nil
         }

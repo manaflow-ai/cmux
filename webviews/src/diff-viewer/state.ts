@@ -19,7 +19,7 @@ import {
 } from "../viewed-files";
 import { readLocalViewerPrefs, sanitizeViewerPrefs, type ViewerPrefs } from "../viewer-prefs";
 import type { DiffViewerStatus } from "../status";
-import type { DiffViewerConfig } from "../types";
+import type { DiffViewerConfig, DiffViewerPayload } from "../types";
 import { canApplyDeferredHydration } from "./deferredHydration";
 import { diffItemPreloadLanguages, mergeLanguages, relanguagedItems, resolveDiffItemLanguage } from "./item-languages";
 
@@ -50,6 +50,8 @@ export type AppState = {
   /** Bumped by a soft refresh so the render effect re-streams in place. */
   renderGeneration: number;
   status: DiffViewerStatus;
+  /** Every file of this diff has arrived; only then does "Group by kind" reorder the list. */
+  streamComplete: boolean;
   treeSource: FileTreeSource | null;
   /** Persisted "Viewed" entries for `viewedScopeKey`, keyed by file path. */
   viewedByPath: Map<string, ViewedFileEntry>;
@@ -92,6 +94,7 @@ export type AppAction =
   | { type: "set-option"; key: keyof DiffViewerOptions; value: any }
   | { type: "set-options-open"; open: boolean }
   | { type: "set-status"; status: DiffViewerStatus }
+  | { type: "set-stream-complete" }
   | { type: "set-tree-source"; source: FileTreeSource }
   | { type: "upsert-comment"; comment: DiffCommentRecord };
 
@@ -128,24 +131,43 @@ export function initialAppState(config: DiffViewerConfig, initialStatus: DiffVie
     metrics: null,
     options: {
       collapsed: false,
-      colors: "theme",
-      diffIndicators: "bars",
-      expandUnchanged: false,
-      lineNumbers: true,
-      showBackgrounds: true,
-      wordDiffs: false,
-      wordWrap: false,
+      ...defaultDiffViewerOptions(payload),
       ...seededOptions,
       layout: initialDiffViewerLayout(payload),
     } as DiffViewerOptions,
     optionsOpen: false,
     renderGeneration: 0,
     status: initialStatus,
+    streamComplete: false,
     treeSource: null,
     viewedByPath: new Map(),
     viewedLocalEdits: new Map(),
     viewedScopeKey: "",
     viewerWidth: 0,
+  };
+}
+
+/**
+ * The display options before any stored pref. In cmux NEXT (the page host; its config's transport
+ * is `page`) they are the defaults of the `diff.*` settings (DiffViewerSettingsSchema.swift), and
+ * diff-option-defaults.test.ts holds every key here to the exported schema. Word changes are on
+ * there (Leo, 2026-10-20). The classic viewer and the dev server embed their config and keep word
+ * changes off.
+ *
+ * `groupByKind` is off here: the familiar order is the order the diff arrived in, and the grouping
+ * is turned on from the toolbar. Now that `diff.groupByKind` has a schema row, turning it on lasts
+ * past the tab, which is what a default would have to be worth before it becomes one.
+ */
+export function defaultDiffViewerOptions(payload: DiffViewerPayload): Omit<DiffViewerOptions, "collapsed" | "layout"> {
+  return {
+    colors: "theme",
+    diffIndicators: "bars",
+    expandUnchanged: false,
+    groupByKind: false,
+    lineNumbers: true,
+    showBackgrounds: true,
+    wordDiffs: payload.transport?.kind === "page",
+    wordWrap: false,
   };
 }
 
@@ -299,6 +321,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         metrics: null,
         renderGeneration: state.renderGeneration + 1,
         status: action.status,
+        streamComplete: false,
         treeSource: null,
       };
     case "append-items": {
@@ -334,6 +357,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         languages: ["text"],
         metrics: null,
         status: action.status,
+        streamComplete: false,
         treeSource: null,
       };
     case "remove-comment": {
@@ -395,6 +419,8 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, filesVisible: action.visible };
     case "set-metrics":
       return { ...state, metrics: action.metrics };
+    case "set-stream-complete":
+      return state.streamComplete ? state : { ...state, streamComplete: true };
     case "set-option":
       if (action.key === "collapsed") {
         return {

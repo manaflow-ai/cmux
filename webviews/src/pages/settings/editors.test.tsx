@@ -93,10 +93,16 @@ describe("editors", () => {
             failures.push(`${row.key}: no art picker`);
           continue;
         }
-        // The Chief Pet card draws home.chiefPetEnabled (Show/Hide Pet, None) and home.chiefPetMascot (its grid).
+        // The Chief Pet card draws home.chiefPetEnabled (Show/Hide Pet) and home.chiefPetMascot (its grid).
         if (row.key === "home.chiefPetEnabled" || row.key === "home.chiefPetMascot") {
-          if (!page.container.querySelector('[data-card="chief-pet"] .chief-pet-choice[data-pet="none"]'))
+          if (!page.container.querySelector('[data-card="chief-pet"] .chief-pet-choice[data-pet="orb"]'))
             failures.push(`${row.key}: no Chief Pet card`);
+          continue;
+        }
+        // The Machines card draws appearance.machineColors as a color well on each machine's row.
+        if (row.key === "appearance.machineColors") {
+          if (!page.container.querySelector('[data-card="machines"] [data-machine-color] input[type="color"]'))
+            failures.push(`${row.key}: no machine color well`);
           continue;
         }
         // The density card draws appearance.density and the custom density keys (SectionView).

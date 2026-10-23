@@ -28,6 +28,8 @@ export class FakeAcpmux {
   acknowledge = true;
   /** The next this many `session/prompt` requests are refused with an error (no agent session). */
   rejectPrompts = 0;
+  /** The most records one `_acpmux/events` page holds, as the daemon's byte limit ends a page. */
+  pageEvents = Number.MAX_SAFE_INTEGER;
   private server!: Server;
   private readonly clients = new Set<Socket>();
   private readonly watchers = new Set<Socket>();
@@ -187,7 +189,10 @@ export class FakeAcpmux {
       case "_acpmux/events": {
         const session = this.resolve(params.sessionId);
         const after = Number(params.afterSeq ?? 0);
-        return reply({ events: session.events.filter((e) => e.seq > after) });
+        const newer = session.events.filter((e) => e.seq > after);
+        // Like the daemon, a page ends at `limit` records or at its byte limit (`pageEvents` here).
+        const size = Math.min(Number(params.limit ?? 5000), this.pageEvents);
+        return reply({ events: newer.slice(0, size), hasMore: newer.length > size });
       }
       case "_acpmux/info": {
         const session = this.resolve(params.sessionId);

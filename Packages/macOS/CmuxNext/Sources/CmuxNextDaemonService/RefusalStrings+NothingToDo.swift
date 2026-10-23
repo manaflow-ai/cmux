@@ -42,4 +42,8 @@ nonisolated extension RefusalStrings {
     public static var noWorkspaceGroups: String { text("handlers.refusal.group.none", "There are no workspace groups.") }
     /// Next or Previous Workspace Group when no group lists a workspace to show.
     public static var noWorkspaceGroupToGoTo: String { text("handlers.refusal.group.noneToGoTo", "No workspace group has a workspace to go to.") }
+    /// Edit Group Config on a group whose workspaces have no folder (its entry is found by one).
+    public static var groupHasNoFolder: String {
+        text("handlers.refusal.group.noFolder", "This group has no folder yet. Its settings are found by the folder of its first workspace.")
+    }
 }

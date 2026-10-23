@@ -556,6 +556,21 @@ export type SessionDetail = {
   unread: boolean;
   updatedAt: number;
   usage?: unknown;
+  /**
+   * What it waits on the person for: `question` (an agent question) or
+   * `permission`; null while nothing is pending. Only the person allows a permission.
+   */
+  waitingOn?: (string | null);
+  /** The first prompt of the question it waits on, cut to 120 characters. */
+  waitingPrompt?: (string | null);
+  /**
+   * A sub-session whose queued prompt waits for a free run slot of its parent: the parent
+   * runs as many sub-sessions as its `maxRunning` allows (`hub/subsession_runs.rs`). Absent
+   * otherwise, and from a peer on an older acpmux.
+   */
+  waitsForSlot?: boolean;
+  /** The family of a conversation another app runs that this chat only shows; null otherwise. */
+  watching?: (string | null);
 } & Record<string, unknown>;
 
 /** One record of a session's log (`server::event_value`). */
@@ -691,6 +706,19 @@ export type SessionSummary = {
   turnCount: number;
   unread: boolean;
   updatedAt: number;
+  /**
+   * What it waits on the person for: `question` (an agent question) or
+   * `permission`; null while nothing is pending. Only the person allows a permission.
+   */
+  waitingOn?: (string | null);
+  /** The first prompt of the question it waits on, cut to 120 characters. */
+  waitingPrompt?: (string | null);
+  /**
+   * A sub-session whose queued prompt waits for a free run slot of its parent: the parent
+   * runs as many sub-sessions as its `maxRunning` allows (`hub/subsession_runs.rs`). Absent
+   * otherwise, and from a peer on an older acpmux.
+   */
+  waitsForSlot?: boolean;
   /** The family of a conversation another app runs that this chat only shows; null otherwise. */
   watching?: (string | null);
 } & Record<string, unknown>;
@@ -729,7 +757,14 @@ export type ToolSummary = {
 
 /** The running turn. */
 export type TurnSummary = {
+  /**
+   * What the turn does right now: its latest tool call's title; null
+   * until it calls one (`hub/activity.rs`).
+   */
+  activity: (string | null);
   client: string;
+  /** Its plan's entry in progress; null without one. */
+  planStep: (string | null);
   prompt: string;
   promptId: string;
   startedAt: number;

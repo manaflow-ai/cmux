@@ -24,15 +24,6 @@ const LAYOUT_READS = new Set([
   "innerText",
 ]);
 
-/**
- * Browser tests that still read in frame callbacks, each with why; remove a line when its test
- * moves to test/support/paintedFrames.ts. The files other lanes' open PRs change wait for them.
- */
-export const FRAME_READS_PENDING = new Map<string, string>([
-  ["test/agent-pane-scrollbar-full-height.test.ts", "composer-scroll's #23257 changes this file"],
-  ["test/thread-minimap-motion.test.ts", "#23092 (newtab-resize-anim) changes this file"],
-]);
-
 const isFrameCall = (node: ts.Node): node is ts.CallExpression =>
   ts.isCallExpression(node) &&
   ((ts.isIdentifier(node.expression) && node.expression.text === "requestAnimationFrame") ||
@@ -87,9 +78,7 @@ function readsLayout(fn: ts.Node, after = -1): boolean {
  */
 export function checkFrameReadsSource(file: string, text: string): string[] {
   const name = path.relative(root, file);
-  const pending = FRAME_READS_PENDING.has(name);
-  if (!/^import\b[^;]*\bfrom "playwright";/m.test(text))
-    return pending ? [`${name}: opens no browser now; remove it from FRAME_READS_PENDING`] : [];
+  if (!/^import\b[^;]*\bfrom "playwright";/m.test(text)) return [];
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
   const lines = text.split("\n");
   const excused = (node: ts.Node) => {
@@ -144,6 +133,5 @@ export function checkFrameReadsSource(file: string, text: string): string[] {
     ts.forEachChild(node, visit);
   };
   visit(source);
-  if (!pending) return errors;
-  return errors.length ? [] : [`${name}: reads after paint now; remove it from FRAME_READS_PENDING`];
+  return errors;
 }

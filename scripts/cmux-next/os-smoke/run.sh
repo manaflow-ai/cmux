@@ -256,7 +256,7 @@ for m in majors:
     fz_path = os.path.join(d, "fuzz", "summary.json")
     fz = json.load(open(fz_path)) if os.path.exists(fz_path) else {}
     # Fuzz findings do not change PASS (the launch smoke stays the release gate); the fuzz column
-    # says FUZZ-FAIL, and the nightly macos-matrix-fuzz workflow fails on it.
+    # says FUZZ-FAIL.
     fuzz_bad = bool(fz) and (env.get("fuzz_exit", "0") != "0" or fz.get("crashes", 0) or fz.get("relaunches", 0)
                              or fz.get("guest_lost_at") is not None)
     failed |= not ok

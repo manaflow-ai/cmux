@@ -55,6 +55,16 @@ await requireBrowserLane("chief-context-copy.test.ts", async () => {
     await vite?.close();
   });
 
+  /** Resolves once nothing on the page is easing: no transition or animation left to run (a
+   *  looping one never ends). */
+  const eased = (page: Page) =>
+    page.waitForFunction(() =>
+      document
+        .getAnimations()
+        .every(
+          (animation) => animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity,
+        ),
+    );
   const open = async (engine: string, width: number, theme: string): Promise<Page> => {
     const page = await browsers.get(engine)!.newPage({ viewport: { width, height: 600 } });
     await page.goto(stageURL(width, theme));
@@ -71,9 +81,10 @@ await requireBrowserLane("chief-context-copy.test.ts", async () => {
       for (const width of [760, 420, 300])
         test(`${engine}, ${theme}, ${width}px: the context's Copy trails its label and covers no text`, async () => {
           const page = await open(engine, width, theme);
-          // Keyboard focus on the row shows its floating Copy too (conversation.css .acpmux-row__copy).
+          // Keyboard focus on the row shows its action row's buttons too.
           await page.locator(".acpmux-row:has(.cv-user__context)").first().focus();
-          await page.waitForTimeout(200);
+          // The Copy has faded in.
+          await eased(page);
           const geometry = await page.evaluate(() => {
             const context = document.querySelector<HTMLElement>(".cv-user__context")!;
             const summary = context.querySelector("summary")!;

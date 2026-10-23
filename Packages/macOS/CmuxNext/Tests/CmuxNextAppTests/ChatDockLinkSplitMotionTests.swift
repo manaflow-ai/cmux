@@ -90,4 +90,41 @@ struct ChatDockLinkSplitMotionTests {
         #expect(zip(xs, xs.dropFirst()).allSatisfy { $1 <= $0 + 0.5 }, "the link's pane went back right: \(xs)")
         #expect(linkRest.minX >= rest.maxX - 1, "the link's pane rests over the chat: \(linkRest) vs \(rest)")
     }
+
+    /// A folder opened from a lone chat (or a person's new tab from it) docks the chat through
+    /// `ChatColumnPlacement.route`, which hands the chat's content over the same way: the hint is
+    /// pending while the move runs, stays when the move lands, and is dropped when it fails, so a
+    /// later split still plays as a split.
+    @Test func aHandOffDuringAMoveLastsOnlyWhenTheMoveLands() {
+        let screen = Screen()
+        var during: PaneID?
+        var finish: (@MainActor (Bool) -> Void)?
+        screen.model.handOffContent(of: Self.anchor) { done in
+            during = screen.model.pendingContentHandoff
+            finish = done
+        }
+        #expect(during == Self.anchor, "the hint was not pending while the chat docked")
+        finish?(false)
+        #expect(screen.model.pendingContentHandoff == nil, "a failed dock left the hint for the next split")
+
+        screen.model.handOffContent(of: Self.anchor) { done in done(true) }
+        #expect(screen.model.pendingContentHandoff == Self.anchor, "a dock that landed dropped the hint before it played")
+    }
+
+    /// The dock that lands through it plays as the hand-off: the chat keeps one frame.
+    @Test func aFolderDockThroughTheMoveKeepsTheChatPut() throws {
+        let screen = Screen()
+        screen.model.handOffContent(of: Self.anchor) { done in
+            screen.show(Self.docked)
+            done(true)
+        }
+        let chat = try #require(screen.host(Self.dock))
+        var frames: [CGRect] = [chat.frame]
+        for _ in 1...60 {
+            screen.step()
+            frames.append(chat.frame)
+        }
+        let rest = try #require(frames.last)
+        #expect(frames.allSatisfy { $0 == rest }, "the chat's pane moved when a folder docked it: \(frames.map(\.width))")
+    }
 }

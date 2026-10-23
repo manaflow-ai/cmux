@@ -2,7 +2,7 @@
 // (sessionStorage "cmux.acpmux.snapshot") is the whole transcript as JSON, so writing it on every
 // one took main-thread time that grew with the chat: it is written at most every 250 ms, with the
 // latest snapshot, and at once when the page hides or unloads.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 
@@ -53,14 +53,20 @@ const snapshot = (text: string) =>
     rows: [{ id: "reply", kind: "assistant", text }],
     sessions: [],
   }) as unknown as AcpmuxSnapshot;
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-test("a frame's snapshots write the page's copy once, with the latest", async () => {
+test("a frame's snapshots write the page's copy once, with the latest", () => {
   writes.length = 0;
-  // Sixty frames of a streaming reply.
-  for (let frame = 1; frame <= 60; frame += 1) saveSnapshot(snapshot("word ".repeat(frame)));
-  expect(writes.length).toBe(0);
-  await sleep(300);
+  jest.useFakeTimers();
+  try {
+    // Sixty frames of a streaming reply.
+    for (let frame = 1; frame <= 60; frame += 1) saveSnapshot(snapshot("word ".repeat(frame)));
+    expect(writes.length).toBe(0);
+    jest.advanceTimersByTime(249);
+    expect(writes.length).toBe(0);
+    jest.advanceTimersByTime(1);
+  } finally {
+    jest.useRealTimers();
+  }
   expect(writes.length).toBe(1);
   expect(JSON.parse(writes[0]!).rows[0].text).toBe("word ".repeat(60));
 });

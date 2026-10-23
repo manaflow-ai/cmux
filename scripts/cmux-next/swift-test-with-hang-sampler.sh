@@ -153,8 +153,14 @@ else
   wait "$watcher" 2>/dev/null
 fi
 exec 3>&-
-# bash 3.2 cannot wait for a process substitution; tee then ends on its own.
-wait "$tee_pid" 2>/dev/null || true
+# The report reads the log, so its writer must be done. bash 3.2 cannot wait for a
+# process substitution (wait returns at once), so watch tee's pid end, up to 10 s.
+if ! wait "$tee_pid" 2>/dev/null; then
+  for _ in $(seq 1 200); do
+    kill -0 "$tee_pid" 2>/dev/null || break
+    sleep 0.05
+  done
+fi
 
 # Prints the ::error lines and the step summary for the run's log. Exits 3
 # when Swift Testing output has no "Test run with" summary line.
