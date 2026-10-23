@@ -287,6 +287,9 @@ async fn dispatch_brief(
                 obj.insert(key.into(), json!(value));
             }
         }
+        if let Some(via) = params.pointer("/_meta/acpmux/via") {
+            obj.insert("via".into(), via.clone());
+        }
     }
     if let Some(cwd) = pick("cwd") {
         new_params["cwd"] = json!(cwd);
