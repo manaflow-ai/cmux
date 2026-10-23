@@ -19,7 +19,9 @@ Related: `perf-lead.md` (the lab numbers these reports check in the field),
   diagnostics.hangReports true --confirm` and the palette's Toggle Setting write the same key
   through `SettingsController.setSetting` (one write path). The key is agent-refused
   (`AgentRefusal.privacy`): an agent cannot turn it on without the person's confirmation sheet.
-- One ask, once, on NIGHTLY: a sidebar notice card (`SidebarAsks`, the same card as an agent's
+- One ask, once, on NIGHTLY, and never to a person who turned off anonymous telemetry
+  (`sendAnonymousTelemetry`; lead decision 2026-10-23, `HangReportAskPolicy`); they can still
+  turn reports on in Settings: a sidebar notice card (`SidebarAsks`, the same card as an agent's
   Cloud machine request; no dialog, no sheet) with **Send Hang Reports** and **Not Now**. Either
   answer, or the x, records that it was asked (`cmux.next.hangReports.asked` in the app's
   defaults); it never shows again. The card waits for the first window and never takes focus.

@@ -91,7 +91,7 @@ final class HangReportsController {
             for await on in ObservationStream({ settings.snapshot.hangReports }) {
                 guard let self else { return }
                 await apply(on)
-                if !on, !asked, !defaults.bool(forKey: Self.askedKey) {
+                if !asked, Self.shouldAsk(defaults: defaults, reportsOn: on) {
                     asked = true
                     // task-owner: one question after the first frame; it ends when the person answers.
                     Task { [weak self] in
@@ -144,8 +144,14 @@ final class HangReportsController {
 
     /// The one-time question on the sidebar's notice card (no dialog). Any answer, the x
     /// included, means asked; only Send Hang Reports writes the setting (as the person).
+    /// The ask policy over this app's defaults: never for a person who turned off anonymous telemetry.
+    static func shouldAsk(defaults: UserDefaults, reportsOn: Bool) -> Bool {
+        HangReportAskPolicy().shouldAsk(alreadyAsked: defaults.bool(forKey: askedKey), reportsOn: reportsOn,
+                                        telemetryOptIn: CrashReportingPolicy.telemetryOptIn(in: defaults))
+    }
+
     private func ask(asks: SidebarAsks, settings: SettingsController) async {
-        guard !defaults.bool(forKey: Self.askedKey), !settings.snapshot.hangReports else { return }
+        guard Self.shouldAsk(defaults: defaults, reportsOn: settings.snapshot.hangReports) else { return }
         let yes = await asks.ask(HangReportsStrings.askTitle, detail: HangReportsStrings.askDetail, symbol: "gauge.with.dots.needle.33percent",
                                  yes: HangReportsStrings.askYes, no: HangReportsStrings.askNo)
         defaults.set(true, forKey: Self.askedKey)
