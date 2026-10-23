@@ -46,11 +46,10 @@ import QuartzCore
         if isFaded, tabsClip.layer?.mask !== fadeMask { tabsClip.layer?.mask = fadeMask }
         let animates = strip.window != nil && (wasFaded || isFaded) && !Motion.isLiveResizing // in a live resize the edge follows at once
         CATransaction.begin()
+        // main-proof: inferred main-actor closure (written in main-actor code); CATransaction.h calls the completion block on the main thread, and Swift checks the main actor on the closure's entry (SE-0423).
         CATransaction.setCompletionBlock { [weak self] in
-            MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
-                guard let self, let strip = self.strip, !(self.edges.leading || self.edges.trailing) else { return }
-                if strip.tabsClip.layer?.mask != nil { strip.tabsClip.layer?.mask = nil }
-            }
+            guard let self, let strip = self.strip, !(self.edges.leading || self.edges.trailing) else { return }
+            if strip.tabsClip.layer?.mask != nil { strip.tabsClip.layer?.mask = nil }
         }
         if animates {
             // A freshly installed mask starts from fully opaque, not from
