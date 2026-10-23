@@ -98,6 +98,11 @@ public final class TabModel: Identifiable {
     /// workspace row's dot like ``markedUnread``, but viewing the tab keeps it: the agent's clear,
     /// a browser tab's navigation to another page, or the tab's close drops it in the daemon.
     public internal(set) var attention: TabAttention?
+    /// This app's own view state, never sent to the daemon: the `at_ms` of the newest
+    /// ``attention`` request whose ring the person hid (went into the tab, or Dismiss
+    /// Highlight). A newer request rings again. It lives on the model, which belongs to one
+    /// machine's store, so tabs on two machines that share an id never share it.
+    public var attentionRingHiddenThrough: UInt64?
 
     /// Counts the times ``markedUnread`` turned on: each new mark is a new unread, so a ring
     /// dismissed for an earlier mark shows again. Changes only with ``markedUnread``, which

@@ -13,9 +13,11 @@ public struct TabAttention: Sendable, Hashable {
     }
 
     /// The mark in a tab's `extra.attention` (`{reason, at_ms}`); nil when absent or malformed.
+    /// `at_ms` must be a whole nonnegative number: the ring compares requests by it, so a mark
+    /// with a missing or bad one would read as the oldest request and stay hidden.
     public init?(_ value: JSONValue?) {
-        guard let reason = value?["reason"]?.stringValue, !reason.isEmpty else { return nil }
-        let atMs = value?["at_ms"]?.doubleValue.flatMap { $0.saturatedInteger(UInt64.self) } ?? 0
+        guard let reason = value?["reason"]?.stringValue, !reason.isEmpty,
+              let atMs = value?["at_ms"]?.doubleValue.flatMap({ UInt64(exactly: $0) }) else { return nil }
         self.init(reason: reason, atMs: atMs)
     }
 }
