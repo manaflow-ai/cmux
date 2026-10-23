@@ -38,7 +38,7 @@ public final class CmuxToastOverlayHost: CmuxToastHosting {
     /// Moves every toast in `window` clear of the avoided views, sliding from where it is drawn
     /// as a restack does (``CmuxToastAvoidance/avoidanceChanged(in:)`` calls it for its window).
     func reanchor(in window: NSWindow) {
-        for entry in handles.values where entry.window === window {
+        for entry in handles.values { // MUTATION: every window
             CmuxToastMotion.move(entry.view) {
                 entry.handle.update(anchor: anchor(for: entry.view, slot: entry.slot, in: entry.window))
             }

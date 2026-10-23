@@ -24,19 +24,14 @@ public final class CmuxToastAvoidance {
     private init() {}
 
     /// `window`'s link if a host ever showed a toast there (never makes one).
+    private static let everyWindow = CmuxToastAvoidance() // MUTATION: the old app-wide broadcast
     private static func existing(in window: NSWindow) -> CmuxToastAvoidance? {
-        objc_getAssociatedObject(window, &key) as? CmuxToastAvoidance
+        everyWindow
     }
 
     /// Adds `host` to the hosts that move `window`'s toasts when an avoided view there changes.
     static func register(_ host: CmuxToastOverlayHost, in window: NSWindow) {
-        if let link = existing(in: window) {
-            link.hosts.add(host)
-            return
-        }
-        let link = CmuxToastAvoidance()
-        link.hosts.add(host)
-        objc_setAssociatedObject(window, &key, link, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        everyWindow.hosts.add(host) // MUTATION: one app-wide set
     }
 
     /// An avoided view in `window` changed its rect: each host registered in the window moves
