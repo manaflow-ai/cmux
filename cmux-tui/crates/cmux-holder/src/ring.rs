@@ -418,6 +418,34 @@ mod tests {
         assert_eq!(second.read(0, 64), (1001, b"ello world!!!!!!".to_vec()));
     }
 
+    /// A writer that dies inside a write over the oldest kept bytes (the
+    /// data stored, its end not published) leaves a segment whose kept
+    /// window holds no overwritten byte: every byte an adopter trusts is the
+    /// byte first written at that offset.
+    #[test]
+    fn a_writer_dead_inside_a_write_over_kept_bytes_leaves_only_whole_bytes() {
+        let mut first = Ring::new(0, 16);
+        let segment = first.segment().expect("a shared ring").try_clone().unwrap();
+        let stream: Vec<u8> = (0..64u8).map(|byte| b'A' + byte % 26).collect();
+        first.push(&stream[..20]);
+        assert_eq!((first.oldest(), first.end()), (4, 20));
+        // The next read gets the room from 20 (position 4) to the end of
+        // the data area, 12 bytes over offsets 4..16, and "dies" right after
+        // it stored them.
+        let mut adopted = None;
+        first.read_with(64, |room| {
+            for (index, byte) in room.iter_mut().enumerate() {
+                *byte = b'#' + index as u8;
+            }
+            adopted = Some(Ring::adopt(segment.try_clone().unwrap()).unwrap());
+            room.len() as isize
+        });
+        let dead = adopted.unwrap();
+        let (from, kept) = dead.read(0, 64);
+        assert_eq!(dead.end(), 20, "the unpublished read is not part of the ring");
+        assert_eq!(kept, stream[from as usize..20].to_vec(), "an overwritten byte is kept");
+    }
+
     #[test]
     fn a_made_segment_starts_empty_at_its_base() {
         let segment = create_segment(77, 32).unwrap();

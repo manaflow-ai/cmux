@@ -303,6 +303,54 @@ fn a_holder_killed_holding_unsent_output_loses_no_byte_through_its_ring() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A ring segment that ends before the offset the daemon has received (a
+/// stale one, say kept after an earlier adoption fell back to a fresh ring)
+/// is not continued: the new holder starts a fresh ring at `resume`, so the
+/// next output is numbered after what the daemon has. Continuing it would
+/// number that output below, and the daemon would drop it as received.
+#[test]
+fn a_stale_ring_segment_is_not_continued_and_output_continues_at_resume() {
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let first = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let spawned = client.spawn_with_ring(1, &shell(1)).unwrap();
+    client.attach(1, 0).unwrap();
+    let mut screens = BTreeMap::new();
+    screens.insert(
+        1,
+        Screen {
+            master: spawned.master.try_clone().unwrap(),
+            pid: spawned.pid,
+            base: 0,
+            bytes: Vec::new(),
+        },
+    );
+    pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
+    drop(client);
+    kill(first);
+    let received = screens[&1].end();
+    assert!(received > 0);
+    // A segment whose writer never got past offset 0.
+    let stale = cmux_holder::ring::create_segment(0, 64 * 1024).unwrap();
+
+    let second = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let mut id = [0u8; 16];
+    id[..4].copy_from_slice(&1u32.to_le_bytes());
+    client
+        .adopt_with_ring(1, &id, (spawned.pid, received, received), &spawned.master, &stale, b"")
+        .unwrap();
+    client.attach(1, received).unwrap();
+    client.write(1, b"after-stale\n").unwrap();
+    // `pump_until` checks that every DATA offset continues the screen.
+    pump_until(&mut client, &mut screens, |_| "after-stale\r\nafter-stale".to_string());
+    client.close(1, 200).unwrap();
+    drop(client);
+    kill(second);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn a_spawned_shells_exit_status_reaches_the_daemon_after_its_last_output() {
     let dir = temp_dir();
