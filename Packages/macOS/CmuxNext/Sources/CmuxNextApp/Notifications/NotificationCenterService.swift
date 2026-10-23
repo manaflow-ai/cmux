@@ -213,11 +213,11 @@ final class NotificationCenterService {
     /// it may start dragging the tab or the pane, and the ring goes with it.
     func noteMouseDown(in window: NSWindow?, at location: NSPoint) {
         stripPress = nil
+        guard let tab = clickedTab(in: window, at: location) else { return }
         if let window, Self.pressesTabStrip(in: window, at: location) {
-            stripPress = StripPress(window: window, location: location, screenLocation: window.convertPoint(toScreen: location))
+            stripPress = StripPress(tab: tab, screenLocation: window.convertPoint(toScreen: location))
             return
         }
-        guard let tab = clickedTab(in: window, at: location) else { return }
         interacted(.click, tabID: tab)
     }
 
