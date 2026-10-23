@@ -49,10 +49,6 @@ const SCRIPTS: &[Script] = &[
         path: "bash/ghostty.bash",
         contents: concat!(
             include_str!("../../../../ghostty-next/src/shell-integration/bash/ghostty.bash"),
-            // Interim (delete with the ghostty-next bump to 72578da): also
-            // appended to the app bundle's copy (bundle-ghostty-resources.sh).
-            // fork_count_tests fails on bash 5.3 without it.
-            include_str!("shell_integration/ghostty-preexec.bash"),
             include_str!("shell_integration/agent-shims.bash"),
         ),
     },

@@ -11,8 +11,9 @@
 //! minimum over reps, and the integrated shell may fork no more than the same
 //! shell without the integration (plus the budget: 2 per command on bash
 //! 4.4-5.2, whose only pre-command hook is Ghostty's PS0 command
-//! substitution). Removing the bash 5.3 fix from `SCRIPTS` makes the bash test
-//! fail with one fork per command. A shell that is not installed skips its
+//! substitution). On bash 5.3 it needs ghostty-next 72578da or later (the
+//! `${ }` history capture): an older ghostty.bash forks once per command and
+//! fails it. A shell that is not installed skips its
 //! test; so does bash older than 4.4 (Ghostty uses bash-preexec there).
 //!
 //! The bench (`scripts/cmux-next/shell-integration-bench.py`) also counts the
