@@ -4507,6 +4507,12 @@ function AcpmuxPane() {
     (id: string) => directClient.current?.killProcess(id) ?? Promise.reject(new Error()),
     [],
   );
+  // The Inspector's running-limit stepper (inspector/SubagentLimitStepper.tsx).
+  const setRunningLimit = useCallback(
+    (sessionId: string, maxRunning: number | null) =>
+      directClient.current?.setRunningLimit(sessionId, maxRunning) ?? Promise.reject(new Error()),
+    [],
+  );
   // An opened background task note reads the end of the task's output from the same registry
   // (conversation/backgroundTaskOutput.ts), once, when it opens.
   const backgroundTaskOutput = useMemo<BackgroundTaskOutputReader | undefined>(
@@ -5090,6 +5096,8 @@ function AcpmuxPane() {
     onStopProcess: stopProcess,
     subagents: cardSubagents,
     sessions: cardSessions,
+    // acpmux takes the limit only from this Mac's app (a person-proven connection), never a Web one.
+    onSetRunningLimit: snapshot.origin === "local" ? setRunningLimit : undefined,
     // A folder opens in the Files tree beside the chat; a remote or cloud chat's folders are not on
     // this Mac.
     onOpenFolder:
