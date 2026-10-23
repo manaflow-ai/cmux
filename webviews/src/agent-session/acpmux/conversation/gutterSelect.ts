@@ -248,6 +248,8 @@ export function installGutterSelect(
     if (!geometry || !inGutter(event.clientX, geometry)) return;
     const point = clampIntoColumn(event.clientX, event.clientY, geometry);
     const anchor = caretAt(doc, point.x, point.y);
+    // No text to start at (a hit beside a blank gap): the native press goes ahead untouched, and
+    // moves focus off the composer to the page as it always has.
     if (!inThread(anchor)) return;
     // No native press: it would start no selection here. Focus leaves the composer (or a row) as
     // the native press on the background moved it, to the page.

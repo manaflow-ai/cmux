@@ -73,6 +73,7 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
     await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
     await page.waitForFunction(() => "__showRows" in window);
     await page.evaluate((shown) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown), rows);
+    await rowsIn(page);
     await page.evaluate(async () => {
       for (let left = 10; left > 0; left--) await window.cmuxPaintFrame();
     });
@@ -87,6 +88,12 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       const column = node.getBoundingClientRect();
       return { top: rect.top, bottom: rect.bottom, left: column.left, right: column.right };
     }, id);
+  /// Waits for the transcript to draw rows (`prefix`'s, when given): React commits the shown rows after
+  /// the harness call returns, so the scroller may not be in the page yet.
+  const rowsIn = (page: Page, prefix = "") =>
+    page.waitForSelector(`.acpmux-scroll .acpmux-row${prefix ? `[data-row-id^="${prefix}"]` : "[data-row-id]"}`, {
+      state: "attached",
+    });
   const selected = (page: Page) => page.evaluate(() => window.getSelection()?.toString() ?? "");
 
   /// Presses at `from`, drags to `to` in six moves a painted frame apart (as a hand drags), lifts.
@@ -160,6 +167,34 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       await page.close();
     });
 
+    test(`${name}: a click in the margin away from any text also takes focus off the composer`, async () => {
+      const page = await open(name);
+      const first = await box(page, "m1");
+      const third = await box(page, "m3");
+      const view = await page.evaluate(() => {
+        const rect = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
+        return { top: rect.top, bottom: rect.bottom };
+      });
+      // Above the first answer and below the last, where no line sits beside the press.
+      const points = [first.top - 12, third.bottom + 24].filter((y) => y > view.top + 2 && y < view.bottom - 2);
+      expect(points.length).toBeGreaterThan(0);
+      for (const y of points) {
+        await page.evaluate(() => {
+          document.getElementById("composer-stand-in")?.remove();
+          const field = document.createElement("textarea");
+          field.id = "composer-stand-in";
+          Object.assign(field.style, { position: "fixed", left: "0", bottom: "0", width: "40px", height: "20px" });
+          document.body.append(field);
+          field.focus();
+        });
+        await page.mouse.click(first.left / 2, y);
+        await page.evaluate(() => window.cmuxPaintFrame());
+        expect(await selected(page)).toBe("");
+        expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+      }
+      await page.close();
+    });
+
     test(`${name}: a click in the margin lets go of a selection in the transcript`, async () => {
       const page = await open(name);
       const first = await box(page, "m1");
@@ -184,6 +219,7 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
         (shown) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown),
         long,
       );
+      await rowsIn(page);
       await page.evaluate(async () => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         for (let left = 10; left > 0; left--) await window.cmuxPaintFrame();
@@ -222,6 +258,7 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
         (shown) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown),
         long,
       );
+      await rowsIn(page);
       await page.evaluate(async () => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         for (let left = 10; left > 0; left--) await window.cmuxPaintFrame();
@@ -296,6 +333,7 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
           for (let left = n; left > 0; left--) await window.cmuxPaintFrame();
         }, count);
       await showSession("session-1", first);
+      await rowsIn(page, "s");
       await paint(10);
       await page.evaluate(() => (document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 0));
       await paint(6);
@@ -320,8 +358,10 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       expect(await mounted()).toBe(true);
       // Another chat, then back: the first chat's held row is virtualized again.
       await showSession("session-2", chat("t"));
+      await rowsIn(page, "t");
       await paint(6);
       await showSession("session-1", first);
+      await rowsIn(page, "s");
       await paint(6);
       await page.evaluate(() => (document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 1e6));
       await paint(6);
@@ -345,6 +385,7 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
           for (let left = n; left > 0; left--) await window.cmuxPaintFrame();
         }, count);
       await show(tail);
+      await rowsIn(page);
       await paint(10);
       await page.evaluate(() => (document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 0));
       await paint(6);
@@ -361,10 +402,18 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
           for (let left = 3; left > 0; left--) await window.cmuxPaintFrame();
         }
       });
+      const older = (count: number, from: number) =>
+        Array.from({ length: count }, (_, index) => entry(`o${from + index}`, 1000 + from + index));
+      const held = () => page.evaluate(() => !!document.querySelector('.acpmux-row[data-row-id="p0"]'));
       // Thirty older rows page in above: every row's index moves.
-      await show([...Array.from({ length: 30 }, (_, index) => entry(`o${index}`, 1000 + index)), ...tail]);
+      await show([...older(30, 0), ...tail]);
       await paint(6);
-      expect(await page.evaluate(() => !!document.querySelector('.acpmux-row[data-row-id="p0"]'))).toBe(true);
+      expect(await held()).toBe(true);
+      // Rows arrive at both ends in one snapshot: neither its index nor its distance from the end holds.
+      const newer = Array.from({ length: 5 }, (_, index) => entry(`n${index}`, 2000 + index));
+      await show([...older(20, 30), ...older(30, 0), ...tail, ...newer]);
+      await paint(6);
+      expect(await held()).toBe(true);
       await page.mouse.move(x, 210);
       await paint(1);
       await page.mouse.up();

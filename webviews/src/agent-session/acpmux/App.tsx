@@ -2490,13 +2490,33 @@ export function VirtualTranscript({
   const warm = visibleLayoutRange(layout, warmTop - height * WARM_VIEWPORTS, height * (1 + 2 * WARM_VIEWPORTS));
   const scrolledRanges = mergeRowRanges(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]);
   // A held row (gutterSelect.ts) is at its index, or as far from the end as it was when older history
-  // pages in above it. At most two, so this reads two rows.
+  // pages in above it. At most two, so this reads two rows. Only when rows came in at both ends at once
+  // is it looked for by id; the effect below then keeps where it was found (or drops a row that is
+  // gone), so the next render reads it directly again.
   const held = heldRows?.session === sessionKey && !sessionChanged ? heldRows.rows : [];
-  const heldIndices = held
-    .map(({ id, index, fromEnd }) =>
-      rows[index]?.id === id ? index : rows[rows.length - fromEnd]?.id === id ? rows.length - fromEnd : -1,
-    )
-    .filter((index) => index >= 0);
+  const heldAt = held.map(({ id, index, fromEnd }) =>
+    rows[index]?.id === id
+      ? index
+      : rows[rows.length - fromEnd]?.id === id
+        ? rows.length - fromEnd
+        : rows.findIndex((row) => row.id === id),
+  );
+  const heldIndices = heldAt.filter((index) => index >= 0);
+  // Where the moved rows were found, so the writeback runs again if rows move again before it commits.
+  const heldMoved = held.some((each, at) => heldAt[at] !== each.index) ? `${rows.length}:${heldAt.join(",")}` : "";
+  useEffect(() => {
+    if (!heldMoved) return;
+    setHeldRows(
+      (current) =>
+        current && {
+          session: current.session,
+          rows: current.rows.flatMap((each) => {
+            const at = rowsRef.current.findIndex((row) => row.id === each.id);
+            return at < 0 ? [] : [{ ...each, index: at, fromEnd: rowsRef.current.length - at }];
+          }),
+        },
+    );
+  }, [heldMoved]);
   const mountedRanges =
     heldIndices.length === 0
       ? scrolledRanges
