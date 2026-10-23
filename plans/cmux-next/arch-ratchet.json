@@ -2,7 +2,7 @@
   "_doc": "Architecture counts the pre-push ratchet holds (scripts/cmux-next/arch-ratchet.py; the method is scripts/cmux-next/arch_counts.py, whose docstring defines every row). A push may not raise a ratcheted row's total; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update`. exceptions: [{\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, \"why\": \"...\"}] lets the push that adds the entry raise that row by n; never CI.",
   "method": "arch_counts",
   "method_version": 1,
-  "measured_sha": "fbbf611f7b4a9f20732bcd7d906df4a042399d7e",
+  "measured_sha": "b013ea47ae33adfb755ee915b2a109afdc3aa776",
   "measured_date": "2026-10-23",
   "rows": {
     "layer_hard": {
@@ -11,6 +11,10 @@
     },
     "layer_soft": {
       "title": "soft layer edges (service -> domain)",
+      "ratchet": true
+    },
+    "layer_upward": {
+      "title": "other upward layer edges (core -> service/domain)",
       "ratchet": true
     },
     "layer_unplaced": {
@@ -49,14 +53,15 @@
   "totals": {
     "layer_hard": 31,
     "layer_soft": 12,
-    "layer_unplaced": 4,
+    "layer_upward": 3,
+    "layer_unplaced": 0,
     "stateful_singletons": 158,
     "global_mutable_statics": 261,
     "assume_isolated_outside_adapters": 175,
     "assume_isolated_total": 235,
     "app_broadcast_names": 12,
     "observer_sites": 169,
-    "app_lines": 141345
+    "app_lines": 141773
   },
   "packages": {
     "CmuxNextActions": {
@@ -70,6 +75,9 @@
     },
     "CmuxNextAgentCursor": {
       "layer_hard": 1
+    },
+    "CmuxNextAgentCursorVisibility": {
+      "layer_upward": 1
     },
     "CmuxNextAgentIntegrations": {
       "layer_hard": 1,
@@ -98,7 +106,7 @@
       "assume_isolated_outside_adapters": 50,
       "assume_isolated_total": 59,
       "observer_sites": 58,
-      "app_lines": 141345
+      "app_lines": 141773
     },
     "CmuxNextApps": {
       "stateful_singletons": 1,
@@ -200,7 +208,6 @@
       "observer_sites": 1
     },
     "CmuxNextDevices": {
-      "layer_unplaced": 1,
       "stateful_singletons": 1
     },
     "CmuxNextDictation": {
@@ -225,9 +232,6 @@
     "CmuxNextFocusUI": {
       "stateful_singletons": 1,
       "assume_isolated_total": 1
-    },
-    "CmuxNextHangReports": {
-      "layer_unplaced": 1
     },
     "CmuxNextHome": {
       "stateful_singletons": 1,
@@ -261,7 +265,6 @@
       "observer_sites": 1
     },
     "CmuxNextMacScreen": {
-      "layer_unplaced": 1,
       "assume_isolated_outside_adapters": 4,
       "assume_isolated_total": 4,
       "observer_sites": 4
@@ -320,7 +323,6 @@
       "observer_sites": 1
     },
     "CmuxNextRemoteViewSessions": {
-      "layer_unplaced": 1,
       "global_mutable_statics": 1,
       "assume_isolated_outside_adapters": 1,
       "assume_isolated_total": 1
@@ -385,6 +387,9 @@
       "stateful_singletons": 1,
       "observer_sites": 2
     },
+    "CmuxNextWorkspaceNaming": {
+      "layer_upward": 2
+    },
     "CmuxNextWorkspaceRepair": {
       "assume_isolated_outside_adapters": 1,
       "assume_isolated_total": 1
@@ -395,10 +400,10 @@
       "CmuxNextAgentCursor (domain) -> CmuxNextDesign (ui)",
       "CmuxNextAgentIntegrations (service) -> CmuxNextPages (ui)",
       "CmuxNextAgentUpdates (service) -> CmuxNextPages (ui)",
+      "CmuxNextBridge (domain) -> CmuxNextIcons (ui)",
       "CmuxNextBridge (domain) -> CmuxNextLayout (ui)",
       "CmuxNextBridge (domain) -> CmuxNextSidebar (ui)",
       "CmuxNextBridge (domain) -> CmuxNextTabs (ui)",
-      "CmuxNextBridge (domain) -> CmuxNextIcons (ui)",
       "CmuxNextBrowserAutomation (service) -> CmuxNextBrowser (ui)",
       "CmuxNextBrowserHistory (service) -> CmuxNextBrowser (ui)",
       "CmuxNextBrowserHost (service) -> CmuxNextBrowser (ui)",
@@ -438,12 +443,12 @@
       "CmuxNextRemoteLocalhostService (service) -> CmuxNextSettings (domain)",
       "CmuxNextWebUpdates (service) -> CmuxNextSettings (domain)"
     ],
-    "unplaced": [
-      "CmuxNextDevices",
-      "CmuxNextHangReports",
-      "CmuxNextMacScreen",
-      "CmuxNextRemoteViewSessions"
-    ]
+    "upward": [
+      "CmuxNextAgentCursorVisibility (core) -> CmuxNextAgentCursor (domain)",
+      "CmuxNextWorkspaceNaming (core) -> CmuxNextBridge (domain)",
+      "CmuxNextWorkspaceNaming (core) -> CmuxNextDaemon (service)"
+    ],
+    "unplaced": []
   },
   "exceptions": []
 }
