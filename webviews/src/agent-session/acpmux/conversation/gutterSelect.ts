@@ -134,7 +134,10 @@ export function installGutterSelect(
     x: number;
     y: number;
     geometry: GutterGeometry;
-    anchor: Caret;
+    /// Where the press reads, as a collapsed live Range: when the text under it changes while the
+    /// button is held (a streaming reply redraws its markdown), the DOM moves the point with it
+    /// (into the parent of a node taken out, or to the end of text that shrank), never out of range.
+    anchor: Range;
     selecting: boolean;
   };
   let drag: Drag | undefined;
@@ -142,11 +145,15 @@ export function installGutterSelect(
   /// Rows are held (`hold`) for the drag, or for the selection it left: the row its start lies in.
   let held: { row: HTMLElement } | undefined;
   const inThread = (caret: Caret | undefined): caret is Caret => caret != null && thread.contains(caret.node);
-  const extend = (current: Drag) => {
+  /// Moves the selection's end to the pointer. False once the start has left the transcript (its row
+  /// was taken out), when the drag ends instead of scrolling on with nothing to select.
+  const extend = (current: Drag): boolean => {
+    const { startContainer, startOffset } = current.anchor;
+    if (!startContainer.isConnected || !thread.contains(startContainer)) return false;
     const point = clampIntoColumn(current.x, current.y, current.geometry);
     const focus = caretAt(doc, point.x, point.y);
-    if (!inThread(focus) || !current.anchor.node.isConnected) return;
-    doc.getSelection()?.setBaseAndExtent(current.anchor.node, current.anchor.offset, focus.node, focus.offset);
+    if (inThread(focus)) doc.getSelection()?.setBaseAndExtent(startContainer, startOffset, focus.node, focus.offset);
+    return true;
   };
   const tick = () => {
     frame = 0;
@@ -158,7 +165,10 @@ export function installGutterSelect(
       onReaderScroll();
       scroller.scrollTop = before + step;
     }
-    extend(current);
+    if (!extend(current)) {
+      stop();
+      return;
+    }
     // The pointer still past an edge keeps the view moving, one step a frame, until it comes back,
     // the view reaches its end, the button lifts or the window lets go.
     if (step !== 0 && scroller.scrollTop !== before) frame = win.requestAnimationFrame(tick);
@@ -212,7 +222,7 @@ export function installGutterSelect(
     if (!current.selecting) {
       if (!pastThreshold(current.x - current.startX, current.y - current.startY)) return;
       current.selecting = true;
-      const row = rowOf(current.anchor.node);
+      const row = rowOf(current.anchor.startContainer);
       const start = row && heldRow(row);
       if (row && start) {
         held = { row };
@@ -247,10 +257,10 @@ export function installGutterSelect(
     const geometry = measure(scroller, thread);
     if (!geometry || !inGutter(event.clientX, geometry)) return;
     const point = clampIntoColumn(event.clientX, event.clientY, geometry);
-    const anchor = caretAt(doc, point.x, point.y);
+    const caret = caretAt(doc, point.x, point.y);
     // No text to start at (a hit beside a blank gap): the native press goes ahead untouched, and
     // moves focus off the composer to the page as it always has.
-    if (!inThread(anchor)) return;
+    if (!inThread(caret)) return;
     // No native press: it would start no selection here. Focus leaves the composer (or a row) as
     // the native press on the background moved it, to the page.
     event.preventDefault();
@@ -264,7 +274,7 @@ export function installGutterSelect(
       x: event.clientX,
       y: event.clientY,
       geometry,
-      anchor,
+      anchor: anchorAt(doc, caret),
       selecting: false,
     };
     win.addEventListener("mousemove", onMove, true);
@@ -286,6 +296,14 @@ export function installGutterSelect(
       end();
     },
   };
+}
+
+/// A collapsed live Range at `caret`.
+function anchorAt(doc: Document, caret: Caret): Range {
+  const range = doc.createRange();
+  range.setStart(caret.node, caret.offset);
+  range.collapse(true);
+  return range;
 }
 
 /// The transcript row holding `node`.

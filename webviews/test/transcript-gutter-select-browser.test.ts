@@ -122,6 +122,42 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       await page.close();
     });
 
+    test(`${name}: the selection keeps its start when the text under the press is redrawn mid-drag`, async () => {
+      const page = await open(name);
+      const first = await box(page, "m1");
+      const third = await box(page, "m3");
+      const x = first.left / 2;
+      await page.mouse.move(x, first.top + 4);
+      await page.mouse.down();
+      await page.mouse.move(x, first.top + 14);
+      await page.evaluate(() => window.cmuxPaintFrame());
+      // The reply redraws its first message: the text node under the press is replaced.
+      const redrawn = [
+        { ...rows[0], text: `**Alpha keeper.** ${rows[0]!.text.slice(14)}`, version: 2 },
+        ...rows.slice(1),
+      ];
+      await page.evaluate(
+        (shown) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown),
+        redrawn,
+      );
+      await page.evaluate(async () => {
+        for (let left = 3; left > 0; left--) await window.cmuxPaintFrame();
+      });
+      expect(await page.evaluate(() => !!document.querySelector('.acpmux-row[data-row-id="m1"] strong'))).toBe(true);
+      for (let step = 1; step <= 4; step += 1) {
+        await page.mouse.move(
+          x + ((third.left + 300 - x) * step) / 4,
+          first.top + 14 + ((third.bottom - 18 - first.top) * step) / 4,
+        );
+        await page.evaluate(() => window.cmuxPaintFrame());
+      }
+      await page.mouse.up();
+      const text = await selected(page);
+      expect(text.startsWith("Alpha keeper.")).toBe(true);
+      expect(text).toContain("Charlie gull.");
+      await page.close();
+    });
+
     test(`${name}: a drag that stays in the left margin selects whole lines up to the line beside the pointer`, async () => {
       const page = await open(name);
       const first = await box(page, "m1");
