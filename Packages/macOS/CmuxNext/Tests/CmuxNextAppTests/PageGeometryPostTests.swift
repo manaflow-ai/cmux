@@ -11,19 +11,30 @@ import Testing
 /// the fork reads (its screen rect, visible rect, clip inputs, occlusion holes) changed since the
 /// fork last read it.
 @MainActor @Suite struct PageGeometryPostTests {
+    /// A plain window (`ShellWindow.setFrame` keeps frames on the test screen, which can undo a
+    /// move) with the app window's overlay rects and a backing scale the test sets.
+    final class PagesWindow: NSWindow, BrowserWindowOcclusionProviding {
+        var browserOcclusionRectsInWindow: [CGRect] = []
+        /// Stands in for a move to a display of another scale.
+        var scaleOverride: CGFloat?
+        override var backingScaleFactor: CGFloat { scaleOverride ?? super.backingScaleFactor }
+    }
+
     /// The app's window with two pages side by side, as the layout places them.
     struct TwoPages {
-        /// A plain window: `ShellWindow.setFrame` keeps frames on the test screen, which can undo a move.
-        let window: NSWindow
+        let window: PagesWindow
         let left = CEFHostView(frame: CGRect(x: 0, y: 0, width: 400, height: 500))
         let right = CEFHostView(frame: CGRect(x: 400, y: 0, width: 400, height: 500))
         /// Both pages' common ancestor below the content view (the layout root's place).
         let stage = NSView()
 
-        init() {
+        /// - Parameter deferred: the window gets no window server window until it shows, so its
+        ///   frame is only this process's (a test window's frame is otherwise the window server's,
+        ///   which on some hosts kept it in place: 0 posts for a window move on cmux13s, 5ed2ce6dcad).
+        init(deferred: Bool = false) {
             _ = NSApplication.shared
             let content = NSView(frame: CGRect(x: 0, y: 0, width: 800, height: 500))
-            window = NSWindow(contentRect: content.frame, styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+            window = PagesWindow(contentRect: content.frame, styleMask: [.titled, .resizable], backing: .buffered, defer: deferred)
             window.isReleasedWhenClosed = false
             window.contentView = content
             _ = WindowOverlayHost.host(for: window)
@@ -48,9 +59,10 @@ import Testing
             return CEFHostView.trackerStats.geometryPosts - before
         }
 
-        func requestPageUpdate() {
+        func requestPageUpdate(force: Bool = false) {
             // global-notice-allow: CEFHostView observes its window's page update request on the default center (the production path)
-            NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
+            NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window,
+                                            userInfo: force ? [browserPagesForceUpdateKey: true] : nil)
         }
     }
 
@@ -80,6 +92,63 @@ import Testing
         pages.stage.setFrameOrigin(CGPoint(x: 40, y: 0))
         let posted = pages.posts { pages.requestPageUpdate() }
         #expect(posted == 2, "both pages moved on screen: \(posted) posts")
+    }
+
+    /// A window move changes every page's screen rect: each page re-places its window.
+    @Test func aWindowMoveReachesEveryPage() throws {
+        let pages = TwoPages(deferred: true)
+        pages.forkReads()
+        let before = pages.window.frame
+        pages.window.setFrame(before.offsetBy(dx: 40, dy: 0), display: false)
+        try #require(pages.window.frame.origin.x == before.origin.x + 40, "the test window moved: \(before) -> \(pages.window.frame)")
+        let posted = pages.posts { pages.requestPageUpdate() }
+        #expect(posted == 2, "both pages moved on screen: \(posted) posts")
+    }
+
+    /// An overlay that takes the mouse (the screen switcher) appears over the left page: the fork
+    /// must punch its hole there; the right page has nothing new.
+    @Test func aWindowOverlayOverOnePageReachesOnlyThatPage() {
+        let pages = TwoPages()
+        pages.forkReads()
+        let overlay = CGRect(x: 100, y: 100, width: 50, height: 50)
+        pages.window.browserOcclusionRectsInWindow = [overlay]
+        let posted = pages.posts { pages.requestPageUpdate() }
+        #expect(posted == 1, "only the page under the overlay posts: \(posted) posts")
+        // What the fork reads is the hole the page reports.
+        let read = (pages.left.cmuxOcclusionRects() as? [NSValue] ?? []).map(\.rectValue)
+        #expect(read == pages.left.allOcclusionRects && read.contains(pages.left.convert(overlay, from: nil)), "fork read \(read)")
+    }
+
+    /// The pane corners change (a theme or padding change): both pages under the rounded clip
+    /// re-read their clip shape though neither moved.
+    @Test func aCornerChangeReachesThePagesUnderTheClip() throws {
+        let pages = TwoPages()
+        pages.stage.wantsLayer = true
+        let layer = try #require(pages.stage.layer)
+        layer.masksToBounds = true
+        layer.cornerRadius = 0
+        pages.forkReads()
+        layer.cornerRadius = 12
+        #expect(pages.posts { pages.requestPageUpdate() } == 2, "the rounded corners reach both pages")
+        pages.forkReads()
+        #expect(pages.posts { pages.requestPageUpdate() } == 0, "the same corners again have nothing new")
+    }
+
+    /// The window moves to a display of another scale: the fork re-places every page at it.
+    @Test func aBackingScaleChangeReachesEveryPage() {
+        let pages = TwoPages()
+        pages.forkReads()
+        pages.window.scaleOverride = pages.window.backingScaleFactor + 1
+        #expect(pages.posts { pages.requestPageUpdate() } == 2, "the new scale reaches both pages")
+    }
+
+    /// Something other than the fork moved a page window (`WindowOverlayLayer.pageWindowDidChangeFrame`):
+    /// the hosts did not move, so only a forced update puts the page windows back.
+    @Test func aForcedUpdateReachesEveryPageThatDidNotMove() {
+        let pages = TwoPages()
+        pages.forkReads()
+        #expect(pages.posts { pages.requestPageUpdate(force: true) } == 2, "a forced update reaches both pages")
+        #expect(pages.posts { pages.requestPageUpdate() } == 0, "after it, nothing is new")
     }
 
     @Test func aHiddenPagePostsOnceNotOnEveryRequest() {

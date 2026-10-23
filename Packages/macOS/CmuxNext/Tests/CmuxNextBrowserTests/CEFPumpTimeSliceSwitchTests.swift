@@ -6,9 +6,14 @@ import Testing
 /// main thread, and one `CefDoMessageLoopWork` pass ran ready work for up to CEF's 10 ms slice:
 /// longer than a 120 Hz frame (8.33 ms), so a pass during a motion dropped the frame. The browser
 /// process starts with the fork's `--cmux-pump-time-slice-us` at a quarter of a frame.
+///
+/// This checks the switch the app passes, not how long a pass runs: a fork without the switch
+/// (the pinned cef-154.0.28-cmux.28 predates it) ignores it, and a pass there still runs up to
+/// 10 ms. The frame-time proof is a bench row once a fork with the switch (cmux.32 or later) is
+/// pinned.
 @Suite struct CEFPumpTimeSliceSwitchTests {
     @Test(arguments: ["com.cmuxterm.app.next", "com.cmuxterm.app.debug.tag"])
-    func onePumpPassIsShorterThanADisplayFrame(bundle: String) throws {
+    func theBrowserProcessAsksForAPumpSliceUnderAQuarterFrame(bundle: String) throws {
         let switches = CEFSwitches.current(forkAPIVersion: 7, bundleIdentifier: bundle, environment: [:])
         let value = try #require(switches.arguments.first { $0.hasPrefix("cmux-pump-time-slice-us=") }, "\(switches.arguments)")
         let microseconds = try #require(Int(value.dropFirst("cmux-pump-time-slice-us=".count)))

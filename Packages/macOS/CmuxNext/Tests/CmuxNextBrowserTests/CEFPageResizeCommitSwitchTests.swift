@@ -11,6 +11,9 @@ import Testing
 /// and raster. `AsyncLiveResize` skips that wait (the page shows its last frame over the page's
 /// own backdrop until the new one lands). A fork with the resize-sync API (27) waits up to a
 /// deadline the app sets instead, so it keeps the wait path.
+///
+/// These check the feature switch the app passes only: nothing here proves Chromium skips the
+/// commit hold. That proof is a frame-time bench row (split and close with Chromium pages).
 @Suite struct CEFPageResizeCommitSwitchTests {
     static func features(forkAPIVersion: Int32) -> [String] {
         CEFSwitches.current(forkAPIVersion: forkAPIVersion, bundleIdentifier: "com.cmuxterm.app.next", environment: [:]).arguments
@@ -18,12 +21,12 @@ import Testing
             .flatMap { $0.dropFirst("enable-features=".count).split(separator: ",").map(String.init) }
     }
 
-    @Test(arguments: [Int32(7), 26])
-    func aPageResizeDoesNotHoldTheAppsCommit(forkAPIVersion: Int32) {
+    @Test(arguments: [Int32(7), CEFLayerHosting.forkAPI])
+    func aForkWithoutResizeSyncAsksForAsyncLiveResize(forkAPIVersion: Int32) {
         #expect(Self.features(forkAPIVersion: forkAPIVersion).contains("AsyncLiveResize"))
     }
 
-    @Test func aForkWithResizeSyncKeepsChromiumsBoundedWait() {
-        #expect(!Self.features(forkAPIVersion: 27).contains("AsyncLiveResize"))
+    @Test func aForkWithResizeSyncDoesNotAskForAsyncLiveResize() {
+        #expect(!Self.features(forkAPIVersion: CEFLayerHosting.resizeSyncForkAPI).contains("AsyncLiveResize"))
     }
 }
