@@ -25,10 +25,12 @@ import Testing
     }
 
     /// A new tab's stand-in (BrowserTabStandIn, PL-cef-tab) on any address, a link's page
-    /// included, has its page and chrome when the pane first shows it: a tab opened here has no
-    /// saved history to read first. Only the New Tab page did, so a link's tab showed empty
-    /// until an asynchronous page task ran.
-    @Test func aStandInOnAnyAddressHasItsChromeWhenThePaneFirstShowsIt() throws {
+    /// included, has its page and chrome right after the frame of the key that made it: a tab
+    /// opened here has no saved history to read first. Not in the key's turn: building the page
+    /// and its chrome took 64-380 ms (Chromium) and about 190 ms (WebKit) on the fleet (mac26,
+    /// cef-tab-bench), so the key's frame shows the tab selected on its themed pane, and the
+    /// page follows in the next pass, with no asynchronous task in between.
+    @Test func aStandInOnAnyAddressHasItsChromeRightAfterTheKeysFrame() throws {
         let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil))
         cache.browserTabs.cefUnavailable = { nil }
         cache.chromiumNow.runs = { true }
@@ -37,7 +39,15 @@ import Testing
         let tab = TabModel(TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.id), kind: .browser,
                                        url: "https://example.com/", browserRenderer: "frontend", browserEngine: "cef"))
         defer { cache.release(tab.id) }
-        let entry = try #require(cache.browser(for: tab), "the stand-in's page exists in the turn the pane shows it")
+        var afterFrame: [@MainActor () -> Void] = []
+        cache.afterFrame = { afterFrame.append($0) }
+        var ready: [String] = []
+        cache.onBrowserReady = { ready.append($0) }
+        #expect(cache.browser(for: tab) == nil, "the key's turn makes no page or chrome")
+        #expect(afterFrame.count == 1)
+        afterFrame.forEach { $0() }
+        #expect(ready == [tab.id], "the pane asks again once the key's frame committed")
+        let entry = try #require(cache.browser(for: tab), "the stand-in's page exists in that pass")
         #expect(entry.tab.state.url?.absoluteString == "https://example.com/")
     }
 
@@ -55,6 +65,8 @@ import Testing
         let daemonTab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 43), tabResourceID: ResourceID(rawValue: "tab_43"), kind: .browser,
                                              url: BrowserNewTabPage.chromiumURL, browserRenderer: "frontend", browserEngine: "cef"))
         defer { cache.release(daemonTab.id) }
+        cache.afterFrame = { $0() } // the key's frame committed
+        _ = cache.browser(for: standIn)
         let entry = try #require(cache.browser(for: standIn))
         let page = try #require(entry.tab as? MockBrowserTab)
         #expect(cache.moveBrowser(standIn.id, to: daemonTab))
