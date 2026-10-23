@@ -52,10 +52,13 @@ final class TargetIndex {
     /// with the hovering ones first (a hover that ends runs before one that starts).
     ///
     /// The walk enters a view only when it is shown and the point is inside its frame and its
-    /// bounds, as `NSView.hitTest(_:)` does on every macOS major whatever `clipsToBounds` says:
-    /// a target hovers only where its clicks land, so a part of a view that overflows its
-    /// superview (`masksToBounds = false`) shows no hover there, as it takes no click there.
-    /// Overlapping siblings are both entered.
+    /// bounds, whatever `clipsToBounds` says: a target hovers only inside its own and every
+    /// ancestor's frame, so a part of a view that overflows its superview
+    /// (`masksToBounds = false`) shows no hover there. This is the default `NSView.hitTest(_:)`
+    /// rule, not hit-test parity: the walk calls no `hitTest(_:)`, so a view whose override
+    /// takes clicks outside its own frame (`SidebarRowView` routes to a button by the button's
+    /// frame alone) shows no hover where that click lands, and a view whose override returns nil
+    /// (a pass-through pill) still hovers. Overlapping siblings are both entered.
     func candidates(in window: NSWindow, at point: NSPoint?) -> [PointerHover] {
         var found: [ObjectIdentifier: PointerHover] = [:]
         for (id, entry) in hovering {
@@ -90,8 +93,17 @@ final class TargetIndex {
             if entry.view == nil { byView[key] = nil }
             return
         }
+        var live = 0
         for ref in entry.targets {
-            if let target = ref.value { found[ObjectIdentifier(target)] = target }
+            guard let target = ref.value else { continue }
+            found[ObjectIdentifier(target)] = target
+            live += 1
+        }
+        // A target freed off the main thread skips its `dropFreed`: drop it here, on the path.
+        if live != entry.targets.count {
+            var kept = entry
+            kept.targets.removeAll { $0.value == nil }
+            byView[key] = kept.targets.isEmpty ? nil : kept
         }
     }
 }
