@@ -217,5 +217,5 @@ fn changes_a_wait(ev: &crate::hub::HubEvent, ids: &[String], remote: bool) -> bo
     if ev.remote.is_some() {
         return remote;
     }
-    ids.iter().any(|id| *id == ev.session_id) && !matches!(ev.record.dir.as_str(), "in" | "out")
+    ids.contains(&ev.session_id) && !matches!(ev.record.dir.as_str(), "in" | "out")
 }
