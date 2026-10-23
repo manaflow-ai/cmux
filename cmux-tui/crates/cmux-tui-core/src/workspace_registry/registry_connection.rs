@@ -119,7 +119,8 @@ pub(super) fn slow_durable_commit_delay() -> Option<std::time::Duration> {
 }
 
 /// Install the registry connection's commit hook: the debug span mark
-/// (`debug_spans::traced`) and the commit count for the WAL syncer.
+/// (`debug_spans::traced`); [`RegistryConnection::new`] adds the WAL
+/// syncer's commit count to a file registry's hook.
 pub(crate) fn hooked(connection: Connection) -> Connection {
     crate::debug_spans::traced(connection)
 }
@@ -195,15 +196,6 @@ impl RegistryConnection {
             #[cfg(test)]
             journal_hooks: std::sync::Mutex::default(),
         })
-    }
-
-    /// Wait until every registry commit made so far is on disk (see
-    /// `wal_durability`). Never call it while holding the connection lock.
-    pub(crate) fn wait_durable(&self) {
-        debug_assert!(!self.connection.is_owned_by_current_thread());
-        if let Some(durability) = &self.durability {
-            durability.wait_durable();
-        }
     }
 
     /// (committed, synced) registry commits for `server-stats` `write_path`.

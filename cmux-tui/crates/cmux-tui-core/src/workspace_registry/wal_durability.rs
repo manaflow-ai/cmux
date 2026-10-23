@@ -18,9 +18,7 @@
 //! waited behind them (daemon request p95 60-80 ms, PL-daemon 2026-10-23).
 //!
 //! The thread sleeps on a condition variable while nothing is owed (no
-//! timer, no wakeups at idle). [`WalDurability::wait_durable`] waits until
-//! every commit made so far is on disk, for callers that must order an
-//! effect after power-loss durability and for tests.
+//! timer, no wakeups at idle).
 
 use std::fs::File;
 use std::path::PathBuf;
@@ -90,6 +88,7 @@ impl WalDurability {
     /// Wait until every commit made before this call is on disk. Never call
     /// it while holding the registry connection lock: commits made under the
     /// lock are counted only when their guard is released.
+    #[cfg(test)]
     pub(crate) fn wait_durable(&self) {
         let mut state = self.shared.state.lock().recover_poison();
         let target = state.committed;
