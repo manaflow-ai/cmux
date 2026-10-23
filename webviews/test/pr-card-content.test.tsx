@@ -230,6 +230,19 @@ test("code changed with no test gets a warning; a change with a test does not", 
   expect(tested.body.querySelector(".acpmux-pr-card__warning")).toBeNull();
 });
 
+test("a truncated file read says the inline breakdown is partial", async () => {
+  const files = Array.from({ length: 2 }, (_, index) => ({
+    path: `webviews/src/agent-session/acpmux/file-${index}.tsx`,
+    additions: 10,
+    deletions: 1,
+  }));
+  const { body } = await card({
+    pullRequest: pullRequest({ files, changedFiles: 3, additions: 20, deletions: 2 }),
+    fetchedAt: Date.now() / 1000 - 5,
+  });
+  expect(body.querySelector(".acpmux-pr-card__kindPartial")?.textContent).toBe("the first 2 files");
+});
+
 test("an answer cmux read a while ago says its age instead of looking current", async () => {
   const fresh = await card({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 5 });
   expect(fresh.body.querySelector(".acpmux-pr-card__age")).toBeNull();

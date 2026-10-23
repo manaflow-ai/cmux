@@ -257,6 +257,7 @@ function Changes({ read, t }: { read: LinkedPullRequest | undefined; t: Translat
   if (changed === 0 && additions === 0 && deletions === 0) return null;
   const totals = kindTotals(files);
   const noTests = files.length > 0 && files.length === changed && missingTests(files);
+  const partial = files.length > 0 && files.length < changed;
   return (
     <div className="acpmux-pr-card__changes">
       <div className="acpmux-pr-card__counts">
@@ -286,6 +287,9 @@ function Changes({ read, t }: { read: LinkedPullRequest | undefined; t: Translat
               </span>
             );
           })}
+          {partial && (
+            <span className="acpmux-pr-card__kindPartial">{t("prCard.kindsPartial", { shown: files.length })}</span>
+          )}
         </div>
       )}
     </div>
