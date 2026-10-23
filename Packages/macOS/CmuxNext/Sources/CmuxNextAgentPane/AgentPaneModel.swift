@@ -307,6 +307,7 @@ public final class AgentPaneModel {
         case .editNewTab(let edit): guard let onEditNewTab else { return Self.unsupported(edit.method) }; onEditNewTab(edit); return AgentPaneReply.success()
         case .nowPlaying(let command): return AgentPaneNowPlaying.shared.perform(command) ? AgentPaneReply.success() : Self.unsupported("nowPlaying.command")
         case .importCard(let act): return AgentPaneImportCards.shared.perform(act) ? AgentPaneReply.success() : Self.unsupported("importCards.act")
+        case .attentionOpen(let tab): return AgentPaneAttentionTabs.shared.open(tab) ? AgentPaneReply.success() : Self.unsupported("chat.attention.open")
         case .runAction(let id): return runAction(id)
         case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
