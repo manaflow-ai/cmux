@@ -631,7 +631,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let client = connect(true).await?;
             let value = client
                 .request(
-                    method::MUX_MAIL_DELIVER,
+                    method::MUX_MAIL_SEND,
                     json!({
                         "id": id,
                         "sender": sender,

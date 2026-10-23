@@ -19,7 +19,7 @@ pub(super) async fn handle(
 ) -> Result<Value, RpcError> {
     require_local_origin(conn.origin)?;
     match method {
-        crate::rpc::method::MUX_MAIL_DELIVER => {
+        crate::rpc::method::MUX_MAIL_SEND if params.get("target").is_some() => {
             let id = required_string(params, "id")?;
             let (sender_id, sender_receipt) = identity_params_or_bound(conn, params, "sender")?;
             let sender_bound =
