@@ -18,7 +18,10 @@ The two rates, inside one build (`debug.low_power_mode` overrides Low Power Mode
   full     Low Power Mode off: row 23 (expected on 120 Hz: about 8.3 ms, 0 long frames)
 
 Default mode (creation): each launch measures one rate, and sets Low Power Mode before it opens the
-page, so the page is made at that rate (the pool makes a new spare on a change). Only the rate a
+page, so the page is made at that rate. Every launch drops the page pool's spare first
+(`debug.page_host_pool {action: drop}`), so both rates open a fresh page (`page_origin: fresh`): a
+near60 leg is a change (the pool drops its spare) and a full leg is not, so without the drop one
+leg opened a fresh page and the other the pooled spare. Only the rate a
 page is made with is known to hold: on cmux20 (macOS 27, 120 Hz) a shown page switched live to
 near60 reported near60 and still rendered at 120 fps, so a live switch cannot be the "before".
 Launches alternate the rate (near60, full, near60, ...).
@@ -41,7 +44,8 @@ for cmux.settings is its `.content` scroller), and, at near60, the page really r
 page that reports near60 and renders at the full rate measures nothing of the base behavior (a
 full-rate leg that renders slower is a result, its long frames count). In --live mode a leg that
 did not apply is reported, not refused: that is what --live measures. A STRESS session that is not
-the standard shape (60 workspaces, 12 or more measured panes, no refusals) is reported with every
+the standard shape (stress-standard.py: 60 new workspaces besides the launch's first, 12 or more
+measured panes, no refusal without a stand-in) is reported with every
 leg (`stress_standard: false`). On a 60 Hz display both rates read the same: judge row 23 on a
 120 Hz host. Several tags (different builds) run interleaved, so machine load affects them alike:
 
@@ -89,6 +93,7 @@ def load(name, file):
 
 
 bench = load("bench_stalls", "bench-stalls.py")
+stress_shape = load("stress_standard", "stress-standard.py")
 
 
 def poll(predicate, seconds=20, step=0.05):
@@ -205,12 +210,6 @@ def fresh_session(tag):
     shutil.rmtree(os.path.expanduser(f"~/Library/Application Support/cmux/tags/{tag}/tui"), ignore_errors=True)
 
 
-def stress_standard(summary):
-    """Whether STRESS has the standard shape (perf-lead brief): 60 workspaces, 12 measured panes."""
-    return (summary.get("workspaces") == 60 and (summary.get("measured_panes") or 0) >= 12
-            and not summary.get("refusals"))
-
-
 def one_run(tag, opts, legs):
     """One launch of `tag`. `legs` is a list of (label, rate, live): the first sets Low Power Mode
     before the page opens (made at that rate), each later one switches it with the page on screen
@@ -232,20 +231,30 @@ def one_run(tag, opts, legs):
         run.wait_launch_settled()
         if opts.stress:
             module = load("perf_stress_session", "perf-stress-session.py")
-            stress = module.Stress(module.socket_rpc(run.socket)).build()
+            builder = module.Stress(module.socket_rpc(run.socket))
+            stress = builder.build()
             print(f"STRESS-SESSION {json.dumps(stress)}", flush=True)
-            session["stress_standard"] = stress_standard(stress)
+            session["stress_standard"], refusals = stress_shape.check(module, builder, stress)
             session["stress_shape"] = {key: stress.get(key) for key in ("workspaces", "measured_panes", "measured_columns",
-                                                                         "measured_tabs", "busy_terminals", "refusals")}
+                                                                         "measured_tabs", "busy_terminals")}
+            session["stress_shape"]["refusals"] = refusals[:10]
             if not session["stress_standard"]:
-                print(f"STRESS is not the standard shape (60 workspaces, 12 panes, no refusals): {session['stress_shape']}",
-                      flush=True)
+                print(f"STRESS is not the standard shape ({module.WORKSPACES} new workspaces, 12 panes, no real "
+                      f"refusals): {session['stress_shape']}", flush=True)
         # The first leg's rate before the page exists: the page (or the spare the pool makes after
         # the change) is made at it.
         try:
             set_low_power(run, RATES[legs[0][1]])
         except WindowError as error:
             return failed(str(error))
+        # Every leg opens the same kind of page: a fresh one, made by the page's own initializer.
+        # Without this a near60 leg (a change: the pool drops its spare) opened a fresh page while
+        # a full leg (no change from the system value) opened the pooled spare, so the difference
+        # mixed the rate with the page's origin.
+        drop = run.result("debug.page_host_pool", {"action": "drop"})
+        if not isinstance(drop, dict) or drop.get("spare_ready"):
+            return failed(f"the page pool kept its spare after drop: {drop}")
+        session["page_origin"] = "fresh"
         run.call("action.run", {"action": opts.open_action, "focus": True})
         if not poll(lambda: page_shown(run, opts.page)):
             return failed(f"{opts.page} never painted")
