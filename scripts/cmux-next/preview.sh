@@ -288,7 +288,7 @@ http_ready() {
 http_owned() {
   local url="$1" token="$2"
   [[ -n "$token" ]] || return 1
-  curl -fsS --max-time 2 "$url" | grep -Fq "$token"
+  curl -fsS --max-time 2 "$url" | grep -F "$token" >/dev/null
 }
 
 published_gallery_url() {
