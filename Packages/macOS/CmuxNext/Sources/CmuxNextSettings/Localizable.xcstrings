@@ -163368,6 +163368,268 @@
           }
         }
       }
+    },
+    "settings.sidebar.showColors.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تُظهر مساحات العمل والمجموعات ألوانها في الشريط الجانبي. عند الإيقاف لا يُظهر الشريط الجانبي أي ألوان ويحتفظ بالألوان التي عيّنتها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Radni prostori i grupe prikazuju svoje boje na bočnoj traci. Kada je isključeno, bočna traka ne prikazuje boje i zadržava boje koje ste postavili."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbejdsområder og grupper viser deres farver i sidepanelet. Slået fra viser sidepanelet ingen farver og beholder de farver, du har valgt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Workspaces und Gruppen zeigen ihre Farben in der Seitenleiste. Aus: Die Seitenleiste zeigt keine Farben und behält die gesetzten Farben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspaces and groups draw their colors in the sidebar. Off, the sidebar draws no colors and keeps the colors you set."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los espacios de trabajo y los grupos muestran sus colores en la barra lateral. Desactivado, la barra lateral no muestra colores y conserva los que elegiste."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les espaces de travail et les groupes affichent leurs couleurs dans la barre latérale. Désactivé, la barre latérale n’affiche aucune couleur et conserve celles que vous avez choisies."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gli spazi di lavoro e i gruppi mostrano i loro colori nella barra laterale. Disattivato, la barra laterale non mostra colori e mantiene quelli impostati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーでワークスペースとグループの色を表示します。オフにすると色を表示しませんが、設定した色は保持されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការ និងក្រុមបង្ហាញពណ៌របស់វានៅរបារចំហៀង។ ពេលបិទ របារចំហៀងមិនបង្ហាញពណ៌ទេ ហើយរក្សាពណ៌ដែលអ្នកបានកំណត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이드바에 워크스페이스와 그룹의 색상을 표시합니다. 끄면 색상을 표시하지 않으며 설정한 색상은 유지됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbeidsområder og grupper viser fargene sine i sidefeltet. Av: sidefeltet viser ingen farger og beholder fargene du har valgt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obszary robocze i grupy pokazują swoje kolory na pasku bocznym. Po wyłączeniu pasek boczny nie pokazuje kolorów i zachowuje ustawione kolory."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espaços de trabalho e grupos mostram suas cores na barra lateral. Desativado, a barra lateral não mostra cores e mantém as cores que você definiu."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рабочие пространства и группы показывают свои цвета на боковой панели. Если выключено, панель не показывает цвета и сохраняет заданные вами цвета."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นที่ทำงานและกลุ่มแสดงสีในแถบด้านข้าง เมื่อปิด แถบด้านข้างจะไม่แสดงสีและเก็บสีที่คุณตั้งไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma alanları ve gruplar renklerini kenar çubuğunda gösterir. Kapalıyken kenar çubuğu renk göstermez ve ayarladığınız renkleri korur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Робочі простори й групи показують свої кольори на бічній панелі. Якщо вимкнено, панель не показує кольорів і зберігає задані вами кольори."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian làm việc và nhóm hiện màu của chúng trong thanh bên. Khi tắt, thanh bên không hiện màu và vẫn giữ các màu bạn đã đặt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作区和组在边栏中显示其颜色。关闭后，边栏不显示颜色，并保留你设置的颜色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作區和群組在側邊欄中顯示其顏色。關閉後，側邊欄不顯示顏色，並保留你設定的顏色。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.showColors": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار ألوان مساحات العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži boje radnih prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis arbejdsområdefarver"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Workspace-Farben anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Workspace Colors"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar colores de espacios de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher les couleurs des espaces de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra i colori degli spazi di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの色を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញពណ៌កន្លែងធ្វើការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "워크스페이스 색상 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis arbeidsområdefarger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż kolory obszarów roboczych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar cores dos espaços de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать цвета рабочих пространств"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงสีพื้นที่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma Alanı Renklerini Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати кольори робочих просторів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện màu không gian làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示工作区颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示工作區顏色"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

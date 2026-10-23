@@ -230,6 +230,7 @@ let package = Package(
                 "CmuxNextDiff",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
+                "CmuxNextHostPressure",
                 "CmuxNextChiefPetWiring",
                 "CmuxNextHostedChief",
                 "CmuxNextDaemonService",
@@ -773,6 +774,18 @@ let package = Package(
             name: "CmuxNextKeepAwakeTests",
             dependencies: ["CmuxNextKeepAwake", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
+        ),
+        // Host pressure (cmuxterm-hq#2995): the shared host budget's verdict (acpmux's
+        // `host_pressure`, else the same formula locally) as a level that does not flicker.
+        // The memory pressure dispatch source, plus one 15 s timer for load and swap.
+        .target(
+            name: "CmuxNextHostPressure",
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextHostPressureTests",
+            dependencies: ["CmuxNextHostPressure"],
+            swiftSettings: daemonSwiftSettings
         ),
         // VS Code (Inline): the one `serve-web` server on 127.0.0.1 behind Open Folder in VS Code
         // (Inline) and Stop/Restart VS Code Inline Server. The App opens its URL in a browser tab.
