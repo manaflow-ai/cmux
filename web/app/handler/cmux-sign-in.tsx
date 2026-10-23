@@ -577,11 +577,16 @@ function RememberThisAccount({ user, returningFromOAuth }: { user: CurrentUser; 
   }, [id, isRestricted]);
   useEffect(() => {
     const usedProvider = returningFromOAuth ? readLastUsedProvider() : null;
-    writeStored(ACCOUNT_HISTORY_KEY, JSON.stringify(rememberAccount(readHistory(), { id, email, displayName, profileImageUrl, signInMethod: returningFromOAuth ? usedProvider : null, hasPassword: user.hasPassword })));
+    const startedAt = Date.now();
+    writeStored(ACCOUNT_HISTORY_KEY, JSON.stringify(rememberAccount(readHistory(), { id, email, displayName, profileImageUrl, signInMethod: returningFromOAuth ? usedProvider : null, hasPassword: user.hasPassword }, startedAt)));
     writePendingOAuth(null);
     let cancelled = false;
     user.listOAuthProviders().then((linked) => {
       if (cancelled) return;
+      // Another tab can finish this account while this lookup is pending. Do
+      // not let this stale result overwrite its newer provider choice.
+      const current = readHistory().find((entry) => entry.id === id);
+      if (!current || current.lastSeenAt !== startedAt) return;
       const signInMethod = rememberedMethodFor({ linked, preference: PROVIDER_PREFERENCE, usedProvider });
       writeStored(ACCOUNT_HISTORY_KEY, JSON.stringify(rememberAccount(readHistory(), { id, email, displayName, profileImageUrl, signInMethod, hasPassword: user.hasPassword })));
     }).catch(() => {
