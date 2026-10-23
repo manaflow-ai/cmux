@@ -119,8 +119,7 @@ struct PageFactory {
         let accounts = services.accounts.model
         provider.accountsState = { (try? JSONValue.parse(JSONEncoder().encode(accounts.pageState))) ?? .null }
         provider.accountsRun = { params in
-            guard let action = AccountsPageAction(action: params["action"]?.stringValue ?? "", provider: params["provider"]?.stringValue,
-                                                  account: params["account"]?.stringValue, secret: params["secret"]?.stringValue) else {
+            guard let action = AccountsPageAction(field: { params[$0]?.stringValue }) else {
                 throw PageError.invalidParams("unknown accounts action")
             }
             if let error = await accounts.perform(action) { return ["error": .string(error)] }

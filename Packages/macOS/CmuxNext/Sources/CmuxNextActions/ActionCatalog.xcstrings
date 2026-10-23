@@ -35770,127 +35770,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Team Picker…"
+            "value": "Switch Active Team…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チームを選択…"
+            "value": "アクティブなチームを切り替え…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "منتقي الفريق…"
+            "value": "تبديل الفريق النشط…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Odabir tima…"
+            "value": "Promijeni aktivni tim…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Teamvælger…"
+            "value": "Skift aktivt team…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Team auswählen…"
+            "value": "Aktives Team wechseln…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Selector de equipo…"
+            "value": "Cambiar equipo activo…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sélecteur d’équipe…"
+            "value": "Changer d’équipe active…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Selettore team…"
+            "value": "Cambia team attivo…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ជ្រើសក្រុម…"
+            "value": "ប្ដូរក្រុមសកម្ម…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "팀 선택…"
+            "value": "활성 팀 전환…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Teamvelger…"
+            "value": "Bytt aktivt team…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wybór zespołu…"
+            "value": "Zmień aktywny zespół…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seletor de Equipe…"
+            "value": "Trocar equipe ativa…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Выбор команды…"
+            "value": "Сменить активную команду…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ตัวเลือกทีม…"
+            "value": "สลับทีมที่ใช้งานอยู่…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ekip Seçici…"
+            "value": "Etkin ekibi değiştir…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вибір команди…"
+            "value": "Змінити активну команду…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chọn nhóm…"
+            "value": "Chuyển nhóm đang dùng…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "团队选择器…"
+            "value": "切换当前团队…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "選擇團隊…"
+            "value": "切換目前團隊…"
           }
         }
       }

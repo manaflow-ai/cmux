@@ -41,6 +41,9 @@ public final class ThemeStore {
     public private(set) var machineColors = MachineColorOverrides.none
 
     @ObservationIgnored private let publishesGlobally: Bool
+    /// Bumped when any theme scope's shown picture or tuning changes (``ThemeScope/shownWindowOpacity``
+    /// readers observe it).
+    @ObservationIgnored package let backdropRevision = BackdropRevision()
     /// The Ghostty config's colors reached the windows once: later changes are color changes that
     /// animate (`ColorTransition.current` is instant until then, so launch never fades in).
     @ObservationIgnored public private(set) var hasAppliedConfig = false
