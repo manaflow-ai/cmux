@@ -78,7 +78,9 @@ export function FastToggle({ speed, inline = false }: { speed: SpeedTiers; inlin
           aria-pressed={at >= 0}
           aria-label={label}
           {...tooltipProps(t("composer.speedTooltip", { tier: name(at), next: name(nextAt) }), undefined)}
-          onMouseDown={(event) => {
+          // The inline glyph lives inside the model picker trigger. Stop the pointer gesture
+          // before the parent trigger sees it, so choosing Fast does not also open the picker.
+          onPointerDown={(event) => {
             event.preventDefault();
             event.stopPropagation();
           }}
