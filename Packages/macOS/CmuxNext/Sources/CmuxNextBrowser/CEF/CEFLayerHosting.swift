@@ -86,11 +86,15 @@ final class CEFLayerHosting {
     private let schedule: Scheduler
     private let makePage: (CGRect) -> CEFHostedPageView
     private let resizeDeadlineMs: () -> Int32
+    private let liveResizeDeadlineMs: () -> Int32
     private let refreshInterval: (NSWindow?) -> Double?
-    /// The resize deadline the fork has for this page window (nil: none given yet).
-    private var appliedDeadlineMs: Int32?
+    /// The resize deadline the fork has for this page window: 0, the fork's default, until
+    /// ``syncDeadline()`` gives another.
+    private var appliedDeadlineMs: Int32 = 0
     /// Re-applies the deadline when the view's window moves to another display.
     private var screenObservation: MainActorObservation?
+    /// The window is in a live resize (``windowLiveResize(active:)``).
+    private var inLiveResize = false
 
     /// Runs a block later on the main actor.
     typealias Scheduler = (_ block: @escaping @MainActor @Sendable () -> Void) -> Void
@@ -106,9 +110,11 @@ final class CEFLayerHosting {
          schedule: @escaping Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
          makePage: @escaping (CGRect) -> CEFHostedPageView = { CEFHostedPageView(frame: $0) },
          resizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.syncDeadline.value * 1_000).rounded()) },
+         liveResizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.liveResizeDeadline.value * 1_000).rounded()) },
          refreshInterval: @escaping (NSWindow?) -> Double? = { $0?.screen?.minimumRefreshInterval }) {
         self.isEnabled = isEnabled
         self.resizeDeadlineMs = resizeDeadlineMs
+        self.liveResizeDeadlineMs = liveResizeDeadlineMs
         self.refreshInterval = refreshInterval
         self.schedule = schedule
         self.makePage = makePage
@@ -124,7 +130,11 @@ final class CEFLayerHosting {
         dropPage()
         self.browser = browser
         self.fork = fork
+        // A new page window starts with the fork's default: it never holds the commit.
+        appliedDeadlineMs = 0
         pending = .none
+        // The window may be in a live resize already.
+        syncDeadline()
         guard fork != nil, isEnabled() else { return }
         request(retry: false)
     }
@@ -137,7 +147,7 @@ final class CEFLayerHosting {
         self.browser = browser
         let wanted = isEnabled()
         if wanted == (page != nil) {
-            if wanted { syncDeadline() }
+            syncDeadline()
             return
         }
         if wanted {
@@ -148,8 +158,8 @@ final class CEFLayerHosting {
             pending = .none
             forkCalls += 1
             _ = fork.setLayerHosting(browser, false)
-            fork.setResizeSync?(browser, 0)
             dropPage()
+            syncDeadline()
         }
     }
 
@@ -163,6 +173,17 @@ final class CEFLayerHosting {
                 self?.syncDeadline()
             }
         }
+        syncDeadline()
+    }
+
+    /// The window starts or ends a live resize (`CEFHostView.viewWillStartLiveResize`). Fork API 27 never lets a page
+    /// window hold the window's commit unless asked, so for the live resize every page over the view, hosted or not,
+    /// waits up to `liveResizeDeadlineMs` (capped like every deadline, ``CEFResizeSyncDeadline``) for its frame at the
+    /// new size (Chromium waited up to 500 ms there); after it a hosted page goes back to its pane deadline and a page
+    /// window to none.
+    func windowLiveResize(active: Bool) {
+        guard active != inLiveResize else { return }
+        inLiveResize = active
         syncDeadline()
     }
 
@@ -180,9 +201,9 @@ final class CEFLayerHosting {
         if page != nil, let fork, let browser {
             forkCalls += 1
             _ = fork.setLayerHosting(browser, false)
-            fork.setResizeSync?(browser, 0)
         }
         dropPage()
+        syncDeadline()
         browser = nil
     }
 
@@ -204,7 +225,6 @@ final class CEFLayerHosting {
             let page = self.page ?? addPage(to: view)
             if page.host(contextID: id) {
                 // The page's frame at a new size commits with the pane's only while hosted.
-                appliedDeadlineMs = nil
                 syncDeadline()
                 return
             }
@@ -221,11 +241,13 @@ final class CEFLayerHosting {
     }
 
     /// Gives the fork this page window's resize deadline when it changed
-    /// (``CEFResizeSyncDeadline``). Only while hosted: a page in its own
-    /// window keeps the 0 it got when hosting ended.
+    /// (``CEFResizeSyncDeadline``): during the window's live resize every page's,
+    /// else a hosted page's pane deadline, else 0 (a page in its own window never
+    /// holds the commit outside a live resize).
     private func syncDeadline() {
-        guard page != nil, let browser, let setResizeSync = fork?.setResizeSync else { return }
-        let deadline = CEFResizeSyncDeadline(tunableMilliseconds: resizeDeadlineMs(),
+        guard let browser, let setResizeSync = fork?.setResizeSync else { return }
+        let tunable = inLiveResize ? liveResizeDeadlineMs() : (page != nil ? resizeDeadlineMs() : 0)
+        let deadline = CEFResizeSyncDeadline(tunableMilliseconds: tunable,
                                              refreshInterval: refreshInterval(view?.window)).milliseconds
         guard deadline != appliedDeadlineMs else { return }
         appliedDeadlineMs = deadline
@@ -246,7 +268,6 @@ final class CEFLayerHosting {
     }
 
     private func dropPage() {
-        appliedDeadlineMs = nil
         guard let page else { return }
         page.removeFromSuperview()
         self.page = nil

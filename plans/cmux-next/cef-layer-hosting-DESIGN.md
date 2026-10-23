@@ -81,6 +81,10 @@ events, and the Chromium UI thread off the cmux main thread, keep this seam.
 What this fixes:
 - Pixels move, clip and show in the cmux window's own CA transaction. No tearing, and overlays are
   above the page in the same tree.
+- Hide: the host layer leaves in the switch's own transaction; the page window's
+  `removeChildWindow` and `Widget::Hide` run from that transaction's completion block (b2f6842a), so they
+  leave the switch's turn but still run on main right after the commit. A show still orders the page window
+  in (`addChildWindow`, `ShowInactive`, `setFrame`) in the switch's turn: slice 3.
 - Show: not verified. A hidden page window still runs `Widget::Hide` (the compositor is suspended) and the renderer
   can evict a hidden tab's frame (section 1), so the hosted context may show nothing until Chromium's next frame.
   Slice 3 keeps the frame while hidden; until a check sees the page's pixels in the first commit after a show, do not
@@ -90,10 +94,14 @@ What this fixes:
 
 Every motion frame must show the page at that frame's size, in the same CA transaction as the pane.
 Layer hosting makes this possible: the hosted root, the cmux layers and the GPU fence port all commit in
-one main-thread transaction of one process. The remaining piece is a fork switch that makes the
-bridge's pre-commit wait apply during embedder motion, so the page window counts as in live resize,
-with an embedder deadline instead of `kUIPaintTimeout` (500 ms). PL-motion-cef builds it as API 27 on top of
-this branch.
+one main-thread transaction of one process. Fork API 27 (`cmux_browser_set_resize_sync`, designed by
+PL-motion-cef) replaces `kUIPaintTimeout` for an embedded page window with the embedder's deadline, 0 by
+default, so no page ever holds a cmux frame unless asked. The app asks for `browserResize.syncDeadline`
+(8 ms) while a page is hosted and `browserResize.liveResizeDeadline` (16 ms) for every page during the
+window's live resize (which Chromium used to keep in sync). Open (review 1): a fixed 8 ms per frame can take a
+whole 120 Hz frame of the main thread while a spring runs; the frame at the new size needs a BeginFrame, so it
+may often miss the deadline. Next: wait only on discrete resizes and the landing frame, or derive the deadline
+from the display link's target time; no bench yet measures the main-thread wait with hosting on.
 
 API 27 (`cmux_browser_set_resize_sync`, fork 437ed1cc): an embedded page window's `PreCommitTimeout` is the
 embedder's deadline, 0 by default. While a page is hosted, `CEFLayerHosting` gives it `CEFResizeSyncDeadline`: the
@@ -104,8 +112,9 @@ change, with a call only when the value changed. Open: whether Chromium's frame 
 then a Views compositor frame driven by BeginFrame) makes that deadline at all during a spring; if it mostly
 misses, the wait buys nothing and the deadline should apply only to discrete resizes and a spring's landing frame.
 `cef-resize-sync-bench.py` measures it (commit time and missed frames, hosting off / on / on with 0, light and
-STRESS, one run per build for API 26 against API 27). With API 27 a page that is not hosted gets 0, so it no longer
-waits during the window's live resize either: PL-cef-layer decides that for the cmux.33 pin.
+STRESS, one run per build for API 26 against API 27). With API 27 a page that is not hosted gets 0 outside the
+window's live resize; during it `CEFLayerHosting.windowLiveResize` gives every page `browserResize.liveResizeDeadline`
+(16 ms), capped at half a display frame like every deadline, and 0 (or its pane deadline) after it.
 
 ## 3. Features, status
 
