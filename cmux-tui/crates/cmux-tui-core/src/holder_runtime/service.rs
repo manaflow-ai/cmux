@@ -163,7 +163,7 @@ impl HolderService {
             custody,
             sink,
             service: self.clone(),
-            replay: std::sync::Mutex::new(None),
+            replay: Mutex::new(None),
         });
         self.live.lock().recover_poison().insert(chan, Arc::downgrade(&terminal));
         terminal
