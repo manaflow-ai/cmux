@@ -62,10 +62,11 @@ import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNew
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { rememberRecentFolders } from "./newtab/recentProject";
+import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
-import { StyleSwitch } from "./newtab/StyleSwitch";
+import { PageDots } from "./newtab/PageDots";
 import { editedPageWidgets, editNewTabWidgets, shownPageWidgets } from "./newtab/pageWidgets";
-import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
+import { screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
@@ -152,6 +153,7 @@ import {
 } from "./inspector/processes";
 import { useInspectorOpen } from "./inspector/inspectorState";
 import { openCommand, opensProcessTerminal } from "./processTerminal";
+import { descendants, subagentChangesFolder, type SubagentScope } from "./inspector/subagentScope";
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { AgentsPill } from "./subagents/AgentsPill";
 import { SubagentTray } from "./subagents/SubagentTray";
@@ -227,7 +229,7 @@ import {
   type SessionEdits,
 } from "./turnChanges/sessionRows";
 import { repositoryRoot, viewChangesBeside } from "./turnChanges/viewChanges";
-import { TurnActionsContext, chatLoginCommand, type TurnActions } from "./conversation/turnActions";
+import { TurnActionsContext, chatLoginCommand, resumeThrough, type TurnActions } from "./conversation/turnActions";
 import {
   RunInBackgroundContext,
   backgroundsWork,
@@ -282,7 +284,7 @@ import { actOnReportedImage } from "./conversation/imageMenuActions";
 import { callChipHost } from "./chips/host";
 import { pullRequestRef } from "./chips/PullRequestCard";
 import { RenderToolCard, canRender } from "./conversation/RenderCard";
-import { ArtifactPanel, type SaveDocument } from "./conversation/ArtifactPanel";
+import { ArtifactPanel, useArtifactCoversPane, type SaveDocument } from "./conversation/ArtifactPanel";
 import { branchesFromKey, branchesKey, forkAnchor, messageBranches } from "./conversation/branches";
 import { ArtifactContext, type Artifact } from "./conversation/artifactPreview";
 import { artifactVersions } from "./conversation/artifactVersions";
@@ -334,6 +336,7 @@ import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
 import { TranscriptDisclosureProvider } from "./conversation/transcriptDisclosure";
 import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
 import { Notice, NoticeSlot } from "./NoticeSlot";
+import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { type ChatAccounts, ChatAccountsContext, readChatAccounts } from "./chatAccounts";
 import { HostError } from "./HostError";
@@ -979,6 +982,7 @@ const WorkingRow = memo(
     a.row.thinkingNow === b.row.thinkingNow &&
     a.row.below === b.row.below &&
     a.row.doingCommand === b.row.doingCommand &&
+    a.row.doingDraft === b.row.doingDraft &&
     a.row.doingGroup === b.row.doingGroup &&
     a.row.doingGroupOpen === b.row.doingGroupOpen &&
     a.sessionId === b.sessionId,
@@ -3626,6 +3630,9 @@ export function AcpmuxApp() {
   );
 }
 
+/// No projects known (a stable value, so memos keyed on it hold).
+const NO_PROJECTS: Project[] = [];
+
 function AcpmuxPane() {
   // Debug measurement (acpmuxPerf): the pane's own render, before its children.
   const paneRenderStart = acpmuxPerf.enabled ? performance.now() : 0;
@@ -3978,6 +3985,29 @@ function AcpmuxPane() {
       live = false;
     };
   }, [connected, healthLocal, healthRecheck, catalogSource]);
+  // The forum's current rules on this Mac (hq#2570), pinned above the composer: read when the pane
+  // connects or opens a chat, and at each turn's start and end, when the chat's agent is told the
+  // rules it has not read yet. A chat on another machine or in the cloud gets none.
+  const [rules, setRules] = useState<ForumRule[]>([]);
+  const turnWorking = snapshot.isWorking;
+  // Only once the chat's summary says where it runs: a remote chat never shows this Mac's rules.
+  const rulesLocal = snapshot.summary !== undefined && healthLocal;
+  useEffect(() => {
+    const client = directClient.current;
+    if (!connected || !client || !rulesLocal) {
+      setRules([]);
+      return;
+    }
+    let live = true;
+    void Promise.resolve()
+      .then(() => client.forumRules())
+      .then((reply) => live && setRules(forumRules(reply)))
+      // An older acpmux without the forum, or a failed read: no rules rather than stale ones.
+      .catch(() => live && setRules([]));
+    return () => {
+      live = false;
+    };
+  }, [connected, rulesLocal, snapshot.sessionId, turnWorking]);
   const signIn = useMemo<SignIn>(
     () => ({
       signedOut,
@@ -4721,6 +4751,18 @@ function AcpmuxPane() {
               attachments: (await directClient.current?.promptAttachments(rowId)) ?? [],
             }))().catch(() => undefined),
       }),
+      // Continue after a stop (Codex's) sends its prompt as the composer would: it shows as the
+      // reader's prompt and starts the next turn, or queues behind one already sent. Like Restart
+      // (restart.ts), never to a View Only chat, a subagent's read-only pane or where the composer
+      // cannot send, and only to the chat this pane still shows, never the next during a switch's hold.
+      ...(restartChat && {
+        resume: (
+          (owner: string) => () =>
+            restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
+              ? resumeThrough(callNative)()
+              : Promise.resolve()
+        )(restartChat),
+      }),
       // Restart sends a prompt as the composer would (restart.ts `restartOwner`, `restartReaches`):
       // never to a View Only chat, from a subagent's read-only pane or where the composer cannot send,
       // and only to the chat whose row was clicked, never to the next chat during a switch's hold.
@@ -5051,6 +5093,40 @@ function AcpmuxPane() {
       setAutoOpenSubagents,
     ],
   );
+  // While the pane shows a subagent's own view, the Inspector is that subagent's: its own rows, its
+  // worktree, its subagents, and a back button to what spawned it (inspector/subagentScope.ts). A
+  // new scope only when what it shows of the subagent changes, or its rows do.
+  const scopedAgent = shownSubagent === undefined ? undefined : freshAgents.find((agent) => agent.id === shownSubagent);
+  const scopedKey = scopedAgent
+    ? [
+        scopedAgent.id,
+        scopedAgent.name,
+        scopedAgent.task ?? "",
+        scopedAgent.parent ?? "",
+        scopedAgent.state,
+        scopedAgent.tokens ?? "",
+        scopedAgent.toolUses ?? "",
+        scopedAgent.cwd ?? "",
+        scopedAgent.isolated ? 1 : 0,
+        scopedAgent.worktree?.path ?? "",
+        scopedAgent.worktree?.branch ?? "",
+        scopedAgent.agents ? `${scopedAgent.agents.done}/${scopedAgent.agents.started}` : "",
+      ].join("\u0000")
+    : "";
+  const scopedRows = shownSubagent === undefined ? undefined : snapshot.subagentViews?.[shownSubagent];
+  const inspectorSubagent = useMemo((): SubagentScope | undefined => {
+    if (!scopedAgent) return undefined;
+    const parent = scopedAgent.parent;
+    return {
+      agent: scopedAgent,
+      rows: scopedRows ?? [],
+      parent: parent === null ? chatName : (chatAgents.find((agent) => agent.id === parent)?.name ?? chatName),
+      agents: descendants(chatAgents, scopedAgent.id),
+      // As its "Subagent of" pill: back to its parent subagent's view, else the chat's.
+      onBack: () => setSubagentView(parent ?? undefined),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new scope only when what it shows changes
+  }, [scopedKey, scopedRows, chatName, chatAgents]);
   // The Inspector (Debug Settings `agent.inspector`): its toggle the first of the header's
   // top-right icons, the panel beside or over the chat. On, it takes the summary card's place.
   const inspectorSummary = snapshot.summary;
@@ -5064,12 +5140,31 @@ function AcpmuxPane() {
   // Inspector draws): what its task row opens where its terminal cannot (a peer's or Cloud chat).
   const showCallRef = useRef<(toolCallId: string) => boolean>(() => false);
   const showCall = useCallback((toolCallId: string) => showCallRef.current(toolCallId), []);
+  // A subagent's edited files are in its own rows, which the chat's diff (openOutput) never reads:
+  // they open the Changes viewer beside the chat on the subagent's folder, its worktree when it has
+  // one (a chat on this Mac; another machine's folders are not here). The folder is found on the
+  // click, not on every render: finding it reads the subagent's rows.
+  const openSubagentOutput =
+    inspectorSubagent && inspectorLocal
+      ? () => {
+          const cwd = subagentChangesFolder(inspectorSummary, inspectorSubagent);
+          if (cwd) ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.changes, cwd, mode: "open" }));
+        }
+      : undefined;
+  // In a narrow pane the side panel covers the whole pane, the header with it (ArtifactPanel.tsx).
+  const narrowPane = useArtifactCoversPane();
+  const artifactCovers = narrowPane && artifact !== undefined;
+  const uncoverChat = useCallback(() => {
+    closeDiff();
+    closeInspector();
+    if (artifactCovers) setArtifact(undefined);
+  }, [closeDiff, closeInspector, artifactCovers]);
   const inspector = useChatInspector({
     snapshot,
     machineName,
     repository: githubRepository,
     shell,
-    onOpenOutput: quick ? undefined : openOutput,
+    onOpenOutput: quick ? undefined : inspectorSubagent ? openSubagentOutput : openOutput,
     onOpenUrl: quick
       ? undefined
       : (url) => ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.preview, url, mode: "open" })),
@@ -5088,6 +5183,15 @@ function AcpmuxPane() {
     // Quick Chat's panel has no room beside it for the side panel.
     onOpenDocument: quick ? undefined : openArtifact,
     onShowCall: quick ? undefined : showCall,
+    subagent: inspectorSubagent,
+    // A turn's diff in place, the event Inspector and, in a narrow pane, the side panel take the pane
+    // in the chat's place, its header and the toggle with it: the panel steps aside while they show,
+    // and opening it closes them.
+    covered: (diffView !== undefined && diffFiles !== undefined) || inspectorOpen || artifactCovers,
+    onUncover: uncoverChat,
+    beside: artifact?.opened,
+    // A handoff review's form is wider than the transcript's column: the panel pushes it aside.
+    wide: reviewing,
   });
   // The running line's counts (conversation/WorkingFor.tsx), with the tray off (Debug Settings):
   // the subagents still running, the background commands that have not ended and the started chats
@@ -5489,8 +5593,13 @@ function AcpmuxPane() {
   }, []);
   const freshRef = useRef(false);
   freshRef.current = freshChat && !snapshot.sessionId;
+  /// The project the person picked in this pane's project picker, until they send in it: that send
+  /// makes it the New Tab default (newtab/startedProject.ts). A folder the host or an agent named
+  /// is no pick.
+  const pickedProject = useRef<string | undefined>(undefined);
   const chooseProject = useCallback(
     (cwd: string, peer?: string) => {
+      pickedProject.current = undefined;
       // Another computer's folder is that computer's to check.
       if (peer) {
         void callNative("chat.new", { cwd, peer }).catch(() => undefined);
@@ -5498,6 +5607,7 @@ function AcpmuxPane() {
       }
       // Fresh or started is read when the folder is used (an answer can come later).
       requestFolder(cwd, (folder) => {
+        pickedProject.current = folder;
         if (freshRef.current) setProjectDraft(folder);
         else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
       });
@@ -5514,6 +5624,8 @@ function AcpmuxPane() {
     setWorktreeError(undefined);
     setWorktreeCreating(true);
     const use = (folder: string) => {
+      // The person's pick: a send there makes it the New Tab default (newtab/startedProject.ts).
+      pickedProject.current = folder;
       // A chat that started meanwhile keeps its folder: the worktree gets a new chat of its own.
       if (freshRef.current) setProjectDraft(folder);
       else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
@@ -6959,7 +7071,9 @@ function AcpmuxPane() {
         // A chat on another machine starts only with a send (cx-k21v): with no text, the folder
         // waits for the first send.
         if (folder && !text && directClient.current?.startsOnSend) return setProjectDraft(folder);
-        if (folder) await callNative("chat.new", { cwd: folder });
+        const started = folder ? await callNative("chat.new", { cwd: folder }) : undefined;
+        // A chat the person started here with a prompt makes its project the default.
+        if (started && text && !directClient.current?.startsOnSend) rememberStartedProject(folder, callNative);
         if (text) await callNative("chat.send", { text });
       })().catch(() => undefined);
     // The page's own folder is inherited (`~` in a fresh workspace): the chat starts in its start
@@ -6980,7 +7094,14 @@ function AcpmuxPane() {
       }),
     [],
   );
-  const [directProjects, setDirectProjects] = useState<Project[]>([]);
+  /// The daemon's list, with the New Tab page it was asked for (`newTabGeneration`): the list is
+  /// that page's machine's, so a later page (another machine's, or this Mac's after one) never
+  /// reads it, from its first render, while its own is pending or if it fails (Codex review of
+  /// #24274).
+  /// `projects` undefined: not answered yet.
+  const [loadedProjects, setDirectProjects] = useState<{ page: number; projects?: Project[] }>({ page: 0 });
+  const projectsAnswered = loadedProjects.page === newTabGeneration && loadedProjects.projects !== undefined;
+  const directProjects = projectsAnswered ? loadedProjects.projects! : NO_PROJECTS;
   const onNewTab = Boolean(newTab);
   useEffect(() => {
     // Start Agent's folder picker lists them too (cx-hkat), and so does the New Tab page: the
@@ -6989,7 +7110,7 @@ function AcpmuxPane() {
     let active = true;
     void loadNewTabProjects()
       .then((projects) => {
-        if (active) setDirectProjects(projects);
+        if (active) setDirectProjects({ page: newTabGeneration, projects });
       })
       .catch(() => undefined);
     return () => {
@@ -7026,11 +7147,15 @@ function AcpmuxPane() {
     composerSnapshot.connection !== "disconnected" &&
     composerSnapshot.connection !== "debug";
   // The folders the host lists as projects (no chat folders): the most recent project is one of them.
-  // The daemon's list (removals win) once it has answered, else the page's own.
-  const newTabKnownProjects = useMemo(
-    () => (directProjects.length > 0 ? directProjects.map((project) => project.cwd) : (newTab?.projects ?? [])),
-    [directProjects, newTab?.projects],
-  );
+  // The daemon's list (removals win) once it has answered, else the page's own. This Mac's store
+  // answering with no project (every one removed or missing) is `null`: no chat or started folder
+  // counts (Codex review of #24274). Another machine's empty answer may be no answer at all
+  // (AgentPaneModel `onListRemoteProjects`), so there it stays "not loaded".
+  const newTabKnownProjects = useMemo((): readonly string[] | null => {
+    if (directProjects.length > 0) return directProjects.map((project) => project.cwd);
+    const own = newTab?.projects ?? [];
+    return projectsAnswered && own.length === 0 && newTab?.home ? null : own;
+  }, [directProjects, projectsAnswered, newTab?.projects, newTab?.home]);
   const newTabProjects = useMemo(() => {
     const byPath = new Map<string, Project>();
     // A folder the host listed keeps its repository (projectRepos.ts) when a chat names it again.
@@ -7088,6 +7213,7 @@ function AcpmuxPane() {
       // The chat starts in its agent-home folder, never the workspace's (AcpmuxPathPolicy).
       // A refused start keeps the folder picked before.
       onNoProject: () => {
+        pickedProject.current = undefined;
         // A chat on another machine starts only with a send (cx-k21v); it has no agent-home folder here.
         if (directClient.current?.startsOnSend) return setProjectDraft(undefined);
         void callNative("chat.new", { noProject: true })
@@ -7454,6 +7580,7 @@ function AcpmuxPane() {
             onOffer={setUpdateOffer}
           />
         )}
+        {snapshot.sessionId && rulesLocal && <RulesNotice rules={rules} />}
         <Notice id="missing-folder" tier="error" when={folderNeeded && !snapshot.sessionId}>
           <MissingFolder
             reason={folderNeeded?.reason ?? ""}
@@ -7630,6 +7757,17 @@ function AcpmuxPane() {
               // Shell mode's chips carry their commands' output as it is now.
               const attachments = shellContextAttachments(chips ?? [], (id) => shellRuns.get(id));
               if (!snapshot.sessionId) claimShellRuns.current = true;
+              // A send in the project the person picked here starts their chat there: once that chat
+              // has started (or the send to it landed), the next New Tab defaults to it (Leo
+              // 2026-10-21, newtab/startedProject.ts). A refused or failed start leaves the default.
+              const sentIn = !snapshot.sessionId ? projectDraft : snapshot.summary?.cwd;
+              const startedHere =
+                pickedProject.current && sentIn === pickedProject.current && !remoteChat ? sentIn : undefined;
+              const rememberStart = () => {
+                if (!startedHere) return;
+                rememberStartedProject(startedHere, callNative);
+                if (pickedProject.current === startedHere) pickedProject.current = undefined;
+              };
               // A started chat never holds the prompt (plans/cmux-next/composer-delivery-DESIGN.md):
               // it leaves the composer at once and shows as its own row, which says how far it got,
               // and a refusal stays on that row with Retry, Edit and Remove. One refused before any
@@ -7648,7 +7786,10 @@ function AcpmuxPane() {
                 }
                 const holder = composerHandle.current;
                 callNative("chat.send", { text, attachments, steer }).then(
-                  () => promptLanded.current(),
+                  () => {
+                    rememberStart();
+                    promptLanded.current();
+                  },
                   (error: unknown) => {
                     cancelOpenInWindow();
                     if (failedRowOf(error) || isTrustRefusal(error)) return;
@@ -7680,13 +7821,18 @@ function AcpmuxPane() {
                   // The chat's start is part of this send: a trust refusal there asks the folder's
                   // question, keeps this prompt (with its send's gesture) and sends it after Trust
                   // (cx-nn3e P0b; the prompt was lost when only the start ran again).
-                  await callNative("chat.new", { cwd: projectDraft, ...heldPick(snapshot) }).catch((error: unknown) => {
-                    if (isTrustRefusal(error)) {
-                      holdPrompt.current?.();
-                      trustRefused.current?.(error, () => composerHandle.current?.send());
-                    }
-                    throw error;
-                  });
+                  await callNative("chat.new", { cwd: projectDraft, ...heldPick(snapshot) }).then(
+                    (started) => {
+                      if (started) rememberStart();
+                    },
+                    (error: unknown) => {
+                      if (isTrustRefusal(error)) {
+                        holdPrompt.current?.();
+                        trustRefused.current?.(error, () => composerHandle.current?.send());
+                      }
+                      throw error;
+                    },
+                  );
                 return callNative("chat.send", { text, attachments, accepted: () => accept(true), steer });
               };
               // The composer that holds the prompt: a refusal that comes once it is gone (the pane
@@ -7978,23 +8124,18 @@ function AcpmuxPane() {
           data-dock={!reviewing && !freshView && !diffView && !inspectorOpen ? "float" : undefined}
           data-summary={summaryCard.column ? "inline" : "popover"}
         >
-          {!harnessesOpen &&
-            showNewTab &&
-            !newTab.history &&
-            shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets).has("styleDots") && (
-              // The page's style, under it (on Minimal a widget, off by default: newtab/pageWidgets.ts);
-              // a pick shows in place at once.
-              <StyleSwitch
-                current={pageStyle(shownTemplate(newTab))}
-                onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
-                onPick={(style) =>
-                  pickNewTabStyle(style, {
-                    callNative,
-                    show: (next) => setNewTab((current) => current && { ...current, template: next }),
-                  })
-                }
-              />
-            )}
+          {!harnessesOpen && showNewTab && !newTab.history && (
+            // The page's dots, under it: the composer's two looks, then with the style dots on (on
+            // Minimal a widget, off by default: newtab/pageWidgets.ts) the page's other styles
+            // (newtab/PageDots.tsx); a pick shows in place at once.
+            <PageDots
+              template={shownTemplate(newTab)}
+              styleDots={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets).has("styleDots")}
+              callNative={callNative}
+              show={(next) => setNewTab((current) => current && { ...current, template: next })}
+              onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
+            />
+          )}
           {harnessesOpen ? (
             <HarnessesScreen
               catalog={pickerCatalog}
@@ -8058,6 +8199,7 @@ function AcpmuxPane() {
               location={newTab.location}
               lastAgent={newTab.lastAgent}
               home={newTab.home}
+              {...(newTab.startedProject ? { startedProject: newTab.startedProject } : {})}
               knownProjects={newTabKnownProjects}
               {...(newTab.openTabs ? { openTabs: newTab.openTabs } : {})}
               // The field takes keys from its first render (the host's buffer hands them over at
@@ -8083,6 +8225,7 @@ function AcpmuxPane() {
                   cwd: newTab.cwd,
                   chatCwd: startFolder,
                   requestFolder,
+                  startsHere: () => !directClient.current?.startsOnSend,
                   leave: () => setNewTab(undefined),
                   selectSession,
                   showAllChats,
@@ -8100,6 +8243,9 @@ function AcpmuxPane() {
               hotkeys={newTab.hotkeys}
               initialKind={newTab.initialKind}
               cwd={newTab.cwd}
+              {...(newTab.startedProject ? { startedProject: newTab.startedProject } : {})}
+              {...(newTab.home ? { home: newTab.home } : {})}
+              knownProjects={newTabKnownProjects}
               host={newTab.host ?? machineName}
               location={newTab.location}
               omnibar={newTab.omnibar}
