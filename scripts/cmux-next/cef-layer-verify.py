@@ -25,6 +25,9 @@ window and skip that. The python process needs the host's event-posting permissi
   scroll      HID scroll wheel events over the page scroll it
   drag        an HID drag inside the page fires the page's pointer events (mousedown, moves, mouseup)
   context     an HID right click opens Chromium's context menu (the page sees a contextmenu event)
+  devtools.count    (on) docked DevTools opened and closed 3 times: layer_hosting.hosted_pages goes back to the
+              visible hosted panes after each close
+  pane_close.count  (on) a second Chromium pane opened (+1 hosted) and closed: hosted_pages goes back
 
 --checks hosted runs only `valid` and `hosted` (cef-layer-ab.py's check of each mode). --tunables build sets the
 tunable in the build's own debug-tunables.json (the path `debug.tunables` reports, which the benches read) instead
@@ -275,6 +278,45 @@ def check_valid_and_hosted():
         {"hosted_pages": hosted, "refusals": hosting.get("refusals"), "fork_api": fork_api})
 
 
+def hosted_pages():
+    return ((rpc("debug.cef") or {}).get("layer_hosting") or {}).get("hosted_pages", -1)
+
+
+def settles_at(count, seconds=10):
+    """hosted_pages reaches `count` (DevTools opens and pages load asynchronously); the last value read."""
+    seen = [hosted_pages()]
+
+    def done():
+        seen[0] = hosted_pages()
+        return seen[0] == count
+    wait(done, seconds, 0.25)
+    return seen[0]
+
+
+def check_hosted_count():
+    """The hosted-page gauge follows the visible hosted panes: docked DevTools open and closed 3 times, then a
+    second hosted pane opened and closed. Each close must bring layer_hosting.hosted_pages back."""
+    base = hosted_pages()
+    cycles = []
+    for _ in range(3):
+        action("devtools.openDocked")
+        opened = wait(lambda: any(d.get("open") for d in (rpc("debug.cef") or {}).get("devtools") or []), 10, 0.25)
+        with_devtools = settles_at(base + 1)
+        action("devtools.close")
+        after = settles_at(base)
+        cycles.append({"opened": bool(opened), "with_devtools": with_devtools, "after_close": after})
+    row("devtools.count", base >= 1 and all(c["after_close"] == base for c in cycles),
+        {"base": base, "cycles": cycles})
+
+    probe = os.path.join(SCRATCH, "probe2.html")
+    open(probe, "w").write(PAGE)
+    action("openBrowser.chromium", {"url": pathlib.Path(probe).as_uri()}, timeout=120)
+    two = settles_at(base + 1, 30)
+    action("closePane")
+    after = settles_at(base)
+    row("pane_close.count", two == base + 1 and after == base, {"base": base, "with_second_pane": two, "after_close": after})
+
+
 def main():
     global SOCKET
     if os.path.exists(SOCKET):
@@ -411,6 +453,13 @@ def main():
         row("resize.top", at_top(moving) and at_top(settled),
             {name: ({"red_rows": [min(b[0]), max(b[0])] if b[0] else None, "rows": b[2]} if b else None)
              for name, b in (("moving", moving), ("settled", settled))})
+
+        if opts.mode == "on":
+            refocus = screen_point(0.5, 0.3)
+            if refocus:
+                hid_click(refocus)  # the page pane takes focus again (the split focused the new pane)
+            time.sleep(0.3)  # test harness: focus lands
+            check_hosted_count()
     finally:
         if not opts.keep:
             rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
