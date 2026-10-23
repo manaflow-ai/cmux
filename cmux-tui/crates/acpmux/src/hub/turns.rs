@@ -101,6 +101,10 @@ impl Hub {
         // A deferred start reads the queues after its ready line: a new prompt waits, so it
         // never runs ahead of a prompt queued under the previous daemon.
         self.wait_logs().await;
+        // A continuation waiting out its delay goes now, ahead of this prompt (`auto_resume`).
+        if opts.after_turn.is_none() {
+            self.hurry_auto_resume(session).await;
+        }
         let Some(prompt_id) = opts.prompt_id.clone() else {
             return self.prompt_unless_held(session, blocks, client, steer, opts).await;
         };
@@ -350,6 +354,13 @@ impl Hub {
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false}),
             );
         }
+        // Its folder back if it is gone, or the one above it (`worktree_care/revive.rs`): once
+        // the turn has started, so a prompt sent meanwhile queues behind this one.
+        if let Err(e) = self.ready_folder(session, false).await {
+            self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e);
+            drop(guard);
+            return Err(e);
+        }
         // The prompt is recorded and acknowledged above before the agent is started again (it
         // died, or the daemon restarted), so a client hears prompt_accepted at once.
         let started = match self.child_for(session).await {
@@ -392,6 +403,10 @@ impl Hub {
                     0,
                     json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored this conversation on a new agent session; tool state was not restored\">\n{transcript}\n</restored_transcript>\n")}),
                 );
+        }
+        // The agent hears what became of a missing folder (`worktree_care/revive.rs`).
+        if let Some(notice) = super::worktree_care::revive::take_notice(&session.id) {
+            blocks.insert(0, json!({"type": "text", "text": format!("{notice}\n\n")}));
         }
         // The forum rules this session was not told yet (`hub/forum.rs`).
         let mut told = self.forum_context(session, pushed.clone(), &mut blocks).await;
@@ -507,17 +522,15 @@ impl Hub {
             .await;
         // A rule counts as told once the agent answered the prompt that carried it.
         self.forum_turn_end(session, &told, result.is_ok());
-        // A connection error cut the turn off: it goes on by itself (`auto_resume.rs`).
+        // A connection error or the agent's death cut the turn off: it goes on by itself
+        // (`auto_resume.rs`).
         let cut = match (&result, detached) {
-            (Err(e), false) => Some(super::auto_resume::CutTurn {
-                prompt_id: &prompt_id,
-                turn_id: &turn_id,
-                control,
-                trust_gate,
-                error: agent_error.as_deref().unwrap_or(&e.message),
-            }),
+            (Err(e), false) => {
+                super::auto_resume::CutTurn::of(&prompt_id, &turn_id, agent_error.as_deref(), e)
+            }
             _ => None,
-        };
+        }
+        .map(|cut| super::auto_resume::CutTurn { control, trust_gate, ..cut });
         self.schedule_auto_resume(session, &turn_id, cut);
         // The chat's route changed during the turn: move it before the next
         // one starts (route_switch.rs). A restart that fails leaves the
@@ -700,64 +713,6 @@ impl Hub {
         self.save_meta(session);
         self.send_offer_result(session);
         result
-    }
-
-    /// A turn refused after it was accepted (dispatch check, remote floor): failed unstarted.
-    fn refuse_started_turn(
-        self: &Arc<Self>,
-        session: &Arc<Session>,
-        prompt_id: &str,
-        turn_id: &str,
-        e: &RpcError,
-    ) {
-        self.fail_unstarted_turn(session, prompt_id, turn_id, e);
-        if session.status() == SessionStatus::Disconnected {
-            self.set_status(session, SessionStatus::Ready);
-        }
-    }
-
-    /// A prompt that left the queue (`dequeued`, `waiting`) refused before its turn: the log
-    /// settles it with `prompt_refused`, so a restart does not queue it again (`restore_queue`).
-    fn refuse_dequeued(
-        &self,
-        session: &Arc<Session>,
-        waiting: bool,
-        prompt_id: &str,
-        turn_id: &str,
-        client: &str,
-        e: &RpcError,
-    ) {
-        if waiting {
-            let msg = json!({"promptId": prompt_id, "turnId": turn_id, "client": client, "error": e.message, "data": e.data});
-            self.append(session, "mux", "prompt_refused", msg);
-        }
-    }
-
-    /// A recorded prompt whose agent could not start: the turn ends failed, so every client
-    /// sees the prompt settle instead of a turn that never starts.
-    fn fail_unstarted_turn(
-        self: &Arc<Self>,
-        session: &Arc<Session>,
-        prompt_id: &str,
-        turn_id: &str,
-        e: &RpcError,
-    ) {
-        *session.turn.lock().unwrap() = None;
-        self.append(
-            session,
-            "mux",
-            "turn_error",
-            json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": 0}),
-        );
-        self.pause_queue(session, turn_id);
-        let msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
-        self.record_last_turn(session, &msg);
-        self.append(session, "mux", "turn_result", msg);
-        self.reset_stream(session);
-        if session.status() != SessionStatus::Closed {
-            self.set_status(session, SessionStatus::Disconnected);
-        }
-        self.save_meta(session);
     }
 
     /// Waits until the inbound loop handled every agent message queued before

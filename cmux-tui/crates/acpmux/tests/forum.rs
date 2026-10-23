@@ -34,6 +34,11 @@ const ANNOUNCE: &str = "_acpmux/forum/announce";
 const RULES: &str = "_acpmux/forum/rules";
 const ACK: &str = "_acpmux/forum/ack";
 
+/// The session's agent exited between turns (`agent_exited`, `hub/auto_resume/revive.rs`).
+fn agent_exited(hub: &Hub, id: &str) -> bool {
+    hub.events(id, 0, 10_000).unwrap().iter().any(|e| e.kind == "agent_exited")
+}
+
 fn hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
@@ -425,11 +430,10 @@ async fn a_restored_agent_session_is_told_every_rule_again() {
         json!({"sessionId": r, "prompt": [{"type": "text", "text": "answer-then-exit"}]}),
     )
     .await;
-    let session = hub.resolve(&r).unwrap();
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-    while hub.session_summary(&session)["status"] != "disconnected" {
+    // An exit between turns leaves the chat idle (`hub/auto_resume/revive.rs`).
+    while !agent_exited(&hub, &r) {
         assert!(tokio::time::Instant::now() < deadline, "the agent never exited");
-        tokio::task::yield_now().await;
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     let got = app.prompt(&r, "back").await;
@@ -597,9 +601,9 @@ async fn a_restored_agent_session_is_told_a_rule_its_transcript_holds_was_retire
         json!({"sessionId": r, "prompt": [{"type": "text", "text": "answer-then-exit"}]}),
     )
     .await;
-    let session = hub.resolve(&r).unwrap();
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-    while hub.session_summary(&session)["status"] != "disconnected" {
+    // An exit between turns leaves the chat idle (`hub/auto_resume/revive.rs`).
+    while !agent_exited(&hub, &r) {
         assert!(tokio::time::Instant::now() < deadline, "the agent never exited");
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
