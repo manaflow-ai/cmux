@@ -20,15 +20,16 @@ parser.add_argument("--only", default="")
 opts, _unknown = parser.parse_known_args()
 
 sys.path.insert(0, HERE)
-from bench_launch import tag_of  # noqa: E402
+from bench_launch import account_home, bundle_id, tag_of  # noqa: E402
+from tag_teardown import TagTeardown  # noqa: E402
 
 TAG = opts.tag or tag_of(opts.app)
 
 
-def bench(name, script, *args):
+def bench(name, script, *args, json_flag=True):
     out = os.path.join(opts.out, name)
-    return name, [sys.executable, os.path.join(HERE, script), "--tag", TAG, "--app", opts.app, "--out", out,
-                  "--json", os.path.join(out, "report.json"), *args]
+    report = ["--json", os.path.join(out, "report.json")] if json_flag else []
+    return name, [sys.executable, os.path.join(HERE, script), "--tag", TAG, "--app", opts.app, "--out", out, *report, *args]
 
 
 BENCHES = [
@@ -42,10 +43,24 @@ BENCHES = [
     bench("omnibar-click", "omnibar-click-bench.py", "--runs", "2", "--engines", "webkit"),
     bench("open-panel", "open-panel-bench.py", "--sessions", "light", "--rounds", "2"),
     bench("tab-switch-matrix", "tab-switch-matrix.py", "--kinds", "terminal", "--counts", "3", "--switches", "5"),
-    bench("sidebar-stress", "sidebar-stress-bench.py", "--sizes", "20", "--stop", "--tickers", "2", "--scenarios", "ticks", "--no-trace"),
+    bench("sidebar-stress", "sidebar-stress-bench.py", "--sizes", "20", "--stop", "--tickers", "2", "--scenarios", "ticks", "--no-trace", json_flag=False),
     bench("agent-engine", "agent-engine-bench.py", "--modes", "own", "--chats", "1", "--flings", "1"),
     bench("instant-new-surfaces", "instant-new-surfaces-bench.py", "--runs", "1"),
 ]
+
+
+def fresh_state():
+    """Each bench starts as on its own fleet step: the tag's processes ended (exact PIDs of the bundle) and its saved
+    sessions gone (daemon state, sidebar snapshot, agent sessions, Home's memory), so one bench's workspaces never
+    restore into the next."""
+    TagTeardown(opts.app, log=lambda _line: None).end()
+    import shutil
+    bundle = bundle_id(opts.app) or ""
+    for home in {account_home(), os.path.expanduser("~")}:
+        for folder in (os.path.join(home, "Library/Application Support/cmux/tags", TAG),
+                       os.path.join(home, ".acpmux/builds", bundle), os.path.join(home, ".cmux/mux/tags", TAG)):
+            if bundle and os.path.isdir(folder):
+                shutil.rmtree(folder, ignore_errors=True)
 
 
 def main():
@@ -56,6 +71,7 @@ def main():
         if wanted and name not in wanted:
             continue
         os.makedirs(os.path.join(opts.out, name), exist_ok=True)
+        fresh_state()
         log_path = os.path.join(opts.out, f"{name}.log")
         start = time.monotonic()
         with open(log_path, "w") as log:

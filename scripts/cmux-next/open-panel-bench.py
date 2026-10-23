@@ -60,6 +60,7 @@ def measure(app, session, report):
             frames = reply.get("frames") or {}
             run = {k: reply.get(k) for k in ("mode", "made_ahead_before", "init_ms", "begin_ms", "sync_ms", "visible_ms", "error")}
             run.update(frame_max_ms=frames.get("max_ms"), missed=frames.get("missed"), refresh_ms=frames.get("refresh_ms"),
+                       intervals_ms=frames.get("intervals_ms"), prompt_nil=reply.get("prompt_nil"),
                        session=session, round=index)
             runs.append(run)
             print(f"  {session:<6} {mode:<6} #{index}: init {run['init_ms']} begin {run['begin_ms']} sync {run['sync_ms']} "

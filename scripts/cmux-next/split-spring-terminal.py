@@ -284,14 +284,14 @@ def main():
     # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
     # CMUX_NEXT_NO_ACTIVATE stays unset, as before bench_launch.py: the app activates and its window is key, so these
     # split-spring rows stay comparable with the earlier ones (an inactive app's terminals are unfocused).
-    bench = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=(80, 80, 1600, 1000), screen=None, teardown=False,
+    launcher = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=(80, 80, 1600, 1000), screen=None, teardown=False,
                      env={"CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"),
                           "CMUX_NEXT_NO_ACTIVATE": None})
     try:
-        bench.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
+        launcher.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
     finally:
-        app = bench.process
-    SOCKET = bench.socket
+        app = launcher.process
+    SOCKET = launcher.socket
     print(f"launched pid {app.pid} macOS {subprocess.run(['sw_vers', '-productVersion'], capture_output=True, text=True).stdout.strip()}",
           flush=True)
     time.sleep(5)  # test harness: launch work settles
