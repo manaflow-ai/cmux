@@ -17,8 +17,24 @@ final class PageScriptPipeline {
     nonisolated static let inlineBudget = PageScriptBudget(nodes: 512, stringBytes: 16 * 1024)
 
     private enum Item {
-        case envelope(JSONValue, @MainActor () -> Void)
+        case envelope(JSONValue, Drop)
         case gate(Gate)
+    }
+
+    /// A reset can report an in-flight envelope before its render task resumes. The render task
+    /// still calls the drop action when it observes the generation change, so the action is
+    /// explicitly one-shot to preserve the bridge's FIFO without duplicate requeues.
+    final class Drop {
+        private let action: @MainActor () -> Void
+        private var called = false
+
+        init(_ action: @escaping @MainActor () -> Void) { self.action = action }
+
+        func call() {
+            guard !called else { return }
+            called = true
+            action()
+        }
     }
 
     /// A hold point in the FIFO: ``reached()`` returns once everything queued before it ran;
@@ -58,14 +74,22 @@ final class PageScriptPipeline {
     }
 
     private let evaluate: @MainActor (String) -> Void
+    private let render: @Sendable (JSONValue) async -> String
     private var queue: [Item] = []
     private var head = 0
     private var drain: Task<Void, Never>?
+    /// The queue head is advanced before an off-actor render awaits. Keep its drop action here so
+    /// reset reports it before later queued envelopes, even though it is no longer in `queue[head...]`.
+    private var inFlightDrop: Drop?
     /// Bumped by ``reset()``: a script rendered for an older generation is not evaluated.
     private var generation: UInt64 = 0
 
-    init(evaluate: @escaping @MainActor (String) -> Void) {
+    init(evaluate: @escaping @MainActor (String) -> Void,
+         render: @escaping @Sendable (JSONValue) async -> String = { envelope in
+             await Self.render(envelope)
+         }) {
         self.evaluate = evaluate
+        self.render = render
     }
 
     /// True when nothing is queued or running, so a script may be evaluated at once.
@@ -78,7 +102,7 @@ final class PageScriptPipeline {
             evaluate(PageRouter.receiveScript(envelope))
             return
         }
-        enqueue(.envelope(envelope, onDrop))
+        enqueue(.envelope(envelope, Drop(onDrop)))
     }
 
     /// A gate after everything sent so far, or nil when nothing is queued and `always` is false
@@ -93,6 +117,8 @@ final class PageScriptPipeline {
     /// Drops every queued envelope and releases every gate.
     func reset() {
         generation &+= 1
+        inFlightDrop?.call()
+        inFlightDrop = nil
         let pending = queue[head...]
         queue.removeAll()
         head = 0
@@ -100,7 +126,7 @@ final class PageScriptPipeline {
         drain = nil
         for item in pending {
             switch item {
-            case .envelope(_, let onDrop): onDrop()
+            case .envelope(_, let drop): drop.call()
             case .gate(let gate): gate.open()
             }
         }
@@ -122,9 +148,15 @@ final class PageScriptPipeline {
             head += 1
             switch item {
             case .envelope(let envelope, let onDrop):
-                let script = await Self.render(envelope)
-                guard generation == self.generation else { onDrop(); return }
+                inFlightDrop = onDrop
+                let script = await render(envelope)
+                if generation != self.generation {
+                    onDrop.call()
+                    if inFlightDrop === onDrop { inFlightDrop = nil }
+                    return
+                }
                 evaluate(script)
+                if inFlightDrop === onDrop { inFlightDrop = nil }
             case .gate(let gate):
                 gate.markReached()
                 await gate.opened()
