@@ -4,8 +4,12 @@
 //!
 //! `magic "CMHX" | kind u16 | flags u16 | chan u32 | len u32 | payload`,
 //! little endian. `chan` names one terminal; 0 is the link itself. A frame
-//! that carries descriptors sends them with its first byte; the receiver
-//! queues them in arrival order and the frame kind says how many it takes.
+//! that carries descriptors sends them with its first byte, and its header
+//! states how many ([`FLAG_FDS_STATED`]): the receiver gives each frame
+//! exactly the descriptors that arrived with its first byte, and a frame
+//! whose descriptors are missing, or that passed more than it states, ends
+//! the link. A frame from an older build states nothing; its kind and flags
+//! say how many it passes.
 
 use std::collections::VecDeque;
 use std::io;
@@ -165,6 +169,8 @@ impl Kind {
     /// Descriptors a frame of this kind with these header flags carries:
     /// one more with [`FLAG_RING`] (the ring's segment, after the master;
     /// an [`Kind::Adopted`] carries only the segment).
+    /// What a frame without [`FLAG_FDS_STATED`] (an older build's) passes;
+    /// a sender of this build passes exactly this many too.
     pub fn descriptors_with(self, flags: u16) -> usize {
         let ring = flags & FLAG_RING != 0;
         if self == Kind::Adopted {
@@ -196,6 +202,20 @@ pub const FLAG_PROLOGUE: u16 = 1;
 /// it only on a link of at least [`RING_VERSION`], so an older peer never
 /// gets a descriptor it does not expect or a ring layout it cannot read.
 pub const FLAG_RING: u16 = 2;
+/// Header flag of every frame this build sends, of any kind: the three bits
+/// above it ([`FDS_SHIFT`]) are the number of descriptors the frame passes.
+/// A receiver of an older build ignores it (it counts by kind, and this
+/// build passes what the kind says); a receiver of this build takes exactly
+/// that many, so a frame that passes no descriptor where its kind would
+/// (a terminal whose master the holder could not dup) never takes the next
+/// frame's.
+pub const FLAG_FDS_STATED: u16 = 1 << 12;
+/// The shift of the descriptor count in a header's flags.
+const FDS_SHIFT: u32 = 13;
+/// The header bits a descriptor count takes (with [`FLAG_FDS_STATED`]).
+const FDS_FIELD: u16 = 0b111 << FDS_SHIFT;
+/// The most descriptors one frame may pass: what its header can state.
+pub const MAX_FRAME_FDS: usize = (FDS_FIELD >> FDS_SHIFT) as usize;
 
 /// Encode a frame header and payload.
 pub fn encode(kind: Kind, chan: u32, payload: &[u8]) -> Vec<u8> {
@@ -208,8 +228,28 @@ pub fn encode_flagged(kind: Kind, flags: u16, chan: u32, payload: &[u8]) -> Vec<
 }
 
 /// A frame whose payload is `parts` in order: one allocation and one copy
-/// of each part (a DATA frame straight from the two halves of a ring).
+/// of each part (a DATA frame straight from the two halves of a ring). It
+/// passes no descriptor.
 pub fn encode_parts(kind: Kind, flags: u16, chan: u32, parts: &[&[u8]]) -> Vec<u8> {
+    encode_frame(kind, flags, chan, parts, 0)
+}
+
+/// A frame that passes `fds` descriptors with its first byte: its header
+/// states the count ([`FLAG_FDS_STATED`]). The caller sends exactly that
+/// many with it ([`send_frame`], or the holder's link queue).
+///
+/// # Panics
+///
+/// When `fds` is more than [`MAX_FRAME_FDS`]: no frame of the wire passes
+/// more than two.
+pub fn encode_with_fds(kind: Kind, flags: u16, chan: u32, payload: &[u8], fds: usize) -> Vec<u8> {
+    encode_frame(kind, flags, chan, &[payload], fds)
+}
+
+fn encode_frame(kind: Kind, flags: u16, chan: u32, parts: &[&[u8]], fds: usize) -> Vec<u8> {
+    assert!(fds <= MAX_FRAME_FDS, "a frame passes at most {MAX_FRAME_FDS} descriptors");
+    debug_assert_eq!(flags & (FLAG_FDS_STATED | FDS_FIELD), 0, "a kind flag in the count bits");
+    let flags = flags | FLAG_FDS_STATED | ((fds as u16) << FDS_SHIFT);
     let len: usize = parts.iter().map(|part| part.len()).sum();
     let mut out = Vec::with_capacity(HEADER + len);
     out.extend_from_slice(&MAGIC);
@@ -278,13 +318,28 @@ pub struct Reader {
     buf: Vec<u8>,
     /// Offset in `buf` of the first byte no frame took yet.
     start: usize,
-    fds: VecDeque<OwnedFd>,
+    /// Stream offset of `buf[start]`: frames took every byte before it.
+    taken: u64,
+    /// Descriptors no frame took yet, in arrival order.
+    fds: VecDeque<Arrival>,
     /// The `recvmsg` control buffer, allocated on the first fill.
     control: Vec<u8>,
 }
 
+/// A descriptor and the stream offsets of the bytes the read that passed it
+/// returned. A sender passes a frame's descriptors with the frame's first
+/// byte, so the frame they belong to starts in `from..to`.
+struct Arrival {
+    fd: OwnedFd,
+    from: u64,
+    to: u64,
+}
+
 impl Reader {
-    /// Read what the socket has (one `recvmsg`). `Ok(false)` at end of stream.
+    /// Read what the socket has (one `recvmsg`). `Ok(false)` at end of
+    /// stream. Descriptors the kernel had to drop (this process is out of
+    /// descriptors) are an error: the frames they belong to cannot be
+    /// served, and the link is lost.
     pub fn fill(&mut self, fd: RawFd) -> io::Result<bool> {
         self.fill_with(fd, |_| {})
     }
@@ -312,12 +367,17 @@ impl Reader {
         let (n, fds) = unsafe { recv_with_fds(fd, tail, room, &mut self.control, between)? };
         // SAFETY: recvmsg initialized `n` bytes past `len`.
         unsafe { self.buf.set_len(len + n) };
-        self.fds.extend(fds);
+        let from = self.taken + len as u64;
+        let to = from + n as u64;
+        self.fds.extend(fds.into_iter().map(|fd| Arrival { fd, from, to }));
         Ok(n != 0)
     }
 
-    /// The next complete frame, if one is buffered. A bad magic or an
-    /// oversized length is an error: the stream is lost.
+    /// The next complete frame, if one is buffered, with exactly the
+    /// descriptors it passed. A bad magic, an oversized length, a frame
+    /// whose descriptors did not arrive with its first byte, or descriptors
+    /// no frame states are an error: the stream is lost (never a frame that
+    /// takes another frame's descriptor).
     pub fn next_frame(&mut self) -> io::Result<Option<Frame>> {
         let pending = &self.buf[self.start..];
         if pending.len() < HEADER {
@@ -337,22 +397,58 @@ impl Reader {
             return Ok(None);
         }
         let payload = pending[HEADER..HEADER + len].to_vec();
+        let frame_at = self.taken;
         self.start += HEADER + len;
+        self.taken += (HEADER + len) as u64;
         if self.start == self.buf.len() {
             // Everything was taken: the next fill needs no compaction.
             self.buf.clear();
             self.start = 0;
         }
-        let wanted = Kind::from_u16(kind).map_or(0, |kind| kind.descriptors_with(flags));
-        let fds = (0..wanted).filter_map(|_| self.fds.pop_front()).collect();
+        let wanted = if flags & FLAG_FDS_STATED != 0 {
+            usize::from((flags & FDS_FIELD) >> FDS_SHIFT)
+        } else {
+            Kind::from_u16(kind).map_or(0, |kind| kind.descriptors_with(flags))
+        };
+        let mut fds = Vec::with_capacity(wanted);
+        for _ in 0..wanted {
+            match self.fds.pop_front() {
+                Some(arrival) if arrival.from <= frame_at && frame_at < arrival.to => {
+                    fds.push(arrival.fd);
+                }
+                _ => return Err(mismatch("a link frame did not pass the descriptors it states")),
+            }
+        }
+        // Every frame that starts where a descriptor arrived was taken, and
+        // none took it: its sender passed more than it stated.
+        if self.fds.front().is_some_and(|arrival| arrival.to <= self.taken) {
+            return Err(mismatch("a link frame passed descriptors it does not state"));
+        }
         Ok(Some(Frame { kind, flags, chan, payload, fds }))
     }
+}
+
+fn mismatch(message: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message.to_string())
 }
 
 /// Bytes of a control buffer for [`MAX_RECV_FDS`] descriptors.
 fn control_space() -> usize {
     // SAFETY: CMSG_SPACE computes a size from a length.
     unsafe { libc::CMSG_SPACE((MAX_RECV_FDS * size_of::<RawFd>()) as u32) as usize }
+}
+
+/// Write one frame that passes `fds` with its first byte, its header
+/// stating how many ([`encode_with_fds`]). Blocking.
+pub fn send_frame(
+    fd: RawFd,
+    kind: Kind,
+    flags: u16,
+    chan: u32,
+    payload: &[u8],
+    fds: &[RawFd],
+) -> io::Result<()> {
+    send_all(fd, &encode_with_fds(kind, flags, chan, payload, fds.len()), fds)
 }
 
 /// Write all of `bytes`, passing `fds` with the first byte. Blocking.
@@ -430,6 +526,8 @@ const RECV_FLAGS: libc::c_int = 0;
 /// (close-on-exec), after `between` saw them. A descriptor that cannot be made close-on-exec fails
 /// the read: every descriptor of the frame is closed then, and the link is
 /// lost, rather than keeping a descriptor every later child inherits.
+/// Descriptors the kernel cut off (`MSG_CTRUNC`: this process is out of
+/// descriptors) are an error.
 ///
 /// On Linux the kernel installs them close-on-exec (`MSG_CMSG_CLOEXEC`).
 /// macOS has no such flag: there each descriptor gets `FD_CLOEXEC` right
@@ -492,6 +590,10 @@ unsafe fn recv_with_fds(
             }
             cmsg = libc::CMSG_NXTHDR(&msg, cmsg);
         }
+    }
+    if msg.msg_flags & libc::MSG_CTRUNC != 0 {
+        // The descriptors that did arrive close with `fds`.
+        return Err(mismatch("the kernel dropped descriptors the link passed"));
     }
     between(&fds);
     if RECV_FLAGS == 0 {
