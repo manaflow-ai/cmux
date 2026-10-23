@@ -19,7 +19,7 @@ import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
-import { GROUP_TAIL } from "./ToolGroupRow";
+import { tailStart } from "./ToolGroupRow";
 import { isDraftCall, isRunning, toolGroups } from "./toolGroups";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
@@ -462,7 +462,8 @@ function shapeTurn(
                 : Math.max(0, summary.at - from),
       });
       // Open, each run of its work folds into its summary line between the commentary, as in a
-      // running turn (codexRuns).
+      // running turn (codexRuns). A run that edited folds too: its edits stay in sight between the
+      // summary lines of the work around them (TurnRows.tsx `runStretches`).
       if (open)
         shaped.push(
           ...(liveRuns ? mergeShortNotes(work) : work).flatMap(withoutDrafts).map((row) => ({
@@ -470,7 +471,7 @@ function shapeTurn(
             id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
             settled: true,
             // A folded run draws otherwise, so its version moves (memos compare versions).
-            ...(liveRuns && row.kind === "activity" && !isEdit(row) && { foldRun: true, version: row.version * 4 + 3 }),
+            ...(liveRuns && row.kind === "activity" && { foldRun: true, version: row.version * RUN_STATES + 3 }),
           })),
         );
     }
@@ -487,6 +488,7 @@ function shapeTurn(
     ...summary,
     folded,
     text: answer?.text ?? summary.text,
+    ...(answer && { answerId: answer.id }),
     // Retry sends the prompt as the agent got it: an incoming message with its sender. A
     // notification is the harness's, not a prompt to send again (incomingMessage.ts).
     ...(retryable &&
@@ -658,10 +660,13 @@ function liveTurn(
   let last: AcpmuxRow | undefined;
   for (let index = drawn.length - 1; index >= 0 && !last; index -= 1)
     if (drawn[index]!.kind !== STARTED_SESSIONS) last = drawn[index];
-  const rows = liveRuns ? codexRuns(mergeShortNotes(drawn)) : drawn;
+  // The Codex-style live line names the call in flight; a command still running in an earlier run
+  // (a parallel `cp` while the agent messages others) leaves its run for the line too.
+  const named = lineBelow && liveRuns && last ? lineCall(drawn, last) : undefined;
+  const rows = liveRuns ? codexRuns(mergeShortNotes(drawn), named?.tool.id) : drawn;
   // The status ticks on this computer's clock, from the prompt moved onto it.
   const at = user.at + clockOffset;
-  if (lineBelow && liveRuns) return codexLiveTurn(user, drawn, rows, last, at, clockOffset, sessionStatus);
+  if (lineBelow && liveRuns) return codexLiveTurn(user, drawn, rows, last, named, at, clockOffset, sessionStatus);
   if (lineBelow) {
     const shown = withLiveStep(rows, last);
     const plan = sessionStatus
@@ -675,10 +680,13 @@ function liveTurn(
     }
     const status: AcpmuxRow = { id: LIVE_THINKING, version: 2, at, kind: WORKING, below: true };
     const doing = last && inFlightCall(last);
+    // A running command's ⌃B hint is the line's, never its row's (WorkingFor.tsx); none while the
+    // agent still writes the command (`doingDraft`).
+    if (doing?.command) status.doingCommand = true;
+    if (doing?.draft) status.doingDraft = true;
     // One running call reads once: not here while its own row names it (`ownRow`).
     if (doing && doing.row !== true) {
       status.doing = doing.title;
-      if (doing.command) status.doingCommand = true;
       if (doing.row) Object.assign(status, { doingGroup: doing.row.key, doingGroupOpen: doing.row.open });
     }
     // Before any output it reads "Thinking"; a thought coming in labels itself (ThoughtRow.tsx).
@@ -698,9 +706,10 @@ function liveTurn(
   // runs draw no call in flight (codexRuns), so there the line always names it.
   else {
     const doing = inFlightCall(last);
+    if (doing?.command) status.doingCommand = true;
+    if (doing?.draft) status.doingDraft = true;
     if (doing && (liveRuns || doing.row !== true)) {
       status.doing = doing.title;
-      if (doing.command) status.doingCommand = true;
       if (doing.row && doing.row !== true && !liveRuns)
         Object.assign(status, { doingGroup: doing.row.key, doingGroupOpen: doing.row.open });
     }
@@ -738,6 +747,7 @@ function codexLiveTurn(
   drawn: AcpmuxRow[],
   rows: AcpmuxRow[],
   last: AcpmuxRow | undefined,
+  named: LineCall | undefined,
   at: number,
   clockOffset: number,
   sessionStatus: boolean,
@@ -747,8 +757,8 @@ function codexLiveTurn(
   // 2026-10-21). Between steps it reads "Thinking 18s", timed from the prompt.
   const line: AcpmuxRow = { id: LIVE_THINKING, version: 1, at, kind: THINKING, below: true };
   if (!last) return [...rows, line];
-  const call = runningCall(last);
-  if (call) {
+  if (named) {
+    const call = named.tool;
     // A command reads its short line; one with no line yet reads its title ("Run make"). While
     // Claude still writes its input (a pending "Bash" with no command, often 20s for a long
     // script) it reads "Writing a command", never "Running" a command that has not started.
@@ -757,10 +767,10 @@ function codexLiveTurn(
     line.doing = shell ? (call.command ? shortCommand(call.command) : "") : runningLabel(call, "");
     line.doingShell = shell;
     if (shell && !call.command && call.status === "pending") line.doingDraft = true;
-    // A started command shows "⌃B to run in background" on the line, where its own row would
-    // (Thinking.tsx).
+    // A started command shows "⌃B to run in background" on the line, never on a transcript row
+    // (Thinking.tsx; Leo, 2026-10-22: "this cmd b to run in background ... it should prob go down").
     if (call.kind === "execute" && !line.doingDraft) line.doingCommand = true;
-    line.doingAt = (call.startedAt ?? last.at) + clockOffset;
+    line.doingAt = (call.startedAt ?? named.at) + clockOffset;
   } else if (last.kind === "assistant") line.quietKey = `${last.id}:${last.version}`;
   const answering = last.kind === "assistant";
   const plan = sessionStatus ? [...rows].reverse().find((row) => row.kind === "plan" && row.plan?.length) : undefined;
@@ -778,17 +788,37 @@ function codexLiveTurn(
       drawn.filter((row) => row !== plan),
       plan,
       clockOffset,
+      named?.tool,
     ),
   ];
 }
 
 /// The newest call still running in a live turn's latest row.
-function runningCall(row: AcpmuxRow): NonNullable<AcpmuxRow["items"]>[number]["tool"] | undefined {
+function runningCall(
+  row: AcpmuxRow,
+  matches: (tool: NonNullable<AcpmuxActivity["tool"]>) => boolean = () => true,
+): NonNullable<AcpmuxRow["items"]>[number]["tool"] | undefined {
   if (row.kind !== "activity") return undefined;
   const items = row.items ?? [];
   for (let index = items.length - 1; index >= 0; index--) {
     const tool = items[index]?.tool;
-    if (tool && isRunning(tool)) return tool;
+    if (tool && isRunning(tool) && matches(tool)) return tool;
+  }
+  return undefined;
+}
+
+type LineCall = { tool: NonNullable<ReturnType<typeof runningCall>>; at: number };
+
+/// The call the Codex-style live line names: the newest one running in the turn's latest step, else
+/// the newest command still running anywhere in the turn, so a command never runs under "Thinking"
+/// (Leo, 2026-10-22: "the ran thing basiclly replcaes the thinking usually").
+function lineCall(drawn: readonly AcpmuxRow[], last: AcpmuxRow): LineCall | undefined {
+  const latest = runningCall(last);
+  if (latest) return { tool: latest, at: last.at };
+  for (let index = drawn.length - 1; index >= 0; index -= 1) {
+    const row = drawn[index]!;
+    const tool = runningCall(row, (call) => call.kind === "execute" && !call.background && !isDraftCall(call));
+    if (tool) return { tool, at: row.at };
   }
   return undefined;
 }
@@ -805,17 +835,37 @@ function withLiveStep(rows: AcpmuxRow[], last: AcpmuxRow | undefined): AcpmuxRow
 /// itself, an edit by its file name), else the todo in progress. What it names is its text and
 /// moves its version, so the memoized row redraws when the call's path arrives; it carries no
 /// items, so Find never counts the call's output a second time. Its clock ticks from the prompt.
-function activityLine(user: AcpmuxRow, work: AcpmuxRow[], plan: AcpmuxRow, clockOffset: number): AcpmuxRow {
-  const running = work
-    .flatMap((row) => (row.kind === "activity" ? (row.items ?? []) : []))
-    .reverse()
-    .find((item) => item.tool?.status === "pending" || item.tool?.status === "in_progress");
+/// With `named` (the Codex-style runs, `lineCall`) it names that call, the one the runs left out, so
+/// a command never leaves its run without the line naming it.
+function activityLine(
+  user: AcpmuxRow,
+  work: AcpmuxRow[],
+  plan: AcpmuxRow,
+  clockOffset: number,
+  named?: NonNullable<AcpmuxActivity["tool"]>,
+): AcpmuxRow {
+  const running = named
+    ? { kind: "tool", text: "", tool: named }
+    : work
+        .flatMap((row) => (row.kind === "activity" ? (row.items ?? []) : []))
+        .reverse()
+        .find((item) => item.tool?.status === "pending" || item.tool?.status === "in_progress");
   const label = running?.tool
     ? runningLabel(running.tool, running.text)
     : (plan.plan?.find((entry) => entry.status === "in_progress")?.content ?? "");
+  // A started command offers ⌃B here, as on the turn's other live lines (ActivityLine.tsx).
+  const command = running?.tool?.kind === "execute" && !isDraftCall(running.tool);
   let version = 1;
   for (let index = 0; index < label.length; index += 1) version = (version * 31 + label.charCodeAt(index)) % 1_000_003;
-  return { id: `${ACTIVITY_LINE}-${user.id}`, version, at: user.at + clockOffset, kind: ACTIVITY_LINE, text: label };
+  const line: AcpmuxRow = {
+    id: `${ACTIVITY_LINE}-${user.id}`,
+    version: version * 2 + (command ? 1 : 0),
+    at: user.at + clockOffset,
+    kind: ACTIVITY_LINE,
+    text: label,
+  };
+  if (command) line.doingCommand = true;
+  return line;
 }
 
 /// A running call in one short line: a command as itself ("Ran …" would say it has finished), a
@@ -829,7 +879,7 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
 
 /// The newest call still running in a live turn's latest row, by its title, and where the
 /// transcript draws its own row (`ownRow`).
-function inFlightCall(row: AcpmuxRow): { title: string; command: boolean; row: OwnRow } | undefined {
+function inFlightCall(row: AcpmuxRow): { title: string; command: boolean; draft: boolean; row: OwnRow } | undefined {
   if (row.kind !== "activity") return undefined;
   const items = row.items ?? [];
   for (let index = items.length - 1; index >= 0; index--) {
@@ -837,7 +887,8 @@ function inFlightCall(row: AcpmuxRow): { title: string; command: boolean; row: O
     if (!tool || !isRunning(tool)) continue;
     // The row's own label, never the call's raw JSON input; a command reads as itself.
     const title = toolLabel(tool, "", (command) => command).trim();
-    return title ? { title, command: tool.kind === "execute", row: ownRow(row, items[index]!) } : undefined;
+    const draft = isDraftCall(tool);
+    return title ? { title, command: tool.kind === "execute", draft, row: ownRow(row, items[index]!) } : undefined;
   }
   return undefined;
 }
@@ -863,19 +914,25 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
   )
     return true;
   const kind = group.type === "mcp" ? "mcp" : group.kind;
-  const tail = kind === "mcp" || kind === "edits" || group.items.indexOf(item) >= group.items.length - GROUP_TAIL;
+  const tail = kind === "mcp" || kind === "edits" || group.items.indexOf(item) >= tailStart(group.items);
   if (!tail) return undefined;
   const key = `group:${kind}:${group.items[0]!.tool!.id || `${row.id}:${at}`}`;
   return { key, open: kind !== "mcp" && kind !== "edits" };
 }
 
+/// The drawn states of one Codex-style run, each its own version offset so a memoized row redraws
+/// on every change between them (App.tsx compares versions): 1 the live latest run, 2 an earlier
+/// run, 3 an ended turn's open fold, 4 an earlier run whose running command the live line holds.
+const RUN_STATES = 5;
+
 /// A running turn's runs as the Codex desktop app draws them (cx-ncc.108): each run folds into its
-/// summary line between the paragraphs ("Read files, ran commands", or one group's "Ran 3
+/// summary line between the paragraphs ("Read 6 files, ran 4 commands", or one group's "Ran 3
 /// commands"), the latest one too as its calls finish, and opens on a click. The call in flight and
 /// a thought still coming are not in the run: the turn's live line names them (WorkingFor.tsx
 /// `doing`, "Thinking") and each step replaces it in place. A call still running in an earlier run
-/// (a background shell) stays in its run. Each derived row's version moves with its drawn state.
-function codexRuns(rows: AcpmuxRow[]): AcpmuxRow[] {
+/// (a background shell) stays in its run, except the command the live line names (`named`,
+/// `lineCall`), which reads once, on the line. Each derived row's version moves with its drawn state.
+function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
   // A started chats' card after the run is not a step: the run before it is still in flight.
   let latest = rows.length - 1;
   while (latest > 0 && rows[latest]!.kind === STARTED_SESSIONS) latest -= 1;
@@ -883,12 +940,17 @@ function codexRuns(rows: AcpmuxRow[]): AcpmuxRow[] {
     if (row.kind !== "activity" || isEdit(row)) return [row];
     // An earlier run draws no call that has nothing to show yet; its row comes with its input.
     if (index !== latest)
-      return withoutDrafts(row).map((kept) => ({
-        ...kept,
-        settled: true,
-        foldRun: true,
-        version: row.version * 4 + 2,
-      }));
+      return withoutDrafts(row).flatMap((kept) => {
+        const items = kept.items ?? [];
+        const shown = named === undefined ? items : items.filter((item) => item.tool?.id !== named);
+        if (!shown.length) return [];
+        // Its version says whether the line holds its command, which moves without the row's, and
+        // differs from every other state of the run (`RUN_STATES`).
+        const lined = shown.length !== items.length;
+        return [
+          { ...kept, items: shown, settled: true, foldRun: true, version: row.version * RUN_STATES + (lined ? 4 : 2) },
+        ];
+      });
     // The latest run: what is happening now leaves it for the live line, so the run holds only
     // finished steps and never grows a stack of live rows (Leo 2026-10-20: "rows pile up instead
     // of replacing each other").
@@ -897,7 +959,7 @@ function codexRuns(rows: AcpmuxRow[]): AcpmuxRow[] {
       (item, at) => !(item.tool ? isRunning(item.tool) : at === all.length - 1 && item.kind !== "tool"),
     );
     if (!items.length) return [];
-    return [{ ...row, items, settled: true, foldRun: true, version: row.version * 4 + 1 }];
+    return [{ ...row, items, settled: true, foldRun: true, version: row.version * RUN_STATES + 1 }];
   });
 }
 

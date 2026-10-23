@@ -928,14 +928,13 @@
 }
 :root[data-top-strip="plain"] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-queue { margin-bottom: 0; }
 :root[data-top-strip="plain"] .acpmux-composer-queue .acpmux-queued { padding-inline: 0; color: var(--agent-muted); }
-:root[data-top-strip="plain"] .acpmux-composer-queue .acpmux-queued-mark { min-width: 0; text-align: left; }
 /* The row's actions take their own room at its end, with no tray to fade into. */
 :root[data-top-strip="plain"] .acpmux-composer-queue .acpmux-queued-actions { position: static; padding-left: 0; background: none; }
 :root[data-top-strip="plain"] .acpmux-composer-queue .acpmux-queue-paused { padding-left: 0; }
 
 /* tray: the location strip and the queue are one tray, set in by one inset from the card's sides and
    tucked --acpmux-tray-tuck under its top edge, where the card (raised over it) draws its whole rim.
-   Its first ink (the folder icon, a queue number) sits on the card's content edge, the prompt's text
+   Its first ink (the folder icon, a queued prompt's text) sits on the card's content edge, the prompt's text
    column: 16 px in the chat's card, 18 px in the New Tab's. In a light theme the fill is a small
    step from the card's near-white surface; in a dark one the composer's tray tone. */
 :root[data-top-strip="tray"] :is(.acpmux-composer, .nt-composer) {
@@ -1009,7 +1008,6 @@
 :root[data-top-strip="tray"] .acpmux-composer-queue .acpmux-queued {
   padding-inline: calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset));
 }
-:root[data-top-strip="tray"] .acpmux-composer-queue .acpmux-queued-mark { min-width: 0; text-align: left; }
 
 /* The folder popover (FolderPopover.tsx): a search field over the folders, then New Worktree, Add
    project and Choose folder…. A row is its check, its project's badge and its name, with a short
@@ -1123,10 +1121,16 @@
   min-height: 28px;
   /* Claude desktop (2x capture, Leo 2026-10-20): the row's middle 22 px under the box. */
   margin-top: 8px;
-  /* Room under the row so it never sits on the window's edge (Leo 2026-10-20, as Codex and Claude). */
-  margin-bottom: 10px;
+  /* Claude Code's row sits at the window's bottom edge with about 8 px under it (Leo 2026-10-21: too
+     much space at the bottom compared to Claude Code). The floating dock's composer adds nothing
+     under the row (below), so these 8 px are all the room there is: never on the window's edge
+     (Leo 2026-10-20), room for a control's focus outline, and no band. */
+  margin-bottom: 8px;
   padding-block: 0;
-  padding-inline: calc(17px - var(--acpmux-row-inset)) calc(var(--acpmux-row-edge) - var(--acpmux-row-inset));
+  /* The row spans the box (Leo 2026-10-21: "stop with the left right padding"): the mode's pill
+     starts on the box's left edge and the last control's ends on its right edge, so the row adds no
+     inset of its own on either side. Each chip keeps its --acpmux-row-inset hover inset. */
+  padding-inline: 0;
   gap: 0;
   justify-content: flex-end;
   background: none;
@@ -1234,17 +1238,9 @@
   :is(.acpmux-md-placeholder, .acpmux-shell-glyph) {
   top: var(--acpmux-attach-gap);
 }
-/* The context ring ends the quiet row, as Claude Code's does: the row's soft pill on hover and
-   while its details are open, the row's outline under keyboard focus. */
-/* The ring stays 12 px past the model's text and 10 px in from the row's end, whatever the chips'
-   pill inset: its margins give back what the inset took. */
-.acpmux-composer-foot .acpmux-context-ring {
-  width: 24px;
-  height: 24px;
-  margin-inline: calc(12px - var(--acpmux-row-inset)) calc(var(--acpmux-row-inset) - 4px);
-}
-.acpmux-composer-foot .acpmux-context-ring:not(:disabled):hover,
-.acpmux-composer-foot .acpmux-context-ring[aria-expanded="true"] { background: var(--acpmux-pill-hover); }
+/* The context ring ends the quiet row, as Claude Code's does: no pill on hover or while its card
+   shows (Leo 2026-10-21; the card is the feedback), the row's outline under keyboard focus. */
+.acpmux-composer-foot .acpmux-context-ring { width: 24px; height: 24px; margin-inline-start: 8px; }
 .acpmux-composer-foot .acpmux-context-ring:focus-visible { outline-offset: 0; }
 
 /* The environment picker (EnvironmentPicker.tsx, preview): the folder popover's field and rows,

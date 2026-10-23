@@ -7,28 +7,43 @@ import { currentLanguage, useT } from "./i18n";
 /// closes the tab. Its machine is not connected: the machine, when it was last seen, and Reconnect,
 /// which reads the machines and the chat list again (the chat opens once it is listed). Still
 /// connecting: only that, never "unavailable" (Leo 2026-10-21: "second pic is weird has "this chat
-/// isn't available""). Deleted or not connected, Resume from Transcript opens All Chats, where the
-/// chat's saved transcript resumes in a new session (the way on MissingChat.tsx offered).
+/// isn't available""). Not listed and never seen here (it may be deleted, or in an acpmux this tab is
+/// not routed to): "Can't find this chat", never "deleted". Every case keeps what MissingChat.tsx
+/// offered (Lawrence, 86dec887282): the chat's short session id, so a person knows which chat it was,
+/// Resume from Transcript, which opens All Chats, where the chat's saved transcript resumes in a new
+/// session, and Close Tab (a deleted chat's is Remove from Sidebar).
 export function ChatUnavailableState({
   unavailable,
+  session,
   machine,
   now = Date.now(),
   onRemove,
   onReconnect,
   onResume,
+  onClose,
 }: {
   unavailable: ChatUnavailable;
+  /// The session the tab recorded (`missingSession`); its first 13 characters show under the detail.
+  session?: string;
   /// The machine the app says the tab's chat is on (the handshake's `machineName`), for a deleted chat.
   machine?: string;
   now?: number;
   onRemove(): void;
   onReconnect(): void;
   onResume?(): void;
+  /// Close Tab, on every case but deleted (Remove from Sidebar closes that one's tab).
+  onClose?(): void;
 }) {
   const t = useT();
-  // A deleted chat was on the tab's machine; one not connected names the peer acpmux had it on, never
-  // this Mac's name (the handshake's for a chat of this Mac).
-  const named = unavailable.reason === "deleted" ? machine : unavailable.machine;
+  // A deleted chat names the machine acpmux had it on when the pane knows it, else the tab's machine;
+  // one not connected names only the peer acpmux had it on, never this Mac's name (the handshake's
+  // for a chat of this Mac); one not found here is not on the tab's machine.
+  const named =
+    unavailable.reason === "deleted"
+      ? (unavailable.machine ?? machine)
+      : unavailable.reason === "notFound"
+        ? machine
+        : unavailable.machine;
   let title: string;
   let detail: string | undefined;
   let action: { label: string; run(): void; kind: string } | undefined;
@@ -36,6 +51,11 @@ export function ChatUnavailableState({
     title = t("unavailable.deleted.title");
     detail = named ? t("unavailable.deleted.detailOn", { machine: named }) : t("unavailable.deleted.detail");
     action = { label: t("unavailable.remove"), run: onRemove, kind: "remove" };
+  } else if (unavailable.reason === "notFound") {
+    // Not listed here and never seen here: it may be deleted, or in an acpmux this tab is not routed
+    // to (a Chief home's own), so the pane never says it was deleted.
+    title = t("unavailable.notFound.title");
+    detail = named ? t("unavailable.notFound.detailOn", { machine: named }) : t("unavailable.notFound.detail");
   } else if (unavailable.reason === "connecting") {
     title = named ? t("unavailable.connecting.titleOn", { machine: named }) : t("unavailable.connecting.title");
   } else {
@@ -46,6 +66,8 @@ export function ChatUnavailableState({
         : t("unavailable.offline.detail");
     action = { label: t("unavailable.reconnect"), run: onReconnect, kind: "reconnect" };
   }
+  // Remove from Sidebar closes a deleted chat's tab; every other case keeps MissingChat's Close Tab.
+  const closes = onClose !== undefined && unavailable.reason !== "deleted";
   return (
     <div
       className="acpmux-empty acpmux-unavailable"
@@ -66,22 +88,43 @@ export function ChatUnavailableState({
         focusable="false"
       >
         <rect x="4.75" y="6.75" width="26.5" height="22.5" rx="6" />
-        {unavailable.reason === "deleted" ? <path d="M13.5 18h9" /> : <path d="M11.5 18h1M17.5 18h1M23.5 18h1" />}
+        {unavailable.reason === "deleted" || unavailable.reason === "notFound" ? (
+          <path d="M13.5 18h9" />
+        ) : (
+          <path d="M11.5 18h1M17.5 18h1M23.5 18h1" />
+        )}
       </svg>
       <h2 className="acpmux-empty-title acpmux-unavailable-title">{title}</h2>
       {detail && <p className="acpmux-unavailable-detail">{detail}</p>}
-      {action && (
+      {session && (
+        <p className="acpmux-unavailable-detail acpmux-unavailable-session">
+          {t("unavailable.session", { session: shortSession(session) })}
+        </p>
+      )}
+      {(action || onResume || closes) && (
         <div className="acpmux-unavailable-actions">
-          <button type="button" className="acpmux-unavailable-action" data-action={action.kind} onClick={action.run}>
-            {action.label}
-          </button>
+          {action && (
+            <button type="button" className="acpmux-unavailable-action" data-action={action.kind} onClick={action.run}>
+              {action.label}
+            </button>
+          )}
           {onResume && (
             <button type="button" className="acpmux-unavailable-action" data-action="resume" onClick={onResume}>
               {t("link.missing.resume")}
+            </button>
+          )}
+          {closes && (
+            <button type="button" className="acpmux-unavailable-action" data-action="close" onClick={onClose}>
+              {t("link.missing.close")}
             </button>
           )}
         </div>
       )}
     </div>
   );
+}
+
+/// The first 13 characters of a session id (an acpmux UUIDv7's time part), enough to tell chats apart.
+export function shortSession(session: string): string {
+  return session.length > 13 ? session.slice(0, 13) : session;
 }

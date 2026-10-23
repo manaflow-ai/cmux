@@ -154,8 +154,22 @@ await requireBrowserLane("composer-glass.test.ts", async () => {
 
   test("the plain top strip, bare text with no fill, frosts nothing under it", async () => {
     const page = await open("light", { "data-top-strip": "plain" });
-    expect((await look(page, "strip")).backdrop).toBe("none");
+    const strip = await look(page, "strip");
+    expect(strip.fill[3], "plain top strip stays unfilled").toBe(0);
+    expect(strip.backdrop).toBe("none");
     expect((await look(page, "strip-composer")).backdrop, "the card under it is still glass").toContain("blur(");
+    await page.close();
+  });
+
+  test("system Reduce Transparency keeps a see-through strip opaque", async () => {
+    const page = await open("light", { "data-cmux-see-through": "", "data-glass": "plain" });
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Emulation.setEmulatedMedia", {
+      features: [{ name: "prefers-reduced-transparency", value: "reduce" }],
+    });
+    const strip = await look(page, "strip");
+    expect(strip.fill[3], "system Reduce Transparency makes the strip solid").toBe(1);
+    expect(strip.backdrop).toBe("none");
     await page.close();
   });
 

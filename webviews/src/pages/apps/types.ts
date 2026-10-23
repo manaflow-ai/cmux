@@ -15,6 +15,8 @@ export interface AppIconRef {
   path?: string;
   /** The manifest path of the image in the package, which `cmux.apps.asset.get` serves. */
   asset?: string;
+  /** A symbol name: the host draws cmux's own icon for it at `glyph/<symbol>` (never an SF Symbol). */
+  symbol?: string;
 }
 
 /** One row of `cmux.apps.catalog.list`. */
@@ -147,6 +149,9 @@ export interface ConfirmedResult {
 
 /** The App Store's own app id: the store never lists itself (FIRST-PARTY-APPS). */
 export const APP_STORE_ID = "cmux/app-store";
+
+/** Home's app id: a place in cmux, not a listing (extensibility-DESIGN.md). */
+export const HOME_ID = "cmux/home";
 
 export const AppsOps = {
   catalogList: "cmux.apps.catalog.list",

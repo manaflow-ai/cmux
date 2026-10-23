@@ -1,6 +1,399 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.group.machineColors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine Colors"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ألوان الأجهزة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boje računara"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinfarver"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechnerfarben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colores de los equipos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleurs des machines"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colori delle macchine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンの色"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌ម៉ាស៊ីន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 색상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinfarger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolory maszyn"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cores das máquinas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвета компьютеров"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีของเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Makine Renkleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кольори комп’ютерів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Màu của máy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器顏色"
+          }
+        }
+      }
+    },
+    "settings.machines.colors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine Color"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون الجهاز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boja računara"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinfarve"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechnerfarbe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color del equipo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur de la machine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colore della macchina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンの色"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌ម៉ាស៊ីន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 색상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinfarge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolor maszyny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cor da máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвет компьютера"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีของเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Makine Rengi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Колір комп’ютера"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Màu của máy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器顏色"
+          }
+        }
+      }
+    },
+    "settings.machines.colors.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The color of each machine's sidebar rows and tab badges, by machine name: \"#RRGGBB\", or an accent name (red, green, yellow, purple, cyan, orange, pink, blue) that follows the theme. A machine without one gets a color from its name."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون صفوف كل جهاز في الشريط الجانبي وشاراته على علامات التبويب، حسب اسم الجهاز: \"#RRGGBB\"، أو اسم لون مميز (red وgreen وyellow وpurple وcyan وorange وpink وblue) يتبع السمة. الجهاز الذي ليس له لون يأخذ لونًا من اسمه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boja redova svakog računara u bočnoj traci i oznaka na karticama, po imenu računara: \"#RRGGBB\" ili naziv akcentne boje (red, green, yellow, purple, cyan, orange, pink, blue) koja prati temu. Računar bez boje dobija boju iz svog imena."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farven på hver maskines rækker i sidepanelet og mærker på faner, efter maskinens navn: \"#RRGGBB\" eller navnet på en accentfarve (red, green, yellow, purple, cyan, orange, pink, blue), som følger temaet. En maskine uden farve får en farve ud fra sit navn."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Farbe der Seitenleistenzeilen und Tab-Markierungen jedes Rechners, nach Rechnername: \"#RRGGBB\" oder der Name einer Akzentfarbe (red, green, yellow, purple, cyan, orange, pink, blue), die dem Theme folgt. Ein Rechner ohne Farbe erhält eine Farbe aus seinem Namen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El color de las filas de la barra lateral y de las insignias de pestaña de cada equipo, por nombre de equipo: \"#RRGGBB\" o el nombre de un color de acento (red, green, yellow, purple, cyan, orange, pink, blue) que sigue el tema. Un equipo sin color recibe uno a partir de su nombre."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La couleur des lignes de la barre latérale et des badges d’onglet de chaque machine, par nom de machine : \"#RRGGBB\" ou le nom d’une couleur d’accent (red, green, yellow, purple, cyan, orange, pink, blue) qui suit le thème. Une machine sans couleur en reçoit une d’après son nom."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il colore delle righe nella barra laterale e dei badge delle schede di ogni macchina, per nome della macchina: \"#RRGGBB\" oppure il nome di un colore d’accento (red, green, yellow, purple, cyan, orange, pink, blue) che segue il tema. Una macchina senza colore ne riceve uno dal suo nome."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各マシンのサイドバーの行とタブのバッジの色を、マシン名ごとに指定します。\"#RRGGBB\"、またはテーマに従うアクセント名（red、green、yellow、purple、cyan、orange、pink、blue）を使えます。指定のないマシンには名前から色が決まります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌នៃជួរដេករបស់ម៉ាស៊ីននីមួយៗនៅរបារចំហៀង និងស្លាកនៅលើផ្ទាំង តាមឈ្មោះម៉ាស៊ីន៖ \"#RRGGBB\" ឬឈ្មោះពណ៌សង្កត់ (red, green, yellow, purple, cyan, orange, pink, blue) ដែលធ្វើតាមរូបរាង។ ម៉ាស៊ីនដែលគ្មានពណ៌ ទទួលបានពណ៌ពីឈ្មោះរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 이름별로 각 기기의 사이드바 행과 탭 배지 색상을 지정합니다. \"#RRGGBB\" 또는 테마를 따르는 강조 색상 이름(red, green, yellow, purple, cyan, orange, pink, blue)을 사용할 수 있습니다. 색상이 없는 기기는 이름에서 색상을 받습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fargen på hver maskins rader i sidepanelet og merker på faner, etter maskinnavn: \"#RRGGBB\" eller navnet på en aksentfarge (red, green, yellow, purple, cyan, orange, pink, blue) som følger temaet. En maskin uten farge får en farge ut fra navnet sitt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolor wierszy każdej maszyny na pasku bocznym i jej plakietek na kartach, według nazwy maszyny: \"#RRGGBB\" albo nazwa koloru akcentu (red, green, yellow, purple, cyan, orange, pink, blue), który podąża za motywem. Maszyna bez koloru dostaje kolor na podstawie swojej nazwy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A cor das linhas da barra lateral e dos selos de aba de cada máquina, pelo nome da máquina: \"#RRGGBB\" ou o nome de uma cor de destaque (red, green, yellow, purple, cyan, orange, pink, blue) que segue o tema. Uma máquina sem cor recebe uma a partir do nome."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвет строк каждого компьютера на боковой панели и его меток на вкладках, по имени компьютера: \"#RRGGBB\" или название акцентного цвета (red, green, yellow, purple, cyan, orange, pink, blue), который следует теме. Компьютер без цвета получает цвет по своему имени."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีของแถวในแถบด้านข้างและป้ายบนแท็บของแต่ละเครื่อง ตามชื่อเครื่อง: \"#RRGGBB\" หรือชื่อสีเน้น (red, green, yellow, purple, cyan, orange, pink, blue) ที่เปลี่ยนตามธีม เครื่องที่ไม่มีสีจะได้สีจากชื่อของมัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her makinenin kenar çubuğu satırlarının ve sekme rozetlerinin rengi, makine adına göre: \"#RRGGBB\" veya temayı izleyen bir vurgu rengi adı (red, green, yellow, purple, cyan, orange, pink, blue). Rengi olmayan bir makine, rengini adından alır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Колір рядків кожного комп’ютера на бічній панелі та його позначок на вкладках, за назвою комп’ютера: \"#RRGGBB\" або назва акцентного кольору (red, green, yellow, purple, cyan, orange, pink, blue), що слідує за темою. Комп’ютер без кольору отримує колір за своєю назвою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Màu của các hàng trên thanh bên và huy hiệu trên thẻ của từng máy, theo tên máy: \"#RRGGBB\" hoặc tên một màu nhấn (red, green, yellow, purple, cyan, orange, pink, blue) theo chủ đề. Máy không có màu sẽ nhận màu từ tên của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按机器名称设置每台机器的侧边栏行和标签页徽标颜色：\"#RRGGBB\"，或跟随主题的强调色名称（red、green、yellow、purple、cyan、orange、pink、blue）。未设置的机器按名称获得颜色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依機器名稱設定每台機器的側邊欄列與分頁徽章顏色：\"#RRGGBB\"，或跟隨主題的強調色名稱（red、green、yellow、purple、cyan、orange、pink、blue）。未設定的機器會依名稱取得顏色。"
+          }
+        }
+      }
+    },
     "settings.sidebar.style": {
       "extractionState": "manual",
       "localizations": {
@@ -56,6 +449,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "サイドバーのスタイル"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stil bočne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidepanelstil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stile barra laterale"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រចនាប័ទ្មរបារចំហៀង"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidefeltstil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Styl paska bocznego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estilo da barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стиль боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สไตล์แถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kenar çubuğu stili"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стиль бічної панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiểu thanh bên"
           }
         }
       }
@@ -116,6 +581,78 @@
             "state": "translated",
             "value": "レールはサイドバーを、ワークスペースごとに印のある細い帯に縮めます。帯にポインタを置くと、作業の上にサイドバー全体が開きます。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traka smanjuje bočnu traku na usku traku s oznakom za svaki radni prostor. Pokažite na traku da otvorite cijelu bočnu traku iznad svog rada."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skinne gør sidepanelet til en smal stribe med et mærke for hvert arbejdsområde. Peg på striben for at åbne hele sidepanelet over dit arbejde."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra riduce la barra laterale a una striscia sottile con un segno per ogni area di lavoro. Punta la striscia per aprire la barra laterale completa sopra il tuo lavoro."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារបង្រួមរបារចំហៀងទៅជាបន្ទះស្តើងដែលមានសញ្ញាមួយសម្រាប់កន្លែងធ្វើការនីមួយៗ។ ចង្អុលទៅបន្ទះដើម្បីបើករបារចំហៀងពេញលើការងាររបស់អ្នក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skinne gjør sidefeltet til en smal stripe med et merke for hvert arbeidsområde. Pek på stripen for å åpne hele sidefeltet over arbeidet ditt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek zwęża pasek boczny do wąskiego paska ze znacznikiem dla każdego obszaru roboczego. Wskaż pasek, aby otworzyć pełny pasek boczny nad swoją pracą."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trilho reduz a barra lateral a uma faixa fina com uma marca para cada espaço de trabalho. Aponte para a faixa para abrir a barra lateral completa sobre o seu trabalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Полоса сжимает боковую панель до узкой полосы с меткой для каждого рабочего пространства. Наведите на полосу, чтобы открыть полную боковую панель поверх работы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบจะย่อแถบด้านข้างเป็นแถบแคบที่มีเครื่องหมายสำหรับแต่ละพื้นที่ทำงาน ชี้ที่แถบเพื่อเปิดแถบด้านข้างแบบเต็มเหนืองานของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şerit, kenar çubuğunu her çalışma alanı için bir işaret taşıyan ince bir şeride küçültür. Kenar çubuğunun tamamını işinizin üzerinde açmak için şeridin üzerine gelin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Смуга зменшує бічну панель до вузької смуги з позначкою для кожного робочого простору. Наведіть на смугу, щоб відкрити повну бічну панель поверх роботи."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thanh mảnh thu thanh bên thành một dải hẹp có dấu cho mỗi không gian làm việc. Trỏ vào dải để mở toàn bộ thanh bên trên công việc của bạn."
+          }
         }
       }
     },
@@ -175,6 +712,78 @@
             "state": "translated",
             "value": "標準"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្តង់ដារ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стандартный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มาตรฐาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standart"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стандартний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiêu chuẩn"
+          }
         }
       }
     },
@@ -233,6 +842,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "レール"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skinne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skinne"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trilho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Полоса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şerit"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Смуга"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thanh mảnh"
           }
         }
       }
@@ -154535,6 +155216,534 @@
         }
       }
     },
+    "settings.attention.terminals": {
+      "comment": "Choice (notifications.attention.terminals): how terminal and other panes ring for their notifications: glow, ring or none",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ring Terminal Panes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار الحلقة على أجزاء الطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prsten na terminalskim oknima"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ring om terminalruder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ring um Terminal-Bereiche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anillo en paneles de terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anneau sur les volets de terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anello sui riquadri del terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ターミナルペインにリング"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រង្វង់លើផ្ទាំងទែមីណាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "터미널 창에 링 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ring rundt terminalruter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obwódka paneli terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anel nos painéis de terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кольцо у панелей терминала"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "วงแหวนบนบานหน้าต่างเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal bölmelerinde halka"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кільце на панелях термінала"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vòng trên khung terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "终端窗格显示环"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "終端機窗格顯示環"
+          }
+        }
+      }
+    },
+    "settings.attention.agentChats": {
+      "comment": "Choice (notifications.attention.agentChats): how an agent chat pane rings when its turn ends: glow, ring or none (default)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ring Agent Chat Panes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار الحلقة على أجزاء دردشة الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prsten na oknima chata s agentom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ring om agentchatruder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ring um Agent-Chat-Bereiche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anillo en paneles de chat del agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anneau sur les volets de discussion d’agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anello sui riquadri della chat dell’agente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントチャットペインにリング"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រង្វង់លើផ្ទាំងជជែកភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 채팅 창에 링 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ring rundt agentchatruter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obwódka paneli czatu z agentem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anel nos painéis de chat do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кольцо у панелей чата с агентом"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "วงแหวนบนบานหน้าต่างแชทเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan sohbet bölmelerinde halka"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кільце на панелях чату з агентом"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vòng trên khung trò chuyện tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理聊天窗格显示环"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理聊天窗格顯示環"
+          }
+        }
+      }
+    },
+    "settings.attention.agentChats.help": {
+      "comment": "Help for notifications.attention.agentChats",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ring an agent chat's pane when its turn ends, until you click or type in it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار حلقة حول جزء دردشة الوكيل عند انتهاء دوره، حتى تنقر عليه أو تكتب فيه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži prsten oko okna chata s agentom kad mu se potez završi, dok ne klikneš ili ne kucaš u njemu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis en ring om en agentchats rude, når dens tur slutter, indtil du klikker eller skriver i den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeigt einen Ring um den Bereich eines Agent-Chats, wenn sein Zug endet, bis du hineinklickst oder tippst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muestra un anillo en el panel de un chat del agente cuando termina su turno, hasta que hagas clic o escribas en él."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affiche un anneau autour du volet d’une discussion d’agent à la fin de son tour, jusqu’à ce que vous cliquiez ou tapiez dedans."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra un anello intorno al riquadro di una chat dell’agente quando il suo turno finisce, finché non fai clic o scrivi al suo interno."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントチャットのターンが終わると、クリックするか入力するまでペインにリングを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញរង្វង់ជុំវិញផ្ទាំងជជែកភ្នាក់ងារ នៅពេលវេនរបស់វាបញ្ចប់ រហូតដល់អ្នកចុច ឬវាយបញ្ចូលក្នុងវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 채팅의 턴이 끝나면 클릭하거나 입력할 때까지 창에 링을 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis en ring rundt en agentchats rute når turen er over, til du klikker eller skriver i den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuj obwódkę panelu czatu z agentem po zakończeniu jego tury, dopóki go nie klikniesz lub nie zaczniesz w nim pisać."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra um anel no painel de um chat do agente quando o turno termina, até você clicar ou digitar nele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать кольцо вокруг панели чата с агентом, когда его ход заканчивается, пока вы не щёлкнете или не начнёте печатать в ней."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงวงแหวนรอบบานหน้าต่างแชทเอเจนต์เมื่อจบเทิร์น จนกว่าคุณจะคลิกหรือพิมพ์ในนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir ajan sohbetinin sırası bittiğinde, tıklayana veya yazana kadar bölmesinde halka gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати кільце навколо панелі чату з агентом, коли його хід завершується, доки ви не клацнете або не почнете друкувати в ній."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiển thị vòng quanh khung trò chuyện tác tử khi lượt của nó kết thúc, cho đến khi bạn nhấp hoặc gõ vào đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理聊天的回合结束时，在其窗格周围显示环，直到你点击或在其中输入。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理聊天的回合結束時，在其窗格周圍顯示環，直到你點按或在其中輸入。"
+          }
+        }
+      }
+    },
+    "settings.attention.agentChatBlinkCount": {
+      "comment": "Number of flashes of an agent chat pane's attention ring as it is read (notifications.attention.agentChatBlinkCount); default 1",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Chat Blinks"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ومضات دردشة الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Treptaji chata s agentom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blink for agentchats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blinken bei Agent-Chats"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parpadeos del chat del agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Clignotements des discussions d’agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lampeggi della chat dell’agente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントチャットの点滅回数"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការភ្លឹបភ្លែតនៃការជជែកភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 채팅 깜박임 횟수"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blink for agentchatter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mignięcia czatu z agentem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Piscadas do chat do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мигания чата с агентом"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จำนวนการกะพริบของแชทเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan sohbeti yanıp sönmeleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Блимання чату з агентом"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Số lần nhấp nháy của trò chuyện tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理聊天闪烁次数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理聊天閃爍次數"
+          }
+        }
+      }
+    },
     "settings.attention.flashOnTyping": {
       "extractionState": "manual",
       "localizations": {
@@ -158474,6 +159683,1854 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "30 分鐘後"
+          }
+        }
+      }
+    },
+    "settings.terminal.linkOpener.default": {
+      "comment": "Settings row in Terminal > Opening Links: where a URL a terminal program opens goes.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Program Links In"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح روابط البرامج في"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvaraj linkove programa u"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn programlinks i"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Programmlinks öffnen in"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir enlaces de programas en"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir les liens des programmes dans"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri i link dei programmi in"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プログラムのリンクを開く場所"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកតំណរបស់កម្មវិធីក្នុង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프로그램 링크 열기 위치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne programlenker i"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwieraj linki programów w"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir links de programas em"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открывать ссылки программ в"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดลิงก์ของโปรแกรมใน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program bağlantılarını şurada aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкривати посилання програм у"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở liên kết của chương trình trong"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "程序链接打开位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "程式連結開啟位置"
+          }
+        }
+      }
+    },
+    "settings.terminal.linkOpener.default.help": {
+      "comment": "Help for Terminal > Open Program Links In. Keep the literal values (cmux, system, chrome, app:<name>, command:<command>, BROWSER) untranslated.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where a URL goes when a program in a terminal opens a browser, such as aws login or gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, a profile after @ (chrome@Profile 1), or command:<command> to let your script decide. A BROWSER you set yourself wins."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المكان الذي يذهب إليه الرابط عندما يفتح برنامج في الطرفية متصفحًا، مثل aws login أو gh auth login: cmux أو system أو chrome أو safari أو arc أو firefox أو edge أو brave أو app:<name>، أو ملف تعريف بعد @ (chrome@Profile 1)، أو command:<command> ليقرر البرنامج النصي الخاص بك. متغير BROWSER الذي تضبطه بنفسك له الأولوية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdje ide URL kada program u terminalu otvori preglednik, npr. aws login ili gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, profil nakon @ (chrome@Profile 1) ili command:<command> da vaša skripta odluči. BROWSER koji sami postavite ima prednost."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor en URL går hen, når et program i en terminal åbner en browser, fx aws login eller gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, en profil efter @ (chrome@Profile 1) eller command:<command>, så dit script bestemmer. En BROWSER, du selv sætter, vinder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wohin eine URL geht, wenn ein Programm im Terminal einen Browser öffnet, etwa aws login oder gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, ein Profil nach @ (chrome@Profile 1) oder command:<command>, damit dein Skript entscheidet. Ein selbst gesetztes BROWSER hat Vorrang."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adónde va una URL cuando un programa en una terminal abre un navegador, como aws login o gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, un perfil tras @ (chrome@Profile 1) o command:<command> para que decida tu script. Un BROWSER que definas tú tiene prioridad."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Où va une URL quand un programme du terminal ouvre un navigateur, comme aws login ou gh auth login : cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, un profil après @ (chrome@Profile 1) ou command:<command> pour laisser votre script décider. Un BROWSER que vous définissez vous-même l’emporte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dove va un URL quando un programma nel terminale apre un browser, come aws login o gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, un profilo dopo @ (chrome@Profile 1) o command:<command> per far decidere il tuo script. Un BROWSER impostato da te ha la precedenza."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ターミナルのプログラムがブラウザを開くとき (aws login や gh auth login など) の URL の行き先: cmux、system、chrome、safari、arc、firefox、edge、brave、app:<name>、@ の後にプロファイル (chrome@Profile 1)、またはスクリプトに任せる command:<command>。自分で設定した BROWSER が優先されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងដែល URL ទៅ នៅពេលកម្មវិធីក្នុងទែមីណាល់បើកកម្មវិធីរុករក ដូចជា aws login ឬ gh auth login៖ cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, ប្រវត្តិរូបបន្ទាប់ពី @ (chrome@Profile 1) ឬ command:<command> ដើម្បីឲ្យស្គ្រីបរបស់អ្នកសម្រេច។ BROWSER ដែលអ្នកកំណត់ខ្លួនឯងមានអាទិភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "터미널의 프로그램이 브라우저를 열 때(예: aws login, gh auth login) URL이 가는 곳: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, @ 뒤의 프로필(chrome@Profile 1), 또는 스크립트가 정하게 하는 command:<command>. 직접 설정한 BROWSER가 우선합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor en URL går når et program i en terminal åpner en nettleser, for eksempel aws login eller gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, en profil etter @ (chrome@Profile 1), eller command:<command> for å la skriptet ditt bestemme. En BROWSER du setter selv, vinner."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dokąd trafia URL, gdy program w terminalu otwiera przeglądarkę, np. aws login lub gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, profil po @ (chrome@Profile 1) albo command:<command>, aby zdecydował Twój skrypt. Ustawiona przez Ciebie zmienna BROWSER ma pierwszeństwo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Para onde vai uma URL quando um programa no terminal abre um navegador, como aws login ou gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, um perfil após @ (chrome@Profile 1) ou command:<command> para seu script decidir. Um BROWSER definido por você tem prioridade."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Куда идёт URL, когда программа в терминале открывает браузер, например aws login или gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, профиль после @ (chrome@Profile 1) или command:<command>, чтобы решал ваш скрипт. Заданная вами переменная BROWSER имеет приоритет."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ที่ที่ URL ไปเมื่อโปรแกรมในเทอร์มินัลเปิดเบราว์เซอร์ เช่น aws login หรือ gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, โปรไฟล์หลัง @ (chrome@Profile 1) หรือ command:<command> เพื่อให้สคริปต์ของคุณตัดสินใจ BROWSER ที่คุณตั้งเองจะมีผลก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminaldeki bir program tarayıcı açtığında (aws login veya gh auth login gibi) URL'nin gittiği yer: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, @ sonrasında bir profil (chrome@Profile 1) veya betiğinizin karar vermesi için command:<command>. Kendi ayarladığınız BROWSER önceliklidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Куди йде URL, коли програма в терміналі відкриває браузер, наприклад aws login або gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, профіль після @ (chrome@Profile 1) або command:<command>, щоб вирішував ваш скрипт. Встановлена вами змінна BROWSER має пріоритет."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nơi URL được mở khi một chương trình trong terminal mở trình duyệt, như aws login hoặc gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, một hồ sơ sau @ (chrome@Profile 1), hoặc command:<command> để script của bạn quyết định. BROWSER do bạn tự đặt sẽ được ưu tiên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "终端中的程序打开浏览器时（例如 aws login 或 gh auth login）URL 的去向：cmux、system、chrome、safari、arc、firefox、edge、brave、app:<name>、@ 后接配置文件（chrome@Profile 1），或用 command:<command> 让你的脚本决定。你自己设置的 BROWSER 优先。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "終端機中的程式開啟瀏覽器時（例如 aws login 或 gh auth login）URL 的去向：cmux、system、chrome、safari、arc、firefox、edge、brave、app:<name>、@ 後接設定檔（chrome@Profile 1），或用 command:<command> 讓你的指令碼決定。你自己設定的 BROWSER 優先。"
+          }
+        }
+      }
+    },
+    "settings.terminal.linkOpener.rules": {
+      "comment": "Settings row in Terminal > Opening Links: ordered rules for program links.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Program Link Rules"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "قواعد روابط البرامج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pravila za linkove programa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regler for programlinks"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regeln für Programmlinks"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reglas de enlaces de programas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Règles des liens des programmes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regole per i link dei programmi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プログラムのリンクのルール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ច្បាប់តំណរបស់កម្មវិធី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프로그램 링크 규칙"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regler for programlenker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reguły linków programów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regras de links de programas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Правила для ссылок программ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กฎลิงก์ของโปรแกรม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program bağlantısı kuralları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Правила для посилань програм"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quy tắc liên kết của chương trình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "程序链接规则"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "程式連結規則"
+          }
+        }
+      }
+    },
+    "settings.terminal.linkOpener.rules.help": {
+      "comment": "Help for Terminal > Program Link Rules. Keep the rule syntax (<match> -> <target>, caller:aws, re:, the example) untranslated.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checked in order before the default; the first match wins. Write <match> -> <target>: caller:aws matches the program that opened the URL, and text, * wildcards or re: match the URL. Example: caller:gh github.com -> safari"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تُفحص بالترتيب قبل الافتراضي، وأول تطابق يفوز. اكتب <match> -> <target>: يطابق caller:aws البرنامج الذي فتح الرابط، ويطابق النص أو أحرف * البديلة أو re: الرابط. مثال: caller:gh github.com -> safari"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Provjeravaju se redom prije zadanog; prvo poklapanje pobjeđuje. Pišite <match> -> <target>: caller:aws odgovara programu koji je otvorio URL, a tekst, * zamjenski znakovi ili re: odgovaraju URL-u. Primjer: caller:gh github.com -> safari"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kontrolleres i rækkefølge før standarden; første match vinder. Skriv <match> -> <target>: caller:aws matcher programmet, der åbnede URL'en, og tekst, *-jokertegn eller re: matcher URL'en. Eksempel: caller:gh github.com -> safari"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Werden der Reihe nach vor dem Standard geprüft; der erste Treffer gewinnt. Schreibe <match> -> <target>: caller:aws passt auf das Programm, das die URL geöffnet hat, und Text, *-Platzhalter oder re: passen auf die URL. Beispiel: caller:gh github.com -> safari"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se comprueban en orden antes del valor predeterminado; gana la primera coincidencia. Escribe <match> -> <target>: caller:aws coincide con el programa que abrió la URL, y texto, comodines * o re: coinciden con la URL. Ejemplo: caller:gh github.com -> safari"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vérifiées dans l’ordre avant la valeur par défaut ; la première correspondance l’emporte. Écrivez <match> -> <target> : caller:aws correspond au programme qui a ouvert l’URL, et du texte, des jokers * ou re: correspondent à l’URL. Exemple : caller:gh github.com -> safari"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Controllate in ordine prima del predefinito; vince la prima corrispondenza. Scrivi <match> -> <target>: caller:aws corrisponde al programma che ha aperto l'URL, e testo, caratteri jolly * o re: corrispondono all'URL. Esempio: caller:gh github.com -> safari"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "デフォルトより先に上から順に確認し、最初に一致したものが使われます。<match> -> <target> と書きます。caller:aws は URL を開いたプログラムに、テキスト、* ワイルドカード、re: は URL に一致します。例: caller:gh github.com -> safari"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពិនិត្យតាមលំដាប់មុនលំនាំដើម ការផ្គូផ្គងដំបូងឈ្នះ។ សរសេរ <match> -> <target>៖ caller:aws ផ្គូផ្គងកម្មវិធីដែលបានបើក URL ហើយអត្ថបទ តួអក្សរជំនួស * ឬ re: ផ្គូផ្គង URL។ ឧទាហរណ៍៖ caller:gh github.com -> safari"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "기본값보다 먼저 순서대로 확인하며 처음 일치한 규칙이 적용됩니다. <match> -> <target> 형식으로 쓰세요. caller:aws는 URL을 연 프로그램과, 텍스트, * 와일드카드, re:는 URL과 일치합니다. 예: caller:gh github.com -> safari"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sjekkes i rekkefølge før standarden; første treff vinner. Skriv <match> -> <target>: caller:aws treffer programmet som åpnet URL-en, og tekst, *-jokertegn eller re: treffer URL-en. Eksempel: caller:gh github.com -> safari"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sprawdzane po kolei przed wartością domyślną; wygrywa pierwsze dopasowanie. Pisz <match> -> <target>: caller:aws pasuje do programu, który otworzył URL, a tekst, symbole wieloznaczne * lub re: pasują do URL. Przykład: caller:gh github.com -> safari"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verificadas em ordem antes do padrão; a primeira correspondência vence. Escreva <match> -> <target>: caller:aws corresponde ao programa que abriu a URL, e texto, curingas * ou re: correspondem à URL. Exemplo: caller:gh github.com -> safari"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Проверяются по порядку до значения по умолчанию; побеждает первое совпадение. Пишите <match> -> <target>: caller:aws совпадает с программой, открывшей URL, а текст, подстановочные знаки * или re: — с URL. Пример: caller:gh github.com -> safari"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตรวจตามลำดับก่อนค่าเริ่มต้น กฎแรกที่ตรงจะถูกใช้ เขียน <match> -> <target>: caller:aws ตรงกับโปรแกรมที่เปิด URL ส่วนข้อความ ไวลด์การ์ด * หรือ re: ตรงกับ URL ตัวอย่าง: caller:gh github.com -> safari"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Varsayılandan önce sırayla denetlenir; ilk eşleşme kazanır. <match> -> <target> yazın: caller:aws URL'yi açan programla, metin, * joker karakterleri veya re: URL ile eşleşir. Örnek: caller:gh github.com -> safari"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перевіряються по черзі до значення за замовчуванням; перемагає перший збіг. Пишіть <match> -> <target>: caller:aws збігається з програмою, що відкрила URL, а текст, символи * або re: — з URL. Приклад: caller:gh github.com -> safari"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Được kiểm tra theo thứ tự trước giá trị mặc định; quy tắc khớp đầu tiên được dùng. Viết <match> -> <target>: caller:aws khớp với chương trình đã mở URL, còn văn bản, ký tự đại diện * hoặc re: khớp với URL. Ví dụ: caller:gh github.com -> safari"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在默认值之前按顺序检查，第一个匹配的规则生效。写法为 <match> -> <target>：caller:aws 匹配打开 URL 的程序，文本、* 通配符或 re: 匹配 URL。示例：caller:gh github.com -> safari"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在預設值之前依序檢查，第一個符合的規則生效。寫法為 <match> -> <target>：caller:aws 符合開啟 URL 的程式，文字、* 萬用字元或 re: 符合 URL。範例：caller:gh github.com -> safari"
+          }
+        }
+      }
+    },
+    "settings.terminal.linkOpener.rules.summary": {
+      "comment": "Summary under Terminal > Program Link Rules.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rules for program links"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "قواعد لروابط البرامج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pravila za linkove programa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regler for programlinks"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regeln für Programmlinks"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reglas para enlaces de programas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Règles pour les liens des programmes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regole per i link dei programmi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プログラムのリンクのルール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ច្បាប់សម្រាប់តំណកម្មវិធី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프로그램 링크 규칙"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regler for programlenker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reguły dla linków programów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regras para links de programas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Правила для ссылок программ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กฎสำหรับลิงก์ของโปรแกรม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program bağlantıları için kurallar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Правила для посилань програм"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quy tắc cho liên kết của chương trình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "程序链接的规则"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "程式連結的規則"
+          }
+        }
+      }
+    },
+    "settings.group.chiefReactions": {
+      "comment": "Chief reaction classifier (a416).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reactions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リアクション"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التفاعلات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reakcije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reaktioner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reaktionen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reacciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réactions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reazioni"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រតិកម្ម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "반응"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reaksjoner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reakcje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Реакции"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รีแอคชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tepkiler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Реакції"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bày tỏ cảm xúc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回应"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回應"
+          }
+        }
+      }
+    },
+    "settings.chief.reactionsCanWake": {
+      "comment": "Chief reaction classifier (a416).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reactions Can Wake the Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リアクションでChiefを起こす"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يمكن للتفاعلات إيقاظ Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reakcije mogu probuditi Chiefa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reaktioner kan vække Chief"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reaktionen können den Chief wecken"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las reacciones pueden despertar al Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les réactions peuvent réveiller le Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le reazioni possono svegliare il Chief"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រតិកម្មអាចដាស់ Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "반응으로 Chief 깨우기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reaksjoner kan vekke Chief"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reakcje mogą budzić Chiefa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reações podem acordar o Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Реакции могут будить Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รีแอคชันปลุก Chief ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tepkiler Chief'i uyandırabilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Реакції можуть будити Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cảm xúc có thể đánh thức Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回应可唤醒 Chief"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回應可喚醒 Chief"
+          }
+        }
+      }
+    },
+    "settings.chief.reactionsCanWake.help": {
+      "comment": "Chief reaction classifier (a416).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A reaction you put on a Chief message can start a turn when it asks for one, such as a question mark on a question or a thumbs down on a plan. A cheap model decides first, so a reaction that needs no answer never shows the typing dots. Off, reactions are only noted."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiefのメッセージに付けたリアクションが返答を求めるとき(質問への「?」や計画への👎など)、ターンを開始できます。先に安価なモデルが判断するため、返答の要らないリアクションで入力中の表示が出ることはありません。オフにすると、リアクションは記録されるだけです。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يمكن لتفاعل تضعه على رسالة من Chief أن يبدأ دورًا عندما يطلب ردًا، مثل علامة استفهام على سؤال أو إبهام لأسفل على خطة. يقرر نموذج رخيص أولًا، فلا تظهر نقاط الكتابة أبدًا لتفاعل لا يحتاج إلى رد. عند الإيقاف، تُسجَّل التفاعلات فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reakcija na Chiefovu poruku može pokrenuti potez kada traži odgovor, npr. upitnik na pitanje ili palac dolje na plan. Prvo odlučuje jeftin model, pa reakcija bez potrebe za odgovorom nikad ne prikaže tačkice kucanja. Isključeno, reakcije se samo bilježe."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En reaktion på en Chief-besked kan starte en tur, når den beder om svar, fx et spørgsmålstegn på et spørgsmål eller en tommel ned på en plan. En billig model afgør det først, så en reaktion uden behov for svar viser aldrig skriveprikkerne. Slået fra noteres reaktioner kun."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine Reaktion auf eine Chief-Nachricht kann einen Zug starten, wenn sie eine Antwort verlangt, etwa ein Fragezeichen auf eine Frage oder ein Daumen runter auf einen Plan. Zuerst entscheidet ein günstiges Modell, daher zeigt eine Reaktion ohne Antwortbedarf nie die Tipppunkte. Aus werden Reaktionen nur vermerkt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una reacción en un mensaje del Chief puede iniciar un turno cuando pide respuesta, como un signo de interrogación en una pregunta o un pulgar abajo en un plan. Primero decide un modelo económico, así que una reacción que no necesita respuesta nunca muestra los puntos de escritura. Desactivado, las reacciones solo se anotan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une réaction sur un message du Chief peut lancer un tour quand elle appelle une réponse, par exemple un point d’interrogation sur une question ou un pouce vers le bas sur un plan. Un modèle bon marché décide d’abord : une réaction qui n’appelle pas de réponse n’affiche jamais les points de saisie. Désactivé, les réactions sont seulement notées."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una reazione a un messaggio del Chief può avviare un turno quando chiede una risposta, come un punto interrogativo su una domanda o un pollice verso su un piano. Decide prima un modello economico, quindi una reazione che non chiede risposta non mostra mai i puntini di scrittura. Disattivato, le reazioni vengono solo annotate."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រតិកម្មលើសារ Chief អាចចាប់ផ្ដើមវេនមួយ នៅពេលវាត្រូវការចម្លើយ ដូចជាសញ្ញាសួរលើសំណួរ ឬមេដៃចុះលើផែនការ។ ម៉ូដែលថោកសម្រេចមុន ដូច្នេះប្រតិកម្មដែលមិនត្រូវការចម្លើយមិនបង្ហាញចំណុចកំពុងវាយទេ។ ពេលបិទ ប្រតិកម្មត្រូវបានកត់ត្រាតែប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 메시지에 남긴 반응이 답을 요구하면(질문에 물음표, 계획에 싫어요 등) 턴을 시작할 수 있습니다. 저렴한 모델이 먼저 판단하므로 답이 필요 없는 반응에는 입력 중 표시가 나타나지 않습니다. 끄면 반응은 기록만 됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En reaksjon på en Chief-melding kan starte en tur når den ber om svar, for eksempel et spørsmålstegn på et spørsmål eller tommel ned på en plan. En billig modell avgjør først, så en reaksjon som ikke trenger svar viser aldri skriveprikkene. Av blir reaksjoner bare notert."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reakcja na wiadomość Chiefa może rozpocząć turę, gdy wymaga odpowiedzi, np. znak zapytania przy pytaniu albo kciuk w dół przy planie. Najpierw decyduje tani model, więc reakcja bez potrzeby odpowiedzi nigdy nie pokazuje kropek pisania. Wyłączone: reakcje są tylko zapisywane."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma reação em uma mensagem do Chief pode iniciar um turno quando pede resposta, como um ponto de interrogação em uma pergunta ou um polegar para baixo em um plano. Um modelo barato decide primeiro, então uma reação que não precisa de resposta nunca mostra os pontos de digitação. Desligado, as reações são apenas anotadas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Реакция на сообщение Chief может начать ход, если требует ответа, например вопросительный знак на вопрос или палец вниз на план. Сначала решает недорогая модель, поэтому реакция без нужды в ответе не показывает индикатор набора. Выключено: реакции только записываются."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รีแอคชันบนข้อความของ Chief เริ่มรอบได้เมื่อต้องการคำตอบ เช่น เครื่องหมายคำถามบนคำถาม หรือนิ้วโป้งลงบนแผน โมเดลราคาถูกตัดสินก่อน รีแอคชันที่ไม่ต้องการคำตอบจึงไม่แสดงจุดกำลังพิมพ์ เมื่อปิด รีแอคชันจะถูกบันทึกเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir Chief mesajına bıraktığınız tepki yanıt istediğinde bir tur başlatabilir; örneğin bir soruya soru işareti veya bir plana başparmak aşağı. Önce ucuz bir model karar verir, bu yüzden yanıt gerektirmeyen bir tepki yazıyor noktalarını hiç göstermez. Kapalıyken tepkiler yalnızca not edilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Реакція на повідомлення Chief може почати хід, коли просить відповіді, наприклад знак питання на питання або палець униз на план. Спершу вирішує недорога модель, тож реакція без потреби відповіді не показує індикатор набору. Вимкнено: реакції лише записуються."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cảm xúc bạn đặt lên tin nhắn của Chief có thể bắt đầu một lượt khi cần trả lời, như dấu hỏi trên một câu hỏi hoặc ngón cái xuống trên một kế hoạch. Một mô hình rẻ quyết định trước, nên cảm xúc không cần trả lời sẽ không hiện dấu đang nhập. Khi tắt, cảm xúc chỉ được ghi lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你在 Chief 消息上的回应若需要答复(例如在问题上加问号、在计划上点踩),可以开始一轮。先由廉价模型判断,因此无需答复的回应不会显示正在输入。关闭后,回应只会被记录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你在 Chief 訊息上的回應若需要答覆(例如在問題上加問號、在計畫上倒讚),可以開始一輪。先由低成本模型判斷,因此無需答覆的回應不會顯示正在輸入。關閉後,回應只會被記錄。"
+          }
+        }
+      }
+    },
+    "settings.chief.reactionClassifier.harness": {
+      "comment": "Chief reaction classifier (a416).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reaction Classifier Harness"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リアクション分類のハーネス"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حزمة مصنِّف التفاعلات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness klasifikatora reakcija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness til reaktionsklassifikator"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness des Reaktionsklassifikators"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness del clasificador de reacciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness du classificateur de réactions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness del classificatore di reazioni"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness សម្រាប់ចំណាត់ថ្នាក់ប្រតិកម្ម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "반응 분류기 하네스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness for reaksjonsklassifisering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness klasyfikatora reakcji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness do classificador de reações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness классификатора реакций"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness ตัวจำแนกรีแอคชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tepki sınıflandırıcı harness'ı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness класифікатора реакцій"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness bộ phân loại cảm xúc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回应分类器 Harness"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回應分類器 Harness"
+          }
+        }
+      }
+    },
+    "settings.chief.reactionClassifier.harness.help": {
+      "comment": "Chief reaction classifier (a416).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent harness the reaction classifier runs on, for example claude or codex. Empty uses the Chief's Claude route."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リアクション分類を実行するエージェントハーネス(claude、codexなど)。空欄ならChiefのClaudeルートを使います。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حزمة الوكيل التي يعمل عليها مصنِّف التفاعلات، مثل claude أو codex. الفراغ يستخدم مسار Claude الخاص بـ Chief."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent harness na kojem radi klasifikator reakcija, npr. claude ili codex. Prazno koristi Chiefovu Claude rutu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent-harness som reaktionsklassifikatoren kører på, fx claude eller codex. Tom bruger Chiefs Claude-rute."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Agent-Harness, auf dem der Reaktionsklassifikator läuft, etwa claude oder codex. Leer nutzt die Claude-Route des Chiefs."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El harness de agente en el que corre el clasificador, por ejemplo claude o codex. Vacío usa la ruta de Claude del Chief."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le harness d’agent sur lequel tourne le classificateur, par exemple claude ou codex. Vide utilise la route Claude du Chief."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’harness dell’agente su cui gira il classificatore, ad esempio claude o codex. Vuoto usa la route Claude del Chief."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness ភ្នាក់ងារដែលចំណាត់ថ្នាក់ប្រតិកម្មដំណើរការ ឧ. claude ឬ codex។ ទទេប្រើផ្លូវ Claude របស់ Chief។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "반응 분류기가 실행되는 에이전트 하네스(예: claude, codex). 비워 두면 Chief의 Claude 경로를 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent-harness reaksjonsklassifisereren kjører på, for eksempel claude eller codex. Tom bruker Chiefs Claude-rute."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness agenta, na którym działa klasyfikator, np. claude lub codex. Puste używa trasy Claude Chiefa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O harness de agente em que o classificador roda, por exemplo claude ou codex. Vazio usa a rota Claude do Chief."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness агента, на котором работает классификатор, например claude или codex. Пусто: маршрут Claude у Chief."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness ของเอเจนต์ที่ตัวจำแนกทำงาน เช่น claude หรือ codex ว่างไว้จะใช้เส้นทาง Claude ของ Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tepki sınıflandırıcının çalıştığı ajan harness'ı, örneğin claude veya codex. Boş bırakılırsa Chief'in Claude yolu kullanılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness агента, на якому працює класифікатор, наприклад claude або codex. Порожньо: маршрут Claude у Chief."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness tác tử mà bộ phân loại chạy trên đó, ví dụ claude hoặc codex. Để trống dùng tuyến Claude của Chief."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回应分类器运行的代理 harness,例如 claude 或 codex。留空则使用 Chief 的 Claude 路由。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回應分類器執行的代理 harness,例如 claude 或 codex。留空則使用 Chief 的 Claude 路由。"
+          }
+        }
+      }
+    },
+    "settings.chief.reactionClassifier.model": {
+      "comment": "Chief reaction classifier (a416).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reaction Classifier Model"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リアクション分類のモデル"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نموذج مصنِّف التفاعلات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Model klasifikatora reakcija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Model til reaktionsklassifikator"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modell des Reaktionsklassifikators"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modelo del clasificador de reacciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modèle du classificateur de réactions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modello del classificatore di reazioni"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ូដែលចំណាត់ថ្នាក់ប្រតិកម្ម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "반응 분류기 모델"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modell for reaksjonsklassifisering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Model klasyfikatora reakcji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modelo do classificador de reações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Модель классификатора реакций"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โมเดลตัวจำแนกรีแอคชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tepki sınıflandırıcı modeli"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Модель класифікатора реакцій"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mô hình phân loại cảm xúc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回应分类器模型"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回應分類器模型"
+          }
+        }
+      }
+    },
+    "settings.chief.reactionClassifier.model.help": {
+      "comment": "Chief reaction classifier (a416).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The model that decides whether a reaction starts a turn. Claude Haiku by default: it is fast and cheap."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リアクションでターンを開始するかを判断するモデル。既定はClaude Haikuです(高速で安価)。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "النموذج الذي يقرر ما إذا كان التفاعل يبدأ دورًا. Claude Haiku افتراضيًا: سريع ورخيص."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Model koji odlučuje pokreće li reakcija potez. Zadano Claude Haiku: brz je i jeftin."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modellen der afgør, om en reaktion starter en tur. Claude Haiku som standard: hurtig og billig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Modell, das entscheidet, ob eine Reaktion einen Zug startet. Standard ist Claude Haiku: schnell und günstig."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El modelo que decide si una reacción inicia un turno. Claude Haiku por defecto: es rápido y barato."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le modèle qui décide si une réaction lance un tour. Claude Haiku par défaut : rapide et bon marché."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il modello che decide se una reazione avvia un turno. Claude Haiku di default: è veloce ed economico."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ូដែលដែលសម្រេចថាប្រតិកម្មចាប់ផ្ដើមវេនឬអត់។ លំនាំដើម Claude Haiku៖ លឿន និងថោក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "반응이 턴을 시작할지 판단하는 모델. 기본값은 빠르고 저렴한 Claude Haiku입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modellen som avgjør om en reaksjon starter en tur. Claude Haiku som standard: rask og billig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Model, który decyduje, czy reakcja rozpoczyna turę. Domyślnie Claude Haiku: szybki i tani."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O modelo que decide se uma reação inicia um turno. Claude Haiku por padrão: é rápido e barato."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Модель, которая решает, начинает ли реакция ход. По умолчанию Claude Haiku: быстрая и недорогая."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โมเดลที่ตัดสินว่ารีแอคชันเริ่มรอบหรือไม่ ค่าเริ่มต้นคือ Claude Haiku ซึ่งเร็วและถูก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir tepkinin tur başlatıp başlatmayacağına karar veren model. Varsayılan Claude Haiku: hızlı ve ucuz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Модель, що вирішує, чи починає реакція хід. Типово Claude Haiku: швидка й недорога."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mô hình quyết định một cảm xúc có bắt đầu lượt hay không. Mặc định là Claude Haiku: nhanh và rẻ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "判断回应是否开始一轮的模型。默认使用 Claude Haiku:快速且便宜。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "判斷回應是否開始一輪的模型。預設使用 Claude Haiku:快速且便宜。"
+          }
+        }
+      }
+    },
+    "settings.chief.reactionClassifier.prompt": {
+      "comment": "Chief reaction classifier (a416).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reaction Classifier Instructions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リアクション分類の指示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعليمات مصنِّف التفاعلات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upute klasifikatora reakcija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instruktioner til reaktionsklassifikator"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anweisungen des Reaktionsklassifikators"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instrucciones del clasificador de reacciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instructions du classificateur de réactions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Istruzioni del classificatore di reazioni"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សេចក្ដីណែនាំចំណាត់ថ្នាក់ប្រតិកម្ម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "반응 분류기 지침"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instruksjoner for reaksjonsklassifisering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instrukcje klasyfikatora reakcji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instruções do classificador de reações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Инструкции классификатора реакций"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำสั่งของตัวจำแนกรีแอคชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tepki sınıflandırıcı talimatları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Інструкції класифікатора реакцій"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hướng dẫn bộ phân loại cảm xúc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回应分类器指令"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回應分類器指示"
+          }
+        }
+      }
+    },
+    "settings.chief.reactionClassifier.prompt.help": {
+      "comment": "Chief reaction classifier (a416).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What the classifier is told when it decides. Empty uses the built-in instructions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分類モデルが判断するときに与える指示。空欄なら組み込みの指示を使います。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ما يُقال للمصنِّف عندما يقرر. الفراغ يستخدم التعليمات المضمَّنة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Šta se klasifikatoru kaže kada odlučuje. Prazno koristi ugrađene upute."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvad klassifikatoren får at vide, når den afgør. Tom bruger de indbyggede instruktioner."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Was dem Klassifikator bei der Entscheidung gesagt wird. Leer nutzt die eingebauten Anweisungen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lo que se le dice al clasificador cuando decide. Vacío usa las instrucciones integradas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce qu’on dit au classificateur quand il décide. Vide utilise les instructions intégrées."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cosa viene detto al classificatore quando decide. Vuoto usa le istruzioni integrate."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អ្វីដែលប្រាប់ចំណាត់ថ្នាក់ពេលវាសម្រេច។ ទទេប្រើសេចក្ដីណែនាំដែលមានស្រាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "분류기가 판단할 때 받는 지침. 비워 두면 기본 지침을 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hva klassifisereren får beskjed om når den avgjør. Tom bruker de innebygde instruksjonene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Co klasyfikator otrzymuje przy decyzji. Puste używa wbudowanych instrukcji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O que o classificador recebe ao decidir. Vazio usa as instruções embutidas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Что говорят классификатору при решении. Пусто: встроенные инструкции."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สิ่งที่บอกตัวจำแนกเมื่อตัดสิน ว่างไว้จะใช้คำสั่งในตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sınıflandırıcıya karar verirken söylenen. Boş bırakılırsa yerleşik talimatlar kullanılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Що кажуть класифікатору під час рішення. Порожньо: вбудовані інструкції."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Những gì được nói với bộ phân loại khi nó quyết định. Để trống dùng hướng dẫn có sẵn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分类器判断时收到的指令。留空则使用内置指令。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分類器判斷時收到的指示。留空則使用內建指示。"
           }
         }
       }

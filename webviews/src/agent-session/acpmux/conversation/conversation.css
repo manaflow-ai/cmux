@@ -1155,6 +1155,16 @@ pre.cv-math-source {
   /* VirtualTranscript owns bottom-following. Letting WebKit also anchor the growing row makes
      each streamed token compete with that correction and produces the one-pixel shake at rest. */
   overflow-anchor: none;
+  /* Its scrollbar stays shown (scrollers.ts SHOWN_SCROLLER_ATTRIBUTE); under the opt-in fade it
+     paces with the pane's other fades, the host's durations after ui.animationSpeed and Reduce
+     Motion (0 with animations off). */
+  --cmux-scroller-fade-in: var(--agent-motion-in, 120ms);
+  --cmux-scroller-fade-out: var(--agent-motion-move, 180ms);
+}
+/* The spacer runs across the scrollbar's lane (VirtualTranscript `lane`), so the column matches the
+   composer's; the transcript never scrolls sideways. */
+.acpmux-scroll[data-cmux-shown-scroller] {
+  overflow-x: hidden;
 }
 .acpmux-main:has(.acpmux-asks-stack) .acpmux-scroll {
   margin-bottom: 0;
@@ -1512,13 +1522,13 @@ pre.cv-math-source {
 .cv-worked.is-below .cv-worked__time {
   color: var(--cv-text-dim);
 }
-/* Its "⌃B to run in background" shows only while the pointer is on the line. */
-.cv-worked.is-below .cv-command__bg {
+/* Its "⌃B to run in background" shows only while the pointer is on the line, on every live line. */
+:is(.cv-worked, .cv-activity) .cv-command__bg {
   animation: none;
   opacity: 0;
   transition: opacity var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out);
 }
-.cv-worked.is-below:hover .cv-command__bg {
+:is(.cv-worked, .cv-activity):hover .cv-command__bg {
   opacity: 1;
 }
 /* Its row drops the transcript row's 34px floor and bottom padding (.acpmux-row), so it is the
@@ -1531,19 +1541,43 @@ pre.cv-math-source {
 .cv-worked.is-quiet {
   visibility: hidden;
 }
+/* The shimmer's layers (ShimmerText.tsx): the band and its lit words show only while loops run. */
+.cv-thinking.is-shimmer {
+  position: relative;
+}
+.cv-shimmer__band {
+  display: none;
+}
 @media (prefers-reduced-motion: no-preference) {
+  /* SPINNERS-OFF-MAIN: a band masked to a soft stripe slides across the dim words while its lit copy
+     slides back by as much, so the lit words hold still under the moving stripe. Transform only: the
+     compositor runs both loops, the page paints nothing per frame. */
   :root:not([data-status-indicators="static"]) .cv-thinking.is-shimmer {
-    background: linear-gradient(
-        100deg,
-        var(--cv-text-dim) 35%,
-        color-mix(in srgb, var(--agent-accent, var(--cv-text)) 70%, var(--cv-text)) 50%,
-        var(--cv-text-dim) 65%
-      )
-      0 0 / 250% 100%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    animation: cmux-shimmer var(--cmux-breath-period, 2.4s) linear infinite;
+    color: var(--cv-text-dim);
+  }
+  :root:not([data-status-indicators="static"]) .cv-shimmer__band {
+    display: block;
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-mask-image: linear-gradient(100deg, transparent 30%, #000 50%, transparent 70%);
+    mask-image: linear-gradient(100deg, transparent 30%, #000 50%, transparent 70%);
+    animation: cmux-shimmer-band var(--cmux-breath-period, 2.4s) linear infinite;
+  }
+  :root:not([data-status-indicators="static"]) .cv-shimmer__lit {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: color-mix(in srgb, var(--agent-accent, var(--cv-text)) 70%, var(--cv-text));
+    animation: cmux-shimmer-lit var(--cmux-breath-period, 2.4s) linear infinite;
+  }
+  /* The lit words are generated content: the DOM holds the line's words once. */
+  :root:not([data-status-indicators="static"]) .cv-shimmer__lit::before {
+    content: attr(data-text);
   }
 }
 
@@ -1559,6 +1593,46 @@ pre.cv-math-source {
   max-height: 234px;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+/* Scrolled, its top fades out under the summary line above it (Leo 2026-10-21: "in that top section
+   fade would be good"), so a row half scrolled away dissolves instead of sitting cut in half against
+   the line. The transcript's top edge (.acpmux-scroll[data-fade-top], below): an alpha mask on the
+   list itself, never a painted overlay, so it covers nothing, catches no clicks and lets the pane's
+   glass show through in light and dark; at the list's start the edge is plain (data-fade-top,
+   scrollEdges.ts). The scrollbar's lane at the right keeps full ink. Reduce Transparency keeps a
+   plain edge. */
+.cv-tool-run[data-fade-top] {
+  --cv-tool-run-fade-top: 18px;
+  -webkit-mask-image:
+    linear-gradient(to bottom, transparent, #000 var(--cv-tool-run-fade-top)),
+    linear-gradient(#000, #000);
+  mask-image:
+    linear-gradient(to bottom, transparent, #000 var(--cv-tool-run-fade-top)),
+    linear-gradient(#000, #000);
+  -webkit-mask-size:
+    100% 100%,
+    var(--cmux-scroller-size, 8px) 100%;
+  mask-size:
+    100% 100%,
+    var(--cmux-scroller-size, 8px) 100%;
+  -webkit-mask-position:
+    0 0,
+    100% 0;
+  mask-position:
+    0 0,
+    100% 0;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .cv-tool-run[data-fade-top] {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+:root[data-reduce-transparency] .cv-tool-run[data-fade-top] {
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 .cv-tool {
   all: unset;
@@ -1599,9 +1673,10 @@ pre.cv-math-source {
   :root:not([data-status-indicators="static"])[data-working-look="spinner"] .cv-spinner {
     animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
   }
+  /* The dot breathes as its whole svg (the arc is hidden in this look): an svg box gets a compositor
+     layer, a shape inside it does not, so the dot's own opacity would repaint the svg every frame. */
   :root:not([data-status-indicators="static"]):not([data-working-look="spinner"]):not([data-working-look="shimmer"])
-    .cv-spinner[data-working]
-    .cv-spinner__dot {
+    .cv-spinner[data-working] {
     animation: cmux-breathe var(--cmux-breath-period, 2.4s) ease-in-out infinite;
   }
   :root:not([data-status-indicators="static"])[data-working-look="shimmer"]
@@ -1929,6 +2004,19 @@ pre.cv-math-source {
 .cv-tool:is(:hover, :focus-visible) :is(.cv-command__ok, .cv-command__time) {
   opacity: 1;
 }
+/* They fade as a message's hover row does (#23769, Claude's): in after a beat under the pointer, at
+   once from the keyboard, out quickly. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-tool :is(.cv-command__ok, .cv-command__time) {
+    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  }
+  .cv-tool:hover :is(.cv-command__ok, .cv-command__time) {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
+  .cv-tool:focus-visible :is(.cv-command__ok, .cv-command__time) {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
+  }
+}
 /* A lone shell row's background state (ToolRow.tsx, BackgroundMark.tsx) sits at its right edge. */
 .cv-tool__meta {
   margin-left: auto;
@@ -1948,7 +2036,8 @@ pre.cv-math-source {
 .cv-command__stopped {
   color: var(--cv-text-dim);
 }
-/* "⌃B to run in background" on a running command (BackgroundHint.tsx), at the row's right edge.
+/* "⌃B to run in background" while a command runs (BackgroundHint.tsx), at the right of the running
+   turn's live line; never on the command's own row.
    It fades in after a moment, so a quick command never shows it; opacity only, so it runs under
    Reduce Motion too. */
 .cv-command__bg {
@@ -1986,6 +2075,14 @@ pre.cv-math-source {
 .cv-message__text.has-more {
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
   mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}
+/* A send that did not arrive says why at the line's end ("Not delivered: agent stopped"), in a
+   muted warning tone rather than the danger red: the message is fine, the other agent was gone. */
+.cv-message[data-delivery="failed"] .cv-message__status {
+  color: color-mix(in srgb, var(--agent-warning, var(--agent-danger)) 75%, var(--cv-text-dim));
+}
+.cv-message[data-delivery="failed"] .cv-agentmsg__icon {
+  color: inherit;
 }
 /* Copy, at the sent line's end: shown while the message is pointed at or focused, as a received
    message's row is. Opacity, not display, so the line never reflows under the pointer. */
@@ -2101,14 +2198,18 @@ button.cv-received__name:focus-visible {
   margin-inline-start: 0;
 }
 /* The message: a compact glass card under the line, in from the icon column, its text as
-   Markdown. */
+   Markdown. Glass, never a solid fill: the theme's text at a low strength, a hairline edge with
+   a trace of the theme's accent, and a lighter top edge, as the composer's glass has. */
 .cv-received__body {
   box-sizing: border-box;
   margin: 4px 0 6px 22px;
   padding: 8px 12px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--agent-text, var(--cv-text)) 7%, transparent);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--agent-text, var(--cv-text)) 6%, transparent);
+  box-shadow:
+    inset 0 0 0 var(--cmux-hairline, 0.5px)
+      color-mix(in srgb, var(--agent-accent) 22%, var(--acpmux-composer-edge, transparent)),
+    inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
   color: var(--cv-text);
   line-height: var(--cv-line-height);
   overflow-wrap: anywhere;
@@ -2126,6 +2227,28 @@ button.cv-received__name:focus-visible {
   overflow: hidden;
   -webkit-mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
   mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
+}
+/* The card's text sits flush with its padding: no paragraph margin above the first line or below
+   the last. */
+.cv-received__text > .cv-md > :first-child {
+  margin-top: 0;
+}
+.cv-received__text > .cv-md > :last-child {
+  margin-bottom: 0;
+}
+/* A commit SHA in a message: quiet monospace, a link to its commit when its repository is known. */
+.cv-sha {
+  font-family: var(--cv-code-font, var(--cv-mono));
+  font-size: 0.92em;
+  color: var(--cv-text-dim);
+  text-decoration: none;
+}
+a.cv-sha:hover,
+a.cv-sha:focus-visible {
+  color: var(--cv-text);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 3px;
 }
 /* Details under an opened message: the prompt as the agent got it, closed until asked for. */
 .cv-received__details {
@@ -3515,6 +3638,13 @@ button.cv-received__name:focus-visible {
   min-height: 0;
 }
 .acpmux-row.acpmux-row--before-step {
+  padding-bottom: 0;
+}
+/* A row whose renderer draws nothing (a render update that joined an earlier card, a note whose
+   payload never came) takes no room: the 34px floor and the gap under it were a blank band each,
+   between "Worked for" and the reply. The element selector outranks every row-kind padding. */
+article.acpmux-row:empty {
+  min-height: 0;
   padding-bottom: 0;
 }
 .acpmux-row--after-step > .cv-tools {

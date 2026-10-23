@@ -321,13 +321,17 @@ final class WindowRootView: NSView, WindowSurfacePainting {
                 for case let old? in [previous, outgoing] where old !== view { withdraw(old) }
             }
         }
+        // Mid-slide the content keeps the slide's one width (`MainPaneCardView.contentHold`).
+        let frame = contentHost.heldContentFrame ?? contentHost.bounds
         if view.superview !== contentHost {
-            view.frame = contentHost.bounds
+            view.frame = frame
             contentHost.addSubview(view)
-        } else if view.frame != contentHost.bounds {
-            view.frame = contentHost.bounds
+        } else if view.frame != frame {
+            view.frame = frame
         }
         view.autoresizingMask = [.width, .height]
+        // Unparked while still hidden, so the subtree hears only the unhide.
+        (view as? WorkspaceContentView)?.setParked(false)
         view.isHidden = false
         let paneCards = (view as? WorkspaceContentView)?.layoutView as? any PaneCardSource
         if holds, let outgoing {
@@ -359,6 +363,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             window.makeFirstResponder(nil)
         }
         view.isHidden = true
+        // Parked once hidden: the hidden subtree hears nothing more.
+        (view as? WorkspaceContentView)?.setParked(true)
         view.autoresizingMask = []
     }
 

@@ -10,13 +10,12 @@ import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { commandFolder } from "./commandFolder";
 import { menuPartRef } from "./menuParts";
-import { BackgroundHint } from "./BackgroundHint";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { Check, ChevronRight, Spinner, TerminalSquare } from "./icons";
 import { isFailed, isRunning, toolDuration } from "./toolGroups";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
-import { shortCommand } from "./shortCommand";
+import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { useFold } from "./fold";
 
 export function CommandRow({ item }: { item: AcpmuxActivity }) {
@@ -41,11 +40,14 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
   const duration = toolDuration(t, tool);
   // Find counts the line without its leading cd (chatFind.ts), so a line shortened past that is
   // skipped; opened, the Shell block draws it.
-  const short = shortCommand(tool.command ?? "");
+  const short = shortCommand(tool.command ?? "", ROW_WIDTH);
   const whole = short === commandFolder(tool.command ?? "").rest.trim();
   const exited = tool.exitCode !== undefined && tool.exitCode !== 0;
-  // "Ran {command}" in the reader's language, the command drawn as code where the string puts it.
-  const [before = "", after = ""] = t("tools.ranCommand", { command: "\u0000" }).split("\u0000");
+  // "Ran {command}" in the reader's language, the command drawn as code where the string puts it;
+  // "Running {command}" until it is done. Its ⌃B hint is the live line's (WorkingFor.tsx, Thinking.tsx).
+  const [before = "", after = ""] = t(foreground ? "tools.runningCommand" : "tools.ranCommand", {
+    command: "\u0000",
+  }).split("\u0000");
   return (
     <>
       <button
@@ -76,7 +78,6 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
           )}
         </span>
         <span className="cv-command__meta">
-          {foreground && <BackgroundHint />}
           {foreground ? (
             <Spinner size={12} />
           ) : tool.background ? (

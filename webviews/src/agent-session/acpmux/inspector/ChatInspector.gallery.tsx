@@ -7,19 +7,34 @@
 // running lines' wave held mid-sweep, its finished tasks open (a background Bash only the transcript
 // knows among them), a Cloud chat before its first usage report, and the panel over the chat
 // (Overlay). Light and dark come from the gallery's theme switch.
-import type { ComponentProps } from "react";
+// A subagent's own panel (Leo, 2026-10-21: "subagent should have its own instance of it like it might
+// have different env worktree context bg tasks outputs and diffs etc"): one working in a Claude
+// worktree of its own, its environment, tokens, background test run and diffs its own, under three
+// ways to say whose panel it is (the head's title, the one drawn; a path; a card); one sharing the
+// chat's checkout; and the chat's panel beside them, its Subagents listing it.
+import type { ComponentProps, CSSProperties } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
 import { WAVE_CLASS, WAVE_KEYFRAMES } from "../../../ui/wave";
-import { activity, assistant, chat, CWD, tool } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, CONTEXT_BREAKDOWN, CWD, tool } from "../../../gallery/fixtures/acpmux";
 import type { StartedSession } from "../started/startedSessions";
 import type { Subagent } from "../subagents/subagentFold";
 import { sessionSummary } from "../summary/sessionSummary";
 import { ChatInspector, InspectorPanel, type InspectorPlacement } from "./ChatInspector";
+import { SubagentBanner, SubagentTitle, type SubagentHeaderVariant } from "./SubagentScopeHeader";
+import { subagentSummary, type SubagentScope } from "./subagentScope";
 import { outputArtifacts } from "./OutputsSection";
 import { DEFAULT_SECTIONS } from "./inspectorState";
 
-type Props = ComponentProps<typeof ChatInspector> & { placement?: InspectorPlacement; transcript?: boolean };
+type Props = ComponentProps<typeof ChatInspector> & {
+  placement?: InspectorPlacement;
+  transcript?: boolean;
+  /// A subagent's panel: whose it is, said the `header` way.
+  scope?: Pick<SubagentScope, "agent" | "parent" | "onBack">;
+  header?: SubagentHeaderVariant;
+  /// A gallery-only palette for the Context breakdown's categories (ContextSection.css tones).
+  tones?: CSSProperties;
+};
 
 const edit = (path: string, oldText: string | undefined, newText: string) =>
   tool(`Edit ${path}`, "edit", "completed", { diffs: [{ path: `${CWD}/${path}`, oldText, newText }] });
@@ -40,7 +55,7 @@ const made = sessionSummary(local.rows);
 const TRANSCRIPT = [
   "Make the Inspector glass, and its cards bordered with no fill.",
   "The panel paints the chat's page color, so nothing behind it shows. I'll give it the shared glass and drop the cards' fill.",
-  '<aside className="ui-glass acpmux-chat-inspector">\n  {sections}\n</aside>',
+  '<aside className="ui-glass ui-glass-floats acpmux-chat-inspector">\n  {sections}\n</aside>',
   "Check it over a long transcript in light and dark.",
   "Over the transcript the text frosts under the panel and the cards keep only their hairline.",
   "export const tries = 3;\nexport const backoff = 200;\nexport async function retry() {}",
@@ -65,12 +80,28 @@ function Transcript() {
   );
 }
 
-function GalleryInspector({ placement = "overlay", transcript = false, ...props }: Props) {
+function GalleryInspector({
+  placement = "overlay",
+  transcript = false,
+  scope,
+  header = "title",
+  tones,
+  ...props
+}: Props) {
   return (
-    <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%" }}>
+    <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%", ...tones }}>
       {transcript ? <Transcript /> : null}
-      <InspectorPanel width={320} placement={placement}>
-        <ChatInspector {...props} />
+      <InspectorPanel
+        width={320}
+        placement={placement}
+        // The head draws only with a close: as in the chat pane.
+        onClose={scope ? () => undefined : undefined}
+        title={scope && header === "title" ? <SubagentTitle scope={scope} /> : undefined}
+      >
+        <ChatInspector
+          {...props}
+          banner={scope && header !== "title" ? <SubagentBanner scope={scope} variant={header} /> : undefined}
+        />
       </InspectorPanel>
     </div>
   );
@@ -288,7 +319,7 @@ const projectRows = [
       touched("agent-pane-reference/README.md"),
       touched("cmuxterm-hq/build-fleet/FLEET-AND-CI.md"),
       touched("leo-workspace/NOW.md"),
-      touched("glaeda/main.go"),
+      touched("ci-daemon/main.go"),
     ],
     6,
   ),
@@ -312,6 +343,93 @@ const producedRows = [
   assistant("Here is the plan:\n\n```markdown\n# Inspector rollout\n\n- Context\n- Outputs\n```\n", 2),
 ];
 
+/// A subagent in a Claude worktree of its own: it read and edited files there, ran the tests in the
+/// background (still running), and its result named the worktree and branch.
+const TREE = `${CWD}/.claude/worktrees/agent-a3f9c2`;
+const inTree = (path: string, oldText: string | undefined, newText: string) =>
+  tool(`Edit ${path}`, "edit", "completed", { diffs: [{ path: `${TREE}/${path}`, oldText, newText }] });
+const subagentRows = [
+  activity(
+    [
+      tool("Read src/net/fetch.ts", "read", "completed", { locations: [{ path: `${TREE}/src/net/fetch.ts` }] }),
+      inTree("src/net/fetch.ts", "export const timeout = 5_000;\n", "export const timeout = 15_000;\n"),
+      inTree("src/net/timeout.test.ts", undefined, "test('waits 15s', () => {});\n"),
+      tool("Run bun test --watch src/net", "execute", "in_progress", {
+        command: "bun test --watch src/net",
+        inputSummary: JSON.stringify({ command: "bun test --watch src/net", run_in_background: true }),
+      }),
+    ],
+    3,
+  ),
+  assistant("Raised the timeout to 15 s and added a test; the watcher runs in the worktree.", 1),
+];
+const worktreeAgent: Subagent = {
+  id: "agent-timeouts",
+  parent: null,
+  name: "Fix the timeouts",
+  task: "Raise the fetch timeout in a worktree",
+  kind: "general-purpose",
+  state: "running",
+  startedAt: started - 240_000,
+  action: "Running bun test",
+  tokens: 48_200,
+  toolUses: 14,
+  isolated: true,
+  worktree: { path: TREE, branch: "worktree-agent-a3f9c2" },
+};
+const scopeOf = (agent: Subagent) => ({ agent, parent: "Add retries to the fetch helper", onBack: () => undefined });
+/// The subagent's panel: its own rows, environment and progress; nothing of the chat's.
+const subagentPanel: Props = {
+  summary: subagentSummary(summary, worktreeAgent, subagentRows),
+  machineName: "Studio",
+  repository: "manaflow-ai/cmux",
+  made: sessionSummary(subagentRows, "manaflow-ai/cmux"),
+  transcriptTasks: sessionSummary(subagentRows).backgroundTasks,
+  rows: subagentRows,
+  agent: worktreeAgent,
+  onOpenUrl: () => undefined,
+  onOpenOutput: () => undefined,
+  onStopProcess: async () => undefined,
+  scope: scopeOf(worktreeAgent),
+};
+/// An Explore subagent in the chat's own checkout: its folder and branch are the chat's.
+const sharedAgent: Subagent = {
+  id: "agent-explore",
+  parent: null,
+  name: "Explore the retry callers",
+  task: "Find every caller of fetchWithRetry",
+  kind: "Explore",
+  state: "completed",
+  startedAt: started - 600_000,
+  endedAt: started - 420_000,
+  tokens: 21_400,
+  toolUses: 9,
+};
+const sharedRows = [
+  activity(
+    [
+      tool("Read src/net/fetch.ts", "read", "completed", { locations: [{ path: `${CWD}/src/net/fetch.ts` }] }),
+      tool("Read src/api/client.ts", "read", "completed", { locations: [{ path: `${CWD}/src/api/client.ts` }] }),
+    ],
+    9,
+  ),
+  assistant("fetchWithRetry has three callers: client.ts, upload.ts and the webhook relay.", 7),
+];
+/// A Claude Code chat with its /context breakdown, Context open and the long sections folded so the
+/// card shows whole.
+const breakdownProps: Props = {
+  ...full,
+  summary: { ...summary, usage: { used: 171_400, size: 400_000 }, contextBreakdown: CONTEXT_BREAKDOWN },
+  sections: { ...DEFAULT_SECTIONS, environment: false, context: true, changes: false, subagents: false, tasks: false },
+};
+/// A gallery-only palette for the breakdown's used categories, largest first.
+const palette = (colors: string[]) =>
+  Object.fromEntries(colors.map((color, index) => [`--acpmux-context-tone-${index}`, color])) as CSSProperties;
+const openMcpTools: Play = async (ctx) => {
+  await ctx.click({ selector: '[data-list="mcpTools"] button' });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-breakdown__items") !== null);
+};
+
 const text = (ctx: Parameters<Play>[0]) => ctx.document.querySelector(".acpmux-chat-inspector")?.textContent ?? "";
 
 export default componentEntry<Props>({
@@ -333,6 +451,8 @@ export default componentEntry<Props>({
     "agent-session/acpmux/inspector/OutputsSection.tsx",
     "agent-session/acpmux/inspector/ServersSection.tsx",
     "agent-session/acpmux/inspector/SubagentsSection.tsx",
+    "agent-session/acpmux/inspector/SubagentScopeHeader.tsx",
+    "agent-session/acpmux/inspector/subagentScope.ts",
     "agent-session/acpmux/inspector/TasksSection.tsx",
     "agent-session/acpmux/subagents/AgentLine.tsx",
   ],
@@ -355,6 +475,29 @@ export default componentEntry<Props>({
     "context-connectors-open": {
       note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status.",
       props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
+    },
+    "context-breakdown": {
+      note: "Shipped: a Claude Code chat's /context in Context, open: 43% used with 171.4k / 400k, the bar split by category in steps of the theme accent (largest first; the autocompact buffer grey; free space the track), a row per category with its tokens and share, the deferred ones dimmed with no share, then the MCP tools, Memory files and Skills folds, MCP tools open.",
+      props: breakdownProps,
+      play: openMcpTools,
+    },
+    "context-breakdown-hues": {
+      note: "Alternative (not shipped): each category a different hue turned from the theme accent, as Claude Code desktop colors them. Reads faster, but brings colors the theme does not have.",
+      props: {
+        ...breakdownProps,
+        tones: palette(
+          [0, 60, 150, 210, 280, 320].map((turn) => `oklch(from var(--agent-accent) l c calc(h + ${turn}))`),
+        ),
+      },
+      play: openMcpTools,
+    },
+    "context-breakdown-mono": {
+      note: "Alternative (not shipped): every used category in the full accent, told apart only by the bar's gaps and the row order. Quietest, but the bar no longer says which part is which.",
+      props: {
+        ...breakdownProps,
+        tones: palette(Array.from({ length: 6 }, () => "var(--agent-accent)")),
+      },
+      play: openMcpTools,
     },
     "changes-breakdown": {
       note: "Changes: hovering a pull request's line counts splits them into Code, Tests, Generated and Docs; its 3 failing checks dim the 2 already on base.",
@@ -439,6 +582,34 @@ export default componentEntry<Props>({
     push: {
       note: "Settings > Agent Chat > Inspector set to Push: the panel sits beside the chat and narrows it, instead of lying over it with a shadow. It is glass there too, with its left hairline as its only edge.",
       props: { ...full, placement: "push" },
+    },
+    "subagent-parent": {
+      note: "The chat's own panel while a subagent works in a worktree: the chat's folder, branch, context, pull requests and tasks, and its Subagents list, which opens each subagent's own panel.",
+      props: { ...full, agents: [worktreeAgent, { ...sharedAgent }, ...agents.slice(3, 8)] },
+    },
+    "subagent-title": {
+      note: "Chosen. A subagent's own panel, the head naming it: back, then Subagent · Fix the timeouts. Its Environment is its worktree (agent-a3f9c2) and branch, not the chat's; Context is its 48.2K tokens and 14 tool uses; Background tasks its own watcher; Outputs the two files it edited in the worktree. No Connectors, chats or Save: those are the chat's.",
+      props: { ...subagentPanel, header: "title" },
+    },
+    "subagent-crumb": {
+      note: "Alternative: the head keeps Inspector, and the body's first line is a path, the chat's name (back) › Subagent · Fix the timeouts.",
+      props: { ...subagentPanel, header: "crumb" },
+    },
+    "subagent-card": {
+      note: "Alternative: a bordered card above the sections, the agent glyph, Subagent · Fix the timeouts with its task under it, and Back to the chat.",
+      props: { ...subagentPanel, header: "card" },
+    },
+    "subagent-shared-checkout": {
+      note: "A subagent in the chat's own checkout (an Explore run): its folder and branch are the chat's, its context its own tokens and tool uses, and it made no outputs.",
+      props: {
+        summary: subagentSummary(summary, sharedAgent, sharedRows),
+        machineName: "Studio",
+        repository: "manaflow-ai/cmux",
+        made: sessionSummary(sharedRows, "manaflow-ai/cmux"),
+        rows: sharedRows,
+        agent: sharedAgent,
+        scope: scopeOf(sharedAgent),
+      },
     },
     "glass-over-transcript": {
       note: "The panel over a busy transcript: liquid glass, never opaque, so the prompts, replies and code under it frost through; its cards are hairline borders with no fill. Under Reduce Transparency the panel is the opaque theme surface.",

@@ -7,7 +7,7 @@ import { SUBAGENTS } from "../subagents/subagentFold";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxActivity } from "../model";
 import { workedTurnRows } from "../workedTurn";
-import { minutesAgo } from "../../../gallery/clock";
+import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import {
   BUILD_REPORT_PDF_PAGE_PNG,
   BUILD_TIMES_PNG,
@@ -16,6 +16,43 @@ import {
 } from "../../../gallery/fixtures/toolImages";
 
 const prompt = "Add retries with backoff to the fetch helper";
+
+/// Pull requests a leo-workspace chat names by bare number, as the App's cache has them
+/// (`pr.inspect`): five of manaflow-ai/cmux, and #843 in both repositories.
+const LANE_NUMBERS = [24175, 23959, 24197, 23880, 23027];
+const LANE_LIST = "gh pr list -R manaflow-ai/cmux --author @me";
+const LANE_OUTPUT = "https://github.com/manaflow-ai/cmux/pull/24100\tagent pane: chips\n";
+const cached = (repo: string, number: number, title: string) => [
+  `https://github.com/${repo}/pull/${number}`,
+  {
+    pullRequest: {
+      url: `https://github.com/${repo}/pull/${number}`,
+      number,
+      title,
+      state: "merged",
+      author: "teamleaderleo",
+    },
+    fetchedAt: GALLERY_NOW / 1000,
+  },
+];
+const LANE_PULL_REQUESTS = Object.fromEntries([
+  ...LANE_NUMBERS.map((number) => cached("manaflow-ai/cmux", number, `Agent pane fix ${number}`)),
+  cached("teamleaderleo/leo-workspace", 843, "rulebook: a bare #N links by evidence"),
+  cached("manaflow-ai/cmux", 843, "Agent pane: older fix with the same number"),
+]);
+/// Hovers the chip whose address ends `/<number>` and waits for `card` in its card.
+const hoverReference = (number: number, card: string) => async (ctx: PlayContext) => {
+  const chip = `a.cv-chip.is-ref[href$="/${number}"]`;
+  await ctx.waitFor(() => ctx.document.querySelector(chip), { capMs: 10_000 });
+  await ctx.hover({ selector: chip });
+  await ctx.waitFor(() => ctx.document.querySelector(card), { capMs: 10_000 });
+};
+/// A chat whose folder is leo-workspace.
+const LEO_WORKSPACE = {
+  ready: { githubRepository: "teamleaderleo/leo-workspace" },
+  native: { "git.githubRepository": { repository: "teamleaderleo/leo-workspace" } },
+  chipHost: { pullRequests: LANE_PULL_REQUESTS },
+};
 
 const selectionRows = [
   user("Select this prompt to copy it into a bug report", 5, { id: "gallery-selection-user" }),
@@ -81,6 +118,29 @@ const groupedShellRows = [
   summary(2.4, { id: "gallery-shell-group-summary", status: "completed", toolCount: 2 }),
 ];
 
+const LONG_CP =
+  "cp /private/tmp/claude-501/-Users-leo-Projects/scratch/transcript/before-after/ellipsis-before.png /Users/leo/Projects/cmux/docs/media/ellipsis-after.png";
+const LONG_SEND =
+  "acpmux send --no-wait coord-deputy '[transcript-parity] tool rows use the full width and end in an ellipsis at the right edge'";
+const longCommandRows = [
+  user("Copy the screenshots over and tell the coordinator", 3, { id: "gallery-long-commands-user" }),
+  activity(
+    [LONG_CP, LONG_SEND].map((command, at) =>
+      tool("Run", "execute", "completed", {
+        command,
+        output: "",
+        exitCode: 0,
+        startedAt: minutesAgo(2.9 - at * 0.1),
+        endedAt: minutesAgo(2.85 - at * 0.1),
+      }),
+    ),
+    2.8,
+    { id: "gallery-long-commands-activity" },
+  ),
+  assistant("Copied both screenshots and sent the coordinator the merge.", 2.6, { id: "gallery-long-commands-answer" }),
+  summary(2.6, { id: "gallery-long-commands-summary", status: "completed", toolCount: 2 }),
+];
+
 /// One call in the gallery's log: a host bridge call, or `acpmux <method>` for a request the page
 /// sent to the in-page mock daemon (mock.ts).
 type GalleryCall = {
@@ -129,7 +189,7 @@ const openSingleShell = async (ctx: PlayContext) => {
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__command")));
 };
 
-/// Opens a finished run's folded line ("Ran 2 commands", "Read files, ran commands").
+/// Opens a finished run's folded line ("Ran 2 commands", "Read 2 files, ran 3 commands").
 const openFoldedRun = async (ctx: PlayContext) => {
   await ctx.click({ selector: ".cv-tools > .cv-tool.is-toggle" });
   await ctx.waitFor(
@@ -533,6 +593,49 @@ const envShell = (command: string) =>
     endedAt: minutesAgo(1.88),
   });
 
+/// An ended turn with one call per run, none a shell: a finished fetch and a failed one (Leo,
+/// 2026-10-21: "only show the green/red checkmark + time on hover for ours"). A running call keeps
+/// its spinner (transcript-codex-turn.test.tsx).
+const loneToolCalls = () =>
+  chat([
+    user("Read the API docs and the reference.", 3),
+    activity(
+      [
+        tool("Fetch https://example.com/docs", "fetch", "completed", {
+          startedAt: minutesAgo(2.9),
+          endedAt: minutesAgo(2.88),
+        }),
+      ],
+      2.9,
+    ),
+    assistant("The docs page loaded; the API reference is next.", 2.8),
+    activity(
+      [
+        tool("Fetch https://example.com/api", "fetch", "failed", {
+          startedAt: minutesAgo(2.7),
+          endedAt: minutesAgo(2.69),
+        }),
+      ],
+      2.7,
+    ),
+    assistant("The reference page is gone; the docs cover what we need.", 2.6),
+    summary(2.6, { status: "completed", toolCount: 2, durationMs: 24_000 }),
+  ]);
+
+/// Opens the turn's Worked for and its folded run ("Searched the web"). At rest the finished
+/// call's check and time are hidden and keep their room; the failure's red word shows.
+const loneToolMetaAtRest = async (ctx: PlayContext) => {
+  await openGroupedRun(ctx);
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-tool .cv-command__ok"));
+  const view = ctx.document.defaultView!;
+  for (const node of ctx.document.querySelectorAll(".cv-tool .cv-command__ok, .cv-tool .cv-command__time"))
+    if (view.getComputedStyle(node).opacity !== "0") throw new Error("a finished call's check or time shows at rest");
+  const failed = ctx.find({ selector: ".cv-tool__failed" });
+  const style = view.getComputedStyle(failed);
+  if (style.opacity !== "1" || style.color === view.getComputedStyle(failed.parentElement!).color)
+    throw new Error("the failed call's mark is not red at rest");
+};
+
 /// A quiet turn under a second with no answer, a sub-second answer, then a 5s one (sub-second-turns).
 const subSecondTurns = () =>
   chat([
@@ -599,6 +702,68 @@ const MCP_READ = mcpTool(
     ],
   }),
 );
+
+/// A render call (renderCall.ts); one with `update` redraws the card it names and draws nothing itself.
+function renderTool(page: string, update?: string) {
+  return tool("mcp__cmux__render", "other", "completed", {
+    inputSummary: JSON.stringify({ html: `<title>Batch report</title><p>${page}</p>`, ...(update && { id: update }) }),
+    output: '{"rendered": true}',
+  });
+}
+
+/// Short thoughts that draw no row once done (thoughts.ts isQuietThought).
+const quietThoughts = (count: number) => Array.from({ length: count }, () => thought("ok"));
+
+/// A long turn among turns opened by what the person never typed (incomingMessage.ts): a background
+/// task's notification, a system reminder alone (no row) and another agent's message.
+const foldNoBlankRows = [
+  user("<task-notification><summary>Background build finished</summary></task-notification>", 9, {
+    incoming: { kind: "notice", text: "Background build finished" },
+  }),
+  assistant("The background build finished cleanly.", 8.9),
+  summary(8.9, { status: "completed", durationMs: 4_000 }),
+  user("<system-reminder>bookkeeping</system-reminder>", 8, { incoming: { kind: "hidden" } }),
+  activity([tool("git status", "execute", "completed", { command: "git status", output: "clean" })], 7.9),
+  assistant("The tree is clean.", 7.8),
+  summary(7.8, { status: "completed", toolCount: 1, durationMs: 6_000 }),
+  user("[coord-deputy] The batch is next.", 7, {
+    incoming: {
+      kind: "message",
+      message: { name: "coord-deputy", text: "The batch is next.", raw: "[coord-deputy] The batch is next." },
+    },
+  }),
+  user("Run the batch and report what it changed", 6, { id: "fold-no-blank-user" }),
+  activity(
+    [
+      thought("Check how the batch script is laid out before running it, then run it once."),
+      tool("ls /tmp/batch", "execute", "completed", { command: "ls /tmp/batch", output: "batch32.sh\nout.log" }),
+      tool("cat /tmp/batch/batch32.sh", "execute", "completed", {
+        command: "cat /tmp/batch/batch32.sh",
+        output: "set -e",
+      }),
+    ],
+    5.8,
+  ),
+  activity(quietThoughts(6), 5.6),
+  activity(
+    [
+      tool("Edit batch32.sh", "edit", "completed", {
+        diffs: [{ path: "/tmp/batch/batch32.sh", oldText: "set -e\n", newText: "set -e\necho one\necho two\n" }],
+      }),
+      tool("bash /tmp/batch/batch32.sh", "execute", "completed", {
+        command: "bash /tmp/batch/batch32.sh",
+        output: Array.from({ length: 40 }, (_, index) => `step ${index + 1}: ok`).join("\n"),
+      }),
+      renderTool("first page"),
+      renderTool("second page", "batch-report"),
+      renderTool("third page", "batch-report"),
+    ],
+    4,
+  ),
+  activity(quietThoughts(4), 3.2),
+  assistant("The batch ran. It changed three files:\n\n- one\n- two\n- three", 3),
+  summary(3, { status: "completed", toolCount: 6, durationMs: 132_000 }),
+];
 
 // A Claude Bash call's permission as claude-agent-acp sends it: its title is the command line (so
 // its first line reads "bash -c '"), its description says what it does, and the script runs long.
@@ -693,6 +858,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/conversation/icons.tsx#DoubleCheck",
     "agent-session/acpmux/PermissionCard.tsx",
+    "agent-session/acpmux/chips/BareReferenceChip.tsx#BareReferenceChip",
   ],
   variants: {
     conversation: {
@@ -723,6 +889,33 @@ export default agentPaneEntry({
         ),
         summary(2, { status: "completed", durationMs: 12_000 }),
       ]),
+    },
+    "github-references-other-repo": {
+      note: "A chat whose folder is leo-workspace names cmux pull requests by bare number: each chip links to the repository the transcript and the App's pull request cache say has it, not the folder's. Hover #24175 for its card.",
+      ...LEO_WORKSPACE,
+      snapshot: chat([
+        user("Where are the agent pane fixes?", 6),
+        activity(
+          [tool(LANE_LIST, "execute", "completed", { command: LANE_LIST, output: LANE_OUTPUT, exitCode: 0 })],
+          5.8,
+        ),
+        assistant(
+          `Merged ${LANE_NUMBERS.map((number) => `#${number}`).join(", ")}. The rulebook change is still open.`,
+          5.6,
+        ),
+        summary(5.6, { status: "completed", durationMs: 14_000 }),
+      ]),
+      play: hoverReference(24175, ".cv-link-preview.acpmux-pr-card"),
+    },
+    "github-references-same-number": {
+      note: "A bare #843 is a pull request in both leo-workspace (the folder's) and cmux (which the chat linked): the chip names its repository.",
+      ...LEO_WORKSPACE,
+      snapshot: chat([
+        user("Compare with https://github.com/manaflow-ai/cmux/pull/24175", 4),
+        assistant("#843 has the rule; the app change follows it.", 3.8),
+        summary(3.8, { status: "completed", durationMs: 6_000 }),
+      ]),
+      play: hoverReference(843, ".cv-link-preview.acpmux-pr-card"),
     },
     tasks: {
       note: "Checked, unchecked, nested and wrapping task-list items.",
@@ -1239,7 +1432,7 @@ export default agentPaneEntry({
       ),
     },
     "dense-live-run": {
-      note: "A running turn folds its finished calls into one summary line (Read files, ran commands) and names the running MCP call on the live line, never a growing stack of rows.",
+      note: "A running turn folds its finished calls into one counted summary line (Read a file, ran 7 commands) and names the running MCP call on the live line, never a growing stack of rows.",
       snapshot: chat(
         [
           user("Find why the sidebar drag drops tabs, and hand the fix to a sub-session.", 3),
@@ -1258,8 +1451,77 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "consolidated-run": {
+      note: "An opened Worked for: reads, searches and commands with thoughts between them fold into one counted line (Read 3 files, ran a search, ran 2 commands, 1 failed); the edit stays in sight between the lines, and the reply stays below the fold.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          activity(
+            [
+              tool("Read client.ts", "read", "completed", { locations: [{ path: "src/net/client.ts" }] }),
+              thought("The helper throws on any non-2xx status, so the retry has to sit around fetchJson itself."),
+              tool("Search for fetchJson", "search", "completed"),
+              tool("Read errors.ts", "read", "completed", { locations: [{ path: "src/net/errors.ts" }] }),
+              thought("Check whether any caller already retries before adding a second layer of backoff."),
+              tool("grep -rn retry src/net", "execute", "completed", {
+                command: "grep -rn retry src/net",
+                exitCode: 1,
+              }),
+              tool("Read client.test.ts", "read", "completed", { locations: [{ path: "src/net/client.test.ts" }] }),
+              tool("bun test src/net", "execute", "completed", { command: "bun test src/net", exitCode: 0 }),
+              tool("Edit client.ts", "edit", "completed", {
+                locations: [{ path: "src/net/client.ts" }],
+                diffs: [
+                  {
+                    path: "src/net/client.ts",
+                    oldText: "export async function fetchJson(url: string) {\n  return request(url);\n}\n",
+                    newText:
+                      "export async function fetchJson(url: string) {\n  return withRetry(() => request(url), { attempts: 3 });\n}\n",
+                  },
+                ],
+              }),
+              tool("Read retry.ts", "read", "completed", { locations: [{ path: "src/net/retry.ts" }] }),
+              thought("Run the focused tests again, then the type check, before answering."),
+              tool("bun test src/net", "execute", "completed", { command: "bun test src/net", exitCode: 0 }),
+              tool("bun run typecheck", "execute", "completed", { command: "bun run typecheck", exitCode: 0 }),
+            ],
+            5.8,
+          ),
+          assistant("fetchJson now retries three times with backoff on 5xx; the net tests and the type check pass.", 5),
+          summary(5, { status: "completed", toolCount: 10 }),
+        ],
+        {},
+      ),
+      play: openWorked,
+    },
+    "consolidated-live-run": {
+      note: "A running turn with a message to another agent in its run: the card stays in sight and the calls on each side of it still fold into counted lines, with thoughts between calls kept inside them.",
+      snapshot: chat(
+        [
+          user("Check the fleet sessions and tell the coordinator what is stuck.", 3),
+          activity(
+            [
+              ...["acpmux ls", "acpmux status --json", "acpmux ls --peers"].map((command) => shellTool(command)),
+              thought("Two sessions show no heartbeat; read their logs before telling anyone."),
+              shellTool("grep -l chief /tmp/l*.txt"),
+              tool("Read session.log", "read", "completed", { locations: [{ path: "/tmp/session.log" }] }),
+              tool("Run", "execute", "completed", {
+                command: 'tell-coordinator "fleet: two sessions stuck on build-box, restarting them"',
+                output: "delivered to coord-deputy\n",
+              }),
+              shellTool("acpmux restart stuck-1"),
+              thought("The first restart came back; do the second one the same way."),
+              shellTool("acpmux restart stuck-2"),
+              tool("acpmux ls", "execute", "in_progress", { command: "acpmux ls" }),
+            ],
+            2.8,
+          ),
+        ],
+        { isWorking: true },
+      ),
+    },
     "agent-messages": {
-      note: "Messages to other agents say how far they got (Sending…, Sent, Delivered to …) without the receipt's id; a shell call reads without its leading cd and, opened, names its folder beside Shell.",
+      note: "Messages to other agents say how far they got in one word at the line's end (Sent, Queued, Delivered, or why not) without the receipt's id; a shell call reads without its leading cd and, opened, names its folder beside Shell.",
       snapshot: chat(
         [
           user("Tell the coordinator the fix is pushed, then check the branch.", 2),
@@ -1320,7 +1582,7 @@ export default agentPaneEntry({
       play: openWorked,
     },
     "codex-turn-live": {
-      note: "A running turn as the Codex app draws it: one live block at the bottom and nothing over the turn, each finished run one summary line between the paragraphs (Read files, ran commands; Ran 3 commands), commands named by what they do, and the call in flight named on the live line instead of a growing stack.",
+      note: "A running turn as the Codex app draws it: one live block at the bottom and nothing over the turn, each finished run one counted summary line between the paragraphs (Read 2 files, ran 3 commands; Ran 3 commands), commands named by what they do, and the call in flight named on the live line instead of a growing stack.",
       snapshot: chat(
         [
           user("Check the retry regression and the macOS verification run.", 11.5),
@@ -1358,6 +1620,40 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+    },
+    "codex-turn-command-under-messages": {
+      note: 'Leo, 2026-10-22: "the ran thing basiclly replcaes the thinking usually". A command still running in an earlier run while the agent writes and messages others: it is the live line at the bottom (Running cp … with its time, ⌃B to run in background at its right on hover), not a Ran cp row with the hint over a Thinking line. Play: the line names the cp, no transcript row draws the hint or runs.',
+      snapshot: chat(
+        [
+          user("Copy the session log into recovery and tell the lanes what changed.", 3),
+          activity(
+            [
+              tool("cp", "execute", "in_progress", {
+                command: "cp /private/tmp/session-export/session.jsonl ~/recovery/",
+                startedAt: minutesAgo(1.2),
+              }),
+            ],
+            1.2,
+          ),
+          assistant(
+            "While the copy runs I'll tell the lanes what changed: the live line now names the command in flight, the Ctrl-B hint sits at its right, and finished commands keep their rows.",
+            1,
+          ),
+          activity([shellTool("acpmux send --no-wait coord-deputy '[lanes] summary sent'")], 0.8),
+        ],
+        { isWorking: true },
+      ),
+      play: async (ctx: PlayContext) => {
+        const doc = ctx.document;
+        await ctx.waitFor(() =>
+          (doc.querySelector(".cv-worked.is-below .cv-thinking")?.textContent ?? "").startsWith("Running cp "),
+        );
+        const stray = [...doc.querySelectorAll(".cv-command__bg")].filter((node) => !node.closest(".cv-worked"));
+        if (stray.length) throw new Error(`${stray.length} transcript rows draw the ⌃B hint`);
+        const live = doc.querySelectorAll(".cv-tool.is-live").length;
+        if (live) throw new Error(`${live} running rows draw over the live line`);
+        await liveLineClear(ctx);
+      },
     },
     "codex-turn-raw-commands": {
       note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, 16px clear of the run over it; ⌃B to run in background shows on hover. Play: hover the line.",
@@ -1432,6 +1728,34 @@ export default agentPaneEntry({
         if (live) throw new Error(`${live} running rows stack over the live line`);
       },
     },
+    "tool-run-scrolled-fade": {
+      note: 'Leo 2026-10-21, "in that top section fade would be good": a long run ("Read files, ran commands") opened past its nine-row cap and scrolled so a row sits half under its summary line. The list\'s top fades out there instead of cutting the row in half against the line. Play: open the turn and the run, scroll the list 3.5 rows.',
+      snapshot: chat([
+        user("Find where the sidebar's drag reorder loses its index.", 3),
+        activity(
+          Array.from({ length: 6 }, (_, index) => [
+            tool(`Read sidebar${index}.ts`, "read", "completed", {
+              locations: [{ path: `webviews/src/sidebar/sidebar${index}.ts` }],
+            }),
+            tool(`Read sidebar${index}.test.ts`, "read", "completed", {
+              locations: [{ path: `webviews/test/sidebar${index}.test.ts` }],
+            }),
+            describedShell(DENSE_COMMANDS[index]!, `Search the sidebar code (${index + 1})`),
+          ]).flat(),
+          2.9,
+        ),
+        assistant("The index is read before the drop moves the row; the fix reads it after.", 2),
+        summary(2, { status: "completed", toolCount: 18, durationMs: 64_000 }),
+      ]),
+      play: async (ctx) => {
+        await openGroupedRun(ctx);
+        const list = () => ctx.find({ selector: ".cv-tool-run" });
+        await ctx.waitFor(() => list().scrollHeight > list().clientHeight + 26);
+        // 3.5 rows of 26px: the fourth row sits half under the summary line.
+        list().scrollTop = 26 * 3.5;
+        await ctx.waitFor(() => list().scrollTop > 0);
+      },
+    },
     "codex-turn-run-open": {
       note: "The same turn ended: opened, Worked for shows the commentary between the runs' summary lines; a click opens Ran 3 commands to its calls. Play: open the turn, then the second run.",
       snapshot: chat([
@@ -1489,6 +1813,25 @@ export default agentPaneEntry({
           throw new Error("the check shows at rest");
         await ctx.hover({ selector: ".cv-command" });
         await ctx.waitFor(() => ctx.document.defaultView!.getComputedStyle(ok()).opacity === "1");
+      },
+    },
+    "tool-hover-meta-lone": {
+      note: "Calls that are not shells, at rest: a finished fetch shows no check or time, a failed one says failed in red. Play: open Worked for and its run.",
+      snapshot: loneToolCalls(),
+      play: loneToolMetaAtRest,
+    },
+    "tool-hover-meta-lone-hovered": {
+      note: "The same calls with the finished fetch pointed at: its green check and run time fade in; the failure stays as it was. Play: open Worked for and its run, hover the fetch.",
+      snapshot: loneToolCalls(),
+      play: async (ctx) => {
+        await loneToolMetaAtRest(ctx);
+        const row = ctx.find({ selector: ".cv-tool:has(.cv-command__ok)" });
+        await ctx.hover({ selector: ".cv-tool:has(.cv-command__ok)" });
+        await ctx.waitFor(() =>
+          [...row.querySelectorAll(".cv-command__ok, .cv-command__time")].every(
+            (node) => getComputedStyle(node).opacity === "1",
+          ),
+        );
       },
     },
     "mcp-calls": {
@@ -2253,6 +2596,18 @@ export default agentPaneEntry({
       snapshot: chat(groupedShellRows),
       play: openGroupedShells,
     },
+    "long-commands-fill-row": {
+      note: 'Leo 2026-10-22, of Ran rows cut with an ellipsis about two thirds across: "shouldnt these also ellipsis later". Long commands (a cp of two long paths, an acpmux send) draw their whole first step and end in an ellipsis at the row\'s right edge, before the chevron; no 60-character cut. Play: open Worked for and the run; each command line is the whole step.',
+      checks: shellDisclosureChecks,
+      snapshot: chat(longCommandRows),
+      play: async (ctx) => {
+        await openWorked(ctx);
+        await openFoldedRun(ctx);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-command").length === 2);
+        const lines = [...ctx.document.querySelectorAll(".cv-command__line")].map((line) => line.textContent);
+        if (lines[0] !== LONG_CP) throw new Error(`the cp row reads ${lines[0]}, not the whole command`);
+      },
+    },
     "fold-holds-clicked-line": {
       note: "Play: at the latest row, open Worked for, then a command, then close it; each line stays where it was clicked while its fold plays (height and opacity, the chevron turning).",
       checks: shellDisclosureChecks,
@@ -2263,6 +2618,25 @@ export default agentPaneEntry({
         await clickHoldsLine(ctx, ".cv-command", true);
         await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__command")));
         await clickHoldsLine(ctx, ".cv-command", false);
+      },
+    },
+    "fold-no-blank-collapsed": {
+      note: "A long turn after a background task's notification, bookkeeping the person never typed and another agent's message, folded: Worked for, then the reply right under it. Before, each render row that draws nothing (in the app, an update that joined the first card; the gallery page draws no render frames) left a 34px band between them.",
+      snapshot: chat(foldNoBlankRows),
+    },
+    "fold-no-blank-open": {
+      note: "The same turn opened: the work in order, with no band where a step of only quiet thoughts sits (it draws nothing). Before, that step kept its estimate, 26px a thought, as a blank band under the first commands. Play: open Worked for.",
+      snapshot: chat(foldNoBlankRows),
+      checks: {
+        layoutShiftMax: {
+          value: 0.5,
+          reason: "Opening the disclosure intentionally reveals its folded tool rows below the clicked line.",
+        },
+      },
+      play: async (ctx) => {
+        const worked = { selector: '[data-row-id="worked-fold-no-blank-user"] .cv-worked' };
+        await ctx.click(worked);
+        await ctx.waitFor(() => ctx.find(worked).getAttribute("aria-expanded") === "true");
       },
     },
   },

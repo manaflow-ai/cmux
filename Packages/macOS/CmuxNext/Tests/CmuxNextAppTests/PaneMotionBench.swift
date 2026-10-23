@@ -120,7 +120,7 @@ struct PaneMotionBench {
         var testDescription: String { "\(name) \(columns)x\(rows)" }
     }
 
-    static let cases: [Case] = [(1, 2), (4, 2), (6, 5)].flatMap { size in
+    nonisolated static let cases: [Case] = [(1, 2), (4, 2), (6, 5)].flatMap { size in
         ["split", "splitDown", "close", "column", "columnClose", "zoom", "unzoom"].map { Case(name: $0, columns: size.0, rows: size.1) }
     }
 

@@ -191,6 +191,12 @@ impl HostLivenessLease {
         file.sync_all()?;
         Ok(Self { file, path })
     }
+
+    /// The Unix side defers its lease sync past the host's Ready; Windows
+    /// syncs at once (no deferred file).
+    pub(crate) fn acquire_deferring_sync(path: PathBuf) -> anyhow::Result<(Self, Option<File>)> {
+        Ok((Self::acquire(path)?, None))
+    }
 }
 
 impl Drop for HostLivenessLease {
