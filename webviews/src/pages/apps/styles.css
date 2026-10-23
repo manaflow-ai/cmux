@@ -220,7 +220,7 @@
 
 .apps-description {
   color: var(--page-text-2);
-  font-size: 12px;
+  font-size: var(--text-detail);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -442,7 +442,7 @@
 
 .apps-detail-name {
   margin: 0;
-  font-size: 20px;
+  font-size: var(--text-heading);
   font-weight: 600;
   overflow-wrap: anywhere;
 }
@@ -453,7 +453,7 @@
   align-items: center;
   gap: 6px;
   color: var(--page-text-2);
-  font-size: 11px;
+  font-size: var(--text-caption);
   margin-top: 4px;
 }
 
@@ -469,7 +469,7 @@
 
 .apps-section h2 {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: var(--text-detail);
   font-weight: 600;
   color: var(--page-text-2);
 }
@@ -528,7 +528,7 @@ code {
 
 .apps-muted {
   color: var(--page-text-2);
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 
 .apps-failure {
@@ -648,7 +648,7 @@ code {
   border-radius: 6px;
   border: 1px solid var(--page-separator);
   font:
-    11px ui-monospace,
+    var(--text-caption) ui-monospace,
     "SF Mono",
     monospace;
   white-space: pre-wrap;

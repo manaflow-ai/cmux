@@ -282,9 +282,8 @@
   align-items: center;
   gap: 8px;
   min-height: var(--ui-row-height);
-  /* Tight, as the references (Leo 2026-10-21, "STOP WITH THE INCESSANT LEFT-RIGHT PADDING"): the
-     popup's 4px and the row's 4px put the text about 8pt from the menu's edge. */
-  padding: 5px 4px;
+  /* Keep access rows on the shared popup rhythm so mode, model and slash menus align. */
+  padding: 2px var(--ui-row-padding-inline);
   border-radius: var(--ui-row-radius);
   color: var(--agent-text);
 }
