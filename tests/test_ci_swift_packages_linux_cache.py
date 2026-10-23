@@ -25,6 +25,11 @@ class SwiftPackagesLinuxCacheTests(unittest.TestCase):
         self.assertIn("${{ matrix.group }}", key)
         self.assertIn("${{ hashFiles('Packages/**/Package.swift', 'Packages/**/Package.resolved') }}", key)
 
+    def test_comment_documents_immutable_seed_semantics(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("immutable seed", text)
+        self.assertNotIn("restore the newest entry", text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -10,8 +10,9 @@ name: Swift packages (Linux)
 # outlives a week; pushes to feat-cmux-next save, pull requests only restore.
 # The key deliberately omits github.sha: .build is rebuildable state, and a
 # per-commit key caused every push to upload another copy of the same weekly
-# dependency/build cache. A stable key lets later pushes restore the newest
-# entry while SwiftPM recompiles only changed sources.
+# dependency/build cache. The first successful push for a tuple creates the
+# immutable seed; later pushes reuse it while SwiftPM recompiles changed
+# sources. This avoids uploading a new archive for every commit.
 
 on:
   pull_request:
