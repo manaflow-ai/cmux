@@ -9,23 +9,20 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { fillKind, glassContextRules, type Block } from "./check-glass-never-opaque";
+import { fillKind, glassContextRules, targetsRequiredGlass, type Block } from "./check-glass-never-opaque";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = join(ROOT, "src");
 const BASELINE = join(dirname(fileURLToPath(import.meta.url)), "design-tokens-baseline.jsonl");
 const SPACING = new Set([0, 4, 8, 12, 16, 24, 32]);
 const CONTROL_HEIGHT = new Set([0, 20, 24, 28, 32]);
-const CSS_ROOTS = [
-  "agent-session/acpmux",
-  "pages/apps",
-  "pages/shared",
-  "ui",
-];
-const ROOT_FILES = ["styles.css"];
+const CSS_ROOTS = ["."];
+const ROOT_FILES: string[] = [];
 const NAMED_GLASS = /\.(?:nt-box|acpmux-env-panel|acpmux-composer-strip|acpmux-composer)\b/;
 const SPACING_PROPERTY = /^(?:padding(?:-(?:block|inline|top|right|bottom|left))?|gap|row-gap|column-gap)$/;
 const HEIGHT_PROPERTY = /^(?:height|min-height)$/;
+const REDUCE_MEDIA = /(?<!not\s*)\(\s*prefers-reduced-transparency\s*:\s*reduce\s*\)/;
+const REDUCE_ATTR = /(?<!:not\(\s*)\[data-reduce-transparency\]/;
 
 export interface Finding {
   file: string;
@@ -39,6 +36,7 @@ export interface Finding {
 function cssFiles(): string[] {
   const walk = (dir: string): string[] =>
     readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      if (entry.isDirectory() && (entry.name === "node_modules" || entry.name === "generated")) return [];
       const path = join(dir, entry.name);
       if (entry.isDirectory()) return walk(path);
       return entry.name.endsWith(".css") ? [path] : [];
@@ -122,7 +120,7 @@ function isOutsideScale(property: string, value: string): boolean {
 
 function inReduce(block: ParsedBlock): boolean {
   return [...block.context, block.selector].some(
-    (part) => /(?<!not\s*)\(\s*prefers-reduced-transparency\s*:\s*reduce\s*\)/.test(part) || /\[data-reduce-transparency\]/.test(part),
+    (part) => REDUCE_MEDIA.test(part) || REDUCE_ATTR.test(part),
   );
 }
 
@@ -157,7 +155,7 @@ function glassFindings(): Finding[] {
   for (const block of blocks) {
     if (inReduce(block as unknown as ParsedBlock)) continue;
     const named = NAMED_GLASS.test(block.selector);
-    const glass = named || /\.[\w-]*glass[\w-]*/i.test(block.selector) || block.decls.some((decl) => /backdrop-filter$/.test(decl.prop));
+    const glass = named || targetsRequiredGlass(block.selector) || /\.[\w-]*glass[\w-]*/i.test(block.selector) || block.decls.some((decl) => /backdrop-filter$/.test(decl.prop));
     if (!glass) continue;
     for (const declaration of block.decls) {
       if (declaration.allowed) continue;
