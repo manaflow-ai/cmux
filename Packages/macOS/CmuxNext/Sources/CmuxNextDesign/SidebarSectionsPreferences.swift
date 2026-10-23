@@ -17,6 +17,16 @@ public nonisolated enum SidebarMinimalMode: String, Hashable, Sendable, CaseIter
     public var hidesBottom: Bool { self == .bottom || self == .both }
 }
 
+/// `sidebar.style` (Lawrence 2026-10-21: "a minimal custom design for the sidebar that is
+/// thinner and takes up virtually 0 horizontal space"; plans/cmux-next/minimal-sidebar.md).
+public nonisolated enum SidebarLayoutStyle: String, Hashable, Sendable, CaseIterable {
+    /// The sidebar at the user's width, beside the content (the default).
+    case standard
+    /// A few-point rail of workspace ticks beside the content; pointing at it
+    /// opens the full sidebar over the content, which never moves.
+    case rail
+}
+
 /// `sidebar.groupBy`: how the Projects list buckets its loose workspaces
 /// (Leo 2026-10-06).
 public nonisolated enum SidebarGroupBy: String, Hashable, Sendable, CaseIterable {
@@ -79,6 +89,11 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// age such as `3d`) on the name's line. Off by default (Lawrence 2026-10-19: "By default in the
     /// sidebar, we should never show timestamps"); the hover card keeps its times either way.
     public var showTimestamps = false
+    /// `sidebar.showColors`: the sidebar draws workspace and group colors. Off draws none (a
+    /// workspace's swatch goes, its symbol or emoji stays; a group draws as one with no color)
+    /// and keeps every stored color (Lawrence 2026-10-22: "need to be able to remove all
+    /// workspace colors"). On by default.
+    public var showColors = true
     /// `sidebar.showLocalMachine`: with more than one machine listed, this Mac's workspace rows
     /// carry its machine mark too. Off by default (Leo 2026-10-20): only another machine's rows
     /// are marked, since that is the news; this Mac is where a row runs unless it says otherwise.
@@ -114,6 +129,8 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// workspace's agent lists under it on a thin line, rows carry their pull requests, and the
     /// first rows their Command-number keycaps. Off by default: it changes the list's look.
     public var sessionTree = false
+    /// `sidebar.style`: the standard sidebar (default) or the thin rail.
+    public var style: SidebarLayoutStyle = .standard
 
     public init(look: String = "quiet", topBandMaxShare: Double = 1.0 / 3.0, bottomBandMaxShare: Double = 0.25,
                 pinnedBandsScroll: Bool = true, showWorkspaceTabs: Bool = false) {

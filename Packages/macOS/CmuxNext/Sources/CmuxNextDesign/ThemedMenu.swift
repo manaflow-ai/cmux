@@ -33,12 +33,17 @@ extension NSMenu {
             session.keep(relay)
             delegate = relay
         }
+        // The rows' shared state and icon columns, measured once for the whole menu: a row's draw
+        // reads no other row. Rows themed before take the new measure (a search hid the checked row).
+        let columns = ThemedMenuColumns(of: self)
         // A section header ("Phones" in the device menu) stays AppKit's: it never highlights or runs.
         for item in items where !item.isSeparatorItem && !item.isSectionHeader {
             if let view = item.view as? any ThemedMenuItemView {
                 view.adoptMenuScope(scope)
+            } else if let row = item.view as? ThemedMenuRowView {
+                row.adoptColumns(columns)
             } else if item.view == nil {
-                item.view = ThemedMenuRowView(item: item, scope: scope, session: session)
+                item.view = ThemedMenuRowView(item: item, scope: scope, session: session, columns: columns)
             }
             if let submenu = item.submenu {
                 submenu.appearance = scope.appearance
@@ -203,6 +208,9 @@ final class ThemedMenuHighlightRelay: NSObject, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         if menu.supermenu == nil { session?.opened() }
         forward?.menuWillOpen?(menu)
+        // A menu kept between openings may have checked or hidden rows since (its delegate may
+        // have just done it): measure it once now.
+        menu.refreshThemedColumns()
     }
 
     func menuDidClose(_ menu: NSMenu) {

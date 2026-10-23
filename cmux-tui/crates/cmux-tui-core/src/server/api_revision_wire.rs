@@ -39,6 +39,10 @@ pub(super) const LEGACY_API_REVISION: u32 = 12;
 const PENDING_LIMIT: usize = 4096;
 
 /// The compiled-in revision history. Immutable data, built once.
+#[allow(
+    clippy::expect_used,
+    reason = "compiled-in spec/api-compat.json bytes that api-compat-check validates in CI"
+)]
 pub(super) static API_COMPAT: LazyLock<Compat> = LazyLock::new(|| {
     let schema = Schema::from_json(include_bytes!("../../../../spec/api-compat.json"))
         .expect("spec/api-compat.json is validated by api-compat-check"); // crash-allow: compiled-in bytes that api-compat-check validates in CI

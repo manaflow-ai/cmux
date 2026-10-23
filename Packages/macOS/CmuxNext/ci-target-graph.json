@@ -161,8 +161,10 @@
         "CmuxNextDesign",
         "CmuxNextDictation",
         "CmuxNextPages",
+        "CmuxNextPagesTestSupport",
         "CmuxNextRemoteFetch",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
       ],
       "packages": [],
       "reads": [
@@ -267,6 +269,7 @@
         "CmuxNextHistory",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
+        "CmuxNextHostPressure",
         "CmuxNextHostedChief",
         "CmuxNextIcons",
         "CmuxNextImportCards",
@@ -341,6 +344,7 @@
         "CmuxNextApp",
         "CmuxNextApps",
         "CmuxNextBrowserHistory",
+        "CmuxNextBrowserImport",
         "CmuxNextChiefPetWiring",
         "CmuxNextChromiumRuntime",
         "CmuxNextCompat",
@@ -356,6 +360,7 @@
         "CmuxNextFeed",
         "CmuxNextFileGrid",
         "CmuxNextFiles",
+        "CmuxNextFilesUI",
         "CmuxNextFloating",
         "CmuxNextFocus",
         "CmuxNextFocusUI",
@@ -371,6 +376,7 @@
         "CmuxNextRemote",
         "CmuxNextRemoteLocalhostService",
         "CmuxNextScreenshots",
+        "CmuxNextStash",
         "CmuxNextTabs",
         "CmuxNextTasks",
         "CmuxNextTerminalGeometry",
@@ -517,6 +523,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests",
       "targets": [
         "CmuxNextBrowser",
+        "CmuxNextDesign",
         "CmuxNextRemoteFetch"
       ],
       "packages": [],
@@ -739,7 +746,6 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonRecovery",
       "targets": [
-        "CmuxNextApps",
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
@@ -973,11 +979,27 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextHomeEngineTests",
       "targets": [
         "CmuxNextDaemon",
+        "CmuxNextDesign",
         "CmuxNextHomeEngine"
       ],
       "packages": [
         "CmuxHomeCore"
       ],
+      "reads": []
+    },
+    "CmuxNextHostPressure": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHostPressure",
+      "targets": [],
+      "packages": []
+    },
+    "CmuxNextHostPressureTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextHostPressureTests",
+      "targets": [
+        "CmuxNextHostPressure"
+      ],
+      "packages": [],
       "reads": []
     },
     "CmuxNextHostedChief": {
@@ -1003,7 +1025,6 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextImportCards",
       "targets": [
         "CmuxNextActions",
-        "CmuxNextAgentPane",
         "CmuxNextBrowserImport",
         "CmuxNextCompat",
         "CmuxNextDesign",
@@ -1164,12 +1185,22 @@
       ],
       "packages": []
     },
+    "CmuxNextPagesTestSupport": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPagesTestSupport",
+      "targets": [
+        "CmuxNextPages",
+        "CmuxNextSettings"
+      ],
+      "packages": []
+    },
     "CmuxNextPagesTests": {
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPagesTests",
       "targets": [
         "CmuxNextDesign",
         "CmuxNextPages",
+        "CmuxNextPagesTestSupport",
         "CmuxNextSettings"
       ],
       "packages": [],
@@ -1597,6 +1628,7 @@
       "targets": [
         "CmuxNextBridge",
         "CmuxNextDaemon",
+        "CmuxNextSidebar",
         "CmuxNextWorkspaceNaming"
       ],
       "packages": [],

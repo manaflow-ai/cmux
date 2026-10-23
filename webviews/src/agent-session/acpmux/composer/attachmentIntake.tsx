@@ -24,6 +24,7 @@ import { type StringKey, type Translate, usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { pasteLines, pasteName } from "../conversation/promptCollapse";
 import { intakeFiles } from "./intakeFiles";
+import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
 import { FADE_BAND_PX } from "../MarkdownField";
 import { useScrollEdges } from "../summary/scrollEdges";
 
@@ -31,7 +32,6 @@ const ATTACHMENT_LABELS = {
   attachments: "composer.attachments",
   removeAttachment: "composer.removeAttachment",
   openAttachment: "composer.openAttachment",
-  dropFiles: "composer.dropFiles",
   sentAsFileForCodex: "composer.sentAsFileForCodex",
   sentAsPath: "composer.sentAsPath",
   tooLarge: "composer.tooLarge",
@@ -58,6 +58,9 @@ export type AttachmentIntakeOptions = {
   /// For a chat on this Mac: where the files of the person's drop or paste are (composer/intakeFiles.ts
   /// droppedPaths), so a folder or a file no block takes goes as a link to it, tried before `upload`.
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
+  /// The chat column a file drag lifts the drop overlay over (composer/dropOverlayState.ts): over
+  /// it a drop attaches; elsewhere in the pane the overlay only arms. Unset: the whole page.
+  dropZone?(): Element | null;
   /// The chat the composer shows. A file is the chat's it was pasted or dropped in: its placeholder
   /// shows only there, and a read that ends after the composer moved to another chat hands its
   /// chips to `elsewhere` instead of this chat's strip.
@@ -115,6 +118,15 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const [pending, setPending] = useState<PendingAttachment[]>([]);
   const [attachError, setAttachError] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
+  /// The drop overlay's state (composer/DropOverlay.tsx). Kept in a ref too: a refused drag's
+  /// `dropEffect` is set inside the drag event, before any render.
+  const [drop, setDropState] = useState<DropOverlayState>(HIDDEN_DROP);
+  const dropRef = useRef<DropOverlayState>(HIDDEN_DROP);
+  const [showDrop] = useState(() => (next: DropOverlayState) => {
+    if (next === dropRef.current) return;
+    dropRef.current = next;
+    setDropState(next);
+  });
   const live = useRef({ options, t, held: attachments.length });
   live.current = { options, t, held: attachments.length };
   /// The files of every batch still being read, counted as soon as it comes in (before a render),
@@ -193,15 +205,37 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       if (files.length) void attach(files, owned.uploads, "paste");
       if (other?.text !== undefined) pasteTextInto(event, other.text);
     };
-    const removeFileDropLifecycle = installFileDropLifecycle((files) => void attach(files, true, "drop"), setDropping);
+    const removeFileDropLifecycle = installFileDropLifecycle(
+      (files) => {
+        showDrop(landDropOverlay(dropRef.current, files));
+        void attach(files, true, "drop");
+      },
+      (active, event) => {
+        setDropping(active);
+        const { allowImages, dropZone } = live.current.options;
+        showDrop(stepDropOverlay(dropRef.current, active, event, allowImages, dropZone?.()));
+      },
+    );
     document.addEventListener("paste", paste);
     return () => {
       removeFileDropLifecycle();
       document.removeEventListener("paste", paste);
     };
-  }, [attach]);
+  }, [attach, showDrop]);
   const shown = pending.filter((chip) => chip.scope === scope);
-  return { attachments, setAttachments, pending: shown, attachError, setAttachError, dropping, attach };
+  /// The landing animation ended: the overlay hides.
+  const [dropLanded] = useState(() => () => showDrop(HIDDEN_DROP));
+  return {
+    attachments,
+    setAttachments,
+    pending: shown,
+    attachError,
+    setAttachError,
+    dropping,
+    drop,
+    dropLanded,
+    attach,
+  };
 }
 
 /// A prompt sent while its files are still being read (`pending`) is held and goes, once, when the
@@ -243,12 +277,25 @@ function pasteTextInto(event: ClipboardEvent, text: string) {
   target.dispatchEvent(new view.Event("input", { bubbles: true }));
 }
 
-/// The staged attachments' chips over the prompt, with the drop hint or a refusal's note.
+/// Backspace with the caret at the prompt's start (`atStart`: nothing for the key to delete or
+/// lift there) takes back the last staged chip, as a chat composer's Backspace does, so a pasted
+/// image goes without reaching for its ×. A held key's repeat does not: holding Backspace to
+/// clear the prompt stops at its start.
+export function backspacedAttachment(
+  event: { key: string; repeat: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean; ctrlKey: boolean },
+  atStart: boolean,
+  attachments: readonly ComposerAttachment[],
+): ComposerAttachment | undefined {
+  if (event.key !== "Backspace" || event.repeat || !atStart) return undefined;
+  if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return undefined;
+  return attachments[attachments.length - 1];
+}
+
+/// The staged attachments' chips over the prompt, with a refusal's note.
 export function AttachmentStrip({
   attachments,
   pending = [],
   error,
-  dropping,
   codex = false,
   onRemove,
   onExpand,
@@ -257,7 +304,6 @@ export function AttachmentStrip({
   /// Files still being read: a placeholder chip each, after the staged ones (PendingAttachment).
   pending?: readonly PendingAttachment[];
   error?: string;
-  dropping: boolean;
   codex?: boolean;
   onRemove(id: string): void;
   /// A pasted text chip's click: its text goes back into the prompt (pastedText.ts). Unset, the chip
@@ -268,7 +314,9 @@ export function AttachmentStrip({
   // More chips than fit scroll sideways: the side with chips past it is marked, and the CSS fades it
   // by the prompt's band (composerAttachments.css).
   const edges = useScrollEdges("x");
-  if (attachments.length === 0 && pending.length === 0 && !error && !dropping) return null;
+  // The drop overlay says what a drag does (composer/DropOverlay.tsx); a note here would grow the
+  // composer mid-drag.
+  if (attachments.length === 0 && pending.length === 0 && !error) return null;
   return (
     <fieldset
       ref={edges}
@@ -288,11 +336,7 @@ export function AttachmentStrip({
       {pending.map((chip) => (
         <PendingChip key={chip.id} chip={chip} />
       ))}
-      {dropping ? (
-        <span className="acpmux-attachment-note">{t(ATTACHMENT_LABELS.dropFiles)}</span>
-      ) : (
-        error && <output className="acpmux-attachment-note">{error}</output>
-      )}
+      {error && <output className="acpmux-attachment-note">{error}</output>}
     </fieldset>
   );
 }

@@ -274,10 +274,15 @@ await requireBrowserLane("agent-pane-edit-awaiting-permission.test.ts", async ()
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(FIRST_RAN));
     await page.getByText("Tighten the retry comment").waitFor();
-    const card = page.locator(".acpmux-edited");
-    await card.waitFor();
-    expect(await card.textContent()).toContain("install.sh");
-    expect(await card.textContent()).not.toContain("install_test.sh");
+    // A run with a change still waiting for its permission keeps its tool rows, so the held call
+    // stays in sight (conversation/turns.ts `codexRuns`); the turn's edited-files card comes once
+    // it runs. The edit that ran reads as Edited with its change, the held one as its call.
+    const run = page.locator(".acpmux-activity", { hasText: "install_test.sh" });
+    await run.waitFor();
+    const labels = (await run.locator(".cv-tool__text").allTextContents()).map((label) => label.trim());
+    expect(labels).toContain("Edited install.sh+1-0");
+    expect(labels).toContain("Edit install_test.sh");
+    expect(labels.some((label) => label.startsWith("Edited install_test.sh"))).toBe(false);
     await page.close();
   });
 
