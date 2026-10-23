@@ -5,13 +5,19 @@ import CmuxNextSettings
 /// (`browser.keepNeighborTabsAwake`, plans/cmux-next/neighbor-tabs-DESIGN.md).
 /// Pure: `BrowserHibernation` feeds it each pane's tab order and selection.
 struct NeighborTabs {
-    /// Each pane's tabs in strip order and its shown tab; keyed by the pane's presenter.
-    private(set) var panes: [ObjectIdentifier: (order: [String], selected: String?)] = [:]
+    /// Each pane's tabs in strip order, its shown tab and whether the pane is on screen; keyed by
+    /// the pane's presenter.
+    private(set) var panes: [ObjectIdentifier: (order: [String], selected: String?, visible: Bool)] = [:]
 
-    /// Records a pane's order and shown tab (nil: the pane shows nothing, or is parked).
-    mutating func set(_ pane: ObjectIdentifier, order: [String], selected: String?) {
-        panes[pane] = (order, selected)
+    /// Records a pane's order and shown tab (nil: the pane shows nothing). A pane off screen (a
+    /// parked workspace, an off-screen column) keeps its shown tab as its front and wakes no neighbors.
+    mutating func set(_ pane: ObjectIdentifier, order: [String], selected: String?, visible: Bool = true) {
+        panes[pane] = (order, selected, visible)
     }
+
+    /// The tab each pane shows, on screen or not: what a workspace or column switch shows again,
+    /// so the page warm budget leaves it alone (`HibernationPlanner.Candidate.isFront`).
+    var fronts: Set<String> { Set(panes.values.compactMap(\.selected)) }
 
     mutating func remove(_ pane: ObjectIdentifier) {
         panes[pane] = nil
@@ -24,8 +30,8 @@ struct NeighborTabs {
         guard radius > 0 else { return [] }
         var keys: Set<String> = []
         var shown: Set<String> = []
-        for (order, selected) in panes.values {
-            guard let selected, let index = order.firstIndex(of: selected) else { continue }
+        for (order, selected, visible) in panes.values {
+            guard visible, let selected, let index = order.firstIndex(of: selected) else { continue }
             shown.insert(selected)
             keys.formUnion(Self.around(index, in: order, radius: radius))
         }
