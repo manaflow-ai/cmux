@@ -15,6 +15,8 @@ struct SinkState {
     /// Offset after the newest byte received (the holder's numbering).
     received: u64,
     exit: Option<ExitStatus>,
+    /// No holder streams this terminal any more (a holder restart failed).
+    lost: bool,
     /// The daemon is shutting down and leaves the terminal running.
     detached: bool,
 }
@@ -42,6 +44,21 @@ impl HolderSink {
         self.state.lock().recover_poison().received
     }
 
+    /// Bytes the parser reads before the holder's (an archived terminal's
+    /// replay); they take no holder offset.
+    pub(crate) fn prepend(&self, seed: &[u8]) {
+        let mut state = self.state.lock().recover_poison();
+        for byte in seed.iter().rev() {
+            state.bytes.push_front(*byte);
+        }
+    }
+
+    /// The holder is gone for good: the reader drains and the wait ends lost.
+    pub(crate) fn lose(&self) {
+        self.state.lock().recover_poison().lost = true;
+        self.changed.notify_all();
+    }
+
     /// End the reader and the wait without an end of the terminal: the
     /// daemon exits and the holder keeps the shell.
     pub(crate) fn detach(&self) {
@@ -57,7 +74,7 @@ impl HolderSink {
     /// detached) and every byte before was read.
     fn read(&self, buf: &mut [u8]) -> usize {
         let mut state = self.state.lock().recover_poison();
-        while state.bytes.is_empty() && state.exit.is_none() && !state.detached {
+        while state.bytes.is_empty() && state.exit.is_none() && !state.detached && !state.lost {
             state = self.changed.wait(state).recover_poison();
         }
         if state.detached {
@@ -70,13 +87,17 @@ impl HolderSink {
         n
     }
 
-    /// Block until the terminal ended (`Some`) or the daemon detached (`None`).
-    pub(crate) fn wait_end(&self) -> Option<ExitStatus> {
+    /// Block until the terminal ended, was lost or the daemon detached.
+    pub(crate) fn wait_end(&self) -> SinkEnd {
         let mut state = self.state.lock().recover_poison();
-        while state.exit.is_none() && !state.detached {
+        while state.exit.is_none() && !state.detached && !state.lost {
             state = self.changed.wait(state).recover_poison();
         }
-        if state.detached { None } else { state.exit }
+        match (state.detached, state.exit) {
+            (true, _) => SinkEnd::Detached,
+            (false, Some(status)) => SinkEnd::Exited(status),
+            (false, None) => SinkEnd::Lost,
+        }
     }
 }
 
@@ -107,6 +128,17 @@ impl TerminalSink for HolderSink {
     }
 }
 
+/// How a holder terminal's stream ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SinkEnd {
+    /// The shell ended; the holder reported its status.
+    Exited(ExitStatus),
+    /// No holder could stream it any more.
+    Lost,
+    /// The daemon left it running for its shutdown.
+    Detached,
+}
+
 /// The terminal reader's view of a [`HolderSink`].
 pub(super) struct SinkReader(pub(super) Arc<HolderSink>);
 
@@ -131,7 +163,20 @@ mod tests {
         reader.read_to_end(&mut out).unwrap();
         assert_eq!(out, b"abcde");
         assert_eq!(sink.received(), 15);
-        assert_eq!(sink.wait_end(), Some(ExitStatus::Exited(0)));
+        assert_eq!(sink.wait_end(), SinkEnd::Exited(ExitStatus::Exited(0)));
+    }
+
+    #[test]
+    fn a_seed_comes_first_and_a_lost_holder_ends_the_stream() {
+        let sink = HolderSink::new(0);
+        sink.data(0, b"shell");
+        sink.prepend(b"seed:");
+        sink.lose();
+        let mut out = Vec::new();
+        SinkReader(sink.clone()).read_to_end(&mut out).unwrap();
+        assert_eq!(out, b"seed:shell");
+        assert_eq!(sink.received(), 5);
+        assert_eq!(sink.wait_end(), SinkEnd::Lost);
     }
 
     #[test]
@@ -141,6 +186,6 @@ mod tests {
         sink.detach();
         let mut buf = [0u8; 8];
         assert_eq!(SinkReader(sink.clone()).read(&mut buf).unwrap(), 0);
-        assert_eq!(sink.wait_end(), None);
+        assert_eq!(sink.wait_end(), SinkEnd::Detached);
     }
 }

@@ -20,6 +20,9 @@ pub(crate) struct HolderSpawn {
     pub(crate) host_root: PathBuf,
     /// The registry-reserved terminal id; `None` mints one.
     pub(crate) terminal_id: Option<crate::terminal_host::TerminalId>,
+    /// VT replay the parser applies before the shell's first byte (Reopen
+    /// Closed of an archived terminal; empty: none).
+    pub(crate) seed: Vec<u8>,
     pub(crate) terminal_public_id: Option<TerminalPublicId>,
     pub(crate) resource_identity: Option<TabResourceIdentity>,
     pub(crate) kitty_reservation: Option<crate::mux::KittyImageBudgetReservation>,
@@ -62,7 +65,7 @@ impl Surface {
             env,
         };
         let service = HolderService::for_root(&spawn.host_root)?;
-        let terminal = service.spawn(&request)?;
+        let terminal = service.spawn(&request, &spawn.seed)?;
         crate::debug_spans::mark("surface.holder_spawned");
         let launched = Self::run_on_holder(
             &terminal,
