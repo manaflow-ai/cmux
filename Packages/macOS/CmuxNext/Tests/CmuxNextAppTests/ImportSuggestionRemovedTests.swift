@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+@testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxHomeCore
 @testable import CmuxNextHome
@@ -9,8 +10,8 @@ import Testing
 
 /// Leo 2026-10-21: "yeah the bring your stuff to cmux is extrmeely questionable idk why that's
 /// there + why they went to the chief thingy", and "yes to both" to removing it from the New Tab
-/// and the Chief completely. The import suggestion is gone from the Chief's front page; importing
-/// lives in Settings › Import and the palette's Import from Other Apps….
+/// and the Chief completely. The import suggestion is gone from the Chief's front page and the New
+/// Tab page; importing lives in Settings › Import and the palette's Import from Other Apps….
 @MainActor @Suite(.serialized) struct ImportSuggestionRemovedTests {
     /// The empty Chief conversation's front page holds no import suggestion row and no import card,
     /// shown or hidden.
@@ -24,6 +25,14 @@ import Testing
         #expect(!page.contains { $0.accessibilityIdentifier() == "cmux.home.importSuggestion" }, "the front page holds the import row")
         #expect(!page.contains { String(describing: type(of: $0)).contains("Import") }, "the front page holds an import view")
         #expect(!page.contains { $0.texts.contains { $0.localizedCaseInsensitiveContains("Bring your stuff") } })
+    }
+
+    /// The New Tab page gets no import cards: the agent page has no `importCards.act` op, and a
+    /// page that still posts one is refused like any unknown request.
+    @Test func theNewTabHasNoImportCards() {
+        #expect(!AgentPageOps.all.contains(AgentPageOps.namespace + "importCards.act"))
+        #expect(AgentPaneRequest(body: ["method": "importCards.act", "params": ["id": "agents.codex", "action": "start"]])
+            == .unsupported("importCards.act"))
     }
 
     /// Import stays in the command palette: Import from Other Apps… is a palette action, and it
