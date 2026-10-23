@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 
 /// Tells a ``ThinScroller`` where the pointer is over its scroll view, so the knob shows and widens
 /// as the pointer nears the trailing edge, and when the user scrolls the view (AppKit's live scroll
@@ -9,7 +10,8 @@ final class ThinScrollerProximity: NSResponder {
     private weak var scroller: ThinScroller?
     private weak var host: NSView?
     private var area: NSTrackingArea?
-    private var liveScroll: (any NSObjectProtocol)?
+    /// AppKit's live scroll notification for `host`; stops when released (``detach()`` or this object's release).
+    private var liveScroll: MainActorObservation?
 
     init(scroller: ThinScroller, host: NSView) {
         self.scroller = scroller
@@ -20,12 +22,8 @@ final class ThinScrollerProximity: NSResponder {
         host.addTrackingArea(area)
         self.area = area
         // queue: .main runs inline for AppKit's post on main, in the scroll's own turn.
-        liveScroll = NotificationCenter.default.addObserver(
-            forName: NSScrollView.didLiveScrollNotification, object: host, queue: .main
-        ) { [weak scroller] _ in
-            MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                if let scroller, scroller.showsOnScroll { scroller.flash() }
-            }
+        liveScroll = MainActorObservation(NSScrollView.didLiveScrollNotification, object: host) { [weak scroller] in
+            if let scroller, scroller.showsOnScroll { scroller.flash() }
         }
     }
 
@@ -36,7 +34,6 @@ final class ThinScrollerProximity: NSResponder {
     func detach() {
         if let area { host?.removeTrackingArea(area) }
         area = nil
-        if let liveScroll { NotificationCenter.default.removeObserver(liveScroll) }
         liveScroll = nil
     }
 
