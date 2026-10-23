@@ -89,7 +89,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     private var statusLookObservation: Task<Void, Never>?
     private var reduceMotionObservers: [MainActorObservation] = []
     /// The window's occlusion changes (PageWebView+Visibility.swift): a covered page gets no events.
-    var occlusionObserver: (any NSObjectProtocol)?
+    var occlusionObservation: Task<Void, Never>?
     /// Whether the page's events wait while nobody can see it (PageWebView+Visibility.swift). True
     /// for every page but one whose owner paces its own events and knows which ones a hidden page
     /// waits on: the agent pane (`AgentPaneFramePacer`: a reply, `prompt_accepted`, a turn's end go
@@ -397,7 +397,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
             statusLookObservation?.cancel()
-            if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+            occlusionObservation?.cancel()
         }
     }
 
