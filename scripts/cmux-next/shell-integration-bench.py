@@ -8,6 +8,9 @@ usage:
            requested zsh and bash; --require= to allow skipping)
            --layouts app,daemon,daemon-bare  --reps 9  --cycles 20  --idle-s 1.2  --max-overhead-ms 15
            --json out.json
+  fleet (alone on an idle Mac, with the fork guard and bash 5.2):
+    cmux-ci run --class exclusive --measurement --label measure \
+      --script scripts/measure/shell-integration.sh --ref SHA
 
 What it runs. Every shell starts the way a cmux-next terminal starts it: a login shell on a pty
 (`-zsh`, `-bash --posix`, `-fish`, as the daemon's login(1) start does) with the environment the
@@ -93,6 +96,9 @@ KILL_LINE = b"\x15"
 COMMANDS = (b"cd ~/g", b"true", b"cd ~/p", b"true")
 ERRORS = (b"bad substitution", b"command not found", b"parse error", b"syntax error",
           b"fork failed", b"nknown command")
+# Primary Device Attributes: what a shell asks (fish 4 at startup), and Ghostty's answer.
+DA1_QUERIES = (b"\x1b[c", b"\x1b[0c")
+DA1_REPLY = b"\x1b[?62;22c"
 GHOSTTY_FEATURES = "cursor:blink,path,title"
 DEFAULT_XDG = "/usr/local/share:/usr/share"
 SYSTEM_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
@@ -150,6 +156,7 @@ class Session:
     def __init__(self, path: str, argv: list[str], env: dict[str, str], timeout: float):
         self.timeout = timeout
         self.buf = b""
+        self.da1_answered = 0
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
             try:
@@ -175,6 +182,17 @@ class Session:
             if not data:
                 raise BenchError(f"shell exited while waiting for {what}; last output: {self.tail()}")
             self.buf += data
+            self.answer_device_attributes()
+
+    def answer_device_attributes(self) -> None:
+        """Answers each Primary Device Attributes query (CSI c) as Ghostty does.
+
+        fish 4 asks at startup and waits up to 10 s for the answer, so a pty with no terminal
+        behind it would add 10 s to every fish start (and to its first-prompt time)."""
+        queries = sum(self.buf.count(query) for query in DA1_QUERIES)
+        if queries > self.da1_answered:
+            os.write(self.fd, DA1_REPLY * (queries - self.da1_answered))
+            self.da1_answered = queries
 
     def tail(self) -> str:
         return self.buf[-600:].decode("utf-8", "replace").encode("unicode_escape").decode()
