@@ -804,10 +804,22 @@ class TerminalController {
         if isV2 {
             return commandHasFocusIntent(commandKey: commandKey, isV2: true, params: params)
         }
+        if commandKey == "left_sidebar" {
+            return leftSidebarCommandAllowsInAppFocusMutations(args: params["args"] as? String ?? "")
+        }
         if commandKey == "right_sidebar" {
             return rightSidebarCommandAllowsInAppFocusMutations(args: params["args"] as? String ?? "")
         }
         return focusIntentV1Commands.contains(commandKey)
+    }
+
+    /// Only `left_sidebar focus` may move focus. Unlike `right_sidebar`,
+    /// `toggle` and `show` change visibility without it.
+    nonisolated static func leftSidebarCommandAllowsInAppFocusMutations(args: String) -> Bool {
+        guard case .success(let request) = LeftSidebarRemoteRequest.parse(tokens: Self.tokenizeArgs(args)) else {
+            return false
+        }
+        return request.command.allowsInAppFocusMutations
     }
 
     private nonisolated static func rightSidebarCommandAllowsInAppFocusMutations(args: String) -> Bool {
@@ -3104,7 +3116,7 @@ class TerminalController {
         let cmd = parts[0].lowercased()
         let args = parts.count > 1 ? parts[1] : ""
 
-        let policyParams = cmd == "right_sidebar" ? ["args": args] : [:]
+        let policyParams = cmd == "left_sidebar" || cmd == "right_sidebar" ? ["args": args] : [:]
         return withSocketCommandPolicy(commandKey: cmd, isV2: false, params: policyParams) {
             // V1 domains migrated into CmuxControlSocket's ControlCommandCoordinator
             // (the sidebar metadata/pane/surface commands and the browser panel
@@ -3220,7 +3232,8 @@ class TerminalController {
         // agent_hibernation/clear_agent_pid/log/clear_log/list_log/set_progress/
         // clear_progress/report_git_branch/clear_git_branch/report_pr/report_review/
         // clear_pr/report_ports/clear_ports/report_tty/ports_kick/report_shell_state/
-        // report_pr_action/report_pwd/sidebar_state/reset_sidebar/right_sidebar)
+        // report_pr_action/report_pwd/sidebar_state/reset_sidebar/left_sidebar/
+        // right_sidebar)
         // handled by ControlCommandCoordinator.
 
         case "read_screen":
@@ -12557,6 +12570,7 @@ class TerminalController {
           report_pr_action <merge|close|reopen|create|checkout|ready|edit|view> [--target=X] [--tab=X] [--panel=Y] - Hint that a PR-affecting command completed in the panel
           report_pwd <path|display-label> [--path=/actual/path] [--tab=X] [--panel=Y] - Report current working directory
           clear_ports [--tab=X] [--panel=Y] - Clear listening ports
+          left_sidebar <toggle|show|hide|focus|mode> [--tab=X] [--window=Y] - Control left sidebar visibility and focus
           right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--tab=X] [--window=Y] [--no-focus] - Control right sidebar visibility, mode, and focus
           sidebar_state [--tab=X] - Dump sidebar metadata
           reset_sidebar [--tab=X] - Clear sidebar metadata

@@ -657,6 +657,10 @@ command  last-window  aliases=-
 command  layout  aliases=-
   arg  --workspace  kind=option  completion=custom
   arg  arguments  kind=argument  completion=-
+command  left-sidebar  aliases=-
+  arg  --window  kind=option  completion=custom
+  arg  --workspace  kind=option  completion=custom
+  arg  arguments  kind=argument  completion=-
 command  list-buffers  aliases=-
   arg  arguments  kind=argument  completion=-
 command  list-log  aliases=-

@@ -311,6 +311,7 @@ extension CMUXCLI {
         themes [list|set|clear]
         import [<terminal>] [--dry-run] [--yes] [--path <file>] [--json]
         reload-config
+        left-sidebar <toggle|show|hide|focus|mode> [--workspace <id|ref|index>] [--window <id|ref|index>]
         right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|cloud|devices> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
         sidebar <templates|try|new|validate|reload|select|open> [name] [options]
         help

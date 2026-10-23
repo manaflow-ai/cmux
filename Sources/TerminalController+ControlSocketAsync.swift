@@ -248,7 +248,7 @@ extension TerminalController {
         return try await withSocketCommandPolicyAsync(
             commandKey: commandName,
             isV2: false,
-            params: commandName == "right_sidebar"
+            params: commandName == "left_sidebar" || commandName == "right_sidebar"
                 ? ["args": .string(args)]
                 : [:]
         ) {

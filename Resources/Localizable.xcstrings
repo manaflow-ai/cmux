@@ -670518,6 +670518,950 @@
         }
       }
     },
+    "cli.leftSidebar.error.missingCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar requires a subcommand: toggle, show, hide, focus, or mode"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب left-sidebar أمرًا فرعيًا: toggle أو show أو hide أو focus أو mode"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar erfordert einen Unterbefehl: toggle, show, hide, focus oder mode"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar requiere un subcomando: toggle, show, hide, focus o mode"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar requiert une sous-commande : toggle, show, hide, focus ou mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar にはサブコマンドが必要です: toggle、show、hide、focus、mode のいずれか"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar에는 하위 명령이 필요합니다: toggle, show, hide, focus 또는 mode"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar 需要一个子命令：toggle、show、hide、focus 或 mode"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar 需要子指令：toggle、show、hide、focus 或 mode"
+          }
+        }
+      }
+    },
+    "cli.leftSidebar.error.windowRequiresValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --window requires an id"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: يتطلب الخيار --window معرفًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --window erfordert eine ID"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --window requiere un id"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar : --window requiert un identifiant"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --window には ID が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --window에 ID가 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar：--window 需要一个 id"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --window 需要 id"
+          }
+        }
+      }
+    },
+    "cli.leftSidebar.error.workspaceRequiresValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --workspace requires an id"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: يتطلب الخيار --workspace معرفًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --workspace erfordert eine ID"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --workspace requiere un id"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar : --workspace requiert un identifiant"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --workspace には ID が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --workspace에 ID가 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar：--workspace 需要一个 id"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --workspace 需要 id"
+          }
+        }
+      }
+    },
+    "cli.leftSidebar.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux left-sidebar <command> [flags]\n\nControl the left (workspace) sidebar from the CLI.\n\nCommands:\n  toggle                         Toggle left sidebar visibility\n  show                           Show the left sidebar\n  hide                           Hide the left sidebar\n  focus                          Show the left sidebar and focus its workspace list\n  mode                           Print {\"visible\":bool}\n\nFlags:\n  --workspace <id|ref|index>     Target the window containing a workspace\n  --window <id|ref|index>        Target a window\n\nOnly focus moves keyboard focus or brings the window forward.\n\nExamples:\n  cmux left-sidebar hide\n  cmux left-sidebar show --window window:2\n  cmux left-sidebar mode"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux left-sidebar <command> [flags]\n\nالتحكم في الشريط الجانبي الأيسر (مساحات العمل) من CLI.\n\nالأوامر:\n  toggle                         تبديل ظهور الشريط الجانبي الأيسر\n  show                           إظهار الشريط الجانبي الأيسر\n  hide                           إخفاء الشريط الجانبي الأيسر\n  focus                          إظهار الشريط الجانبي الأيسر والتركيز على قائمة مساحات العمل فيه\n  mode                           طباعة {\"visible\":bool}\n\nالخيارات:\n  --workspace <id|ref|index>     استهداف النافذة التي تحتوي على مساحة عمل\n  --window <id|ref|index>        استهداف نافذة\n\nالأمر focus وحده ينقل تركيز لوحة المفاتيح أو يُحضر النافذة إلى الأمام.\n\nأمثلة:\n  cmux left-sidebar hide\n  cmux left-sidebar show --window window:2\n  cmux left-sidebar mode"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux left-sidebar <Befehl> [Flags]\n\nSteuern Sie die linke Seitenleiste (Arbeitsbereiche) über die CLI.\n\nBefehle:\n  toggle                         Sichtbarkeit der linken Seitenleiste umschalten\n  show                           Die linke Seitenleiste anzeigen\n  hide                           Die linke Seitenleiste ausblenden\n  focus                          Die linke Seitenleiste anzeigen und ihre Arbeitsbereichsliste fokussieren\n  mode                           {\"visible\":bool} ausgeben\n\nFlags:\n  --workspace <id|ref|index>     Zielt auf das Fenster ab, das einen Arbeitsbereich enthält\n  --window <id|ref|index>        Zielt auf ein Fenster ab\n\nNur focus verschiebt den Tastaturfokus oder holt das Fenster nach vorne.\n\nBeispiele:\n  cmux left-sidebar hide\n  cmux left-sidebar show --window window:2\n  cmux left-sidebar mode"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux left-sidebar <command> [flags]\n\nControla la barra lateral izquierda (espacios de trabajo) desde la CLI.\n\nComandos:\n  toggle                         Alterna la visibilidad de la barra lateral izquierda\n  show                           Muestra la barra lateral izquierda\n  hide                           Oculta la barra lateral izquierda\n  focus                          Muestra la barra lateral izquierda y enfoca su lista de espacios de trabajo\n  mode                           Imprime {\"visible\":bool}\n\nOpciones:\n  --workspace <id|ref|index>     Apunta a la ventana que contiene un espacio de trabajo\n  --window <id|ref|index>        Apunta a una ventana\n\nSolo focus mueve el foco del teclado o trae la ventana al frente.\n\nEjemplos:\n  cmux left-sidebar hide\n  cmux left-sidebar show --window window:2\n  cmux left-sidebar mode"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux left-sidebar <commande> [options]\n\nContrôler la barre latérale gauche (espaces de travail) depuis la CLI.\n\nCommandes :\n  toggle                         Basculer la visibilité de la barre latérale gauche\n  show                           Afficher la barre latérale gauche\n  hide                           Masquer la barre latérale gauche\n  focus                          Afficher la barre latérale gauche et donner le focus à sa liste d'espaces de travail\n  mode                           Afficher {\"visible\":bool}\n\nOptions :\n  --workspace <id|ref|index>     Cibler la fenêtre contenant un espace de travail\n  --window <id|ref|index>        Cibler une fenêtre\n\nSeul focus déplace le focus clavier ou met la fenêtre au premier plan.\n\nExemples :\n  cmux left-sidebar hide\n  cmux left-sidebar show --window window:2\n  cmux left-sidebar mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux left-sidebar <command> [flags]\n\nCLI から左サイドバー（ワークスペース）を操作します。\n\nコマンド:\n  toggle                         左サイドバーの表示を切り替えます\n  show                           左サイドバーを表示します\n  hide                           左サイドバーを隠します\n  focus                          左サイドバーを表示し、ワークスペース一覧にフォーカスします\n  mode                           {\"visible\":bool} を出力します\n\nフラグ:\n  --workspace <id|ref|index>     ワークスペースを含むウィンドウを対象にします\n  --window <id|ref|index>        ウィンドウを対象にします\n\nキーボードフォーカスを移したりウィンドウを前面に出したりするのは focus だけです。\n\n例:\n  cmux left-sidebar hide\n  cmux left-sidebar show --window window:2\n  cmux left-sidebar mode"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux left-sidebar <command> [flags]\n\nCLI에서 왼쪽 사이드바(작업 공간)를 제어합니다.\n\n명령어:\n  toggle                         왼쪽 사이드바 표시 여부 토글\n  show                           왼쪽 사이드바 표시\n  hide                           왼쪽 사이드바 숨기기\n  focus                          왼쪽 사이드바를 표시하고 작업 공간 목록에 포커스 지정\n  mode                           {\"visible\":bool} 출력\n\n플래그:\n  --workspace <id|ref|index>     작업 공간을 포함하는 창을 대상으로 지정\n  --window <id|ref|index>        창을 대상으로 지정\n\nfocus만 키보드 포커스를 옮기거나 창을 앞으로 가져옵니다.\n\n예시:\n  cmux left-sidebar hide\n  cmux left-sidebar show --window window:2\n  cmux left-sidebar mode"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux left-sidebar <command> [flags]\n\n从 CLI 控制左侧边栏（工作区）。\n\n命令：\n  toggle                         切换左侧边栏的显示与隐藏\n  show                           显示左侧边栏\n  hide                           隐藏左侧边栏\n  focus                          显示左侧边栏并聚焦其工作区列表\n  mode                           打印 {\"visible\":bool}\n\n标志：\n  --workspace <id|ref|index>     指向包含该工作区的窗口\n  --window <id|ref|index>        指向某个窗口\n\n只有 focus 会移动键盘焦点或将窗口置于前台。\n\n示例：\n  cmux left-sidebar hide\n  cmux left-sidebar show --window window:2\n  cmux left-sidebar mode"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux left-sidebar <command> [flags]\n\n從 CLI 控制左側邊欄（工作區）。\n\n指令：\n  toggle                         切換左側邊欄可見性\n  show                           顯示左側邊欄\n  hide                           隱藏左側邊欄\n  focus                          顯示左側邊欄並聚焦至其工作區清單\n  mode                           列印 {\"visible\":bool}\n\n旗標：\n  --workspace <id|ref|index>     以包含工作區的視窗為目標\n  --window <id|ref|index>        以視窗為目標\n\n只有 focus 會移動鍵盤焦點或將視窗移到最前面。\n\n範例：\n  cmux left-sidebar hide\n  cmux left-sidebar show --window window:2\n  cmux left-sidebar mode"
+          }
+        }
+      }
+    },
+    "leftSidebar.remote.error.focusFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Failed to focus left sidebar"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: فشل التركيز على الشريط الجانبي الأيسر"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Linke Seitenleiste konnte nicht fokussiert werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: No se pudo enfocar la barra lateral izquierda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: échec de la mise au point de la barre latérale gauche"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 左サイドバーにフォーカスできませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 왼쪽 사이드바에 포커스를 설정하지 못했습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 聚焦左侧边栏失败"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 無法聚焦左側邊欄"
+          }
+        }
+      }
+    },
+    "leftSidebar.remote.error.targetNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Left sidebar target not found"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: هدف الشريط الجانبي الأيسر غير موجود"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Ziel der linken Seitenleiste nicht gefunden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Destino de la barra lateral izquierda no encontrado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: cible de barre latérale gauche introuvable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 左サイドバーの対象が見つかりません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 왼쪽 사이드바 대상을 찾을 수 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 未找到左侧边栏目标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 找不到左側邊欄目標"
+          }
+        }
+      }
+    },
+    "leftSidebar.remote.error.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Left sidebar not available"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: الشريط الجانبي الأيسر غير متوفر"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Linke Seitenleiste nicht verfügbar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Barra lateral izquierda no disponible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: barre latérale gauche indisponible"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 左サイドバーを利用できません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 왼쪽 사이드바를 사용할 수 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 左侧边栏不可用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 左側邊欄無法使用"
+          }
+        }
+      }
+    },
+    "leftSidebar.remote.error.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: الاستخدام: left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Verwendung: left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Uso: left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: utilisation : left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 使用法: left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 사용법: left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 用法：left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 用法：left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        }
+      }
+    },
+    "cli.leftSidebar.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: unknown flag '%@'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: علم غير معروف '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: unbekanntes Flag „%@“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: opción desconocida '%@'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar : option inconnue '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: 不明なフラグ '%@'"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: 알 수 없는 플래그 '%@'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar：未知标志 '%@'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: 未知的旗標 '%@'"
+          }
+        }
+      }
+    },
+    "cli.leftSidebar.error.unknownCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown left-sidebar command '%@'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أمر left-sidebar غير معروف '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter left-sidebar-Befehl „%@“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando left-sidebar desconocido '%@'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commande left-sidebar inconnue '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な left-sidebar コマンド '%@'"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 left-sidebar 명령 '%@'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 left-sidebar 命令 '%@'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 left-sidebar 指令 '%@'"
+          }
+        }
+      }
+    },
+    "cli.leftSidebar.error.unexpectedArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar %@ received unexpected arguments"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تلقى left-sidebar %@ وسائط غير متوقعة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar %@ hat unerwartete Argumente empfangen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar %@ recibió argumentos inesperados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar %@ a reçu des arguments inattendus"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar %@ に予期しない引数があります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar %@에 예상치 못한 인수가 전달되었습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar %@ 收到了意外参数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar %@ 收到未預期的引數"
+          }
+        }
+      }
+    },
+    "leftSidebar.remote.error.optionRequiresID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: %@ requires an id"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: %@ يتطلب معرفًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: %@ erfordert eine ID"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: %@ requiere un id"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: %@ requiert un identifiant"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: %@ には ID が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: %@에는 ID가 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: %@ 需要一个 id"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: %@ 需要 ID"
+          }
+        }
+      }
+    },
+    "leftSidebar.remote.error.unknownOption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Unknown left sidebar option '%@'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: خيار الشريط الجانبي الأيسر مجهول '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Unbekannte Option für die linke Seitenleiste: „%@“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Opción de barra lateral izquierda desconocida '%@'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: option de barre latérale gauche inconnue '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 不明な左サイドバーオプション '%@'"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 알 수 없는 왼쪽 사이드바 옵션: '%@'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 未知的左侧边栏选项 '%@'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 未知的左側邊欄選項「%@」"
+          }
+        }
+      }
+    },
+    "leftSidebar.remote.error.unknownCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Unknown left sidebar command '%@'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: أمر الشريط الجانبي الأيسر مجهول '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Unbekannter Befehl für die linke Seitenleiste: „%@“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Comando de barra lateral izquierda desconocido '%@'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: commande de barre latérale gauche inconnue '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 不明な左サイドバーコマンド '%@'"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 알 수 없는 왼쪽 사이드바 명령어: '%@'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 未知的左侧边栏命令 '%@'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 未知的左側邊欄命令「%@」"
+          }
+        }
+      }
+    },
+    "leftSidebar.remote.error.usage.command": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: الاستخدام: left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Verwendung: left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Uso: left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: utilisation : left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 使用法: left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 사용법: left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 用法：left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 用法：left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        }
+      }
+    },
+    "leftSidebar.remote.error.invalidTargetID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Invalid left sidebar --%@ id '%@'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: شريط جانبي أيسر غير صالح --%@ معرف '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Ungültige linke Seitenleiste --%@-ID „%@“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Barra lateral izquierda no válida --%@ id '%@'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: identifiant de barre latérale gauche invalide pour --%@ : '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 無効な左サイドバー --%@ ID '%@'"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 잘못된 왼쪽 사이드바 --%@ ID '%@'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 左侧边栏 --%@ id '%@' 无效"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 無效的左側邊欄 --%@ id「%@」"
+          }
+        }
+      }
+    },
     "cli.newSurface.help.profileDescription": {
       "extractionState": "manual",
       "localizations": {

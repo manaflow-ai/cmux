@@ -210,6 +210,7 @@ Environment:
 | `jump-to-unread` | Focus the latest unread notification. |
 | `jump-to-last-prompt` | Focus the surface where you last submitted an agent prompt. |
 | `clear-notifications` | Clear queued notifications, optionally scoped to a workspace, surface, and `--window` context. |
+| `left-sidebar` | Show, hide, focus, and read the left (workspace) sidebar. |
 | `right-sidebar` | Control right sidebar visibility, mode, focus, and state reads. |
 | `set-status` | Set a sidebar status pill. |
 | `clear-status` | Remove a sidebar status pill. |
@@ -812,6 +813,16 @@ Hook subcommands:
 
 Kimi hook setup targets the config file `kimi doctor` reports. Without a reported path, it takes the first of `${KIMI_CODE_HOME:-~/.kimi-code}/config.toml` (Kimi Code CLI) and `${KIMI_SHARE_DIR:-~/.kimi}/config.toml` (Kimi CLI 1.49 and earlier) that already exists as a file, then the first whose directory exists, and the Kimi Code CLI path when neither directory exists. Setup refreshes, but never removes, a cmux marker block already present in the other location; `hooks kimi uninstall` removes the block from both.
 
+Left sidebar commands:
+
+| Command | Contract |
+| --- | --- |
+| `left-sidebar toggle`, `left-sidebar show`, `left-sidebar hide` | Change left-sidebar visibility without printing on success, without moving focus and without bringing the window forward. `hide` also keeps a sidebar that a narrow window collapsed from coming back when the window widens. |
+| `left-sidebar focus` | Show the left sidebar if needed, bring its window forward, and focus the workspace list. |
+| `left-sidebar mode` | Print JSON with `visible`. A sidebar collapsed because the window is too narrow reports `false`. |
+| `--workspace <id\|ref\|index>` | Target the window containing a workspace. Refs and indexes resolve before the V1 socket command is sent. |
+| `--window <id\|ref\|index>` | Target a window. Refs and indexes resolve before the V1 socket command is sent. Without `--workspace` or `--window`, the command acts on the window ⌘B would. |
+
 Right sidebar commands:
 
 | Command | Contract |
@@ -1217,6 +1228,7 @@ the expected text without connecting to a cmux socket.
 - `cmux jump-to-unread --help` -> `Usage: cmux jump-to-unread`
 - `cmux jump-to-last-prompt --help` -> `Usage: cmux jump-to-last-prompt`
 - `cmux clear-notifications --help` -> `Usage: cmux clear-notifications`
+- `cmux left-sidebar --help` -> `Usage: cmux left-sidebar <command> [flags]`
 - `cmux right-sidebar --help` -> `Usage: cmux right-sidebar <command> [flags]`
 - `cmux set-status --help` -> `Usage: cmux set-status`
 - `cmux clear-status --help` -> `Usage: cmux clear-status`

@@ -4,6 +4,8 @@ import Foundation
 @MainActor
 final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
     var workspaceLoadingResult: ControlSidebarWorkspaceLoadingState?
+    var leftSidebarResolution: ControlSidebarLeftSidebarResolution = .ok
+    var leftSidebarTokens: [String]?
     var workspaceLoadingCall: (tabArg: String?, key: String, on: Bool)?
     // Test-only synchronous seam: calls and reads are serial within each test.
     var manualPullRequestAvailable = true
@@ -117,5 +119,10 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
     ) -> ControlSidebarWorkspaceLoadingState? {
         workspaceLoadingCall = (tabArg, key, on)
         return workspaceLoadingResult
+    }
+
+    func controlSidebarApplyLeftSidebarRemoteCommand(tokens: [String]) -> ControlSidebarLeftSidebarResolution {
+        leftSidebarTokens = tokens
+        return leftSidebarResolution
     }
 }
