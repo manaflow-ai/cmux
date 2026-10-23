@@ -124,8 +124,12 @@ public final class HomeChiefSettingsView: NSView {
     /// literally all the acpmux stuff"). A current choice outside the list still shows (`fill`).
     nonisolated static func harnesses(routeConfigured: Bool, listed: [String] = []) -> [String] {
         let official = ChiefBackend.official.map(\.id)
-        guard routeConfigured else { return official }
-        return [ChiefBackend.claude.id, "claude-cr"] + official.filter { $0 != ChiefBackend.claude.id }
+        var offered = routeConfigured
+            ? [ChiefBackend.claude.id, "claude-cr"] + official.filter { $0 != ChiefBackend.claude.id }
+            : official
+        var seen = Set(offered)
+        for id in listed where !id.isEmpty && seen.insert(id).inserted { offered.append(id) }
+        return offered
     }
 
     /// The harness picker's items: each harness with the name the app shows for it.
