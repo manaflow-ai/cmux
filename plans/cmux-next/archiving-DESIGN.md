@@ -27,11 +27,27 @@ item to the end of its group (or root, if ungrouped) and shows it dimmed; unarch
    runs the same reducer, so the dimmed row draws at once.
 7. **Undo.** Archive and Unarchive are one undo step each (the document's inverse is the item's old
    row).
+8. **Several at once.** Items archived in one change come back in their order: each remembers the
+   sibling it followed before anything moved, and Unarchive puts them back in list order.
+9. **Ungroup** places the members after the group without the group's mark: they draw undimmed.
+10. **New workspaces.** The daemon's `workspace.list` order puts an unplaced workspace above the
+    machine section's archived tail for `Bottom`, and for `AfterCurrent` when the active one is
+    archived (`sidebar_doc_order.rs`), so it does not jump when it is adopted.
 
 ## Surfaces
 
-The right-click menu of a workspace row, a group header and a link or tab item reads Archive or
-Unarchive for the item under the pointer (one catalog action per object, as Pin/Unpin).
+The right-click menu of a workspace row (More), a group header (Options) and a link or tab row in a
+list reads Archive or Unarchive for the item under the pointer (one catalog action per object, as
+Pin/Unpin); Cmd-Shift-P, the CLI (`workspace archive-unarchive`, `workspace-group toggle-archive`,
+`sidebar toggle-item-archive`) and MCP run the same actions. A band tile (Pinned, custom and app
+sections) does not offer it: tiles draw no dimmed look, and app sections are provider-owned.
+
+## Open
+
+- Band tiles: the CLI can still archive one (it moves last, undimmed).
+- A group's member line is not dimmed with its header.
+- The multi-selection menu reads Archive Workspace, not a selection title.
+- A legacy-store re-sync of a row whose old neighbor is archived sends a no-op move (`sidebar_doc_sync`).
 
 ## Tests
 

@@ -16,7 +16,7 @@ enum SidebarArchiveHandlers {
             let clicked = try workspaceItem(context.workspace(invocation).model.id, context)
             let archived = !store.records.isArchived(item: clicked)
             let items = try WindowMembershipHandlers.rowTargets(invocation, context).map { try workspaceItem($0.id, context) }
-            store.setArchived(items, archived: archived, title: archived ? ArchiveStrings.archiveWorkspace : ArchiveStrings.unarchiveWorkspace)
+            try store.setArchived(items, archived: archived, title: archived ? ArchiveStrings.archiveWorkspace : ArchiveStrings.unarchiveWorkspace)
         })
         ActionTargetTitles.set("workspace.toggleArchive", in: registry) { invocation in
             guard let store = SidebarDocStore.current, store.isActive, let workspace = try? context.workspace(invocation).model,
@@ -26,7 +26,7 @@ enum SidebarArchiveHandlers {
         registry.bind("workspaceGroup.toggleArchive", unavailable: unavailable, run: { invocation in
             let store = try activeStore(), item = groupItem(try context.group(invocation).id.rawValue, store)
             let archived = !store.records.isArchived(item: item)
-            store.setArchived([item], archived: archived, title: archived ? ArchiveStrings.archiveGroup : ArchiveStrings.unarchiveGroup)
+            try store.setArchived([item], archived: archived, title: archived ? ArchiveStrings.archiveGroup : ArchiveStrings.unarchiveGroup)
         })
         ActionTargetTitles.set("workspaceGroup.toggleArchive", in: registry) { invocation in
             guard let store = SidebarDocStore.current, store.isActive, let group = try? context.group(invocation) else { return nil }
@@ -39,7 +39,7 @@ enum SidebarArchiveHandlers {
                 throw ActionFailure.invalidTarget(SidebarSectionStrings.noSuchItem)
             }
             let archived = !store.records.isArchived(item: target.id)
-            store.setArchived([target.id], archived: archived, title: archived ? ArchiveStrings.archiveItem : ArchiveStrings.unarchiveItem)
+            try store.setArchived([target.id], archived: archived, title: archived ? ArchiveStrings.archiveItem : ArchiveStrings.unarchiveItem)
         })
         ActionTargetTitles.set("sidebar.item.toggleArchive", in: registry) { invocation in
             guard let store = SidebarDocStore.current, store.isActive, let target = invocation.target, target.kind == .sidebarItem,
