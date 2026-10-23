@@ -345,9 +345,6 @@ class Wiring(unittest.TestCase):
         recovered = text[text.index("\n  verify-recovered-nightly-next:\n"):text.index("\n  publish-nightly:\n")]
         self.assertIn("- name: Visual smoke the recovered app", recovered)
         self.assertIn("visual-smoke/gate.sh", recovered)
-        recovered_step = recovered[recovered.index("- name: Visual smoke the recovered app"):]
-        recovered_step = recovered_step[:recovered_step.index("\n      - name:", 1)]
-        self.assertIn("continue-on-error: true", recovered_step)
         publish = text[text.index("\n  publish-nightly:\n"):]
         needs = [n.strip() for n in re.search(r"\n    needs: \[([^\]]*)\]", publish).group(1).split(",")]
         self.assertIn("verify-signed-nightly", needs)

@@ -231,10 +231,8 @@ scores below 0.75. With no reference, only the structural checks run.
 
 - `nightly.yml`'s `verify-signed-nightly`, on the exact signed app it then
   publishes, and `verify-recovered-nightly-next`, on the app in a recovered
-  DMG. The visual-smoke step is temporarily advisory on both paths while its
-  Home fixture is repaired: failures retain their reports and captures but
-  do not stop publication. The signature, launch, CLI and final-DMG checks
-  remain blocking.
+  DMG. `publish-nightly` needs both jobs, so a failure publishes nothing. No
+  variable skips it.
 - `nightly-next-canary.yml`, after publication, on every feed build once this
   workflow's copy on main has it (a schedule runs main's copy). There it only
   reports; the canary's verdict decides a pull. A pull request that changes
