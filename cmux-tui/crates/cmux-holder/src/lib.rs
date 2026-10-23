@@ -17,9 +17,7 @@ pub mod pty;
 pub mod ring;
 pub mod wire;
 
-use std::io;
-
-use std::io::{BufRead, Write};
+use std::io::{self, BufRead, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 
@@ -173,7 +171,7 @@ mod tests {
 /// Run a holder process: `--socket PATH`, the owner token as 64 hex
 /// characters on stdin, `ready` on stdout once it listens. Returns only on a
 /// startup error.
-pub fn serve(args: &[String]) -> std::io::Result<()> {
+pub fn serve(args: &[String]) -> io::Result<()> {
     let mut args = args.iter().cloned();
     let mut socket = None;
     while let Some(arg) = args.next() {
@@ -184,7 +182,7 @@ pub fn serve(args: &[String]) -> std::io::Result<()> {
     }
     let socket = socket.ok_or_else(|| invalid("--socket PATH is required"))?;
     let mut line = String::new();
-    std::io::stdin().lock().read_line(&mut line)?;
+    io::stdin().lock().read_line(&mut line)?;
     let token = parse_token(line.trim()).ok_or_else(|| invalid("bad token on stdin"))?;
 
     // SAFETY: plain process-wide calls at startup, before any thread exists.
@@ -203,8 +201,8 @@ pub fn serve(args: &[String]) -> std::io::Result<()> {
         std::fs::remove_file(&socket)?;
     }
     let listener = UnixListener::bind(&socket)?;
-    let mut holder = crate::holder::Holder::new(listener, token)?;
-    let mut stdout = std::io::stdout().lock();
+    let mut holder = holder::Holder::new(listener, token)?;
+    let mut stdout = io::stdout().lock();
     stdout.write_all(b"ready\n")?;
     stdout.flush()?;
     drop(stdout);
@@ -235,6 +233,6 @@ fn parse_token(hex: &str) -> Option<[u8; 32]> {
     Some(token)
 }
 
-fn invalid(message: &str) -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::InvalidInput, message.to_string())
+fn invalid(message: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidInput, message.to_string())
 }

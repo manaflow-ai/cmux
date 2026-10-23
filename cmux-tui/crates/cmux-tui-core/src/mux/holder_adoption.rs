@@ -56,6 +56,7 @@ impl Mux {
             return Ok(false);
         };
         if terminal.lifecycle != TerminalLifecycle::Running
+            || !crate::holder_runtime::HolderService::may_run(&host_root)
             || !crate::holder_runtime::HolderService::for_root(&host_root)?.lists(id.as_bytes())
         {
             return Ok(false);

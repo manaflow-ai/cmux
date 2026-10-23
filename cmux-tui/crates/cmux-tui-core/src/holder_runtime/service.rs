@@ -52,9 +52,21 @@ impl HolderService {
         Ok(service)
     }
 
+    /// Whether a holder of `host_root` may run: its socket exists. Asking
+    /// costs no file, process or token when none does.
+    pub(crate) fn may_run(host_root: &Path) -> bool {
+        socket_path(host_root).is_ok_and(|socket| socket.exists())
+    }
+
     /// The live link: connects to a running holder, else starts one. A link
     /// made after a lost one hands every live terminal to the new holder.
     pub(crate) fn link(self: &Arc<Self>) -> io::Result<Arc<HolderLink>> {
+        self.link_or_launch(true)
+    }
+
+    /// [`Self::link`]; with `launch` false a holder that does not run is not
+    /// started (a restart only asks whether one kept terminals).
+    fn link_or_launch(self: &Arc<Self>, launch: bool) -> io::Result<Arc<HolderLink>> {
         let mut slot = self.link.lock().recover_poison();
         if let Some(link) = slot.as_ref()
             && link.is_open()
@@ -64,10 +76,11 @@ impl HolderService {
         let had_link = slot.is_some();
         let (link, listed) = match self.connect() {
             Ok(connected) => connected,
-            Err(_) => {
+            Err(_) if launch => {
                 self.launch()?;
                 self.connect()?
             }
+            Err(error) => return Err(error),
         };
         {
             let mut known = self.listed.lock().recover_poison();
@@ -115,7 +128,7 @@ impl HolderService {
 
     /// Whether the holder ran terminal `id` when this daemon reached it.
     pub(crate) fn lists(self: &Arc<Self>, id: &[u8; 16]) -> bool {
-        self.link().is_ok()
+        self.link_or_launch(false).is_ok()
             && self.listed.lock().recover_poison().get(id).is_some_and(|e| !e.exited)
     }
 
