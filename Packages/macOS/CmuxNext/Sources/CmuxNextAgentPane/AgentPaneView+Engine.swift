@@ -16,6 +16,9 @@ extension AgentPaneView {
         return try? await webView.takeSnapshot(configuration: nil)
     }
 
+    /// Whether ``pageSnapshot()`` can stand in for the page under a pane (``PageWebView/snapshotKeepsClearAreas``).
+    public var snapshotKeepsClearAreas: Bool { page?.snapshotKeepsClearAreas ?? true }
+
     /// Whether `point` (screen coordinates) in `eventWindow` is on the Chromium page of this pane: a
     /// Chromium page draws in a child window of the pane's window, over its view.
     func chromiumPageContains(_ point: CGPoint, eventWindow: NSWindow?) -> Bool {

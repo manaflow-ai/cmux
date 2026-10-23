@@ -122,7 +122,8 @@ public final class AgentPageRedraw {
         // task-owner: one snapshot; dropped when the page moved or resized meanwhile
         Task { @MainActor [weak self, weak webView, weak page, weak pane, weak place] in
             let image: NSImage? = if let page { await page.snapshot() } else { try? await webView?.takeSnapshot(configuration: nil) }
-            guard let image, image.size == size,
+            // A Chromium picture draws the page's clear areas black (``PageWebView/snapshotKeepsClearAreas``).
+            guard let image, image.size == size, page?.snapshotKeepsClearAreas ?? true,
                   let pane, pane.superview === place, pane.frame.size == size else { return }
             self?.remembered = (image, size, appearance, generation)
         }
