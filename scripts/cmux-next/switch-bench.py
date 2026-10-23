@@ -56,6 +56,15 @@ opts, _unknown = parser.parse_known_args()  # the fleet entry also passes --tag
 os.makedirs(opts.out, exist_ok=True)
 activation = load("activation_perf", "activation-perf.py")
 stress_mod = load("perf_stress_session", "perf-stress-session.py")
+anim = None
+if opts.sample:
+    import types
+    # main_thread_hot only: anim-perf-terminal.py parses its own argv at import, so load the one function.
+    source = open(os.path.join(HERE, "anim-perf-terminal.py")).read()
+    start = source.index("IDLE = (")
+    end = source.index("def budgets():")
+    anim = types.ModuleType("anim_hot")
+    exec(compile(source[start:end], "anim-perf-terminal.py", "exec"), anim.__dict__)
 REPORT = {"app": opts.app, "host": os.uname().nodename, "sessions": {}, "checks": []}
 
 
@@ -110,8 +119,14 @@ class Bench:
             step(index)
             time.sleep(opts.interval)  # bench pacing: one input per interval, its commit lands meanwhile
         time.sleep(0.5)  # bench: the last commit lands
+        hot = None
         if sampler:
             sampler.wait(timeout=120)
+            try:
+                hot = anim.main_thread_hot(open(path, errors="replace").read(), limit=60)
+            except OSError:
+                hot = ["(no sample)"]
+            print(f"== sample {self.session} {label}", *hot, sep="\n", flush=True)
         reply = self.rpc(method, {"action": "stop"}) or {}
         self.rpc("debug.frames", {"action": "stop"})
         rows = reply.get("switches") or reply.get("inputs") or reply.get("moves") or []
@@ -130,6 +145,8 @@ class Bench:
             if vals:
                 stages[stage] = pct(vals, 0.95)
         out["stages_p95"] = stages
+        if hot:
+            out["sample_hot"] = hot
         print(f"  {label:<22} n={out['n']:<3} commit p50/p95 {out['input_to_commit_p50']}/{out['input_to_commit_p95']} ms "
               f"apply p95 {out['apply_p95']} late {out['late_switches']} refresh {out['refresh_ms']} "
               f"work {out['work_before_commit']} stages {stages}", flush=True)
