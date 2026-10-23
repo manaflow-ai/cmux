@@ -91,6 +91,9 @@ public final class EmptyWorkspaceRepair {
     /// is repaired. Tests replace it.
     @ObservationIgnored public var isLive: @MainActor () -> Bool
     @ObservationIgnored private var observation: Task<Void, Never>?
+    /// Workspaces examined for a missing pane since launch: a store change
+    /// that touches none of them must examine none (sidebar churn).
+    @ObservationIgnored private(set) var visited = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.empty-workspace")
 
     /// The daemon-facing closures come from the App (`init(daemon:)`), which
@@ -144,6 +147,7 @@ public final class EmptyWorkspaceRepair {
         }
         guard isLive() else { return }
         for workspace in store.workspaces where !Self.isHome(workspace) {
+            visited += 1
             guard let key = workspace.key else { continue }
             if Self.hasPane(workspace) {
                 notePopulated(key)
