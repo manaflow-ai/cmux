@@ -257,9 +257,7 @@ impl PtySurface {
     }
 
     pub(super) fn request_frame(&self, generation: u64) {
-        match self.frame_requests.try_send(generation) {
-            Ok(()) | Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {}
-        }
+        self.frame_requests.request(generation);
     }
 
     /// Apply one replacement to the terminal stream and publish its revision.
