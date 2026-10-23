@@ -22,6 +22,13 @@ import Testing
         return WorkspaceSnapshot(id: WorkspaceHandle(rawValue: id), key: nil, name: name, screens: [screen])
     }
 
+    /// A stale local agent tab can share a workspace with a live terminal tab.
+    static func workspaceWithTerminal(_ id: UInt64, _ name: String, session: String, harness: String) -> WorkspaceSnapshot {
+        var workspace = workspace(id, name, session: session, harness: harness)
+        workspace.screens[0].panes[0].tabs.append(TabSnapshot(surface: SurfaceID(rawValue: id + 100), kind: .pty))
+        return workspace
+    }
+
     /// One `_acpmux/watch` session summary's lane.
     static func lane(_ session: String, _ state: String) throws -> AgentActivityLane {
         try #require(AgentActivityLane.of(summary: ["sessionId": session, "name": session, "lane": ["state": state]]))
@@ -121,5 +128,22 @@ import Testing
         let shown = Self.activity(fixture.sections(workspaceFilter: filter))
         #expect(shown["idle"] == nil, "a purged acpmux session does not linger as a row")
         #expect(shown.count == 3)
+    }
+
+    @Test func aStaleAgentTabDoesNotDropAWorkspaceWithOtherContent() throws {
+        let fixture = try Fixture()
+        fixture.lanes.live = true
+        let mixed = Self.workspaceWithTerminal(5, "mixed", session: "s-mixed", harness: "codex")
+        fixture.store.apply(snapshot: DaemonTree(workspaces: [mixed]))
+        let workspace = try #require(fixture.store.workspaces.first)
+        fixture.lanes.lanes["s-mixed"] = nil
+        #expect(fixture.lanes.keepsWorkspace(workspace, turns: fixture.turns))
+
+        var unbound = Self.workspace(6, "unbound", session: "s-unused", harness: "codex")
+        unbound.screens[0].panes[0].tabs[0].conversation = ConversationTabRef(
+            agentSession: AgentSessionRef(host: Self.host, session: nil, harness: "codex"))
+        fixture.store.apply(snapshot: DaemonTree(workspaces: [unbound]))
+        let unboundWorkspace = try #require(fixture.store.workspaces.first)
+        #expect(fixture.lanes.keepsWorkspace(unboundWorkspace, turns: fixture.turns))
     }
 }

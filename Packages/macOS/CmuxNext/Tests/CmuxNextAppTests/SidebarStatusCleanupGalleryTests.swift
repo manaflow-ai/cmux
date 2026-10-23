@@ -12,7 +12,7 @@ import Testing
     static func sections(leadingStatusIcons: Bool) -> [SidebarSection] {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         func workspace(_ id: String, _ title: String, status: SidebarTaskStatus, activity: StatusIndicatorState = .idle) -> SidebarWorkspace {
-            var row = SidebarWorkspace(id: WorkspaceID("status-(id)"), title: title, activity: activity)
+            var row = SidebarWorkspace(id: WorkspaceID("status-\(id)"), title: title, activity: activity)
             row.taskStatus = status
             if leadingStatusIcons { row.icon = status.glyph }
             return row

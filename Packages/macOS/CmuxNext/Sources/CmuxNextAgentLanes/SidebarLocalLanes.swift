@@ -28,11 +28,19 @@ public extension AgentLaneStore {
     /// live work.
     func keepsWorkspace(_ workspace: WorkspaceModel, turns: AgentTurnStateStore) -> Bool {
         guard live, let host = turns.localHost else { return true }
-        let localSessions = workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab -> String? in
+        let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+        let localSessions = tabs.compactMap { tab -> String? in
             guard let ref = tab.agentSession, ref.host == host else { return nil }
             return ref.session
         }
         guard !localSessions.isEmpty else { return true }
+        // A workspace can mix a stale local agent tab with a live terminal or a
+        // remote agent tab. Only purge a row when every tab is a local agent ref;
+        // otherwise there is still content this row must represent.
+        if tabs.contains(where: { tab in
+            guard let ref = tab.agentSession, ref.host == host, ref.session != nil else { return true }
+            return false
+        }) { return true }
         return localSessions.contains { lane($0) != nil }
     }
 }
