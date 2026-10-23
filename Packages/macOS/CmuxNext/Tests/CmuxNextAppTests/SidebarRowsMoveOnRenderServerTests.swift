@@ -141,6 +141,9 @@ struct SidebarRowsMoveOnRenderServerTests {
         try #require(SidebarInsertMotion.tunable.value == .nudge)
         let nudge = SidebarInsertMotion.nudgeDistance.value
 
+        // Cmd-N: the user's own request, so its change moves rows (a change nobody asked for shows in one step,
+        // `SidebarListView.showModelChange`).
+        model.noteUserIntent()
         model.sections = Self.sections([0] + Array(1...30))
         list.reload(animated: true)
 
