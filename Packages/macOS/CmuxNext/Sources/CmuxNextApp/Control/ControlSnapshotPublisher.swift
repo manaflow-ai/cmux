@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextSettings
 import Observation
 import os
 
@@ -166,7 +167,7 @@ final class ControlSnapshotPublisher {
         var topology: ControlTopology?
         if parts.contains(.topology) { topology = track(.topology) { Self.topology(services, cache: workspaceInfos) } }
         // The settings root itself may be nil (no settings controller): an outer nil is "not built".
-        var settings: JSONValue??
+        var settings: CmuxNextSettings.JSONValue??
         if parts.contains(.settings) { settings = .some(track(.settings) { services.settings?.snapshot.root }) }
         var tabSearch: ControlTabSearchFacts?
         if parts.contains(.tabSearch) { tabSearch = track(.tabSearch) { TabSearchFactsBuilder.facts(services) } }
