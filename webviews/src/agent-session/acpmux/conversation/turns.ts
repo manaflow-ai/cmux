@@ -20,7 +20,7 @@ import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
 import { tailStart } from "./ToolGroupRow";
-import { isDraftCall, isRunning, toolGroups } from "./toolGroups";
+import { awaitsPermission, isDraftCall, isRunning, toolGroups } from "./toolGroups";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -940,10 +940,10 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
     if (row.kind !== "activity") return [row];
     // A run that edited folds too, its edits named on the line ("Edited 2 files, read 3 files, ran a
     // command"), as the Codex app collapses a run (Leo 2026-10-22: "this is pretty good ui: … the
-    // collapsing i mean"); the turn's edited-files card lists them when it ends. One with an edit
-    // still waiting for its permission stays as it is, so the edit it asks about stays in sight.
-    if (isEdit(row) && (row.items ?? []).some((item) => isEditTool(item.tool) && item.tool!.status === "pending"))
-      return [row];
+    // collapsing i mean"); the turn's edited-files card lists them when it ends. One with a file
+    // change still waiting for its permission stays as it is, so the change it asks about stays in
+    // sight (an ended turn's folded run keeps it in sight too: TurnRows.tsx `staysInSight`).
+    if ((row.items ?? []).some((item) => awaitsPermission(item.tool))) return [row];
     // An earlier run draws no call that has nothing to show yet; its row comes with its input.
     if (index !== latest)
       return withoutDrafts(row).flatMap((kept) => {

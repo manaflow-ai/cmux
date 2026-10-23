@@ -13,7 +13,7 @@ import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
 import { ToolRun } from "./ToolRun";
 import { ThoughtRow } from "./ThoughtRow";
-import { toolGroups, type ToolGroup } from "./toolGroups";
+import { awaitsPermission, toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
@@ -177,11 +177,13 @@ export function thoughtIds(groups: readonly ToolGroup[]): number[] {
   });
 }
 
-/// An entry a folded run keeps in sight beside its summary lines: a coordination card. Edits fold
-/// with the rest of the work and the line names them (Leo 2026-10-22: "this is pretty good ui: …
-/// the collapsing i mean"); the turn's edited-files card lists them once it ends.
+/// An entry a folded run keeps in sight beside its summary lines: a coordination card, or a file
+/// change still waiting for its permission (toolGroups.ts `awaitsPermission`). Other edits fold with
+/// the rest of the work and the line names them (Leo 2026-10-22: "this is pretty good ui: … the
+/// collapsing i mean"); the turn's edited-files card lists them once it ends.
 function staysInSight(group: ToolGroup): boolean {
-  return group.type === "message" || group.type === "subsession";
+  if (group.type === "message" || group.type === "subsession") return true;
+  return group.type === "item" && awaitsPermission(group.item.tool);
 }
 
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {

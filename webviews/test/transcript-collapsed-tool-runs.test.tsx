@@ -150,6 +150,45 @@ test("a run with an edit waiting for its permission is not collapsed", () => {
   expect(words(work)).toContain("ls");
 });
 
+test("a delete or a move waiting for its permission stays in sight, live and in an ended turn", () => {
+  for (const kind of ["delete", "move"]) {
+    const pending = call(`${kind} old.ts`, kind, { status: "pending", locations: [{ path: "old.ts" }] });
+    const items = [read("src/a.ts"), command("ls"), pending, command("pwd")];
+    // Live: its run is not collapsed.
+    const live = shaped(items).find((entry) => entry.id === "work")!;
+    expect(live.foldRun).toBeUndefined();
+    // Ended, its Worked for opened: the run folds around it, and it keeps its own row.
+    const ended = turnView(
+      [
+        row("u2", "user", { text: "Tidy up" }),
+        row("work2", "activity", { items }),
+        said("done"),
+        row("s2", "turnSummary", { status: "completed", toolCount: 4 }),
+      ],
+      new Set(["worked-u2"]),
+      { liveRuns: true },
+    ).find((entry) => entry.kind === "activity" && entry.id.startsWith("work2"))!;
+    expect(ended.foldRun).toBe(true);
+    expect(words(ended)).toContain(`${kind} old.ts`);
+    expect(toggles(ended)).toBeGreaterThanOrEqual(1);
+  }
+});
+
+test("an edit waiting for its permission keeps its row in an ended turn's folded run", () => {
+  const items = [read("src/a.ts"), command("ls"), edit("src/a.ts", { status: "pending" }), command("pwd")];
+  const ended = turnView(
+    [
+      row("u3", "user", { text: "Edit it" }),
+      row("work3", "activity", { items }),
+      said("asked"),
+      row("s3", "turnSummary", { status: "completed", toolCount: 3 }),
+    ],
+    new Set(["worked-u3"]),
+    { liveRuns: true },
+  ).filter((entry) => entry.kind === "activity" && entry.id.startsWith("work3"));
+  expect(ended.some((entry) => words(entry).includes("Edit src/a.ts"))).toBe(true);
+});
+
 test("the gallery's quieter versions dim the line", () => {
   const work = shaped([read("a.ts"), command("ls"), command("pwd")]).find((entry) => entry.id === "work")!;
   const line = () =>
