@@ -110,11 +110,10 @@ struct PaneBrowserTabOpener {
             // itself (HomeDockOpens): a new browser tab aimed at it (History, Bookmarks, a URL from another
             // app, Split Browser) is made there and moves to a column on its right, as the daemon reroutes
             // it for a dock closed to tabs. A caller's `then` places it itself (LinkOpener,
-            // AgentBesidePlacement, a script's HomeDockOpens.placing), so it is never selected here.
-            let leaves = child == nil && controller.isOpenPinnedDockPane
-            let beside = leaves && then == nil
+            // AgentBesidePlacement, a script's HomeDockOpens.placing).
+            let beside = child == nil && then == nil && controller.isOpenPinnedDockPane
             let linkOpener = services.linkOpener
-            let intent = background || leaves ? nil : controller.workspace?.beginFocusIntent()
+            let intent = background || beside ? nil : controller.workspace?.beginFocusIntent()
             services.registry.track(Task {
                 do {
                     // A new tab the user asked for opens the New Tab page; an
@@ -130,7 +129,7 @@ struct PaneBrowserTabOpener {
                         return nil
                     }
                     then?(surface)
-                    guard !background, !leaves else { return nil }
+                    guard !background else { return nil }
                     controller.selectWhenReported(surface: surface)
                     controller.workspace?.expectFocus(on: surface, target: url == nil ? .addressBar : .content, generation: intent)
                     return nil
