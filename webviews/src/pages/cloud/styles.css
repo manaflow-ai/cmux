@@ -810,10 +810,16 @@ select {
 }
 
 .cloud-store-art {
+  position: relative;
   flex: none;
   width: min(240px, 38%);
-  height: auto;
   color: var(--cloud-text);
+}
+
+.cloud-store-art > svg {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
 .cloud-store-art-laptop,
@@ -842,31 +848,51 @@ select {
   stroke-linecap: round;
 }
 
-/* The packets sit along the link; with motion allowed they travel it, one after another, for three
-   passes, then rest delivered (faded out at the cloud) and the page renders nothing more. Animated
-   `offset-distance` on SVG content is not composited: an endless loop made the page run main-thread
-   rendering on every display refresh (120 Hz) for as long as the storefront was on screen. */
+/* The packets sit along the link; with motion allowed they travel it, one after another, without
+   end. Each packet is an HTML layer over the art, the size of the art, so its `translate`
+   percentages are the art's own coordinates (viewBox 240 x 120): the path
+   `M92 60 C 120 30, 140 30, 164 52` sampled by distance, eased as one 2.4 s
+   cubic-bezier(0.45, 0, 0.55, 1) pass and linear between samples. Only `transform` and `opacity`
+   animate, so the compositor moves the packets and the page renders nothing per frame (animated
+   `offset-distance` on SVG content was not composited: main-thread rendering on every display
+   refresh, 120 Hz, while the storefront was on screen). Reduced motion keeps them still at 20, 50
+   and 80 % of the path. */
 .cloud-store-art-packet {
-  fill: var(--cloud-ok);
-  offset-path: path("M92 60 C 120 30, 140 30, 164 52");
-  offset-rotate: 0deg;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.cloud-store-art-packet::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  /* r = 3.5 in the 240-wide viewBox; vertical margins are a share of the width too. */
+  width: 2.917%;
+  aspect-ratio: 1;
+  margin-left: -1.458%;
+  margin-top: -1.458%;
+  border-radius: 50%;
+  background: var(--cloud-ok);
 }
 
 .cloud-store-art-packet.p1 {
-  offset-distance: 20%;
+  transform: translate(43.417%, 40.346%);
 }
 
 .cloud-store-art-packet.p2 {
-  offset-distance: 50%;
+  transform: translate(52.667%, 30.771%);
 }
 
 .cloud-store-art-packet.p3 {
-  offset-distance: 80%;
+  transform: translate(62.75%, 34.88%);
 }
 
 @media (prefers-reduced-motion: no-preference) {
   .cloud-store-art-packet {
-    animation: cloud-store-packet 2.4s cubic-bezier(0.45, 0, 0.55, 1) 3 forwards;
+    will-change: transform, opacity;
+    animation: cloud-store-packet 2.4s linear infinite;
   }
 
   .cloud-store-art-packet.p2 {
@@ -878,18 +904,99 @@ select {
   }
 }
 
+/* Generated: samples of the link path by distance at eased progress (see above). */
 @keyframes cloud-store-packet {
   0% {
-    offset-distance: 0%;
-    opacity: 0;
+    transform: translate(38.333%, 50.000%);
+    opacity: 0.000;
   }
-  15%,
+  5% {
+    transform: translate(38.435%, 49.782%);
+    opacity: 0.221;
+  }
+  7.5% {
+    transform: translate(38.567%, 49.502%);
+    opacity: 0.500;
+  }
+  10% {
+    transform: translate(38.756%, 49.102%);
+    opacity: 0.779;
+  }
+  15% {
+    transform: translate(39.321%, 47.926%);
+    opacity: 1.000;
+  }
+  20% {
+    transform: translate(40.161%, 46.235%);
+    opacity: 1.000;
+  }
+  25% {
+    transform: translate(41.309%, 44.032%);
+    opacity: 1.000;
+  }
+  30% {
+    transform: translate(42.802%, 41.372%);
+    opacity: 1.000;
+  }
+  35% {
+    transform: translate(44.675%, 38.385%);
+    opacity: 1.000;
+  }
+  40% {
+    transform: translate(46.955%, 35.320%);
+    opacity: 1.000;
+  }
+  45% {
+    transform: translate(49.643%, 32.593%);
+    opacity: 1.000;
+  }
+  50% {
+    transform: translate(52.667%, 30.771%);
+    opacity: 1.000;
+  }
+  55% {
+    transform: translate(55.816%, 30.364%);
+    opacity: 1.000;
+  }
+  60% {
+    transform: translate(58.782%, 31.403%);
+    opacity: 1.000;
+  }
+  65% {
+    transform: translate(61.343%, 33.384%);
+    opacity: 1.000;
+  }
+  70% {
+    transform: translate(63.436%, 35.709%);
+    opacity: 1.000;
+  }
+  75% {
+    transform: translate(65.088%, 37.960%);
+    opacity: 1.000;
+  }
+  80% {
+    transform: translate(66.348%, 39.903%);
+    opacity: 1.000;
+  }
   85% {
-    opacity: 1;
+    transform: translate(67.263%, 41.431%);
+    opacity: 1.000;
+  }
+  90% {
+    transform: translate(67.876%, 42.506%);
+    opacity: 0.779;
+  }
+  92.5% {
+    transform: translate(68.081%, 42.874%);
+    opacity: 0.500;
+  }
+  95% {
+    transform: translate(68.223%, 43.132%);
+    opacity: 0.221;
   }
   100% {
-    offset-distance: 100%;
-    opacity: 0;
+    transform: translate(68.333%, 43.333%);
+    opacity: 0.000;
   }
 }
 

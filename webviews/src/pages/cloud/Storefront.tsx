@@ -161,30 +161,33 @@ function Availability({ plan, full, strings }: { plan: CloudPlan; full: boolean;
 }
 
 /**
- * Work moving from a laptop to a cloud machine: three packets travel the link for three passes, then
- * rest (styles.css: the animation is not composited, so it must end). The packets move only when the
- * system allows motion (`prefers-reduced-motion`, which the host's motion switches drive).
+ * Work moving from a laptop to a cloud machine: three packets travel the link. The packets are HTML
+ * layers over the drawing that animate only `transform` and `opacity` (styles.css), so the compositor
+ * moves them and the page renders nothing per frame. They move only when the system allows motion
+ * (`prefers-reduced-motion`, which the host's motion switches drive).
  */
 function OffloadArt() {
   return (
-    <svg className="cloud-store-art" viewBox="0 0 240 120" aria-hidden="true" focusable="false">
-      <g className="cloud-store-art-laptop">
-        <rect x="14" y="34" width="62" height="42" rx="5" />
-        <path d="M6 82 h78 l-6 8 h-66 z" />
-        <rect className="cloud-store-art-line" x="22" y="44" width="30" height="4" rx="2" />
-        <rect className="cloud-store-art-line" x="22" y="53" width="44" height="4" rx="2" />
-        <rect className="cloud-store-art-line" x="22" y="62" width="22" height="4" rx="2" />
-      </g>
-      <path className="cloud-store-art-link" d="M92 60 C 120 30, 140 30, 164 52" />
-      <circle className="cloud-store-art-packet p1" r="3.5" />
-      <circle className="cloud-store-art-packet p2" r="3.5" />
-      <circle className="cloud-store-art-packet p3" r="3.5" />
-      <g className="cloud-store-art-cloud">
-        <path d="M176 86 h44 a16 16 0 0 0 -2 -32 a22 22 0 0 0 -42 -4 a18 18 0 0 0 0 36 z" />
-        <rect className="cloud-store-art-line" x="182" y="62" width="30" height="4" rx="2" />
-        <rect className="cloud-store-art-line" x="182" y="71" width="20" height="4" rx="2" />
-        <circle className="cloud-store-art-led" cx="214" cy="73" r="3" />
-      </g>
-    </svg>
+    <div className="cloud-store-art" aria-hidden="true">
+      <svg viewBox="0 0 240 120" focusable="false">
+        <g className="cloud-store-art-laptop">
+          <rect x="14" y="34" width="62" height="42" rx="5" />
+          <path d="M6 82 h78 l-6 8 h-66 z" />
+          <rect className="cloud-store-art-line" x="22" y="44" width="30" height="4" rx="2" />
+          <rect className="cloud-store-art-line" x="22" y="53" width="44" height="4" rx="2" />
+          <rect className="cloud-store-art-line" x="22" y="62" width="22" height="4" rx="2" />
+        </g>
+        <path className="cloud-store-art-link" d="M92 60 C 120 30, 140 30, 164 52" />
+        <g className="cloud-store-art-cloud">
+          <path d="M176 86 h44 a16 16 0 0 0 -2 -32 a22 22 0 0 0 -42 -4 a18 18 0 0 0 0 36 z" />
+          <rect className="cloud-store-art-line" x="182" y="62" width="30" height="4" rx="2" />
+          <rect className="cloud-store-art-line" x="182" y="71" width="20" height="4" rx="2" />
+          <circle className="cloud-store-art-led" cx="214" cy="73" r="3" />
+        </g>
+      </svg>
+      <span className="cloud-store-art-packet p1" />
+      <span className="cloud-store-art-packet p2" />
+      <span className="cloud-store-art-packet p3" />
+    </div>
   );
 }
