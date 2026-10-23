@@ -1,16 +1,12 @@
-// A "Worked for" line (or a subagent group) the reader opens or closes adds or removes whole virtual
-// rows, so the shared fold (fold.ts), which sizes one body inside a row, cannot play it. This file
-// gives those toggles the same motion, on the same token (`--cv-fold-duration`) and in the same
-// time:
+// A "Worked for" line (or a subagent group) adds or removes whole virtual rows, which the shared fold
+// (fold.ts) cannot size. This file plays those toggles on the same token (`--cv-fold-duration`):
 // - rows below the line slide from where they were drawn to their new place (a FLIP on `translate`,
 //   which never changes layout, so nothing the virtualizer measures moves);
 // - opening, the rows it reveals fade in;
 // - closing, a drawn copy of the rows it hides fades out under the rows sliding up over it.
-// The line itself and every row above it never move here: VirtualTranscript holds the clicked line
-// in place (foldAnchor.ts) by moving the offset, and the motion reads each row's place below the
-// line, so it plays on top of that hold and a reader who scrolls meanwhile scrolls every row alike.
-// Reduce Motion, the host's animation switches (`data-agent-motion="off"`, a 0 ms token) and a page
-// with no Web Animations open and close at once: nothing here runs.
+// The line and the rows above it never move here: VirtualTranscript holds the line (foldAnchor.ts)
+// and the motion reads places relative to it. Reduce Motion, `data-agent-motion="off"`, a 0 ms token
+// or no Web Animations: the toggle applies at once and nothing here runs.
 //
 // A pass runs only when the rows below the line are placed again (watchTurnFold): a row element
 // mounts or unmounts, or a row's placement (`style`, its index) changes. A token streamed into a row
@@ -159,10 +155,8 @@ export function startTurnFold(
   return fold;
 }
 
-/// Ends `fold`: the thread's state attribute goes, and so does everything it tracked (the rows as
-/// placed at the toggle, the row elements and animations), so an ended fold the transcript still
-/// points at holds no rows. Animations already running finish on their own; the copies of rows a
-/// close hid drop themselves when theirs end.
+/// Ends `fold`: its watcher stops, the thread's state attribute goes, and it lets go of every row it
+/// tracked. Running animations finish on their own; copies drop themselves when theirs end.
 export function endTurnFold(thread: HTMLElement | null, fold: TurnFold | undefined): void {
   if (!fold) return;
   const stop = fold.stop;
@@ -192,12 +186,10 @@ export function settleTurnFold(thread: HTMLElement | null, fold: TurnFold | unde
   endTurnFold(thread, fold);
 }
 
-/// One placement pass of `fold` after the rows were placed again. Each row below the line plays,
-/// on the fold's clock, from where it was drawn at the toggle to its place (a slide), or fades in
-/// when the open revealed it. A row element that mounts mid-fold (a scroll, the virtualizer) joins
-/// that motion part way; one that leaves the mounted rows leaves a drawn copy that goes on with its
-/// motion (a row the close hid fades out). False once the fold is over (its time is up, the line is
-/// gone, or another chat shows).
+/// One pass of `fold` after the rows were placed again. Each row below the line slides, on the
+/// fold's clock, from where it was drawn at the toggle to its place, or fades in when the open
+/// revealed it; one that mounts mid-fold joins part way, and one that leaves leaves a drawn copy that
+/// goes on (a row the close hid fades out). False once the fold is over or another chat shows.
 export function playTurnFold(
   fold: TurnFold,
   thread: HTMLElement,
