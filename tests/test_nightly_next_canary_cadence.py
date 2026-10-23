@@ -33,8 +33,10 @@ class CanaryCadence(unittest.TestCase):
         self.assertTrue(crons, "the canary must keep a schedule (a pass needs a schedule run)")
         ticks: set[int] = set()
         for cron in crons:
-            minute, hour, *_ = cron.split()
-            self.assertEqual(hour, "*", f"{cron!r} must run every hour")
+            fields = cron.split()
+            self.assertEqual(len(fields), 5, f"{cron!r} is not a five-field cron")
+            minute, *rest = fields
+            self.assertEqual(rest, ["*"] * 4, f"{cron!r} must run every hour of every day")
             ticks.update(minutes(minute))
         ordered = sorted(ticks)
         gaps = [b - a for a, b in zip(ordered, ordered[1:])] + [ordered[0] + 60 - ordered[-1]]
