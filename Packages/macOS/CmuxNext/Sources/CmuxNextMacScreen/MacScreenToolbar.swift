@@ -22,7 +22,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
     private let stats = MacScreenText("", font: MacScreenType.stats, ink: \.secondary)
     private let badge: MacScreenFill
     private let hint: NSStackView
-    private let display: MacScreenMenuButton
+    private let displayButton: MacScreenMenuButton
     private let quality: MacScreenMenuButton
     private let sendKeys: MacScreenMenuButton
     private let refresh: MacScreenButton
@@ -61,7 +61,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
             MacScreenText(L.t("macScreen.toolbar.releaseHint", "⌃⌥⎋ releases the keyboard"), font: MacScreenType.caption, ink: \.secondary),
         ])
         hint.themedToolTip = L.t("macScreen.toolbar.keyboardHint", "Keyboard goes to this Mac · ⌃⌥⎋ to release")
-        display = MacScreenMenuButton(symbol: "display.2", title: "", accessibilityTitle: "", id: "macScreen.display")
+        displayButton = MacScreenMenuButton(symbol: "display.2", title: "", accessibilityTitle: "", id: "macScreen.display")
         quality = MacScreenMenuButton(symbol: "slider.horizontal.3", accessibilityTitle: L.t("macScreen.toolbar.quality", "Quality"),
                                       id: "macScreen.quality")
         quality.themedToolTip = L.t("macScreen.toolbar.qualityHelp", "Quality and stats")
@@ -77,14 +77,14 @@ final class MacScreenToolbarView: MacScreenThemedView {
         super.init(frame: .zero)
         wantsLayer = true
         stats.setAccessibilityIdentifier("macScreen.stats")
-        for view in [dot, icon, name, stats, badge, hint, display, quality, sendKeys, refresh, connect, disconnect, line] as [NSView] {
+        for view in [dot, icon, name, stats, badge, hint, displayButton, quality, sendKeys, refresh, connect, disconnect, line] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = true
             addSubview(view)
         }
-        display.makeMenu = { [weak self] in self?.displayMenu() ?? NSMenu() }
+        displayButton.makeMenu = { [weak self] in self?.displayMenu() ?? NSMenu() }
         quality.makeMenu = { [weak self] in self?.qualityMenu() ?? NSMenu() }
         sendKeys.makeMenu = { [weak self] in self?.sendKeysMenu() ?? NSMenu() }
-        update()
+        track()
     }
 
     override var isFlipped: Bool { true }
@@ -98,9 +98,9 @@ final class MacScreenToolbarView: MacScreenThemedView {
     // MARK: State
 
     /// Shows the model's state; again on every change of a value read here.
-    private func update() {
+    private func track() {
         withObservationTracking { apply() } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.update() }
+            Task { @MainActor [weak self] in self?.track() }
         }
         needsLayout = true
     }
@@ -119,9 +119,9 @@ final class MacScreenToolbarView: MacScreenThemedView {
         badge.isHidden = !viewOnly
         hintSlot = model.capturesKeyboard && live
         controlsShown = session != nil && model.showsStreamControls
-        let displays = model.displays.count
-        display.retitle(String(format: L.t("macScreen.toolbar.displayShort", "Display %d"), model.currentDisplay + 1))
-        display.isHidden = !controlsShown || displays <= 1
+        let displayCount = model.displays.count
+        displayButton.retitle(String(format: L.t("macScreen.toolbar.displayShort", "Display %d"), model.currentDisplay + 1))
+        displayButton.isHidden = !controlsShown || displayCount <= 1
         quality.isHidden = !controlsShown
         let canSend = live && !viewOnly
         sendKeys.isHidden = !controlsShown
@@ -239,7 +239,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         let height = bounds.height
         line.frame = CGRect(x: 0, y: height - 1, width: bounds.width, height: 1)
         let gap = Self.spacing
-        let controls: [NSView] = [display, quality, sendKeys, refresh, connect, disconnect].filter { !$0.isHidden }
+        let controls: [NSView] = [displayButton, quality, sendKeys, refresh, connect, disconnect].filter { !$0.isHidden }
         let controlSizes = controls.map(\.fittingSize)
         let controlsWidth = controlSizes.isEmpty ? 0 : controlSizes.reduce(0) { $0 + $1.width } + gap * CGFloat(controlSizes.count - 1)
         let badgeSize = badge.isHidden ? .zero : badge.fittingSize

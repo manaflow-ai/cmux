@@ -97,7 +97,7 @@ final class MacScreenButton: NSButton, MacScreenInked {
         refresh()
     }
 
-    private var font: NSFont { role == .primary ? MacScreenType.emphasized : MacScreenType.body }
+    private var labelFont: NSFont { role == .primary ? MacScreenType.emphasized : MacScreenType.body }
     private var horizontalPadding: CGFloat { role == .icon ? Metrics.space1 : (compact ? Metrics.space3 : Metrics.space4) }
     private var minHeight: CGFloat { compact || role == .icon ? 22 : 26 }
 
@@ -153,7 +153,7 @@ final class MacScreenButton: NSButton, MacScreenInked {
         alphaValue = isEnabled ? 1 : 0.45
         let color = foreground
         if symbol != nil {
-            symbolConfiguration = NSImage.SymbolConfiguration(pointSize: font.pointSize, weight: .regular)
+            symbolConfiguration = NSImage.SymbolConfiguration(pointSize: labelFont.pointSize, weight: .regular)
             contentTintColor = color
         } else {
             attributedTitle = title(color: color)
@@ -166,17 +166,24 @@ final class MacScreenButton: NSButton, MacScreenInked {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
         paragraph.lineBreakMode = .byTruncatingTail
-        let title = NSMutableAttributedString(string: text, attributes: [.foregroundColor: color, .font: font, .paragraphStyle: paragraph])
-        guard let hint else { return title }
-        title.append(NSAttributedString(string: " " + hint.glyph, attributes: [
-            .foregroundColor: color.withAlphaComponent(color.alphaComponent * 0.5),
-            .font: MacScreenType.caption,
-            .paragraphStyle: paragraph,
+        let label = NSMutableAttributedString(string: text, attributes: [
+            NSAttributedString.Key.foregroundColor: color,
+            NSAttributedString.Key.font: labelFont,
+            NSAttributedString.Key.paragraphStyle: paragraph,
+        ])
+        guard let hint else { return label }
+        let caption = MacScreenType.caption
+        label.append(NSAttributedString(string: " " + hint.glyph, attributes: [
+            NSAttributedString.Key.foregroundColor: color.withAlphaComponent(color.alphaComponent * 0.5),
+            NSAttributedString.Key.font: caption,
+            NSAttributedString.Key.paragraphStyle: paragraph,
         ]))
         // The gap between the title and its key: `Metrics.space2`, not a space's width.
-        let space = NSAttributedString(string: " ", attributes: [.font: MacScreenType.caption]).size().width
-        title.addAttribute(.kern, value: max(0, Metrics.space2 - space), range: NSRange(location: (text as NSString).length, length: 1))
-        return title
+        let space: CGFloat = NSAttributedString(string: " ", attributes: [NSAttributedString.Key.font: caption]).size().width
+        let kern: CGFloat = max(0, Metrics.space2 - space)
+        label.addAttribute(NSAttributedString.Key.kern, value: NSNumber(value: Double(kern)),
+                           range: NSRange(location: (text as NSString).length, length: 1))
+        return label
     }
 }
 
@@ -252,11 +259,10 @@ final class MacScreenMenuButton: NSButton, MacScreenInked {
 }
 
 /// A menu row that runs a closure (a person's choice in a Mac Screen menu).
-@MainActor
 final class MacScreenMenuItem: NSMenuItem {
-    private let run: () -> Void
+    private let run: @MainActor () -> Void
 
-    init(_ title: String, checked: Bool = false, enabled: Bool = true, run: @escaping () -> Void) {
+    init(_ title: String, checked: Bool = false, enabled: Bool = true, run: @escaping @MainActor () -> Void) {
         self.run = run
         super.init(title: title, action: #selector(choose), keyEquivalent: "")
         target = self
@@ -267,7 +273,8 @@ final class MacScreenMenuItem: NSMenuItem {
     @available(*, unavailable)
     required init(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    @objc private func choose() {
+    /// AppKit runs a menu's actions on the main thread.
+    @MainActor @objc private func choose() {
         run()
     }
 }
