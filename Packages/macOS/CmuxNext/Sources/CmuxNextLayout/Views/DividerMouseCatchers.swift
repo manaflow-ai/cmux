@@ -17,15 +17,27 @@ public import AppKit
 @MainActor
 public final class DividerMouseCatchers {
     private unowned let window: NSWindow
-    private var panels: [String: DividerMousePanel] = [:]
+    /// The panels shown, by area id.
+    private(set) var panels: [String: DividerMousePanel] = [:]
     /// Called with (divider id, hovered) for the divider's hover line.
     public var onHover: ((String, Bool) -> Void)?
-    /// Panel frame changes and panels made since launch (`debug.layers`): each is a window
-    /// server move, so a bench counts them over an action.
+    /// Panel frame changes and panels made since launch (`debug.layers`): each is one window
+    /// server change (a new panel counts once, not again for its first frame), so a bench counts
+    /// them over an action.
     public private(set) var panelUpdates = 0
+    /// Presses on dividers a layout motion moved away from their panels (``setMotionAreas(_:)``).
+    let pressRedirect: DividerMotionPressRedirect
 
     public init(window: NSWindow) {
         self.window = window
+        pressRedirect = DividerMotionPressRedirect(window: window)
+    }
+
+    /// Hit areas (window coordinates) of dividers that a layout motion moved away from their
+    /// resting panels, or that have none yet; empty at rest. A press on one of them over a page
+    /// goes to the parent window (``DividerMotionPressRedirect``). Cheap on every motion frame.
+    public func setMotionAreas(_ areas: [LayoutMouseArea]) {
+        pressRedirect.update(areas: areas)
     }
 
     /// Window numbers of the panels shown that take the mouse: they pass divider hover through.
@@ -45,7 +57,9 @@ public final class DividerMouseCatchers {
     ///     mouse through to the page under them: a layout motion moved their
     ///     dividers away, and the panels follow only when it lands.
     public func update(_ areas: [LayoutMouseArea], active: Bool, passThrough: Set<String> = []) {
-        let wanted = active && window.isVisible ? areas : []
+        let shows = active && window.isVisible
+        pressRedirect.setActive(shows)
+        let wanted = shows ? areas : []
         let ids = Set(wanted.map(\.id))
         for (id, panel) in panels where !ids.contains(id) {
             if panel.parent === window { window.removeChildWindow(panel) }
@@ -53,8 +67,9 @@ public final class DividerMouseCatchers {
             panels[id] = nil
         }
         for area in wanted {
-            if panels[area.id] == nil { panelUpdates += 1 }
-            let panel = panels[area.id] ?? makePanel(id: area.id)
+            let existing = panels[area.id]
+            if existing == nil { panelUpdates += 1 }
+            let panel = existing ?? makePanel(id: area.id)
             panels[area.id] = panel
             panel.catcher.resizesColumns = area.resizesColumns
             // A window server property set only when a motion starts and lands, never per frame.
@@ -63,7 +78,8 @@ public final class DividerMouseCatchers {
             let frame = window.convertToScreen(area.rect)
             if panel.frame != frame {
                 panel.setFrame(frame, display: false)
-                panelUpdates += 1
+                // A new panel's first frame is part of making it (counted once above).
+                if existing != nil { panelUpdates += 1 }
             }
             if panel.parent !== window { window.addChildWindow(panel, ordered: .above) }
         }
@@ -71,6 +87,7 @@ public final class DividerMouseCatchers {
 
     public func teardown() {
         update([], active: false)
+        pressRedirect.teardown()
     }
 
     private func makePanel(id: String) -> DividerMousePanel {
@@ -178,27 +195,35 @@ final class DividerMouseCatcherView: NSView {
 
     override func scrollWheel(with event: NSEvent) {
         guard let parent = window?.parent, let content = parent.contentView else { return }
-        let point = content.convert(parent.convertPoint(fromScreen: screenPoint(of: event)), from: nil)
+        let point = content.convert(parent.convertPoint(fromScreen: dividerEventScreenPoint(event)), from: nil)
         content.hitTest(point)?.scrollWheel(with: event)
     }
 
-    /// The event's screen point. The panel moves while a divider drags, so
-    /// the event's own global location is used, not the panel's frame.
-    private func screenPoint(of event: NSEvent) -> NSPoint {
-        guard let location = event.cgEvent?.location, let height = NSScreen.screens.first?.frame.height else {
-            return window?.convertPoint(toScreen: event.locationInWindow) ?? .zero
-        }
-        return NSPoint(x: location.x, y: height - location.y)
-    }
-
     private func forward(_ event: NSEvent) {
-        guard let parent = window?.parent,
-              let forwarded = NSEvent.mouseEvent(
-                  with: event.type, location: parent.convertPoint(fromScreen: screenPoint(of: event)),
-                  modifierFlags: event.modifierFlags, timestamp: event.timestamp, windowNumber: parent.windowNumber,
-                  context: nil, eventNumber: event.eventNumber, clickCount: event.clickCount, pressure: event.pressure
-              )
-        else { return }
-        parent.sendEvent(forwarded)
+        guard let parent = window?.parent else { return }
+        forwardDividerMouseEvent(event, to: parent)
     }
+}
+
+/// The event's screen point. A catcher panel moves while a divider drags, so
+/// the event's own global location is used, not its window's frame.
+@MainActor
+func dividerEventScreenPoint(_ event: NSEvent) -> NSPoint {
+    guard let location = event.cgEvent?.location, let height = NSScreen.screens.first?.frame.height else {
+        return event.window?.convertPoint(toScreen: event.locationInWindow) ?? .zero
+    }
+    return NSPoint(x: location.x, y: height - location.y)
+}
+
+/// Sends a mouse event that came to a catcher panel or a page window to `parent` at the same
+/// screen point: `NSWindow.sendEvent` hit-tests the parent's views, so the divider view gets the
+/// press and, as the press's view, the drags and the release.
+@MainActor
+func forwardDividerMouseEvent(_ event: NSEvent, to parent: NSWindow) {
+    guard let forwarded = NSEvent.mouseEvent(
+        with: event.type, location: parent.convertPoint(fromScreen: dividerEventScreenPoint(event)),
+        modifierFlags: event.modifierFlags, timestamp: event.timestamp, windowNumber: parent.windowNumber,
+        context: nil, eventNumber: event.eventNumber, clickCount: event.clickCount, pressure: event.pressure
+    ) else { return }
+    parent.sendEvent(forwarded)
 }

@@ -52,9 +52,15 @@ final class WindowOverlayLayer {
     private(set) var sidebarResizeArea: LayoutMouseArea?
     /// What the catcher panels cover: the divider areas, the sidebar's resize band last.
     private(set) var catcherAreas: [LayoutMouseArea] = []
-    /// Catcher areas of a root in a layout motion: they stay where its dividers were at rest and
-    /// let the mouse through to the page under them until the motion lands (`updateInteractiveRects`).
+    /// Catcher areas of a root in a layout motion whose divider moved away (or went): they stay
+    /// where the divider was at rest and let the mouse through to the page under them until the
+    /// motion lands (`updateInteractiveRects`). A catcher whose divider still rests under it keeps
+    /// taking the mouse.
     private(set) var catcherPassThrough: Set<String> = []
+    /// Divider areas of roots in a layout motion that no catcher taking the mouse covers (moved
+    /// or new dividers, window coordinates): a press on one over a page reaches the divider
+    /// through `DividerMouseCatchers.setMotionAreas`. Empty at rest.
+    private(set) var motionDividerAreas: [LayoutMouseArea] = []
     /// Each live root's divider areas (window coordinates) at its last moment at rest.
     private var restingDividerAreas: [ObjectIdentifier: [LayoutMouseArea]] = [:]
     static let sidebarResizeAreaID = "sidebar.resize"
@@ -261,6 +267,7 @@ final class WindowOverlayLayer {
         var dividers: [LayoutMouseArea] = []
         var areas: [LayoutMouseArea] = []
         var passThrough: Set<String> = []
+        var away: [LayoutMouseArea] = []
         var resting: [ObjectIdentifier: [LayoutMouseArea]] = [:]
         for plane in planes {
             // A parked or hidden root takes no events and runs no frames: none of its areas count.
@@ -273,17 +280,29 @@ final class WindowOverlayLayer {
             }
             dividers += rootAreas
             let key = ObjectIdentifier(root)
-            // A spring (or a momentum strip scroll) moves this root's dividers on every display
-            // frame until it lands: its catcher panels (one window move each, a new panel for a new
-            // divider) follow once, at the landing, which the root reports even when no rect
-            // changes then (`isInLayoutMotion`). Meanwhile they stay at rest and let the mouse
-            // through, so a click on the page under a divider that moved away reaches the page.
+            // A spring (or a momentum strip scroll, a drag's release spring) moves this root's
+            // dividers on every display frame until it lands: its catcher panels (one window move
+            // each, a new panel for a new divider) follow once, at the landing, which the root
+            // reports even when no rect changes then (`isInLayoutMotion`). Meanwhile they stay at
+            // rest. One whose divider moved away lets the mouse through, so a click on the page
+            // there reaches the page; one whose divider still rests under it keeps taking the
+            // mouse (a grab of a still divider while another column springs). A press on a
+            // divider away from its catcher reaches it through the press redirect (`away`).
             // Only this root's catchers wait: another root's still follow its dividers.
             if root.isInLayoutMotion {
                 let kept = restingDividerAreas[key] ?? []
                 resting[key] = kept
                 areas += kept
-                passThrough.formUnion(kept.map(\.id))
+                let now = Dictionary(rootAreas.map { ($0.id, $0.rect) }, uniquingKeysWith: { first, _ in first })
+                let rested = Dictionary(kept.map { ($0.id, $0.rect) }, uniquingKeysWith: { first, _ in first })
+                for area in kept {
+                    if let rect = now[area.id], sitsAt(rect, area.rect) { continue }
+                    passThrough.insert(area.id)
+                }
+                for area in rootAreas {
+                    if let rect = rested[area.id], sitsAt(rect, area.rect) { continue }
+                    away.append(area)
+                }
             } else {
                 resting[key] = rootAreas
                 areas += rootAreas
@@ -291,6 +310,10 @@ final class WindowOverlayLayer {
         }
         restingDividerAreas = resting
         dividerAreas = dividers
+        if away != motionDividerAreas {
+            motionDividerAreas = away
+            catchers.setMotionAreas(away)
+        }
         if let sidebarResizeArea { areas.append(sidebarResizeArea) }
         if areas != catcherAreas || passThrough != catcherPassThrough {
             catcherAreas = areas
@@ -410,7 +433,7 @@ final class WindowOverlayLayer {
     /// changed since the fork last read it re-applies them (`CEFHostView`
     /// posts the fork's geometry notification; the others have nothing new).
     /// `force`: every page re-applies, changed or not (a page window moved by another app).
-    private func requestPageUpdate(force: Bool = false) {
+    func requestPageUpdate(force: Bool = false) {
         // Pages move their child windows on this: after the layout pass.
         guard layoutDepth == 0 else {
             pageUpdateAfterLayout = true
@@ -461,4 +484,11 @@ final class WindowOverlayLayer {
 
     var overlayPanel: NSWindow? { WindowOverlayHost.existingHost(for: window).flatMap { $0.isPanelAttached ? $0.panel : nil } }
     var adoptedPlanes: [OverlayPlane] { planes }
+}
+
+/// Whether a divider area rests where its catcher panel is: within half a point on every edge (a
+/// press the panel forwards lands on the divider), so a spring's rounding noise never reads as a
+/// move.
+private func sitsAt(_ a: CGRect, _ b: CGRect) -> Bool {
+    abs(a.minX - b.minX) <= 0.5 && abs(a.minY - b.minY) <= 0.5 && abs(a.maxX - b.maxX) <= 0.5 && abs(a.maxY - b.maxY) <= 0.5
 }
