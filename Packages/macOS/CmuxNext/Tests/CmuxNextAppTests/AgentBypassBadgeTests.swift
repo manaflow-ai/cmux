@@ -72,6 +72,8 @@ struct AgentBypassBadgeTests {
         ])
         let reported = SidebarMapping.reported(status)
         #expect(reported?.entries.map(\.key) == ["build"])
+        // Nor as the row's status line (the fallback when no hook reports one).
+        #expect(SidebarMapping.statusLine(status.entries) == "ok")
     }
 
     /// The restore read covers exactly the tabs bound to a chat of their own machine.

@@ -169,6 +169,9 @@ struct Attachment {
     prompts: Mutex<HashMap<String, std::sync::mpsc::SyncSender<Value>>>,
     /// The attach asked for `agent-session-mode` pushes (`mode_events`).
     mode_events: bool,
+    /// The mode record kinds acpmux streams only for the daemon's mode pushes
+    /// ([`stream::hidden_mode_kinds`]); set again by a re-attach.
+    hidden_kinds: Mutex<Vec<&'static str>>,
     /// A mode read runs on a worker thread, and whether another change came
     /// since it began (it reads again): one reader at a time, in order.
     mode_reading: AtomicBool,
@@ -624,8 +627,13 @@ fn tab_session(mux: &Mux, surface: SurfaceId) -> Option<String> {
 }
 
 /// acpmux page params from the client's, with the session pinned and the
-/// limit and kinds bounded.
-fn page_params(session: &str, params: &PageParams, attach: bool) -> Result<Value, Refusal> {
+/// limit and kinds bounded; an attach also subscribes to `hidden` kinds.
+fn page_params(
+    session: &str,
+    params: &PageParams,
+    attach: bool,
+    hidden: &[&'static str],
+) -> Result<Value, Refusal> {
     let mut out =
         json!({"sessionId": session, "limit": params.limit.unwrap_or(200).clamp(1, MAX_PAGE)});
     if let Some(after) = params.after_seq {
@@ -642,6 +650,10 @@ fn page_params(session: &str, params: &PageParams, attach: bool) -> Result<Value
             });
         if !valid {
             return Err(Refusal::BadRequest);
+        }
+        let mut kinds = kinds.clone();
+        if attach {
+            kinds.extend(hidden.iter().map(|kind| kind.to_string()));
         }
         out.insert("kinds", json!(kinds));
     }
@@ -672,7 +684,8 @@ fn attach(
         return refuse(writer, id, Refusal::UnknownTab);
     };
     let record_session = session.clone();
-    let acpmux_params = match page_params(&session, &params, true) {
+    let hidden_kinds = stream::hidden_mode_kinds(params.kinds.as_deref(), params.mode_events);
+    let acpmux_params = match page_params(&session, &params, true, &hidden_kinds) {
         Ok(value) => value,
         Err(refusal) => return refuse(writer, id, refusal),
     };
@@ -706,6 +719,7 @@ fn attach(
                 acpmux_params,
                 read_only,
                 mode_events,
+                hidden_kinds,
                 worker_writer,
             );
         });
@@ -764,7 +778,7 @@ impl ReaderSlot {
 #[path = "agent_session_stream.rs"]
 mod stream;
 pub(crate) use stream::bound_page;
-use stream::connect_and_attach;
+use stream::{connect_and_attach, strip_kinds};
 
 /// Runs a call that waits on acpmux off the connection thread. Calls of one
 /// attachment may run side by side; the link bounds how many wait.
@@ -831,13 +845,26 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
     match command {
         AgentSessionCommand::Attach(params) => {
             let newest_first = params.after_seq.is_none() || params.before_seq.is_some();
-            let params = page_params(session, &params, true)?;
+            // The re-attach replaces the link's subscription (and its kinds).
+            let hidden = stream::hidden_mode_kinds(params.kinds.as_deref(), attachment.mode_events);
+            let params = page_params(session, &params, true, &hidden)?;
+            *attachment.hidden_kinds.lock().unwrap_or_else(|e| e.into_inner()) = hidden.clone();
             let page = attachment.link.call("_acpmux/attach", params, CALL_TIMEOUT);
-            page.map(|page| bound_page(page, newest_first)).map_err(Refusal::of)
+            let mut page =
+                strip_kinds(bound_page(page.map_err(Refusal::of)?, newest_first), &hidden);
+            // As the first attach's reply: the chat's mode, for the bypass badge.
+            if let Ok(facts) = agent_session_start::read_mode(
+                &attachment.link,
+                session,
+                &attachment.record_session,
+            ) {
+                page["agentMode"] = facts;
+            }
+            Ok(page)
         }
         AgentSessionCommand::Events(params) => {
             let newest_first = params.before_seq.is_some();
-            let params = page_params(session, &params, false)?;
+            let params = page_params(session, &params, false, &[])?;
             let page = attachment.link.call("_acpmux/events", params, CALL_TIMEOUT);
             page.map(|page| bound_page(page, newest_first)).map_err(Refusal::of)
         }
