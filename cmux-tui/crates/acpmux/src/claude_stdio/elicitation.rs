@@ -11,8 +11,11 @@
 //! field, answered by question text like Claude Code's AskUserQuestion. Only
 //! a person answers it: no policy, and no session above this one. Submit
 //! accepts with the answers as the form's content, Skip declines, a stopped
-//! turn cancels. URL mode and any other schema keep the error reply that
-//! tells Claude Code acpmux does not support the request.
+//! turn cancels, and so does an answer acpmux cannot carry as the person gave
+//! it (a choice not offered, a number that does not parse): the server never
+//! gets content the person did not give. URL mode and any other schema keep
+//! the error reply that tells Claude Code acpmux does not support the request.
+//! A form Claude Code withdraws (`control_cancel_request`) takes its card back.
 
 use super::*;
 use serde_json::Map;
@@ -21,6 +24,9 @@ use serde_json::Map;
 const MAX_FIELDS: usize = 8;
 /// The option an optional field adds: choosing it leaves the field out.
 const NO_ANSWER: &str = "No answer";
+/// How a client joins a multi-select answer's labels (`webviews` model.ts,
+/// `question_answer.rs`): a multi-select label never holds it.
+const JOIN: &str = ", ";
 
 /// One pending elicitation: the form's fields, by item, until the answer.
 pub(super) struct Form {
@@ -101,46 +107,61 @@ impl Translator {
             }
         }));
     }
+
+    /// Claude Code withdrew its control request `rid` (`control_cancel_request`:
+    /// the turn was interrupted, or the tool call that asked ended): nothing
+    /// answers it any more, and the hub takes back the card it raised
+    /// (`$/cancel_request` with that card's id), so no one answers a form
+    /// that is gone. A request not waiting on the hub is ignored.
+    pub(super) async fn withdraw_control(&self, rid: &str) -> Vec<Message> {
+        let Some(acp_id) = self.control_out.lock().await.remove(rid) else { return Vec::new() };
+        self.elicitations.lock().await.remove(rid);
+        self.inputs.lock().await.remove(rid);
+        self.suggestions.lock().await.remove(rid);
+        vec![Message::notification(method::CANCEL_REQUEST, json!({"requestId": acp_id}))]
+    }
 }
 
 /// The `control_response` line for elicitation `rid` from the hub's answer:
 /// Submit accepts with the content, Skip (the reject option) declines, and a
-/// cancel, an error or an unknown option cancels.
+/// cancel, an error, an unknown option or answers that are not the form's
+/// cancel.
 pub(super) fn reply(rid: &str, form: &Form, result: Option<&Value>, error: bool) -> Value {
     let outcome = result.and_then(|r| r.get("outcome")).cloned().unwrap_or(Value::Null);
     let selected = outcome.get("optionId").and_then(Value::as_str);
     let cancelled = error || outcome.get("outcome").and_then(Value::as_str) == Some("cancelled");
+    let answers = result.and_then(|r| r.pointer("/_meta/updatedInput/answers"));
     let response = match selected {
-        Some("allow_once") if !cancelled => {
-            let answers = result
-                .and_then(|r| r.pointer("/_meta/updatedInput/answers"))
-                .cloned()
-                .unwrap_or(Value::Null);
-            json!({"action": "accept", "content": content(form, &answers)})
-        }
+        Some("allow_once") if !cancelled => match answers.and_then(|a| content(form, a)) {
+            Some(content) => json!({"action": "accept", "content": content}),
+            None => json!({"action": "cancel"}),
+        },
         Some("reject_once") if !cancelled => json!({"action": "decline"}),
         _ => json!({"action": "cancel"}),
     };
     json!({"type": "control_response", "response": {"subtype": "success", "request_id": rid, "response": response}})
 }
 
-/// The form's content from answers keyed by question text. A field left
-/// unanswered, answered "No answer", or with a number that does not parse is
-/// left out; the MCP server checks what it requires.
-fn content(form: &Form, answers: &Value) -> Value {
+/// The form's content from answers keyed by question text, or None when any
+/// answer is not one the form offers: a required field left empty, a choice
+/// that is not among its options, a yes/no that is neither, or a number that
+/// does not parse. An optional field answered "No answer" is left out.
+fn content(form: &Form, answers: &Value) -> Option<Value> {
     let mut out = Map::new();
     for field in &form.fields {
-        let Some(answer) = answers.get(&field.prompt).and_then(Value::as_str).map(str::trim) else {
-            continue;
+        let answer = answers.get(&field.prompt).and_then(Value::as_str).map(str::trim);
+        let answer = match answer {
+            Some(a) if !a.is_empty() && (field.required || a != NO_ANSWER) => a,
+            _ if field.required => return None,
+            _ => continue,
         };
-        if answer.is_empty() || (!field.required && answer == NO_ANSWER) {
-            continue;
-        }
         let value = match &field.kind {
             Kind::Choice { choices, multi: false } => {
                 choices.iter().find(|(label, _)| label == answer).map(|(_, v)| v.clone())
             }
-            Kind::Choice { choices, multi: true } => Some(Value::Array(chosen(choices, answer))),
+            Kind::Choice { choices, multi: true } => {
+                chosen(choices, answer, !field.required).map(Value::Array)
+            }
             Kind::Bool => match answer {
                 "Yes" => Some(json!(true)),
                 "No" => Some(json!(false)),
@@ -155,33 +176,24 @@ fn content(form: &Form, answers: &Value) -> Value {
                 .and_then(serde_json::Number::from_f64)
                 .map(Value::Number),
         };
-        if let Some(value) = value {
-            out.insert(field.key.clone(), value);
-        }
+        out.insert(field.key.clone(), value?);
     }
-    Value::Object(out)
+    Some(Value::Object(out))
 }
 
-/// The values of a multi-select answer: the chosen labels joined by ", ".
-/// A label that itself holds ", " is matched whole, longest first.
-fn chosen(choices: &[(String, Value)], answer: &str) -> Vec<Value> {
-    let parts: Vec<&str> = answer.split(", ").collect();
-    let mut values = Vec::new();
-    let mut i = 0;
-    while i < parts.len() {
-        let hit = (i + 1..=parts.len()).rev().find_map(|j| {
-            let label = parts[i..j].join(", ");
-            choices.iter().find(|(l, _)| *l == label).map(|(_, v)| (j, v.clone()))
-        });
-        match hit {
-            Some((j, value)) => {
-                values.push(value);
-                i = j;
-            }
-            None => i += 1,
-        }
-    }
-    values
+/// The values of a multi-select answer, its labels joined by [`JOIN`] (which
+/// no label holds), or None when one is not offered or is chosen twice. An
+/// `optional` field's "No answer" beside real choices adds nothing.
+fn chosen(choices: &[(String, Value)], answer: &str, optional: bool) -> Option<Vec<Value>> {
+    let mut seen = std::collections::HashSet::new();
+    answer
+        .split(JOIN)
+        .filter(|part| !(optional && part.trim() == NO_ANSWER))
+        .map(|part| {
+            let (label, value) = choices.iter().find(|(l, _)| l == part.trim())?;
+            seen.insert(label).then(|| value.clone())
+        })
+        .collect()
 }
 
 fn text(value: &Value) -> Option<String> {
@@ -205,11 +217,14 @@ fn form(req: &Value) -> Option<(Form, Vec<Value>)> {
     let required: Vec<&str> =
         schema["required"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
     // Claude Code sends the server's own order; serde_json's map is sorted.
+    // It names every property once, or the form is not asked.
     let order: Vec<String> = match req["property_order"].as_array() {
-        Some(keys) => keys.iter().filter_map(Value::as_str).map(str::to_owned).collect(),
+        Some(keys) => keys.iter().map(|k| k.as_str().map(str::to_owned)).collect::<Option<_>>()?,
         None => properties.keys().cloned().collect(),
     };
+    let unique: std::collections::HashSet<&String> = order.iter().collect();
     if order.len() != properties.len()
+        || unique.len() != order.len()
         || order.len() > MAX_FIELDS
         || order.iter().any(|k| !properties.contains_key(k))
     {
@@ -233,6 +248,13 @@ fn form(req: &Value) -> Option<(Form, Vec<Value>)> {
             prompt = format!("{prompt} ({key})");
         }
         let is_required = required.contains(&key.as_str());
+        // "No answer" leaves an optional field out, so it is no choice of one.
+        if let Kind::Choice { choices, .. } = &kind
+            && !is_required
+            && choices.iter().any(|(label, _)| label == NO_ANSWER)
+        {
+            return None;
+        }
         let mut options: Vec<Value> = match &kind {
             Kind::Choice { choices, .. } => {
                 choices.iter().map(|(label, _)| json!({"id": label, "label": label})).collect()
@@ -266,13 +288,15 @@ fn form(req: &Value) -> Option<(Form, Vec<Value>)> {
 }
 
 /// What a property asks for, when it is one of the MCP flat field shapes.
+/// Its choices have distinct, non-empty labels; a multi-select label never
+/// holds [`JOIN`], so an answer's labels split back exactly.
 fn kind(property: &Value) -> Option<Kind> {
     let titled = |list: &Value| -> Option<Vec<(String, Value)>> {
         let list = list.as_array()?;
         list.iter()
             .map(|c| {
                 let value = c.get("const")?.as_str()?;
-                let label = text(&c["title"]).unwrap_or_else(|| value.to_owned());
+                let label = text(&c["title"]).or_else(|| text(&c["const"]))?;
                 Some((label, json!(value)))
             })
             .collect()
@@ -283,33 +307,33 @@ fn kind(property: &Value) -> Option<Kind> {
             .enumerate()
             .map(|(i, v)| {
                 let value = v.as_str()?;
-                let label = text(&names[i]).unwrap_or_else(|| value.to_owned());
+                let label = text(&names[i]).or_else(|| text(v))?;
                 Some((label, json!(value)))
             })
             .collect()
     };
-    let distinct = |choices: Vec<(String, Value)>| {
+    let distinct = |choices: Vec<(String, Value)>, multi: bool| {
         let mut seen = std::collections::HashSet::new();
-        (!choices.is_empty() && choices.iter().all(|(label, _)| seen.insert(label.clone())))
-            .then_some(choices)
+        let ok = !choices.is_empty()
+            && choices
+                .iter()
+                .all(|(label, _)| seen.insert(label.clone()) && !(multi && label.contains(JOIN)));
+        ok.then_some(Kind::Choice { choices, multi })
     };
     match property["type"].as_str()? {
-        "string" if property.get("oneOf").is_some() => {
-            Some(Kind::Choice { choices: distinct(titled(&property["oneOf"])?)?, multi: false })
+        "string" if property.get("oneOf").is_some() => distinct(titled(&property["oneOf"])?, false),
+        "string" if property.get("enum").is_some() => {
+            distinct(listed(&property["enum"], &property["enumNames"])?, false)
         }
-        "string" if property.get("enum").is_some() => Some(Kind::Choice {
-            choices: distinct(listed(&property["enum"], &property["enumNames"])?)?,
-            multi: false,
-        }),
         "string" => Some(Kind::Text),
         "array" => {
             let items = &property["items"];
             let choices = match (items.get("anyOf"), items.get("enum")) {
                 (Some(any), _) => titled(any)?,
-                (None, Some(list)) => listed(list, &Value::Null)?,
+                (None, Some(list)) => listed(list, &items["enumNames"])?,
                 (None, None) => return None,
             };
-            Some(Kind::Choice { choices: distinct(choices)?, multi: true })
+            distinct(choices, true)
         }
         "boolean" => Some(Kind::Bool),
         "number" => Some(Kind::Number { integer: false }),

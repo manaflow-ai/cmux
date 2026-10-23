@@ -447,6 +447,11 @@ impl Translator {
                     other => self.decline_control(&rid, other.unwrap_or("?")).await,
                 }
             }
+            // Claude Code no longer needs the answer to one of its requests.
+            "control_cancel_request" => {
+                let rid = line.get("request_id").and_then(Value::as_str).unwrap_or("");
+                out.extend(self.withdraw_control(rid).await);
+            }
             "control_response" => {
                 let resp = line.get("response").cloned().unwrap_or(Value::Null);
                 let rid = resp.get("request_id").and_then(Value::as_str).unwrap_or("");

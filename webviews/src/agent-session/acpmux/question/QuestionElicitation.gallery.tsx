@@ -40,8 +40,8 @@ const fields: Array<Omit<Item, "prompt"> & { label: string }> = [
     label: "Tags",
     header: "Tags",
     options: [
-      { id: "web", label: "web" },
-      { id: "api", label: "api" },
+      { id: "Web", label: "Web" },
+      { id: "API v2", label: "API v2" },
       { id: "No answer", label: "No answer" },
     ],
     multiSelect: true,

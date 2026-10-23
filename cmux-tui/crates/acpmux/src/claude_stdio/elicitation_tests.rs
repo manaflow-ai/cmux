@@ -50,7 +50,7 @@ fn deploy_form() -> Value {
                 ]},
                 "replicas": {"type": "integer", "title": "Replicas"},
                 "canary": {"type": "boolean", "title": "Canary"},
-                "tags": {"type": "array", "title": "Tags", "items": {"enum": ["web", "api, v2"]}},
+                "tags": {"type": "array", "title": "Tags", "items": {"enum": ["web", "api"], "enumNames": ["Web", "API v2"]}},
                 "note": {"type": "string", "title": "Note"}
             },
             "required": ["region", "replicas", "canary"]
@@ -102,7 +102,7 @@ async fn submit_sends_the_answers_as_the_forms_content() {
         "Where should this deploy go? — Region": "EU West",
         "Replicas": " 3 ",
         "Canary": "No",
-        "Tags": "web, api, v2",
+        "Tags": "Web, API v2, No answer",
         "Note": "No answer",
     });
     let line = answer(
@@ -117,23 +117,83 @@ async fn submit_sends_the_answers_as_the_forms_content() {
     assert_eq!(
         line["response"]["response"],
         json!({"action": "accept", "content": {
-            "region": "eu-west-1", "replicas": 3, "canary": false, "tags": ["web", "api, v2"]
+            "region": "eu-west-1", "replicas": 3, "canary": false, "tags": ["web", "api"]
         }})
     );
 }
 
+/// Answers that are not the form's never reach the server as content.
 #[tokio::test]
-async fn a_number_that_does_not_parse_is_left_out() {
+async fn an_answer_the_form_does_not_offer_cancels() {
+    let good = json!({
+        "Where should this deploy go? — Region": "EU West", "Replicas": "3", "Canary": "No",
+        "Tags": "Web", "Note": "No answer",
+    });
+    let bad = [
+        ("Replicas", "x"),                                       // a number that does not parse
+        ("Where should this deploy go? — Region", "Mars"),       // a choice not offered
+        ("Canary", "Maybe"),                                      // neither yes nor no
+        ("Tags", "Web, Web"),                                     // chosen twice
+        ("Tags", "Web, Mars"),                                    // one not offered
+        ("Where should this deploy go? — Region", "No answer"), // required, left out
+    ];
+    for (prompt, value) in bad {
+        let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+        let (id, _) = asked(&t, &deploy_form()).await.expect("a question");
+        let mut answers = good.clone();
+        answers[prompt] = json!(value);
+        let outcome = json!({"outcome": "selected", "optionId": "allow_once",
+            "_meta": {"updatedInput": {"answers": answers}}});
+        let line = answer(&t, id, outcome).await;
+        assert_eq!(line["response"]["response"], json!({"action": "cancel"}), "{prompt}={value}");
+    }
+}
+
+/// Claude Code withdrew the form (its tool call ended): the hub takes the card
+/// back, and an answer that still comes sends Claude Code nothing.
+#[tokio::test]
+async fn a_withdrawn_form_takes_its_card_back() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
     let (id, _) = asked(&t, &deploy_form()).await.expect("a question");
-    let result = json!({
-        "outcome": {"outcome": "selected", "optionId": "allow_once"},
-        "_meta": {"updatedInput": {"answers": {"Replicas": "x"}}},
-    });
-    let msg = Message::Response { id, result: Some(result), error: None };
-    let Outbound::Lines(lines) = t.outbound(&msg).await else { panic!("expected lines") };
-    // A number that does not parse is left out for the server to refuse.
-    assert_eq!(lines[0]["response"]["response"], json!({"action": "accept", "content": {}}));
+    let withdraw = json!({"type": "control_cancel_request", "request_id": "e1"});
+    let out = t.inbound(&withdraw).await;
+    assert!(
+        out.iter().any(|m| matches!(m, Message::Notification { method: m, params: Some(p) }
+            if m == method::CANCEL_REQUEST && p["requestId"] == id)),
+        "a $/cancel_request for the card"
+    );
+    let late = Message::Response {
+        id,
+        result: Some(json!({"outcome": {"outcome": "selected", "optionId": "reject_once"}})),
+        error: None,
+    };
+    let Outbound::Lines(lines) = t.outbound(&late).await else { panic!("expected lines") };
+    assert!(lines.is_empty(), "{lines:?}");
+    // A request not waiting on the hub is ignored.
+    assert!(t.inbound(&withdraw).await.is_empty());
+}
+
+/// A form whose answers could not be read back exactly is not asked.
+#[tokio::test]
+async fn ambiguous_forms_keep_the_unsupported_reply() {
+    let field = |property: Value, order: Value| {
+        ask(json!({"mcp_server_name": "s", "message": "m", "property_order": order,
+            "requested_schema": {"type": "object", "properties": {"a": property, "b": {"type": "string"}}}}))
+    };
+    let forms = [
+        // A multi-select label holding the join.
+        field(json!({"type": "array", "items": {"enum": ["x", "x, y", "y"]}}), json!(["a", "b"])),
+        // An optional choice that is the "No answer" option.
+        field(json!({"type": "string", "enum": ["No answer", "Yes"]}), json!(["a", "b"])),
+        // An order that names a field twice, or holds a non-string.
+        field(json!({"type": "string"}), json!(["a", "a"])),
+        field(json!({"type": "string"}), json!(["a", "b", 3])),
+    ];
+    for line in forms {
+        let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+        assert!(asked(&t, &line).await.is_none(), "{line}");
+        assert_eq!(t.take_stdin_replies().await[0]["response"]["subtype"], "error");
+    }
 }
 
 #[tokio::test]
