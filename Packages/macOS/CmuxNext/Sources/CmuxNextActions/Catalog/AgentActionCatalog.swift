@@ -51,7 +51,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 defaultShortcut: Shortcut("p", modifiers: [.control, .option, .command]),
                 category: .agents, symbol: "scope", surfaces: [.palette, .keyboard, .contextMenu],
                 cliName: "agent toggle-ui-pointer",
-                surfacePlan: ActionSurfacePlan(contextMenus: [ContextMenuPlacement(.agentChat, .inspect, 1)])
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ContextMenuPlacement(.agentChat, .inspect, 1)])
             ),
             ActionDescriptor(
                 id: "palette.quickAgentChat",

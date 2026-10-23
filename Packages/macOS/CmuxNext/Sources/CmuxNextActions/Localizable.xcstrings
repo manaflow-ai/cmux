@@ -26724,6 +26724,17 @@
           }
         }
       }
+    },
+    "action.agentPane.togglePointerInspector": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Point at cmux UI"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

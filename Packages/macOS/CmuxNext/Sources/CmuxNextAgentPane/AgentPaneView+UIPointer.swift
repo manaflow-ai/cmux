@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import CmuxNextPages
 
 /// The page-side half of the cmux NEXT own-window picker. It is deliberately
@@ -15,14 +16,19 @@ extension AgentPaneView {
         if let page { page.evaluate(script) } else { webView.evaluateJavaScript(script, completionHandler: nil) }
     }
 
+    /// View points per CSS pixel for the page currently drawing this pane.
+    public var uiPointerPageZoom: Double {
+        guard let page else { return webView.pageZoom * webView.magnification }
+        return page.showsChromium
+            ? Double(DesignSettings.shared.uiScale) * page.additionalZoom
+            : page.webKitView.pageZoom * page.webKitView.magnification
+    }
+
     private static let uiPointerStopScript = "globalThis.__cmuxUiPointer?.stop?.();"
     private static let uiPointerScript = #"""
     (() => {
       const post = (params) => {
-        try {
-          const handlers = globalThis.webkit?.messageHandlers || {};
-          (handlers.cmuxPage || handlers.agentSession)?.postMessage({method: "uiPointer.report", params});
-        } catch (_) {}
+        try { globalThis.__cmuxUiPointerPost?.(params); } catch (_) {}
       };
       const bounded = (value, limit) => String(value || "").slice(0, limit);
       const selector = (element) => {
@@ -53,7 +59,9 @@ extension AgentPaneView {
       };
       const at = (x, y) => { ensure(); overlay.style.display = "none"; const element = document.elementFromPoint(x, y); if (!element || overlayHost.contains(element)) return null; const rect = element.getBoundingClientRect(); overlay.style.display = "block"; overlay.style.left = `${rect.x}px`; overlay.style.top = `${rect.y}px`; overlay.style.width = `${rect.width}px`; overlay.style.height = `${rect.height}px`; return element; };
       globalThis.__cmuxUiPointer?.stop?.();
-      globalThis.__cmuxUiPointer = { highlight(x, y) { at(Number(x), Number(y)); }, pick(x, y) { const element = at(Number(x), Number(y)); const value = inspect(element); if (value) post(value); }, stop() { overlayHost?.remove(); overlayHost = null; overlay = null; } };
+      const move = (event) => at(event.clientX, event.clientY);
+      document.addEventListener("mousemove", move, true);
+      globalThis.__cmuxUiPointer = { highlight(x, y) { at(Number(x), Number(y)); }, pick(x, y) { const element = at(Number(x), Number(y)); const value = inspect(element); if (value) post(value); }, hide() { if (overlay) overlay.style.display = "none"; }, stop() { document.removeEventListener("mousemove", move, true); overlayHost?.remove(); overlayHost = null; overlay = null; } };
     })();
     """#
 }
