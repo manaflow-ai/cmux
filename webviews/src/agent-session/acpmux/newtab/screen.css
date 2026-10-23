@@ -570,11 +570,13 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   padding-bottom: 16px;
 }
 /* With Claude Code's split the quiet row ends the page, a few px over its bottom edge as in the chat
-   pane (the row's own margin, composerLocation.css): the page adds no band under it. The template
-   dots (a widget, off by default, App.tsx) sit absolutely at the page's foot, 2 px up and 24 px
-   tall: with them on, the page keeps their room under the row (less the row's 4 px margin). */
+   pane (the row's own margin, composerLocation.css): the page adds no band under it. The look dots
+   sit in that margin (composerLook.css .nt-page-dots). The style dots (a widget, off by default,
+   App.tsx) sit beside them at the page's foot, 24 px tall: with them on, the page keeps their
+   room, 24 px under the composer's last part (the row's 8 px margin plus 16, or the box). */
 .nt-screen[data-layout="stage"]:has(.nt-foot) { padding-bottom: 0; }
-.acpmux-main:has(> .nt-style) .nt-screen[data-layout="stage"]:has(.nt-foot) { padding-bottom: 22px; }
+.acpmux-main:has(> .nt-page-dots > .nt-style:not(.nt-look-dots)) .nt-screen[data-layout="stage"] { padding-bottom: 24px; }
+.acpmux-main:has(> .nt-page-dots > .nt-style:not(.nt-look-dots)) .nt-screen[data-layout="stage"]:has(.nt-foot) { padding-bottom: 16px; }
 .nt-screen[data-layout="stage"] .nt-stage {
   flex: 1;
   min-height: 0;

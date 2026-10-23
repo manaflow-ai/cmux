@@ -139,6 +139,7 @@
   bottom: 0;
   left: 50%;
   display: flex;
+  align-items: center;
   gap: 12px;
   max-width: calc(100% - 32px);
   transform: translateX(-50%);
@@ -150,10 +151,14 @@
   max-width: none;
   transform: none;
 }
-.nt-page-dots :is(.nt-style-option, .nt-style-mark) {
+/* Only the look dots take the gutter's height and a ring that fits it; the page's style dots beside
+   them (StyleSwitch, the style dots widget) keep their 24 px targets and 14 px ring (newtab/
+   screen.css .nt-style-option), and the stage keeps their room (screen.css). The row centres both
+   groups, so their dots stay on one line. */
+.nt-page-dots > .nt-look-dots :is(.nt-style-option, .nt-style-mark) {
   height: var(--nt-page-dots-height);
 }
-.nt-page-dots .nt-style-option:has(:focus-visible)::before {
+.nt-page-dots > .nt-look-dots .nt-style-option:has(:focus-visible)::before {
   width: 10px;
   height: 10px;
 }
