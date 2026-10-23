@@ -421,7 +421,7 @@ class BenchApp:
         self.read_session = session
         self.socket_only = socket_only
         self.gui_session = None  # the session read at the last launch
-        self.crash_report_wait = None  # the folders the last crash-report wait watched, and the ones it could not
+        self.crash_report_wait = None  # the folders this launch's crash-report wait watched, and the ones it could not
         self.teardown = None
         if teardown:
             sys.path.insert(0, HERE)
@@ -585,7 +585,9 @@ class BenchApp:
         seconds after the process ends, so this waits for a report folder to gain a file (kqueue), at most `wait`
         seconds; otherwise it reads once. The account's own folder is created first, so the wait can watch it before the
         account's first report (ReportCrash would create it inside ~/Library/Logs, which is not watched).
-        `crash_report_wait` then records which folders were watched and why the others were not."""
+        `crash_report_wait` then records which folders were watched and why the others were not; it describes only
+        this call's wait and is None when this call did not wait (one BenchApp may launch again)."""
+        self.crash_report_wait = None
         if not self.launched_at:
             return []
         pid = self.process.pid if self.process else None
