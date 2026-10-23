@@ -244,7 +244,7 @@ impl Mux {
         }
         sizing.host_policy = Some(policy);
         let runtimes = sizing.terminal_sizing.keys().copied().collect::<Vec<_>>();
-        let mut owner_changes = std::collections::HashSet::new();
+        let mut owner_changes = HashSet::new();
         for runtime in runtimes {
             let owners_before = sizing.terminal_owner_clients(runtime);
             self.refresh_host_policy_locked(&mut sizing, runtime);

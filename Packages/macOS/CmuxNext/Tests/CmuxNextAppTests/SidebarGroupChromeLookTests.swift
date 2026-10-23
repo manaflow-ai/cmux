@@ -53,8 +53,10 @@ import Testing
         #expect(flipped ? lineStart > barEdge : lineStart < barEdge,
                 "the line starts at \(lineStart), inside the header bar that ends at \(barEdge)")
         line.layoutSubtreeIfNeeded()
-        // Chrome's flat ends (Leo 2026-10-19: "never round caps").
-        #expect(line.layer?.cornerRadius == 0 && line.layer?.mask == nil, "the line's ends are not flat")
+        // Chrome's square left edge and body keep their flat geometry; the top-right edge is the cut/taper.
+        let mask = try #require(line.layer?.mask as? CAShapeLayer)
+        #expect(line.layer?.cornerRadius == 0 && mask.path != nil, "the line has the Chrome corner cut")
+        #expect(mask.frame.height >= 4096, "the mask preserves coverage while the parent rail shrinks")
     }
 
     @Test func aHeaderInkIsWhiteOrNearBlackWhicheverReadsBetter() throws {

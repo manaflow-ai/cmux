@@ -205,7 +205,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         case .terminalSizing: TerminalSizingMacsPage(store: store)
         case .terminalSizingMac(let macID): TerminalSizingMacPage(macID: macID, store: store, service: sizing)
         case .composer: ComposerPage(settings: settings)
-        case .notifications: NotificationsPage(settings: settings)
+        case .notifications: NotificationsPage(settings: settings, macs: store.notificationMacs)
         case .acknowledgements: AcknowledgementsPage()
         }
     }

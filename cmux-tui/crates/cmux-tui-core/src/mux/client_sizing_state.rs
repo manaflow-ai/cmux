@@ -137,7 +137,7 @@ pub(super) struct ClientSizingState {
     pub(super) detached_views: HashSet<(u64, SurfaceId)>,
     /// The host sizing policy (`host-size-policy-v1`) from the settings
     /// owner; `None` until the owner read the settings file.
-    pub(super) host_policy: Option<terminal_sizing::host_policy::HostSizePolicy>,
+    pub(super) host_policy: Option<host_policy::HostSizePolicy>,
 }
 
 /// Host participant id of one client's view of one terminal placement. The

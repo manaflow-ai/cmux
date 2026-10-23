@@ -103,6 +103,10 @@ Swift/Rust builds and tests stay on the fleet.
 
 ## Before you touch hot paths
 
+- Use the patterns in [PATTERNS.md](plans/cmux-next/PATTERNS.md) (composition root, seam adapters, targeted
+  observation, instant create, main-thread budget, off-main frames, daemon request path) and meet
+  [REVIEW-STANDARD.md](plans/cmux-next/REVIEW-STANDARD.md): root-cause fixes, no hacks, no partial fixes. Review
+  landed work with the repo workflow `.claude/workflows/cmux-next-deep-review.js`.
 - Budget: every action reaches its committed frame in < 10 ms p95; motion runs at full refresh, 0 drops.
   Measure on the fleet yourself, light and STRESS ([perf-lead.md](plans/cmux-next/perf-lead.md)), before and after.
 - Never add CI gates, perf-gate rows or budgets, CI jobs or steps, or CI tests (Lawrence 2026-10-23: "not to

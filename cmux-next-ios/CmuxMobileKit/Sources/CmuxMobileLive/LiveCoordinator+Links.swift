@@ -49,6 +49,12 @@ extension LiveCoordinator {
             for (key, value) in params { fields[key] = value }
             return try await client.request(command, params: fields)
         }
+        session.terminalFeed.type = { [weak session] surface, bytes, connection in
+            guard let session, session.workspaces.connectionSerial == connection, let client = session.workspaces.daemon else {
+                throw LinkError(code: "no-link", message: "Not connected to the Mac")
+            }
+            _ = try WorkspaceSync.check(try await client.request("send", params: ["surface": surface, "bytes": bytes.base64EncodedString()]))
+        }
         session.workspaces.onTree = { [weak self, weak session] tree in
             guard let self, let session else { return }
             self.apply(tree, session: session)
@@ -908,6 +914,8 @@ extension LiveCoordinator {
 @MainActor
 final class MultiMacFeedActions: FeedActions {
     private weak var coordinator: LiveCoordinator?
+    /// The coordinator, for the terminal-question answers (`MultiMacFeedActions+Terminal.swift`).
+    var coordinatorForTerminal: LiveCoordinator? { coordinator }
     /// How long an answer waits for its Mac's link and chats to open.
     var linkTimeout: Duration = .seconds(20)
 
@@ -984,10 +992,12 @@ final class MultiMacFeedActions: FeedActions {
     }
 
     func answer(_ item: FeedItem, question: AgentQuestion, with answer: AgentQuestionAnswer) async throws {
+        if item.opensTerminal { return try await terminalOwner(item).answer(item, question: question, with: answer) }
         try await owner(item).answer(item, question: question, with: answer)
     }
 
     func decline(_ item: FeedItem, question: AgentQuestion) async throws {
+        if item.opensTerminal { return try await terminalOwner(item).decline(item, question: question) }
         try await owner(item).decline(item, question: question)
     }
 
@@ -997,6 +1007,7 @@ final class MultiMacFeedActions: FeedActions {
 
     func message(for error: any Error) -> String {
         if let unsent = error as? Unsent { return unsent.message }
+        if let refused = error as? TerminalFeed.QuestionRefused { return refused.message }
         return AcpmuxSessionSource.message(error)
     }
 

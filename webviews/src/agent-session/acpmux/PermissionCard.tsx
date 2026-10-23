@@ -10,6 +10,7 @@ import {
   permissionDetail,
   permissionKeyAction,
   permissionOptionKind,
+  permissionScopeText,
   permissionTitle,
   type PermissionKeyAction,
 } from "./permissions/prompt";
@@ -113,6 +114,8 @@ export function PermissionCard({
     others,
   } = useMemo(() => permissionAnswers(permission.options), [permission.options]);
   const alwaysScope = allowAlways && alwaysAllowScope(permission, allowAlways);
+  const scopeText = permissionScopeText(permission, t);
+  const scopeId = React.useId();
   const feedback = Boolean(onDenyWithFeedback && permission.pending && denyOption);
   const claude = harness === "claude" || harness?.startsWith("claude-");
   /// The ask whose full command is open: a new ask opens collapsed.
@@ -293,6 +296,8 @@ export function PermissionCard({
           {allowOnce && (
             <PermissionActionButton
               label={t("permission.allowOnce")}
+              description={scopeText}
+              aria-describedby={scopeText ? scopeId : undefined}
               shortcut={shortcuts ? allowOnceShortcut : undefined}
               className="acpmux-permission-primary"
               onClick={() => answer(allowOnce)}
@@ -307,6 +312,8 @@ export function PermissionCard({
               }
               shortcut={shortcuts ? allowChatShortcut : undefined}
               title={alwaysScope}
+              description={alwaysScope || scopeText}
+              aria-describedby={scopeText ? scopeId : undefined}
               onClick={() => answer(allowAlways)}
             />
           )}
@@ -314,12 +321,23 @@ export function PermissionCard({
             <PermissionActionButton
               label={t("permission.deny")}
               shortcut={shortcuts ? denyShortcut : undefined}
+              aria-describedby={scopeText ? scopeId : undefined}
               className="acpmux-permission-deny"
               data-feedback-opener=""
               onClick={() => deny()}
             />
           )}
         </div>
+      )}
+      {!writing && scopeText && (
+        <p
+          id={scopeId}
+          className="acpmux-permission-scope"
+          data-scope-kind={permission.scope?.kind}
+          aria-label={scopeText}
+        >
+          {scopeText}
+        </p>
       )}
       {!writing && alwaysScope && <p className="acpmux-permission-always-scope">{alwaysScope}</p>}
       {!writing && others.length > 0 && (

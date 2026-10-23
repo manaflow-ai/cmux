@@ -61,6 +61,26 @@ import Testing
         #expect(inset + SidebarStyle.groupBarWidth == SidebarStyle.rowCornerRadius, "the line's right edge is off the corner arc's end")
     }
 
+    @Test func theTopCutOnlyTapersTheRailLeavingTheHeader() {
+        let path = SidebarGroupLineShape.topTaper(width: 2, height: 20, radius: 2)
+        #expect(path.contains(CGPoint(x: 0.1, y: 0.1)), "the rail's left edge stays square")
+        #expect(!path.contains(CGPoint(x: 1.9, y: 0.1)), "the top-right corner tapers out")
+        #expect(path.contains(CGPoint(x: 1.9, y: 4)), "the rail reaches full width below the taper")
+        #expect(path.contains(CGPoint(x: 1.9, y: 19.9)), "the rail's bottom remains square")
+    }
+
+    @Test @MainActor func theCutMaskRetainsCoverageWhenARailShrinks() {
+        let line = GroupLineView()
+        line.frame = NSRect(x: 0, y: 0, width: 2, height: 5000)
+        line.layoutSubtreeIfNeeded()
+        let mask = line.layer?.mask
+        let initial = mask?.frame.height ?? 0
+        line.frame.size.height = 500
+        line.layoutSubtreeIfNeeded()
+        #expect(initial >= 5000 && (mask?.frame.height ?? 0) >= initial,
+                "the cut mask covers the old presentation height during a shrink")
+    }
+
     /// The line keeps the rail's x (its members' less `groupRailReach`) in every layout; the header's bar starts there
     /// or, `inside`, further left. Its cut (joined: none), 2 pt width, flat ends, end at the last member's bottom, its
     /// color (the bar's), and that no member's fill covers it and no member moves.
@@ -77,7 +97,9 @@ import Testing
             let head = header.frame
             #expect(line.width == 2, "\(layout): the line is \(line.width) pt")
             view.layoutSubtreeIfNeeded()
-            #expect(view.layer?.cornerRadius == 0 && view.layer?.mask == nil, "\(layout): the line's ends are not flat")
+            let mask = try #require(view.layer?.mask as? CAShapeLayer)
+            #expect(view.layer?.cornerRadius == 0 && mask.path != nil, "\(layout): the line has the Chrome corner cut")
+            #expect(mask.frame.height >= 4096, "\(layout): the mask covers a rail during its bounds spring")
 
             #expect(line.minX == loose.frame.minX - SidebarStyle.groupRailReach, "\(layout): the line left the rail, at \(line.minX)")
             #expect(header.pill.frame.minX == 0 && header.pill.frame.width == head.width, "\(layout): the bar spans \(header.pill.frame)")
@@ -194,7 +216,7 @@ import Testing
         try Self.withLayout(.inside) {
             let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
             let parent = SidebarGroup(id: GroupID("g-parent-only"), name: "Parent", color: .purple, workspaces: [])
-            let child = SidebarGroup(id: GroupID("g-child-only"), name: "Child", color: .blue,
+            var child = SidebarGroup(id: GroupID("g-child-only"), name: "Child", color: .blue,
                                      workspaces: [SidebarWorkspace(id: WorkspaceID("w-child"), title: "Child member")])
             child.parent = parent.id
             let list = SidebarNestedGroupAlignmentTests.list([
