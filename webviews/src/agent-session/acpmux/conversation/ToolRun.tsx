@@ -11,7 +11,7 @@ import { isFailed, isRunning } from "./toolGroups";
 import { mainToolRunCategory, toolRunSummary, type ToolRunCategory } from "./toolRunSummary";
 import { useToolRunLook } from "../toolRunLook";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
-import { useFold } from "./fold";
+import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { useScrollEdges } from "../summary/scrollEdges";
 
 /// The summary's glyph: its main kind of work's, with searches and reads both as the magnifier.
@@ -44,7 +44,7 @@ export function ToolRun({
   const look = useToolRunLook();
   const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
   useFindReveal(items, () => setOpen(true));
-  const fold = useFold(open);
+  const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const list = useId();
   const edges = useScrollEdges();
   // Read once per run: the row draws again only when its version moves (App.tsx ToolActivityRow),
@@ -69,7 +69,8 @@ export function ToolRun({
         className={quiet ? "cv-tool is-toggle" : "cv-tool is-toggle is-strong"}
         aria-expanded={open}
         aria-controls={open ? list : undefined}
-        onClick={() => setOpen((value) => !value)}
+        ref={fold.headerRef}
+        onClick={fold.toggle}
       >
         <span className="cv-tool__icon">{running ? <Spinner size={16} /> : runIcon(pencil ? "edited" : main)}</span>
         <span className="cv-tool__text" data-find-skip>
@@ -83,7 +84,7 @@ export function ToolRun({
         />
       </button>
       {fold.present && (
-        <div ref={fold.ref} className="cv-fold">
+        <div {...fold.bodyProps}>
           <div className="cv-tool-run" id={list} ref={edges}>
             {children}
           </div>
