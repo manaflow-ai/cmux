@@ -267,9 +267,64 @@ mod tests {
             decision_nonce: super::super::person::new_nonce(),
             ancestor_may_answer: may,
             prev_status: SessionStatus::Waiting,
+            agent_request: None,
         };
         session.permissions.lock().unwrap().pending.insert(id.clone(), entry);
         (id, rx)
+    }
+
+    /// An agent's `$/cancel_request` (`permissions.rs` withdraw_permission)
+    /// cancels only the prompt it raised under that request id.
+    #[tokio::test]
+    async fn an_agents_cancel_request_withdraws_only_its_own_prompt() {
+        let (hub, session, _conn) = hub_with_session().await;
+        let (mine, rx) = pending(&session, false);
+        let (other, _other_rx) = pending(&session, false);
+        {
+            let mut state = session.permissions.lock().unwrap();
+            state.pending.get_mut(&mine).unwrap().agent_request = Some(json!(1_000_007));
+            state.pending.get_mut(&other).unwrap().agent_request = Some(json!(1_000_008));
+        }
+        hub.withdraw_permission(&session, &json!(1_000_007));
+        assert_eq!(rx.await.unwrap(), json!({"outcome": "cancelled"}));
+        let state = session.permissions.lock().unwrap();
+        assert!(!state.pending.contains_key(&mine));
+        assert!(state.pending.contains_key(&other), "another prompt stays");
+    }
+
+    /// A withdrawal that comes before its prompt is recorded (the request's
+    /// task is spawned, the cancel is not) cancels that prompt when it comes:
+    /// no card waits on a form that is gone.
+    #[tokio::test]
+    async fn a_cancel_request_before_its_prompt_cancels_the_prompt() {
+        let (hub, session, _conn) = hub_with_session().await;
+        hub.withdraw_permission(&session, &json!(1_000_009));
+        let request = json!({
+            "toolCall": {"toolCallId": "elicitation-e1", "kind": "other", "status": "pending",
+                "_meta": {"acpmux": {"question": {"harness": "claude", "items": [
+                    {"id": "q0", "prompt": "Which?", "options": [], "multiSelect": false, "allowsOther": true}
+                ]}}}},
+            "options": [{"optionId": "allow_once", "name": "Submit", "kind": "allow_once"}],
+        });
+        let epoch = session.permission_epoch.load(Ordering::SeqCst);
+        let turn = session.turn().map(|t| t.turn_id);
+        let outcome = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            hub.handle_permission_for(
+                &session,
+                request,
+                epoch,
+                turn,
+                Some(&json!(1_000_009)),
+                None,
+            ),
+        )
+        .await
+        .expect("answered at once, not left pending");
+        assert_eq!(outcome, json!({"outcome": {"outcome": "cancelled"}}));
+        let state = session.permissions.lock().unwrap();
+        assert!(state.pending.is_empty(), "no card");
+        assert!(state.withdrawn.is_empty(), "the withdrawal is spent");
     }
 
     /// The rule under the prompt's lock, without the request check before it:
@@ -330,6 +385,7 @@ mod tests {
             decision_nonce: super::super::person::new_nonce(),
             ancestor_may_answer: true,
             prev_status: SessionStatus::Waiting,
+            agent_request: None,
         };
         session.permissions.lock().unwrap().pending.insert(id.clone(), entry);
         let prompt = "child wants to work in /tmp/untrusted. Do you trust this folder?";

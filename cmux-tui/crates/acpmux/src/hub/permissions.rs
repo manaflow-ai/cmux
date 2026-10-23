@@ -16,6 +16,10 @@ impl Hub {
                 Inbound::Notification { method: m, params } => {
                     if m == method::SESSION_UPDATE {
                         self.on_update(&session, params.as_ref());
+                    } else if m == method::CANCEL_REQUEST
+                        && let Some(id) = params.as_ref().and_then(|p| p.get("requestId"))
+                    {
+                        self.withdraw_permission(&session, id);
                     }
                 }
                 Inbound::Request { id, method: m, params } => {
@@ -423,6 +427,13 @@ impl Hub {
             {
                 return json!({"outcome":{"outcome":"cancelled"}});
             }
+            // The agent withdrew this request before its prompt was recorded.
+            if let Some(id) = agent_request_id
+                && let Some(i) = state.withdrawn.iter().position(|w| w == id)
+            {
+                state.withdrawn.remove(i);
+                return json!({"outcome":{"outcome":"cancelled"}});
+            }
             // The remote floor (`remote_floor.rs`): a Web turn whose mode left
             // the asking table is cancelled, and nothing in it approves itself.
             let web_turn = Self::web_turn(session);
@@ -553,6 +564,7 @@ impl Hub {
                     reply: tx,
                     decision_nonce: decision_nonce.clone(),
                     prev_status: prev,
+                    agent_request: agent_request_id.cloned(),
                 },
             );
             self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"decisionNonce":decision_nonce,"personInstance":self.person.instance(),"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id,"remoteFloor":floored}));
@@ -771,10 +783,43 @@ impl Hub {
         Ok(())
     }
 
+    /// The agent withdrew its request `agent_request` (ACP `$/cancel_request`,
+    /// e.g. Claude Code's form whose tool call ended): its prompt, if still
+    /// pending, is cancelled as a Stop cancels it, so no card waits on an ask
+    /// that is gone. Only the agent's own requests match; nothing is allowed.
+    /// One whose prompt is not recorded yet (its task still on the way) is
+    /// remembered, and that prompt is cancelled when it comes.
+    pub(super) fn withdraw_permission(&self, session: &Session, agent_request: &Value) {
+        let withdrawn = {
+            let mut state = session.permissions.lock().unwrap();
+            let id = state
+                .pending
+                .iter()
+                .find(|(_, p)| p.agent_request.as_ref() == Some(agent_request))
+                .map(|(id, _)| id.clone());
+            let Some(id) = id else {
+                if state.withdrawn.len() >= MAX_WITHDRAWN {
+                    state.withdrawn.pop_front();
+                }
+                state.withdrawn.push_back(agent_request.clone());
+                return;
+            };
+            if let Some(group) = state.finish_item(&session.id, &id, true) {
+                self.append(session, "mux", "permission_group", json!({"group":group}));
+            }
+            state.pending.remove(&id)
+        };
+        if let Some(p) = withdrawn {
+            let _ = p.reply.send(json!({"outcome": "cancelled"}));
+        }
+    }
+
     pub(super) fn cancel_pending_permissions(&self, session: &Session) {
         let drained: Vec<_> = {
             let mut state = session.permissions.lock().unwrap();
             session.permission_epoch.fetch_add(1, Ordering::SeqCst);
+            // A new agent process numbers its requests afresh.
+            state.withdrawn.clear();
             let drained: Vec<_> = state.pending.drain().collect();
             for (id, _) in &drained {
                 if let Some(group) = state.finish_item(&session.id, id, true) {
@@ -790,6 +835,9 @@ impl Hub {
         self.cancel_pending_secrets(session);
     }
 }
+
+/// The most withdrawals remembered for prompts not recorded yet.
+const MAX_WITHDRAWN: usize = 64;
 
 /// The kind of the offered option `id`.
 fn option_kind<'a>(options: &'a [Value], id: &str) -> Option<&'a str> {

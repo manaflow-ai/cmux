@@ -344,6 +344,11 @@ impl Translator {
                     .map(|(k, _)| k.clone());
                 let Some(ctl_id) = ctl else { return Outbound::Lines(vec![]) };
                 self.control_out.lock().await.remove(&ctl_id);
+                if let Some(form) = self.elicitations.lock().await.remove(&ctl_id) {
+                    let reply =
+                        super::elicitation::reply(&ctl_id, &form, result.as_ref(), error.is_some());
+                    return Outbound::Lines(vec![reply]);
+                }
                 let suggested = self.suggestions.lock().await.remove(&ctl_id);
                 let asked = self.inputs.lock().await.remove(&ctl_id);
                 let outcome =
