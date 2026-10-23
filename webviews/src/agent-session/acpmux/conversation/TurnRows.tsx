@@ -183,7 +183,9 @@ export function thoughtIds(groups: readonly ToolGroup[]): number[] {
 /// collapsing i mean"); the turn's edited-files card lists them once it ends.
 function staysInSight(group: ToolGroup): boolean {
   if (group.type === "message" || group.type === "subsession") return true;
-  return group.type === "item" && awaitsPermission(group.item.tool);
+  // A pending change draws as its own item (toolGroups.ts `toolGroupKind`); any entry holding one
+  // stays in sight all the same.
+  return ("items" in group ? group.items : [group.item]).some((item) => awaitsPermission(item.tool));
 }
 
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {

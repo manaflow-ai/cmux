@@ -193,6 +193,24 @@ test("an edit waiting for its permission keeps its row in an ended turn's folded
   expect(words(ended)).toContain("Edit src/a.ts");
 });
 
+test("an edit waiting for its permission next to finished edits keeps its row", () => {
+  const items = [read("src/a.ts"), command("ls"), edit("src/b.ts"), edit("src/a.ts", { status: "pending" }), edit("src/c.ts")];
+  const ended = turnView(
+    [
+      row("u4", "user", { text: "Edit them" }),
+      row("work4", "activity", { items }),
+      said("asked"),
+      row("s4", "turnSummary", { status: "completed", toolCount: 5 }),
+    ],
+    new Set(["worked-u4"]),
+    { liveRuns: true },
+  ).find((entry) => entry.kind === "activity" && entry.foldRun === true)!;
+  expect(words(ended)).toContain("Edit src/a.ts");
+  // The finished edits on each side fold with the work around them.
+  expect(words(ended)).not.toContain("Edit src/b.ts");
+  expect(words(ended)).not.toContain("Edit src/c.ts");
+});
+
 test("the gallery's quieter versions dim the line", () => {
   const work = shaped([read("a.ts"), command("ls"), command("pwd")]).find((entry) => entry.id === "work")!;
   const line = () =>
