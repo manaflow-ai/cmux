@@ -52,8 +52,15 @@ struct AcpmuxRefusedRestartTests {
         #expect((ungestured["error"] as? [String: Any])?["code"] as? String == "acpmux.gesture_required")
     }
 
-    private func withFakeDaemon<T>(_ body: (AcpmuxEnvironment) async throws -> T) async throws -> T {
-        let (root, environment, server) = try fakeDaemonEnvironment()
+    /// A daemon without agent hosts would end its agents with it: Restart acpmux keeps it running.
+    @Test func restartAcpmuxNeverStopsADaemonWithoutAgentHosts() async throws {
+        try await withFakeDaemon(agentHosts: false) { environment in
+            #expect(await AcpmuxSocketOwner.takeOver(environment: environment) == false)
+        }
+    }
+
+    private func withFakeDaemon<T>(agentHosts: Bool = true, _ body: (AcpmuxEnvironment) async throws -> T) async throws -> T {
+        let (root, environment, server) = try fakeDaemonEnvironment(agentHosts: agentHosts)
         defer {
             server.stop()
             try? FileManager.default.removeItem(at: root)
@@ -70,7 +77,7 @@ struct AcpmuxRefusedRestartTests {
         return try body(environment)
     }
 
-    private func fakeDaemonEnvironment() throws -> (URL, AcpmuxEnvironment, FakeDaemon) {
+    private func fakeDaemonEnvironment(agentHosts: Bool = true) throws -> (URL, AcpmuxEnvironment, FakeDaemon) {
         let root = URL(fileURLWithPath: "/tmp/arr-\(UUID().uuidString.prefix(8))", isDirectory: true)
         let bin = root.appendingPathComponent("bin", isDirectory: true)
         let home = root.appendingPathComponent("home", isDirectory: true)
@@ -83,7 +90,7 @@ struct AcpmuxRefusedRestartTests {
         let environment = try #require(AcpmuxEnvironment.resolve(
             build: nil, bundledBinDirectory: bin, environment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socketPath],
             executableOverride: nil))
-        return (root, environment, try FakeDaemon(socketPath: socketPath))
+        return (root, environment, try FakeDaemon(socketPath: socketPath, agentHosts: agentHosts))
     }
 }
 
