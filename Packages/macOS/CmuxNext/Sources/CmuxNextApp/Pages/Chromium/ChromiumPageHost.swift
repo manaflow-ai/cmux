@@ -25,16 +25,24 @@ final class ChromiumPageHost: PageChromiumHosting {
     private let enginePreference: @MainActor () -> BrowserDefaultEngine
     private weak var keyRouter: KeyRouter?
     private var pageProfile: BrowserProfileID?
+    /// One page's CEF tab per display frame, never in the frame of the action that showed it.
+    private let startFrames: ChromiumPageFrameBudget
+    /// Freezes hidden pages after the hibernation's grace (`CmuxPageFreezing`); set by the
+    /// hibernation when it starts.
+    weak var freezePolicy: (any PageFreezePolicy)?
 
     /// - Parameters:
     ///   - cef: The app's Chromium engine.
     ///   - preference: Reads `browser.defaultEngine` now (the settings snapshot, so pages made while
     ///     windows restore already follow the file).
     ///   - keyRouter: Gets the app's shortcuts from a focused Chromium page.
-    init(cef: CEFEngine, preference: @escaping @MainActor () -> BrowserDefaultEngine, keyRouter: KeyRouter?) {
+    ///   - startFrames: Spreads the pages' CEF tabs over display frames, one per frame.
+    init(cef: CEFEngine, preference: @escaping @MainActor () -> BrowserDefaultEngine, keyRouter: KeyRouter?,
+         startFrames: ChromiumPageFrameBudget = ChromiumPageFrameBudget()) {
         self.cef = cef
         enginePreference = preference
         self.keyRouter = keyRouter
+        self.startFrames = startFrames
     }
 
     var preference: BrowserDefaultEngine { enginePreference() }
@@ -48,6 +56,10 @@ final class ChromiumPageHost: PageChromiumHosting {
         // Taken before any suspension: set by the traced chat's own page in this turn (``ChatOpenTrace``).
         let traced = ChatOpenTrace.shared.takeMakingTracedPage()
         #endif
+        // Not in the turn that showed the page (a switch's commit frame), and one page per frame.
+        await startFrames.nextFrame()
+        // The page closed while it waited: no CEF tab for it.
+        try Task.checkCancellation()
         let profile = pageProfile ?? OffTheRecordProfiles.shared.begin()
         pageProfile = profile
         // Its own pane id: a page is never a tab of a browser pane's Chromium window.

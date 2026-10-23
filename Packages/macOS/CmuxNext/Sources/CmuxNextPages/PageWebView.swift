@@ -60,6 +60,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     }
     /// Making the Chromium page (cancelled when the view closes or falls back).
     var chromiumStart: Task<Void, Never>?
+    /// The Chromium host a page waits for until it first shows (PageWebView+ChromiumCost.swift).
+    var chromiumAwaitingShow: (any PageChromiumHosting)?
     /// How long a Chromium page may take to reach the host before the view falls back to WebKit.
     var chromiumDeadline: Duration = .seconds(8)
     /// The deadline's clock (tests pass one that returns at once or never).
@@ -337,15 +339,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
         self.route = route.map { $0.hasPrefix("#") ? $0 : "#" + $0 }
         installDocumentStartTheme()
-        guard load else { return }
-        if engineDecision.engine == .cef, let hosting = chromium {
-            startChromium(hosting: hosting)
-        } else {
-            #if DEBUG
-            traceMark(.navigationStart)
-            #endif
-            webView.load(URLRequest(url: descriptor.url(route: route)))
-        }
+        guard load, !waitsForFirstShow(chromium) else { return }
+        #if DEBUG
+        traceMark(.navigationStart)
+        #endif
+        webView.load(URLRequest(url: descriptor.url(route: route)))
     }
 
     /// The current document painted its first frame (``PagePaintProbe``, either engine).
@@ -404,12 +402,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
     }
 
-    /// Page zoom follows `uiScale`; the chrome multiplier is only the `--cmux-interface-scale` token.
+    /// Page zoom follows `uiScale`; the chrome multiplier is only the `--cmux-interface-scale` token,
+    /// set in a loaded document (``documentFinished()`` sets it in each new one).
     func applyUIScale() {
         webView.pageZoom = pageZoom
         chromiumSession?.page.setZoom(pageZoom)
+        guard loaded else { return }
         evaluateInPage(DesignSettings.shared.interfaceScaleScript)
-        if loaded { glassFeed.refresh() } // the zoom moves the art's rect in CSS px
+        glassFeed.refresh() // the zoom moves the art's rect in CSS px
     }
 
     /// Marks a claimed pooled host as used by real input.
@@ -447,7 +447,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         self.route = fragment
         guard loaded else {
             // Chromium mode before its page exists: the page loads `route` when it starts.
-            if engineDecision.engine == .cef, chromiumSession == nil { return }
+            if awaitsChromiumStart { return }
             loadDocument(descriptor.url(route: fragment))
             return
         }
@@ -539,7 +539,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         super.viewDidMoveToWindow()
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
-        chromiumSession?.page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
+        chromiumShownChanged()
         applyTheme()
         windowDidChangeChrome()
         if shouldFocusOnAttach, window != nil {
@@ -552,12 +552,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func viewDidHide() {
         super.viewDidHide()
         popupHost?.dismiss()
-        chromiumSession?.page.setVisible(false)
+        chromiumShownChanged()
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        chromiumSession?.page.setVisible(window != nil)
+        chromiumShownChanged()
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -568,6 +568,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         themeFollower.rebind()
+        // A move inside one window (from a hidden or parked container to a shown one, or back)
+        // sends no window or hide hook.
+        chromiumShownChanged()
     }
 
     func applyTheme(force: Bool = false) {

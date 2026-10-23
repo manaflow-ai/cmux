@@ -24,7 +24,7 @@ extension PageWebView {
     /// The picture is a cover shown while the page draws again, so JPEG is plenty. The reply (a
     /// multi-megabyte base64 string) is parsed and decoded off the main actor.
     public func snapshot() async -> NSImage? {
-        guard let page = chromiumSession?.page else { return try? await webView.takeSnapshot(configuration: nil) }
+        guard let page = awakeChromiumPage else { return try? await documentWebView?.takeSnapshot(configuration: nil) }
         guard let json = try? await page.devTools("Page.captureScreenshot", params: Self.snapshotParams),
               let data = await Self.screenshotData(json), let image = NSImage(data: data) else { return nil }
         image.size = bounds.size
@@ -53,8 +53,8 @@ extension PageWebView {
         Task { @MainActor [weak self] in
             guard let self else { return body() }
             _ = await self.callPageFunction(wait)
-            guard self.chromiumSession == nil else { return body() }
-            Self.afterPresentationUpdate(of: self.webView, body)
+            guard let webView = self.documentWebView else { return body() }
+            Self.afterPresentationUpdate(of: webView, body)
         }
     }
 

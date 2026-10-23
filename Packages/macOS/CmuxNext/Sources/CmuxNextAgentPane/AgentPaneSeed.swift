@@ -93,6 +93,16 @@ public final class AgentPaneSeedSource {
             && value.harness == nil && value.folderNeeded == nil && value.pastChat == nil && !value.showsHarnesses
     }
 
+    /// The page must run before anyone sees it: the seed holds a prompt that goes out by itself
+    /// (``AgentPaneSeed/PromptBy/sendsBySelf``) or an outside chat to adopt, which only the page
+    /// sends, and which then make it call `chat.persistSession`. A draft, a harness, a folder, a
+    /// prompt that waits in the composer, or a seed still to be read (another tab's selection, a
+    /// draft) wait for the page's first show: the page only shows them.
+    public var sendsBeforeShown: Bool {
+        guard read == nil, let value else { return false }
+        return (value.prompt != nil && value.promptBy.sendsBySelf) || value.adopt != nil
+    }
+
     /// The seed names a chat of this Mac: an outside chat it resumes (`adopt`) or a past chat of
     /// this Mac's chat list (`pastChat`). Such a seed never opens in a tab of another machine
     /// (cx-k21v). A seed still to be read (another tab's selection) names neither.
