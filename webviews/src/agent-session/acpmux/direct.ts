@@ -73,6 +73,7 @@ import { reduceAgentPair } from "./conversation/agentPairs";
 import { pasteRanges } from "./conversation/promptCollapse";
 import { AskTracker, pendingReader, SIDE_SESSION_METHOD } from "./needsYou/asks";
 import { chatTools, toolApplied, type ToolApplied } from "./summary/chatTools";
+import { taskGoal } from "./goal";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -3571,6 +3572,7 @@ export class AcpmuxDirectClient {
             worktree: text(summary.worktree),
             title: summary.title,
             name: summary.name,
+            goal: taskGoal(summary.goal),
             harness: summary.harness,
             family: typeof summary.family === "string" ? summary.family : undefined,
             // acpmux reports `model: null` for a harness with no model (one known only from its config).
