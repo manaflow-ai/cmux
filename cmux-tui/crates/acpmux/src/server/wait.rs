@@ -1,7 +1,11 @@
 //! `_acpmux/wait`: block until sessions reach a state, server side. The
-//! state sequence is read before the first check, every hub event
-//! re-evaluates, and peer sessions are re-read once a second, so a change
-//! between "list" and "subscribe" cannot be missed.
+//! state sequence is read before the first check, and every state record of
+//! a waited-for session re-evaluates, so a change between "list" and
+//! "subscribe" cannot be missed. Only the waited-for sessions are read, and
+//! an agent's own traffic (each streamed token) wakes nothing: it changes no
+//! state a wait reads, and it re-read every session's summary per token.
+//! Peer sessions are also re-read once a second, while one is waited for:
+//! a peer does not send every change.
 
 use super::*;
 use crate::no_panic::JsonExt;
@@ -113,15 +117,26 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
     }
     let mut events = hub.subscribe();
     let deadline = timeout.map(|t| tokio::time::Instant::now() + t);
+    let local: std::collections::HashSet<String> =
+        ids.iter().filter(|id| hub.resolve(id).is_ok_and(|s| &s.id == *id)).cloned().collect();
+    let remote = ids.iter().any(|id| !local.contains(id));
     let evaluate = |hub: &Hub| -> (Vec<Value>, Vec<Value>) {
-        let summaries = hub.all_session_summaries();
+        let remote_summaries = if remote { hub.remote_sessions() } else { Vec::new() };
         let mut rows = Vec::new();
         let mut resolved = Vec::new();
         for id in &ids {
-            let s = summaries
-                .iter()
-                .find(|s| s.get("sessionId").and_then(Value::as_str) == Some(id))
-                .cloned()
+            let local_summary = local
+                .contains(id)
+                .then(|| hub.resolve(id).ok().filter(|s| &s.id == id))
+                .flatten()
+                .map(|s| hub.session_summary(&s));
+            let s = local_summary
+                .or_else(|| {
+                    remote_summaries
+                        .iter()
+                        .find(|s| s.get("sessionId").and_then(Value::as_str) == Some(id))
+                        .cloned()
+                })
                 .unwrap_or_else(|| json!({"sessionId": id, "status": "closed", "missing": true}));
             let seq_ok = after
                 .get(id)
@@ -153,16 +168,29 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
         if finished {
             return Ok(json!({"sessions": rows, "resolved": resolved, "timedOut": false}));
         }
-        let poll = tokio::time::sleep(std::time::Duration::from_millis(1000));
-        tokio::pin!(poll);
+        // Peer sessions only: a bounded re-read while this wait runs.
+        let peer_reread = async {
+            if remote {
+                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+            } else {
+                std::future::pending::<()>().await;
+            }
+        };
+        tokio::pin!(peer_reread);
         let wake = async {
-            tokio::select! {
-                _ = &mut poll => {}
-                r = events.recv() => {
-                    if let Err(tokio::sync::broadcast::error::RecvError::Closed) = r {
-                        // Daemon shutting down.
-                        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                    }
+            loop {
+                tokio::select! {
+                    _ = &mut peer_reread => return,
+                    r = events.recv() => match r {
+                        Ok(ev) if !changes_a_wait(&ev, &ids, remote) => continue,
+                        // A lag may have dropped a state record: read again.
+                        Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => return,
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            // Daemon shutting down.
+                            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                            return;
+                        }
+                    },
                 }
             }
         };
@@ -180,4 +208,14 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
             None => wake.await,
         }
     }
+}
+
+/// Whether hub event `ev` may change what a wait for `ids` reads: a record of one of them that
+/// is not the agent's own wire traffic (`in`/`out`: tokens, tool output), or any peer event
+/// while a peer session is waited for.
+fn changes_a_wait(ev: &crate::hub::HubEvent, ids: &[String], remote: bool) -> bool {
+    if ev.remote.is_some() {
+        return remote;
+    }
+    ids.iter().any(|id| *id == ev.session_id) && !matches!(ev.record.dir.as_str(), "in" | "out")
 }
