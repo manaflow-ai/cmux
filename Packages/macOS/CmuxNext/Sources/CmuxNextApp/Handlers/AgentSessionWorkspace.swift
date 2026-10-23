@@ -62,6 +62,13 @@ enum AgentSessionWorkspace {
             throw ActionFailure(message: MiscHandlerStrings.daemonOffline)
         }
         let machine = services.machines.machineName(daemon.machineID) ?? daemon.machineID
+        // A daemon without the verb is refused before anything is made there. One that serves it also
+        // batch-closes, so a failed adopt's close takes the whole workspace, a terminal whose start
+        // answer was lost included (without batch close only the listed terminals end).
+        if let refusal = adoptRefusal(supportsAdopt: daemon.supports(DaemonCapabilities.agentSessionAdopt),
+                                      supportsBatchClose: daemon.supports(DaemonCapabilities.batchClose), machine: machine) {
+            throw ActionFailure(message: refusal)
+        }
         let repair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         // A caller's key that names a listed workspace already shows the session: nothing opens twice.
         if services.machines.workspace(id: key.rawValue) != nil { return Task { nil } }
@@ -104,10 +111,16 @@ enum AgentSessionWorkspace {
                     throw error
                 }
                 let (tab, adopted) = (opened.tab, opened.adopted)
+                let tabKey = tab.tabResourceID?.rawValue ?? "surface:\(tab.surface.rawValue)"
                 AgentBypassSessions.shared.set(session, bypass: !adopted.asking)
-                if let pane = await daemon.store.firstPane(mirroring: key) {
-                    for window in services.windows.controllers { window.state.selection.select(tab.tabResourceID?.rawValue ?? "surface:\(tab.surface.rawValue)", in: pane.id) }
+                // The page's view of the bind, ahead of the store's echo (the adopt answered on its own
+                // connection): a page that handshakes first shows this chat and never starts a new one.
+                services.agentTabs.noteRemoteBound(tabKey, session: session)
+                guard let pane = await daemon.store.firstPane(mirroring: key) else {
+                    daemon.logger.error("agent.openSessionWorkspace: the pane of adopted workspace \(key.rawValue, privacy: .public) did not appear")
+                    return ActionWorkFailure("agent.openSessionWorkspace: the new workspace's pane did not appear")
                 }
+                for window in services.windows.controllers { window.state.selection.select(tabKey, in: pane.id) }
                 return nil
             } catch let error as AgentSessionAttachError {
                 return ActionWorkFailure("agent.openSessionWorkspace: \(AgentSessionAdoptRefusal.message(code: error.code, machine: machine) ?? AgentRemoteStartRefusal(code: error.code, machine: machine, detail: error.message).userMessage)")
@@ -115,6 +128,12 @@ enum AgentSessionWorkspace {
                 return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
             }
         }
+    }
+
+    /// Why another machine's chat cannot open on its daemon, before anything is made there; nil when
+    /// it can: the daemon serves `agent-session-adopt` and batch-closes (a failed adopt's cleanup).
+    nonisolated static func adoptRefusal(supportsAdopt: Bool, supportsBatchClose: Bool, machine: String) -> String? {
+        supportsAdopt && supportsBatchClose ? nil : AgentRemoteStartRefusal.startUnsupported(machine: machine).userMessage
     }
 
     /// Closes workspace `key` that a failed adopt made on `daemon`, with `terminals` and any tab, kept

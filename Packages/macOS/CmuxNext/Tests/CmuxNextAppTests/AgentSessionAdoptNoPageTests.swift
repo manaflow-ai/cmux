@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
-import CmuxNextDaemon
+@testable import CmuxNextDaemon
 import CmuxNextDaemonService
 import Foundation
 import Testing
@@ -238,5 +238,44 @@ struct AgentSessionAdoptNoPageTests {
         await CloudMoveTests.end(daemon)
         for controller in services.windows.controllers { controller.window?.close() }
         try result.get()
+    }
+}
+
+/// The adopt's checks that need no other machine running.
+@MainActor @Suite(.serialized)
+struct AgentSessionAdoptChecksTests {
+    /// A machine whose cmux-tui does not serve the adopt, or cannot batch-close (a failed adopt's
+    /// cleanup must take a terminal whose start answer was lost), is refused before anything is made.
+    @Test func aMachineThatCannotAdoptOrBatchCloseIsRefusedFirst() {
+        #expect(AgentSessionWorkspace.adoptRefusal(supportsAdopt: true, supportsBatchClose: true, machine: "huge-blue") == nil)
+        let refusal = AgentRemoteStartRefusal.startUnsupported(machine: "huge-blue").userMessage
+        #expect(AgentSessionWorkspace.adoptRefusal(supportsAdopt: false, supportsBatchClose: true, machine: "huge-blue") == refusal)
+        #expect(AgentSessionWorkspace.adoptRefusal(supportsAdopt: true, supportsBatchClose: false, machine: "huge-blue") == refusal)
+    }
+
+    /// The adopted chat is the tab's before the store echoes the bind (the adopt answers on a
+    /// connection of its own): the page shows it, and its first send starts no new chat on the
+    /// bound tab (which the daemon would refuse as `agent_session.bound`).
+    @Test func anAdoptedChatIsTheTabsBeforeTheStoreEchoesTheBind() async throws {
+        var chat = TabSnapshot(surface: 2, kind: .conversation, title: "lane", url: "about:blank")
+        let unbound = AgentSessionRef(host: "registry:huge-blue", hostName: "huge-blue")
+        chat.conversation = ConversationTabRef(agentSession: unbound)
+        let store = DaemonStore()
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "lane", screens: [
+            ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [chat])]),
+        ])]))
+        let key = try #require(store.tab(surface: 2)?.id)
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry(), environment: [:], showcase: true)
+        tabs.lookup = { $0 == key ? (unbound, store) : nil }
+        let endpoint: AgentSessionAttachClient.EndpointProvider = { throw DaemonError.notConnected }
+
+        // Without the bind seen, a send would start a chat (here it stops at the missing folder).
+        await #expect(throws: AgentRemoteStartRefusal.folderNeeded(machine: "huge-blue")) {
+            _ = try await tabs.startRemoteChat(key, machine: "huge-blue", endpoint: endpoint)
+        }
+        tabs.noteRemoteBound(key, session: "lane-1")
+        #expect(tabs.session(of: key) == "lane-1")
+        let started = try await tabs.startRemoteChat(key, machine: "huge-blue", endpoint: endpoint)
+        #expect(started == AgentTabRemoteStart.Started(surface: 2, session: "lane-1"))
     }
 }

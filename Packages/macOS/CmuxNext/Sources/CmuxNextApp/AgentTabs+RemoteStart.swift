@@ -23,6 +23,12 @@ extension AgentTabStore {
         return (tab.surface.rawValue, sessions[key] ?? record.session)
     }
 
+    /// Tab `key`'s chat that its machine's daemon bound (`agent-session-adopt`), ahead of the store's
+    /// echo of the bind: the page shows it, and a send never starts a new chat on the bound tab.
+    func noteRemoteBound(_ key: String, session: String) {
+        sessions[resolveRemote(key)] = session
+    }
+
     /// Starts tab `key`'s chat on its machine (`agent-session-start`) once, from the page's first
     /// send, in the page's folder and agent (nil: the seed's, then a workspace folder there).
     func startRemoteChat(_ key: String, machine: String, cwd: String? = nil, harness: String? = nil,
@@ -68,8 +74,8 @@ extension AgentTabStore {
             if lookup(resolveRemote(key)) != nil { sessions[resolveRemote(key)] = session }
             return .init(surface: surface, session: session)
         case .failure(let error as AgentSessionAttachError):
-            // A start whose answer was lost already bound the tab: show that chat.
-            if error.code == "agent_session.bound", let session = lookup(resolveRemote(key))?.record.session {
+            // A start whose answer was lost, or an adopt, already bound the tab: show that chat.
+            if error.code == "agent_session.bound", let session = sessions[resolveRemote(key)] ?? lookup(resolveRemote(key))?.record.session {
                 return .init(surface: surface, session: session)
             }
             throw AgentRemoteStartRefusal(code: error.code, machine: machine, folder: cwd, detail: error.message,
