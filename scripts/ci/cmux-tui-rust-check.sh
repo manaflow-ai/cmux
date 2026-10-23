@@ -362,30 +362,22 @@ PY
 # default): a fleet Mac ran out of PTYs in one full run (cx-leo45). A sampler,
 # not a synchronization: the run never waits on it. macOS removes a ttys node
 # when its PTY is freed (xnu ptmx_free), so the count is PTYs in use.
-# The sampler starts no process after its own: the shell-integration fork
-# counts (cmux-tui-core shell_integration::fork_count_tests) read the system
-# PID counter during the run, and a fork here would count as a shell fork.
-# So pty_count sets pty_n (no command substitution), and the 2 s wait is a
-# timed read on a FIFO nobody writes (no sleep process).
 pty_note=""
 pty_watch_pid=""
-pty_n=0
 pty_peak_file="$root/.build/cmux-tui-rust-check-pty-peak"
-pty_tick="$pty_peak_file.tick"
-pty_count() { local f; pty_n=0; for f in /dev/ttys[0-9]*; do [[ ! -e "$f" ]] || pty_n=$((pty_n + 1)); done; return 0; }
+pty_count() { local n=0 f; for f in /dev/ttys[0-9]*; do [[ -e "$f" ]] && n=$((n + 1)); done; echo "$n"; }
 pty_watch_start() {
   [[ "$(uname -s)" == Darwin ]] || return 0
-  pty_count
-  echo "$pty_n" >"$pty_peak_file"
-  rm -f "$pty_tick"
-  mkfifo "$pty_tick" || return 0
-  ( peak="$pty_n"
-    # read-write, so the open does not wait for a writer and the read never sees EOF
-    exec 3<>"$pty_tick"
+  pty_count >"$pty_peak_file"
+  # its sleep ends with it: a left sleep would read as a leaked process
+  ( peak="$(cat "$pty_peak_file")" s=""
+    trap '[[ -z "$s" ]] || kill "$s" 2>/dev/null; exit 0' TERM
     while :; do
-      pty_count
-      if (( pty_n > peak )); then peak="$pty_n"; echo "$peak" >"$pty_peak_file"; fi
-      read -r -t 2 -u 3 _ || true
+      n="$(pty_count)"
+      if [[ "$n" -gt "$peak" ]]; then peak="$n"; echo "$peak" >"$pty_peak_file"; fi
+      sleep 2 & s=$!
+      wait "$s" || true
+      s=""
     done ) >/dev/null 2>&1 </dev/null &
   pty_watch_pid=$!
   # a killed step must not leave the sampler running
@@ -396,7 +388,6 @@ pty_watch_stop() { # START
   kill "$pty_watch_pid" 2>/dev/null || true
   wait "$pty_watch_pid" 2>/dev/null || true
   pty_watch_pid=""
-  rm -f "$pty_tick"
   pty_note="pty: peak $(cat "$pty_peak_file" 2>/dev/null || echo '?') allocated during the full run (at start $1; kern.tty.ptmx_max $(sysctl -n kern.tty.ptmx_max 2>/dev/null || echo '?'))"
   echo "$pty_note"
 }
@@ -581,7 +572,7 @@ workspace_tests() {
   mkdir -p "$(dirname "$test_log")"
   rm -f "$junit"
   local pty_start=""
-  if [[ "$(uname -s)" == Darwin ]]; then pty_count; pty_start="$pty_n"; fi
+  [[ "$(uname -s)" != Darwin ]] || pty_start="$(pty_count)"
   pty_watch_start
   env "$run_marker" cargo "${args[@]}" 2>&1 | tee "$test_log"
   rc="${PIPESTATUS[0]}"

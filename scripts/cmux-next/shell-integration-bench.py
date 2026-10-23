@@ -8,7 +8,7 @@ usage:
            requested zsh and bash; --require= to allow skipping)
            --layouts app,daemon,daemon-bare  --reps 9  --cycles 20  --idle-s 1.2  --max-overhead-ms 15
            --json out.json
-  fleet (alone on an idle Mac, with the fork guard and bash 5.2):
+  fleet (with the fork guard and bash 5.2; exclusive for the first-prompt times):
     cmux-ci run --class exclusive --measurement --label measure \
       --script scripts/measure/shell-integration.sh --ref SHA
 
@@ -33,21 +33,25 @@ the branches where Ghostty's and cmux's hooks read PROMPT_COMMAND's type, and wh
 prompt hook must still run. After the counted cycles each integrated bash run moves PATH's front
 (`PATH=/bin:$PATH`) and checks the next command sees the agent shim directory first again.
 
-What it counts. Each run takes four PID probes (a forked child that exits at once): before the
-spawn, at the first prompt, after `--cycles` prompt cycles, and after `--idle-s` seconds idle at
-the prompt. A cycle types one command one key at a time (each key waits for its echo), presses
+What it counts. Each run reads the shell's fork count four times: before the shell runs (it
+starts behind a gate, a pipe its child reads before execve), at the first prompt, after `--cycles`
+prompt cycles, and after `--idle-s` seconds idle at the prompt. On macOS the kernel counts the
+forks of the shell alone (a kqueue NOTE_FORK knote on its pid, in place before the gate opens), so
+no other process on the host changes the count, and a fork of a subshell counts with the subshell
+(a count of 0 is exact; above 0 it is the shell's own forks). Elsewhere a reading is a PID probe
+(a forked child that exits at once): PIDs are handed out in sequence, so the gap counts every
+process forked in the window, the shell's and the host's, and the minimum over `--reps` runs drops
+the host's. A cycle types one command one key at a time (each key waits for its echo), presses
 Return and waits for the next prompt, so keystrokes, preexec, precmd and the prompt all fall in
 the window. Every other cycle changes directory, between a plain directory and a git repository
 (`cd ~/g`, `true`, `cd ~/p`, `true`, ...), so work triggered by a cwd change or a repository is
 counted too. The idle window is a fixed measurement window at the prompt (no input), so a timer or
-watcher that wakes on its own (a once-a-second poll) forks in it; it hides no work. PIDs are
-handed out in sequence (macOS and Linux), so the PID gap is the number of processes forked in the
-window: by the shell, plus any other process on the host. The minimum over `--reps` runs drops
-that noise. Integration cost = min(integrated) minus min(control):
-  startup forks   forks from the spawn to the first prompt
+watcher that wakes on its own (a once-a-second poll) forks in it; it hides no work. Integration
+cost = min(integrated) minus min(control):
+  startup forks   forks from the gate to the first prompt
   forks/cycle     (cycle-window forks) / cycles
   idle forks      forks in the idle window
-  first prompt    median time from the spawn to the first prompt, and its overhead over control
+  first prompt    median time from the gate to the first prompt, and its overhead over control
 
 Pass (exit 0): for every shell that ran, startup forks <= 0, cycle-window forks <= budget x cycles
 (no tolerance: the minimum over reps already drops host noise, so any extra fork is the shell's),
@@ -55,13 +59,15 @@ idle forks <= 0, the first-prompt overhead <= --max-overhead-ms, each integrated
 prompt marks (OSC 133;C per command; the OSC 2 title `true` for zsh and bash) with no shell error,
 and every integrated bash run put the agent shim directory back in front. Budgets are 0 except
 bash 4.4-5.2, where Ghostty runs its preexec hook from PS0 in a command substitution (the
-only pre-command hook bash has before 5.3, 2 forks per command). Exit 1 on a failure, 2 when no
+only pre-command hook bash has before 5.3): 1 fork of the shell per command, whose subshell forks
+once more for the history read (BASH_PS0_FORKS: 1 counted by the kernel, 2 in the PID gap). Exit 1 on a failure, 2 when no
 shell could run or a `--require`d shell is missing (zsh and bash are required by default, so a host
 with only Apple's /bin/bash 3.2, which Ghostty does not integrate, fails instead of skipping bash).
-Noise: host spawns only make a count larger. An inflated integrated count shows a fork that is not
-there (rerun). An inflated control minimum would understate the integration's forks, so a result
-also fails when the control minimum is reached in fewer than max(2, reps/3) reps: a baseline that
-only one rep hit is not the shell's own count. Rerun on an idle host when that happens.
+Noise (PID gap only): host spawns only make a count larger. An inflated integrated count shows a
+fork that is not there (rerun). An inflated control minimum would understate the integration's
+forks, so a result also fails when the control minimum is reached in fewer than max(2, reps/3)
+reps: a baseline that only one rep hit is not the shell's own count. Rerun on an idle host when
+that happens. The kernel's count (macOS) does not vary with the host.
 """
 
 from __future__ import annotations
@@ -102,6 +108,15 @@ DA1_REPLY = b"\x1b[?62;22c"
 GHOSTTY_FEATURES = "cursor:blink,path,title"
 DEFAULT_XDG = "/usr/local/share:/usr/share"
 SYSTEM_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
+# macOS: the kernel counts the shell's own forks (kqueue NOTE_FORK); elsewhere the PID gap.
+KERNEL_COUNT = sys.platform == "darwin"
+# Forks a reading adds to the next window (a PID probe is a process), and forks the shell itself
+# adds to the startup window (its own spawn shows in the PID gap).
+READ_COST = 0 if KERNEL_COUNT else 1
+SPAWN_COST = 0 if KERNEL_COUNT else 1
+# Ghostty's PS0 hook on bash 4.4-5.2, per command: its command substitution, and the history read
+# that subshell forks (the kernel's count sees only the shell's own fork).
+BASH_PS0_FORKS = 1 if KERNEL_COUNT else 2
 
 
 class BenchError(Exception):
@@ -151,20 +166,57 @@ def probe_pid() -> int:
 
 
 class Session:
-    """One shell on a pty, driven by what it prints (no timed waits)."""
+    """One shell on a pty, driven by what it prints (no timed waits), and its fork count."""
 
     def __init__(self, path: str, argv: list[str], env: dict[str, str], timeout: float):
         self.timeout = timeout
         self.buf = b""
         self.da1_answered = 0
+        self.forks = 0
+        self.execs = 0
+        self.kq = None
+        # The PID counter before the shell (PID gap); the kernel's count starts at 0.
+        self.start = 0 if KERNEL_COUNT else probe_pid()
+        # The gate: the child waits for a byte before execve, so the count is in place first.
+        gate_r, gate_w = os.pipe()
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
             try:
+                os.close(gate_w)
+                os.read(gate_r, 1)
                 fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 120, 0, 0))
                 os.chdir(env["HOME"])
                 os.execve(path, argv, env)
             finally:
                 os._exit(127)
+        os.close(gate_r)
+        if KERNEL_COUNT:
+            self.kq = select.kqueue()
+            self.kq.control([select.kevent(self.pid, select.KQ_FILTER_PROC,
+                                           select.KQ_EV_ADD | select.KQ_EV_CLEAR,
+                                           select.KQ_NOTE_FORK | select.KQ_NOTE_EXEC)], 0)
+        self.started = time.perf_counter()
+        os.write(gate_w, b"g")
+        os.close(gate_w)
+
+    def drain(self) -> None:
+        """Counts the shell's fork and exec events so far (kernel count only)."""
+        if self.kq is None:
+            return
+        while events := self.kq.control(None, 64, 0):
+            for event in events:
+                self.forks += bool(event.fflags & select.KQ_NOTE_FORK)
+                self.execs += bool(event.fflags & select.KQ_NOTE_EXEC)
+
+    def fork_count(self) -> int:
+        """The shell's fork count now, every fork before this call included (its knote fires
+        inside the fork, before the shell prints what the caller waited for)."""
+        if not KERNEL_COUNT:
+            return probe_pid()
+        self.drain()
+        if self.execs < 1:
+            raise BenchError("the shell started before its fork count")
+        return self.forks
 
     def wait_for(self, done, what: str) -> None:
         deadline = time.monotonic() + self.timeout
@@ -172,8 +224,11 @@ class Session:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise BenchError(f"timed out waiting for {what}; last output: {self.tail()}")
-            ready, _, _ = select.select([self.fd], [], [], remaining)
-            if not ready:
+            # The kqueue too: each fork is read as it fires, not merged with the next.
+            watched = [self.fd] if self.kq is None else [self.fd, self.kq.fileno()]
+            ready, _, _ = select.select(watched, [], [], remaining)
+            self.drain()
+            if self.fd not in ready:
                 continue
             try:
                 data = os.read(self.fd, 65536)
@@ -231,6 +286,8 @@ class Session:
         except ChildProcessError:
             pass
         os.close(self.fd)
+        if self.kq is not None:
+            self.kq.close()
 
 
 SHIM_PROBE = b"@@F@@"
@@ -238,22 +295,20 @@ SHIM_PROBE = b"@@F@@"
 
 def run_once(shell: Shell, argv: list[str], env: dict[str, str], cycles: int, idle_s: float,
              timeout: float, check_shims: bool = False) -> Run:
-    before = probe_pid()
-    start = time.perf_counter()
     session = Session(shell.path, argv, env, timeout)
     try:
         session.wait_for(lambda b: PROMPT in b, "the first prompt")
-        first_prompt_ms = (time.perf_counter() - start) * 1000
+        first_prompt_ms = (time.perf_counter() - session.started) * 1000
         session.barrier()
-        at_prompt = probe_pid()
+        at_prompt = session.fork_count()
         for index in range(cycles):
             session.cycle(COMMANDS[index % len(COMMANDS)])
         session.barrier()
-        after = probe_pid()
+        after = session.fork_count()
         # A fixed measurement window at the prompt, not a wait for the shell: whatever the
         # integration starts on its own (a timer, a watcher) forks in it.
         time.sleep(idle_s)
-        idle_after = probe_pid()
+        idle_after = session.fork_count()
         if check_shims:
             # Outside the counted window. The agent shim hook runs at each prompt
             # (bash), so the command after the one that moves PATH's front sees
@@ -264,11 +319,13 @@ def run_once(shell: Shell, argv: list[str], env: dict[str, str], cycles: int, id
                 session.wait_for(lambda b, seen=seen: b.count(PROMPT) > seen, "the prompt after a shim check")
     finally:
         session.close()
-    if not before < at_prompt < after < idle_after:
+    # Each window excludes the reading that closes it; the startup one, in the PID gap, also
+    # holds the shell itself.
+    windows = (at_prompt - session.start - SPAWN_COST - READ_COST, after - at_prompt - READ_COST,
+               idle_after - after - READ_COST)
+    if min(windows) < 0:
         raise PidWrapped()
-    # before -> shell -> its forks -> at_prompt -> its forks -> after -> its forks -> idle_after
-    return Run(at_prompt - before - 2, after - at_prompt - 1, idle_after - after - 1, first_prompt_ms,
-               session.buf)
+    return Run(*windows, first_prompt_ms, session.buf)
 
 
 # The startup PROMPT_COMMAND of each bash HOME: none, a string, an array.
@@ -441,7 +498,7 @@ def find_shells(names: list[str], bash_path: str | None) -> tuple[list[Shell], d
                 skipped[name] = f"bash {version}: older than 4.4"
                 continue
             if (major, minor) < (5, 3):
-                budget = 2
+                budget = BASH_PS0_FORKS
         login = "-" + os.path.basename(path)
         shells.append(Shell(name, path, version, [login], budget))
     return shells, skipped
@@ -652,7 +709,8 @@ def main() -> int:
                                         "layout": layout.name, "home": home_name, "pass": False,
                                         "problems": [str(error)]})
 
-        print(f"\nhost: {os.uname().nodename} {sys.platform} {os.uname().release}; "
+        method = "kernel count of the shell's own forks" if KERNEL_COUNT else "PID gap"
+        print(f"\nhost: {os.uname().nodename} {sys.platform} {os.uname().release}; forks: {method}; "
               f"reps {args.reps} (min forks, median time), cycles {args.cycles}, idle {args.idle_s:g} s")
         print(f"{'shell':<16} {'layout':<11} {'home':<9} {'startup forks':>13} {'forks/cycle':>11} "
               f"{'idle forks':>10} {'first prompt ms (ctrl/int/+)':>30}  result")
