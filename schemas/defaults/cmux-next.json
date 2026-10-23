@@ -748,6 +748,7 @@
     "setting.ui.animations.web": true,
     "setting.ui.calm": "off",
     "setting.ui.paneAnimations": true,
+    "setting.ui.reducedBackgrounds": false,
     "setting.updates.channel": "nightly",
     "setting.updates.checkAutomatically": true,
     "setting.updates.checkIntervalSeconds": 3600,
