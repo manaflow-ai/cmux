@@ -1755,8 +1755,7 @@ path = "tests/test_pr_lane_coverage.py"
 lane = "linux-guard"
 
 # Tests with no entry until the feat-cmux-next pull request lanes check (tests/pr-lane-exemptions.json):
-# cmux-next guards / tooling-tests, cmux-skill-contract.yml, cmux-tui-sdks.yml (code-mode) and
-# cmux-next-shell-integration.yml run them.
+# cmux-next guards / tooling-tests, cmux-skill-contract.yml and cmux-tui-sdks.yml (code-mode) run them.
 
 [[test]]
 path = "tests/test_app_crate_licenses.py"

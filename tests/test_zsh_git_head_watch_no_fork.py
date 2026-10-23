@@ -50,7 +50,7 @@ def main() -> int:
         print("SKIP: zsh integration resource not found")
         return 0
     if shutil.which("zsh") is None:
-        # CI installs zsh for this test (cmux-next-shell-integration.yml): a skip there would pass unrun.
+        # CI installs zsh for this test: a skip there would pass unrun.
         if os.environ.get("GITHUB_ACTIONS") == "true":
             print("FAIL: zsh is not installed on this CI runner")
             return 1
