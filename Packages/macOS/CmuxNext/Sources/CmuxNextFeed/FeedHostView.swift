@@ -31,12 +31,14 @@ public final class FeedHostView: NSView {
     ///   - model: The feed.
     ///   - layoutOverride: Pins a prototype (demos and screenshots); nil follows the Debug Settings switch `feed.layout`.
     ///   - surface: Where the feed is shown; a page tab by default.
-    public init(model: FeedModel, layoutOverride: FeedLayout? = nil, surface: Surface = .page) {
+    public init(model: FeedModel, layoutOverride: FeedLayout? = nil, surface: Surface = .page,
+                onReportsReply: (@MainActor (String, String) -> Void)? = nil) {
         self.model = model
         self.surface = surface
         super.init(frame: .zero)
         wantsLayer = true
-        let root = FeedRoot(model: model, appearance: appearanceState, layoutOverride: layoutOverride)
+        let root = FeedRoot(model: model, appearance: appearanceState, layoutOverride: layoutOverride,
+                            onReportsReply: onReportsReply)
         embed(NSHostingView(rootView: root))
     }
 

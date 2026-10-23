@@ -182,6 +182,21 @@ impl Mailbox {
     }
 
     pub fn send(&self, input: SendInput) -> std::result::Result<SendResult, MailboxError> {
+        self.send_inner(input, true)
+    }
+
+    /// Append a message but do not notify session waiters. Reports baskets use
+    /// this path: the durable row is visible to a human cursor, never injected
+    /// into a model turn by the mailbox itself.
+    pub fn deliver_quiet(&self, input: SendInput) -> std::result::Result<SendResult, MailboxError> {
+        self.send_inner(input, false)
+    }
+
+    fn send_inner(
+        &self,
+        input: SendInput,
+        notify: bool,
+    ) -> std::result::Result<SendResult, MailboxError> {
         validate(&input)?;
         let mut inner = self
             .inner
@@ -235,7 +250,9 @@ impl Mailbox {
         persist_state(inner.path.as_ref(), &candidate)?;
         inner.state = candidate;
         drop(inner);
-        self.notify.notify_waiters();
+        if notify {
+            self.notify.notify_waiters();
+        }
         Ok(SendResult { message, receipt, outcome: SendOutcome::Created })
     }
 
@@ -612,6 +629,19 @@ mod tests {
         b.send(input("m1", "b", "one")).unwrap();
         let page = task.await.unwrap();
         assert_eq!(page.rows[0].message.id, "m1");
+    }
+
+    #[tokio::test]
+    async fn quiet_delivery_is_persisted_without_waking_waiters() {
+        let b = Mailbox::memory();
+        let waiter = b.clone();
+        let task =
+            tokio::spawn(async move { waiter.wait("reports:leo", 0, 10, 20).await.unwrap() });
+        tokio::task::yield_now().await;
+        b.deliver_quiet(input("report-1", "reports:leo", "one")).unwrap();
+        let page = task.await.unwrap();
+        assert!(page.rows.is_empty(), "quiet delivery must not wake a session waiter");
+        assert_eq!(b.page("reports:leo", 0, 10).unwrap().rows[0].message.body, "one");
     }
 
     #[tokio::test]
