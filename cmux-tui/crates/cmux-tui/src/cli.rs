@@ -254,7 +254,16 @@ pub(super) fn canonical_scope(value: &str) -> &str {
 /// `cmux --json route list`.
 pub(crate) fn removed_route_requested(args: &[String]) -> bool {
     scan_globals(args, MachineFlag::Global)
-        .map(|(_, command)| command.first().is_some_and(|word| word == "route"))
+        .map(|(_, command)| {
+            command
+                .iter()
+                .position(|word| word == "route")
+                .is_some_and(|index| {
+                    command[..index]
+                        .iter()
+                        .all(|word| word != "--" && word.starts_with('-'))
+                })
+        })
         .unwrap_or(false)
 }
 
