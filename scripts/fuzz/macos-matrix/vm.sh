@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # UI fuzz of one cmux-next build on each supported macOS major, in disposable Tart VMs.
-# Run it ON a Tart host (a fleet Mac with the os-smoke images), never on a laptop.
+# Run it ON a Tart host, never on a laptop.
 #
 # Usage: vm.sh [--majors 14,15,26] [--seed N] [--steps N] [--work DIR] [--keep-vm] BUILD
 #   BUILD   a cmux-next .app, a .zip with one, or a .dmg (a shipped nightly).
-# Images, Tart, TART_HOME, the fleet host lock and the keychain rules are the ones of
-# scripts/cmux-next/os-smoke (images.json, run.sh); read run.sh's header first.
+# Images, Tart, TART_HOME, the fleet host lock and the keychain rules are defined
+# by this fuzzer's images.json and the host environment.
 # For each major: clone the pinned image, boot headless with Virtualization.framework's
 # VNC server, copy the build in, run fuzz.py (input over VNC, CLI over SSH), copy the
 # findings out, stop and delete the clone. Majors run one at a time under the host lock.
@@ -14,9 +14,9 @@
 # Replay a finding: --replay <run>/<major>/steps.jsonl (same build, same major).
 set -euo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-SMOKE="$HERE/../../cmux-next/os-smoke"
+IMAGES="$HERE/images.json"
 MAJORS=14,15,26; SEED=1; STEPS=600; KEEP_VM=0; REPLAY=""
-WORK=${OS_SMOKE_WORK:-/Volumes/ephemeral0/cmux-agent-work/mfloor}
+WORK=${FUZZ_WORK:-/Volumes/ephemeral0/cmux-agent-work/mfloor}
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --majors) MAJORS=$2; shift 2 ;;
@@ -33,8 +33,8 @@ done
 [[ -n "${BUILD:-}" && -e "$BUILD" ]] || { echo "usage: vm.sh [--majors 14,15,26] BUILD" >&2; exit 2; }
 export TART_HOME=${TART_HOME:-$WORK/tart-home}
 TART_BIN=${TART_BIN:-$(command -v tart || ls -d "$WORK"/tools/tart-*/tart.app/Contents/MacOS/tart 2>/dev/null | tail -1 || true)}
-[[ -x "$TART_BIN" ]] || { echo "no tart binary (see os-smoke/images.json)" >&2; exit 2; }
-LOCK=${OS_SMOKE_HOST_LOCK:-/Users/Shared/cmux-build-fleet/host.lock}
+[[ -x "$TART_BIN" ]] || { echo "no tart binary (see images.json)" >&2; exit 2; }
+LOCK=${FUZZ_HOST_LOCK:-/Users/Shared/cmux-build-fleet/host.lock}
 [[ "$LOCK" == none || -e "$LOCK" ]] || LOCK=none
 CURRENT_VM=""
 # A failing command under set -e skips the RETURN trap: stop and delete the clone at exit too.
@@ -51,7 +51,7 @@ image_ref() {  # FUZZ_IMAGE_<major> (e.g. ghcr.io/cirruslabs/macos-sonoma-vanill
   python3 -I -c 'import json,sys
 for i in json.load(open(sys.argv[1]))["images"]:
     if i["major"] == sys.argv[2]: print(i["ref"] + "@" + i["digest"]); break
-else: sys.exit("major %s is not in images.json" % sys.argv[2])' "$SMOKE/images.json" "$1"; }
+else: sys.exit("major %s is not in images.json" % sys.argv[2])' "$IMAGES" "$1"; }
 
 cycle() {  # cycle MAJOR OUT
   local major=$1 out=$2 vm="fuzz-$1-$$" tart_pid="" ip=""
@@ -110,7 +110,7 @@ for major in "${majors[@]}"; do
   echo "== macOS $major (seed $SEED, $STEPS steps): waiting for the host lock" >&2
   if [[ "$LOCK" == none ]]; then cycle "$major" "$out" || true
   else
-    # Exclusive fleet host lock (os-smoke/run.sh recipe), held only for clone..delete.
+    # Hold the fleet lock only for clone..delete.
     exec 9>>"$LOCK"
     perl -MFcntl=:flock -e 'open(my $f, ">&=", 9) or die; flock($f, LOCK_EX) or die "flock: $!"'
     cycle "$major" "$out" || true

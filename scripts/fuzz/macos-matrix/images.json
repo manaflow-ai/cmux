@@ -1,5 +1,5 @@
 {
-  "comment": "Tart base images for scripts/cmux-next/os-smoke/run.sh, pinned by manifest digest. Public cirruslabs images (guest login admin/admin is the image's public default). The Tart host volume can be wiped: run.sh pulls a missing image again from ref@digest. To move a pin, resolve the new digest of :latest, boot it once with run.sh, and update digest, upload_time and guest_os here.",
+  "comment": "Pinned Tart base images for scripts/fuzz/macos-matrix/vm.sh. Public cirruslabs images use the image's public admin/admin login. The Tart host volume can be wiped: vm.sh pulls a missing image again from ref@digest.",
   "tart": {
     "version": "2.40.1",
     "url": "https://github.com/openai/tart/releases/download/2.40.1/tart.tar.gz",

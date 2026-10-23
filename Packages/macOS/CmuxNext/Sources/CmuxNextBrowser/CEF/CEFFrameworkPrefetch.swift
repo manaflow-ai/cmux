@@ -20,7 +20,7 @@ import LocalAuthentication
 /// cache `CefInitialize` and the first browser window then wait on page-ins
 /// of the 367 MiB framework on the main thread: in a macOS 26 VM each held
 /// the main thread for about 0.75 s with about 0.2 s of CPU, against about
-/// 0.15 s each once the files were cached (os-smoke, 2026-10-18). After this
+/// 0.15 s each once the files were cached (Tart launch checks, 2026-10-18). After this
 /// read, those page faults are served from memory. A cached file costs one
 /// memory copy (about 40 ms for all files).
 ///
@@ -29,7 +29,7 @@ import LocalAuthentication
 /// first browser window creates an `LAContext`, a synchronous XPC that
 /// waited about 0.5 s in a macOS 26 VM). `canEvaluatePolicy` only reports
 /// whether a policy can be evaluated: it shows no prompt, asks for no
-/// privacy permission (no TCC request; os-smoke checks the TCC log) and
+/// privacy permission (no TCC request) and
 /// changes no user-visible state. Location services are not asked (chief
 /// decision 2026-10-18: no system access the user did not ask for).
 nonisolated struct CEFFrameworkPrefetch: Sendable {

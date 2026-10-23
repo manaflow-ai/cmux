@@ -4,7 +4,7 @@ import Testing
 
 /// The page-info chip keeps its text label ("Not secure") until the focusing
 /// press is released. Dropping the label at focus moved the field 77 pt left
-/// under the still-down pointer (os-smoke Tart VMs, 2026-10-20), so on macOS 15
+/// under the still-down pointer (Tart VMs, 2026-10-20), so on macOS 15
 /// a drag from the resting omnibar started 77 pt off its press.
 @MainActor
 struct OmnibarFocusClickChipTests {

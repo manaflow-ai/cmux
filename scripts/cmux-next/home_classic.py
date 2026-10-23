@@ -1,6 +1,6 @@
 """Classic Home for the MessagesLab Home GUI checks (cx-h0kds).
 
-The checks (home-scale-change.py, home-empty-send.py, home-hidden-messages.py, home-menu-tapback-smoke.py,
+The checks (home-scale-change.py, home-empty-send.py, home-hidden-messages.py,
 home-typing-still.py, and every other script that drives native Home: home-thread-reply-check.py, home-polish.py,
 home-dogfood.py, home-snapshot.py, home-compose-repro.py, home-perf.py, home-streaming-live.py, home-tab-restore.py,
 home-tab-split-preflight.py, home-api-live.py) drive the native classic Home transcript (the vendored MessagesLab view). Docked Home is the

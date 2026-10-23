@@ -10,15 +10,15 @@ silicon cannot run Intel macOS, so this matrix does not cover Intel Macs.
 
 | Major | Name         | Where it runs                                        | Image / host OS                                        |
 |-------|--------------|------------------------------------------------------|--------------------------------------------------------|
-| 14    | Sonoma       | Tart VM (fleet: os-smoke pin; cmux15: vanilla image) | `macos-sonoma-base` 14.8.7 / `macos-sonoma-vanilla:14.8.7` |
+| 14    | Sonoma       | Tart VM | `macos-sonoma-base` 14.8.7 / `macos-sonoma-vanilla:14.8.7` |
 | 15    | Sequoia      | Tart VM                                              | `macos-sequoia-base` 15.7.7 / `macos-sequoia-vanilla:15.7.7` |
 | 26    | Tahoe        | Tart VM                                              | `macos-tahoe-base` 26.6.2 / `macos-tahoe-vanilla:26.6.2` |
-| 27    | Golden Gate  | Tart VM on a macOS 27 host (no os-smoke pin yet)     | `macos-golden-gate-vanilla:27.0`                       |
+| 27    | Golden Gate  | Tart VM on a macOS 27 host (no pinned image)            | `macos-golden-gate-vanilla:27.0`                       |
 
 The vanilla images (login admin/admin) run with `FUZZ_IMAGE_<major>=ghcr.io/cirruslabs/macos-…-vanilla:<ver>`
-and `OS_SMOKE_HOST_LOCK=none` on a non-fleet Tart host. A macOS 27 guest needs a macOS 27 host.
+and `FUZZ_HOST_LOCK=none` on a non-fleet Tart host. A macOS 27 guest needs a macOS 27 host.
 
-The image pins are in `scripts/cmux-next/os-smoke/images.json`. These images are public Cirrus Labs images and
+The image pins are in `scripts/fuzz/macos-matrix/images.json`. These images are public Cirrus Labs images and
 cost nothing. At this time the only host that holds all three images is `aws-m4pro-6`
 (`/Volumes/ephemeral0/cmux-agent-work/mfloor/tart-home`). All fleet workers run macOS 26 or 27. None of them runs
 14 or 15 natively.
@@ -27,7 +27,7 @@ cost nothing. At this time the only host that holds all three images is `aws-m4p
 
 `scripts/fuzz/macos-matrix/vm.sh BUILD` runs on the Tart host. For each major, it:
 
-1. Takes the fleet host lock (the os-smoke recipe), clones the pinned image and boots it headless with
+1. Takes the fleet host lock, clones the pinned image and boots it headless with
    Virtualization.framework's VNC server (`--vnc-experimental`).
 2. Copies the build (`.app`, `.zip` or nightly `.dmg`) into the guest and starts it with the automation socket.
 3. Runs `fuzz.py`. It does a scripted feature tour first (Settings, new workspace, splits, browser tab, Home,
