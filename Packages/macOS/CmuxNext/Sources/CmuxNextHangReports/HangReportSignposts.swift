@@ -1,10 +1,9 @@
 import Foundation
 
-/// The Release signpost intervals a hang report may carry (PL-arch's always-on catalog,
-/// `CmuxNextSignposts`: subsystem `com.cmuxterm.app.next`), and the MetricKit log handle that
-/// makes MetricKit aggregate them (`MXSignpostMetric`; an `OSSignposter` interval on a normal log
-/// is not seen by MetricKit, so `SignpostMetricKitMirror` repeats the catalog's intervals on a
-/// MetricKit log only while hang reports are on).
+/// Which Release signpost intervals a hang report may carry (PL-arch's always-on catalog,
+/// `CmuxNextSignposts`, subsystem `com.cmuxterm.app.next`). MetricKit aggregates them
+/// (`MXSignpostMetric`) only because `SignpostMetricKitMirror` repeats the catalog's intervals on
+/// a MetricKit log while hang reports are on; an `OSSignposter` interval alone is not seen by it.
 ///
 /// An interval reaches a report only when its category is one of ``categories`` (the catalog's
 /// `stall` category is left out: the watchdog reports stalls itself) and its name is a static
