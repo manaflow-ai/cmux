@@ -109,3 +109,39 @@ async fn stop_with_a_steer_waiting_still_ends_the_turn_stopped() {
     let (answer, _) = c.response(turn).await;
     assert_eq!(answer.unwrap()["stopReason"], "cancelled");
 }
+
+/// The X on a steer Claude Code has not read (Leo, 2026-10-21: "THERE'S A CANCEL AND EDIT BY
+/// CLICKING THE X BUTTON ON THE SENT MESSAGES TO CLAUDE"): `withdraw` drops it from Claude Code's
+/// queue, its prompt answers `withdrawn`, the log says so (`steer_withdrawn`), and the agent never
+/// reads it.
+#[tokio::test]
+async fn withdraw_takes_back_a_steer_the_agent_has_not_read() {
+    let (hub, mut c, id) = claude_hub().await;
+    let turn = long_step(&mut c, &id).await;
+    let mut a = connect(&hub).await;
+    let steer = a.send(method::SESSION_PROMPT, prompt(&id, "p-steer", "PINEAPPLE", true)).await;
+    a.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-steer").await;
+
+    let mut e = connect(&hub).await;
+    let edit = json!({"sessionId": id, "promptId": "p-steer", "op": "withdraw"});
+    let took = e.request("_acpmux/queue_edit", edit.clone()).await.unwrap();
+    assert_eq!(took["ok"], true, "{took}");
+    let (answer, _) = a.response(steer).await;
+    assert_eq!(answer.unwrap()["stopReason"], "withdrawn");
+    let page = c
+        .request(method::MUX_EVENTS, json!({"sessionId": id, "afterSeq": 0, "limit": 5000}))
+        .await
+        .unwrap();
+    let records = page["events"].as_array().unwrap();
+    assert!(
+        records.iter().any(|r| r["kind"] == "steer_withdrawn" && r["msg"]["promptId"] == "p-steer"),
+        "{page}"
+    );
+    // Taken back already: a second X takes nothing.
+    let again = e.request("_acpmux/queue_edit", edit).await.unwrap();
+    assert_eq!(again["ok"], false, "{again}");
+
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    let (_, seen) = c.response(turn).await;
+    assert!(!said(&seen, "read: PINEAPPLE"), "the agent read the withdrawn steer: {seen:?}");
+}

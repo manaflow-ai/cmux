@@ -332,7 +332,7 @@ import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
-import { PendingSteer } from "./conversation/PendingSteer";
+import { PendingSteer, takeBackSteer } from "./conversation/PendingSteer";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
@@ -4964,6 +4964,18 @@ function AcpmuxPane() {
               void callNative("chat.retryWith", { rowId, prompt, model }).catch(() => undefined),
           },
         }),
+      // The X beside a steer the agent has not read: it comes back into the composer to edit. Only
+      // Claude Code takes one back (acpmux `_acpmux/steer_withdraw`).
+      ...(connected &&
+        snapshot.summary?.family === "claude" && {
+          unsteer: (row: AcpmuxRow) =>
+            takeBackSteer(row, {
+              withdraw: (promptId) => editQueued(promptId, { op: "withdraw" }),
+              attachments: (rowId) => directClient.current?.promptAttachments(rowId) ?? Promise.resolve([]),
+              complete: (rowId) => directClient.current?.sentSteerHere(rowId) ?? false,
+              restore: (text, attachments) => composerHandle.current?.restore(text, attachments),
+            }),
+        }),
       ...(connected &&
         loginCommand &&
         snapshot.summary?.hostKind !== "cloud" && {
@@ -4996,6 +5008,7 @@ function AcpmuxPane() {
       snapshot.summary?.cwd,
       snapshot.summary?.harness,
       snapshot.summary?.model,
+      snapshot.summary?.family,
       retryModels,
       retryHarnessName,
       retryTop,

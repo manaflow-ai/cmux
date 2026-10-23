@@ -3897,6 +3897,23 @@ article.acpmux-row:empty {
 .cv-user__send-now:disabled {
   opacity: 0.5;
 }
+/* The X that takes a waiting steer back to edit (PendingSteer.tsx): a plain glyph, as muted as
+   Send now's text, on the same centred line. */
+.cv-user__take-back {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  cursor: default;
+}
+.cv-user__take-back:hover:not(:disabled) {
+  color: var(--cv-text);
+}
+.cv-user__take-back:disabled {
+  opacity: 0.5;
+}
 /* Reply on another agent's message (IncomingMessageCard.tsx): the editor under the opened
    message and its Details, and a quiet line once sent or when it was not. */
 .cv-message__note {

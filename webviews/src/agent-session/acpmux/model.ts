@@ -460,7 +460,9 @@ export type QueueEdit =
   | { op: "send_now" }
   | { op: "interrupt" }
   /** Runs a queue a failed turn paused; any of its prompts names it. */
-  | { op: "resume" };
+  | { op: "resume" }
+  /** Takes back a steer the agent has not read yet (the X beside it); false once it was read. */
+  | { op: "withdraw" };
 
 /// Claude Code's /context breakdown as acpmux keeps it (claude_stdio `context_breakdown`).
 export type AcpmuxContextBreakdown = {

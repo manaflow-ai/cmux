@@ -1070,6 +1070,8 @@ export class AcpmuxDirectClient {
   private optimisticPromptAttachments = new Map<string, ComposerAttachment[]>();
   /// Attachments for completed prompts, used when their turn is retried later.
   private retryAttachments = new Map<string, ComposerAttachment[]>();
+  /// The waiting steers' rows this pane sent, whose every attachment it holds (`sentSteerHere`).
+  private steersSentHere = new Set<string>();
   /// What a prompt's sender is told once acpmux took the prompt (its `user_message` echo, or the
   /// reply), by prompt id. A refusal comes before either, so the composer keeps the prompt.
   private promptAccepts = new Map<string, () => void>();
@@ -1560,6 +1562,7 @@ export class AcpmuxDirectClient {
     this.steerRows.clear();
     this.promptsShown.clear();
     this.retryAttachments.clear();
+    this.steersSentHere.clear();
     this.supersededMessageIds.clear();
     this.messageRows.clear();
     this.offerRows.clear();
@@ -2983,6 +2986,7 @@ export class AcpmuxDirectClient {
         const fallbackPromptId =
           promptId ??
           (text ? [...this.optimisticPromptTexts.entries()].find(([, value]) => value === text)?.[0] : undefined);
+        const sentHere = fallbackPromptId !== undefined && this.optimisticPromptRows.has(fallbackPromptId);
         settleOptimisticPrompt(this.rows, this.optimisticPromptRows, {
           ...msg,
           promptId: fallbackPromptId,
@@ -3044,6 +3048,7 @@ export class AcpmuxDirectClient {
           this.rows.delete(steered);
           this.steerRows.delete(promptId);
           this.waitingSteers = this.waitingSteers.filter((waiting) => waiting.rowId !== steered);
+          this.steersSentHere.delete(steered);
         }
         // A newer prompt means any steer before it was read; a second steer can come in the same step.
         if (msg.steer !== true) this.landSteer();
@@ -3057,6 +3062,7 @@ export class AcpmuxDirectClient {
         else if (this.awaiting !== undefined && msg.steer !== true) this.dropContinuation(this.awaiting);
         if (steer === "waiting") this.waitingSteers.push({ rowId: `user-${event.seq}`, promptId });
         if (steer === "waiting" && promptId) this.steerRows.set(promptId, `user-${event.seq}`);
+        if (steer === "waiting" && sentHere) this.steersSentHere.add(`user-${event.seq}`);
         this.rows.set(`user-${event.seq}`, {
           id: `user-${event.seq}`,
           version: 1,
@@ -3107,6 +3113,17 @@ export class AcpmuxDirectClient {
             this.streamingAssistant = undefined;
             this.streamingAssistantMessageId = undefined;
           }
+        }
+      } else if (event.kind === "steer_withdrawn") {
+        // A steer taken back before the agent read it (the X beside it): its bubble goes, and its
+        // text went back to the composer that took it.
+        const id = String(msg.promptId ?? "");
+        const rowId = this.steerRows.get(id);
+        if (rowId) {
+          this.rows.delete(rowId);
+          this.steerRows.delete(id);
+          this.waitingSteers = this.waitingSteers.filter((waiting) => waiting.rowId !== rowId);
+          this.steersSentHere.delete(rowId);
         }
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
         this.turnOpen = false;
@@ -3465,6 +3482,7 @@ export class AcpmuxDirectClient {
     if (!read.length) return;
     this.waitingSteers = this.waitingSteers.filter((waiting) => !read.includes(waiting));
     for (const waiting of read) {
+      this.steersSentHere.delete(waiting.rowId);
       const row = this.rows.get(waiting.rowId);
       if (row?.steer === "waiting") this.rows.set(row.id, { ...row, version: row.version + 1, steer: "landed" });
     }
@@ -4087,6 +4105,11 @@ export class AcpmuxDirectClient {
   }
   /// What to send again with prompt row `rowId` (Retry, Edit): the attachments this page sent, else
   /// its images read back from acpmux (a prompt sent before a reload, or from another window).
+  /// Whether this pane sent waiting steer `rowId`, so `promptAttachments` gives back all it sent:
+  /// acpmux keeps only a prompt's images, so another's steer may have had a PDF or file it lost.
+  sentSteerHere(rowId: string): boolean {
+    return this.steersSentHere.has(rowId);
+  }
   async promptAttachments(rowId: string): Promise<ComposerAttachment[]> {
     // The text sent again is the echo, which holds each paste: the pasted chips stay out.
     const kept = this.retryAttachments.get(rowId);

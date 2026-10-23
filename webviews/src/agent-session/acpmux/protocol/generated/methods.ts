@@ -52,6 +52,7 @@ export interface AcpmuxRequests {
   "_acpmux/send_queue": { params: unknown; result: unknown };
   "_acpmux/send_status": { params: unknown; result: unknown };
   "_acpmux/step_now": { params: unknown; result: unknown };
+  "_acpmux/steer_withdraw": { params: unknown; result: unknown };
   "_acpmux/agent_pair_resume": { params: unknown; result: unknown };
   "_acpmux/process/list": { params: unknown; result: unknown };
   "_acpmux/process/tail": { params: unknown; result: unknown };
@@ -264,6 +265,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/send_queue", kind: "request", acp: false, typed: false },
   { name: "_acpmux/send_status", kind: "request", acp: false, typed: false },
   { name: "_acpmux/step_now", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/steer_withdraw", kind: "request", acp: false, typed: false },
   { name: "_acpmux/agent_pair_resume", kind: "request", acp: false, typed: false },
   { name: "_acpmux/process/list", kind: "request", acp: false, typed: false },
   { name: "_acpmux/process/tail", kind: "request", acp: false, typed: false },

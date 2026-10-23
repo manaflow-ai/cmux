@@ -21,6 +21,8 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "dequeued",
     "queue_removed",
     "prompt_retracted",
+    // A steer taken back before the agent read it (`queue_edit.rs` `withdraw`).
+    "steer_withdrawn",
     // Edit queued prompt, Move up / Move down, and a queue a failed turn holds:
     // the queue a chat client shows changes with them.
     "queue_updated",
