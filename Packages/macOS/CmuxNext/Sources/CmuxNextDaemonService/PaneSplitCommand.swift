@@ -20,8 +20,11 @@ public struct PaneSplitCommand: Sendable {
     /// and returns the new surface. It goes through the command funnel, so
     /// a running action's scope gets one ticket, the failure, and the write
     /// barrier that `action.run` waits for before it answers.
+    /// A pane that is a pending create's stand-in is named by the daemon's pane for it
+    /// (``DaemonStore/daemonTarget(for:)``), never by the stand-in's handle.
     public func send(on daemon: DaemonService) async throws -> SurfaceCreated {
-        let pane = pane, direction = direction, options = options, swapTowards = swapTowards
+        let pane = try await daemon.store.daemonTarget(for: self.pane)
+        let direction = direction, options = options, swapTowards = swapTowards
         return try await daemon.perform("split") { connection in
             let created = try await connection.split(pane, direction: direction, options: options)
             if let swapTowards { try await connection.swapPane(pane, with: .direction(swapTowards)) }
@@ -43,6 +46,8 @@ public struct PaneSplitCommand: Sendable {
     /// ``sendIntended(on:provisional:)`` in two steps (Cmd-D, instant-new-surfaces): the
     /// provisional pane is in the store's visible records when this returns, in the caller's
     /// turn, so the window can lay it out in the key's frame; the returned work sends the split.
+    /// A split pressed on a pending create's stand-in (Cmd-D on a New Column still in flight)
+    /// names that create's daemon pane at send time (``DaemonService/intendCreate(_:_:transaction:target:_:)``).
     @MainActor
     public func intendNow(on daemon: DaemonService, provisional: ProvisionalPane) -> @MainActor () async throws -> SurfaceCreated {
         let transaction = ClientTransactionID.generate()
@@ -53,8 +58,8 @@ public struct PaneSplitCommand: Sendable {
         options.terminalID = TerminalID(rawValue: provisional.terminalID)
         let pane = pane, direction = direction, sent = options
         let intent = Intent.splitPane(pane: pane, direction: direction, ratio: 0.5, provisional: provisional)
-        let send = daemon.intendNow("split", intent, transaction: transaction) { connection in
-            try await connection.split(pane, direction: direction, options: sent)
+        let send = daemon.intendCreate("split", intent, transaction: transaction, target: pane) { connection, target in
+            try await connection.split(target, direction: direction, options: sent)
         }
         return {
             guard let created = await send() else { throw PaneSplitFailure() }

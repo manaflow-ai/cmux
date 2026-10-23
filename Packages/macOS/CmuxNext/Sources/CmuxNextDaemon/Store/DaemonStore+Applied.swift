@@ -28,16 +28,6 @@ extension DaemonStore {
         appliedWaiters.append(AppliedWaiter(transaction: transaction, sequence: sequence, body: body))
     }
 
-    /// Returns once the store holds the daemon's result of `transaction` (``whenApplied(_:reaching:_:)``
-    /// with the connection's event sequence after the reply as the barrier); at once without a
-    /// connection. A create pressed on a create in flight waits on it, so it names the daemon's pane.
-    public func applied(_ transaction: ClientTransactionID, connection: DaemonConnection?) async {
-        guard let connection, let sequence = await connection.eventSequence() else { return }
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            whenApplied(transaction, reaching: sequence) { done.resume() }
-        }
-    }
-
     /// Runs the waiters that are due: for `transaction`; or (nil) every
     /// waiter whose echo was applied or whose barrier the applied sequence
     /// reached; `snapshot` adds waiters without a barrier (a snapshot is
