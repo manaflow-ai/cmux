@@ -1,8 +1,10 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextRemote
 import CmuxNextSidebar
 @testable import CmuxNextDaemon
+import Foundation
 import Testing
 
 /// tab-attention-v1: an agent marks the tab where the person must act. The tab, its workspace
@@ -65,5 +67,30 @@ import Testing
         #expect(service.attentionMarks(for: workspace).count == 1, "a new request did not ring again")
         service.dismissHighlight(workspace)
         #expect(service.attentionMarks(for: workspace).isEmpty, "Dismiss Highlight left the ring")
+    }
+
+    @Test func goingIntoARemoteMarkedTabHidesItsRingToo() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let host = try SSHHost(destination: SSHDestination(parsing: "leo@lab.tail1.ts.net")).named("lab")
+        let ssh = SSHMachineSession(host: host, binary: URL(fileURLWithPath: "/usr/bin/false"),
+                                    paths: SSHPaths(root: URL(fileURLWithPath: "/private/tmp/cn-tab-attention-remote-unused")),
+                                    environment: { [:] })
+        services.machines.add(ssh)
+        let remote = ssh.daemon.store
+        let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, title: "GitHub")])
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
+        remote.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "lab work", screens: [screen])]))
+        let workspace = try #require(remote.workspaces.first)
+        let tab = try #require(workspace.screens.first?.panes.first?.tabs.first)
+        tab.applyState(SessionStateMirror.TabRecord(attention: Self.attention("Log in to GitHub", at: 1_000)), progress: nil)
+        #expect(NotificationCenterService.tab(id: tab.id, in: services.daemon.store) == nil, "the tab is on the SSH machine, not this Mac")
+        let notifications = services.notifications
+        #expect(notifications.attentionMarks(for: workspace).count == 1, "the remote marked tab has no ring")
+        notifications.interacted(.focus, tabID: tab.id)
+        #expect(notifications.attentionMarks(for: workspace).count == 1, "focus alone hid the ring")
+        notifications.interacted(.click, tabID: tab.id)
+        #expect(notifications.attentionMarks(for: workspace).isEmpty, "a click into the remote tab left its ring")
+        #expect(tab.showsUnread, "going in keeps the mark")
     }
 }
