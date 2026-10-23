@@ -18,6 +18,12 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Send a local brief to another harness on a peer (or the least-loaded
+    /// allowed host with `--host auto`) and record its identity.
+    Dispatch(DispatchArgs),
+    /// Inspect and update first-class dispatch briefs.
+    #[command(subcommand)]
+    Briefs(BriefsCmd),
     /// Create a session and optionally send a first prompt. `run` is the
     /// same with --quiet: it prints only the final reply. With --worktree,
     /// --prompt-file, --report-to and --group it starts an agent on a task
@@ -469,6 +475,75 @@ pub enum Command {
         #[arg(long)]
         dev: bool,
     },
+}
+
+#[derive(Args)]
+pub struct DispatchArgs {
+    /// Local Markdown/text brief file (use `-` for stdin).
+    pub brief: PathBuf,
+    /// Host name, `auto` for least-loaded placement, or `local`.
+    #[arg(long, long_alias = "target", default_value = "auto")]
+    pub host: String,
+    #[arg(long)]
+    pub title: Option<String>,
+    #[arg(long)]
+    pub to: Option<String>,
+    #[arg(long)]
+    pub stop_condition: Option<String>,
+    /// HARNESS[/MODEL] or profile; any ACP harness is accepted.
+    #[arg(long, short)]
+    pub model: Option<String>,
+    #[arg(long)]
+    pub preset: Option<String>,
+    #[arg(long)]
+    pub policy: Option<String>,
+    #[arg(long)]
+    pub cwd: Option<PathBuf>,
+}
+
+#[derive(Subcommand)]
+pub enum BriefsCmd {
+    /// List brief identities and status.
+    #[command(alias = "list")]
+    Ls {
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long, default_value_t = 100)]
+        limit: usize,
+    },
+    /// Steer a running brief's session.
+    Steer { brief_id: String, text: Vec<String> },
+    /// Record a report for a brief.
+    Report {
+        brief_id: String,
+        summary: Vec<String>,
+        #[arg(long, default_value = "reported")]
+        status: String,
+    },
+}
+
+#[cfg(test)]
+mod dispatch_tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn dispatch_accepts_file_and_auto_target() {
+        let cli = Cli::try_parse_from(["acpmux", "dispatch", "brief.md", "--host", "auto"])
+            .expect("dispatch grammar");
+        assert!(
+            matches!(cli.command, Some(Command::Dispatch(DispatchArgs { host, .. })) if host == "auto")
+        );
+    }
+
+    #[test]
+    fn briefs_nested_commands_parse() {
+        let cli = Cli::try_parse_from(["acpmux", "briefs", "ls", "--status", "reported"])
+            .expect("briefs ls grammar");
+        assert!(
+            matches!(cli.command, Some(Command::Briefs(BriefsCmd::Ls { status: Some(s), .. })) if s == "reported")
+        );
+    }
 }
 
 #[derive(Subcommand)]
