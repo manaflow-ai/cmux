@@ -23,6 +23,23 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
     /// Every row's key (agents may set them: looks only).
     static var keys: Set<String> { Set(descriptors.map(\.id)) }
 
+    /// `agentPane.display.minimap`, the Chat Minimap row.
+    static let minimapKey = (section + ["minimap"]).joined(separator: ".")
+
+    /// A stored value as the chat page reads it. `agentPane.display.minimap` was an on/off toggle
+    /// before it was the Rail / Full Map / Off choice: on (`true`) was the full map, and off (`false`)
+    /// left the chat to the thread minimap experiment, which no value means now. Every other value
+    /// is returned as stored; the row still checks it.
+    ///
+    /// - Parameters:
+    ///   - id: The dotted key.
+    ///   - value: The value cmux-next.json holds.
+    /// - Returns: The value to check against the row, or nil for none.
+    static func pageValue(_ id: String, _ value: JSONValue) -> JSONValue? {
+        guard id == minimapKey, case .bool(let on) = value else { return value }
+        return on ? .string("full") : nil
+    }
+
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.agentChat", "Agent Chat")
         func row(_ path: [String], _ title: SettingText, help: SettingText? = nil, _ kind: SettingKind,

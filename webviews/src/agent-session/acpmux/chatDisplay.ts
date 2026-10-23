@@ -112,6 +112,15 @@ const family = (value: unknown): string | null => {
   return trimmed;
 };
 
+/// The Chat Minimap key's arm, or null for the experiment to decide. The key was an on/off toggle
+/// before it was this choice: on (`true`) was the full map, and off left the chat to the experiment,
+/// as no value does now. The Swift bridge reads it the same way (AgentPaneDisplaySettingsSchema
+/// `pageValue`).
+function minimapArm(value: unknown): ThreadMinimapArm | null {
+  const arm = value === true ? "full" : value;
+  return isArm(threadMinimapLayout, arm) ? arm : null;
+}
+
 /// The host's map (or anything else: the defaults).
 export function resolveChatDisplay(raw: unknown): ChatDisplay {
   const values = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Values;
@@ -132,7 +141,7 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
       number(values[CHAT_DISPLAY.codeScale.key], CHAT_DISPLAY.codeScale) ??
       number(values[MARKDOWN_FOLLOWED.codeScale], CHAT_DISPLAY.codeScale),
     inspector: values[INSPECTOR_PLACEMENT_KEY] === "push" ? "push" : "overlay",
-    minimap: isArm(threadMinimapLayout, values[MINIMAP_KEY]) ? (values[MINIMAP_KEY] as ThreadMinimapArm) : null,
+    minimap: minimapArm(values[MINIMAP_KEY]),
   };
 }
 
