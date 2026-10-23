@@ -171,8 +171,12 @@ pub const ORPHAN_GRACE_ENV: &str = "CMUX_HOLDER_ORPHAN_GRACE_MS";
 /// What `cmux-holder --version` prints: the program and the wire versions
 /// it serves. A daemon starts a holder binary only when it reports this
 /// shape (`cmux-holder wire MIN-MAX`) with a range it speaks. No build
-/// identity: a holder whose code did not change is the same file in every
-/// cmux build, so an update reuses its content-addressed copy.
+/// identity, so the answer depends only on the wire range. The file itself
+/// still differs between signed builds: release and nightly strip the
+/// holder and re-sign it with a secure timestamp, so its SHA-256, and so its
+/// content-addressed copy, is new in every signed build (a running holder
+/// keeps its own locked copy; nothing breaks). Only unsigned builds of
+/// unchanged holder code reuse one copy.
 pub fn version_line() -> String {
     format!("cmux-holder wire {}-{}", wire::MIN_VERSION, wire::VERSION)
 }
