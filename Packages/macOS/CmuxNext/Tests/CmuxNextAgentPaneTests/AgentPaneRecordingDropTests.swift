@@ -7,6 +7,37 @@ import Testing
 /// recording before returning a link, rather than keep a URL into that preview's temporary folder.
 @MainActor @Suite(.serialized)
 struct AgentPaneRecordingDropTests {
+    private actor UploadGate {
+        private var entered = false
+        private var released = false
+        private var enteredWaiters: [CheckedContinuation<Void, Never>] = []
+        private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+        func waitUntilEntered() async {
+            if entered { return }
+            await withCheckedContinuation { enteredWaiters.append($0) }
+        }
+
+        func markEntered() {
+            entered = true
+            let waiters = enteredWaiters
+            enteredWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+        }
+
+        func waitForRelease() async {
+            if released { return }
+            await withCheckedContinuation { releaseWaiters.append($0) }
+        }
+
+        func release() {
+            released = true
+            let waiters = releaseWaiters
+            releaseWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+        }
+    }
+
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
@@ -186,5 +217,62 @@ struct AgentPaneRecordingDropTests {
         rig.model.adoptSession("chat-b")
         #expect(Self.paths(await rig.ask([source.lastPathComponent])).isEmpty)
         #expect(rig.uploads.isEmpty)
+    }
+
+    @Test func aLateRecordingUploadCannotRetainAPathForTheNextChat() async throws {
+        let source = try Self.preview(data: Data("movie".utf8))
+        let saved = try Self.folder("recording-session-race")
+        defer {
+            try? FileManager.default.removeItem(at: source.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: saved)
+        }
+        let rig = Rig(saved: saved)
+        let gate = UploadGate()
+        let expected = saved.appendingPathComponent("race", isDirectory: true)
+            .appendingPathComponent(source.lastPathComponent)
+        rig.model.onUpload = {
+            { files in
+                await gate.markEntered()
+                await gate.waitForRelease()
+                try? FileManager.default.createDirectory(at: expected.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? files.first?.data.write(to: expected)
+                return AgentPaneReply.success(["uploads": [["path": expected.path]]])
+            }
+        }
+        rig.model.adoptSession("chat-a")
+        rig.model.droppedPaths.stash([source], kind: .drop)
+        let pending = Task { Self.paths(await rig.ask([source.lastPathComponent])) }
+        await gate.waitUntilEntered()
+        rig.model.adoptSession("chat-b")
+        await gate.release()
+        #expect(await pending.value.isEmpty)
+        let refused = await rig.model.respond(to: AgentPaneRequest(body: [
+            "method": "file.drag", "params": ["path": expected.path],
+        ]))
+        #expect(refused["ok"] as? Bool == false)
+    }
+
+    @Test func firstSessionAdoptionPreservesPendingAndRetainedRecordings() async throws {
+        let retainedSource = try Self.preview("retained.mov", data: Data("retained".utf8))
+        let pendingSource = try Self.preview("pending.mov", data: Data("pending".utf8))
+        let saved = try Self.folder("recording-first-session")
+        defer {
+            try? FileManager.default.removeItem(at: retainedSource.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: pendingSource.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: saved)
+        }
+        let rig = Rig(saved: saved)
+        rig.model.droppedPaths.stash([retainedSource], kind: .drop)
+        let retainedPath = URL(fileURLWithPath: try #require(Self.paths(await rig.ask([retainedSource.lastPathComponent])).first))
+        rig.model.droppedPaths.stash([pendingSource], kind: .drop)
+        rig.model.adoptSession("chat-a")
+        let pendingPath = URL(fileURLWithPath: try #require(Self.paths(await rig.ask([pendingSource.lastPathComponent])).first))
+
+        for path in [retainedPath, pendingPath] {
+            let reply = await rig.model.respond(to: AgentPaneRequest(body: [
+                "method": "file.drag", "params": ["path": path.path],
+            ]))
+            #expect(reply["ok"] as? Bool == true)
+        }
     }
 }
