@@ -9,7 +9,7 @@ use crate::mux::settings::SettingsPaths;
 struct Rig {
     mux: Arc<Mux>,
     surface: Arc<crate::Surface>,
-    config: std::path::PathBuf,
+    config: PathBuf,
     _dir: cmux_unix_socket::TestDir,
 }
 
