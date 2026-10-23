@@ -60,7 +60,6 @@ async function take(
   const upload =
     typeof options.upload === "function" ? options.upload : options.upload === false ? undefined : saving.upload;
   const taken = await intakeFiles(files, {
-    held: 0,
     allowImages: options.allowImages ?? true,
     ...(upload ? { upload } : {}),
     ...(options.localPaths ? { localPaths: options.localPaths } : {}),
