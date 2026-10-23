@@ -3,6 +3,16 @@ import Testing
 @testable import CmuxNextDaemon
 
 struct WorkspaceNameSourceTests {
+    @Test(arguments: ["", "  ", "~", "workspace-7"])
+    func legacyAndDaemonDefaultsAreAvailableToTheAutomaticNamer(_ name: String) {
+        #expect(WorkspaceModel.isDefaultName(name))
+    }
+
+    @Test(arguments: ["Release notes", "workspace-api", "~ notes"])
+    func meaningfulNamesRemainUserNames(_ name: String) {
+        #expect(!WorkspaceModel.isDefaultName(name))
+    }
+
     @Test func legacySnapshotDefaultsToManualOwnership() throws {
         let snapshot = try Self.decodeSnapshot("""
         {"id":1,"key":"legacy","name":"Claude Code","screens":[]}

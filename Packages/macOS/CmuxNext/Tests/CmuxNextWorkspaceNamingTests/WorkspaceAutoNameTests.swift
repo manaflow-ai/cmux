@@ -84,6 +84,13 @@ struct WorkspaceAutoNameTests {
         #expect(Self.live.label(name: "workspace-3", title: "My work", front: front) == nil)
     }
 
+    @Test func legacyDefaultNamesStillTakeAFrontTabName() {
+        let front = Self.terminal(title: "npm run dev")
+        #expect(Self.live.label(name: "~", title: nil, front: front) == "npm run dev")
+        #expect(Self.live.label(name: "", title: nil, front: front) == "npm run dev")
+        #expect(Self.live.label(name: "~", title: "My work", front: front) == nil)
+    }
+
     @Test func emptyTitleDoesNotCountAsAUserName() {
         let front = WorkspaceAutoName.Front.chat(userName: nil, title: "Fix the sidebar drag")
         #expect(Self.live.label(name: "workspace-3", title: "", front: front) == "Fix the sidebar drag")
