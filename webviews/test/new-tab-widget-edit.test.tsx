@@ -177,8 +177,8 @@ test("Minimal draws its stage in the user's order, with nothing extra out of edi
   const root = await render("minimal", parsePageWidgets(["greeting", "chats", "actions", "projects"])!, noop);
   try {
     expect(stageOrder()).toEqual(["chats", "actions", "projects"]);
-    // Minimal keeps its greeting over the stage (it was dropped once a stage widget was on).
-    expect(host.querySelector(".nt-stage .nt-greeting")).not.toBeNull();
+    // Minimal keeps its headline over the stage (the greeting was dropped once a stage widget was on).
+    expect(host.querySelector(".nt-stage .nt-headline")).not.toBeNull();
     expect(host.querySelectorAll(".nt-widget-frame, .nt-widget-remove, .nt-edit-bar")).toHaveLength(0);
   } finally {
     await act(async () => root.unmount());
