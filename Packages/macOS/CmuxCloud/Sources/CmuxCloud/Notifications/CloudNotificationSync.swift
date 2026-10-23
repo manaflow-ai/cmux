@@ -308,6 +308,13 @@ public final class CloudNotificationSync {
     /// key after its provider is gone.
     private var retired = false
 
+    /// Whether a catalog change can make another delivery attempt useful.
+    /// Placement observers use this to avoid refolding every machine after
+    /// unrelated catalog mutations.
+    public var hasPendingPlacementRetry: Bool {
+        !retryableDeliveryIDs.isEmpty
+    }
+
     /// The idempotency key of one `notification.ack` batch.
     public nonisolated static func mintAckKey() -> String {
         "mac-ack-\(UUID().uuidString.lowercased())"
