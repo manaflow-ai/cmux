@@ -119,7 +119,9 @@ function decimal(spelled: string): string | undefined {
   const leading = digits.length - digits.replace(/^0+/, "").length;
   digits = digits.slice(leading).replace(/0+$/, "");
   point -= leading;
-  return digits ? `${spelled.startsWith("-") ? "-" : ""}${digits}e${point}` : "0";
+  const sign = spelled.startsWith("-") ? "-" : "";
+  // Negative zero keeps its sign: JSON.stringify prints -0 as 0, so it reads as a number that changes.
+  return digits ? `${sign}${digits}e${point}` : `${sign}0`;
 }
 
 /// Whether `printed` JSON holds a number a double cannot hold exactly (a 64-bit ID

@@ -88,7 +88,13 @@ test("one-line JSON is indented, its strings left as strings", () => {
 });
 
 test("JSON a double would change shows as printed, never rounded", () => {
-  for (const output of ['{"id":9007199254740993}', '{"value":10.000000000000001}', '{"value":1e400}']) {
+  for (const output of [
+    '{"id":9007199254740993}',
+    '{"value":10.000000000000001}',
+    '{"value":1e400}',
+    '{"value":-0}',
+    '{"value":-0.0}',
+  ]) {
     expect(toolResult(output)).toEqual({ text: output, lang: "json" });
     expect(toolResult(JSON.stringify([{ type: "text", text: output }]))).toEqual({ text: output, lang: "json" });
   }
