@@ -38,7 +38,7 @@ Related: `perf-lead.md` (the lab numbers these reports check in the field),
   subscription).
 - The one-time invitation is never shown to a person who turned off anonymous telemetry
   (`sendAnonymousTelemetry`; lead decision 2026-10-23); they can still turn reports on in
-  Settings and confirm on the card. The invitation: a sidebar notice card (`SidebarAsks`, the same card as an agent's
+  Settings (their own write records the consent; no card). The invitation: a sidebar notice card (`SidebarAsks`, the same card as an agent's
   Cloud machine request; no dialog, no sheet) with **Send Hang Reports** and **Not Now**. Either
   answer, or the x, records that it was asked (`cmux.next.hangReports.asked` in the app's
   defaults); it never shows again. The card waits for the first window and never takes focus.
