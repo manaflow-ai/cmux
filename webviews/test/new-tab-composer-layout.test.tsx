@@ -65,7 +65,7 @@ function Chips() {
   return <span className="acpmux-chips">Claude Opus 5.5</span>;
 }
 
-async function mount(options: { machineName?: string; snapshot?: AcpmuxSnapshot } = {}) {
+async function mount(options: { machineName?: string; snapshot?: AcpmuxSnapshot; footer?: React.ReactNode } = {}) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   act(() => root?.unmount());
@@ -80,6 +80,7 @@ async function mount(options: { machineName?: string; snapshot?: AcpmuxSnapshot 
         startCwd="/Users/you/src/app"
         projects={[{ cwd: "/Users/you/src/app", label: "app" }]}
         chips={Chips}
+        {...{ footer: options.footer }}
         onAsk={noop}
         onOpen={noop}
         onSearch={noop}
@@ -91,6 +92,16 @@ async function mount(options: { machineName?: string; snapshot?: AcpmuxSnapshot 
     ),
   );
 }
+
+test("look controls belong to the composer before the first message", async () => {
+  await mount({ footer: <div className="nt-page-dots">Claude · Codex</div> });
+  const composer = host.querySelector(".nt-composer")!;
+  expect(composer.querySelector(".nt-page-dots")?.textContent).toBe("Claude · Codex");
+  expect(composer.querySelector(".nt-box .nt-page-dots")).toBeNull();
+  const field = composer.querySelector(".nt-field")!;
+  const controls = composer.querySelector(".nt-page-dots")!;
+  expect(field.compareDocumentPosition(controls) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
 
 test("the New Tab card is the composer's: the project strip on its top edge, then field, model and Send", async () => {
   await mount();
