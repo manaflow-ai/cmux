@@ -336,6 +336,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DebugNowPlaying.register(on: control.service?.router, services: services)
                 DebugDownloads.register(on: control.service?.router, services: services)
                 DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
+                DebugChromiumHost.register(on: control.service?.router, services: services)
                 DebugBrowserExternal.register(on: control.service?.router, services: services)
                 DebugCloudMove.register(on: control.service?.router, services: services)
                 DebugTerminalLinks.register(on: control.service?.router, services: services)
