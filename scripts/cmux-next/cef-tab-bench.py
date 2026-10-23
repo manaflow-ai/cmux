@@ -148,9 +148,10 @@ def terminal_workspace(name):
 
 
 def split(window):
-    before = len(panes())
+    """Cmd-D: a new pane (it may show a New Tab page or a terminal), focused."""
+    before = {p.get("pane") for p in panes()}
     key("d", ["command"], window)
-    ok = wait(lambda: len(panes()) > before and (focused() or {}).get("kind") == "terminal", 15)
+    ok = wait(lambda: (focused() or {}).get("pane") not in before and len(panes()) > len(before), 15)
     time.sleep(0.6)  # test harness: shell prompt in the new pane
     return ok
 
@@ -162,7 +163,7 @@ def settle():
 def bench_case(case, window, session, rnd):
     if case in ("second_pane", "third_pane", "url_cold"):
         if not split(window):
-            return {"case": case, "error": "split failed"}
+            return {"case": case, "session": session, "round": rnd, "error": "split failed: " + json.dumps(focused())[:200]}
     params = {"action": "bench_create", "command": "new_browser"}
     if case.startswith("url_"):
         params.update({"run": "openBrowser", "url": "file://" + PAGE})
