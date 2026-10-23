@@ -186,6 +186,20 @@ public struct AgentRestorePlanner: Sendable {
                 environment: &environment
             )
         }
+        // Preserve a validated outer Codex launcher (for example a scheduler
+        // or account wrapper) while still using this structured restore plan.
+        // Replayability rejects prefixes that carry an old session or secret.
+        if request.mode == .resumeAgent,
+           kind == "codex",
+           let prefix = request.launchCommand?.launcherPrefix,
+           AgentLauncherPrefix.isReplayable(prefix),
+           !routedArguments.starts(with: prefix),
+           !routedArguments.isEmpty {
+            // The prefix already contains the captured agent executable (for
+            // example `caffeinate -i codex`). Append only the fresh resume
+            // arguments so the executable is not passed twice.
+            routedArguments = prefix + routedArguments.dropFirst()
+        }
         guard !routedArguments.isEmpty else { return nil }
 
         var preflights = hermesPreflights(
@@ -379,6 +393,17 @@ public struct AgentRestorePlanner: Sendable {
             // when the captured argv is empty, so a rejected capture cannot be
             // replaced by a guessed command for the provider kind.
             if (launch?.arguments.isEmpty ?? true), let preparedArguments {
+                // Prepared argv is not independent provenance. A legacy or
+                // deferred record can contain Subrouter config (including a
+                // dead localhost data-plane URL) without the trusted marker
+                // pair and launch-bound argv needed to reconstruct `sr
+                // codex resume`. Replaying it directly would silently change
+                // transport after quit/reopen, so fail closed.
+                let routing = SubrouterCodexResumeRouting()
+                if kind == "codex",
+                   routing.removingPrivateRoutingArguments(from: preparedArguments) != preparedArguments {
+                    return nil
+                }
                 return (preparedArguments, false)
             }
             switch AgentResumeArgv().launcherResolution(
@@ -393,6 +418,8 @@ public struct AgentRestorePlanner: Sendable {
                     return (arguments, true)
                 }
                 return preparedArguments.map { ($0, false) }
+            case .rejected:
+                return nil
             case .passthrough:
                 if let arguments = AgentResumeArgv().builtInKind(
                     kind: kind,

@@ -393,6 +393,10 @@ public struct AgentResumeArgv: Sendable, Equatable {
         /// The launcher is a cmux wrapper; the associated value is its resume argv, or `nil` when the
         /// wrapper has no resumable form (e.g. one-shot `omx`/`omc`).
         case resolved([String]?)
+        /// The record claims a routed Codex launch but its executable identity
+        /// does not match the captured argv. Do not fall through to a direct
+        /// resume that could retain Subrouter provider settings.
+        case rejected
         /// The launcher is a plain agent executable; fall through to ``builtInKind(kind:sessionId:executablePath:arguments:)``.
         case passthrough
     }
@@ -412,7 +416,16 @@ public struct AgentResumeArgv: Sendable, Equatable {
         arguments: [String],
         environment: [String: String]? = nil
     ) -> LauncherResolution {
-        if let routed = SubrouterCodexResumeRouting().resumeArguments(
+        let normalizedLauncher = launcher?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalizedLauncher == "codex",
+           !capturedCodexExecutableMatches(arguments: arguments, executablePath: executablePath),
+           SubrouterCodexResumeRouting().capturedEnvironment(in: environment).isEmpty == false {
+            return .rejected
+        }
+        let capturedExecutableMatches = normalizedLauncher != "codex" ||
+            capturedCodexExecutableMatches(arguments: arguments, executablePath: executablePath)
+        if capturedExecutableMatches,
+           let routed = SubrouterCodexResumeRouting().resumeArguments(
             launcher: launcher,
             sessionID: sessionId,
             launchArguments: arguments,
@@ -466,6 +479,14 @@ public struct AgentResumeArgv: Sendable, Equatable {
         }
     }
 
+    private func capturedCodexExecutableMatches(arguments: [String], executablePath: String?) -> Bool {
+        guard let first = arguments.first,
+              let executablePath,
+              !executablePath.isEmpty else { return false }
+        return URL(fileURLWithPath: first).lastPathComponent
+            == URL(fileURLWithPath: executablePath).lastPathComponent
+    }
+
     /// Builds the resume argv for a built-in agent kind, or `nil` if the kind is unknown or its launch
     /// arguments cannot be preserved.
     ///
@@ -502,6 +523,17 @@ public struct AgentResumeArgv: Sendable, Equatable {
                 preservePromptTags: false,
                 stripCmuxHooks: parts.executable == "codex"
             ) else { return nil }
+            // Older bindings can prove that the captured Codex invocation used
+            // Subrouter but lack the paired launch marker. Never replay the
+            // captured `model_providers.subrouter.*` argv in that case: it may
+            // contain a dead per-process localhost endpoint. Re-enter through
+            // `sr` so the provider allocates a fresh route on resume.
+            if SubrouterCodexResumeRouting().usesSubrouterProvider(
+                in: [parts.executable] + parts.tail
+            ) {
+                let clean = SubrouterCodexResumeRouting().removingRoutingArguments(from: preserved)
+                return ["sr", "codex", "resume", sessionId] + clean
+            }
             let replayExecutable = codexReplayExecutable(
                 capturedExecutable: parts.executable,
                 launchTail: parts.tail

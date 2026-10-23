@@ -96,7 +96,7 @@ import Testing
         #expect(AgentRestoreLaunch.cliStartupExecutableToken == "cmux")
     }
 
-    @Test func structuredCodexRestorePlansDirectArgvEnvironmentAndCwd() throws {
+    @Test func structuredSubrouterCodexRestorePlansRoutedArgvEnvironmentAndCwd() throws {
         let workingDirectory = "/tmp/项目 with 'quotes'"
         let capturedWorkingDirectory = "/tmp/old project"
         let launch = AgentLaunchCommand(
@@ -137,19 +137,39 @@ import Testing
         ))
 
         #expect(invocation.workingDirectory == workingDirectory)
-        #expect(invocation.arguments.first == "/shim/codex")
-        #expect(invocation.arguments.dropFirst().starts(with: ["resume", sessionID]))
-        #expect(invocation.arguments.contains("check_for_update_on_startup=false"))
-        #expect(invocation.arguments.contains(#"model_provider="subrouter""#))
+        #expect(invocation.arguments == ["sr", "codex", "resume", sessionID, "--model", "gpt-5.6-sol"])
         #expect(invocation.arguments.contains(capturedWorkingDirectory) == false)
         #expect(invocation.environment["CODEX_HOME"] == "/tmp/配置")
-        #expect(invocation.environment["CMUX_CUSTOM_CODEX_PATH"] == "/opt/company bin/codex")
-        #expect(
-            invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"]
-                == "codex:\(sessionID)"
-        )
+        #expect(invocation.environment["SUBROUTER_CODEX_BASE_URL"] == nil)
         #expect(invocation.arguments.contains("/bin/sh") == false)
         #expect(invocation.arguments.contains("-lc") == false)
+    }
+
+    @Test func legacyCaptureWithCodexHomeConfigUsesSubrouterResume() throws {
+        let config = "model_provider = \"subrouter\"\n"
+        let routing = SubrouterCodexResumeRouting()
+        #expect(
+            routing.providerEvidenceWithCapturedConfig(
+                in: ["codex", "resume", sessionID],
+                launcher: "codex",
+                environment: nil,
+                verificationHome: nil
+            ) == .absent
+        )
+        #expect(routing.providerEvidence(inConfigToml: config) == .provider("subrouter"))
+        #expect(
+            routing.providerEvidence(inConfigToml: "model_provider = \"subrouter\"\n")
+                == .provider("subrouter")
+        )
+    }
+
+    @Test func malformedOrConflictingCodexConfigDoesNotRoute() {
+        let routing = SubrouterCodexResumeRouting()
+        #expect(
+            routing.providerEvidence(inConfigToml: "model_provider = \"subrouter\"\nmodel_provider = \"openai\"\n")
+                == .ambiguous
+        )
+        #expect(routing.providerEvidence(inConfigToml: "model_provider = \"subrouter\n") == .ambiguous)
     }
 
     @Test(arguments: [AgentRestoreRequestMode.resumeAgent, .relaunchAgent, .forkAgent])
@@ -278,6 +298,57 @@ import Testing
         #expect(invocation.arguments == prepared)
     }
 
+    @Test func preparedMarkerlessSubrouterCodexRestoreFailsClosed() {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "deferred-restore",
+            workingDirectory: "/tmp/project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(launcher: "codex", arguments: []),
+            preparedArguments: [
+                "codex", "resume", sessionID,
+                "-c", "model_provider=subrouter",
+                "-c", "model_providers.subrouter.base_url=http://127.0.0.1:43123",
+            ],
+            observedPermissionMode: nil
+        )
+
+        #expect(
+            AgentRestorePlanner(isExecutableFile: { _ in true }).invocation(
+                for: request,
+                ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            ) == nil
+        )
+    }
+
+    @Test func preparedCodexPromptContainingSubrouterTextRemainsRestorable() throws {
+        let prepared = [
+            "codex", "resume", sessionID,
+            "--prompt", "explain model_providers.subrouter without changing configuration",
+        ]
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "deferred-restore",
+            workingDirectory: "/tmp/project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(launcher: "codex", arguments: []),
+            preparedArguments: prepared,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in true }).invocation(
+                for: request,
+                ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            )
+        )
+        #expect(invocation.arguments == prepared)
+    }
+
     private func assertOmpRestoreKeepsExecutablePath(_ executable: String) throws {
         let request = AgentRestoreRequest(
             mode: .resumeAgent,
@@ -349,7 +420,7 @@ import Testing
             "-c", "check_for_update_on_startup=false",
         ])
         #expect(invocation.environment["SUBROUTER_CODEX_ACCOUNT_ID"] == "team-codex-1")
-        #expect(invocation.environment["SUBROUTER_CODEX_BASE_URL"] == "https://router.example.test/v1")
+        #expect(invocation.environment["SUBROUTER_CODEX_BASE_URL"] == nil)
         #expect(invocation.environment["SUBROUTER_CODEX_RESUME_COMMAND"] == nil)
         #expect(invocation.environment["SUBROUTER_CODEX_SERVER"] == "team")
         #expect(invocation.environment["SUBROUTER_CODEX_USER_EMAIL"] == "operator@example.test")
@@ -429,6 +500,39 @@ import Testing
         #expect(invocation.environment["SUBROUTER_CODEX_BIN"] == "/shim/codex")
         #expect(invocation.environment["CMUX_CUSTOM_CODEX_PATH"] == "/opt/bin/codex")
         #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "codex:\(sessionID)")
+    }
+
+    @Test func structuredCodexRestoreDoesNotDuplicateAnOuterLauncherExecutable() throws {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "codex",
+                executablePath: "/opt/bin/codex",
+                arguments: ["/opt/bin/codex"],
+                workingDirectory: "/tmp/project",
+                environment: [:],
+                launcherPrefix: ["/usr/bin/caffeinate", "-i", "/opt/bin/codex"]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            )
+        )
+
+        #expect(invocation.arguments == [
+            "/usr/bin/caffeinate", "-i", "/opt/bin/codex", "resume", sessionID,
+            "-c", "check_for_update_on_startup=false",
+        ])
     }
 
     @Test func repeatedStructuredSubrouterRestoreKeepsTheCapturedRealCodexExecutable() throws {
@@ -512,11 +616,55 @@ import Testing
 
         #expect(invocation.arguments.prefix(4) == ["sr", "codex", "resume", sessionID])
         #expect(invocation.environment["SUBROUTER_CODEX_ACCOUNT_ID"] == "captured-account")
-        #expect(invocation.environment["SUBROUTER_CODEX_BASE_URL"] == "https://captured.example.test/v1")
+        #expect(invocation.environment["SUBROUTER_CODEX_BASE_URL"] == nil)
         #expect(invocation.environment["SUBROUTER_CODEX_BIN"] == "/opt/bin/codex")
         #expect(invocation.environment["SUBROUTER_CODEX_RESUME_COMMAND"] == nil)
         #expect(invocation.environment["SUBROUTER_CODEX_SERVER"] == "captured-server")
         #expect(invocation.environment["SUBROUTER_CODEX_USER_EMAIL"] == "captured@example.test")
+    }
+
+    @Test("Subrouter restore never replays a captured data-plane URL")
+    func structuredSubrouterRestoreDropsStaleLoopbackRoute() throws {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/project",
+            environment: [
+                "SUBROUTER_CODEX_BASE_URL": "http://127.0.0.1:60760/v1",
+                "SUBROUTER_CODEX_ACCOUNT_ID": "replacement-account",
+            ],
+            launchCommand: AgentLaunchCommand(
+                launcher: "codex",
+                executablePath: "/opt/bin/codex",
+                arguments: ["/opt/bin/codex", "-c", "model_provider=subrouter"],
+                workingDirectory: "/tmp/project",
+                environment: [
+                    "SUBROUTER_CODEX_BASE_URL": "http://127.0.0.1:60760/v1",
+                    "SUBROUTER_CODEX_ACCOUNT_ID": "captured-account",
+                    "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                    "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                    "SUBROUTER_CODEX_SERVER": "local",
+                ]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: [
+                    "PATH": "/usr/bin:/bin",
+                    "SUBROUTER_CODEX_BASE_URL": "http://127.0.0.1:61234/v1",
+                ]
+            )
+        )
+
+        #expect(invocation.environment["SUBROUTER_CODEX_BASE_URL"] == nil)
+        #expect(invocation.environment["SUBROUTER_CODEX_ACCOUNT_ID"] == "captured-account")
+        #expect(invocation.environment["SUBROUTER_CODEX_SERVER"] == "local")
     }
 
     @Test func structuredSubrouterRestoreTreatsAbsentLaunchRoutingInputsAsAuthoritative() throws {
@@ -671,7 +819,7 @@ import Testing
         )
     }
 
-    @Test func directCodexRestoreIgnoresInheritedSubrouterRoutingFromSpacedBundlePath() throws {
+    @Test func subrouterCodexRestoreUsesCapturedRouteFromSpacedBundlePath() throws {
         let bundleBin = "/Applications/cmux 2.app/Contents/Resources/bin"
         let shim = "/Users/me/Library/Application Support/cmux/cmux-cli-shims/surface/codex"
         let request = AgentRestoreRequest(
@@ -706,15 +854,10 @@ import Testing
             )
         )
 
-        #expect(invocation.arguments.first == shim)
-        #expect(invocation.arguments.dropFirst().starts(with: ["resume", sessionID]))
-        #expect(invocation.arguments.contains("model_provider=subrouter"))
-        #expect(invocation.arguments.contains("sr") == false)
+        #expect(invocation.arguments == ["sr", "codex", "resume", sessionID])
         #expect(invocation.codexResumeSessionID == sessionID)
         #expect(invocation.environment["PATH"] == "\(bundleBin):/usr/bin:/bin")
-        #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "codex:\(sessionID)")
-        #expect(invocation.environment["CMUX_CUSTOM_CODEX_PATH"] == nil)
-        #expect(invocation.environment["SUBROUTER_CODEX_BIN"] == nil)
+        #expect(invocation.environment["SUBROUTER_CODEX_BASE_URL"] == nil)
         #expect(invocation.environment[SubrouterCodexResumeRouting.environmentKey] == nil)
         #expect(invocation.environment[SubrouterCodexResumeRouting.launchBoundEnvironmentKey] == nil)
     }
