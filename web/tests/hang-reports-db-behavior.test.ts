@@ -94,16 +94,18 @@ describe("hang_reports repository", () => {
 
 describe("hang_reports migration", () => {
   // Production's table was created by hand and is owned by `postgres`; the migrator's role only
-  // has DML grants. Replaying the file there (its journal has no row for it) must be a no-op:
-  // CREATE INDEX checks table ownership before IF NOT EXISTS, so a bare one fails with 42501
-  // and rolls back every later migration.
+  // has DML grants and may have no CREATE on the schema. Replaying the file there (its journal
+  // has no row for it) must be a no-op: CREATE INDEX checks table ownership, and CREATE TABLE IF
+  // NOT EXISTS checks schema CREATE, before IF NOT EXISTS, so either fails with 42501 and rolls
+  // back every later migration.
   dbTest("replays as a role that does not own hang_reports", async () => {
     const pool = new Pool({ connectionString: databaseURL, max: 1 });
     const client = await pool.connect();
     try {
       await client.query("begin");
       await client.query("create role cmux_hang_reports_replay nologin");
-      await client.query("grant usage, create on schema public to cmux_hang_reports_replay");
+      // USAGE only: no CREATE on the schema, no ownership of the table.
+      await client.query("grant usage on schema public to cmux_hang_reports_replay");
       await client.query("set local role cmux_hang_reports_replay");
       for (const statement of migrationStatements("20261023120000_hang_reports")) await client.query(statement);
       const indexes = await client.query<{ indexname: string }>(
