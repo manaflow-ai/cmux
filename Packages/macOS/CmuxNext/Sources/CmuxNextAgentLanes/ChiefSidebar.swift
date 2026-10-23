@@ -113,8 +113,7 @@ public final class ChiefSidebar {
 
     /// Binds Open Chief, Open Chief Subagent and the fold, and starts following the lanes into `status`.
     public func bind(into registry: ActionRegistry, host: Host) {
-        self.host = host
-        watch()
+        follow(host)
         registry.bind(Self.openAction, invoke: { [weak self, weak registry] invocation in
             guard let registry else { return }
             self?.openChief(registry, origin: invocation.origin)
@@ -154,6 +153,12 @@ public final class ChiefSidebar {
         guard let session = SidebarTransientItem.chiefSubagentSession(id) else { return false }
         openSubagent(session, registry: registry)
         return true
+    }
+
+    /// Reaches the App through `host` and follows the lanes and the conversation's unread state into `status`.
+    func follow(_ host: Host) {
+        self.host = host
+        watch()
     }
 
     private func watch() {

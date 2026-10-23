@@ -9,8 +9,9 @@ import Observation
 /// item (`ChiefSidebar`). No Lanes item (Lawrence 2026-10-20). What's New never shows here: after an
 /// update it is only the bottom-left "cmux Updated!" card (Lawrence 2026-10-18).
 extension SidebarModel {
-    /// Keeps `transientTopItems` current until cancelled.
-    public func followTopItems(chief: ChiefSidebar = .shared) -> Task<Void, Never> {
+    /// Keeps `transientTopItems` current until cancelled. `document`: the sidebar document every window draws from.
+    public func followTopItems(chief: ChiefSidebar = .shared,
+                               document: @escaping @MainActor () -> SidebarDocStore? = { SidebarDocStore.current }) -> Task<Void, Never> {
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         Task { [weak self] in
             for await (items, placed) in ObservationStream({ [weak self] in
