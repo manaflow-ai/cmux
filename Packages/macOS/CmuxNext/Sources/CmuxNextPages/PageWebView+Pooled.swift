@@ -24,8 +24,10 @@ extension PageWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.processPool = PageProcessPool.forNewView
-        // Every page at the display's full rate; WebKit's own default is the rate nearest 60 fps.
-        WebKitRenderRate.apply(fullRate: !options.capsFrameRate, to: configuration.preferences)
+        // The page's rate (PageRenderRate); WebKit's own default is the rate nearest 60 fps. The
+        // view follows later Low Power Mode changes (followLowPowerMode).
+        WebKitRenderRate.apply(fullRate: rendersAtFullRate(options.renderRate, lowPowerMode: LowPowerMode.system.isEnabled),
+                               to: configuration.preferences)
         configuration.setURLSchemeHandler(handler, forURLScheme: PageDescriptor.scheme)
         let inputReadiness = PageInputReadiness(configuration: configuration)
         installPageScripts(configuration.userContentController, documentAttributes: documentAttributes)

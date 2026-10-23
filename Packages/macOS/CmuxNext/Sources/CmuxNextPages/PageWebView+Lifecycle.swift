@@ -8,6 +8,7 @@ extension PageWebView {
         router.close()
         bridge.uninstall()
         endChromium()
+        endRenderRate()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: PagePaintProbe.handlerName, contentWorld: .page)
         resumeLoadWaiters()
     }
