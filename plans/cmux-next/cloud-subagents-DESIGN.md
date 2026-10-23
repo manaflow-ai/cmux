@@ -503,3 +503,13 @@ own credential when it lands.
 A Claude Code session on chief-subagents-2, started from the Mac through acpmux,
 made a worktree of cmux, wrote this section, and pushed this commit to
 feat-cmux-next itself with the VM's App token. Nothing was pushed through the Mac.
+
+### Open: a tailnet VM does not stay paused (2026-10-23)
+
+`deploy.sh pause chief-subagents-2` returns `paused`, but Freestyle shows the VM
+`running` again 2-60 s later. It woke with tailscaled stopped and also with the
+Mac's acpmux peer removed (that held it about 5 s longer). A fresh VM off the
+tailnet stayed paused for 20 s. So inbound tailnet traffic probably wakes it.
+Until this is fixed, auto-pause saves nothing on tailnet VMs, and the ledger
+(which marks a pause as a stop) undercounts the daily budget. chief-subagents-2
+bills 2.08 USD/h while idle, about 50 USD/day.

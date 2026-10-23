@@ -2691,6 +2691,79 @@ a.cv-sha:focus-visible {
   line-height: 18px;
   overflow-wrap: anywhere;
 }
+/* Its card (TurnRows.tsx TurnFailure; the turn-error-card experiment's arms): the cause with its
+   mark, then the way out and Details on one wrapping row. */
+.cv-turn-error {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cv-turn-error__cause {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+.cv-turn-error__icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--agent-danger);
+}
+.cv-turn-error__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.cv-turn-error--card .cv-turn-error__actions,
+.cv-turn-error--rail .cv-turn-error__actions {
+  padding-inline-start: 21px;
+}
+.cv-turn-error__primary {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
+}
+.cv-turn-error__primary:hover {
+  background: color-mix(in srgb, var(--agent-accent) 24%, transparent);
+}
+/* The CodeRouter offer (CodeRouterOffer.tsx): a link after the cause in the `link` arm. */
+/* The `link` arm: a link that ends the cause sentence, blue as every link (#22345). */
+.cv-turn-error__offer-link {
+  all: unset;
+  color: var(--agent-link);
+  cursor: pointer;
+}
+.cv-turn-error__offer-link:hover {
+  text-decoration: underline;
+}
+.cv-turn-error__offer-link:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-link) 55%, transparent);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+.cv-turn-auth-action:disabled,
+.cv-turn-error__offer-link:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.cv-turn-error__details[open] {
+  flex-basis: 100%;
+}
+.cv-turn-error__raw {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 4px;
+}
+.cv-turn-error--card {
+  margin-block: 2px 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+.cv-turn-error--rail {
+  padding-inline-start: 10px;
+  border-inline-start: 2px solid color-mix(in srgb, var(--agent-danger) 70%, transparent);
+}
 
 /* R104: a block that appears while the reply streams, and a row that arrives live (a reply, a
  * tool call, a status line), fade in and rise 4px on the shared fade-in token. `translate` and

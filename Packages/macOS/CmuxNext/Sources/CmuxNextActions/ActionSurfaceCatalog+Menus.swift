@@ -62,7 +62,7 @@ nonisolated extension ActionSurfaceCatalog {
         "workspaceGroup.markUnread": [p(.workspaceGroup, .identity, 111, folder: .options)],
         "workspaceGroup.clearNotifications": [p(.workspaceGroup, .identity, 112, folder: .options)],
         "workspaceGroup.ungroup": [p(.workspaceGroup, .close, 500, label: ObjectMenuLabels.ungroup)],
-        "workspaceGroup.delete": [p(.workspaceGroup, .close, 502)],
+        "workspaceGroup.delete": [p(.workspaceGroup, .close, 600)],
         "workspaceGroup.editConfig": [p(.workspaceGroup, .identity, 130, folder: .options)],
         "saveLayoutTemplate": [p(.workspaceRow, .create, 103, folder: .new)],
         "palette.layout.open": [p(.workspaceRow, .create, 102, folder: .new)],
@@ -112,7 +112,7 @@ nonisolated extension ActionSurfaceCatalog {
         "workspaceGroup.moveToBottom": [p(.workspaceGroup, .move, 303, folder: .move, label: ObjectMenuLabels.moveToBottom)],
         "workspaceGroup.moveToWindow": [p(.workspaceGroup, .move, 311, folder: .move, label: ObjectMenuLabels.moveToWindow)],
         "workspaceGroup.closeWorkspaces": [p(.workspaceGroup, .close, 501, label: ObjectMenuLabels.closeAllInGroup)],
-        "workspaceGroup.closeOthers": [p(.workspaceGroup, .close, 503)],
+        "workspaceGroup.closeOthers": [p(.workspaceGroup, .close, 502)],
         "workspaceGroup.duplicate": [p(.workspaceGroup, .identity, 131, folder: .options)],
         "workspaceGroup.moveToNewWindow": [p(.workspaceGroup, .move, 310, folder: .move, label: ObjectMenuLabels.moveToNewWindow)],
         "workspaceGroup.color.grey": [p(.workspaceGroup, .identity, 0, in: "workspaceGroup.setColor", label: ObjectMenuLabels.colorName("grey"))],
@@ -176,7 +176,7 @@ nonisolated extension ActionSurfaceCatalog {
         "newTab.atStart": [p(.tab, .create, 4, folder: .new)],
         "newTab.atEnd": [p(.tab, .create, 5, folder: .new)],
         "newSurface": [p(.tab, .create, 0, folder: .new), p(.newTab, .create, 0)],
-        "openBrowser.chromium": [p(.tab, .create, 2, folder: .new), p(.newTab, .create, 2)],
+        "openBrowser.chromium": [p(.tab, .create, 2, folder: .new), p(.newTab, .create, 1)],
         "closeTab": [p(.tab, .close, 604)],
         // Close Other Tabs and Close Tabs to the Right are top-level rows (Chrome); Close Tabs to
         // the Left, which Chrome lacks, is a row in More (no one-row Close folder).
