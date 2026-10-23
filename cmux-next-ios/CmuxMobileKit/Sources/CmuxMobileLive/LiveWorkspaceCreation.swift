@@ -556,6 +556,8 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             case .browser:
                 let url = tab.url.flatMap { ["http", "https"].contains($0.scheme?.lowercased() ?? "") ? $0.absoluteString : nil }
                 reply = try await client.request("new-browser-tab", params: ["url": url ?? "about:blank", "pane": place.pane])
+            case .simulator:
+                throw WorkspaceCreationError("Duplicate phone tabs on your Mac.", isForPerson: true)
             case .agent:
                 // The Mac's Duplicate Tab on a chat opens a second tab of the same chat
                 // (`PaneController.duplicateAgentTab`), never a copy of the conversation.

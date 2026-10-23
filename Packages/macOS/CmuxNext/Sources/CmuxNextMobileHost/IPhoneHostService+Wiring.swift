@@ -2,7 +2,7 @@ public import CmuxNextAgentPane
 public import CmuxNextCloud
 import CmuxNextDaemon
 public import CmuxNextDaemonService
-import CmuxNextMobile
+public import CmuxNextMobile
 public import CmuxNextSettings
 public import Foundation
 
