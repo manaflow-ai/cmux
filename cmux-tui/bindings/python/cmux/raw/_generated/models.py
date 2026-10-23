@@ -1428,6 +1428,12 @@ class Screen:
 
 
 @dataclass(frozen=True)
+class SendExpectAgent:
+    __cmux_schema_path__: ClassVar[str] = 'types/SendExpectAgent'
+    session: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ServerStatsConnections:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsConnections'
     accepted: int
@@ -4343,7 +4349,9 @@ class SendRequest:
     text: Union[str, None, MissingType] = field(default=MISSING)
     bytes_data: Union[Base64, None, MissingType] = field(default=MISSING, metadata={'wire_name': 'bytes'})
     paste: Union[bool, MissingType] = field(default=MISSING)
+    expect_agent: Union[SendExpectAgent, None, MissingType] = field(default=MISSING)
     expect_foreground: Union[str, None, MissingType] = field(default=MISSING)
+    submit: Union[bool, MissingType] = field(default=MISSING)
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -6041,6 +6049,7 @@ __all__ = [
     'SavedTabGroupMember',
     'SavedTabGroupRecord',
     'Screen',
+    'SendExpectAgent',
     'ServerStatsConnections',
     'ServerStatsHistogram',
     'ServerStatsJournalWriter',
