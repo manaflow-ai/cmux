@@ -93,9 +93,9 @@ export function ForkButton({ onFork }: { onFork(): Promise<unknown> }) {
         <TurnFork size={ROW_ICON} />
       </button>
       {failed && (
-        <span className="cv-fork-status" role="status" aria-live="polite">
+        <output className="cv-fork-status" aria-live="polite">
           {t("notice.forkFailed")}
-        </span>
+        </output>
       )}
     </>
   );

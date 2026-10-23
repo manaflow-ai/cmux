@@ -76,5 +76,5 @@ test("fork refusal leaves a localized terminal error", async () => {
   expect(button.disabled).toBe(false);
   expect(button.dataset.forkState).toBe("error");
   expect(button.title).toBe(translate("notice.forkFailed"));
-  expect(container.querySelector('[role="status"]')?.textContent).toBe(translate("notice.forkFailed"));
+  expect(container.querySelector(".cv-fork-status")?.textContent).toBe(translate("notice.forkFailed"));
 });
