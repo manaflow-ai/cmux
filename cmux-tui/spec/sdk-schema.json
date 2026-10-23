@@ -7176,6 +7176,24 @@
       "kind": "scalar",
       "name": "string"
      }
+    },
+    "pane_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "row-client-keys-v1"
+    },
+    "tab_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "row-client-keys-v1"
     }
    },
    "kind": "object"
@@ -22416,6 +22434,38 @@
        "kind": "scalar",
        "name": "string"
       }
+     },
+     "pane_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "row-client-keys-v1",
+      "constraints": [
+       {
+        "pattern": "^pane_[0-9a-f]{32}$",
+        "format": "client-minted public pane id"
+       }
+      ]
+     },
+     "tab_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "row-client-keys-v1",
+      "constraints": [
+       {
+        "pattern": "^tab_[0-9a-f]{32}$",
+        "format": "client-minted public tab id"
+       }
+      ]
      }
     },
     "kind": "object"
