@@ -99,6 +99,15 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette], requires: [.cloudWorkspace], arguments: [CatalogArgument.commandString], targets: [.machine],
                 cliName: "cloud exec", startsTerminal: true
             ),
+            // One click on a machine: this Mac's git identity, and a gh sign-in the person approves
+            // in their browser (device flow); no token leaves the Mac (CloudGitHubSetup).
+            ActionDescriptor(
+                id: "cloudSetupGitHub",
+                title: String(localized: "action.cloudSetupGitHub", defaultValue: "Set Up GitHub on This Machine", bundle: .module),
+                keywords: ["vm", "cloud", "github", "gh", "git", "login", "sign in", "identity"], category: .cloud,
+                symbol: "person.badge.key", surfaces: [.palette, .contextMenu], targets: [.machine],
+                cliName: "cloud setup-github"
+            ),
             ActionDescriptor(
                 id: "cloudFilesList",
                 title: String(localized: "action.cloudFilesList", defaultValue: "List Cloud Files…", bundle: .module),
@@ -278,6 +287,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             // output, the new machine's or workspace's id (CloudHandlers+Results.swift).
             "palette.cloud.status", "palette.cloud.ports", "palette.cloud.tools", "palette.cloud.handoff",
             "palette.cloud.snapshot", "palette.cloud.promoteTemplate", "cloudExec", "newCloudMachine", "cloudNewTerminal",
+            "cloudSetupGitHub",
         ]
         for index in actions.indices where waitsForResult.contains(actions[index].id) {
             actions[index].waitsForResult = true
