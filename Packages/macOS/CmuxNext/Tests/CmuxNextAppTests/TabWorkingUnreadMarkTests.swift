@@ -29,9 +29,11 @@ import Testing
         return item
     }
 
-    private static func cell(_ kind: Kind, unread: Bool = true, busy: Bool = true, selected: Bool = true, width: CGFloat = 220) -> TabCell {
+    private static func cell(_ kind: Kind, unread: Bool = true, busy: Bool = true, selected: Bool = true, hovered: Bool = false,
+                             width: CGFloat = 220) -> TabCell {
         let cell = TabCell(item: item(kind, unread: unread, busy: busy))
         cell.isSelected = selected
+        cell.isHovered = hovered
         cell.frame = CGRect(x: 0, y: 0, width: width, height: 32)
         cell.layoutLayers()
         return cell
@@ -61,8 +63,8 @@ import Testing
 
     /// The slot ends the title-to-x gap before the x (selected tab) or at the trailing inset.
     @Test(arguments: Kind.allCases) func theSpinnerSitsInTheStateSlotAtTheEnd(kind: Kind) throws {
-        let selected = Self.cell(kind, selected: true)
-        let close = try #require(selected.closeButtonRect, "\(kind): a selected tab shows its x")
+        let selected = Self.cell(kind, selected: true, hovered: true)
+        let close = try #require(selected.closeButtonRect, "\(kind): a hovered selected tab shows its x")
         let spinner = try #require(Self.marks(selected)["loading"])
         #expect(abs(spinner.maxX - (close.minX - selected.metrics.titleCloseSpacing)) < 0.51,
                 "\(kind): the spinner ends at \(spinner.maxX), the slot at \(close.minX - selected.metrics.titleCloseSpacing)")
