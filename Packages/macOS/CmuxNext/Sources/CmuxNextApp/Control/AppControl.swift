@@ -360,6 +360,8 @@ final class AppControl {
             .async("debug.new_tab") { [weak services] call in
                 await DebugNewTab.handle(call.params, services)
             }.withDeadline(.fixed(.seconds(15))), DebugNewTerminalTrace.method(services),
+            // Agent chat open: stages and the pane's surface per frame (Leo 2026-10-22, the black gap).
+            DebugChatOpenTrace.method(services),
             // R131: hover card retarget timing across the focused strip's tabs.
             .async("debug.hover_sweep") { [weak services] call in
                 guard let services else { return .null }

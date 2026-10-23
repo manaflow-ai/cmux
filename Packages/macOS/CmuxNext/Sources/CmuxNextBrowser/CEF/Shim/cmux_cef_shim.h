@@ -355,6 +355,12 @@ CMUX_SHIM_EXPORT void cmux_shim_stop(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_set_focus(int browser_id, int focus);
 // Without a handler every focus request wins (CEF's default).
 CMUX_SHIM_EXPORT void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn handler);
+// Main thread, after the page left a Command or Control key down unhandled
+// (CefKeyboardHandler::OnKeyEvent: no preventDefault). Return 1 when the host
+// ran a shortcut it held back for the page (cmux Find after a page without
+// its own); Chromium's own handling of the key then stops. Without a handler
+// the key goes on to Chromium.
+CMUX_SHIM_EXPORT void cmux_shim_set_unhandled_key_handler(cmux_shim_key_fn handler);
 CMUX_SHIM_EXPORT void cmux_shim_set_zoom_level(int browser_id, double level);
 // CefBrowserHost::SetAccessibilityState: 1 builds the page's accessibility tree (an assistive
 // client asked for the app's), 0 turns it off.
