@@ -1,0 +1,521 @@
+#!/usr/bin/env python3
+"""Shell integration costs nothing per prompt: forks per prompt and first-prompt time.
+
+usage:
+  python3 -I scripts/cmux-next/shell-integration-bench.py --app "/path/cmux NIGHTLY.app"
+  python3 -I scripts/cmux-next/shell-integration-bench.py            # this checkout (needs ghostty-next)
+  options: --shells zsh,bash,fish  --bash /opt/homebrew/bin/bash  --require zsh,bash
+           --layouts app,daemon  --reps 9  --cycles 20  --max-overhead-ms 15  --json out.json
+
+What it runs. Every shell starts the way a cmux-next terminal starts it: a login shell on a pty
+(`-zsh`, `-bash --posix`, `-fish`, as the daemon's login(1) start does) with the environment the
+app writes (GhosttyShellIntegration.apply, then BundledCLIEnvironment.apply, plus the daemon's
+CMUX_TUI_AGENT_SHIMS): Ghostty's integration from ghostty-next under the app's
+`<Resources>/cmux-cli-path` layer. Layout `app` is the app's own spawn (the bundle's
+`ghostty/shell-integration`); layout `daemon` is a shell the cmux-tui daemon integrates (the same
+Ghostty files with cmux-tui's agent shims appended, as shell_integration.rs writes them). Each
+shell has an empty HOME whose only startup file sets a plain prompt, so the integration is the only
+code that differs from the control: the same shell, same flags, without the integration env.
+
+What it counts. Each run takes three PID probes (a forked child that exits at once): before the
+spawn, at the first prompt, and after `--cycles` prompt cycles. A cycle types `true` one key at a
+time (each key waits for its echo), presses Return and waits for the next prompt, so keystrokes,
+preexec, precmd and the prompt all fall in the window. PIDs are handed out in sequence (macOS and
+Linux), so the PID gap is the number of processes forked in the window: by the shell, plus any
+other process on the host. The minimum over `--reps` runs drops that noise. Integration cost =
+integrated minus control:
+  startup forks   forks from the spawn to the first prompt
+  forks/cycle     (cycle-window forks) / cycles; a cycle with one fork shows as >= 1.0
+  first prompt    median time from the spawn to the first prompt, and its overhead over control
+
+Pass (exit 0): for every shell that ran, startup forks <= 0, forks/cycle < budget + 0.5, the
+first-prompt overhead <= --max-overhead-ms, and each integrated run wrote its prompt marks
+(OSC 133;C per command; the OSC 2 title `true` for zsh and bash) with no shell error. Budgets are 0
+except bash 4.4-5.2, where Ghostty runs its preexec hook from PS0 in a command substitution (the
+only pre-command hook bash has before 5.3, 2 forks per command). Exit 1 on a failure, 2 when no
+shell could run or a `--require`d shell is missing. Apple's /bin/bash 3.2 is skipped: Ghostty does
+not integrate it. A host with busy background spawns can only make the minimum larger, never
+smaller, so noise cannot hide a fork; rerun on an idle host if a result is noisy.
+"""
+
+from __future__ import annotations
+
+import argparse
+import fcntl
+import json
+import os
+import pty
+import re
+import select
+import shutil
+import signal
+import statistics
+import struct
+import subprocess
+import sys
+import tempfile
+import termios
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+SHIMS_SRC = ROOT / "cmux-tui/crates/cmux-tui-core/src/shell_integration"
+PROMPT = b"@@P@@ "
+BARRIER = b"^"
+KILL_LINE = b"\x15"
+COMMAND = b"true"
+ERRORS = (b"bad substitution", b"command not found", b"parse error", b"syntax error",
+          b"fork failed", b"nknown command")
+GHOSTTY_FEATURES = "cursor:blink,path,title"
+DEFAULT_XDG = "/usr/local/share:/usr/share"
+SYSTEM_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
+
+
+class BenchError(Exception):
+    pass
+
+
+class PidWrapped(Exception):
+    """The PID counter wrapped inside the run: its fork counts mean nothing."""
+
+
+@dataclass
+class Layout:
+    """Where one spawn path finds its scripts."""
+    name: str
+    integration: Path  # Ghostty's shell-integration dir as the shell sees it
+    cli_path: Path     # <Resources>/cmux-cli-path
+    cli: Path          # <Resources>/bin/cmux
+    ghostty_resources: Path
+
+
+@dataclass
+class Shell:
+    name: str
+    path: str
+    version: str
+    argv: list[str]          # control argv; the integrated bash adds --posix
+    cycle_budget: int
+
+
+@dataclass
+class Run:
+    startup_forks: int
+    cycle_forks: int
+    first_prompt_ms: float
+    output: bytes = field(repr=False, default=b"")
+
+
+def probe_pid() -> int:
+    """The PID of a child forked now: the system's PID counter at this moment."""
+    pid = os.fork()
+    if pid == 0:
+        os._exit(0)
+    os.waitpid(pid, 0)
+    return pid
+
+
+class Session:
+    """One shell on a pty, driven by what it prints (no timed waits)."""
+
+    def __init__(self, path: str, argv: list[str], env: dict[str, str], timeout: float):
+        self.timeout = timeout
+        self.buf = b""
+        self.pid, self.fd = pty.fork()
+        if self.pid == 0:
+            try:
+                fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 120, 0, 0))
+                os.chdir(env["HOME"])
+                os.execve(path, argv, env)
+            finally:
+                os._exit(127)
+
+    def wait_for(self, done, what: str) -> None:
+        deadline = time.monotonic() + self.timeout
+        while not done(self.buf):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise BenchError(f"timed out waiting for {what}; last output: {self.tail()}")
+            ready, _, _ = select.select([self.fd], [], [], remaining)
+            if not ready:
+                continue
+            try:
+                data = os.read(self.fd, 65536)
+            except OSError:
+                data = b""
+            if not data:
+                raise BenchError(f"shell exited while waiting for {what}; last output: {self.tail()}")
+            self.buf += data
+
+    def tail(self) -> str:
+        return self.buf[-600:].decode("utf-8", "replace").encode("unicode_escape").decode()
+
+    def prompts(self) -> int:
+        return self.buf.count(PROMPT)
+
+    def type_key(self, key: bytes) -> None:
+        mark = len(self.buf)
+        os.write(self.fd, key)
+        self.wait_for(lambda b: key in b[mark:], f"the echo of {key!r}")
+
+    def barrier(self) -> None:
+        """Returns once the line editor reads keys again: every prompt hook has run."""
+        self.type_key(BARRIER)
+        os.write(self.fd, KILL_LINE)
+
+    def cycle(self) -> None:
+        for key in COMMAND:
+            self.type_key(bytes([key]))
+        seen = self.prompts()
+        os.write(self.fd, b"\r")
+        self.wait_for(lambda b: b.count(PROMPT) > seen, "the next prompt")
+
+    def close(self) -> None:
+        try:
+            os.write(self.fd, KILL_LINE + b"exit\r")
+            self.wait_for(lambda b: False, "exit")
+        except (BenchError, OSError):
+            pass
+        try:
+            pid, _ = os.waitpid(self.pid, os.WNOHANG)
+            if pid == 0:
+                os.kill(self.pid, signal.SIGKILL)
+                os.waitpid(self.pid, 0)
+        except ChildProcessError:
+            pass
+        os.close(self.fd)
+
+
+def run_once(shell: Shell, argv: list[str], env: dict[str, str], cycles: int, timeout: float) -> Run:
+    before = probe_pid()
+    start = time.perf_counter()
+    session = Session(shell.path, argv, env, timeout)
+    try:
+        session.wait_for(lambda b: PROMPT in b, "the first prompt")
+        first_prompt_ms = (time.perf_counter() - start) * 1000
+        session.barrier()
+        at_prompt = probe_pid()
+        for _ in range(cycles):
+            session.cycle()
+        session.barrier()
+        after = probe_pid()
+    finally:
+        session.close()
+    if not before < at_prompt < after:
+        raise PidWrapped()
+    # before -> shell -> its forks -> at_prompt -> its forks -> after
+    return Run(at_prompt - before - 2, after - at_prompt - 1, first_prompt_ms, session.buf)
+
+
+def write_home(home: Path) -> None:
+    """A HOME whose startup files only set a prompt the bench can find."""
+    home.mkdir(parents=True, exist_ok=True)
+    prompt = PROMPT.decode()
+    # An existing .zshrc also keeps zsh-newuser-install from asking questions.
+    (home / ".zshrc").write_text(f"PS1='{prompt}'\nSAVEHIST=0\n")
+    (home / ".bash_profile").write_text(f"PS1='{prompt}'\n")
+    (home / ".bashrc").write_text(f"PS1='{prompt}'\n")
+    fish = home / ".config/fish"
+    fish.mkdir(parents=True, exist_ok=True)
+    # fish starts its man-page completion generator in the background until this exists.
+    (home / ".local/share/fish/generated_completions").mkdir(parents=True, exist_ok=True)
+    (fish / "config.fish").write_text(
+        "set -g fish_greeting ''\n"
+        "set -g fish_autosuggestion_enabled 0\n"
+        f"function fish_prompt; printf '%s' '{prompt}'; end\n"
+        "function fish_right_prompt; end\n"
+    )
+
+
+def base_env(home: Path, shell: Shell) -> dict[str, str]:
+    env = {
+        "HOME": str(home),
+        "USER": os.environ.get("USER", "bench"),
+        "LOGNAME": os.environ.get("LOGNAME", os.environ.get("USER", "bench")),
+        "PATH": SYSTEM_PATH,
+        "SHELL": shell.path,
+        "TERM": "xterm-256color",
+        "LANG": "en_US.UTF-8",
+    }
+    if "TMPDIR" in os.environ:
+        env["TMPDIR"] = os.environ["TMPDIR"]
+    return env
+
+
+def integrated_env(base: dict[str, str], shell: Shell, layout: Layout, shims: Path) -> dict[str, str]:
+    """GhosttyShellIntegration.apply, then BundledCLIEnvironment.apply (the daemon's
+    cli_path::wrap writes the same), plus the daemon's agent shim directory."""
+    env = dict(base)
+    env["GHOSTTY_RESOURCES_DIR"] = str(layout.ghostty_resources)
+    env["XDG_DATA_DIRS"] = f"{DEFAULT_XDG}:{layout.ghostty_resources}/.."
+    env["GHOSTTY_SHELL_FEATURES"] = GHOSTTY_FEATURES
+    integration = str(layout.integration)
+    if shell.name == "zsh":
+        env["ZDOTDIR"] = integration + "/zsh"
+    elif shell.name == "bash":
+        env["ENV"] = integration + "/bash/ghostty.bash"
+        env["GHOSTTY_BASH_INJECT"] = "1"
+        env["HISTFILE"] = base["HOME"] + "/.bash_history"
+        env["GHOSTTY_BASH_UNEXPORT_HISTFILE"] = "1"
+    elif shell.name == "fish":
+        env["GHOSTTY_SHELL_INTEGRATION_XDG_DIR"] = integration
+        env["XDG_DATA_DIRS"] = integration + ":" + env["XDG_DATA_DIRS"]
+    bin_dir = str(layout.cli.parent)
+    env["PATH"] = f"{shims}:{bin_dir}:{SYSTEM_PATH}"
+    env["CMUX_BUNDLED_CLI_PATH"] = str(layout.cli)
+    env["CMUX_TUI_AGENT_SHIMS"] = str(shims)
+    layer = str(layout.cli_path)
+    if shell.name == "zsh":
+        env["CMUX_CLI_ZSH_ZDOTDIR"] = env["ZDOTDIR"]
+        env["ZDOTDIR"] = layer + "/zsh"
+    elif shell.name == "bash":
+        env["CMUX_CLI_BASH_ENV"] = env["ENV"]
+        env["ENV"] = layer + "/bash/cmux-cli-path.bash"
+    elif shell.name == "fish":
+        env["CMUX_CLI_FISH_XDG_DIR"] = layer
+        env["XDG_DATA_DIRS"] = layer + ":" + env["XDG_DATA_DIRS"]
+    return env
+
+
+def daemon_integration(ghostty: Path, dest: Path) -> Path:
+    """The scripts the cmux-tui daemon materializes (shell_integration.rs SCRIPTS)."""
+    files = {
+        "zsh/.zshenv": [ghostty / "zsh/.zshenv"],
+        "zsh/ghostty-integration": [ghostty / "zsh/ghostty-integration", SHIMS_SRC / "agent-shims.zsh"],
+        "bash/ghostty.bash": [ghostty / "bash/ghostty.bash", SHIMS_SRC / "agent-shims.bash"],
+        "bash/bash-preexec.sh": [ghostty / "bash/bash-preexec.sh"],
+        "fish/vendor_conf.d/ghostty-shell-integration.fish":
+            [ghostty / "fish/vendor_conf.d/ghostty-shell-integration.fish"],
+        "fish/vendor_conf.d/cmux-tui-agent-shims.fish": [SHIMS_SRC / "cmux-tui-agent-shims.fish"],
+    }
+    for rel, parts in files.items():
+        target = dest / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("".join(part.read_text() for part in parts))
+    return dest
+
+
+def source_resources(ghostty_integration: Path, dest: Path) -> Path:
+    """A Contents/Resources made of this checkout's files, as bundle-ghostty-resources.sh lays them out."""
+    resources = dest / "cmux DEV bench.app/Contents/Resources"
+    (resources / "ghostty").mkdir(parents=True)
+    (resources / "bin").mkdir()
+    (resources / "ghostty/shell-integration").symlink_to(ghostty_integration)
+    (resources / "cmux-cli-path").symlink_to(ROOT / "Resources/cmux-cli-path")
+    cli = resources / "bin/cmux"
+    cli.write_text("#!/bin/sh\nexit 0\n")
+    cli.chmod(0o755)
+    return resources
+
+
+def version_of(path: str, name: str) -> str:
+    if name == "bash":
+        script = 'printf "%s.%s" "${BASH_VERSINFO[0]}" "${BASH_VERSINFO[1]}"'
+        return subprocess.run([path, "-c", script], capture_output=True, text=True, timeout=10).stdout.strip()
+    out = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=10).stdout
+    match = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", out)
+    return match.group(0) if match else "?"
+
+
+def find_shells(names: list[str], bash_path: str | None) -> tuple[list[Shell], dict[str, str]]:
+    shells: list[Shell] = []
+    skipped: dict[str, str] = {}
+    for name in names:
+        if name == "bash" and bash_path:
+            candidates = [bash_path]
+        elif name == "bash":
+            candidates = ["/opt/homebrew/bin/bash", "/usr/local/bin/bash", shutil.which("bash") or ""]
+        elif name == "fish":
+            candidates = [shutil.which("fish") or "", "/opt/homebrew/bin/fish", "/usr/local/bin/fish"]
+        else:
+            candidates = ["/bin/zsh", shutil.which("zsh") or ""]
+        path = next((c for c in candidates if c and os.access(c, os.X_OK)), None)
+        if not path:
+            skipped[name] = "not installed"
+            continue
+        if name == "bash" and sys.platform == "darwin" and path == "/bin/bash":
+            skipped[name] = "only Apple's /bin/bash 3.2, which Ghostty does not integrate (pass --bash)"
+            continue
+        version = version_of(path, name)
+        budget = 0
+        if name == "bash":
+            major, minor = (int(part) for part in (version.split(".") + ["0"])[:2])
+            if (major, minor) < (4, 4):
+                skipped[name] = f"bash {version}: older than 4.4"
+                continue
+            if (major, minor) < (5, 3):
+                budget = 2
+        login = "-" + os.path.basename(path)
+        shells.append(Shell(name, path, version, [login], budget))
+    return shells, skipped
+
+
+def check_output(shell: Shell, run: Run, cycles: int) -> list[str]:
+    problems = []
+    for error in ERRORS:
+        if error in run.output:
+            index = run.output.index(error)
+            context = run.output[max(0, index - 120):index + 60].decode("utf-8", "replace")
+            problems.append(f"shell error {error.decode()!r}: {context.encode('unicode_escape').decode()}")
+    marks = run.output.count(b"\x1b]133;C")
+    if marks < cycles:
+        problems.append(f"{marks} OSC 133;C marks for {cycles} commands (preexec did not run)")
+    if shell.name in ("zsh", "bash") and b"\x1b]2;true\x07" not in run.output:
+        problems.append("no OSC 2 title for the command (preexec title did not run)")
+    return problems
+
+
+def measure(shell: Shell, layout: Layout, home: Path, shims: Path, args) -> dict:
+    control_env = base_env(home, shell)
+    integrated = integrated_env(control_env, shell, layout, shims)
+    integrated_argv = shell.argv + (["--posix"] if shell.name == "bash" else [])
+    runs: dict[str, list[Run]] = {"control": [], "integrated": []}
+    problems: list[str] = []
+    for rep in range(args.warmup + args.reps):
+        order = [("control", shell.argv, control_env), ("integrated", integrated_argv, integrated)]
+        if rep % 2:
+            order.reverse()
+        for variant, argv, env in order:
+            for attempt in range(3):
+                try:
+                    run = run_once(shell, argv, env, args.cycles, args.timeout)
+                    break
+                except PidWrapped:
+                    if attempt == 2:
+                        raise BenchError("the PID counter wrapped in three runs in a row")
+            if variant == "integrated":
+                problems += [p for p in check_output(shell, run, args.cycles) if p not in problems]
+            if rep >= args.warmup:
+                runs[variant].append(run)
+    control, integ = runs["control"], runs["integrated"]
+    startup = min(r.startup_forks for r in integ) - min(r.startup_forks for r in control)
+    cycle_total = min(r.cycle_forks for r in integ) - min(r.cycle_forks for r in control)
+    per_cycle = cycle_total / args.cycles
+    first_control = statistics.median(r.first_prompt_ms for r in control)
+    first_integrated = statistics.median(r.first_prompt_ms for r in integ)
+    overhead = first_integrated - first_control
+    if startup > 0:
+        problems.append(f"{startup} fork(s) from the spawn to the first prompt (budget 0)")
+    if cycle_total >= (shell.cycle_budget + 0.5) * args.cycles:
+        problems.append(f"{per_cycle:.2f} forks per prompt cycle (budget {shell.cycle_budget})")
+    if overhead > args.max_overhead_ms:
+        problems.append(f"first prompt {overhead:.1f} ms slower than without the integration "
+                        f"(budget {args.max_overhead_ms:g} ms)")
+    return {
+        "shell": shell.name, "path": shell.path, "version": shell.version, "layout": layout.name,
+        "startup_forks": startup, "forks_per_cycle": round(per_cycle, 2),
+        "cycle_budget": shell.cycle_budget,
+        "control_startup_forks_min": min(r.startup_forks for r in control),
+        "first_prompt_ms": {"control": round(first_control, 1), "integrated": round(first_integrated, 1),
+                            "overhead": round(overhead, 1),
+                            "integrated_max": round(max(r.first_prompt_ms for r in integ), 1)},
+        "pass": not problems, "problems": problems,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--app", type=Path, help="a built cmux-next .app (default: this checkout's files)")
+    parser.add_argument("--ghostty-integration", type=Path,
+                        help="Ghostty's shell-integration dir (default: ghostty-next/src/shell-integration)")
+    parser.add_argument("--shells", default="zsh,bash,fish")
+    parser.add_argument("--require", default="", help="shells that must run, e.g. zsh,bash")
+    parser.add_argument("--bash", help="the bash to run (default: Homebrew's, else PATH's)")
+    parser.add_argument("--layouts", default="app,daemon")
+    parser.add_argument("--reps", type=int, default=9)
+    parser.add_argument("--warmup", type=int, default=1)
+    parser.add_argument("--cycles", type=int, default=20)
+    parser.add_argument("--max-overhead-ms", type=float, default=15.0)
+    parser.add_argument("--timeout", type=float, default=20.0, help="seconds per wait for the shell")
+    parser.add_argument("--json", type=Path)
+    args = parser.parse_args()
+
+    tmp = Path(tempfile.mkdtemp(prefix="cmux-shell-bench-"))
+    try:
+        if args.app:
+            resources = args.app / "Contents/Resources"
+        else:
+            ghostty = args.ghostty_integration or ROOT / "ghostty-next/src/shell-integration"
+            if not (ghostty / "zsh/ghostty-integration").is_file():
+                print(f"error: no Ghostty shell integration at {ghostty} "
+                      "(git submodule update --init ghostty-next, or pass --ghostty-integration/--app)",
+                      file=sys.stderr)
+                return 2
+            resources = source_resources(ghostty.resolve(), tmp / "src")
+        app_integration = resources / "ghostty/shell-integration"
+        for needed in (app_integration / "zsh/ghostty-integration", resources / "cmux-cli-path/zsh/.zshenv",
+                       resources / "bin/cmux"):
+            if not needed.exists():
+                print(f"error: {needed} is missing", file=sys.stderr)
+                return 2
+        layouts = []
+        for name in args.layouts.split(","):
+            if name == "app":
+                integration = app_integration
+            elif name == "daemon":
+                if not (SHIMS_SRC / "agent-shims.bash").is_file():
+                    print(f"note: no cmux-tui agent shims at {SHIMS_SRC}; daemon layout skipped")
+                    continue
+                integration = daemon_integration(app_integration.resolve(), tmp / "daemon-integration")
+            else:
+                print(f"error: unknown layout {name}", file=sys.stderr)
+                return 2
+            layouts.append(Layout(name, integration, resources / "cmux-cli-path", resources / "bin/cmux",
+                                  resources / "ghostty"))
+        if args.app and (resources / "shell-integration").exists():
+            print(f"note: {resources / 'shell-integration'} (the classic cmux integration) is in the bundle; "
+                  "cmux-next injects only ghostty/shell-integration and cmux-cli-path")
+
+        shims = tmp / "agent-shims"
+        shims.mkdir()
+        (shims / "codex").write_text("#!/bin/sh\nexit 0\n")
+        (shims / "codex").chmod(0o755)
+
+        names = [n for n in args.shells.split(",") if n]
+        shells, skipped = find_shells(names, args.bash)
+        for name, why in skipped.items():
+            print(f"SKIP {name}: {why}")
+        missing = [n for n in args.require.split(",") if n and n in skipped]
+        if not shells:
+            print("FAIL: no shell could run", file=sys.stderr)
+            return 2
+
+        results = []
+        for shell in shells:
+            home = tmp / f"home-{shell.name}"
+            write_home(home)
+            for layout in layouts:
+                try:
+                    results.append(measure(shell, layout, home, shims, args))
+                except BenchError as error:
+                    results.append({"shell": shell.name, "path": shell.path, "version": shell.version,
+                                    "layout": layout.name, "pass": False, "problems": [str(error)]})
+
+        print(f"\nhost: {os.uname().nodename} {sys.platform} {os.uname().release}; "
+              f"reps {args.reps} (min forks, median time), cycles {args.cycles}")
+        print(f"{'shell':<16} {'layout':<7} {'startup forks':>13} {'forks/cycle':>11} "
+              f"{'first prompt ms (ctrl/int/+)':>30}  result")
+        for r in results:
+            label = f"{r['shell']} {r['version']}"
+            if "first_prompt_ms" in r:
+                fp = r["first_prompt_ms"]
+                times = f"{fp['control']:.1f} / {fp['integrated']:.1f} / {fp['overhead']:+.1f}"
+                print(f"{label:<16} {r['layout']:<7} {r['startup_forks']:>13} {r['forks_per_cycle']:>11.2f} "
+                      f"{times:>30}  {'PASS' if r['pass'] else 'FAIL'}")
+            else:
+                print(f"{label:<16} {r['layout']:<7} {'-':>13} {'-':>11} {'-':>30}  FAIL")
+            for problem in r["problems"]:
+                print(f"    {problem}")
+        if args.json:
+            args.json.write_text(json.dumps({"results": results, "skipped": skipped}, indent=2) + "\n")
+        if missing:
+            print(f"FAIL: required shell(s) did not run: {', '.join(missing)}", file=sys.stderr)
+            return 2
+        return 0 if all(r["pass"] for r in results) else 1
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
