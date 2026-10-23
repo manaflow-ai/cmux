@@ -1,0 +1,122 @@
+// The Inspector's running limit (inspector/SubagentLimitStepper.tsx) reads the chat's
+// `subsessionLimits` from the attach reply's session detail, and acpmux logs a `subsession` record
+// with `event: "limits"` whenever the limit changes (the person, an ancestor, another client). The
+// attach asks for that kind, and the snapshot takes a record newer than the attach; one the page
+// replays (at or below the attach's lastSeq) never takes the limit back, so − and + always step
+// from the number acpmux holds.
+import { expect, test } from "bun:test";
+import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+
+const CHAT = "0190a000-0000-7000-8000-0000000000f7";
+const START = Date.UTC(2026, 9, 21, 9, 0, 0);
+type Step = [dir: string, kind: string, msg: Record<string, unknown>];
+const record = (steps: Step[], from = 1) =>
+  steps.map(([dir, kind, msg], index) => ({
+    sessionId: CHAT,
+    seq: from + index,
+    at: START + (from + index) * 1000,
+    dir,
+    kind,
+    msg,
+  }));
+type Recorded = ReturnType<typeof record>[number];
+const limits = (maxRunning: number, maxRunningSource = "session") => ({ maxRunning, maxRunningSource });
+const changed = (maxRunning: number): Step => ["mux", "subsession", { event: "limits", limits: limits(maxRunning) }];
+
+/// A daemon over a fake socket: attach answers with `history` and the detail's limit of 8;
+/// `push` sends live events; `asked` keeps each request's params by method.
+function fakeDaemon(history: Recorded[]) {
+  let socket: any;
+  const asked = new Map<string, any>();
+  const session = { sessionId: CHAT, cwd: "/Users/dev/app", title: "x", harness: "claude", status: "idle" };
+  const lastSeq = () => history.at(-1)?.seq ?? 0;
+  const answer = (method: string) => {
+    switch (method) {
+      case "initialize":
+        return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+      case "_acpmux/watch":
+        return { sessions: [session] };
+      case "_acpmux/attach":
+        return {
+          session: { ...session, subsessionLimits: limits(8) },
+          lastSeq: lastSeq(),
+          events: history,
+          hasMore: false,
+        };
+      case "_acpmux/events":
+        return { events: [], hasMore: false, more: false, lastSeq: lastSeq() };
+      case "_acpmux/subsession/limits":
+        return { sessionId: CHAT, subsessionLimits: limits(asked.get(method)?.maxRunning ?? 16) };
+      default:
+        return null;
+    }
+  };
+  const open = () => {
+    socket = {
+      readyState: 1,
+      send(raw: string) {
+        const message = JSON.parse(raw);
+        if (message.method) asked.set(message.method, message.params);
+        if (message.id !== undefined)
+          queueMicrotask(() =>
+            socket.onmessage?.({
+              data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }),
+            }),
+          );
+      },
+      close() {},
+    };
+    queueMicrotask(() => socket.onopen?.());
+    return socket as WebSocket;
+  };
+  const push = (events: Recorded[]) => {
+    for (const event of events) {
+      history.push(event);
+      socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }) });
+    }
+  };
+  return { open, push, asked };
+}
+
+/// Yields until `ready()` holds; fails after 2 s with what it waited for.
+async function until(ready: () => boolean, what: string) {
+  const deadline = performance.now() + 2_000;
+  while (!ready()) {
+    if (performance.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}
+
+test("the attach asks for the limit's records, and only one newer than the attach moves it", async () => {
+  // The page replays two older changes (to 3, then 5); the detail's 8 is what acpmux holds now.
+  const daemon = fakeDaemon(record([["mux", "user_message", { text: "start the agents" }], changed(3), changed(5)]));
+  let snapshot: any;
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (next: any) => (snapshot = next),
+    undefined,
+    daemon.open,
+  );
+  try {
+    await until(() => snapshot?.connection === "connected", "the attach");
+    const kinds: string[] = daemon.asked.get("_acpmux/attach")?.kinds ?? [];
+    expect(kinds).toContain("subsession");
+    // A remote cmux-tui refuses more than 8 kinds; the queue's go only to a local acpmux.
+    expect(kinds.filter((kind) => !["queue_order", "queue_updated", "prompt_refused"].includes(kind)).length).toBe(8);
+    expect(snapshot.summary.subsessionLimits).toEqual({ maxRunning: 8, maxRunningSource: "session" });
+    // A record at or below the attach's lastSeq (3) is history.
+    daemon.push(record([changed(2)], 3));
+    daemon.push(record([["mux", "turn_started", {}]], 4));
+    await until(() => snapshot.isWorking === true, "the turn");
+    expect(snapshot.summary.subsessionLimits.maxRunning).toBe(8);
+    // A newer one is the limit now.
+    daemon.push(record([changed(12)], 5));
+    await until(() => snapshot.summary.subsessionLimits?.maxRunning === 12, "the live limit");
+    // The reply to the pane's own change moves it at once.
+    await client.setRunningLimit(CHAT, 13);
+    expect(daemon.asked.get("_acpmux/subsession/limits")).toEqual({ sessionId: CHAT, maxRunning: 13 });
+    await until(() => snapshot.summary.subsessionLimits?.maxRunning === 13, "the reply's limit");
+  } finally {
+    client.close();
+  }
+});
