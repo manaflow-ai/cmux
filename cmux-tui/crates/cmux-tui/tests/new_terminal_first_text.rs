@@ -160,7 +160,11 @@ fn new_tab_first_text(debug_env: &[(&str, String)]) -> (u64, u64, u64) {
         assert!(Instant::now() < deadline, "no first_printable_output mark:\n{lines}");
         std::thread::sleep(Duration::from_millis(50));
     };
-    let _ = daemon.kill();
+    // End every terminal host this test made: a durable host outlives a
+    // killed daemon (cx-leo45).
+    let identity = client.call(json!({"cmd": "identify"}));
+    client.call(json!({"cmd": "shutdown-daemon", "pid": identity["pid"],
+        "generation": identity["generation"], "force": true, "end_terminals": true}));
     let _ = daemon.wait();
     let _ = fs::remove_dir_all(&dir);
     (first_text_us / 1000, reply_ms, durable_ms)
