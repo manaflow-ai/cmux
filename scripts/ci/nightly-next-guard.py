@@ -17,6 +17,7 @@ environment value cannot allow them. Exit 0 when allowed, 1 with a reason.
 """
 
 import os
+import re
 import sys
 import xml.etree.ElementTree as ET
 
@@ -32,6 +33,12 @@ MAIN_FEED_PREFIXES = (
 )
 MAIN_OBJECT_PREFIXES = ("nightly/", "rc/", "stable/")
 NEXT_DOWNLOAD_PREFIX = "https://github.com/manaflow-ai/cmux/releases/download/nightly-next/"
+# Dev fast builds (nightly.yml dev_sha, Leo 2026-10-23): signed, never
+# notarized, on R2 as <build>/cmux-nightly-next-macos[-nightlyid]-dev-arm64-<build>.dmg.
+# Such an item may only carry the Dev ring's tag, so Nightly never gets one.
+DEV_FAST_DOWNLOAD_PREFIX = "https://files-next.cmux.com/nightly-next/dev/"
+DEV_FAST_NAME = re.compile(r"(\d+)/cmux-nightly-next-macos(?:-nightlyid)?-dev-arm64-\1\.dmg")
+DEV_CHANNEL = "cmux-next-dev"
 SPARKLE_NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 # Every cmux-next item carries exactly one of these sparkle:channel tags, one
 # per release ring (UpdateRing.sparkleChannel; scripts/ci/nightly_next_ring.py
@@ -81,11 +88,20 @@ def check_appcast(path):
         if len(channels) != 1 or channels[0] not in NEXT_SPARKLE_CHANNELS:
             raise Refused(f"{path} item channel {channels} is not one of {list(NEXT_SPARKLE_CHANNELS)}")
     for url in urls:
+        if url.startswith(DEV_FAST_DOWNLOAD_PREFIX):
+            if not DEV_FAST_NAME.fullmatch(url[len(DEV_FAST_DOWNLOAD_PREFIX):]):
+                raise Refused(f"{path} enclosure {url} is not a Dev fast DMG")
+            continue
         if not url.startswith(NEXT_DOWNLOAD_PREFIX):
             raise Refused(f"{path} enclosure {url} is not a nightly-next download")
         name = url[len(NEXT_DOWNLOAD_PREFIX):]
         if "/" in name or not name.startswith("cmux-nightly-next-macos-"):
             raise Refused(f"{path} enclosure {url} is not a cmux-nightly-next DMG or delta")
+    for item in items:
+        dev_fast = any((e.get("url") or "").startswith(DEV_FAST_DOWNLOAD_PREFIX) for e in item.iter()
+                       if e.tag in ("enclosure", f"{{{SPARKLE_NS}}}enclosure"))
+        if dev_fast and item.findtext(f"{{{SPARKLE_NS}}}channel") != DEV_CHANNEL:
+            raise Refused(f"{path} has a Dev fast build (not notarized) outside {DEV_CHANNEL}")
 
 
 def check_r2_key(bucket, key):

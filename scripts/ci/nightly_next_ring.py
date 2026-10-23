@@ -40,6 +40,12 @@ corrected by the next one.
 
 A verdict that cannot be read counts as no verdict: the item stays on Dev, the
 side that never shows Nightly an unpromoted build.
+
+A Dev fast build (enclosure under DEV_FAST_DOWNLOAD_PREFIX; nightly.yml dev_sha)
+is signed but never notarized, so it is on Dev in every mode and with any
+verdict, and never counts as the Nightly item. Leo, 2026-10-23: "THEN THE DEV
+BUILDS YOU CAN JUST SOMETIMES BE GETTGIN THE ABSOLUTE CUTTING EDGE WHILE
+SKIPPING PUBLISH/NOTARIZTION/ODD SHIT".
 """
 
 from __future__ import annotations
@@ -59,12 +65,15 @@ DEV = "cmux-next-dev"
 RING_CHANNELS = ("cmux-next-stable", NIGHTLY, "cmux-next-canary", DEV)
 MODES = ("on", "off")
 LEGACY_DEV_ITEMS = 5
+# Where nightly.yml's publish-dev job puts Dev fast builds (R2, not notarized).
+DEV_FAST_DOWNLOAD_PREFIX = "https://files-next.cmux.com/nightly-next/dev/"
 
 ITEM = re.compile(r"[ \t]*<item>.*?</item>[ \t]*\n?", re.S)
 VERSION = re.compile(r"<sparkle:version>\s*([^<]*?)\s*</sparkle:version>")
 CHANNEL = re.compile(r"<sparkle:channel>[^<]*</sparkle:channel>")
 EXTRA_CHANNEL = re.compile(r"[ \t]*\n?[ \t]*<sparkle:channel>[^<]*</sparkle:channel>")
 OPEN = re.compile(r"<item>([ \t]*\n?)([ \t]*)")
+ENCLOSURE_URL = re.compile(r"<enclosure\b[^>]*\burl=\"([^\"]*)\"")
 
 
 class Refused(Exception):
@@ -86,6 +95,17 @@ def item_build(item: str) -> str:
     if version is None or not version.group(1).isdigit():
         raise Refused(f"an item has no numeric sparkle:version: {item[:200]!r}")
     return version.group(1)
+
+
+def dev_fast(item: str) -> bool:
+    """A Dev fast build: any enclosure under DEV_FAST_DOWNLOAD_PREFIX."""
+    return any(url.startswith(DEV_FAST_DOWNLOAD_PREFIX) for url in ENCLOSURE_URL.findall(item))
+
+
+def ring_of(item: str, build: str, mode: str, verdict_of) -> str:
+    if dev_fast(item):
+        return DEV
+    return NIGHTLY if mode == "off" or verdict_of(build) == "pass" else DEV
 
 
 def set_channel(item: str, channel: str) -> str:
@@ -113,7 +133,7 @@ def retag(text: str, mode: str, verdict_of) -> tuple[str, dict]:
     for match in found:
         item = match.group(0)
         build = item_build(item)
-        channel = NIGHTLY if mode == "off" or verdict_of(build) == "pass" else DEV
+        channel = ring_of(item, build, mode, verdict_of)
         channels[build] = channel
         out.append(text[last:match.start()])
         out.append(set_channel(item, channel))
@@ -150,7 +170,7 @@ def legacy(new: str, current: str | None, mode: str, verdict_of) -> tuple[str, d
     by_build: dict[str, str] = {}
     for item in [m.group(0) for m in ITEM.finditer(current or "")] + fresh:
         by_build[item_build(item)] = item
-    channels = {build: NIGHTLY if mode == "off" or verdict_of(build) == "pass" else DEV for build in by_build}
+    channels = {build: ring_of(by_build[build], build, mode, verdict_of) for build in by_build}
     ordered = sorted(by_build, key=int, reverse=True)
     nightly = next((build for build in ordered if channels[build] == NIGHTLY), None)
     above = [build for build in ordered if channels[build] == DEV and (nightly is None or int(build) > int(nightly))]
