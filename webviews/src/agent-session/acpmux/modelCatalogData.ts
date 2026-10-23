@@ -486,7 +486,9 @@ const nameKey = (name: string | undefined) =>
 function reportedNames(probes: readonly AcpmuxModel[], options: ConfigOptions | undefined): Map<string, string> {
   const names = new Map<string, string>();
   for (const probe of probes) if (probe.name) names.set(probe.id, probe.name);
-  const option = options?.find((candidate) => candidate.category === "model" || candidate.id === "model");
+  const option = options?.find(
+    (candidate) => candidate.category === "model" || candidate.id === "model",
+  );
   for (const choice of option?.options ?? [])
     if (choice.name && !names.has(choice.value)) names.set(choice.value, choice.name);
   return names;
