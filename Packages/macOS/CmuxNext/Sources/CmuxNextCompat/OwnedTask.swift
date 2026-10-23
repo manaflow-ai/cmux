@@ -33,6 +33,5 @@ public final class OwnedTask: Sendable {
     }
 
     deinit {
-        task.cancel()
     }
 }
