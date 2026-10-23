@@ -213,7 +213,7 @@ final class PaneToolbar {
         // other panes from offering terminal/new-tab controls that disappear
         // as soon as the user selects a different kind (#menu-trim).
         let available = Set(kind.map(Self.actions) ?? [])
-        for id in PaneToolbarButtonsSetting.buttonIDs where available.contains(ActionID(rawValue: id)) {
+        for id in PaneToolbarButtonsSetting.buttonIDs where available.contains(ActionID(rawValue: id)) || pinned.contains(id) {
             guard let descriptor = registry.descriptor(for: ActionID(rawValue: id)) else { continue }
             let row = NSMenuItem(title: descriptor.title, action: #selector(ActionMenuClosure.run), keyEquivalent: "")
             row.state = pinned.contains(id) ? .on : .off

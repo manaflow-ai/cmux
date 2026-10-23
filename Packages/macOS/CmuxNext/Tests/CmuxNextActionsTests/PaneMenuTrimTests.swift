@@ -10,7 +10,7 @@ import Testing
         "splitRight", "splitDown", "splitLeft", "splitUp", "toggleSplitZoom", "renamePane", "closePane",
         "newColumn", "newRow", "splitBrowserRight", "splitBrowserDown",
         "pane.moveToNewWorkspace", "pane.moveToNewWindow", "swapPaneLeft", "swapPaneRight", "swapPaneUp", "swapPaneDown",
-        "closeOtherPanes", "pane.setBackground", "pane.setTint", "pane.clearBackground", "reconnectPane",
+        "pane.closeOthers", "pane.setBackground", "pane.setTint", "pane.clearBackground", "reconnectPane",
         "palette.copyPaneID", "palette.copyPaneLink", "pane.screenshot", "equalizeSplits", "pane.toggleTabBar",
         "agentPaneZoomIn", "agentPaneZoomOut", "agentPaneZoomReset",
     ]
