@@ -177,11 +177,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // recorded ones; the record is read and the files deleted off the
         // main actor). Downloads of this run are never touched.
         launchCleanup.schedule(on: launchSettle)
+        // A launch whose daemon does not answer restores nothing: its frames are dropped then rather than
+        // held for the whole session (a later connect shows each pane's live content).
+        let releaseWhenUnavailable = environment.launchFiles.map { launchFiles in
+            let daemon = services.daemon
+            // task-owner: one observation per launch; ends at the first unavailable startup or at the restore
+            return Task {
+                for await unavailable in ObservationStream({ daemon.startup.isUnavailable }) where unavailable {
+                    launchFiles.release()
+                    return
+                }
+            }
+        }
         // The panes' last frames no pane took are dropped (LaunchFiles) once the saved windows are restored
-        // from the live tree and every pane they show presented its selection: not at the launch settle,
-        // which comes on the first pane, while the scheduler still makes one new surface per frame and a
-        // second window is restored only when the daemon's tree lands.
+        // from the live tree, each of this Mac's restored windows installed its first content, and every
+        // pane they show presented its selection: not at the launch settle, which comes on the first pane,
+        // while the scheduler still makes one new surface per frame and the restored windows queue their
+        // panes only when they show their workspaces.
         services.windows.onRestored = { [presentation = services.presentation, launchFiles = environment.launchFiles] in
+            releaseWhenUnavailable?.cancel()
             presentation.whenIdle { launchFiles?.release() }
         }
         services.palette.onPresented = { DebugTimings.palettePresented($0) }

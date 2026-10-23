@@ -84,8 +84,14 @@ final class WindowManager {
     /// A restored window is entering full screen (one at a time).
     var fullScreenRestoreRunning = false
     var onFirstWindow: ((WindowController) -> Void)?
-    /// The saved windows were restored from the live tree (once per launch, at the end of the restore).
+    /// The saved windows were restored from the live tree and each of them installed its first
+    /// workspace content, so every pane they show is queued or shown (once per launch). A window
+    /// shows its workspace from an observation that runs after `restore()` returns, so the end of
+    /// the restore alone comes before the restored windows queued their panes.
     var onRestored: (() -> Void)?
+    /// The restored windows that have not installed workspace content yet (``onRestored``); nil
+    /// before the restore ends and after it fired.
+    private var restoredAwaitingContent: Set<String>?
     /// A window installed workspace content (links opened at launch wait for it).
     var onContentDidAppear: ((WindowController) -> Void)?
     /// One-shot work for a workspace a reveal is still mounting, by window
@@ -255,6 +261,15 @@ final class WindowManager {
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)
         Task { await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace) }
+        // This Mac's windows only: its tree is loaded now, while another machine's may never answer.
+        restoredAwaitingContent = Set(controllers.filter { $0.content == nil && $0.state.machineID == MachineRegistry.localID }.map(\.state.id))
+        fireRestoredWhenContentShown()
+    }
+
+    /// Fires ``onRestored`` once no restored window waits for its first content.
+    private func fireRestoredWhenContentShown() {
+        guard restoredAwaitingContent?.isEmpty == true else { return }
+        restoredAwaitingContent = nil
         onRestored?()
         onRestored = nil
     }
@@ -332,6 +347,7 @@ final class WindowManager {
     /// screen for it is ordered in now.
     func contentDidAppear(_ controller: WindowController) {
         defer {
+            if restoredAwaitingContent?.remove(controller.state.id) != nil { fireRestoredWhenContentShown() }
             onContentDidAppear?(controller)
             let shown = controller.content?.workspace.id
             for waiter in contentWaiters.removeValue(forKey: controller.state.id) ?? [] where waiter.workspaceID == shown {
@@ -382,6 +398,7 @@ final class WindowManager {
         awaitingContent[id] = nil
         contentWaiters[id] = nil
         restacking.remove(id)
+        if restoredAwaitingContent?.remove(id) != nil { fireRestoredWhenContentShown() }
         controller.teardown()
         if programmaticCloses.remove(id) != nil || isTerminating { return }
         if id == launchWindowID {
