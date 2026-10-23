@@ -272,6 +272,8 @@ type Props = {
   /// Set while no prompt may go (the folder's trust question is open, useFolderTrustAsk.ts):
   /// Send is off, Enter keeps the prompt, and `reason` shows above it. Shell mode still runs.
   blocked?: SendBlock;
+  /// Opens the Inspector at its Context section: the context ring's card links to it (Details ›).
+  onOpenContext?(): void;
 };
 
 /// The prompt box with the agent's `/` command menu:
@@ -331,6 +333,7 @@ export function Composer({
   switching,
   blocked,
   placeholder,
+  onOpenContext,
 }: Props) {
   const t = useT();
   const chrome = useComposerChrome();
@@ -1675,8 +1678,10 @@ export function Composer({
             <ContextRing
               used={usage?.used}
               size={usage?.size}
+              setup={usage?.setup}
               breakdown={snapshot.summary?.contextBreakdown}
               working={snapshot.isWorking}
+              onOpenDetails={onOpenContext}
             />
           )
         }

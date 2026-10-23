@@ -2653,6 +2653,25 @@
       "title" : "New Terminal Opens a Workspace",
       "type" : "boolean"
     },
+    "notifications.attention.agentChatBlinkCount" : {
+      "default" : 1,
+      "description" : "notifications.attention.agentChatBlinkCount",
+      "maximum" : 10,
+      "minimum" : 1,
+      "title" : "Agent Chat Blinks",
+      "type" : "number"
+    },
+    "notifications.attention.agentChats" : {
+      "default" : "none",
+      "description" : "Ring an agent chat's pane when its turn ends, until you click or type in it.",
+      "enum" : [
+        "glow",
+        "ring",
+        "none"
+      ],
+      "title" : "Ring Agent Chat Panes",
+      "type" : "string"
+    },
     "notifications.attention.blinkCount" : {
       "default" : 2,
       "description" : "notifications.attention.blinkCount",
@@ -2720,6 +2739,17 @@
         "none"
       ],
       "title" : "Style",
+      "type" : "string"
+    },
+    "notifications.attention.terminals" : {
+      "default" : "glow",
+      "description" : "notifications.attention.terminals",
+      "enum" : [
+        "glow",
+        "ring",
+        "none"
+      ],
+      "title" : "Ring Terminal Panes",
       "type" : "string"
     },
     "notifications.attention.width" : {

@@ -963,6 +963,9 @@
             "rows" : [
               "notifications.attention.style",
               "notifications.attention.color",
+              "notifications.attention.terminals",
+              "notifications.attention.agentChats",
+              "notifications.attention.agentChatBlinkCount",
               "notifications.attention.width",
               "notifications.attention.blinkCount",
               "notifications.attention.duration",
@@ -33097,8 +33100,8 @@
       ],
       "default" : null,
       "default_label" : {
-        "key" : "settings.default.notificationBlue",
-        "text" : "Notification Blue"
+        "key" : "settings.choice.themeAccent",
+        "text" : "Theme Accent"
       },
       "group" : {
         "key" : "settings.group.attention",
@@ -33129,6 +33132,201 @@
       "title" : {
         "key" : "settings.attention.color",
         "text" : "Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "glow",
+        "ring",
+        "none"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.glow",
+            "text" : "Glow"
+          },
+          "value" : "glow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.ring",
+            "text" : "Ring"
+          },
+          "value" : "ring"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.none",
+            "text" : "None"
+          },
+          "value" : "none"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "glow",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attention",
+        "text" : "Attention Ring"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "notifications.attention.terminals",
+      "keywords" : [
+        "ring",
+        "glow",
+        "flash",
+        "blink",
+        "terminal"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "attention",
+        "terminals"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.attention.terminals",
+        "text" : "Ring Terminal Panes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "glow",
+        "ring",
+        "none"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.glow",
+            "text" : "Glow"
+          },
+          "value" : "glow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.ring",
+            "text" : "Ring"
+          },
+          "value" : "ring"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.none",
+            "text" : "None"
+          },
+          "value" : "none"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "none",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attention",
+        "text" : "Attention Ring"
+      },
+      "help" : {
+        "key" : "settings.attention.agentChats.help",
+        "text" : "Ring an agent chat's pane when its turn ends, until you click or type in it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.attention.agentChats",
+      "keywords" : [
+        "ring",
+        "glow",
+        "flash",
+        "blink",
+        "agent",
+        "chat",
+        "turn"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "attention",
+        "agentChats"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.attention.agentChats",
+        "text" : "Ring Agent Chat Panes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        10,
+        5.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attention",
+        "text" : "Attention Ring"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "notifications.attention.agentChatBlinkCount",
+      "keywords" : [
+
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "attention",
+        "agentChatBlinkCount"
+      ],
+      "range" : {
+        "max" : 10,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -8,
+        19,
+        "1"
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.attention.agentChatBlinkCount",
+        "text" : "Agent Chat Blinks"
       },
       "validation" : "portable"
     },

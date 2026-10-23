@@ -272,6 +272,8 @@ export const PAGES = {
                 "message.sending",
                 "message.sent",
                 "message.delivered",
+                // The recipient chip's tooltip, the full id behind its name (MessageCard.tsx).
+                "message.recipientId",
               ].includes(key),
           ),
       },

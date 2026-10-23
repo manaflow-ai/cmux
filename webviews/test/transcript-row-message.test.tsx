@@ -212,19 +212,23 @@ async function renderNamed(to: string, names: Map<string, string>) {
   );
 }
 
-test("the recipient is the Agent call's description for its agentId, never the hex id", async () => {
+test("the recipient is the Agent call's description for its agentId, or a short id, never the hex id", async () => {
   await renderNamed("a39e817af38ddf5e7", new Map([["a39e817af38ddf5e7", "Fix grid jump"]]));
   const line = host.querySelector(".cv-agentmsg__line")!;
   expect(line.querySelector(".cv-agentmsg__name")?.textContent).toBe("Fix grid jump");
   expect(line.textContent).not.toContain("This agent");
   expect(host.textContent).not.toContain("a39e817af38ddf5e7");
-  // An id nothing names reads as a generic word.
+  // The full id is the chip's tooltip.
+  expect(line.querySelector(".cv-agentmsg__name")?.getAttribute("title")).toBe("Agent ID: a39e817af38ddf5e7");
+  // An id nothing names reads as a short id, the full one in the tooltip.
   await renderNamed("a5f0c2b9e1d4a7c3b", new Map());
-  expect(host.querySelector(".cv-agentmsg__name")?.textContent).toBe("agent");
+  expect(host.querySelector(".cv-agentmsg__name")?.textContent).toBe("a5f0c2b9");
+  expect(host.querySelector(".cv-agentmsg__name")?.getAttribute("title")).toBe("Agent ID: a5f0c2b9e1d4a7c3b");
   expect(host.textContent).not.toContain("a5f0c2b9e1d4a7c3b");
-  // A name the call gives (a teammate, an acpmux session) shows as it is.
+  // A name the call gives (a teammate, an acpmux session) shows as it is, with no tooltip.
   await renderNamed("grid-fix", new Map());
   expect(host.querySelector(".cv-agentmsg__name")?.textContent).toBe("grid-fix");
+  expect(host.querySelector(".cv-agentmsg__name")?.hasAttribute("title")).toBe(false);
 });
 
 test("Copy is in the line's hover row, after the status word, not over the line's words", async () => {

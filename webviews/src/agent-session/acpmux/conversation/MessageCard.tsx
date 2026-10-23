@@ -1,19 +1,19 @@
 // A message to another agent (tell-coordinator, cmux send, a mailbox write, SendMessage) as one
 // collapsed line, the shared agent message row (AgentMessageRow.tsx) that a received message
 // draws too: the envelope, "Sent to <recipient>", the message's first line muted, the chevron,
-// and how far it got at the line's end, muted (Sent, Queued, Delivered; agentMessages.ts
-// `messageDelivery`), or why it did not arrive ("Not delivered: agent stopped"). The recipient is
-// a name, never an id (agentNames.ts). Copy is in the line's hover row. Opened, the message grows
-// in place: its whole text under the line, with no box around it, capped near eight lines and
-// scrolling past them under a fade, and nothing else (Leo 2026-10-21: the result's JSON under it
-// was "immediately TMI"). Whether it is open lasts across the virtualized transcript
-// (transcriptDisclosure.tsx), and Find in Chat opens it.
+// and how far it got as one muted word at the line's end (Sent, Queued, Delivered, Failed;
+// agentMessages.ts `messageDelivery`). The recipient is a name: a subagent by its description, or
+// a short id when nothing names it, the full id in the chip's tooltip (agentNames.ts). Copy
+// is in the line's hover row. Opened, the message grows in place: its whole text under the line,
+// with no box around it, capped near eight lines and scrolling past them under a fade, and
+// nothing else (Leo 2026-10-21: the result's JSON under it was "immediately TMI"). Whether it is open lasts across
+// the virtualized transcript (transcriptDisclosure.tsx), and Find in Chat opens it.
 import { useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { messageDelivery, notDeliveredReason, type AgentMessage, type Delivery } from "./agentMessages";
 import { AgentMessageRow, messagePreview } from "./AgentMessageRow";
-import { AgentNamesContext, recipientName } from "./agentNames";
+import { AgentNamesContext, recipientName, shortId } from "./agentNames";
 import { useFindReveal } from "./chatFind";
 import { Envelope, Spinner } from "./icons";
 import { SentActions } from "./MessageActions";
@@ -29,7 +29,9 @@ export function MessageCard({ item, message }: { item: AcpmuxActivity; message: 
     () => setOpen(true),
   );
   const from = message.from ?? t("message.self");
-  const to = message.to ? (recipientName(message.to, names) ?? t("message.agent")) : t("message.unknown");
+  const to = message.to ? (recipientName(message.to, names) ?? shortId(message.to)) : t("message.unknown");
+  // The full id under a subagent's name or short id, for matching it against a log.
+  const toId = message.to && to !== message.to.trim() ? t("message.recipientId", { id: message.to.trim() }) : undefined;
   const delivery = messageDelivery(tool, message);
   const running = delivery === "sending";
   const failed = delivery === "failed";
@@ -42,6 +44,7 @@ export function MessageCard({ item, message }: { item: AcpmuxActivity; message: 
       icon={running ? <Spinner size={16} /> : <Envelope />}
       sentence={t(running ? "message.sendingTo" : "message.sentTo", { to: "\u0000" })}
       name={to}
+      nameTitle={toId}
       preview={messagePreview(message.text) || t("message.noText")}
       // The route reads as a sentence; the message itself is in the card, outside the button, so
       // it stays selectable.

@@ -194,6 +194,13 @@ import type { MarkdownFieldHandle } from "./MarkdownField";
 import type { ChangesSource } from "./changes/model";
 import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
 import { transcriptRepositories, type RepositoryCache } from "./conversation/transcriptRepositories";
+import {
+  newReferenceScopeCache,
+  ReferenceScopeContext,
+  referenceScopes,
+  turnOpener,
+  type ReferenceScope,
+} from "./conversation/bareReferences";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { PromptActions, ReceivedActions } from "./conversation/MessageActions";
@@ -796,7 +803,7 @@ const MessageRow = memo(
             id={row.id}
             message={row.incoming.message}
             images={row.images}
-            onOpen={openOfferChat}
+            onOpen={openSenderChat}
             onReply={replyToMessage}
             actions={<ReceivedActions row={row} text={row.incoming.message.text} />}
             githubRepository={githubRepository}
@@ -1150,6 +1157,10 @@ const EditedFilesRow = memo(
 
 /// Opens a chat started from an offer (`chat.offer.open`): beside this one, else here.
 const openOfferChat = (sessionId: string) => void callNative("chat.offer.open", { sessionId }).catch(() => undefined);
+/// Opens the chat that sent this one a message, from its received line's chip: any chat the daemon
+/// lists, this Mac's or a peer's, beside this one or in the tab that shows it (`sender`).
+const openSenderChat = (sessionId: string) =>
+  void callNative("chat.offer.open", { sessionId, sender: true }).catch(() => undefined);
 /// Reply on another agent's message card (`chat.message.reply`): its sender gets it in the thread.
 const replyToMessage = (message: IncomingMessage, text: string) =>
   callNative<void>("chat.message.reply", {
@@ -1359,6 +1370,7 @@ const RowFrame = React.memo(function RowFrame({
   onRowKeyDown,
   onCopyRow,
   copyable,
+  referenceScope,
   children,
 }: {
   row: AcpmuxRow;
@@ -1398,6 +1410,8 @@ const RowFrame = React.memo(function RowFrame({
   onToggleActivity: (id: string) => void;
   onOpenDiff?: OpenDiff;
   githubRepository?: string;
+  /// Which repository the row's bare `#N` names (conversation/bareReferences.ts).
+  referenceScope?: ReferenceScope;
   children: React.ReactNode;
 }) {
   acpmuxPerf.span("row.renders", 1);
@@ -1473,7 +1487,7 @@ const RowFrame = React.memo(function RowFrame({
           {...copyTabStop}
         />
       )}
-      {children}
+      <ReferenceScopeContext.Provider value={referenceScope ?? null}>{children}</ReferenceScopeContext.Provider>
     </article>
   );
 }, sameRowFrame);
@@ -1757,6 +1771,7 @@ export function VirtualTranscript({
   historyFrom,
   githubRepository,
   fallbackRepository,
+  sourceRows,
   find,
   reveal,
   working = false,
@@ -1812,6 +1827,9 @@ export function VirtualTranscript({
   /// The repository a bare `#N` means when `githubRepository` is unknown and the transcript names
   /// none before it (the header pull request's).
   fallbackRepository?: string;
+  /// The client's rows, which still hold the work a closed "Worked for" folds away: where a bare
+  /// `#N`'s repository is looked for (conversation/bareReferences.ts). Else `rows`.
+  sourceRows?: readonly AcpmuxRow[];
   /// Find in Chat (chatFind.ts): its bar, the query to highlight and the match to bring into view.
   find?: ChatFind;
   /// A row to bring into view (a count on the running line, WorkingFor.tsx); a new `key` asks again.
@@ -1843,6 +1861,15 @@ export function VirtualTranscript({
     () => (githubRepository ? undefined : transcriptRepositories(rows, fallbackRepository, repositoryCache.current)),
     [githubRepository, fallbackRepository, rows],
   );
+  // Which repository each row's bare `#N` names, by the transcript's evidence
+  // (conversation/bareReferences.ts): one scope object per turn, kept while nothing new is named;
+  // a streaming reply reads only its own row again.
+  const referenceCache = useRef(newReferenceScopeCache());
+  const scopeAt = useMemo(() => {
+    const cache = referenceCache.current;
+    const scopeOf = referenceScopes(sourceRows ?? rows, cache);
+    return (index: number) => scopeOf(turnOpener(cache, rows, index));
+  }, [rows, sourceRows]);
   // `scroll` events also fire for layout-driven writes to scrollTop. Keep the user's intent in a
   // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
   // stack changes height.
@@ -3379,6 +3406,7 @@ export function VirtualTranscript({
                       onToggleActivity={onToggleActivity}
                       onOpenDiff={onOpenDiff}
                       githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
+                      referenceScope={scopeAt(absoluteIndex)}
                     >
                       <Component
                         row={row}
@@ -4210,7 +4238,10 @@ function AcpmuxPane() {
   useLayoutEffect(() => {
     subsessionStore.current!.set(snapshot.sessions);
   }, [snapshot.sessions]);
-  const subsessions = useMemo<Subsessions>(() => ({ store: subsessionStore.current!, open: openOfferChat }), []);
+  const subsessions = useMemo<Subsessions>(
+    () => ({ store: subsessionStore.current!, open: openOfferChat, openSender: openSenderChat }),
+    [],
+  );
   // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).
   const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
   /// Debug Settings `agent.sessionStatus`: a running turn's activity line under its todo list.
@@ -6333,10 +6364,11 @@ function AcpmuxPane() {
           },
           // Open a started offer or a sub-session: the app shows its tab or opens it beside this
           // chat (AgentPaneOfferOpen); a host without that opens it as a side chat; else here.
-          "chat.offer.open": async ({ sessionId }) => {
+          "chat.offer.open": async ({ sessionId, sender }) => {
             const id = String(sessionId);
             try {
-              await postNative("chat.offer.open", { sessionId: id });
+              // `sender`: a message's sender, any listed chat (AgentPaneOfferOpen).
+              await postNative("chat.offer.open", { sessionId: id, ...(sender === true && { sender: true }) });
             } catch (error) {
               // The app refused a session outside this chat's family: nothing opens, not even here.
               if (error instanceof NativeError && error.code === "chat.offer.refused") return;
@@ -7134,6 +7166,7 @@ function AcpmuxPane() {
                                               {(find) => (
                                                 <VirtualTranscript
                                                   rows={transcriptRows}
+                                                  sourceRows={childRows ? undefined : sourceRows}
                                                   working={snapshot.isWorking}
                                                   // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
                                                   jumpButton={!quick}
@@ -7556,6 +7589,7 @@ function AcpmuxPane() {
             switching={Boolean(switchView.intent)}
             chips={ComposerChips}
             permissionAccess={permissionAccess}
+            onOpenContext={inspector.reveal ? () => inspector.reveal?.("context") : undefined}
             draft={draft}
             onUnsentDraft={quick ? undefined : postUnsentDraft}
             keptAttachments={quick ? undefined : keptAttachments}
