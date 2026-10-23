@@ -682,6 +682,31 @@ struct AgentResumeArgvTests {
         ) == ["codex", "--"])
     }
 
+    @Test("A bound Subrouter capture without an executable path still routes")
+    func boundSubrouterCaptureWithoutExecutablePathRoutes() {
+        let resolution = AgentResumeArgv().launcherResolution(
+            launcher: "codex",
+            sessionId: "SID",
+            executablePath: nil,
+            arguments: ["codex", "-c", "model_provider=subrouter"],
+            environment: boundSubrouterMarker()
+        )
+        guard case .resolved(let argv?) = resolution else {
+            Issue.record("expected a routed resume, got \(resolution)")
+            return
+        }
+        #expect(Array(argv.prefix(4)) == ["sr", "codex", "resume", "SID"])
+        #expect(!argv.contains("model_provider=subrouter"))
+        // Without an executable path, argv[0] still has to be Codex.
+        #expect(AgentResumeArgv().launcherResolution(
+            launcher: "codex",
+            sessionId: "SID",
+            executablePath: nil,
+            arguments: ["/usr/bin/env", "-c", "model_provider=subrouter"],
+            environment: boundSubrouterMarker()
+        ) == .rejected)
+    }
+
     @Test("Argv routing proof rejects mixed providers")
     func argvRoutingProofRejectsMixedProviders() {
         #expect(!SubrouterCodexResumeRouting().usesSubrouterProvider(in: [
