@@ -390,6 +390,7 @@ async fn a_replaced_harnesss_late_context_breakdown_is_not_kept() {
     assert!(probed, "the replaced process's late lines never reached its reader");
     let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
     assert!(info["contextBreakdown"].is_null(), "the late answer came back: {info}");
+    assert!(info["usageLimits"].is_null(), "the late limits came back: {info}");
     assert!(session.meta().context_breakdown.is_none());
     // Nor is it in the log after the failover, where a pane's replay would take it up.
     let log = events(&hub);
@@ -397,9 +398,9 @@ async fn a_replaced_harnesss_late_context_breakdown_is_not_kept() {
     let late: Vec<_> = log
         .iter()
         .filter(|e| e.seq > failover)
-        .filter(|e| e.msg.pointer("/params/update/_meta/acpmux/contextBreakdown").is_some())
+        .filter(|e| e.msg.get("params").is_some_and(acpmux::agent::process_state))
         .collect();
-    assert!(late.is_empty(), "a breakdown was logged after the failover: {late:?}");
+    assert!(late.is_empty(), "a breakdown or limits were logged after the failover: {late:?}");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }

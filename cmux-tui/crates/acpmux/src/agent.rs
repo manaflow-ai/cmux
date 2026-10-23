@@ -180,6 +180,14 @@ struct CodexLink {
     order: Mutex<()>,
 }
 
+/// A session update whose news is only the agent process's own to give: Claude Code's /context
+/// breakdown, its account's usage limits. One a replaced process sends is not the chat's.
+pub fn process_state(params: &Value) -> bool {
+    params
+        .pointer("/update/_meta/acpmux")
+        .is_some_and(|m| m.get("contextBreakdown").is_some() || m.get("usageLimits").is_some())
+}
+
 impl ChildAgent {
     /// Ends every process in the agent's job (Windows; killpg on Unix).
     #[cfg(windows)]
@@ -509,20 +517,19 @@ impl ChildAgent {
         None
     }
 
-    /// Mark the agent replaced (a failover) or stopping: a /context breakdown it still sends,
+    /// Mark the agent replaced (a failover) or stopping: a /context breakdown or usage limits it
+    /// still sends,
     /// answering a turn that ended before, is dropped (`stale_context`).
     pub fn retire(&self) {
         self.retired.store(true, Ordering::SeqCst);
     }
 
-    /// A retired agent's /context breakdown update.
+    /// A retired agent's /context breakdown or usage limits update (`process_state`).
     fn stale_context(&self, m: &Message) -> bool {
         let Message::Notification { method, params } = m else { return false };
         self.retired.load(Ordering::SeqCst)
             && method == crate::rpc::method::SESSION_UPDATE
-            && params
-                .as_ref()
-                .is_some_and(|p| p.pointer("/update/_meta/acpmux/contextBreakdown").is_some())
+            && params.as_ref().is_some_and(process_state)
     }
 
     pub async fn kill(&self) {
