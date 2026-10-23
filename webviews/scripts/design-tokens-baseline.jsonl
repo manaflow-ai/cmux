@@ -318,7 +318,7 @@
 {"file":"styles.css","kind":"height","property":"height","values":{"1px":3,"12px":6,"13px":5,"14px":3,"17px":1,"56px":1,"26px":1,"22px":2,"18px":1,"19px":1,"15px":1,"6px":1}}
 {"file":"styles.css","kind":"height","property":"min-height","values":{"31px":1,"30px":3,"52px":1,"50px":1}}
 {"file":"styles.css","kind":"spacing","property":"gap","values":{"7px":2,"6px":8,"5px":6,"10px":2,"2px":5,"14px":1,"1.5px":1}}
-{"file":"styles.css","kind":"spacing","property":"padding","values":{"3px 4px 3px 8px":1,"0 24px 0 9px":1,"0 7px 0 9px":1,"7px 9px":1,"12px 9px":1,"5px 8px 7px":1,"0 7px":1,"2px":2,"0 4px 0 10px":1,"3px 7px":1,"0 10px":1,"0 6px 6px":2,"2px 7px 6px":1,"5px 7px":1,"0 5px":1,"10px 12px":1,"1px 6px":3,"12px 10px":1,"1px 8px":1,"3px 8px":1,"0 7px 0 8px":1,"2px 10px 2px 2px":1,"0 8px 0 10px":1,"0 10px 0 12px":1,"6px":1,"9px 12px":2,"5px 8px":1,"5px 10px":1,"0 12px 0 17px":1}}
+{"file":"styles.css","kind":"spacing","property":"padding","values":{"3px 4px 3px 8px":1,"0 24px 0 9px":1,"0 7px 0 9px":1,"7px 9px":1,"12px 9px":1,"5px 8px 7px":1,"0 7px":1,"2px":2,"0 4px 0 10px":1,"3px 7px":1,"0 10px":1,"0 6px 6px":2,"2px 7px 6px":1,"5px 7px":1,"0 5px":1,"10px 12px":1,"1px 6px":3,"12px 10px":1,"1px 8px":1,"3px 8px":1,"0 7px 0 8px":1,"2px 10px 2px 2px":1,"0 8px 0 10px":1,"0 10px 0 12px":1,"6px":1,"9px 12px":2,"5px 8px":1,"0 12px 0 17px":1}}
 {"file":"styles.css","kind":"spacing","property":"padding-right","values":{"9px":1}}
 {"file":"ui/Breadcrumbs.gallery.css","kind":"height","property":"min-height","values":{"200px":1,"18px":1}}
 {"file":"ui/Breadcrumbs.gallery.css","kind":"spacing","property":"gap","values":{"14px":1}}

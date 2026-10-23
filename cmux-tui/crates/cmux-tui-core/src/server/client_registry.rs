@@ -13,6 +13,7 @@ use super::CREATION_RECEIPTS_CAPABILITY;
 use super::CREATION_SELECTOR_FALLBACKS_CAPABILITY;
 use super::ClientIdentityWire;
 use super::GUARDED_BROWSER_POINTER_CAPABILITY;
+use super::HOST_GRID_VIEW_CAPABILITY;
 use super::LOOPBACK_FORWARD_CAPABILITY;
 use super::MessageWriter;
 use super::OPEN_DEVICE_KINDS_CAPABILITY;
@@ -651,6 +652,7 @@ impl ClientRegistry {
                     || capability == SHARED_SIZING_CAPABILITY
                     || capability == SIZING_VIEW_DETACH_CAPABILITY
                     || capability == super::SIZE_LEASE_CAPABILITY
+                    || capability == HOST_GRID_VIEW_CAPABILITY
                     || capability == OPEN_DEVICE_KINDS_CAPABILITY
                     || capability == TERMINAL_COLOR_OVERRIDES_CAPABILITY
                     || capability == TERMINAL_PENDING_SEQUENCE_CAPABILITY
@@ -894,7 +896,7 @@ impl ClientRegistry {
         })
     }
 
-    pub(super) fn supports_capability(&self, client: u64, capability: &str) -> bool {
+    pub(crate) fn supports_capability(&self, client: u64, capability: &str) -> bool {
         self.state
             .lock()
             .recover_poison()

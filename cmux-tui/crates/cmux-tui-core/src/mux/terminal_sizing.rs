@@ -3,6 +3,7 @@
 use super::*;
 
 mod grid_hold;
+mod handheld_ceiling;
 pub(super) use grid_hold::AppliedSeat;
 pub(crate) mod host_policy;
 

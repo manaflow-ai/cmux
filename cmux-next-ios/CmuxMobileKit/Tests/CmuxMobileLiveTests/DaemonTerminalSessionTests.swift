@@ -555,6 +555,37 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         try await waitUntil { daemon.recorded.filter { $0["cmd"] as? String == "resize-surface" }.count == resizesBefore + 1 }
     }
 
+    /// A Mac that keeps a grid wider than the phone's (it was active last) is
+    /// never claimed as the phone's own size: the phone renders into its own
+    /// grid, so a reattach at the Mac's 113 columns told the daemon the phone
+    /// shows 113 and kept the PTY there: a Claude Code session overprinted and
+    /// cut every row on the phone (2026-10-23). The reattach asks for the
+    /// phone's own grid again.
+    @Test func aReattachNeverClaimsAWiderMacGrid() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.initialSize = true
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let channels = ChannelLog()
+        let session = DaemonTerminalSession(surface: 7) {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        session.start { _ in }
+        session.resize(columns: 53, rows: 42)
+        try await waitUntil { session.isAttached }
+        // The Mac keeps its own 113x84.
+        session.handle(FakeTerminalDaemon.line(["event": "resized", "surface": 7, "cols": 113, "rows": 84,
+                                                "replay": Data("x".utf8).base64EncodedString()]))
+        await channels.last?.close(code: "link_closed", reason: "background")
+        try await waitUntil { !session.isAttached }
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        let second = try #require(daemon.recorded.last { $0["cmd"] as? String == "attach-surface" })
+        #expect(second["cols"] as? Int == 53)
+        #expect(second["rows"] as? Int == 42)
+    }
+
     /// The terminal channel says it is a phone before it attaches, so the
     /// Mac's daemon holds the grid when the phone's link drops (termqa V2-5:
     /// no resize away and back, so Codex keeps its scrollback).

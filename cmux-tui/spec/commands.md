@@ -4483,6 +4483,15 @@ Example:
 
 Removes the requesting client's sizing lease for a surface without closing its attach stream. Frontends use this when a pane switches tabs or otherwise stops displaying the surface.
 
+Fixed-grid handhelds (`host-grid-view-v1`, advertised in `identify`): a
+phone or tablet connection (`device_kind` `iphone` or `ipad`) that does not
+list `host-grid-view-v1` in `set-client-info` `capabilities` never gets a PTY
+grid larger than the size it reported for a terminal while it is attached
+with that size and counts: the daemon caps the applied grid per dimension at
+it, under every policy. The published size state stays the engine's
+decision. A client lists the capability only once it shows a larger grid
+correctly (letterbox or pan).
+
 Size lease (`size-lease-v1`, advertised in `identify`): a client that lists
 `size-lease-v1` in `set-client-info` `capabilities` keeps each size it reports
 (`resize-surface`, a sized `attach-surface`) for 45 s after the last report.

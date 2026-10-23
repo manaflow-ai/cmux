@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 """Architecture count trend and regression issue for the scheduled perf cron (Linux report step).
 
-perf-cron.py's `report` subcommand calls run_report() in process when a measurement finishes (PL-perf-cron's file;
-the hook is below). The command line does the same for one state file, for a manual run:
+perf-cron.py's `report` subcommand calls report_finished() in process after a measurement finishes (PL-perf-cron's
+file; the hook is below). The command line does the same for one state file, for a manual run:
 
   perf-cron-arch-report.py --sha SHA --kind tip --state STATE_JSON [--issue] [--dry-run]
 
 1. Counts every architecture row at SHA with that commit's own scripts/cmux-next/arch_counts.py, always in a
-   subprocess (code of the measured commit never runs in this process, and its environment has no token). The
-   contract, owned by the ratchet-file slice: arch_counts.py is one self-contained file (standard library imports
-   only; it is the only script exported from the commit, and it runs under `python3 -I`), and
+   subprocess (code of the measured commit never runs in this process). The measured commit is feat-cmux-next code,
+   which only pushers with write access land: it is trusted. Its environment has no GH_TOKEN or other secret, but
+   that only stops an accidental use of the job's token (a script that calls `gh`); it is not a boundary, since the
+   child runs as the same user and can read the parent's environment (/proc/PPID/environ). The contract, owned by
+   the ratchet-file slice: arch_counts.py is one self-contained file (standard library imports only; it is the
+   only script exported from the commit, and it runs under `python3 -I`), and
    `arch_counts.py --repo ROOT --rev SHA --json` prints one JSON object of the plans/cmux-next/arch-ratchet.json
    shape (`method` "arch_counts", `method_version`, `measured_sha`, `rows` {id: {title, ratchet}}, `totals`
    {id: n}, `packages` {package: {id: n}}). It reads the commit from git objects and parses Package.swift itself,
-   so the report runner needs no swift and no working tree. Any other output is an error (nothing is kept, the
-   issue is left as it is).
+   so the report runner needs no swift and no working tree. Any other output is an error (see 6).
 2. The report checkout is shallow (depth 1), sparse and blobless, and SHA need not be its HEAD: before counting,
    this fetches SHA's commit when it is missing (one fetch, depth 1, no blobs) and then every blob the count reads
    (PREFETCH_PATHS) in ONE fetch from the promisor remote, so git never fetches the blobs one by one. The promisor
@@ -23,51 +25,57 @@ the hook is below). The command line does the same for one state file, for a man
    The 'is it there' probes use GIT_NO_LAZY_FETCH (git 2.44+); with an older git, nothing is probed in a
    partial clone and both fetches run unconditionally.
 3. Reads plans/cmux-next/arch-ratchet.json at SHA (the ratchet: a ratcheted row's total only goes down). The limit
-   of a row is the file's total; the cron does not apply `exceptions` allowances. A push that an exception entry
-   let raise a row leaves the tip over the file's total until someone runs `arch-ratchet.py --update`: the issue
-   lists the row's exception entries and says to run --update when one of them accepted the rise.
+   of a row is the file's total plus the allowance of the dated `exceptions` entries added after that total was
+   recorded: the entries in the file at SHA that are not in the file at its `measured_sha` (the file that
+   `arch-ratchet.py --update` replaced; --update keeps every old entry, and their rises are in the total it
+   records). That is the allowance the pre-push rule gives (it counts only the entries a push adds), so the cron
+   and the pre-push rule agree. An entry added in the same commit as its --update counts as newer here (the file
+   records no mark of which entries --update saw). When the file at `measured_sha` cannot be read (the commit is
+   gone after a rewrite, a fetch fails), the limit is the file's total alone and the issue says so. A tip over the
+   file's total but within the newer entries' allowance opens no issue; the log says to run --update.
 4. Keeps the last HISTORY_POINTS points under the state's key `arch_history` (the other keys are left as they
    are). Only a tip measurement (`kind` "tip") adds a point. A tip older than the last point (GitHub compare
    "behind") adds nothing and changes nothing; so does a run that cannot tell the order this time (no token, a
    network error). A tip that is neither (feat-cmux-next was rewritten: "diverged", or the last point's commit is
    gone) starts a new trend: the kept points that are not its ancestors are dropped, and the log and the issue
    body say so.
-5. Prints one trend table: row, ratchet value, the last TREND_VALUES values, now, and an arrow.
-6. With --issue: when a ratcheted row is over its ratchet value, opens or updates the one issue ISSUE_TITLE
-   (ISSUE_MARK in its body, opened by the workflow's bot); it names each row, the packages that rose, the first
-   sha where the row was seen higher and the commits in the range. It closes the issue only when EVERY ratcheted
-   row was judged and is at or under the ratchet. A run that cannot judge every row (a ratcheted row missing from
-   the counts, no row in common, a method version that differs from the ratchet file's, a ratchet file of another
-   shape) names the rows it could not judge, puts them in an open issue's body and never closes it.
+5. Prints one trend table: row, limit, the last TREND_VALUES values, now, and an arrow.
+6. With --issue: when a ratcheted row is over its limit, opens or updates the one issue ISSUE_TITLE (ISSUE_MARK
+   in its body, opened by the workflow's bot); it names each row, the packages that rose, the first sha where the
+   row was seen higher and the commits in the range. It closes the issue only when EVERY ratcheted row was judged
+   and is at or under its limit. A run that cannot judge every row at a commit that has arch_counts.py or the
+   ratchet file opens, updates or reopens the same issue with a 'Not judged' line per reason, and never closes
+   it: a ratcheted row missing from the counts, no row in common, a method version that differs from the ratchet
+   file's, a ratchet file of another shape or missing, or a count that failed (arch_counts.py exits non-zero,
+   breaks the contract, counts another commit, or runs past the deadline). The count gets the report's deadline
+   less ISSUE_RESERVE_SECONDS, so a count that runs out of time still leaves time to note it. A commit with
+   neither file (before the ratchet-file slice landed) is only logged.
 
 The whole report has one deadline (REPORT_SECONDS): every git subprocess, the count and every GitHub request get
-the time that is left, and the report stops when it runs out. run_report() catches every error (also SystemExit
-and the deadline; not KeyboardInterrupt), prints it and leaves the state as it was; the command line exits 0.
---dry-run prints the table and the issue action and writes nothing (no state, no GitHub). Tests:
+the time that is left, and the report stops when it runs out. A failure outside the count (a fetch of SHA, the
+order, this script's own bug) is printed and the state is left as it was; run_report() never raises (also not for
+a SystemExit or the deadline; KeyboardInterrupt does) and the command line exits 0. --dry-run prints the table and
+the issue action and writes nothing (no state, no GitHub). Tests:
 scripts/cmux-next/tests/test_perf_cron_arch_report.py (GitHub faked, git real in temporary repositories, also a
 shallow, sparse, blobless clone made both by git clone and the way actions/checkout makes it; run them yourself, no
 CI job runs them).
 
-Hook (PL-perf-cron's files; send to session cmux-b6 after this file and the ratchet-file slice, which adds
-arch_counts.py and arch-ratchet.json, are on feat-cmux-next). Three edits, not one line:
-- .github/workflows/cmux-next-perf-budgets.yml, job `report`, the checkout's sparse-checkout list: add
+Hook (PL-perf-cron's files; send to session cmux-b6 as one message after this file and the ratchet-file slice,
+which adds arch_counts.py and arch-ratchet.json, are on feat-cmux-next):
+- .github/workflows/cmux-next-perf-budgets.yml, job `report`, the checkout's sparse-checkout list: add the line
   `scripts/cmux-next/perf-cron-arch-report.py`.
-- perf-cron.py: a helper next to load_budgets_module:
-      def load_sibling(name):
-          spec = importlib.util.spec_from_file_location(name.replace("-", "_")[:-3], os.path.join(HERE, name))
-          mod = importlib.util.module_from_spec(spec)
-          spec.loader.exec_module(mod)
-          return mod
-- perf-cron.py cmd_report: inside `if cur and not cur["parts_todo"] and (changed or o.finish):` (where `changed`
-  is already set True), keep `finished = cur`; after the existing `json.dump(state, ...)` of state.json AND after
-  write_outputs (so the perf state and outputs.changed=true are written before the report starts, and a kill
-  during the report loses nothing of perf-cron's own work), add:
-      if finished and load_sibling("perf-cron-arch-report.py").run_report(
-              state, finished["sha"], finished["kind"], root=ROOT, repo=o.repo, run_url=o.run_url, issue=o.issues):
+- perf-cron.py: load_budgets_module takes the file name, with today's file as the default:
+      def load_budgets_module(name="perf-budgets.py"):
+          spec = importlib.util.spec_from_file_location(name[:-3].replace("-", "_"), os.path.join(HERE, name))
+- perf-cron.py cmd_report, after its last line (write_outputs: perf-cron's own state and outputs.changed=true
+  are written before the report starts, so a kill during the report loses nothing of perf-cron's work):
+      if summary and load_budgets_module("perf-cron-arch-report.py").report_finished(
+              state, root=ROOT, repo=o.repo, run_url=o.run_url, issue=o.issues):
           json.dump(state, open(os.path.join(o.dir, "state.json"), "w"), indent=1)
-  (`finished = None` before the `if`.) run_report changes only state["arch_history"] and state["arch_issue"],
-  returns True only when it changed them, never raises, and ends within REPORT_SECONDS (well inside the job's
-  `timeout-minutes: 10`), so the second dump stores the arch point and "Save the state" uploads it.
+  `summary` is set exactly when a measurement finished this tick, and finish_measurement has then appended it to
+  state["history"]: report_finished reads its sha and kind there. It changes only state["arch_history"] and
+  state["arch_issue"], returns True only when it changed them, never raises, and ends within REPORT_SECONDS (well
+  inside the job's `timeout-minutes: 10`), so the second dump stores the arch point and "Save the state" uploads it.
 """
 import argparse, datetime, json, os, re, subprocess, sys, tempfile, time, traceback
 import urllib.error, urllib.parse, urllib.request
@@ -101,8 +109,13 @@ DEEPEN_ROUNDS = 4
 # One deadline for the whole report: under a third of the report job's `timeout-minutes: 10`, so perf-cron's own
 # steps keep the rest. A full run on the real tree (shallow, blobless checkout) took 11 s.
 REPORT_SECONDS = 180
+# The part of the deadline kept from the count for noting a failed count in the issue: keep_issue makes at most four
+# requests (find, search, update, comment), and 30 s is gh_request's own per-request timeout.
+ISSUE_RESERVE_SECONDS = 30
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-# The count runs code of the measured commit: it gets no credential of the job.
+# Left out of the count's environment so the measured commit's code never uses a job credential by accident. Not a
+# security boundary (the child runs as the same user and can read the parent's environment): the measured commit is
+# trusted feat-cmux-next code.
 SECRET_ENV = re.compile(r"TOKEN|SECRET|PASSWORD|^ACTIONS_RUNTIME|^ACTIONS_ID_TOKEN|^ACTIONS_CACHE")
 
 
@@ -136,6 +149,10 @@ class Deadline:
         if remaining <= 0:
             raise ReportTimeout(f"the report's deadline ({REPORT_SECONDS} s by default) ran out")
         return remaining
+
+    def reserving(self, seconds):
+        """A deadline `seconds` before this one (already passed when less is left), on the same clock."""
+        return Deadline(self.end - seconds - self.clock(), self.clock)
 
 
 # ---------- git ----------
@@ -323,7 +340,9 @@ def order(dl, root, repo, old, new):
         log(f"cannot order {new[:12]} against {old[:12]}: no repository or GH_TOKEN for the GitHub compare API")
         return None
     try:
-        status = gh_request(f"/repos/{repo}/compare/{old}...{new}", timeout=dl.left()).get("status")
+        # Only `status` is read. Page 2 at one commit a page still carries it (also for "identical", "behind" and
+        # "diverged"), with no file diffs (GitHub lists the files only on page 1) and at most one commit.
+        status = gh_request(f"/repos/{repo}/compare/{old}...{new}?per_page=1&page=2", timeout=dl.left()).get("status")
     except urllib.error.HTTPError as error:
         if error.code != 404:
             log(f"cannot compare {old[:12]}...{new[:12]} on GitHub: {error}")
@@ -433,9 +452,8 @@ def count_env():
     return {k: v for k, v in os.environ.items() if not SECRET_ENV.search(k)}
 
 
-def counts_at(dl, root, sha):
-    """The checked counts record at sha, from sha's own arch_counts.py run in a subprocess."""
-    files = list_blobs(dl, root, sha)
+def counts_at(dl, root, sha, files):
+    """The checked counts record at sha, from sha's own arch_counts.py run in a subprocess. files: list_blobs(sha)."""
     prefetch_blobs(dl, root, files)
     script = next((oid for oid, name in files if name == COUNTS_SCRIPT), None)
     if script is None:
@@ -471,6 +489,73 @@ def ratchet_at(dl, root, sha):
         return None, f"{RATCHET_PATH} at {sha[:12]} is not JSON ({error})"
     except CountError as error:
         return None, str(error)
+
+
+def entry_key(entry):
+    return json.dumps(entry, sort_keys=True)
+
+
+def failure_text(error):
+    """One line for an error, with the tail of a failed git command's own message."""
+    if isinstance(error, subprocess.CalledProcessError):
+        detail = error.stderr.decode(errors="replace") if isinstance(error.stderr, bytes) else (error.stderr or "")
+        return f"{' '.join(map(str, error.cmd[:6]))} exited {error.returncode}: {detail.strip()[-300:]}"
+    return f"{type(error).__name__}: {error}"[:500]
+
+
+def recorded_entries(dl, root, ratchet):
+    """(keys of the `exceptions` entries in the ratchet file at its measured_sha, None), or (None, why they cannot be
+    read). That file is the one `arch-ratchet.py --update` replaced when it recorded the totals (it keeps every
+    entry, so these entries' rises are in the totals); a measured_sha with no ratchet file has no entries. The
+    report's deadline running out is raised, like any other failure of the count."""
+    measured = ratchet.get("measured_sha")
+    if not isinstance(measured, str) or not SHA_RE.match(measured):
+        return None, f"its measured_sha {measured!r} is not a commit sha"
+    try:
+        ensure_commit(dl, root, measured)
+        listed = run(dl, ["git", "-C", root, "ls-tree", "-z", measured, "--", RATCHET_PATH], capture_output=True,
+                     check=True, env=no_lazy_env()).stdout
+        if not listed.strip(b"\0"):
+            return set(), None
+        raw = file_at(dl, root, measured, RATCHET_PATH)
+        if raw is None:
+            return None, f"{RATCHET_PATH} at its measured_sha {measured[:12]} cannot be read"
+        old = json.loads(raw)
+    except ReportTimeout:
+        raise
+    except (subprocess.SubprocessError, OSError, ValueError) as error:
+        return None, f"{RATCHET_PATH} at its measured_sha {measured[:12]} cannot be read ({failure_text(error)})"
+    if not isinstance(old, dict):
+        return None, f"{RATCHET_PATH} at its measured_sha {measured[:12]} is not a JSON object"
+    return {entry_key(e) for e in old.get("exceptions") or [] if isinstance(e, dict)}, None
+
+
+def valid_entry(entry, rows):
+    """An exceptions entry the pre-push rule takes: a known row, allow > 0, a why and a YYYY-MM-DD date."""
+    allow = entry.get("allow")
+    try:
+        datetime.date.fromisoformat(str(entry.get("date")))
+    except ValueError:
+        return False
+    return (entry.get("row") in rows and isinstance(allow, int) and not isinstance(allow, bool) and allow > 0
+            and bool(str(entry.get("why", "")).strip()))
+
+
+def newer_entries(ratchet, recorded):
+    """The valid `exceptions` entries at SHA that are not in recorded (added after the totals were recorded), in file
+    order; [] when recorded is None (not known: no entry is taken as newer)."""
+    if recorded is None:
+        return []
+    newer = []
+    for entry in ratchet["exceptions"]:
+        if entry_key(entry) in recorded:
+            continue
+        if valid_entry(entry, ratchet["rows"]):
+            newer.append(entry)
+        else:
+            log(f"ignored exceptions entry {entry_key(entry)}: it needs a known row, allow > 0, a why and a "
+                "YYYY-MM-DD date (the pre-push rule ignores it too)")
+    return newer
 
 
 # ---------- state ----------
@@ -514,10 +599,12 @@ def save_state(path, state):
 
 # ---------- the judgement, the trend and the regressions ----------
 
-def judgement(counts, ratchet, ratchet_problem):
-    """{'limits': {row: ratchet total} of the rows judged this run, 'unjudged': [why, ...]}. Every ratcheted row
-    of the ratchet file that this run cannot compare is named, so a renamed or dropped row never leaves the
-    judgement silently, and the issue is never closed on such a run."""
+def judgement(counts, ratchet, ratchet_problem, allowance=None):
+    """{'limits': {row: limit} of the rows judged this run, 'unjudged': [why, ...]}. A row's limit is the ratchet
+    file's total plus allowance[row] (the newer exceptions entries' allow). Every ratcheted row of the ratchet file
+    that this run cannot compare is named, so a renamed or dropped row never leaves the judgement silently, and the
+    issue is never closed on such a run."""
+    allowance = allowance or {}
     if ratchet is None:
         return {"limits": {}, "unjudged": [ratchet_problem] if ratchet_problem else []}
     unjudged = []
@@ -533,7 +620,8 @@ def judgement(counts, ratchet, ratchet_problem):
     missing = sorted(n for n in ratchet["ratcheted"] if n in ratchet["totals"] and n not in counts["totals"])
     if missing:
         unjudged.append(f"ratcheted row(s) missing from the counts (renamed or dropped?): " + ", ".join(missing))
-    limits = {n: ratchet["totals"][n] for n in ratchet["ratcheted"] if n in ratchet["totals"] and n in counts["totals"]}
+    limits = {n: ratchet["totals"][n] + allowance.get(n, 0) for n in ratchet["ratcheted"]
+              if n in ratchet["totals"] and n in counts["totals"]}
     if not limits and ratchet["ratcheted"]:
         unjudged.append("no ratcheted row of the ratchet file is in the counts")
     return {"limits": limits, "unjudged": unjudged}
@@ -556,7 +644,7 @@ def trend_table(history, limits, ratchet):
     now = history[-1]["totals"]
     before = comparable(history)
     names = sorted(set(now) | set(limits) | (ratchet["ratcheted"] if ratchet else set()))
-    lines = ["| row | ratchet | last values | now | |", "|---|---:|---|---:|---|"]
+    lines = ["| row | limit | last values | now | |", "|---|---:|---|---:|---|"]
     shown = 0
     for name in names:
         past = [p["totals"].get(name) for p in before[-TREND_VALUES:]]
@@ -577,10 +665,13 @@ def trend_table(history, limits, ratchet):
     return lines
 
 
-def over_rows(history, limits, ratchet):
-    """One entry per judged row over its ratchet value now: the packages that rose over the ratchet file's package
-    counts, the first sha of the current run of points over the ratchet (where the row was first seen higher) and
-    the last point at or under it before that run (None when the history does not reach one)."""
+def over_rows(history, limits, ratchet, newer, recorded):
+    """One entry per judged row over its limit now: the packages that rose over the ratchet file's package counts,
+    the first sha of the current run of points over the limit (where the row was first seen higher), the last point
+    at or under it before that run (None when the history does not reach one), and the row's exceptions entries:
+    newer (added after the totals were recorded: their allowance is in the limit), recorded (already there when the
+    totals were recorded: their rise is in the total) and unknown (recorded is None: which ones are newer is not
+    known, none is in the limit)."""
     out = []
     point = history[-1]
     before = comparable(history)
@@ -596,62 +687,73 @@ def over_rows(history, limits, ratchet):
                 continue
             good = p if v is not None else None  # a point without the row is no known good value
             break
+        entries = [e for e in ratchet["exceptions"] if e.get("row") == name]
         rose = sorted((pkg, ratchet["packages"].get(pkg, {}).get(name, 0), counts.get(name, 0))
                       for pkg, counts in point["packages"].items()
                       if counts.get(name, 0) > ratchet["packages"].get(pkg, {}).get(name, 0))
         out.append({"row": name, "packages": ", ".join(f"{pkg} {a}→{b}" for pkg, a, b in rose) or "-",
-                    "ratchet": limit, "now": value, "first_sha": first["sha"], "first_at": first.get("at"),
-                    "first_value": first["totals"][name], "good_sha": good["sha"] if good else None,
+                    "total": ratchet["totals"][name], "limit": limit, "now": value, "first_sha": first["sha"],
+                    "first_at": first.get("at"), "first_value": first["totals"][name],
+                    "good_sha": good["sha"] if good else None,
                     "good_value": good["totals"].get(name) if good else None,
-                    "exceptions": [e for e in ratchet["exceptions"] if e.get("row") == name]})
+                    "newer": [e for e in newer if e.get("row") == name],
+                    "recorded": [e for e in entries if recorded is not None and entry_key(e) in recorded],
+                    "unknown": entries if recorded is None else []})
     return out
 
 
-def issue_body(regs, sha, notes, ranges, run_url, repo, trend_note=None):
+def issue_body(regs, sha, notes, ranges, run_url, repo, trend_note=None, measured=None, entries_problem=None):
+    """The issue's body. measured: the ratchet file's measured_sha (where its totals were recorded); entries_problem:
+    why the exceptions entries newer than that cannot be told (the limit is then the file's total alone)."""
     def link(s):
         return f"[`{s[:12]}`](https://github.com/{repo}/commit/{s})" if repo else f"`{s[:12]}`"
+    def listed(entries):
+        return "; ".join(entry_key(e) for e in entries)
     lines = [ISSUE_MARK, ""]
     if regs:
-        lines += [f"An architecture count is over its ratchet value in `{RATCHET_PATH}` at {link(sha)}. The limit is "
-                  "the file's total: this report does not apply `exceptions` allowances. A count only goes down: move "
-                  "the new code to the pattern the rule asks for (inject from the composition root, a seam adapter, a "
-                  "targeted observer, the domain package). Renaming a pattern to dodge the count is the same debt. "
-                  "When a dated `exceptions` entry accepted the rise (a row's entries are listed below), run "
-                  "`scripts/cmux-next/arch-ratchet.py --update` so the file records the new total; the issue closes "
-                  "on the first tip after that lands.", ""]
+        lines += [f"An architecture count is over its limit at {link(sha)}. The limit is the total in "
+                  f"`{RATCHET_PATH}` plus the `allow` of the dated `exceptions` entries added after that total was "
+                  "recorded (the allowance the pre-push rule gives a push that adds an entry). A count only goes down: "
+                  "move the new code to the pattern the rule asks for (inject from the composition root, a seam "
+                  "adapter, a targeted observer, the domain package). Renaming a pattern to dodge the count is the "
+                  "same debt.", ""]
     else:
-        lines += [f"No judged row is over its ratchet value at {link(sha)}, but the run could not judge every row, so "
-                  "this issue stays open until a run judges them all.", ""]
+        lines += [f"No judged row is over its limit at {link(sha)}, but the run could not judge every row (the lines "
+                  "below say why), so this issue stays open until a run judges them all.", ""]
     if trend_note:
         lines += [f"Trend: {trend_note}.", ""]
     for note in notes:
         lines += [f"Not judged: {note}", ""]
+    if regs and entries_problem:
+        lines += [f"Which `exceptions` entries are newer than the recorded totals is not known ({entries_problem}): "
+                  "the limit is the file's total alone.", ""]
     if regs:
-        lines += ["| row | packages that rose | ratchet | now | first seen higher | last at or under |",
+        lines += ["| row | packages that rose | limit | now | first seen higher | last at or under |",
                   "|---|---|---:|---:|---|---|"]
     for r in regs:
         good = f"{link(r['good_sha'])} ({r['good_value']})" if r["good_sha"] else "before the kept history"
-        lines.append(f"| {r['row']} | {r['packages']} | {r['ratchet']} | {r['now']} | {link(r['first_sha'])} "
+        limit = str(r["total"]) if r["limit"] == r["total"] else f"{r['total']} + {r['limit'] - r['total']}"
+        lines.append(f"| {r['row']} | {r['packages']} | {limit} | {r['now']} | {link(r['first_sha'])} "
                      f"({r['first_value']}, {r.get('first_at') or '?'}) | {good} |")
+    recorded_at = f" at {measured[:12]}" if measured else ""
     for r in regs:
-        if not r["exceptions"]:
-            continue
-        entries = "; ".join(json.dumps(e, sort_keys=True) for e in r["exceptions"])
-        allowed = sum(e["allow"] for e in r["exceptions"] if is_count(e.get("allow")))
-        rise = r["now"] - r["ratchet"]
-        if allowed >= rise:
-            lines.append(f"\n`{r['row']}`: the rise (+{rise}) is within its exception entries (+{allowed}): {entries}. "
-                         "If they accepted it, run `scripts/cmux-next/arch-ratchet.py --update` to record it.")
-        else:
-            lines.append(f"\n`{r['row']}`: its exception entries allow +{allowed}, less than the rise (+{rise}): "
-                         f"{entries}. The rest needs the fix (or a new dated entry).")
+        rise = r["now"] - r["total"]
+        if r["newer"]:
+            lines.append(f"\n`{r['row']}`: +{r['limit'] - r['total']} of the rise (+{rise} over the total) is allowed "
+                         f"by entries added after the total was recorded{recorded_at}: {listed(r['newer'])}. The rest "
+                         f"(+{r['now'] - r['limit']}) needs the fix.")
+        if r["recorded"]:
+            lines.append(f"\n`{r['row']}`: these entries were in the file when the total was recorded{recorded_at}, so "
+                         f"their rise is already in it and they allow nothing more: {listed(r['recorded'])}.")
+        if r["unknown"]:
+            lines.append(f"\n`{r['row']}`: its entries (not applied, see above): {listed(r['unknown'])}.")
     for key in sorted({(r["good_sha"], r["first_sha"]) for r in regs}, key=lambda k: [x or "" for x in k]):
         good, first = key
         rows = ", ".join(r["row"] for r in regs if (r["good_sha"], r["first_sha"]) == key)
         lines += ["", f"### Commits that can have raised {rows}", ""]
         commits = ranges.get(key)
         if good is None:
-            lines.append(f"The kept history ({HISTORY_POINTS} points) has no value at or under the ratchet; the rise "
+            lines.append(f"The kept history ({HISTORY_POINTS} points) has no value at or under the limit; the rise "
                          f"is at or before {link(first)}.")
         elif commits is None:
             lines.append(f"The range {good[:12]}..{first[:12]} could not be listed (see the run log).")
@@ -704,44 +806,61 @@ def find_issue(gh, repo, number=None):
 
 def keep_issue(dl, repo, state, regs, all_judged, body, summary, run_url, dry_run):
     """Open, update, reopen or close the one issue (state[ISSUE_KEY] holds its number). Returns a line for the log.
-    It closes only when every ratcheted row was judged and none is over. Every request gets the time left."""
+    It closes only when every ratcheted row was judged and none is over; a run with a row over its limit or one it
+    could not judge opens, updates or reopens it. Every request gets the time left."""
     def gh(path, method="GET", body=None):
         return gh_request(path, method, body, timeout=dl.left())
     issue = find_issue(gh, repo, state.get(ISSUE_KEY))
     number = issue["number"] if issue else None
     is_open = bool(issue) and issue.get("state") == "open"
     suffix = f" ([run]({run_url}))." if run_url else "."
-    if not regs and not all_judged:
-        if not is_open:
-            return "cannot judge every row; no open issue to note it in"
-        if dry_run:
-            return f"would leave issue #{number} open and note the rows not judged"
-        state[ISSUE_KEY] = number
-        gh(f"/repos/{repo}/issues/{number}", "PATCH", {"body": body})
-        return f"left issue #{number} open: not every row could be judged"
-    if not regs:
+    if not regs and all_judged:
         if not is_open:
             return "no issue needed"
         if dry_run:
             return f"would close issue #{number}"
         gh(f"/repos/{repo}/issues/{number}/comments", "POST",
-                   {"body": f"Recovered: every architecture row is at or under its ratchet value. {summary}{suffix}"})
+           {"body": f"Recovered: every architecture row is at or under its limit. {summary}{suffix}"})
         gh(f"/repos/{repo}/issues/{number}", "PATCH", {"state": "closed", "state_reason": "completed"})
         return f"closed issue #{number}"
+    why = "" if regs else ": not every row could be judged"
     if dry_run:
-        return f"would {'open an issue' if not issue else ('update' if is_open else 'reopen') + f' issue #{number}'}"
+        action = "open an issue" if not issue else f"{'update' if is_open else 'reopen'} issue #{number}"
+        return f"would {action}{why}"
     if not issue:
         created = gh(f"/repos/{repo}/issues", "POST", {"title": ISSUE_TITLE, "body": body})
         state[ISSUE_KEY] = created["number"]
-        return f"opened issue #{created['number']}"
+        return f"opened issue #{created['number']}{why}"
     state[ISSUE_KEY] = number
     gh(f"/repos/{repo}/issues/{number}", "PATCH", {"body": body, **({} if is_open else {"state": "open"})})
     if not is_open:
-        gh(f"/repos/{repo}/issues/{number}/comments", "POST", {"body": f"Regressed again: {summary}{suffix}"})
-    return f"{'updated' if is_open else 'reopened'} issue #{number}"
+        again = "Regressed again" if regs else "Cannot judge every row"
+        gh(f"/repos/{repo}/issues/{number}/comments", "POST", {"body": f"{again}: {summary}{suffix}"})
+    if is_open and not regs:
+        return f"left issue #{number} open{why}"
+    return f"{'updated' if is_open else 'reopened'} issue #{number}{why}"
 
 
 # ---------- the report ----------
+
+def note_issue(dl, root, repo, state, regs, all_judged, summary, run_url, dry_run, **body):
+    """Keep the issue for this run's verdict (state is the copy of ISSUE_KEY the report owns). body: issue_body's
+    sha, notes, trend_note, measured and entries_problem. A failed request is printed: the next run keeps it."""
+    if not repo or (not dry_run and not os.environ.get("GH_TOKEN")):
+        log("no repository or GH_TOKEN: the issue is not kept this run")
+        return
+    ranges = {}
+    for r in regs:
+        key = (r["good_sha"], r["first_sha"])
+        if r["good_sha"] and key not in ranges:
+            ranges[key] = range_commits(dl, root, *key)
+    text = issue_body(regs, ranges=ranges, run_url=run_url, repo=repo, **body)
+    try:
+        log(keep_issue(dl, repo, state, regs, all_judged, text, summary, run_url, dry_run))
+    except (urllib.error.URLError, OSError, ValueError, KeyError) as error:
+        # A ReportTimeout is an OSError too: what the report stores is kept, the issue is kept by the next run.
+        log(f"cannot keep the issue: {error}")
+
 
 def _report(dl, state, sha, kind, root, repo, run_url, issue, dry_run):
     """The report on a copy of the two keys it owns: ({STATE_KEY: ..., ISSUE_KEY: ...} to store, or None)."""
@@ -754,11 +873,41 @@ def _report(dl, state, sha, kind, root, repo, run_url, issue, dry_run):
     history, trend_note = trend_base(dl, root, repo, history_of(state), sha)
     if history is None:
         return None
-    counts = counts_at(dl, root, sha)
-    ratchet, ratchet_problem = ratchet_at(dl, root, sha)
+    files = list_blobs(dl, root, sha)
+    names = {name for _, name in files}
+    if COUNTS_SCRIPT not in names and RATCHET_PATH not in names:
+        log(f"neither {COUNTS_SCRIPT} nor {RATCHET_PATH} at {sha[:12]} (the ratchet-file slice is not there): no "
+            "point, no judgement, the issue is left as it is")
+        return None
+    owned = {ISSUE_KEY: state.get(ISSUE_KEY)}
+    # The count leaves ISSUE_RESERVE_SECONDS of the deadline for noting its own failure in the issue.
+    count_dl = dl.reserving(ISSUE_RESERVE_SECONDS) if issue else dl
+    try:
+        counts = counts_at(count_dl, root, sha, files)
+        ratchet, ratchet_problem = ratchet_at(count_dl, root, sha)
+        recorded, entries_problem = (recorded_entries(count_dl, root, ratchet) if ratchet and ratchet["exceptions"]
+                                     else (set(), None))
+    except Exception as error:  # this commit has the ratchet's files: a failed count is a 'Not judged' line
+        failure = f"the count at {sha[:12]} failed: {error if isinstance(error, CountError) else failure_text(error)}"
+        log(f"not judged: {failure}")
+        if not isinstance(error, CountError):
+            traceback.print_exc(file=sys.stdout)
+        if issue:
+            # No trend line: with no point stored, the trend has not restarted.
+            note_issue(dl, root, repo, owned, [], False, f"{sha[:12]}: {failure}", run_url, dry_run, sha=sha,
+                       notes=[failure])
+        log(f"done in {time.monotonic() - started:.1f} s (no point)")
+        return {ISSUE_KEY: owned[ISSUE_KEY]}
     if ratchet is None and ratchet_problem is None:
-        log(f"no {RATCHET_PATH} at {sha[:12]}: trend only, no regression check, the issue is left as it is")
-    judged = judgement(counts, ratchet, ratchet_problem)
+        ratchet_problem = f"no {RATCHET_PATH} at {sha[:12]}, though {COUNTS_SCRIPT} is there: nothing is judged"
+    newer = newer_entries(ratchet, recorded) if ratchet else []
+    allowance = {}
+    for entry in newer:
+        allowance[entry["row"]] = allowance.get(entry["row"], 0) + entry["allow"]
+    if entries_problem:
+        log(f"which exceptions entries are newer than the recorded totals is not known ({entries_problem}): the "
+            "limit is the file's total alone")
+    judged = judgement(counts, ratchet, ratchet_problem, allowance)
     limits, notes = judged["limits"], list(judged["unjudged"])
     for note in notes:
         log(f"not judged: {note}")
@@ -766,33 +915,26 @@ def _report(dl, state, sha, kind, root, repo, run_url, issue, dry_run):
         extra = sorted(n for n, v in counts["totals"].items() if v and n not in ratchet["rows"])
         if extra:
             log(f"{len(extra)} nonzero counted row(s) the ratchet file does not know (trend only): " + ", ".join(extra))
+        for name, limit in sorted(limits.items()):
+            total, value = ratchet["totals"][name], counts["totals"][name]
+            if total < value <= limit:
+                log(f"{name} is {value}, over the file's total {total} but within the +{limit - total} of exceptions "
+                    f"entries added after it was recorded: run scripts/cmux-next/arch-ratchet.py --update to record it")
     history = add_point(history, sha, counts, now_iso())
     print(f"perf-cron-arch: architecture counts at {sha[:12]} ({len(counts['totals'])} rows, {len(history)} points kept)")
     for line in trend_table(history, limits, ratchet):
         print(line)
-    regs = over_rows(history, limits, ratchet) if limits else []
+    regs = over_rows(history, limits, ratchet, newer, recorded) if limits else []
     all_judged = ratchet is not None and not notes
-    summary = (f"{sha[:12]}: {len(regs)} row(s) over the ratchet: " + ", ".join(f"{r['row']} {r['now']} > {r['ratchet']}"
-               for r in regs[:8])) if regs else (f"{sha[:12]}: every row at or under the ratchet" if all_judged else
-                                                 f"{sha[:12]}: no judged row over the ratchet; {len(notes)} problem(s) "
+    summary = (f"{sha[:12]}: {len(regs)} row(s) over the limit: " + ", ".join(f"{r['row']} {r['now']} > {r['limit']}"
+               for r in regs[:8])) if regs else (f"{sha[:12]}: every row at or under its limit" if all_judged else
+                                                 f"{sha[:12]}: no judged row over its limit; {len(notes)} problem(s) "
                                                  "kept it from judging every row")
     log(summary)
-    owned = {ISSUE_KEY: state.get(ISSUE_KEY)}
-    if issue and (ratchet is not None or ratchet_problem):
-        if not repo or (not dry_run and not os.environ.get("GH_TOKEN")):
-            log("no repository or GH_TOKEN: the issue is not kept this run")
-        else:
-            ranges = {}
-            for r in regs:
-                key = (r["good_sha"], r["first_sha"])
-                if r["good_sha"] and key not in ranges:
-                    ranges[key] = range_commits(dl, root, *key)
-            body = issue_body(regs, sha, notes, ranges, run_url, repo, trend_note)
-            try:
-                log(keep_issue(dl, repo, owned, regs, all_judged, body, summary, run_url, dry_run))
-            except (urllib.error.URLError, OSError, ValueError, KeyError) as error:
-                # A ReportTimeout is an OSError too: the point is kept, the issue is kept by the next run.
-                log(f"cannot keep the issue: {error}")
+    if issue:
+        note_issue(dl, root, repo, owned, regs, all_judged, summary, run_url, dry_run, sha=sha, notes=notes,
+                   trend_note=trend_note, measured=ratchet["measured_sha"] if ratchet else None,
+                   entries_problem=entries_problem)
     log(f"done in {time.monotonic() - started:.1f} s")
     return {STATE_KEY: history, ISSUE_KEY: owned[ISSUE_KEY]}
 
@@ -800,10 +942,11 @@ def _report(dl, state, sha, kind, root, repo, run_url, issue, dry_run):
 def run_report(state, sha, kind, *, root=ROOT, repo="", run_url="", issue=False, dry_run=False, deadline=None):
     """Count the architecture rows at sha and keep the trend and the issue in state (perf-cron's state dict).
 
-    Changes only state[STATE_KEY] and state[ISSUE_KEY], and only when the whole report ran (not with dry_run).
+    Changes only state[STATE_KEY] and state[ISSUE_KEY] (not with dry_run): the point and the issue when the count
+    ran, only the issue when the count failed at a commit that has the ratchet's files (module docstring, 6).
     Returns True when it changed them. Ends by deadline (a Deadline; default REPORT_SECONDS from now). Never raises
-    (also not for a SystemExit from the measured commit's code, or the deadline), except KeyboardInterrupt: an
-    error is printed and the state is left as it was."""
+    (also not for a SystemExit or the deadline), except KeyboardInterrupt: an error outside the count is printed and
+    the state is left as it was."""
     try:
         dl = deadline or Deadline(REPORT_SECONDS)
         owned = _report(dl, state, sha, kind, root, repo, run_url, issue, dry_run)
@@ -823,6 +966,18 @@ def run_report(state, sha, kind, *, root=ROOT, repo="", run_url="", issue=False,
             state[key] = value
             changed = True
     return changed
+
+
+def report_finished(state, **kw):
+    """run_report() for the measurement perf-cron.py's cmd_report finished this tick: finish_measurement appended it
+    to state["history"] (its sha and kind). The keyword arguments are run_report's. Never raises."""
+    hist = state.get("history")
+    last = hist[-1] if isinstance(hist, list) and hist and isinstance(hist[-1], dict) else {}
+    sha, kind = last.get("sha"), last.get("kind")
+    if not isinstance(sha, str) or not isinstance(kind, str):
+        log(f"no finished measurement in the state's history (its last entry is {str(last)[:200]}): nothing done")
+        return False
+    return run_report(state, sha, kind, **kw)
 
 
 def default_run_url():

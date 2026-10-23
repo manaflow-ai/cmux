@@ -4,13 +4,16 @@
 --json`, reads the commit from git objects, prints one record of the arch-ratchet.json shape).
 
 Covered: a rise opens the issue with the row, the packages that rose, the first sha seen higher and the commits in
-the range; the same rise updates it; a fall closes it; a new rise reopens it; the history is capped; a missing ratchet
-file prints a note; a run that cannot judge every row (a renamed row, another method version) never closes the
-issue; an older commit or a bisect step after a newer point changes nothing; a rewritten branch (the last point
-diverged, or its commit is gone) restarts the trend and says so; a shallow, sparse, blobless clone whose HEAD is not
-the measured commit (made by git clone, and the way actions/checkout makes it) is counted with a few fetches, not
-one per blob; the report ends by its deadline; errors (also the count script's own exit) never fail and never
-change the state; the in-process run_report() changes only its own keys.
+the range; the same rise updates it; a fall closes it; a new rise reopens it; the history is capped; a run that
+cannot judge every row (a renamed row, another method version, a missing ratchet file, a failed count) notes it in
+the issue, opens or reopens it when needed, and never closes it; a commit with neither ratchet file is only logged;
+an exceptions entry already in the recorded total allows no new rise, one added after it raises the limit like the
+pre-push rule, and an unreadable measured_sha applies none; an older commit or a bisect step after a newer point
+changes nothing; a rewritten branch (the last point diverged, or its commit is gone) restarts the trend and says
+so; a shallow, sparse, blobless clone whose HEAD is not the measured commit (made by git clone, and the way
+actions/checkout makes it) is counted with a few fetches, not one per blob; a count past the deadline is still
+noted in the issue in time; an unreadable state is never overwritten; the in-process run_report() and
+report_finished() change only their own keys.
 Run: python3 -I scripts/cmux-next/tests/test_perf_cron_arch_report.py (not a CI job)."""
 import contextlib, copy, importlib.util, io, json, os, subprocess, tempfile, time, unittest, urllib.error
 from unittest import mock
@@ -60,9 +63,14 @@ def counts(singletons, browser, rename=None, version=1):
     return {"method_version": version, "rows": rows, "totals": totals, "packages": packages}
 
 
-def ratchet(singletons=5, browser=2, version=1):
-    return {"_doc": "a count only goes down", "method": "arch_counts", "measured_sha": "0" * 40,
-            "measured_date": "2026-10-23", **counts(singletons, browser, version=version), "exceptions": []}
+def ratchet(singletons=5, browser=2, version=1, measured_sha="0" * 40, exceptions=()):
+    return {"_doc": "a count only goes down", "method": "arch_counts", "measured_sha": measured_sha,
+            "measured_date": "2026-10-23", **counts(singletons, browser, version=version),
+            "exceptions": list(exceptions)}
+
+
+def entry(allow, why="a reviewed browser cache", row="stateful_singletons", date="2026-10-23"):
+    return {"date": date, "row": row, "allow": allow, "why": why}
 
 
 RATCHET = ratchet()
@@ -354,19 +362,24 @@ class ArchReportTests(unittest.TestCase):
         self.assertIn(f"the last point {gone[:12]} is gone", out)
         self.assertEqual([p["sha"] for p in self.load_state()[report.STATE_KEY]], [a])
 
-    def test_the_report_ends_by_its_deadline_and_leaves_the_state(self):
+    def test_a_count_past_the_deadline_is_noted_in_the_issue_in_time(self):
         self.write("scripts/cmux-next/arch_counts.py", "import time\ntime.sleep(60)\n")
         sha = self.commit("a slow counter", counts(5, 2))
         state = self.load_state()
         frozen = copy.deepcopy(state)
         started = time.monotonic()
         out = io.StringIO()
-        with mock.patch.object(report, "gh_request", self.gh), contextlib.redirect_stdout(out):
+        with mock.patch.object(report, "gh_request", self.gh), mock.patch.object(report, "ISSUE_RESERVE_SECONDS", 3), \
+                contextlib.redirect_stdout(out):
             changed = report.run_report(state, sha, "tip", root=self.repo, repo=REPO, issue=True,
-                                        deadline=report.Deadline(3))
-        self.assertFalse(changed)
+                                        deadline=report.Deadline(6))
         self.assertLess(time.monotonic() - started, 30, "the count is stopped at the deadline, not after its sleep")
-        self.assertIn("deadline", out.getvalue())
+        self.assertTrue(changed, out.getvalue())
+        issue = self.own_issues()[0]
+        self.assertIn("ran past the report's deadline", issue["body"])
+        self.assertEqual(state[report.ISSUE_KEY], issue["number"])
+        self.assertNotIn(report.STATE_KEY, state, "no point from a count that did not finish")
+        state.pop(report.ISSUE_KEY)
         self.assertEqual(state, frozen)
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertFalse(report.run_report(state, sha, "tip", root=self.repo, deadline=report.Deadline(0)))
@@ -400,38 +413,123 @@ class ArchReportTests(unittest.TestCase):
         self.assertIn("| app_lines | - | 100 100 100 | 100 | = |", out, "a report-only row has no ratchet value")
         self.assertNotIn("layer_hard", out, "a row that is 0 everywhere is left out")
 
-    def test_a_missing_ratchet_file_prints_a_note_and_keeps_the_issue_as_it_is(self):
+    def test_a_missing_ratchet_file_beside_arch_counts_is_noted_in_the_issue(self):
         _, _, c = self.rise()
         self.run_report(c)
-        self.gh.calls.clear()
+        number = self.own_issues()[0]["number"]
         s = self.commit("chore: drop the ratchet", counts(9, 9), ratchet=None)
         out = self.run_report(s)
-        self.assertIn(f"no {report.RATCHET_PATH} at {s[:12]}: trend only", out)
-        self.assertEqual(self.gh.calls, [], "no ratchet: no judgement, no GitHub call")
+        self.assertIn(f"left issue #{number} open", out)
+        self.assertIn(f"Not judged: no {report.RATCHET_PATH} at {s[:12]}", self.gh.issues[number]["body"])
+        self.assertEqual(self.gh.issues[number]["state"], "open")
         self.assertEqual(self.load_state()[report.STATE_KEY][-1]["sha"], s, "the trend point is still kept")
 
-    def test_errors_never_fail_and_never_change_the_perf_state(self):
+    def test_a_run_that_cannot_judge_opens_the_issue_and_reopens_a_closed_one(self):
+        # The counts moved to method v2 without `arch-ratchet.py --update`: every run is "cannot judge".
+        a = self.commit("baseline", counts(5, 2))
+        self.run_report(a)
+        out = self.run_report(self.commit("count v2", counts(9, 9, version=2)))
+        issues = self.own_issues()
+        self.assertEqual(len(issues), 1, out)
+        self.assertIn("opened issue", out)
+        self.assertIn("Not judged: the counts are method v2", issues[0]["body"])
+        self.run_report(self.commit("update the ratchet file", counts(5, 2)))
+        self.assertEqual(self.gh.issues[issues[0]["number"]]["state"], "closed", "a judged good run closes it")
+        self.gh.comments.clear()
+        out = self.run_report(self.commit("count v2 again", counts(9, 9, version=2)))
+        self.assertEqual(self.gh.issues[issues[0]["number"]]["state"], "open", out)
+        self.assertIn("reopened issue", out)
+        self.assertTrue(self.gh.comments[0][1].startswith("Cannot judge every row"))
+        self.assertEqual(len(self.own_issues()), 1)
+
+    def test_a_failed_count_at_a_commit_with_the_ratchet_files_is_noted_in_the_issue(self):
+        a = self.commit("baseline", counts(5, 2))
+        self.run_report(a)
+        points = self.load_state()[report.STATE_KEY]
+        bad = {"the counter exits": ("import sys\nsys.exit(3)\n", "gave no counts (exit 3)"),
+               "another shape": ("print('{\"totals\": {\"stateful_singletons\": 0}}')\n",
+                                 "does not follow the arch_counts contract"),
+               "another commit": ("import json\nprint(json.dumps({'method': 'arch_counts', 'method_version': 1, "
+                                  "'measured_sha': '0' * 40, 'rows': {'x': {'ratchet': True}}, 'totals': {}, "
+                                  "'packages': {}}))\n", "counted '0000"),
+               "drop the counter": (None, "arch_counts.py is not in the commit")}
+        for subject, (script, expect) in bad.items():
+            path = os.path.join(self.repo, "scripts/cmux-next/arch_counts.py")
+            if script is None:
+                os.remove(path)
+            else:
+                self.write("scripts/cmux-next/arch_counts.py", script)
+            sha = self.commit(subject)
+            out = self.run_report(sha)
+            issues = self.own_issues()
+            self.assertEqual(len(issues), 1, out)
+            self.assertEqual(issues[0]["state"], "open")
+            self.assertIn(f"Not judged: the count at {sha[:12]} failed:", issues[0]["body"])
+            self.assertIn(expect, issues[0]["body"])
+            self.assertNotIn("closed issue", out)
+            self.assertEqual(self.load_state()[report.STATE_KEY], points, "a failed count adds no point")
+
+    def test_a_commit_without_the_ratchet_files_is_only_logged(self):
+        os.remove(os.path.join(self.repo, "scripts/cmux-next/arch_counts.py"))
+        before = self.state_text()
+        out = self.run_report(self.commit("before the ratchet-file slice", counts(9, 9), ratchet=None))
+        self.assertIn("neither scripts/cmux-next/arch_counts.py nor", out)
+        self.assertEqual(self.gh.calls, [])
+        self.assertEqual(self.state_text(), before)
+
+    def test_an_unreadable_state_is_never_overwritten(self):
         with open(self.state, "w") as f:
             f.write("{not json")
         out = self.run_report(self.commit("x", counts(9, 9)))
         self.assertIn("cannot read the state", out)
         self.assertEqual(self.state_text(), "{not json")
-        with open(self.state, "w") as f:
-            json.dump({"schema": 1}, f)
-        self.write("scripts/cmux-next/arch_counts.py", "import sys\nsys.exit(3)\n")
-        out = self.run_report(self.commit("the counter exits"))
-        self.assertIn("gave no counts (exit 3)", out)
-        self.write("scripts/cmux-next/arch_counts.py", "print('{\"totals\": {\"stateful_singletons\": 0}}')\n")
-        out = self.run_report(self.commit("the counter prints another shape"))
-        self.assertIn("does not follow the arch_counts contract", out)
-        os.remove(os.path.join(self.repo, "scripts/cmux-next/arch_counts.py"))
-        out = self.run_report(self.commit("drop the counter"))
-        self.assertIn("error, the report is skipped", out)
-        self.assertIn("arch_counts.py is not in the commit", out)
-        self.assertEqual(self.load_state(), {"schema": 1}, "no error writes the state")
         self.assertIn("bad arguments", self.capture(lambda: report.main(["--state", self.state])))
 
-    def test_the_count_runs_without_the_jobs_token(self):
+    def recorded(self, entries_then, entries_now):
+        """(m, the ratchet file): the file --update wrote at m's child, recording m's totals, and m's own file had
+        entries_then; the file now has entries_now. Its commit is the first point (at the ratchet: no issue)."""
+        self.commit("before --update", counts(5, 2), ratchet=ratchet(exceptions=entries_then))
+        m = git(self.repo, "rev-parse", "HEAD")
+        now = ratchet(measured_sha=m, exceptions=entries_now)
+        self.run_report(self.commit("arch-ratchet.py --update", ratchet=now))
+        self.assertEqual(self.gh.writes(), [])
+        return m, now
+
+    def test_an_entry_already_in_the_recorded_total_allows_no_new_rise(self):
+        # The entry (allow 5) was in the file when --update recorded 5; a later +3 with no new entry (a skip reason,
+        # --no-verify, a merge) is a regression, not "within its exception entries".
+        m, file = self.recorded([entry(5)], [entry(5)])
+        sha = self.commit("feat: three singletons, no entry", counts(8, 5), ratchet=file)
+        out = self.run_report(sha)
+        body = self.own_issues()[0]["body"]
+        self.assertIn("| stateful_singletons | CmuxNextBrowser 2→5 | 5 | 8 |", body, out)
+        self.assertIn(f"were in the file when the total was recorded at {m[:12]}", body)
+        self.assertNotIn("--update", body, "the issue never tells anyone to record an unapproved rise")
+
+    def test_an_entry_added_after_the_recorded_total_raises_the_limit_like_the_pre_push_rule(self):
+        m, _ = self.recorded([], [])
+        file = ratchet(measured_sha=m, exceptions=[entry(1)])
+        out = self.run_report(self.commit("feat: one reviewed singleton, its entry", counts(6, 3), ratchet=file))
+        self.assertEqual(self.own_issues(), [], out)
+        self.assertIn("run scripts/cmux-next/arch-ratchet.py --update to record it", out)
+        out = self.run_report(self.commit("feat: two more, no entry", counts(8, 5), ratchet=file))
+        body = self.own_issues()[0]["body"]
+        self.assertIn("| stateful_singletons | CmuxNextBrowser 2→5 | 5 + 1 | 8 |", body, out)
+        self.assertIn("+1 of the rise (+3 over the total) is allowed", body)
+        self.assertIn("The rest (+2) needs the fix.", body)
+
+    def test_an_unreadable_measured_sha_applies_no_allowance(self):
+        gone = "f" * 40
+        file = ratchet(measured_sha=gone, exceptions=[entry(1)])
+        self.run_report(self.commit("baseline", counts(5, 2), ratchet=file))
+        out = self.run_report(self.commit("feat: one singleton", counts(6, 3), ratchet=file))
+        body = self.own_issues()[0]["body"]
+        self.assertIn("| stateful_singletons | CmuxNextBrowser 2→3 | 5 | 6 |", body, out)
+        self.assertIn("Which `exceptions` entries are newer than the recorded totals is not known", body)
+        self.assertIn(f"measured_sha {gone[:12]} cannot be read", body)
+
+    def test_the_count_does_not_get_the_jobs_token_by_accident(self):
+        # Not a security boundary (the child can read its parent's environment): it stops an accidental use only.
         self.write("scripts/cmux-next/arch_counts.py", "import os, sys\nprint(os.environ.get('GH_TOKEN'), file=sys.stderr)\n"
                                                         "sys.exit(1)\n")
         out = self.run_report(self.commit("print the token", counts(5, 2)))
@@ -450,6 +548,21 @@ class ArchReportTests(unittest.TestCase):
             with mock.patch.object(report, "counts_at", side_effect=SystemExit(2)):
                 self.assertFalse(report.run_report(state, self.commit("next"), "tip", root=self.repo, repo=REPO))
             self.assertEqual(state, frozen, "an error, also a SystemExit, leaves the state as it was")
+
+    def test_report_finished_counts_the_measurement_perf_cron_just_finished(self):
+        _, _, c = self.rise()
+        state = {"schema": 1, "history": [{"sha": "x", "kind": "tip"}, {"sha": c, "kind": "tip", "at": "now"}],
+                 report.STATE_KEY: self.load_state()[report.STATE_KEY]}
+        with mock.patch.object(report, "gh_request", self.gh), contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(report.report_finished(state, root=self.repo, repo=REPO, issue=True))
+            self.assertEqual(state[report.STATE_KEY][-1]["sha"], c)
+            frozen = copy.deepcopy(state)
+            state["history"].append({"sha": c, "kind": "bisect"})
+            self.assertFalse(report.report_finished(state, root=self.repo, repo=REPO, issue=True))
+            state["history"] = []
+            self.assertFalse(report.report_finished(state, root=self.repo, repo=REPO, issue=True))
+        state["history"] = frozen["history"]
+        self.assertEqual(state, frozen)
 
     def test_dry_run_writes_nothing(self):
         _, _, c = self.rise()
