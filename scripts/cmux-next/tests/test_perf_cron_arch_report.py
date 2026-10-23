@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """The perf cron's architecture report (scripts/cmux-next/perf-cron-arch-report.py) with GitHub faked and git real
-(a temporary repository whose commits carry a fake arch_counts.py, the counts it reports and the ratchet file): a rise
-opens the issue with the row, the package, the first sha seen higher and the commits in the range; the same rise
-updates it; a fall closes it; the history is capped; a missing ratchet file prints a note; errors never fail the job.
+(temporary repositories whose commits carry a fake arch_counts.py that follows the pinned contract: `--repo --rev
+--json`, reads the commit from git objects, prints one record of the arch-ratchet.json shape).
+
+Covered: a rise opens the issue with the row, the packages that rose, the first sha seen higher and the commits in
+the range; the same rise updates it; a fall closes it; a new rise reopens it; the history is capped; a missing ratchet
+file prints a note; a run that cannot judge every row (a renamed row, another method version) never closes the
+issue; an older commit or a bisect step after a newer point changes nothing; a shallow, sparse, blobless clone whose
+HEAD is not the measured commit is counted with a few fetches, not one per blob; errors (also the count script's
+own exit) never fail and never change the state; the in-process run_report() changes only its own keys.
 Run: python3 -I scripts/cmux-next/tests/test_perf_cron_arch_report.py (not a CI job)."""
-import contextlib, importlib.util, io, json, os, subprocess, tempfile, unittest
+import contextlib, copy, importlib.util, io, json, os, subprocess, tempfile, unittest
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -14,23 +20,50 @@ spec.loader.exec_module(report)
 
 REPO = "manaflow-ai/cmux"
 BOT = {"login": "github-actions[bot]"}
-FAKE_COUNTS = '''import json, sys
-from pathlib import Path
-ROOT = Path(__file__).resolve().parents[2]
-def full_counts(root=ROOT):
-    return json.loads((Path(root) / "plans/cmux-next/fake-counts.json").read_text())
-if __name__ == "__main__":
-    print(json.dumps(full_counts()))
-'''
-LAYERS = {"targets": {"CmuxNextBrowser": {"layer": "domain"}, "CmuxNextApp": {"layer": "app"}}}
+SOURCES = "Packages/macOS/CmuxNext/Sources"
+# Like the real arch_counts.py: reads every Swift source of the commit and the commit's counts from git objects (one
+# cat-file --batch), so a blobless clone without a prefetch pays one fetch per blob here too.
+FAKE_COUNTS = r'''import argparse, json, subprocess
+ap = argparse.ArgumentParser()
+ap.add_argument("--repo", required=True)
+ap.add_argument("--rev", required=True)
+ap.add_argument("--json", action="store_true")
+a = ap.parse_args()
+def git(*args, data=None):
+    return subprocess.run(["git", "-C", a.repo, *args], input=data, capture_output=True, check=True).stdout
+sha = git("rev-parse", "--verify", a.rev + "^{commit}").decode().strip()
+paths = [p for p in git("ls-tree", "-r", "-z", "--name-only", sha, "--", "%s").decode().split("\0")
+         if p.endswith(".swift")] + ["plans/cmux-next/fake-counts.json"]
+out = git("cat-file", "--batch", data="".join(f"{sha}:{p}\n" for p in paths).encode())
+at, body = 0, b""
+for _ in paths:
+    nl = out.index(b"\n", at)
+    size = int(out[at:nl].split()[2])
+    body = out[nl + 1:nl + 1 + size]
+    at = nl + 1 + size + 1
+value = json.loads(body)
+print(json.dumps({"method": "arch_counts", "measured_sha": sha, **value}, sort_keys=True))
+''' % SOURCES
+ROWS = {"layer_hard": {"title": "hard layer edges", "ratchet": True},
+        "stateful_singletons": {"title": "stateful singletons", "ratchet": True},
+        "app_lines": {"title": "CmuxNextApp Swift lines", "ratchet": False}}
 
 
-def counts(singletons, browser):
-    return {"targets": {"stateful_singletons": singletons, "layer_hard": 0},
-            "packages": {"CmuxNextBrowser": {"stateful_singletons": browser}, "CmuxNextApp": {"stateful_singletons": 0}}}
+def counts(singletons, browser, rename=None, version=1):
+    rows = {(rename or {}).get(k, k): v for k, v in ROWS.items()}
+    name = (rename or {}).get("stateful_singletons", "stateful_singletons")
+    totals = {k: 0 for k in rows}
+    totals.update({name: singletons, "app_lines": 100})
+    packages = {"CmuxNextBrowser": {name: browser}, "CmuxNextApp": {name: singletons - browser, "app_lines": 100}}
+    return {"method_version": version, "rows": rows, "totals": totals, "packages": packages}
 
 
-RATCHET = {"_doc": "a count only goes down", "measured_at": "x", "counts": counts(5, 2)}
+def ratchet(singletons=5, browser=2, version=1):
+    return {"_doc": "a count only goes down", "method": "arch_counts", "measured_sha": "0" * 40,
+            "measured_date": "2026-10-23", **counts(singletons, browser, version=version), "exceptions": []}
+
+
+RATCHET = ratchet()
 
 
 class FakeGitHub:
@@ -63,6 +96,10 @@ class FakeGitHub:
         return [c for c in self.calls if c[0] != "GET"]
 
 
+def git(repo, *args):
+    return subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True, check=True).stdout.strip()
+
+
 class ArchReportTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -79,8 +116,9 @@ class ArchReportTests(unittest.TestCase):
         self.addCleanup(env.stop)
         subprocess.run(["git", "init", "-q", "-b", "feat-cmux-next", self.repo], check=True)
         self.write("scripts/cmux-next/arch_counts.py", FAKE_COUNTS)
-        self.write("plans/cmux-next/architecture-layers.json", json.dumps(LAYERS))
+        self.write("scripts/cmux-next/perf-cron.py", "# the report checkout's sparse file\n")
         self.write("Packages/macOS/CmuxNext/Package.swift", "// swift-tools-version:6.0\n")
+        self.write(f"{SOURCES}/CmuxNextApp/App.swift", "struct App {}\n")
         self.state = os.path.join(d, "state.json")
         with open(self.state, "w") as f:
             json.dump({"schema": 1, "regressions": [], "issue": 7}, f)
@@ -101,16 +139,15 @@ class ArchReportTests(unittest.TestCase):
                 os.remove(path)
         else:
             self.write(report.RATCHET_PATH, json.dumps(ratchet))
-        subprocess.run(["git", "-C", self.repo, "add", "-A"], check=True)
-        subprocess.run(["git", "-C", self.repo, "commit", "-q", "--allow-empty", "-m", subject], check=True)
-        return subprocess.run(["git", "-C", self.repo, "rev-parse", "HEAD"], capture_output=True, text=True,
-                              check=True).stdout.strip()
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "--allow-empty", "-m", subject)
+        return git(self.repo, "rev-parse", "HEAD")
 
-    def run_report(self, sha, *extra):
+    def run_report(self, sha, *extra, kind="tip", root=None):
         out = io.StringIO()
         with mock.patch.object(report, "gh_request", self.gh), contextlib.redirect_stdout(out):
-            code = report.main(["--sha", sha, "--state", self.state, "--root", self.repo, "--issue",
-                                "--run-url", "https://example.com/run/1", *extra])
+            code = report.main(["--sha", sha, "--kind", kind, "--state", self.state, "--root", root or self.repo,
+                                "--issue", "--run-url", "https://example.com/run/1", *extra])
         self.assertEqual(code, 0)
         return out.getvalue()
 
@@ -132,7 +169,7 @@ class ArchReportTests(unittest.TestCase):
         c = self.commit("feat: add a browser singleton", counts(6, 3))
         return a, b, c
 
-    def test_a_rise_opens_the_issue_with_row_package_first_sha_and_range(self):
+    def test_a_rise_opens_the_issue_with_row_packages_first_sha_and_range(self):
         a, b, c = self.rise()
         self.assertEqual(self.gh.writes(), [], "at the ratchet: no issue")
         out = self.run_report(c)
@@ -140,8 +177,8 @@ class ArchReportTests(unittest.TestCase):
         self.assertEqual(len(issues), 1, out)
         body = issues[0]["body"]
         self.assertIn(report.ISSUE_MARK, body)
-        self.assertIn("| packages/CmuxNextBrowser/stateful_singletons | CmuxNextBrowser | 2 | 3 |", body)
-        self.assertIn("| targets/stateful_singletons | - | 5 | 6 |", body)
+        self.assertIn("| stateful_singletons | CmuxNextBrowser 2→3 | 5 | 6 |", body)
+        self.assertNotIn("| app_lines |", body, "a row the ratchet file does not ratchet is never judged")
         self.assertIn(c[:12], body)
         self.assertIn(f"{a[:12]}..{c[:12]}", body)
         self.assertIn("refactor: an unrelated change", body)
@@ -180,11 +217,79 @@ class ArchReportTests(unittest.TestCase):
         _, _, c = self.rise()
         self.run_report(c)
         self.run_report(self.commit("fix", counts(5, 2)))
-        out = self.run_report(self.commit("feat: again", counts(5, 3)))
+        out = self.run_report(self.commit("feat: again", counts(6, 3)))
         issues = self.own_issues()
         self.assertEqual(len(issues), 1)
         self.assertEqual(issues[0]["state"], "open", out)
         self.assertIn("reopened issue", out)
+
+    def assert_open_issue_stays_open(self, value, ratchet_value, expect):
+        _, _, c = self.rise()
+        self.run_report(c)
+        number = self.own_issues()[0]["number"]
+        self.gh.comments.clear()
+        out = self.run_report(self.commit("refactor: the rows change", value, ratchet=ratchet_value))
+        issue = self.gh.issues[number]
+        self.assertEqual(issue["state"], "open", out)
+        self.assertEqual(self.gh.comments, [], "no 'Recovered' comment on a run that cannot judge every row")
+        self.assertIn(expect, issue["body"])
+        self.assertIn(expect, out)
+        self.assertNotIn("closed issue", out)
+        return out
+
+    def test_a_renamed_row_never_closes_the_issue_and_is_named(self):
+        # The count fell under the ratchet only because the row has a new name: the rename dodges the count.
+        out = self.assert_open_issue_stays_open(counts(1, 0, rename={"stateful_singletons": "static_holders"}),
+                                                RATCHET, "missing from the counts")
+        self.assertIn("stateful_singletons", self.own_issues()[0]["body"])
+        self.assertIn("left issue", out)
+
+    def test_counts_with_no_row_in_common_never_close_the_issue(self):
+        self.assert_open_issue_stays_open(
+            counts(0, 0, rename={"stateful_singletons": "x1", "layer_hard": "x2"}), RATCHET,
+            "no ratcheted row of the ratchet file is in the counts")
+
+    def test_another_method_version_judges_nothing_and_never_closes(self):
+        self.assert_open_issue_stays_open(counts(1, 0, version=2), RATCHET, "method v2")
+
+    def test_an_older_commit_or_a_bisect_step_after_a_newer_point_changes_nothing(self):
+        a, _, c = self.rise()
+        self.run_report(c)
+        before, issues = self.state_text(), copy.deepcopy(self.gh.issues)
+        self.gh.calls.clear()
+        out = self.run_report(a)
+        self.assertIn("not a descendant of the last point", out)
+        self.assertEqual(self.state_text(), before, "an older tip adds no point after a newer one")
+        self.assertEqual(self.gh.issues, issues)
+        self.assertEqual(self.gh.writes(), [])
+        out = self.run_report(a, kind="bisect")
+        self.assertIn("not a tip", out)
+        self.assertEqual(self.state_text(), before)
+        self.assertEqual(self.gh.calls, [], "a bisect step is not looked at at all")
+
+    def test_a_shallow_sparse_blobless_clone_is_counted_with_a_few_fetches(self):
+        for i in range(200):
+            self.write(f"{SOURCES}/CmuxNextBrowser/File{i}.swift", f"struct File{i} {{}}\n")
+        measured = self.commit("baseline", counts(5, 2))
+        self.commit("later 1")
+        self.commit("later 2", counts(5, 1))
+        git(self.repo, "config", "uploadpack.allowFilter", "true")
+        git(self.repo, "config", "uploadpack.allowAnySHA1InWant", "true")
+        clone = os.path.join(self.tmp.name, "clone")
+        subprocess.run(["git", "clone", "-q", "--depth", "1", "--filter=blob:none", "--sparse", "--branch",
+                        "feat-cmux-next", f"file://{self.repo}", clone], check=True, capture_output=True)
+        git(clone, "sparse-checkout", "set", "--no-cone", "scripts/cmux-next/perf-cron.py")
+        self.assertEqual(git(clone, "rev-parse", "--is-shallow-repository"), "true")
+        self.assertNotEqual(git(clone, "rev-parse", "HEAD"), measured, "the measured sha is HEAD~2, not in the clone")
+        trace = os.path.join(self.tmp.name, "trace")
+        with mock.patch.dict(os.environ, {"GIT_TRACE": trace}):
+            out = self.run_report(measured, root=clone)
+        self.assertNotIn("error", out)
+        point = self.load_state()[report.STATE_KEY][-1]
+        self.assertEqual((point["sha"], point["totals"]["stateful_singletons"]), (measured, 5), out)
+        with open(trace) as f:
+            fetches = [line for line in f if "built-in: git fetch" in line]
+        self.assertLessEqual(len(fetches), 3, f"{len(fetches)} fetch processes: the blobs were fetched one by one")
 
     def test_a_persons_issue_with_the_same_title_is_never_touched(self):
         self.gh.add(7, report.ISSUE_TITLE, f"{report.ISSUE_MARK} copied", user={"login": "someone"})
@@ -203,14 +308,15 @@ class ArchReportTests(unittest.TestCase):
         hist = state[report.STATE_KEY]
         self.assertEqual(len(hist), report.HISTORY_POINTS)
         self.assertEqual([p["sha"] for p in hist], shas[-20:])
-        self.assertEqual(hist[-1]["rows"]["targets/stateful_singletons"], 5)
+        self.assertEqual(hist[-1]["totals"]["stateful_singletons"], 5)
         self.assertEqual((state["schema"], state["regressions"], state["issue"]), (1, [], 7))
 
     def test_the_trend_table_shows_ratchet_last_values_now_and_arrow(self):
         for v in (5, 4, 4):
             self.run_report(self.commit(f"v{v}", counts(v, 2)))
         out = self.run_report(self.commit("down", counts(3, 2)))
-        self.assertIn("| targets/stateful_singletons | 5 | 5 4 4 | 3 | ↓ |", out)
+        self.assertIn("| stateful_singletons | 5 | 5 4 4 | 3 | ↓ |", out)
+        self.assertIn("| app_lines | - | 100 100 100 | 100 | = |", out, "a report-only row has no ratchet value")
         self.assertNotIn("layer_hard", out, "a row that is 0 everywhere is left out")
 
     def test_a_missing_ratchet_file_prints_a_note_and_keeps_the_issue_as_it_is(self):
@@ -223,17 +329,46 @@ class ArchReportTests(unittest.TestCase):
         self.assertEqual(self.gh.calls, [], "no ratchet: no judgement, no GitHub call")
         self.assertEqual(self.load_state()[report.STATE_KEY][-1]["sha"], s, "the trend point is still kept")
 
-    def test_errors_never_fail_and_never_overwrite_the_perf_state(self):
+    def test_errors_never_fail_and_never_change_the_perf_state(self):
         with open(self.state, "w") as f:
             f.write("{not json")
         out = self.run_report(self.commit("x", counts(9, 9)))
         self.assertIn("cannot read the state", out)
         self.assertEqual(self.state_text(), "{not json")
+        with open(self.state, "w") as f:
+            json.dump({"schema": 1}, f)
+        self.write("scripts/cmux-next/arch_counts.py", "import sys\nsys.exit(3)\n")
+        out = self.run_report(self.commit("the counter exits"))
+        self.assertIn("gave no counts (exit 3)", out)
+        self.write("scripts/cmux-next/arch_counts.py", "print('{\"totals\": {\"stateful_singletons\": 0}}')\n")
+        out = self.run_report(self.commit("the counter prints another shape"))
+        self.assertIn("does not follow the arch_counts contract", out)
         os.remove(os.path.join(self.repo, "scripts/cmux-next/arch_counts.py"))
-        out = self.run_report(self.commit("drop the counter", counts(9, 9)))
+        out = self.run_report(self.commit("drop the counter"))
         self.assertIn("error, the report is skipped", out)
         self.assertIn("arch_counts.py is not in the commit", out)
+        self.assertEqual(self.load_state(), {"schema": 1}, "no error writes the state")
         self.assertIn("bad arguments", self.capture(lambda: report.main(["--state", self.state])))
+
+    def test_the_count_runs_without_the_jobs_token(self):
+        self.write("scripts/cmux-next/arch_counts.py", "import os, sys\nprint(os.environ.get('GH_TOKEN'), file=sys.stderr)\n"
+                                                        "sys.exit(1)\n")
+        out = self.run_report(self.commit("print the token", counts(5, 2)))
+        self.assertIn("gave no counts (exit 1): None", out)
+
+    def test_run_report_in_process_changes_only_its_own_keys(self):
+        _, _, c = self.rise()
+        state = {"schema": 1, "history": [{"sha": "x"}], report.STATE_KEY: self.load_state()[report.STATE_KEY]}
+        with mock.patch.object(report, "gh_request", self.gh), contextlib.redirect_stdout(io.StringIO()):
+            changed = report.run_report(state, c, "tip", root=self.repo, repo=REPO, issue=True)
+            self.assertTrue(changed)
+            self.assertEqual(state[report.STATE_KEY][-1]["sha"], c)
+            self.assertEqual(state[report.ISSUE_KEY], self.own_issues()[0]["number"])
+            self.assertEqual((state["schema"], state["history"]), (1, [{"sha": "x"}]))
+            frozen = copy.deepcopy(state)
+            with mock.patch.object(report, "counts_at", side_effect=SystemExit(2)):
+                self.assertFalse(report.run_report(state, self.commit("next"), "tip", root=self.repo, repo=REPO))
+            self.assertEqual(state, frozen, "an error, also a SystemExit, leaves the state as it was")
 
     def test_dry_run_writes_nothing(self):
         _, _, c = self.rise()
