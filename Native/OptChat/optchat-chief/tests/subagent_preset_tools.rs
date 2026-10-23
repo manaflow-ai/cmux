@@ -43,6 +43,10 @@ fn a_claude_subagent_is_denied_its_own_subagents_and_human_waits_anywhere() {
         "EnterPlanMode",
         "ExitPlanMode",
         "Workflow",
+        // The cmux app's 584 menu-action tools (the `cmux action` CLI keeps
+        // them): 11.4k of a bare subagent's 36.3k prompt tokens, measured
+        // 2026-10-23 on Claude Code 2.1.305.
+        "mcp__cmux__app_*",
     ] {
         assert!(denied.iter().any(|d| d == tool), "{tool} not in {denied:?}");
     }
