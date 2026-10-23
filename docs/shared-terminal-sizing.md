@@ -116,6 +116,26 @@ Policy scope is a workspace default plus an optional per-terminal override. Any
 workspace member with write access can change it. Every host emits the change to
 all participants.
 
+### Per-Mac policy (cmux-next)
+
+The cmux-tui daemon adds a third, lowest scope: the **host policy**, one
+preference of the Mac (or other host) that runs it, stored in its settings
+file as `mobile.terminalSizing` (`smallest`, the default, "Fit the smallest
+viewer"; `mac`, "Prefer this Mac"; `latest`, "Prefer the active device";
+`priority`, "Priority order") and `mobile.terminalSizingOrder` (device tokens,
+`mac` or `device:<id>`, highest first). A terminal with neither an override
+nor a workspace default follows it. The daemon expands it into an engine
+policy for each terminal from that terminal's participants, again on every
+attach, detach, identity change and settings change, so the reducer and the
+fixtures are unchanged: `mac` becomes `priority` over this host's own views
+(a desktop device kind on a local connection the daemon verified: not a link, WebSocket or remote-entry peer, not a phone lane accepted from the bundled cmux-mobile-host, not marked `remote`), and `priority`
+becomes `priority` over the views each token names. With no listed view
+counting, `priority-fallback` picks the latest active one. Only views that
+claim a size count, so a phone that stops showing a terminal drops out of the
+choice. Commands: `get-host-size-policy` and `set-host-size-policy`
+(cmux-tui/spec/commands.md); the phone's side is cmux-next-ios/PROTOCOL.md
+"Terminal sizing policy".
+
 ## Creation size
 
 A new terminal's PTY starts at the grid of the view that asked for it, so its

@@ -137068,6 +137068,1054 @@
         }
       }
     },
+    "settings.mobile.terminalSizing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Size When Shared"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حجم الطرفية عند المشاركة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Veličina terminala pri dijeljenju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminalstørrelse ved deling"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminalgröße beim Teilen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamaño del terminal al compartir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taille du terminal partagé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dimensione del terminale condiviso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "共有時のターミナルサイズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំហំ Terminal ពេលចែករំលែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "공유 시 터미널 크기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminalstørrelse ved deling"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozmiar terminala przy udostępnianiu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamanho do terminal ao compartilhar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Размер терминала при совместном просмотре"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขนาดเทอร์มินัลเมื่อแชร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paylaşılan terminal boyutu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розмір термінала під час спільного перегляду"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kích thước terminal khi chia sẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "共享时的终端大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "共享時的終端機大小"
+          }
+        }
+      }
+    },
+    "settings.mobile.terminalSizing.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decides the size of a terminal while this Mac and a phone show it at once. A device that gets a larger terminal than it fits scrolls sideways or shows empty space; text never wraps wrong. Set the priority order in the cmux app on your iPhone."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يحدد حجم الطرفية عندما يعرضها هذا الـ Mac وهاتف في الوقت نفسه. الجهاز الذي يحصل على طرفية أكبر مما يتسع له يمرر أفقيًا أو يعرض مساحة فارغة، ولا يلتف النص بشكل خاطئ أبدًا. اضبط ترتيب الأولوية في تطبيق cmux على iPhone."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Određuje veličinu terminala dok ga ovaj Mac i telefon prikazuju istovremeno. Uređaj koji dobije veći terminal nego što stane klizi bočno ili prikazuje prazan prostor; tekst se nikad ne prelama pogrešno. Redoslijed prioriteta postavite u aplikaciji cmux na iPhoneu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bestemmer størrelsen på en terminal, mens denne Mac og en telefon viser den samtidig. En enhed, der får en større terminal end den kan rumme, ruller sidelæns eller viser tom plads; teksten ombrydes aldrig forkert. Angiv prioritetsrækkefølgen i cmux-appen på din iPhone."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legt die Größe eines Terminals fest, während dieser Mac und ein Telefon es gleichzeitig zeigen. Ein Gerät, das ein größeres Terminal bekommt, als es darstellen kann, scrollt seitwärts oder zeigt leeren Raum; Text wird nie falsch umbrochen. Die Prioritätsreihenfolge legst du in der cmux-App auf deinem iPhone fest."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Decide el tamaño de un terminal mientras este Mac y un teléfono lo muestran a la vez. Un dispositivo que recibe un terminal más grande de lo que cabe se desplaza de lado o muestra espacio vacío; el texto nunca se ajusta mal. Define el orden de prioridad en la app cmux de tu iPhone."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Détermine la taille d’un terminal quand ce Mac et un téléphone l’affichent en même temps. Un appareil qui reçoit un terminal plus grand que son écran défile latéralement ou affiche un espace vide ; le texte n’est jamais mal renvoyé à la ligne. Définissez l’ordre de priorité dans l’app cmux de votre iPhone."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Decide la dimensione di un terminale mentre questo Mac e un telefono lo mostrano insieme. Un dispositivo che riceve un terminale più grande di quanto possa contenere scorre lateralmente o mostra spazio vuoto; il testo non va mai a capo in modo errato. Imposta l’ordine di priorità nell’app cmux su iPhone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この Mac とスマートフォンが同時にターミナルを表示しているときのサイズを決めます。収まらない大きさのターミナルを受け取ったデバイスは横にスクロールするか空白を表示し、テキストが誤って折り返されることはありません。優先順位は iPhone の cmux アプリで設定します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណត់ទំហំ Terminal ពេល Mac នេះ និងទូរសព្ទបង្ហាញវាក្នុងពេលតែមួយ។ ឧបករណ៍ដែលទទួលបាន Terminal ធំជាងអេក្រង់ រំកិលទៅចំហៀង ឬបង្ហាញចន្លោះទទេ ហើយអត្ថបទមិនដែលបត់ខុសទេ។ កំណត់លំដាប់អាទិភាពនៅក្នុងកម្មវិធី cmux លើ iPhone។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac과 휴대폰이 동시에 터미널을 표시할 때 터미널 크기를 정합니다. 화면보다 큰 터미널을 받은 기기는 옆으로 스크롤하거나 빈 공간을 표시하며, 텍스트가 잘못 줄바꿈되지 않습니다. 우선순위는 iPhone의 cmux 앱에서 설정합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bestemmer størrelsen på en terminal mens denne Macen og en telefon viser den samtidig. En enhet som får en større terminal enn den har plass til, ruller sidelengs eller viser tomt område; teksten brytes aldri feil. Angi prioritetsrekkefølgen i cmux-appen på iPhone."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Określa rozmiar terminala, gdy ten Mac i telefon wyświetlają go jednocześnie. Urządzenie, które dostaje terminal większy, niż się mieści, przewija go w bok lub pokazuje puste miejsce; tekst nigdy nie jest źle zawijany. Kolejność priorytetów ustawisz w aplikacji cmux na iPhonie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Decide o tamanho de um terminal enquanto este Mac e um telefone o exibem ao mesmo tempo. Um dispositivo que recebe um terminal maior do que cabe rola para os lados ou mostra espaço vazio; o texto nunca quebra errado. Defina a ordem de prioridade no app cmux do iPhone."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Определяет размер терминала, когда его одновременно показывают этот Mac и телефон. Устройство, которому достался терминал больше экрана, прокручивает его вбок или показывает пустое место; текст никогда не переносится неправильно. Порядок приоритета задаётся в приложении cmux на iPhone."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำหนดขนาดเทอร์มินัลเมื่อ Mac เครื่องนี้และโทรศัพท์แสดงพร้อมกัน อุปกรณ์ที่ได้เทอร์มินัลใหญ่กว่าหน้าจอจะเลื่อนไปด้านข้างหรือแสดงพื้นที่ว่าง ข้อความจะไม่ตัดบรรทัดผิด ตั้งลำดับความสำคัญได้ในแอป cmux บน iPhone"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac ve bir telefon bir terminali aynı anda gösterirken boyutunu belirler. Sığdığından büyük bir terminal alan cihaz yana kaydırır veya boş alan gösterir; metin asla yanlış kaydırılmaz. Öncelik sırasını iPhone’daki cmux uygulamasında ayarlayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Визначає розмір термінала, коли його одночасно показують цей Mac і телефон. Пристрій, якому дістався термінал більший за екран, прокручує його вбік або показує порожнє місце; текст ніколи не переноситься неправильно. Порядок пріоритету задається в застосунку cmux на iPhone."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quyết định kích thước terminal khi máy Mac này và điện thoại cùng hiển thị. Thiết bị nhận terminal lớn hơn màn hình sẽ cuộn ngang hoặc hiện khoảng trống; chữ không bao giờ xuống dòng sai. Đặt thứ tự ưu tiên trong ứng dụng cmux trên iPhone."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "决定这台 Mac 和手机同时显示终端时的终端大小。收到超出屏幕的终端的设备会横向滚动或显示空白，文字绝不会错误换行。在 iPhone 上的 cmux App 中设置优先顺序。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "決定這台 Mac 和手機同時顯示終端機時的大小。收到超出螢幕的終端機的裝置會橫向捲動或顯示空白，文字絕不會錯誤換行。在 iPhone 上的 cmux App 中設定優先順序。"
+          }
+        }
+      }
+    },
+    "settings.choice.terminalSizing.smallest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fit the Smallest Viewer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ملاءمة أصغر جهاز عرض"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prilagodi najmanjem prikazu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilpas til den mindste visning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "An die kleinste Ansicht anpassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajustar al visor más pequeño"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adapter au plus petit écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adatta al visore più piccolo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "最小の表示に合わせる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សមនឹងអ្នកមើលតូចបំផុត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "가장 작은 화면에 맞춤"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilpass den minste visningen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dopasuj do najmniejszego widoku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajustar ao menor visualizador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "По самому маленькому экрану"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พอดีกับจอที่เล็กที่สุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En küçük görüntüleyiciye sığdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "За найменшим екраном"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vừa với màn hình nhỏ nhất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "适应最小的查看者"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "配合最小的檢視者"
+          }
+        }
+      }
+    },
+    "settings.choice.terminalSizing.mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prefer This Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تفضيل هذا الـ Mac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prednost ovom Macu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Foretræk denne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diesen Mac bevorzugen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preferir este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Privilégier ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preferisci questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この Mac を優先"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចូលចិត្ត Mac នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac 우선"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Foretrekk denne Macen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preferuj tego Maca"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preferir este Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Предпочитать этот Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ให้ Mac เครื่องนี้ก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac’i tercih et"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Віддавати перевагу цьому Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ưu tiên máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "优先这台 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "優先這台 Mac"
+          }
+        }
+      }
+    },
+    "settings.choice.terminalSizing.latest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prefer the Active Device"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تفضيل الجهاز النشط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prednost aktivnom uređaju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Foretræk den aktive enhed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktives Gerät bevorzugen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preferir el dispositivo activo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Privilégier l’appareil actif"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preferisci il dispositivo attivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "操作中のデバイスを優先"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចូលចិត្តឧបករណ៍សកម្ម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사용 중인 기기 우선"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Foretrekk den aktive enheten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preferuj aktywne urządzenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preferir o dispositivo ativo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Предпочитать активное устройство"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ให้อุปกรณ์ที่ใช้งานอยู่ก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etkin cihazı tercih et"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Віддавати перевагу активному пристрою"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ưu tiên thiết bị đang dùng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "优先正在使用的设备"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "優先正在使用的裝置"
+          }
+        }
+      }
+    },
+    "settings.choice.terminalSizing.priority": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Priority Order"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ترتيب الأولوية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Redoslijed prioriteta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prioritetsrækkefølge"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prioritätsreihenfolge"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Orden de prioridad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ordre de priorité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ordine di priorità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "優先順位"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លំដាប់អាទិភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "우선순위"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prioritetsrekkefølge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kolejność priorytetów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ordem de prioridade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Порядок приоритета"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลำดับความสำคัญ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Öncelik sırası"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Порядок пріоритету"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thứ tự ưu tiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "优先顺序"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "優先順序"
+          }
+        }
+      }
+    },
+    "settings.mobile.terminalSizingOrder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Size Priority"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أولوية حجم الطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prioritet veličine terminala"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prioritet for terminalstørrelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Priorität der Terminalgröße"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prioridad del tamaño del terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Priorité de taille du terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Priorità della dimensione del terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ターミナルサイズの優先順位"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អាទិភាពទំហំ Terminal"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "터미널 크기 우선순위"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prioritet for terminalstørrelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Priorytet rozmiaru terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prioridade do tamanho do terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Приоритет размера терминала"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลำดับความสำคัญของขนาดเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal boyutu önceliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пріоритет розміру термінала"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ưu tiên kích thước terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "终端大小优先顺序"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "終端機大小優先順序"
+          }
+        }
+      }
+    },
+    "settings.mobile.terminalSizingOrder.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The devices whose size a shared terminal takes first, highest first, when Terminal Size When Shared is Priority Order."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الأجهزة التي تأخذ الطرفية المشتركة حجمها أولًا، الأعلى أولًا، عندما يكون حجم الطرفية عند المشاركة هو ترتيب الأولوية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uređaji čiju veličinu dijeljeni terminal prvo preuzima, najviši prvi, kada je Veličina terminala pri dijeljenju postavljena na Redoslijed prioriteta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "De enheder, hvis størrelse en delt terminal tager først, højeste først, når Terminalstørrelse ved deling er Prioritetsrækkefølge."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Geräte, deren Größe ein geteiltes Terminal zuerst übernimmt, höchste zuerst, wenn „Terminalgröße beim Teilen“ auf „Prioritätsreihenfolge“ steht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los dispositivos cuyo tamaño toma primero un terminal compartido, de mayor a menor, cuando Tamaño del terminal al compartir es Orden de prioridad."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les appareils dont un terminal partagé prend la taille en premier, du plus prioritaire au moins prioritaire, quand Taille du terminal partagé est Ordre de priorité."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I dispositivi di cui un terminale condiviso prende per prima la dimensione, dal più alto, quando Dimensione del terminale condiviso è Ordine di priorità."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "共有時のターミナルサイズが優先順位のとき、共有ターミナルが先にサイズを採用するデバイス（上から順）。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឧបករណ៍ដែល Terminal ដែលបានចែករំលែកយកទំហំមុនគេ ខ្ពស់បំផុតមុន ពេលទំហំ Terminal ពេលចែករំលែកជាលំដាប់អាទិភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "공유 시 터미널 크기가 우선순위일 때 공유 터미널이 먼저 따르는 기기의 크기(높은 순서부터)."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enhetene hvis størrelse en delt terminal tar først, høyeste først, når Terminalstørrelse ved deling er Prioritetsrekkefølge."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Urządzenia, których rozmiar udostępniony terminal przyjmuje najpierw, od najwyższego, gdy Rozmiar terminala przy udostępnianiu to Kolejność priorytetów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os dispositivos cujo tamanho um terminal compartilhado adota primeiro, do mais alto ao mais baixo, quando Tamanho do terminal ao compartilhar é Ordem de prioridade."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Устройства, размер которых общий терминал берёт в первую очередь, начиная с высшего, когда для размера терминала при совместном просмотре выбран порядок приоритета."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อุปกรณ์ที่เทอร์มินัลที่แชร์จะใช้ขนาดก่อน เรียงจากสูงสุด เมื่อขนาดเทอร์มินัลเมื่อแชร์เป็นลำดับความสำคัญ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paylaşılan terminal boyutu Öncelik sırası olduğunda, paylaşılan bir terminalin boyutunu ilk aldığı cihazlar, en yüksekten başlayarak."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пристрої, розмір яких спільний термінал бере першим, від найвищого, коли для розміру термінала під час спільного перегляду вибрано порядок пріоритету."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các thiết bị mà terminal được chia sẻ lấy kích thước trước, cao nhất trước, khi Kích thước terminal khi chia sẻ là Thứ tự ưu tiên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "当“共享时的终端大小”为“优先顺序”时，共享终端优先采用其大小的设备，按从高到低排列。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "當「共享時的終端機大小」為「優先順序」時，共享終端機優先採用其大小的裝置，由高到低排列。"
+          }
+        }
+      }
+    },
     "settings.mobile.allowIPhoneConnections": {
       "extractionState": "manual",
       "localizations": {
@@ -159683,137 +160731,6 @@
         }
       }
     },
-    "settings.diff.hideWhitespace": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hide White Space"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "空白の変更を隠す"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إخفاء المسافات البيضاء"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sakrij bjeline"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Skjul blanktegn"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Leerraum ausblenden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ocultar espacios en blanco"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Masquer les espaces"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nascondi spazi bianchi"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "លាក់ចន្លោះទទេ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "공백 숨기기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Skjul blanktegn"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ukryj białe znaki"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ocultar espaços em branco"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Скрывать пробельные символы"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ซ่อนช่องว่าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Boşlukları gizle"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Приховувати пробільні символи"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ẩn khoảng trắng"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "隐藏空白"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "隱藏空白"
-          }
-        }
-      }
-    },
     "settings.sidebar.style": {
       "extractionState": "manual",
       "localizations": {
@@ -165731,6 +166648,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "在選單、命令面板和媒體控制項中為網頁影片提供子母畫面。網站本身的影片控制項不受影響。"
+          }
+        }
+      }
+    },
+    "settings.diff.hideWhitespace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide White Space"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空白の変更を隠す"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إخفاء المسافات البيضاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sakrij bjeline"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjul blanktegn"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leerraum ausblenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ocultar espacios en blanco"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Masquer les espaces"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nascondi spazi bianchi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លាក់ចន្លោះទទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "공백 숨기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjul blanktegn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukryj białe znaki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ocultar espaços em branco"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скрывать пробельные символы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ซ่อนช่องว่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boşlukları gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Приховувати пробільні символи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ẩn khoảng trắng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "隐藏空白"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "隱藏空白"
           }
         }
       }
