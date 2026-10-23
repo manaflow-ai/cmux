@@ -147,13 +147,14 @@ import Testing
     }
 
     /// A loose `x`, then an open group `g` with `members` and nothing after it, laid out with the Done rows folded.
-    static func groupAtEnd(_ members: [SidebarWorkspace], tabs: Bool = false) -> ([SidebarSection], SidebarLayout) {
+    static func groupAtEnd(_ members: [SidebarWorkspace], tabs: Bool = false, open: Bool = false) -> ([SidebarSection], SidebarLayout) {
         let sections = [SidebarSection(kind: .machine(machine), nodes: [
             .workspace(ws("x")), .group(SidebarGroup(id: group, name: "G", color: .green, workspaces: members)),
         ])]
         var o = SidebarLayoutOptions()
         o.foldsDone = true
         o.showWorkspaceTabs = tabs
+        if open { o.openDoneFolds = [SidebarDoneFoldID(section: section, group: group)] }
         return (sections, SidebarLayout.make(sections: sections, metrics: .standard, options: o))
     }
 
@@ -186,6 +187,44 @@ import Testing
         (sections, layout) = Self.groupAtEnd([Self.ws("d1", done: true), Self.ws("d2", done: true)])
         done = try #require(layout.row(for: fold))
         #expect(Self.resolve(done.maxY - 1, sections, layout) == after, "over an all-Done group's Done row")
+        // The fold open: its Done workspace, drawn last with its tab rows, ends the group, so below them leaves it.
+        var tabbedDone = Self.ws("d", done: true)
+        tabbedDone.tabs = [SidebarTab(id: TabID("t1"), title: "t1"), SidebarTab(id: TabID("t2"), title: "t2")]
+        (sections, layout) = Self.groupAtEnd([Self.ws("g1"), tabbedDone, Self.ws("g2")], tabs: true, open: true)
+        let keys = layout.rows.map(\.key).filter { if case .section = $0 { false } else { true } }
+        try #require(keys.suffix(4) == [fold, .workspace(WorkspaceID("d")), .tab(WorkspaceID("d"), TabID("t1")), .tab(WorkspaceID("d"), TabID("t2"))],
+                     "drawn: \(keys)")
+        let t2 = try #require(layout.row(for: .tab(WorkspaceID("d"), TabID("t2"))))
+        #expect(Self.resolve(t2.maxY - 1, sections, layout) == after, "over the open fold's last tab row: \(String(describing: Self.resolve(t2.maxY - 1, sections, layout)))")
+        #expect(Self.resolve(t2.maxY + 40, sections, layout) == after, "below the open fold's group")
+    }
+
+    /// Codex review: a group's drag slides its "Done (N)" row with it: the row is part of the lifted group (one level
+    /// in, like its members), so the slot the drag maps the pointer through spans it on every frame.
+    @Test func aGroupDragCarriesItsDoneRow() throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        TunableStore.shared.set(SidebarTunables.doneFold.key, .bool(true))
+        defer { TunableStore.shared.set(SidebarTunables.doneFold.key, nil) }
+        let (list, window) = Self.list()
+        defer { window.close() }
+        let fold = SidebarRowKey.doneFold(SidebarDoneFoldID(section: Self.section, group: Self.group))
+        let header = try #require(list.displayed.row(for: .group(Self.group)))
+        try #require(list.displayed.row(for: fold) != nil, "no group Done row")
+        let start = NSPoint(x: 80, y: header.y + header.height / 2)
+        list.press = SidebarPress(key: .group(Self.group), point: start)
+        list.beginDrag(try #require(list.press))
+        let drag = try #require(list.drag, "the group did not lift")
+        #expect(drag.hiddenKeys.contains(fold), "the group's Done row does not lift with it: \(drag.hiddenKeys)")
+        var y = start.y, failures: [String] = []
+        while y > 4 {
+            y -= 6
+            list.updateDrag(windowPoint: list.convert(NSPoint(x: start.x, y: y), to: nil))
+            guard let gapY = list.displayed.gapY, let row = list.displayed.row(for: fold) else { continue }
+            if row.y < gapY || row.maxY > gapY + list.displayed.gapShift { failures.append("y \(Int(y)): Done row outside the slot") }
+        }
+        list.cancelDrag()
+        #expect(failures.isEmpty, "\(failures.prefix(8).joined(separator: "\n"))")
     }
 
     /// An open fold draws its Done rows below the fold row, out of model order: a gap at a Done row's index opens
