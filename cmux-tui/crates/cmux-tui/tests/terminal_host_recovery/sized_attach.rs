@@ -613,6 +613,22 @@ fn a_phone_that_cannot_show_a_larger_grid_caps_it_under_last_active() {
         "the Mac's input widened the grid past the phone",
     );
 
+    // The phone releases its size (its terminal left the screen): the grid
+    // is the Mac's at once; its next report caps it again.
+    let (mut phone_writer, mut phone_reader) = (phone_writer, phone_reader);
+    stream_request(
+        &mut phone_writer,
+        &mut phone_reader,
+        serde_json::json!({"id": 5, "cmd": "release-surface-size", "surface": surface}),
+    );
+    wait_for_vt_size(&harness.socket, surface, 120, 39);
+    stream_request(
+        &mut phone_writer,
+        &mut phone_reader,
+        serde_json::json!({"id": 6, "cmd": "resize-surface", "surface": surface, "cols": 53, "rows": 42}),
+    );
+    wait_for_vt_size(&harness.socket, surface, 53, 39);
+
     // The phone leaves: the grid is the Mac's again.
     drop(phone_writer);
     drop(phone_reader);
@@ -646,14 +662,8 @@ fn a_phone_that_shows_a_larger_grid_does_not_cap_it() {
     );
     let (_mac_writer, _mac_reader, _) = attach_sized(&harness.socket, surface, 120, 39, 2);
     wait_for_vt_size(&harness.socket, surface, 120, 39);
-    let (_phone_writer, _phone_reader) = attach_phone_with_capabilities(
-        &harness.socket,
-        surface,
-        53,
-        42,
-        3,
-        &["host-grid-view-v1"],
-    );
+    let (_phone_writer, _phone_reader) =
+        attach_phone_with_capabilities(&harness.socket, surface, 53, 42, 3, &["host-grid-view-v1"]);
     assert_grid_stays(
         &harness.socket,
         surface,

@@ -16,10 +16,13 @@ use super::*;
 
 impl Mux {
     /// `target` capped, per dimension, at the viewport of every attached
-    /// phone or tablet view of `entry` that has reported one, counts (a
-    /// preview with counts off does not cap) and does not list
-    /// `host-grid-view-v1`. A relayed phone (a sub-view) is capped unless its
-    /// relay lists the capability.
+    /// phone or tablet view of `entry` that has reported one, whose counts
+    /// override is not off (a preview), and whose connection does not list
+    /// `host-grid-view-v1`. It applies under every policy, `fixed` and a
+    /// phone deferring under `priority` included: such a phone misrenders
+    /// any larger grid. A relayed phone (a sub-view) is capped unless its
+    /// relay lists the capability, so a relay lists it only when every leaf
+    /// it forwards shows a larger grid.
     pub(in crate::mux) fn cap_to_fixed_grid_handhelds(
         &self,
         entry: &TerminalSizingEntry,
@@ -28,8 +31,7 @@ impl Mux {
         let mut capped = target;
         for id in entry.engine.participant_ids() {
             let Some(participant) = entry.engine.participant(id) else { continue };
-            if !participant.device_kind.is_handheld()
-                || participant.counts_override == Some(false)
+            if !participant.device_kind.is_handheld() || participant.counts_override == Some(false)
             {
                 continue;
             }
