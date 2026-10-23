@@ -129,7 +129,7 @@
 .acpmux-menu-description{color:var(--acpmux-composer-dim);font-size:var(--text-detail)}
 .acpmux-unrestricted .acpmux-menu-description{color:inherit}
 .acpmux-slash-menu{--popup-scroll-cap:296px;position:absolute;bottom:calc(100% + 6px);left:0;right:0;z-index:3;max-height:min(296px,50vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);font-size:13px;transform-origin:bottom}
-.acpmux-slash-row{display:flex;align-items:center;gap:8px;min-height:var(--ui-row-height);padding:2px var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);cursor:default;white-space:nowrap}
+.acpmux-slash-row{display:flex;align-items:center;gap:8px;min-height:var(--ui-row-height);padding:2px var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius);cursor:default;white-space:nowrap}
 .acpmux-slash-active{background:var(--acpmux-menu-hover)}
 .acpmux-slash-name{flex:none;color:var(--agent-text)}
 .acpmux-slash-name mark{background:none;color:inherit;font-weight:600}

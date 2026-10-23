@@ -282,6 +282,7 @@
   align-items: center;
   gap: 8px;
   min-height: var(--ui-row-height);
+  box-sizing: border-box;
   /* Keep access rows on the shared popup rhythm so mode, model and slash menus align. */
   padding: 2px var(--ui-row-padding-inline);
   border-radius: var(--ui-row-radius);
