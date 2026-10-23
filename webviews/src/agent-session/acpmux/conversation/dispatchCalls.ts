@@ -20,16 +20,19 @@ export type DispatchCall = {
   stopCondition?: string;
   text?: string;
   summary?: string;
+  count?: number;
   /** A report's link target. It is separate from `briefId` because reports may have their own id. */
   reportBriefId?: string;
 };
 
 type RecordValue = Record<string, unknown>;
 
-const ACTION = /(?:^|[._:/_-])(dispatch|steer|report|briefs(?:[_-]?(?:ls|list))?)(?:$|[._:/_-])/i;
-const ACTION_WORD = /\b(acpmux\s+)?(dispatch|steer|report|briefs(?:\s+(?:ls|list))?)\b/i;
+const EVENT_KIND = /^(dispatch|steer|report|briefs?)$/i;
+const EXPLICIT_TOOL =
+  /^(?:dispatch|steer|report|briefs?|_acpmux[/:]|(?:mcp__)?(?:acpmux|cmux)(?:__|[./:-])|agent_)(dispatch|steer|report|briefs(?:[_-]?(?:ls|list))?)?$/i;
+const CLI_TITLE = /^acpmux(?:-debug-cli)?\s+(dispatch|steer|report|briefs(?:\s+(?:ls|list))?)(?:\s|$)/i;
 const CLI_ACTION =
-  /(?:^|[\s/])(?:acpmux|acpmux-debug-cli|cmux)(?:\s+[^;&|]*)?\s+(dispatch|steer|report|briefs(?:\s+(?:ls|list))?)(?:\s|$)/i;
+  /(?:^|(?:&&|\|\||;)\s*)(?:\w+=\S+\s+)*(?:\S+\/)?acpmux(?:-debug-cli)?\s+(dispatch|steer|report|briefs(?:\s+(?:ls|list))?)(?:\s|$)/i;
 
 /// The dispatch operation represented by one ACP activity, or undefined for ordinary MCP calls.
 export function dispatchCall(item: AcpmuxActivity): DispatchCall | undefined {
@@ -68,16 +71,26 @@ export function dispatchCall(item: AcpmuxActivity): DispatchCall | undefined {
       : isRecord(output) && Array.isArray(output.briefs)
         ? output.briefs
         : undefined;
-    if (entries) call.summary = `${entries.length} brief${entries.length === 1 ? "" : "s"}`;
+    if (entries) call.count = entries.length;
   }
   return call;
 }
 
 function operationName(tool: Tool): DispatchKind | undefined {
   const title = tool.title.trim();
-  const match = ACTION.exec(title) ?? ACTION_WORD.exec(title) ?? (tool.command && CLI_ACTION.exec(tool.command));
-  if (!match) return undefined;
-  const operation = (match[1] ?? match[2] ?? "").toLowerCase().replace(/\s+/g, "");
+  const explicit =
+    EXPLICIT_TOOL.exec(title) ?? CLI_TITLE.exec(title) ?? (tool.command && CLI_ACTION.exec(tool.command));
+  const args = parseJSON(tool.inputSummary);
+  const output = parseJSON(tool.output);
+  const event = [args, output].find((value) => {
+    const kind = isRecord(value) && isRecord(value.event) ? value.event.kind : undefined;
+    return typeof kind === "string" && EVENT_KIND.test(kind);
+  });
+  const eventKind =
+    isRecord(event) && isRecord(event.event) && typeof event.event.kind === "string" ? event.event.kind : "";
+  const plain = /^(dispatch|steer|report|briefs?)$/i.exec(title)?.[1];
+  const operation = (plain ?? explicit?.[1] ?? eventKind).toLowerCase().replace(/\s+/g, "");
+  if (!operation) return undefined;
   if (operation === "dispatch") return "dispatch";
   if (operation === "steer") return "steer";
   if (operation === "report") return "report";

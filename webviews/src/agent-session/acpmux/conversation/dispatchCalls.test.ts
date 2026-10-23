@@ -1,6 +1,7 @@
 // l10n-allow-file: test fixtures.
 import { expect, test } from "bun:test";
 import type { AcpmuxActivity } from "../model";
+import { translate } from "../i18n";
 import { dispatchCall } from "./dispatchCalls";
 import { briefAnchor, lineLabel } from "./DispatchCard";
 import { toolGroups } from "./toolGroups";
@@ -49,6 +50,15 @@ test("parses a non-Claude/Codex ACP dispatch event from the shared metadata enve
     status: "running",
   });
   expect(toolGroups([item])[0]?.type).toBe("dispatch");
+  expect(
+    dispatchCall(
+      activity(
+        "mcp__relay__call",
+        { prompt: "ordinary" },
+        { event: { kind: "report", briefId: "b-17", summary: "Done" } },
+      ),
+    ),
+  ).toMatchObject({ kind: "report", briefId: "b-17" });
 });
 
 test("recognizes steer, report and briefs aliases without classifying ordinary shell work", () => {
@@ -67,11 +77,17 @@ test("recognizes steer, report and briefs aliases without classifying ordinary s
   );
   expect(dispatchCall(activity("acpmux.briefs_ls", {}, { briefs: [{ id: "b-17" }, { id: "b-18" }] }))).toMatchObject({
     kind: "briefs",
-    summary: "2 briefs",
+    count: 2,
   });
   const shell = activity("Shell", { command: "bun run dispatch" });
   expect(dispatchCall(shell)).toBeUndefined();
   expect(toolGroups([shell])[0]?.type).toBe("item");
+  for (const title of ["mcp__github__report_issue", "mcp__slack__steer_message", "mcp__foo__dispatch_file"]) {
+    expect(dispatchCall(activity(title, { title: "ordinary MCP call" }))).toBeUndefined();
+  }
+  expect(dispatchCall(activity("mcp__relay__call", { result: { kind: "report" } }))).toBeUndefined();
+  expect(dispatchCall(activity("dispatch", { title: "A brief" }))).toMatchObject({ kind: "dispatch" });
+  expect(dispatchCall(activity("Shell", { command: "echo acpmux dispatch" }))).toBeUndefined();
   const cli = activity("Shell", { command: "acpmux dispatch brief.md --host cmux16" });
   cli.tool!.command = "acpmux dispatch brief.md --host cmux16";
   expect(dispatchCall(cli)).toMatchObject({ kind: "dispatch" });
@@ -86,8 +102,8 @@ test("dispatch cards use the compact copy and link wording", () => {
     to: "cx3-s14-header",
     host: "cmux16",
   };
-  expect(lineLabel(call, "'Diff viewer on the right'", "cx3-s14-header on cmux16")).toBe(
-    "Sent brief 'Diff viewer on the right' → cx3-s14-header on cmux16",
+  expect(lineLabel(translate, call, "'Diff viewer on the right'", "cx3-s14-header · cmux16")).toBe(
+    "Sent to 'Diff viewer on the right' → cx3-s14-header · cmux16",
   );
   expect(briefAnchor("b:17")).toBe("brief-b-17");
 });

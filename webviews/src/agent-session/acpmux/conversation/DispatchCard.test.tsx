@@ -86,7 +86,7 @@ test("dispatch card expands the brief and never renders a shell block", async ()
     />,
   );
   const row = container.querySelector<HTMLButtonElement>(".cv-dispatch__line")!;
-  expect(row.textContent).toContain("Sent brief 'Diff viewer on the right' → cx3-s14-header on cmux16");
+  expect(row.textContent).toContain("Sent to 'Diff viewer on the right' → cx3-s14-header · cmux16");
   expect(row.getAttribute("aria-expanded")).toBe("false");
   expect(container.querySelector(".cv-shell")).toBeNull();
   await act(async () => row.click());
@@ -109,7 +109,7 @@ test("a report row links back to its brief and carries sender attribution", asyn
   );
   const row = container.querySelector(".cv-dispatch")!;
   expect(row.getAttribute("data-from")).toBe("deepseek");
-  expect(row.querySelector('a[href="#brief-b-17"]')?.textContent).toBe("Brief 'Diff viewer on the right'");
+  expect(row.querySelector('a[href="#brief-b-17"]')?.textContent).toBe("Diff viewer on the right");
   await act(async () => (row.querySelector("button") as HTMLButtonElement).click());
-  expect(row.querySelector('a[href="#brief-b-17"]')?.textContent).toBe("Brief 'Diff viewer on the right'");
+  expect(row.querySelector('a[href="#brief-b-17"]')?.textContent).toBe("Diff viewer on the right");
 });

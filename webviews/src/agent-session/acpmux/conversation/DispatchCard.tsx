@@ -7,7 +7,7 @@ import { useFindReveal } from "./chatFind";
 import { ChevronRight, Envelope, Spinner, ToolGroup } from "./icons";
 import { CopyButton } from "./CopyButton";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
-import { useT } from "../i18n";
+import { useT, type Translate } from "../i18n";
 import type { DispatchCall } from "./dispatchCalls";
 import { messagePreview } from "./AgentMessageRow";
 import "./DispatchCard.css";
@@ -23,12 +23,13 @@ export function DispatchCard({ item, call }: { item: AcpmuxActivity; call: Dispa
   const tool = item.tool;
   const running = call.status === "running" || tool?.status === "pending" || tool?.status === "in_progress";
   const target = call.to ?? call.sessionId ?? call.host;
-  const destination = target && call.host && target !== call.host ? `${target} on ${call.host}` : target;
+  const destination = target && call.host && target !== call.host ? `${target} · ${call.host}` : target;
   const preview = messagePreview(call.text ?? call.summary ?? "");
-  const title = call.title ? `'${call.title}'` : preview ? `'${preview}'` : "brief";
-  const line = lineLabel(call, title, destination);
+  const title = call.title ? `'${call.title}'` : preview ? `'${preview}'` : t("message.unknown");
+  const line = lineLabel(t, call, title, destination);
   const briefId = call.reportBriefId ?? call.briefId;
   const anchor = briefId ? briefAnchor(briefId) : undefined;
+  // l10n-allow: clipboard format is machine-readable context, not rendered pane copy.
   const copyText = [
     call.title && `Title: ${call.title}`,
     call.text && `Brief: ${call.text}`,
@@ -73,30 +74,35 @@ export function DispatchCard({ item, call }: { item: AcpmuxActivity; call: Dispa
         <a
           className="cv-dispatch__link"
           href={`#${anchor}`}
-          aria-label={call.title ? `Open brief '${call.title}'` : `Open brief ${call.briefId ?? ""}`}
+          aria-label={t("message.label", {
+            from: call.from ?? t("message.self"),
+            to: call.title ?? call.briefId ?? t("message.unknown"),
+          })}
         >
-          {call.title ? `Brief '${call.title}'` : `Brief ${call.briefId ?? ""}`}
+          {call.title ?? call.briefId ?? t("message.unknown")}
         </a>
       )}
       {open && (
         <div id={detailsId} className="cv-dispatch__body selectable">
           {call.kind === "report" && (anchor || call.title) && (
             <div className="cv-dispatch__brief-link">
-              {anchor ? (
-                <a href={`#${anchor}`}>{call.title ? `Brief '${call.title}'` : `Brief ${call.briefId ?? ""}`}</a>
-              ) : (
-                `Brief '${call.title}'`
-              )}
+              {anchor ? <a href={`#${anchor}`}>{call.title ?? call.briefId ?? t("message.unknown")}</a> : call.title}
             </div>
           )}
           {call.text && <div className="cv-dispatch__text">{call.text}</div>}
           {call.summary && call.summary !== call.text && <div className="cv-dispatch__text">{call.summary}</div>}
           {(call.from || destination || call.stopCondition || call.briefId) && (
             <div className="cv-dispatch__meta">
-              {call.from && <span>From {call.from}</span>}
-              {destination && <span>To {destination}</span>}
-              {call.stopCondition && <span>Stop when {call.stopCondition}</span>}
-              {call.briefId && <span>Brief {call.briefId}</span>}
+              {(call.from || destination) && (
+                <span>
+                  {t("message.label", {
+                    from: call.from ?? t("message.self"),
+                    to: destination ?? t("message.unknown"),
+                  })}
+                </span>
+              )}
+              {call.stopCondition && <span>{call.stopCondition}</span>}
+              {call.briefId && <span>{call.briefId}</span>}
             </div>
           )}
           {copyText && <CopyButton text={copyText} label={t("turn.copy")} className="cv-iconbtn cv-iconbtn--compact" />}
@@ -106,17 +112,22 @@ export function DispatchCard({ item, call }: { item: AcpmuxActivity; call: Dispa
   );
 }
 
-export function lineLabel(call: DispatchCall, title: string, destination: string | undefined): string {
+export function lineLabel(t: Translate, call: DispatchCall, title: string, destination: string | undefined): string {
   const target = destination ? ` → ${destination}` : "";
   switch (call.kind) {
     case "dispatch":
-      return `Sent brief ${title}${target}`;
+      return t("message.sentTo", { to: `${title}${target}` });
     case "steer":
-      return `Steered brief ${title}${target}`;
+      return t("subsession.sent", { name: destination ?? t("message.unknown"), text: title });
     case "report":
-      return `Report${call.from ? ` from ${call.from}` : ""}${call.title ? ` · ${title}` : ""}`;
+      return t("message.label", {
+        from: call.from ?? t("message.self"),
+        to: call.title ?? call.briefId ?? t("message.unknown"),
+      });
     case "briefs":
-      return `Listed briefs${call.summary ? ` · ${call.summary}` : ""}`;
+      return t("tools.mcp.list", {
+        target: call.summary ?? (call.count === undefined ? t("message.unknown") : call.count),
+      });
   }
 }
 
