@@ -43,7 +43,7 @@ on:
         default: false
         type: boolean
       target_set:
-        description: "Binary targets to build: all, macos (both macOS targets), macos-arm64 or macos-x86_64"
+        description: "Binary targets to build: all, macos (both macOS targets), macos-arm64, macos-x86_64, or windows (no Unix target: only the include_windows jobs)"
         required: false
         default: all
         type: string
@@ -107,6 +107,13 @@ on:
         required: false
         default: "mac"
         type: string
+    outputs:
+      # cmux-tui-artifacts.yml publishes the Windows daemon in its own pass
+      # only when this is true: an optional (windows_optional) Windows build
+      # that failed still ends this workflow green.
+      windows_built:
+        description: "true when build-windows uploaded the cmux-tui-x86_64-pc-windows-gnu artifact"
+        value: ${{ jobs.build-windows.outputs.built }}
 
 permissions: {}
 
@@ -128,6 +135,7 @@ jobs:
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
+      unix_targets: ${{ steps.targets.outputs.unix_targets }}
       linux_package_matrix: ${{ steps.targets.outputs.linux_package_matrix }}
     steps:
       - name: Select binary targets
@@ -222,6 +230,10 @@ jobs:
                   target for target in targets
                   if target["target"] == "x86_64-apple-darwin"
               ]
+          elif target_set == "windows":
+              # cmux-tui-artifacts.yml builds Windows in its own call so the
+              # macOS and Linux tree never waits for the Windows leg.
+              selected = []
           else:
               raise SystemExit(f"unsupported target_set: {target_set!r}")
 
@@ -233,6 +245,7 @@ jobs:
               raise SystemExit("npm and PyPI packaging require target_set=all")
 
           print("matrix=" + json.dumps({"include": selected}, separators=(",", ":")))
+          print("unix_targets=" + ("true" if selected else "false"))
 
           linux_package_targets = [
               {
@@ -264,6 +277,8 @@ jobs:
       CMUX_SERVER_RELEASE_KEYS: ${{ vars.CMUX_SERVER_RELEASE_KEYS }}
     name: build ${{ matrix.target }}
     needs: plan-build
+    # target_set=windows selects no Unix target (an empty matrix is an error).
+    if: needs.plan-build.outputs.unix_targets == 'true'
     runs-on: ${{ github.run_attempt > 1 && inputs.macos_retry_runner != '' && endsWith(matrix.target, '-apple-darwin') && !matrix.darwin_on_linux && inputs.macos_retry_runner || matrix.runner }}
     timeout-minutes: 60
     permissions:
@@ -696,6 +711,8 @@ jobs:
     continue-on-error: ${{ inputs.windows_optional }}
     runs-on: ${{ inputs.windows_runner || github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || 'blacksmith-4vcpu-windows-2025' }}
     timeout-minutes: 60
+    outputs:
+      built: ${{ steps.built.outputs.built }}
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
       CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=lld
@@ -866,6 +883,12 @@ jobs:
             dist/cmux-relay-x86_64-pc-windows-gnu.exe
             dist/chatmux-relay-x86_64-pc-windows-gnu.exe
           if-no-files-found: error
+
+      # The workflow output windows_built: a failed step above leaves it unset.
+      - name: Record the uploaded Windows build
+        id: built
+        shell: bash
+        run: echo "built=true" >> "$GITHUB_OUTPUT"
 
   # acpmux for GPUI on Windows (cx-ephhf), published by cmux-tui-artifacts.yml
   # in cmux-tui-windows/<sha>/ and as an optional Windows tree companion. Its
