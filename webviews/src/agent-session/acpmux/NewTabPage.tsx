@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { AgentMark as BrandMark } from "../shared/AgentMark";
 import { agentBrand } from "../shared/agentBrand";
@@ -257,6 +257,9 @@ type Props = {
   onEditShortcut?(kind: TabKind): void;
   /// Choose Folder…: the host's folder panel; resolves to the picked folder.
   onBrowseProject?(): Promise<string | undefined>;
+  /// The picked project, for the host's `pane.context`: a terminal opened from this tab starts
+  /// there (#22225). Null once the page is gone.
+  folderRef?: React.Ref<string | undefined>;
   now?: number;
 };
 
@@ -279,6 +282,7 @@ export function NewTabPage({
   onShowAll,
   onEditShortcut,
   onBrowseProject,
+  folderRef,
   inputToken,
   onInputReady,
 }: Props) {
@@ -289,6 +293,7 @@ export function NewTabPage({
   const [kindSwitch, setKindSwitch] = useState<KindSwitchDirection>();
   const kindSwitchTimer = useRef<number | undefined>(undefined);
   const [projectCwd, setProjectCwd] = useState(cwd);
+  useImperativeHandle(folderRef, () => projectCwd, [projectCwd]);
   const [text, setText] = useState(location ?? "");
   /// The last open was refused (the host made no tab): a note under the field until the next edit.
   const [openFailed, setOpenFailed] = useState(false);

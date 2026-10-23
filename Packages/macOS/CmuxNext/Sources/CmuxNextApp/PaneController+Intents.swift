@@ -131,7 +131,7 @@ extension PaneController {
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
                 var start = cwd
-                if let agent, let agentCwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(agentCwd) { start = agentCwd }
+                if let agent, let agentCwd = await agent.terminalFolder() { start = agentCwd }
                 let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, size: size, workspace: workspace, keep: keep)); BenchSpans.mark("daemon.newTab.returned")
                 if let text { try await connection.send(created.surface, text: text) }
                 if let page {
@@ -157,12 +157,7 @@ extension PaneController {
     private func newTerminalTabNow(_ command: NewTerminalTabCommand, agent: AgentPaneView?, intent: UInt64?,
                                    keys: CreationInputBuffer.Ticket?, window: NSWindow?, then: (@MainActor (SurfaceID) -> Void)?) {
         // task-owner: the selected agent's cwd, read while the stand-in shows (#16620)
-        let agentCwd = agent.map { agent in
-            Task { @MainActor () -> String? in
-                guard let cwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(cwd) else { return nil }
-                return cwd
-            }
-        }
+        let agentCwd = agent.map { agent in Task { @MainActor in await agent.terminalFolder() } }
         let pending = BenchSpans.measure("newTerminal.intend") { command.intendNow(on: daemon, cwd: agentCwd) }
         selectWhenReported(surface: pending.surface)
         services.registry.track(Task { [services] in

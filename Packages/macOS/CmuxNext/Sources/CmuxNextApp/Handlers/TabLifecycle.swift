@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextSettings
+import CmuxNextTerminal
 import CmuxNextWakeups
 import Foundation
 import enum CmuxNextLayout.ChatColumnPlacement
@@ -20,13 +21,48 @@ enum TabLifecycle {
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.markAction() } // `debug.new_terminal_trace`
         #endif
         guard let focused = ctx.daemonPane(invocation) else { return }
-        let cwd = invocation["cwd"]?.stringValue
-        // `--keep`: the terminal outlives its tab (a background terminal made on purpose).
-        let keep = invocation["keep"]?.boolValue == true ? true : nil
         let opensWorkspace = NewTerminalWorkspaceSetting.resolves(
             setting: ctx.services.settings?.snapshot.newTerminalOpensWorkspace ?? NewTerminalWorkspaceSetting.fallback,
             toggled: invocation["toggleWorkspace"]?.boolValue == true
         )
+        // A person's terminal from an agent tab (a chat, the New Tab page) starts in the folder the
+        // tab shows (#16620, #22225), asked before the terminal is placed so every placement gets
+        // it: this pane, the strip beside a docked chat, a lone chat's dock, a split and a new
+        // workspace. Ghostty's `tab-` (`window-` for a new workspace, `split-` for a split)
+        // `inherit-working-directory = false` still starts it in the home folder. The window's keys
+        // wait meanwhile (cx-wb5.76).
+        let splits = if !asTab, case .split = PanePlacementRouting.route(ctx, invocation, from: focused, tiles: true) { true } else { false }
+        let kind: GhosttyWorkingDirectoryInheritance.Kind = opensWorkspace && !asTab ? .window : splits ? .split : .tab
+        if invocation["cwd"] == nil, invocation.origin == .user, let controller = ctx.services.paneController(for: focused),
+           let agent = controller.selectedAgentView,
+           NewTerminalStart.uninherited(kind, services: ctx.services, daemon: controller.daemon, besides: controller.selectedTab) == nil {
+            let coordinator = ctx.services.keyRouter.creationInputCoordinator, window = controller.view.window
+            let keys = coordinator.begin(in: window, generation: controller.workspace?.beginFocusIntent())
+            ctx.registry.track(Task { @MainActor in
+                // Resolved after `open` began the terminal's own hold, so the keys wait for it.
+                defer { coordinator.resolve(keys, landed: false, in: window) }
+                let folder = await agent.terminalFolder()
+                // The pane closed meanwhile: nothing to open beside.
+                guard ctx.services.paneController(for: focused) != nil else { return nil }
+                var invocation = invocation
+                if let folder { invocation.arguments["cwd"] = .string(folder) }
+                open(ctx, invocation, focused: focused, opensWorkspace: opensWorkspace, askedAgent: true, slot: slot, asTab: asTab)
+                return nil
+            })
+            return
+        }
+        open(ctx, invocation, focused: focused, opensWorkspace: opensWorkspace, askedAgent: false, slot: slot, asTab: asTab)
+    }
+
+    /// New Terminal Tab once its folder is known: the invocation's `cwd`, else nil for the
+    /// inheritance rules (NewTerminalStart) and the daemon's resolver. `askedAgent`: the selected
+    /// agent tab was asked, so a tab is not asked again and, with no folder named, the daemon's
+    /// resolver decides.
+    private static func open(_ ctx: AppActionContext, _ invocation: ActionInvocation, focused: PaneModel,
+                             opensWorkspace: Bool, askedAgent: Bool, slot: NewTabSlot.Target?, asTab: Bool) {
+        let cwd = invocation["cwd"]?.stringValue
+        // `--keep`: the terminal outlives its tab (a background terminal made on purpose).
+        let keep = invocation["keep"]?.boolValue == true ? true : nil
         if invocation.origin == .user, opensWorkspace, !asTab, case let windows = ctx.services.windows,
            let windowID = ctx.activeWindow?.state.id {
             let daemon = ctx.services.daemon(for: focused)
@@ -59,7 +95,9 @@ enum TabLifecycle {
                 let spawn = SpawnOptions(cwd: chatStart, workspace: ctx.services.workspaceKey(of: pane), keep: keep)
                 target = ChatColumnPlacement.route(from: controller, respawn: .terminal(spawn), services: ctx.services)
             }
-            target?.newTerminalTab(cwd: target === controller ? tabCwd : chatStart, keep: keep, fromSelectedTab: true, daemonResolvesCwd: target !== controller,
+            // Asked first (askedAgent): the page's folder, else the chat's (chatStart), else the daemon's resolver.
+            target?.newTerminalTab(cwd: target === controller && !askedAgent ? tabCwd : chatStart, keep: keep, fromSelectedTab: true,
+                                   daemonResolvesCwd: target !== controller || askedAgent,
                                    then: NewTabSlot.placing(slot, services: ctx.services, then: nil))
             return
         }
