@@ -33,15 +33,26 @@ struct WorkContextTrail: Equatable {
     private(set) var entries: [Entry] = []
 
     /// `entry`'s tab was focused now.
-    mutating func record(_ entry: Entry) {}
+    mutating func record(_ entry: Entry) {
+        if entries.first == entry { return }
+        entries.removeAll { $0.tab == entry.tab }
+        entries.insert(entry, at: 0)
+        if entries.count > Self.limit { entries.removeLast(entries.count - Self.limit) }
+    }
 
     /// `tab` closed: it is no source any more.
-    mutating func forget(tab: String) {}
+    mutating func forget(tab: String) {
+        entries.removeAll { $0.tab == tab }
+    }
 
     /// The first live value of the rule above. `value` reads an entry's value now (its folder, its
     /// chat settings); nil skips the entry (closed, on another machine, no folder yet).
     func resolve<Value>(current: Entry?, workspace: String?, window: String?, workspaceHasWork: Bool,
                         kinds: Set<Kind> = [.terminal, .chat], value: (Entry) -> Value?) -> Value? {
-        nil
+        if let current, kinds.contains(current.kind), let found = value(current) { return found }
+        let eligible = entries.lazy.filter { kinds.contains($0.kind) && $0.tab != current?.tab }
+        if let workspace, let found = eligible.filter({ $0.workspace == workspace }).compactMap(value).first { return found }
+        guard !workspaceHasWork, let window else { return nil }
+        return eligible.filter { $0.window == window }.compactMap(value).first
     }
 }
