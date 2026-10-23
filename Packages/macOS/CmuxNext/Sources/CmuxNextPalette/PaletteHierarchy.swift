@@ -115,9 +115,9 @@ extension PaletteController {
     /// it then owns Return, Escape, Tab and the arrows, as in a content
     /// window (`KeyRouter.belongsToInputMethod`); a Command chord still
     /// reaches the palette.
-    static func inputMethodOwns(_ event: NSEvent) -> Bool {
+    static func inputMethodOwns(_ event: NSEvent, in window: NSWindow?) -> Bool {
         guard !event.modifierFlags.contains(.command),
-              let client = event.window?.firstResponder as? NSTextInputClient else { return false }
+              let client = window?.firstResponder as? NSTextInputClient else { return false }
         return client.hasMarkedText()
     }
 }
