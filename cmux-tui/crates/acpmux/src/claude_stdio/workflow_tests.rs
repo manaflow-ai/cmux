@@ -230,3 +230,36 @@ async fn stopping_a_background_subagent_stops_its_claude_task() {
         panic!("stopping an unknown subagent did not fail")
     };
 }
+
+/// Each progress line reads only what the run appended since the last one (acpmux-audit.md
+/// finding 13: the whole journal, up to 4 MiB, was read again on every line). Here the part
+/// already read is overwritten in place before two more agents return: the counts follow the
+/// appended lines, not a second reading of the start.
+#[tokio::test]
+async fn a_workflow_journal_is_read_from_where_the_last_progress_line_stopped() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(&workflow_call("toolu_w")).await;
+    let dir = journal(3, 1);
+    t.inbound(&launched("toolu_w", dir.to_str().unwrap())).await;
+    let progress = json!({"type": "system", "subtype": "task_progress", "task_id": "wx2", "tool_use_id": "toolu_w",
+        "description": "Count: n2", "usage": {"total_tokens": 1, "tool_uses": 1, "duration_ms": 1}});
+    let agents = |out: &[Value]| {
+        let progress = of_kind(out, "subagent_progress");
+        assert_eq!(progress.len(), 1, "{out:?}");
+        progress[0]["agents"].clone()
+    };
+    assert_eq!(agents(&updates(&t.inbound(&progress).await)), json!({"done": 1, "started": 3}));
+
+    let path = dir.join("journal.jsonl");
+    let read = std::fs::read(&path).unwrap();
+    let blanked: Vec<u8> = read.iter().map(|&b| if b == b'\n' { b } else { b' ' }).collect();
+    let more =
+        [json!({"type": "result", "agentId": "a1"}), json!({"type": "result", "agentId": "a2"})];
+    let mut text = blanked;
+    for line in more {
+        text.extend_from_slice(format!("{line}\n").as_bytes());
+    }
+    std::fs::write(&path, text).unwrap();
+    assert_eq!(agents(&updates(&t.inbound(&progress).await)), json!({"done": 3, "started": 3}));
+    let _ = std::fs::remove_dir_all(dir);
+}
