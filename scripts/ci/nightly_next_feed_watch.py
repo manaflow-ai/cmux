@@ -147,10 +147,16 @@ class GitHub:
         return self.call("GET", f"/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")["jobs"]
 
     def workflow_runs(self, workflow: str, branch: str | None = None) -> list[dict]:
-        query = {"per_page": 100}
-        if branch:
-            query["branch"] = branch
-        return self.call("GET", f"/actions/workflows/{workflow}/runs?{urllib.parse.urlencode(query)}")["workflow_runs"]
+        runs: list[dict] = []
+        for page in range(1, 11):
+            query = {"per_page": 100, "page": page}
+            if branch:
+                query["branch"] = branch
+            batch = self.call("GET", f"/actions/workflows/{workflow}/runs?{urllib.parse.urlencode(query)}")["workflow_runs"]
+            runs.extend(batch)
+            if len(batch) < 100:
+                break
+        return runs
 
     def ref_sha(self, branch: str) -> str:
         return self.call("GET", f"/git/ref/heads/{branch}")["object"]["sha"]
@@ -160,6 +166,21 @@ class GitHub:
 
 
 ACTIVE = {"queued", "requested", "waiting", "pending", "in_progress"}
+
+
+def is_active_delivery_run(workflow: str, branch: str | None, run: dict) -> bool:
+    if run.get("status") not in ACTIVE:
+        return False
+    # nightly.yml's 17 */6 schedule is a cache seed, not a publication. Do
+    # not let a long cache warm suppress the 25-minute classic starvation
+    # dispatch. The 08:47 catch-up schedule publishes and remains a blocker.
+    if workflow == "nightly.yml" and branch == "main" and run.get("event") == "schedule":
+        try:
+            created = parse_time(run["created_at"])
+        except (KeyError, TypeError, ValueError):
+            return False
+        return created.hour == 8 and 47 <= created.minute <= 49
+    return True
 
 
 def published_commit_for_release(gh: GitHub, tag: str) -> str:
@@ -189,7 +210,8 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
     if not tip or tip == published_sha:
         return "unchanged"
     active = [run for name, run_branch in (active_workflows or [(workflow, branch)])
-              for run in gh.workflow_runs(name, run_branch) if run.get("status") in ACTIVE]
+              for run in gh.workflow_runs(name, run_branch)
+              if is_active_delivery_run(name, run_branch, run)]
     if active:
         return f"running {active[0].get('html_url', active[0].get('id', '?'))}"
     gh.dispatch(workflow, ref, inputs)
@@ -300,7 +322,8 @@ def main(argv: list[str]) -> int:
             gh, now, feed=newest, published_sha=published_sha,
             branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main",
             inputs={"sha": gh.ref_sha("feat-cmux-next")},
-            active_workflows=[("nightly-next-tick.yml", "main"), ("nightly.yml", "nightly-next")]))
+            active_workflows=[("nightly-next-tick.yml", "main"), ("nightly.yml", "nightly-next"),
+                              ("nightly.yml", "main")]))
         classic_sha = published_commit_for_release(gh, "nightly")
         print("classic starvation: " + starvation_dispatch(
             gh, now, feed=classic_newest, published_sha=classic_sha,
