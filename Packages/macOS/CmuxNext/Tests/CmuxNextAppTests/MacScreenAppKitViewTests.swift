@@ -71,6 +71,7 @@ struct MacScreenAppKitViewTests {
         }
         pane.close()
         pages.tabClosed("home")
+        prompt.update([])
     }
 
     @Test func homeSaysHowToSetUpAndFollowsTheHubAddress() async throws {

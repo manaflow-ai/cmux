@@ -52,7 +52,8 @@ final class MacScreenButton: NSButton, MacScreenInked {
             self.title = ""
         }
         setContentHuggingPriority(.required, for: .horizontal)
-        setContentCompressionResistancePriority(.required, for: .horizontal)
+        // Just under required: a long localized title truncates instead of breaking a fixed-width card.
+        setContentCompressionResistancePriority(.init(999), for: .horizontal)
         setAccessibilityLabel(title)
         setAccessibilityHelp(hint?.spokenName)
         if let id { setAccessibilityIdentifier(id) }
@@ -199,7 +200,7 @@ final class MacScreenMenuButton: NSButton, MacScreenInked {
     private var label: String?
     private var colors = MacScreenColors()
 
-    init(symbol: String, title: String? = nil, accessibilityTitle: String, ink: KeyPath<MacScreenColors, NSColor> = \.secondary, id: String) {
+    init(symbol: String, title: String? = nil, accessibilityTitle: String?, ink: KeyPath<MacScreenColors, NSColor> = \.secondary, id: String) {
         self.ink = ink
         label = title
         super.init(frame: .zero)
@@ -216,7 +217,8 @@ final class MacScreenMenuButton: NSButton, MacScreenInked {
         setContentHuggingPriority(.required, for: .horizontal)
         setContentCompressionResistancePriority(.required, for: .horizontal)
         setAccessibilityRole(.menuButton)
-        setAccessibilityLabel(accessibilityTitle)
+        // nil: the symbol's own description, as SwiftUI read it.
+        if let accessibilityTitle { setAccessibilityLabel(accessibilityTitle) }
         setAccessibilityIdentifier(id)
         refresh()
     }
@@ -349,7 +351,11 @@ final class MacScreenSwitch: NSControl, MacScreenInked {
     }
 
     override func keyDown(with event: NSEvent) {
-        if event.charactersIgnoringModifiers == " " { flip() } else { super.keyDown(with: event) }
+        if event.charactersIgnoringModifiers == " " {
+            if isEnabled { flip() }
+        } else {
+            super.keyDown(with: event)
+        }
     }
 
     override func accessibilityPerformPress() -> Bool {

@@ -141,6 +141,15 @@ final class MacScreenFill: NSView, MacScreenInked {
 
     override func layout() {
         super.layout()
+        roundCircle()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        roundCircle()
+    }
+
+    private func roundCircle() {
         if case .circle = shape { layer?.cornerRadius = min(bounds.width, bounds.height) / 2 }
     }
 

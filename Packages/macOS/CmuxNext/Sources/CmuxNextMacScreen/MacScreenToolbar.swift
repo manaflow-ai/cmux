@@ -269,15 +269,16 @@ final class MacScreenToolbarView: MacScreenThemedView {
         icon.isHidden = !showsIcon
         if showsIcon { place(icon, width: iconWidth, height: icon.intrinsicContentSize.height) }
         place(name, width: nameUsed, height: name.intrinsicContentSize.height)
+        // A slot that does not fit keeps its spacing (as SwiftUI's empty fallback did) and stays hidden.
         stats.isHidden = !showsStats
-        if statsSlot { place(stats, width: showsStats ? statsWidth : 0, height: stats.intrinsicContentSize.height) }
-        x += 8 + max(0, left)
+        if showsStats { place(stats, width: statsWidth, height: stats.intrinsicContentSize.height) } else if statsSlot { x += gap }
+        x += 8 + max(0, left) + gap
         if !badge.isHidden {
             place(badge, width: badgeSize.width, height: badgeSize.height)
             badge.layer?.cornerRadius = badgeSize.height / 2
         }
         hint.isHidden = !showsHint
-        if hintSlot { place(hint, width: showsHint ? hintSize.width : 0, height: hintSize.height) }
+        if showsHint { place(hint, width: hintSize.width, height: hintSize.height) } else if hintSlot { x += gap }
         for (view, size) in zip(controls, controlSizes) { place(view, width: size.width, height: size.height) }
     }
 }

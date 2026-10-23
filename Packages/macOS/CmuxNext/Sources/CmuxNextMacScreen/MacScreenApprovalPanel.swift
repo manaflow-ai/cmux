@@ -192,6 +192,7 @@ final class MacScreenApprovalView: MacScreenThemedView {
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: background.leadingAnchor),
             stack.topAnchor.constraint(equalTo: background.topAnchor),
+            stack.widthAnchor.constraint(equalToConstant: Self.width),
             trailing,
             bottom,
         ])
@@ -208,9 +209,6 @@ final class MacScreenApprovalView: MacScreenThemedView {
     /// The prompt's size: its width, and the height of its content at that width.
     override var fittingSize: NSSize {
         guard shown?.request != nil else { return .zero }
-        let width = stack.widthAnchor.constraint(equalToConstant: Self.width)
-        width.isActive = true
-        defer { width.isActive = false }
         return NSSize(width: Self.width, height: ceil(stack.fittingSize.height))
     }
 

@@ -49,6 +49,7 @@ final class MacScreenCardView: MacScreenThemedView {
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: background.leadingAnchor),
             stack.topAnchor.constraint(equalTo: background.topAnchor),
+            stack.widthAnchor.constraint(equalToConstant: Self.width),
             trailing,
             bottom,
         ])
@@ -60,9 +61,6 @@ final class MacScreenCardView: MacScreenThemedView {
     /// The card's size: its width, and the height of what it says at that width (zero with no card).
     override var fittingSize: NSSize {
         guard shown?.card != nil else { return .zero }
-        let width = stack.widthAnchor.constraint(equalToConstant: Self.width)
-        width.isActive = true
-        defer { width.isActive = false }
         return NSSize(width: Self.width, height: ceil(stack.fittingSize.height))
     }
 

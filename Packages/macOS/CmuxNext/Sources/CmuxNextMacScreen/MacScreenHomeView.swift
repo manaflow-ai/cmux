@@ -88,10 +88,17 @@ final class MacScreenHomeView: MacScreenThemedView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard window != nil else { return }
+        guard window != nil else {
+            // The page left: its read of the hosts' permissions ends, and runs again when it is back.
+            permissionsRead?.cancel()
+            permissionsRead = nil
+            readFor = []
+            return
+        }
         // The page appears: read the permissions again (granted in System Settings meanwhile).
         host.refreshPermissions()
         systemShortcuts?.refreshAccessibility()
+        readPermissions(shown?.deviceIDs ?? [])
     }
 
     // MARK: Drawing
@@ -109,10 +116,25 @@ final class MacScreenHomeView: MacScreenThemedView {
         readPermissions(snapshot.deviceIDs)
     }
 
-    /// A switch shows its model's value, not the click: after a press it goes back to what the
-    /// model says until the model's write lands (and the page draws it).
-    func redrawSwitches() {
-        if let shown { build(shown) }
+    /// A switch shows its model's value, not the click: after a press, on the next turn (never
+    /// inside the switch's own event), it shows what the model says until the model's write lands.
+    func syncSwitchesSoon() {
+        Task { @MainActor [weak self] in self?.syncSwitches() }
+    }
+
+    private func syncSwitches() {
+        for view in views(under: column) {
+            guard let toggle = view as? MacScreenSwitch else { continue }
+            switch toggle.accessibilityIdentifier() {
+            case "macScreen.home.allowToggle": toggle.isOn = devices?.hubHost.isSharing ?? false
+            case "macScreen.home.systemShortcuts": toggle.isOn = systemShortcuts?.enabled ?? false
+            default: break
+            }
+        }
+    }
+
+    private func views(under root: NSView) -> [NSView] {
+        root.subviews.flatMap { [$0] + views(under: $0) }
     }
 
     private func build(_ snapshot: MacScreenHomeSnapshot) {
@@ -139,7 +161,7 @@ final class MacScreenHomeView: MacScreenThemedView {
 
     /// This Mac's access to each host is that host's permission list: read it for the hosts shown, again when they change.
     private func readPermissions(_ ids: [String]) {
-        guard ids != readFor else { return }
+        guard window != nil, ids != readFor else { return }
         readFor = ids
         permissionsRead?.cancel()
         permissionsRead = nil
@@ -164,7 +186,7 @@ final class MacScreenHomeView: MacScreenThemedView {
             isOn: keyboard.enabled, id: "macScreen.home.systemShortcuts"
         ) { [weak self] on in
             self?.systemShortcuts?.setEnabled(on)
-            self?.redrawSwitches()
+            self?.syncSwitchesSoon()
         }
         MacScreenStack.addFullWidth(toggle, to: content)
         if keyboard.needsAccessibility {

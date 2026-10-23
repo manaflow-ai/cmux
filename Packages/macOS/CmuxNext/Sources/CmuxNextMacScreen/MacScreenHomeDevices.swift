@@ -172,7 +172,7 @@ extension MacScreenHomeView {
             views.append(MacScreenButton(L.t("macScreen.hub.control", "Full Control"), role: .primary, id: "macScreen.home.control.\(device.name)") { [weak self] in
                 self?.actions.openDevice(id, .full)
             })
-            let more = MacScreenMenuButton(symbol: "ellipsis.circle", accessibilityTitle: device.name, id: "macScreen.home.more.\(device.name)")
+            let more = MacScreenMenuButton(symbol: "ellipsis.circle", accessibilityTitle: nil, id: "macScreen.home.more.\(device.name)")
             more.makeMenu = { [weak self] in self?.moreMenu(id) ?? NSMenu() }
             views.append(more)
         }
@@ -230,7 +230,7 @@ extension MacScreenHomeView {
             // task-owner: one sharing write; the switch follows the hub's record
             Task { try? await hubHost?.setSharing(on) }
             // The switch shows the hub's record: back to it if the write does not change it.
-            self?.redrawSwitches()
+            self?.syncSwitchesSoon()
         }
         MacScreenStack.addFullWidth(toggle, to: content)
         if sharing.isSharing {
