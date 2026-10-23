@@ -4,8 +4,9 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { SUBAGENTS } from "../subagents/subagentFold";
+import { childRows } from "../subagents/childRows";
 import type { PlayContext } from "../../../gallery/play";
-import type { AcpmuxActivity } from "../model";
+import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { workedTurnRows } from "../workedTurn";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import {
@@ -16,6 +17,46 @@ import {
 } from "../../../gallery/fixtures/toolImages";
 
 const prompt = "Add retries with backoff to the fetch helper";
+
+/// A turn's rows as the transcript maps its ACP updates (subagents/childRows.ts, the parent
+/// transcript's rules): Claude Code's ToolSearch, then a Read and a command, then the reply.
+function toolSearchTurn(): AcpmuxRow[] {
+  const call = (id: string, tool: string, title: string, kind: string, extra: Record<string, unknown> = {}) => ({
+    sessionUpdate: "tool_call",
+    toolCallId: id,
+    title,
+    kind,
+    status: "completed",
+    _meta: { claude: { tool } },
+    ...extra,
+  });
+  const updates = [
+    call("ts-search", "ToolSearch", "ToolSearch", "other", { rawInput: { query: "select:Grep" } }),
+    call("ts-read", "Read", "Read src/net/retry.ts", "read", {
+      locations: [{ path: "/Users/you/src/atlas-web/src/net/retry.ts" }],
+    }),
+    call("ts-test", "Bash", "bun test src/net", "execute", {
+      rawInput: { command: "bun test src/net" },
+      rawOutput: { exit_code: 0 },
+    }),
+    {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "The retry helper backs off and its tests pass." },
+    },
+  ];
+  const turn = childRows(
+    "gallery-toolsearch",
+    updates.map((update, index) => ({ event: { seq: index + 1, at: minutesAgo(1.9 - index * 0.2) }, update })),
+    new Map(),
+    1,
+  );
+  const toolCount = turn.reduce((sum, item) => sum + (item.kind === "activity" ? (item.toolCount ?? 0) : 0), 0);
+  return [
+    user("Find the retry helper and run its tests", 2, { id: "gallery-toolsearch-user" }),
+    ...turn,
+    summary(1.1, { id: "gallery-toolsearch-summary", status: "completed", toolCount, durationMs: 54_000 }),
+  ];
+}
 
 /// Pull requests a leo-workspace chat names by bare number, as the App's cache has them
 /// (`pr.inspect`): five of manaflow-ai/cmux, and #843 in both repositories.
@@ -274,6 +315,58 @@ const shellDisclosureChecks = {
     reason: "Opening command details intentionally reveals the shell block below its focused row.",
   },
 };
+
+/// One long finished turn, shaped like the ones Lawrence and Leo pasted (synthetic text): runs of
+/// commands, short narration, a compaction and a subagent ending, two answers to the person, a
+/// command after the second and a closing line. Only the work folds, each stretch under its own
+/// line between the answers (turns.ts `foldSegments`).
+const takeawayTurnRows = [
+  user("Why is the agent pane slow, and what should we fix first?", 12, { id: "gallery-takeaway-user" }),
+  activity(
+    [
+      tool("rg -n useLayoutEffect src", "execute", "completed", { command: "rg -n useLayoutEffect src", exitCode: 0 }),
+      tool("bun run bench:transcript", "execute", "completed", { command: "bun run bench:transcript", exitCode: 0 }),
+    ],
+    11.8,
+    { id: "gallery-takeaway-run-1" },
+  ),
+  assistant("Both audits are still running.", 11.5, { id: "gallery-takeaway-narration" }),
+  row("compaction", 11.2, {
+    id: "gallery-takeaway-compaction",
+    compaction: { state: "completed", preTokens: 123_000, postTokens: 13_000 },
+  }),
+  activity(
+    [
+      tool("Read src/transcript/VirtualList.tsx", "read", "completed"),
+      tool("bun test src/transcript", "execute", "completed", { command: "bun test src/transcript", exitCode: 0 }),
+    ],
+    10.4,
+    { id: "gallery-takeaway-run-2" },
+  ),
+  assistant(
+    "The first audit is done. Most of the time goes to measuring rows twice:\n\n1. Every new token re-measures the whole visible list.\n2. Opening a fold re-lays out the rows above it.\n\nShould I start with the first one?",
+    9,
+    { id: "gallery-takeaway-first" },
+  ),
+  activity(
+    [
+      tool("git diff --stat", "execute", "completed", { command: "git diff --stat", exitCode: 0 }),
+      tool("bun run typecheck", "execute", "completed", { command: "bun run typecheck", exitCode: 0 }),
+    ],
+    6,
+    { id: "gallery-takeaway-run-3" },
+  ),
+  assistant(
+    "Why it is slow, and the fixes:\n\n- Measure only the row that changed, not the visible list.\n- Keep the fold's header in place and grow its content downward.\n- Cache each row's height by its version.\n\nThe first fix is on the branch; the other two follow.",
+    4.6,
+    { id: "gallery-takeaway-second" },
+  ),
+  activity([tool("git push", "execute", "completed", { command: "git push", exitCode: 0 })], 4.4, {
+    id: "gallery-takeaway-push",
+  }),
+  assistant("Pushed.", 4.3, { id: "gallery-takeaway-pushed" }),
+  summary(4.3, { id: "gallery-takeaway-summary", status: "completed", durationMs: 456_000, toolCount: 7 }),
+];
 
 const longChatRows = Array.from({ length: 24 }, (_, index) => {
   const at = 3000 - index * 120;
@@ -1100,6 +1193,11 @@ export default agentPaneEntry({
           throw new Error("harness health went to the host bridge");
       },
     },
+    "toolsearch-hidden": {
+      note: "A worked turn whose agent called Claude Code's ToolSearch (it only loads deferred tools' schemas) before a Read and a command, its fold open. The rows come from the transcript's own ACP-to-row mapping (childRows), so ToolSearch draws no row and the summary counts two calls.",
+      snapshot: chat(toolSearchTurn()),
+      play: openWorked,
+    },
     "side-chat-acpmux": {
       note: "Play: New side chat (the chat menu's chat.side action) forks the chat, has acpmux tag the fork the chat's side chat on the pane's own connection (cx-jlzsf), then asks the app only to open it beside the chat.",
       ready: { transport: "mock" },
@@ -1313,6 +1411,15 @@ export default agentPaneEntry({
         if (!at?.closest(".cv-thought__text"))
           throw new Error(`the current match is not in the thought's text: ${at?.className ?? "none"}`);
       },
+    },
+    "takeaways-stay-open": {
+      note: 'A long finished turn (synthetic text): every answer to the person stays in sight, and only the work folds, each stretch under its own Worked for line between the answers. The closing "Pushed." stays too.',
+      snapshot: chat(takeawayTurnRows),
+    },
+    "takeaways-fold-open": {
+      note: "The same turn with its first Worked for opened: the commands, the short narration and the compaction, in order, then the first answer.",
+      snapshot: chat(takeawayTurnRows),
+      play: (ctx) => ctx.click({ selector: ".cv-worked" }),
     },
     "working-tools": {
       note: "Tool calls running in a live turn; the status line names the call in flight.",
@@ -1965,6 +2072,32 @@ export default agentPaneEntry({
         ),
         assistant("Lint fails on one unused variable; I can remove it.", 11.5),
         summary(11.5, { status: "completed", toolCount: 1 }),
+      ]),
+    },
+    "turn-stopped": {
+      note: 'The last turn, stopped by the reader: its footer says "You stopped after 40s" at rest and offers Continue, as Codex does. Continue sends a continue prompt through the composer\'s send; the button goes once that prompt shows (Leo, 2026-10-22: "and we should add a continue button if things were stopped, just like codex").',
+      snapshot: chat([
+        user(prompt, 3),
+        activity(
+          [
+            thought("Find where the fetch helper gives up on a failed request."),
+            tool("Read src/net/client.ts", "read", "completed"),
+          ],
+          2.8,
+        ),
+        assistant("The helper throws on the first failure. I'll wrap it in a retry loop with backoff next.", 2.5),
+        summary(2.33, { status: "cancelled", durationMs: 40_000, toolCount: 1 }),
+      ]),
+    },
+    "turn-stopped-then-continued": {
+      note: "A stopped turn that a prompt followed: only the last turn can offer Continue, so the earlier stopped turn offers none, and neither does the completed last turn.",
+      snapshot: chat([
+        user(prompt, 6),
+        assistant("The helper throws on the first failure. I'll wrap it in a retry loop with backoff next.", 5.5),
+        summary(5.33, { status: "cancelled", durationMs: 40_000 }),
+        user("Continue", 4),
+        assistant("Retries now back off from 200 ms, doubling up to three tries.", 3),
+        summary(3, { status: "completed", durationMs: 60_000 }),
       ]),
     },
     "turn-error": {

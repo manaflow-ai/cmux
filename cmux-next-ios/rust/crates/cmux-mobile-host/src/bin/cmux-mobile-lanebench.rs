@@ -267,6 +267,8 @@ async fn main() -> Result<()> {
         name: "cmux-mobile-lanebench".into(),
         team_id: args.team.clone(),
         wg_public_key: None,
+        machine_id: None,
+        sibling_device_ids: Vec::new(),
     })
     .await
     .context("POST /v1/devices")?;
