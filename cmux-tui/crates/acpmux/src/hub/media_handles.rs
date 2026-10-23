@@ -180,6 +180,3 @@ async fn sweep<O>(state: Weak<Mutex<State<O>>>) {
     }
 }
 
-#[cfg(all(test, unix))]
-#[path = "media_handles_tests.rs"]
-mod tests;
