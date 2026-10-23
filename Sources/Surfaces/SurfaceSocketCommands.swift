@@ -532,30 +532,11 @@ extension TerminalController {
                 projections = try await catalog.projectGroup(group, into: destination, focus: focus)
                 workspaceID = destination.workspaceID
             } else {
-                // The machine screen's geometry, when the daemon can report it: the new
-                // local workspace then mirrors its splits, ratios and tabs (nil → grid).
-                let layout = await CloudWorkspaceLayoutTranslator.fetch(machine: machine, workspaceID: workspace.id, catalog: catalog)
-                let opened = try await catalog.projectGroupAsNewLocalWorkspace(
-                    group,
-                    title: CloudTreeNodeActions.localWorkspaceTitle(
-                        hostName: CloudTreeNodeActions.resolvedMachineName(machine, snapshot: catalog.snapshot),
-                        group: group
-                    ),
-                    focus: focus,
-                    host: .app,
-                    layout: layout
+                let opened = try await Self.openRemoteWorkspaceAsNewLocalWorkspace(
+                    group, workspace: workspace, machine: machine, catalog: catalog, focus: focus
                 )
                 workspaceID = opened.workspaceID
                 projections = opened.projections
-                await catalog.bindCloudWorkspace(
-                    localWorkspaceID: opened.workspaceID,
-                    machine: machine,
-                    remoteWorkspaceID: workspace.id,
-                    generatedTitle: CloudTreeNodeActions.localWorkspaceTitle(
-                        hostName: CloudTreeNodeActions.resolvedMachineName(machine, snapshot: catalog.snapshot),
-                        group: group
-                    )
-                )
             }
             return await Self.markBackgroundOpen([
                 "machine": machine.rawValue,
@@ -568,6 +549,58 @@ extension TerminalController {
                 "here": destination != nil,
             ], focus: focus)
         }
+    }
+
+    /// A machine workspace as a new local workspace bound to it: one pane per
+    /// terminal and browser, mirroring the machine screen's layout when the
+    /// daemon reports one. The one path behind `cmux vm workspace open` and
+    /// the Chief's result card ("Open Workspace").
+    nonisolated static func openRemoteWorkspaceAsNewLocalWorkspace(
+        _ group: SurfaceResourceGroup,
+        workspace: SurfaceRemoteWorkspace,
+        machine: SurfaceMachineID,
+        catalog: SurfaceCatalog,
+        focus: Bool
+    ) async throws -> (workspaceID: UUID, projections: [SurfaceProjection]) {
+        // The machine screen's geometry, when the daemon can report it: the new
+        // local workspace then mirrors its splits, ratios and tabs (nil → grid).
+        let layout = await CloudWorkspaceLayoutTranslator.fetch(machine: machine, workspaceID: workspace.id, catalog: catalog)
+        let title = await CloudTreeNodeActions.localWorkspaceTitle(
+            hostName: CloudTreeNodeActions.resolvedMachineName(machine, snapshot: catalog.snapshot),
+            group: group
+        )
+        let opened = try await catalog.projectGroupAsNewLocalWorkspace(
+            group,
+            title: title,
+            focus: focus,
+            host: .app,
+            layout: layout
+        )
+        await catalog.bindCloudWorkspace(
+            localWorkspaceID: opened.workspaceID,
+            machine: machine,
+            remoteWorkspaceID: workspace.id,
+            generatedTitle: title
+        )
+        return opened
+    }
+
+    /// Opens machine workspace `selector` (`ws_…` or its name) on `machine` as
+    /// a new local workspace, resolved like the sidebar row (the Chief's
+    /// result card).
+    @discardableResult
+    nonisolated static func openRemoteWorkspace(
+        _ selector: String,
+        machine machineID: String,
+        focus: Bool
+    ) async throws -> UUID {
+        let machine = SurfaceMachineID(rawValue: machineID)
+        let catalog = await SurfaceCatalog.shared
+        let (workspace, _) = try await resolveRemoteWorkspaceForOpen(selector, machine: machine, catalog: catalog)
+        let group = try await catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)
+        return try await openRemoteWorkspaceAsNewLocalWorkspace(
+            group, workspace: workspace, machine: machine, catalog: catalog, focus: focus
+        ).workspaceID
     }
 
     /// `vm.workspace_close {id, workspace_id}` → closes the cmux-tui workspace; its

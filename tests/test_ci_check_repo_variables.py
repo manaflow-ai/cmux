@@ -59,6 +59,63 @@ class Values(unittest.TestCase):
                 self.assertEqual(len(found), 1)
                 self.assertIn("MACOS_RUNNER_PR", found[0])
 
+    def test_daemon_tests_never_share_the_pull_request_side_label(self) -> None:
+        side = "CI_SIDE_LANE_RUNNER=glaeda-side-std-xcode-26.6\n"
+        found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=GOOD_RUNNERS + side, CI_NEXT_DAEMON_POOL="glaeda-side-std-xcode-26.6"))
+        self.assertEqual(len(found), 1)
+        self.assertIn("CI_NEXT_DAEMON_POOL", found[0])
+        for pool in ("glaeda-side-light-xcode-26.6", ""):
+            with self.subTest(pool=pool):
+                self.assertEqual(check.problems(env(CMUX_CI_RUNNER_VARIABLES=GOOD_RUNNERS + side, CI_NEXT_DAEMON_POOL=pool)), [])
+
+    def test_pin_daemon_tests_never_share_the_side_lane_or_the_promotion_pool(self) -> None:
+        # 2026-10-21: cmux-tui-pin-* pushes (one per merged pull request) take
+        # CI_PIN_DAEMON_POOL, else CI_LIGHT_LANE_RUNNER. On the side label they
+        # flooded pull request lanes; on CI_NEXT_DAEMON_POOL they would stall
+        # the nightly-next promotion.
+        side, light, daemon = "glaeda-side-std-xcode-26.6", "glaeda-side-light-xcode-26.6", "glaeda-daemon-xcode-26.6"
+        runners = f"{GOOD_RUNNERS}CI_SIDE_LANE_RUNNER={side}\n"
+        failing = [
+            ("pin pool is the daemon pool", {"CI_PIN_DAEMON_POOL": daemon, "CI_NEXT_DAEMON_POOL": daemon}, "CI_PIN_DAEMON_POOL"),
+            ("pin pool is the side lane", {"CI_PIN_DAEMON_POOL": side, "CI_NEXT_DAEMON_POOL": daemon}, "CI_PIN_DAEMON_POOL"),
+            ("no pin pool, light lane is the side lane", {"CI_PIN_DAEMON_POOL": "", "light": side}, "CI_LIGHT_LANE_RUNNER"),
+        ]
+        for why, values, name in failing:
+            with self.subTest(why):
+                light_line = f"CI_LIGHT_LANE_RUNNER={values.pop('light', light)}\n"
+                found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=runners + light_line, **values))
+                pin_found = [problem for problem in found if "pin" in problem]
+                self.assertEqual(len(pin_found), 1, found)
+                self.assertIn(name, pin_found[0])
+        passing = [
+            ("distinct pin pool", {"CI_PIN_DAEMON_POOL": "glaeda-pin-xcode-26.6", "CI_NEXT_DAEMON_POOL": light}),
+            ("no pin pool, light lane distinct", {"CI_PIN_DAEMON_POOL": "", "CI_NEXT_DAEMON_POOL": daemon}),
+            ("nothing set", {}),
+        ]
+        for why, values in passing:
+            with self.subTest(why):
+                light_line = f"CI_LIGHT_LANE_RUNNER={light}\n"
+                self.assertEqual(check.problems(env(CMUX_CI_RUNNER_VARIABLES=runners + light_line, **values)), [])
+            with self.subTest(why, warnings=True):
+                self.assertEqual(check.warnings(env(CMUX_CI_RUNNER_VARIABLES=runners + light_line, **values)), [])
+        # claude-sr2, 2026-10-21: until promotion gets its own label, the
+        # light lane may serve both the promotion's daemon tests and the pin
+        # pushes (CI_PIN_DAEMON_POOL unset): a warning, not a failure.
+        shared = env(CMUX_CI_RUNNER_VARIABLES=runners + f"CI_LIGHT_LANE_RUNNER={light}\n",
+                     CI_PIN_DAEMON_POOL="", CI_NEXT_DAEMON_POOL=light)
+        self.assertEqual(check.problems(shared), [])
+        warned = check.warnings(shared)
+        self.assertEqual(len(warned), 1, warned)
+        self.assertIn("CI_LIGHT_LANE_RUNNER", warned[0])
+        self.assertIn("CI_NEXT_DAEMON_POOL", warned[0])
+        self.assertIn(light, warned[0])
+        # A pin pool that is set never falls back to a warning.
+        self.assertTrue(check.problems(env(CMUX_CI_RUNNER_VARIABLES=runners + f"CI_LIGHT_LANE_RUNNER={light}\n",
+                                           CI_PIN_DAEMON_POOL=light, CI_NEXT_DAEMON_POOL=light)))
+        # Empties are ignored: no pin pool and no light lane is not a match.
+        self.assertEqual(check.problems(env(CMUX_CI_RUNNER_VARIABLES=GOOD_RUNNERS + "CI_LIGHT_LANE_RUNNER=\n",
+                                            CI_PIN_DAEMON_POOL="", CI_NEXT_DAEMON_POOL="")), [])
+
     def test_nothing_to_check_is_a_failure_not_a_pass(self) -> None:
         self.assertTrue(check.problems(env(CMUX_CI_RUNNER_VARIABLES="")))
         self.assertTrue(check.problems(env(CMUX_CI_RUNNER_VARIABLES="not a pair")))
@@ -81,6 +138,8 @@ class Wiring(unittest.TestCase):
         text = (WORKFLOWS / "ci-repo-variables.yml").read_text(encoding="utf-8")
         self.assertIn("schedule:", text)
         self.assertIn("CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}", text)
+        self.assertIn("CI_NEXT_DAEMON_POOL: ${{ vars.CI_NEXT_DAEMON_POOL }}", text)
+        self.assertIn("CI_PIN_DAEMON_POOL: ${{ vars.CI_PIN_DAEMON_POOL }}", text)
         self.assertIn("run: python3 scripts/ci/check_repo_variables.py", text)
 
 

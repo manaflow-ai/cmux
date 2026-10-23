@@ -1,7 +1,7 @@
 internal import Foundation
 
 // Timer-backed keepalive for non-websocket daemon transports. WebSocket uses
-// URLSession's ping path in RemoteDaemonRPCClient+Events.swift.
+// its own ping path in RemoteDaemonRPCClient+Events.swift.
 extension RemoteDaemonRPCClient {
     func startTransportKeepalive() {
         stateQueue.sync {
@@ -31,7 +31,7 @@ extension RemoteDaemonRPCClient {
     }
 
     func sendTransportKeepaliveLocked() {
-        guard !isClosed, webSocketTask == nil else {
+        guard !isClosed, webSocketConnection == nil else {
             stopTransportKeepaliveLocked()
             return
         }

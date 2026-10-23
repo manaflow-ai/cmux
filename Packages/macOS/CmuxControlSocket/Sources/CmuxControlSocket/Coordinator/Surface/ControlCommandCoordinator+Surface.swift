@@ -502,11 +502,20 @@ extension ControlCommandCoordinator {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
+        let profileKeys = ["profile", "profile_id", "profile_name"]
+
         let inputs = ControlSurfaceCreateInputs(
             typeRaw: string(params, "type"),
             providerRaw: string(params, "provider_id") ?? string(params, "provider"),
             rendererRaw: string(params, "renderer_kind") ?? string(params, "renderer"),
             urlRaw: string(params, "url"),
+            profileRaw: string(params, "profile")
+                ?? string(params, "profile_id")
+                ?? string(params, "profile_name"),
+            hasInvalidProfileParam: profileKeys.contains {
+                hasNonNull(params, $0) && string(params, $0) == nil
+            },
+            hasMultipleProfileParams: profileKeys.filter { hasNonNull(params, $0) }.count > 1,
             workingDirectory: optionalTrimmedRawString(params, "working_directory"),
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
             initialInput: nonBlankRawString(params, "initial_input"),
@@ -544,6 +553,21 @@ extension ControlCommandCoordinator {
         case .dockConflictingRoutingSelectors(let message): return .err(code: "invalid_params", message: message, data: nil)
         case .browserDisabled(let outcome):
             return browserDisabledResult(outcome)
+        case .invalidBrowserProfile(let selector, let message, let candidates):
+            var data: [String: JSONValue] = ["profile": .string(selector)]
+            if !candidates.isEmpty {
+                data["candidates"] = .array(candidates.map { candidate in
+                    .object([
+                        "id": .string(candidate.id.uuidString),
+                        "name": .string(candidate.displayName),
+                    ])
+                })
+            }
+            return .err(
+                code: "invalid_params",
+                message: message,
+                data: .object(data)
+            )
         case .workspaceNotFound:
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         case .paneNotFound:

@@ -66,6 +66,9 @@ import urllib.request
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pr_status  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[2]
 FAST_WORKFLOW = "CI fast guards"
 FAST_WORKFLOW_FILE = "ci-fast-guards.yml"
@@ -494,7 +497,7 @@ def run_steps(runner_root: Path, tree_root: Path, steps: Iterable[str]) -> dict[
         for step in steps:
             args += ["--step", step]
         # Guard steps get no GitHub token: they never need one.
-        env = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN")}
+        env = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN", "READ_TOKEN")}
         env["CMUX_GUARDS_BASE_SHA"] = git(tree_root, "rev-parse", "HEAD~1", check=False)
         try:
             out = subprocess.run(args, capture_output=True, text=True, env=env, timeout=PROBE_TIMEOUT_S)
@@ -509,23 +512,54 @@ def run_steps(runner_root: Path, tree_root: Path, steps: Iterable[str]) -> dict[
 # ---------------------------------------------------------------- GitHub
 
 
+# Endpoints the read App (manaflow-glaeda-route: no checks or statuses permission) may not read.
+OWN_TOKEN_READS = re.compile(r"/check-runs|/check-suites|/statuses|/commits/[^/]+/status\b")
+
+
 class GitHub:
-    def __init__(self, repo: str, token: str, api: str = "https://api.github.com"):
+    """The REST API. `read_token`, when given, makes the reads: a manaflow-glaeda-route App
+    installation token, whose budget is its own rather than the GITHUB_TOKEN budget every workflow
+    in the repository shares (it ran out on 2026-10-06 and 2026-10-21). Writes always use `token`:
+    a re-run must be started by github-actions[bot] (ci-macos.yml routes attempt 3 by its
+    triggering actor) and the status comment is found by its author (pr_status.BOTS). A read the
+    App may not make (checks, statuses) uses `token`; a read the App is refused (401, 403: no
+    permission or no budget left) is made again with `token`, and a 401 keeps `token` from then
+    on (the App token lasts an hour)."""
+
+    def __init__(self, repo: str, token: str, api: str = "https://api.github.com", read_token: str = ""):
         self.repo, self.token, self.api = repo, token, api.rstrip("/")
+        self.read_token = read_token if read_token and read_token != token else ""
         self.calls = 0
+        self.read_calls = 0
 
     def request(self, method: str, path: str, body: object = None, text: bool = False) -> object:
+        if method == "GET" and self.read_token and not OWN_TOKEN_READS.search(path.split("?")[0]):
+            try:
+                return self._request(method, path, body, text, self.read_token)
+            except RuntimeError as error:
+                if not re.search(r": HTTP 40[13] ", str(error) + " "):
+                    raise
+                print(f"read token refused {path.split('?')[0]}; using the workflow token: {str(error)[:160]}",
+                      file=sys.stderr)
+                if ": HTTP 401 " in str(error) + " ":
+                    self.read_token = ""
+        return self._request(method, path, body, text, self.token)
+
+    def _request(self, method: str, path: str, body: object, text: bool, token: str) -> object:
         url = path if path.startswith("https://") else f"{self.api}/{path.lstrip('/')}"
         data = json.dumps(body).encode() if body is not None else None
         for attempt in range(2):
             req = urllib.request.Request(url, data=data, method=method)
             # Not sent on the redirect: job logs redirect to signed blob storage.
-            req.add_unredirected_header("Authorization", f"Bearer {self.token}")
+            req.add_unredirected_header("Authorization", f"Bearer {token}")
             req.add_header("Accept", "application/vnd.github+json")
             req.add_header("X-GitHub-Api-Version", "2022-11-28")
             if data is not None:
                 req.add_header("Content-Type", "application/json")
-            self.calls += 1
+            if token == self.token:
+                self.calls += 1
+            else:
+                self.read_calls += 1
             try:
                 with urllib.request.urlopen(req, timeout=60) as response:
                     raw = response.read()
@@ -915,7 +949,7 @@ def analyze_pr(gh: GitHub | None, run: Mapping, root: Path, log: str) -> dict:
             report["state"] = "noop"
         elif marked:
             # `report` edits this comment without reading the PR's comments again.
-            report["comments"] = [{"id": c.get("id"), "body": c.get("body")} for c in marked]
+            report["comments"] = [{"id": c.get("id"), "body": c.get("body"), "user": c.get("user")} for c in marked]
         return report
     failures = parse_guard_log(log)
     issue = tracking_issue(gh.open_issues(), "fast-guards") if gh else None
@@ -1117,9 +1151,8 @@ def render_pr_comment(report: Mapping) -> str:
     if report["state"] == "green":
         # Only the fast guards: on #17074 and #17233 this line was the only bot comment while the PR's own
         # app-host tests were red, and it read as an all-green CI.
-        out.append(f"`{FAST_WORKFLOW}` passes on `{short(report.get('sha'))}` ({report.get('run_url')}). "
-                   "This covers only the fast guards, not CI: CI's result is the `ci-status` check, and "
-                   "the CI failure attribution comment names any failing test.")
+        out.append(f"`{FAST_WORKFLOW}` passes on `{short(report.get('sha'))}` ([run]({report.get('run_url')})). "
+                   "This covers only the fast guards, not CI: CI's result is `ci-status`.")
         return "\n".join(out) + "\n"
     steps = report.get("steps") or []
     out.append(f"**`{FAST_WORKFLOW}` failed** on `{short(report.get('sha'))}` ({report.get('run_url')}). "
@@ -1139,8 +1172,7 @@ def render_pr_comment(report: Mapping) -> str:
     if not steps:
         out.append("The log named no failed step; see the run.")
     out.append("")
-    out.append("Agents: `python3 scripts/ci/guard_attribution.py fix` applies the mechanical fixes locally. "
-               "This comment is updated in place on each push.")
+    out.append("Agents: `python3 scripts/ci/guard_attribution.py fix` applies the mechanical fixes locally.")
     return cap("\n".join(out) + "\n")
 
 
@@ -1178,7 +1210,20 @@ class Writer:
 
 
 def upsert_comment(writer: Writer, repo: str, number: int, marker: str, body: str,
-                   existing: list[dict] | None) -> None:
+                   existing: list[dict] | None, section: str | None = None) -> None:
+    """One marked comment, or with `section`, that line of the PR's status comment
+    (scripts/ci/pr_status.py), which then deletes the old marked comment."""
+    if section is not None:
+        # The first plan uses the comments the caller read; the check after the write reads them
+        # again (other jobs write other lines of the same comment). One more read per write.
+        gh, first = writer.gh, [existing]
+
+        def read() -> list[dict]:
+            given = first.pop() if first else None
+            return list(given) if given is not None else gh.comments(number) if gh else []
+        pr_status.apply(read, writer.call, repo, number, section, body, legacy=marker,
+                        sleep=None if writer.dry_run or gh is None else time.sleep)
+        return
     current = next((c for c in existing or [] if marker in str(c.get("body") or "")), None)
     if current is None:
         writer.call("POST", f"repos/{repo}/issues/{number}/comments", {"body": body})
@@ -1239,7 +1284,7 @@ def report_pr(writer: Writer, gh: GitHub | None, repo: str, report: Mapping) -> 
     current = next((c for c in existing if PR_MARKER in str(c.get("body") or "")), None)
     if report["state"] == "green" and current is None:
         return  # never red on this PR: nothing to say
-    upsert_comment(writer, repo, int(pr), PR_MARKER, render_pr_comment(report), existing)
+    upsert_comment(writer, repo, int(pr), PR_MARKER, render_pr_comment(report), existing, section="guards")
 
 
 # ---------------------------------------------------------------- commands
@@ -1285,7 +1330,7 @@ def client(args: argparse.Namespace) -> GitHub | None:
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if getattr(args, "offline", False) or not token:
         return None
-    return GitHub(args.repo, token)
+    return GitHub(args.repo, token, read_token=os.environ.get("READ_TOKEN") or "")
 
 
 def command_analyze(args: argparse.Namespace) -> int:

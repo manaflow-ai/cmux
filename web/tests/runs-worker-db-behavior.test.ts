@@ -87,6 +87,20 @@ describe("Run attempt worker database protocol", () => {
     expect(await requiredWorker().cancelClaimedRunAttempt({ runId, attemptId: claimed!.attemptId, leaseId: claimed!.leaseId, now: new Date(NOW.getTime() + 3_000) })).toBe(false);
   });
 
+  // The production worker passes retainedUntil as a Date. The postgres-js
+  // driver used to reject it at Bind, which failed every retained Run attempt.
+  dbTest("records a retained success with a Date retention deadline", async () => {
+    const { runId } = await fixture({ attempts: 1 });
+    const claimed = await requiredWorker().claimNextRunAttempt({ workerId: "worker-r", runId, now: NOW, leaseMs: 60_000 });
+    expect(claimed).not.toBeNull();
+    const retainedUntil = new Date(NOW.getTime() + 15 * 60_000);
+    expect(await requiredWorker().finishRunAttempt({ runId, attemptId: claimed!.attemptId, leaseId: claimed!.leaseId, status: "succeeded", providerVmId: "vm-retained", cleanupState: "retained", retainedUntil, now: new Date(NOW.getTime() + 1_000) })).toBe(true);
+    const [row] = await database()`select status, cleanup_state, retained_until from run_attempts where id = ${claimed!.attemptId}::uuid` as { status: string; cleanup_state: string; retained_until: Date }[];
+    expect(row?.status).toBe("succeeded");
+    expect(row?.cleanup_state).toBe("retained");
+    expect(new Date(row!.retained_until).toISOString()).toBe(retainedUntil.toISOString());
+  });
+
   dbTest("allows two attempts when the run resource cap is two", async () => {
     const { runId } = await fixture({ attempts: 3, maxConcurrent: 2 });
     const first = await requiredWorker().claimNextRunAttempt({ workerId: "worker-e", runId, now: NOW, leaseMs: 60_000 });

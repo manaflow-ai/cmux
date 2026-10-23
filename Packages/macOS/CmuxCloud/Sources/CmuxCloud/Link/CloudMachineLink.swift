@@ -205,9 +205,9 @@ public actor CloudMachineLink {
     }
     public private(set) var connected: Connected?
 
-    // Foundation `Process` and its pipes are actor-isolated state; every callback hops
+    // The link process and its pipes are actor-isolated state; its exit observer hops
     // back into the actor through a Task, so nothing else touches them.
-    private var process: Process?
+    private var process: CloudLinkProcess?
     private var processExit: CloudLinkFirstValue<Int32>?
     /// One local JSON resource connection shared by every control request for
     /// this machine. Terminal attachment streams are still allowed to subscribe
@@ -285,9 +285,7 @@ public actor CloudMachineLink {
         eventsCursor = nil
         resetEventsRecovery()
         try paths.ensureStateDir()
-        let process = Process()
-        process.executableURL = clientURL
-        process.arguments = ssh?.arguments(
+        let arguments = ssh?.arguments(
             stateDirectory: paths.stateDir.path,
             deviceName: CloudTuiClientPaths.deviceName(),
             upgrade: sshUpgrade
@@ -303,38 +301,46 @@ public actor CloudMachineLink {
         var environment = ssh?.sshProcessEnvironment
             ?? ProcessInfo.processInfo.environment
         environment["CMUX_REMOTE_STATE_DIR"] = paths.stateDir.path
-        process.environment = environment
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        process.standardInput = FileHandle.nullDevice
-        let processExit = CloudLinkFirstValue<Int32>()
-        process.terminationHandler = { [weak self] terminated in
-            let status = terminated.terminationStatus
-            processExit.resolve(status)
-            Task { await self?.linkProcessDidExit(terminated, status: status) }
-        }
         state = .connecting
         lastError = nil
+        let process: CloudLinkProcess
         do {
-            try process.run()
+            process = try CloudLinkProcess.spawn(
+                executableURL: clientURL,
+                arguments: arguments,
+                environment: environment,
+                // See CloudLinkProcess: an SSH link's group can hold the
+                // ProxyCommand of a shared ControlMaster.
+                sweepsGroup: ssh == nil && !route.hasPrefix("ssh://")
+            )
         } catch {
             state = .error
             lastError = Self.errorText(error)
             await releaseHubLeaseOnce()
             throw LinkError.spawnFailed(error.localizedDescription)
         }
+        let processExit = process.exit
         self.process = process
         self.processExit = processExit
-        let stderrDrain = drainStderr(stderr.fileHandleForReading, generation: stderrGeneration)
+        let stderrDrain = drainStderr(process.standardError.fileHandleForReading, generation: stderrGeneration)
         stderrDrainTask = stderrDrain
+        Task.detached { [weak self] in
+            guard let status = await processExit.result else { return }
+            // Helpers of a client that exited on its own get a bounded chance to
+            // finish its last stderr lines; then the rest of its group goes.
+            // Independent of the actor hop, so a slow teardown cannot delay it.
+            Task.detached {
+                await CloudMachineLink.awaitStderrDrain(stderrDrain)
+                await process.killGroup()
+            }
+            await self?.linkProcessDidExit(process, status: status)
+        }
 
         // The first connection-snapshot line names the socket; later lines only update
         // transport topology and are ignored — but stdout keeps draining for the
         // process's whole life so the client never blocks on a full pipe.
         let firstSocket = CloudLinkFirstValue<String>()
-        let stdoutLines = CloudLinkPipe.lines(from: stdout.fileHandleForReading)
+        let stdoutLines = CloudLinkPipe.lines(from: process.standardOutput.fileHandleForReading)
         Task.detached {
             for await line in stdoutLines {
                 if let socket = CmuxTuiSnapshotParser.localSocket(fromLinkLine: line) {
@@ -363,16 +369,17 @@ public actor CloudMachineLink {
                     // stdout closed before a socket line: the client exited (an older
                     // client rejecting a flag, a refused dial). Report that exit and its
                     // stderr, not the deadline it never reached.
-                    await Self.terminateAndWait(process, exit: processExit, clock: deadlineClock)
-                    await Self.awaitStderrDrain(stderrDrain)
-                    throw LinkError.exitedBeforeSocket(status: process.terminationStatus, output: stderrTail.joined(separator: "\n"))
+                    await Self.terminateAndWait(process, exit: processExit, clock: deadlineClock, draining: stderrDrain)
+                    let status = await processExit.result ?? -1
+                    throw LinkError.exitedBeforeSocket(status: status, output: stderrTail.joined(separator: "\n"))
                 case .timedOut?, nil:
                     throw LinkError.timedOut
                 }
             }
             guard process.isRunning else {
                 await Self.awaitStderrDrain(stderrDrain)
-                throw LinkError.exited(status: process.terminationStatus, output: stderrTail.joined(separator: "\n"))
+                let status = await processExit.result ?? -1
+                throw LinkError.exited(status: status, output: stderrTail.joined(separator: "\n"))
             }
         } catch {
             state = .error
@@ -771,7 +778,7 @@ public actor CloudMachineLink {
         if stderrTail.count > 20 { stderrTail.removeFirst(stderrTail.count - 20) }
     }
 
-    private func linkProcessDidExit(_ exitedProcess: Process, status: Int32) async {
+    private func linkProcessDidExit(_ exitedProcess: CloudLinkProcess, status: Int32) async {
         guard process === exitedProcess else { return }
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
@@ -819,29 +826,36 @@ public actor CloudMachineLink {
         ).errorDescription
     }
 
-    /// Foundation aborts if a running `Process` is released. Keep a detached exit
-    /// waiter alive because the caller can already be cancelled when cleanup starts.
+    /// Asks the client to stop, escalates to SIGKILL for its group, waits for the
+    /// leader's exit, then kills whatever is left of the group (after a bounded
+    /// stderr drain when `stderrDrain` is given). The waiter is detached because the caller can
+    /// already be cancelled when cleanup starts.
     #if compiler(>=6.2)
     @concurrent
     #else
     @Sendable
     #endif
     private nonisolated static func terminateAndWait(
-        _ process: Process,
+        _ process: CloudLinkProcess,
         exit: CloudLinkFirstValue<Int32>,
-        clock: any Clock<Duration>
+        clock: any Clock<Duration>,
+        draining stderrDrain: Task<Void, Never>? = nil
     ) async {
-        // Cleanup outlives caller cancellation and retains Process until its exit signal.
+        // Cleanup outlives caller cancellation and retains the process until its exit.
         let cleanup = Task.detached {
-            if process.isRunning { process.terminate() }
+            // The client closes its own helpers on SIGTERM (an SSH child gets EOF
+            // rather than a signal); the group is swept after the leader exits.
+            process.signalLeader(SIGTERM)
             // A genuine escalation deadline; process exit owns and cancels this timer.
             let escalation = Task {
                 do { try await clock.sleep(for: .seconds(5)) } catch { return }
-                if process.isRunning { _ = Darwin.kill(process.processIdentifier, SIGKILL) }
+                if process.isRunning { process.signal(SIGKILL) }
             }
             _ = await exit.result
             escalation.cancel()
             await escalation.value
+            if let stderrDrain { await awaitStderrDrain(stderrDrain) }
+            await process.killGroup()
         }
         await cleanup.value
     }
