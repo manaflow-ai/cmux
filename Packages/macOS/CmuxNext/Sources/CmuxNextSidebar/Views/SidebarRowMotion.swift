@@ -32,6 +32,7 @@ struct RowMotion {
         // so every row shows its slot now (`SidebarDragSpring.stop`).
         let views = targets.map(\.0) + appearing.map(\.0) + leaving.map(\.0)
         guard animated else {
+            list.settleOpenings()
             Motion.withoutAnimation {
                 moves()
                 lines.changes()
@@ -44,6 +45,7 @@ struct RowMotion {
         guard Motion.sidebar.animatesMovement else {
             // Reduce Motion: rows take their places in one step, with no crossfade standing in
             // for the motion (DESIGN P6): no movement, and nothing a person must wait out.
+            list.settleOpenings()
             Motion.withoutAnimation {
                 moves()
                 lines.changes()
@@ -60,6 +62,8 @@ struct RowMotion {
             lines.leaving.forEach { $0.removeFromSuperview() }
             return
         }
+        // Out of a window (or where nothing draws) the springs snap (`SidebarDragSpring.move`): no row opens.
+        if list.window == nil || !Motion.canAnimate(in: list) { list.settleOpenings() }
         passOver(in: list, from: old, to: layout)
         for (view, end) in leaving { view.closingEnd = end }
         let opens = appearing.map(\.0.opens)
@@ -215,7 +219,10 @@ struct RowMotion {
     /// move captured, which a newer change may have replaced. Rows still leaving go in the
     /// move's completion, which runs right after.
     private static func settle(_ list: SidebarListView) -> @MainActor () -> Void {
-        { [weak list] in list?.reload(animated: false) }
+        { [weak list] in
+            list?.settleOpenings()
+            list?.reload(animated: false)
+        }
     }
 
     /// A moved selected row (with its workspace's tab rows) passes over the

@@ -169,13 +169,21 @@ extension SidebarListViewComponents {
         // the old one's retargeted spring would carry its stale open on through the rows (cx-ai79).
         let now = CACurrentMediaTime()
         // How the rows make room for a new workspace row (`sidebar.insertMotion`, Leo 2026-10-21: "when you create a
-        // workspace at the top it's a huge cascade"). Only for workspaces new to the model: one a group's expand, a
-        // filter or a "Show more" brings back into the list moves as before, on `.move` over the whole distance.
-        let insertMotion = animate && insertsWorkspace && opensOnlyNewWorkspaces(layout, from: old) ? SidebarInsertMotion.tunable.value : nil
+        // workspace at the top it's a huge cascade"). Only for a change that only adds rows, among them workspaces new
+        // to the model: one that also closes, moves or hides a row, or that lists a workspace again (a group's expand, a
+        // filter, "Show more"), moves every row as before, on `.move` over the whole distance.
+        let insertMotion = animate && insertsWorkspace && onlyAdds(layout, to: old) && opensOnlyNewWorkspaces(layout, from: old)
+            ? SidebarInsertMotion.tunable.value : nil
         appliedSections = model.sections
         // A row is opening until the spring it opens on settles (`.move`, or the insert motion's shorter one): past that
-        // a later move moves it, it does not open it again.
-        openingRows = openingRows.filter { $0.value.until > now }
+        // a later move moves it, it does not open it again. A change that moves nothing settles every open now
+        // (`settleOpenings`), and a row no longer listed has none.
+        let opensRows = animate && Motion.sidebar.animatesMovement && window != nil && Motion.canAnimate(in: self)
+        if opensRows {
+            openingRows = openingRows.filter { $0.value.until > now && layout.row(for: $0.key) != nil }
+        } else {
+            settleOpenings()
+        }
         let reopened = animate ? Set(layout.rows.filter { openingRows[$0.key] != nil && old.row(for: $0.key)?.y != $0.y }.map(\.key)) : []
         let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
         // How far the rows travel: the nudge, never past the shortest run of new rows (a row below never starts above them).
@@ -185,10 +193,10 @@ extension SidebarListViewComponents {
         }
         let nudge = insertTravel ?? 0
         // Snap and a zero nudge open nothing: the new rows stand at their slots (one realized later shows there at once).
-        if insertTravel != 0 {
+        if insertTravel != 0, opensRows {
             let opening = SidebarRowOpening(until: now + Motion.sidebar.spring(insertMotion?.token ?? .move).settlingTime(),
                                             motion: insertMotion, travel: insertTravel)
-            for row in layout.rows where animate && (old.row(for: row.key) == nil || reopened.contains(row.key)) { openingRows[row.key] = opening } // only animated applies open rows (hq-1d)
+            for row in layout.rows where old.row(for: row.key) == nil || reopened.contains(row.key) { openingRows[row.key] = opening } // only animated applies open rows (hq-1d)
         }
         // Without motion the rows that leave park first (as they would after the loop), so the rows that
         // come take their views: a space switch reuses the old space's views, it makes none (space-switch-fast).
@@ -296,6 +304,25 @@ extension SidebarListViewComponents {
                   travel: insertTravel)
             .run(in: self, from: old, to: layout, animated: animate)
     }
+    /// Ends every row's open at once: the rows were placed without motion (a change that does not animate, Reduce Motion,
+    /// a list out of a window, the display's sleep), so a row realized later shows at its slot instead of replaying an
+    /// open that already ended. The one way `openingRows` is cleared before its deadlines.
+    func settleOpenings() {
+        if !openingRows.isEmpty { openingRows.removeAll() }
+    }
+
+    /// `layout` is `old` with rows added and none taken away or moved past another: every row of `old` is still listed,
+    /// in the same order. Only then do the rows below make room by the new row motion (`sidebar.insertMotion`); a
+    /// change that also closes, hides or reorders rows moves them all as before.
+    func onlyAdds(_ layout: SidebarLayout, to old: SidebarLayout) -> Bool {
+        var last = -1
+        for row in old.rows {
+            guard let position = layout.position(of: row.key), position > last else { return false }
+            last = position
+        }
+        return true
+    }
+
     /// Every workspace row `layout` lists and `old` does not is a workspace the model did not hold at the last apply
     /// (`appliedSections`): a new one, not one a group's expand, a filter or "Show more" lists again. Reads the model's
     /// workspaces only when such a row exists, and then once.
