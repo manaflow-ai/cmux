@@ -456,6 +456,12 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Settings > Devices: remove a device from every store that lets it in, then re-read the host lists. */
+  async removeDevice(id: string): Promise<void> {
+    await this.request("cmux.settings.devices.remove", { id });
+    await this.refreshHost();
+  }
+
   /** Settings > Mobile: answer a phone's pairing request, then re-read the host lists. */
   async answerPair(id: string, allow: boolean): Promise<void> {
     await this.request("cmux.settings.mobile.answer_pair", { id, allow });

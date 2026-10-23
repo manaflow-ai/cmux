@@ -24,9 +24,10 @@ struct WorkspaceRowHoverMotionTests {
         return own + ((layer.sublayers ?? []) + [layer.mask].compactMap { $0 }).flatMap { keyPaths(under: $0) }
     }
 
-    /// The row's hover buttons, by name.
+    /// The row's hover buttons, by name: since Leo 2026-10-21 one on the row's corner, the close on
+    /// a row that can close (WorkspaceRowDogEarTests).
     private static func controls(_ row: WorkspaceRowView) -> [(String, NSView)] {
-        [("x", row.closeButton), ("menu", row.moreButton)]
+        [("close", row.closeButton)]
     }
 
     @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
