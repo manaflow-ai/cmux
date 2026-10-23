@@ -176,6 +176,10 @@ pub(crate) fn harness_command(
     }
     cmd.args(crate::harness_limits::launch_args(program, args, session.map(|_| (cwd, &env))))
         .envs(env.iter());
+    // The profile's PATH first, never instead of the login PATH (login_env::with_agent_path).
+    if !remote_environment && let Some(own) = env.get("PATH").filter(|p| !p.is_empty()) {
+        cmd.env("PATH", crate::login_env::with_agent_path(own));
+    }
     if opencode_ask {
         ask_opencode(&mut cmd, name, !remote_environment);
     }
@@ -588,6 +592,50 @@ mod tests {
         assert_eq!(var(&env, super::super::session_tmp::SESSION_TMPDIR_ENV), None);
         assert!(!var(&env, "TMPDIR").is_some_and(|t| t.starts_with(&*base.to_string_lossy())));
         assert!(!base.exists(), "a remote session made a local temporary folder");
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// A profile or preset PATH goes first but never hides the login PATH: the Chief's
+    /// built-in subagent preset was saved with the daemon's bare launchd PATH
+    /// (`<bundle>/bin:/usr/bin:/bin:/usr/sbin:/sbin`) before the login import ran, and every
+    /// `claude` spawn then failed `spawn harness process: No such file or directory`.
+    #[cfg(unix)]
+    #[test]
+    fn a_profile_path_keeps_the_login_path_after_it() {
+        let scratch = std::env::temp_dir().join(format!(
+            "acpmux-cmd-path-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7().simple()
+        ));
+        let base = scratch.join("acpmux-u");
+        let bare = "/acpmux-test-bundle/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+        let login = crate::login_env::agent_path().expect("the test process has a PATH");
+        let login: Vec<String> =
+            std::env::split_paths(&login).map(|p| p.to_string_lossy().into_owned()).collect();
+        let extra: Vec<&String> =
+            login.iter().filter(|d| !d.is_empty() && !bare.split(':').any(|b| b == *d)).collect();
+        assert!(!extra.is_empty(), "the login PATH must list a directory the bare PATH lacks");
+        let env = session_env(
+            &base,
+            "01a15d7d-b692-76b3-b8de-a9a71809de2a",
+            serde_json::json!({"PATH": bare}),
+        );
+        let path = var(&env, "PATH").expect("a PATH");
+        let entries: Vec<&str> = path.split(':').collect();
+        let first: Vec<&str> = bare.split(':').collect();
+        assert_eq!(
+            &entries[..first.len().min(entries.len())],
+            &first[..],
+            "the profile's PATH comes first"
+        );
+        for dir in extra {
+            assert!(
+                entries.contains(&dir.as_str()),
+                "{dir} of the login PATH is missing from {path}"
+            );
+        }
+        let unique: std::collections::BTreeSet<&str> = entries.iter().copied().collect();
+        assert_eq!(entries.len(), unique.len(), "each directory once: {path}");
         let _ = std::fs::remove_dir_all(&scratch);
     }
 
