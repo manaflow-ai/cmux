@@ -24,19 +24,99 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::agent_session_link::AcpmuxLink;
 use super::agent_session_start::{
-    AgentSessionStarts, CALL_TIMEOUT, THREAD_STACK_BYTES, checked_mode, is_chief, startable,
+    AgentSessionStarts, CALL_TIMEOUT, THREAD_STACK_BYTES, checked_mode, is_chief, read_record_mode,
+    startable,
 };
 use super::{MessageWriter, Refusal, SurfaceId, ok, refuse};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::{validate_harness, validate_session};
 
 pub const AGENT_SESSION_ADOPT_CAPABILITY: &str = "agent-session-adopt-v1";
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ModeParams {
+    surface: SurfaceId,
+}
+
+/// At most [`MAX_MODE_READS`] `agent-session-mode` reads run at once, each on
+/// its own thread and acpmux connection; one more is `agent_session.limit`.
+const MAX_MODE_READS: usize = 8;
+static MODE_READS: AtomicUsize = AtomicUsize::new(0);
+
+/// One running mode read; dropping it frees the slot.
+struct ModeRead;
+
+impl ModeRead {
+    fn admit() -> Option<Self> {
+        MODE_READS
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                (n < MAX_MODE_READS).then_some(n + 1)
+            })
+            .ok()
+            .map(|_| Self)
+    }
+}
+
+impl Drop for ModeRead {
+    fn drop(&mut self) {
+        MODE_READS.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// `agent-session-mode {surface}` of a trusted local connection (the parent
+/// checked trust and the acpmux socket): the mode of the chat the tab is bound
+/// to, `{surface, session, family, mode, asking}`, read from this machine's
+/// acpmux. Read-only: the app reads it once for each bound tab it lists at a
+/// connect (a restored tab it does not show), so the bypass badge never
+/// depends on what this app remembers.
+pub(super) fn mode(
+    mux: &Arc<Mux>,
+    id: Option<Value>,
+    socket: PathBuf,
+    params: ModeParams,
+    writer: &MessageWriter,
+) -> bool {
+    let Some(session) = super::tab_session(mux, params.surface) else {
+        return refuse(writer, id, Refusal::UnknownTab);
+    };
+    let Some(slot) = ModeRead::admit() else {
+        return refuse(writer, id, Refusal::Limit);
+    };
+    let worker_writer = writer.clone();
+    let worker_id = id.clone();
+    let spawned = std::thread::Builder::new()
+        .name("mux-agent-mode".into())
+        .stack_size(THREAD_STACK_BYTES)
+        .spawn(move || {
+            let _slot = slot;
+            let read = AcpmuxLink::connect(&socket, |_| {})
+                .map_err(|_| Refusal::Unavailable)
+                .and_then(|link| {
+                    let read = read_record_mode(&link, &session);
+                    link.close();
+                    read
+                });
+            match read {
+                Ok(mut facts) => {
+                    facts["surface"] = json!(params.surface);
+                    ok(&worker_writer, worker_id, facts)
+                }
+                Err(refusal) => refuse(&worker_writer, worker_id, refusal),
+            };
+        });
+    if spawned.is_err() {
+        return refuse(writer, id, Refusal::Limit);
+    }
+    true
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
