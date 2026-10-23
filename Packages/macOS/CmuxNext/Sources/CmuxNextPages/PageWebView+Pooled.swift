@@ -10,6 +10,8 @@ struct PooledHostRecipe {
     let configuration: WKWebViewConfiguration
     let inputReadiness: PageInputReadiness
     let options: PageEngineOptions
+    /// The Low Power Mode the spare renders by and follows (the pool's).
+    let lowPowerMode: LowPowerMode
     let owner: PagePooledOwner
 }
 
@@ -19,14 +21,15 @@ final class PagePooledOwner {
 
 extension PageWebView {
     static func hostConfiguration(handler: PageSchemeHandler, documentAttributes: [String: String],
-                                  options: PageEngineOptions) -> (configuration: WKWebViewConfiguration,
-                                                                   inputReadiness: PageInputReadiness) {
+                                  options: PageEngineOptions,
+                                  lowPowerMode: LowPowerMode) -> (configuration: WKWebViewConfiguration,
+                                                                  inputReadiness: PageInputReadiness) {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.processPool = PageProcessPool.forNewView
         // The page's rate (PageRenderRate); WebKit's own default is the rate nearest 60 fps. The
         // view follows later Low Power Mode changes (followLowPowerMode).
-        WebKitRenderRate.apply(fullRate: rendersAtFullRate(options.renderRate, lowPowerMode: LowPowerMode.system.isEnabled),
+        WebKitRenderRate.apply(fullRate: rendersAtFullRate(options.renderRate, lowPowerMode: lowPowerMode.isEnabled),
                                to: configuration.preferences)
         configuration.setURLSchemeHandler(handler, forURLScheme: PageDescriptor.scheme)
         let inputReadiness = PageInputReadiness(configuration: configuration)
@@ -34,20 +37,28 @@ extension PageWebView {
         return (configuration, inputReadiness)
     }
 
+    /// The configuration of a pooled host for `served`. `servedRoot` is where the spare's pages
+    /// are served from (the bundled roots by default; tests pass a temporary one instead of
+    /// registering a process-wide root). Nil when `served` is not a pooled page or has no root.
     static func pooledHostRecipe(_ served: PageDescriptor = .settings,
-                                 options: PageEngineOptions = .standard) -> PooledHostRecipe? {
-        guard PageServedHosts.pooledDescriptors.contains(served), servedRoot(for: served) != nil else { return nil }
+                                 options: PageEngineOptions = .standard,
+                                 lowPowerMode: LowPowerMode,
+                                 servedRoot: @escaping (PageDescriptor) -> URL? = { PageWebView.servedRoot(for: $0) }) -> PooledHostRecipe? {
+        guard PageServedHosts.pooledDescriptors.contains(served), servedRoot(served) != nil else { return nil }
         let owner = PagePooledOwner()
         let handler = PageSchemeHandler { [weak owner] host in
             guard let view = owner?.view else { return nil }
-            return PageServedHosts.served(host: host, current: view.descriptor, dynamicSource: view.dynamicResources)
+            return PageServedHosts.served(host: host, current: view.descriptor, dynamicSource: view.dynamicResources,
+                                          root: servedRoot)
         }
-        let host = hostConfiguration(handler: handler, documentAttributes: [:], options: options)
+        let host = hostConfiguration(handler: handler, documentAttributes: [:], options: options,
+                                     lowPowerMode: lowPowerMode)
         // The spare's document is parked until a claim binds routes (PageWebView+Claim.swift).
         host.configuration.userContentController.addUserScript(
             WKUserScript(source: parkedScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         return PooledHostRecipe(served: served, configuration: host.configuration,
-                                inputReadiness: host.inputReadiness, options: options, owner: owner)
+                                inputReadiness: host.inputReadiness, options: options,
+                                lowPowerMode: lowPowerMode, owner: owner)
     }
 
     /// True while the view is the pool's parked spare (hidden, not claimed by any page).
@@ -57,15 +68,16 @@ extension PageWebView {
     convenience init(recipe: PooledHostRecipe, routes: [PageRoute] = []) {
         self.init(descriptor: recipe.served, configuration: recipe.configuration,
                   inputReadiness: recipe.inputReadiness, routes: routes, route: nil,
-                  options: recipe.options, surface: nil, dynamicResources: nil, pooled: true, load: false)
+                  options: recipe.options, surface: nil, dynamicResources: nil, pooled: true, load: false,
+                  lowPowerMode: recipe.lowPowerMode)
         pooledOwner = recipe.owner
         recipe.owner.view = self
     }
 
     /// Makes and starts a pooled page host in one call.
     convenience init?(pooledHost served: PageDescriptor = .settings, routes: [PageRoute] = [],
-                      options: PageEngineOptions = .standard) {
-        guard let recipe = Self.pooledHostRecipe(served, options: options) else { return nil }
+                      options: PageEngineOptions = .standard, lowPowerMode: LowPowerMode = .system) {
+        guard let recipe = Self.pooledHostRecipe(served, options: options, lowPowerMode: lowPowerMode) else { return nil }
         self.init(recipe: recipe, routes: routes)
         startLoading()
     }
