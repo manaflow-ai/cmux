@@ -38,6 +38,18 @@ enum SessionPersistencePolicy {
     static let maxWindowsPerSnapshot: Int = 12
     static let maxWorkspacesPerWindow: Int = 128
     static let maxPanelsPerWorkspace: Int = 512
+    /// A snapshot may contain many workspaces and docks. Keep the total number
+    /// of panel models bounded as well as each individual container so an
+    /// imported file cannot multiply the per-container limits into a restore
+    /// swarm.
+    static let maxPanelsPerSnapshot: Int = 4_096
+    /// Layout normalization bounds the recursive split graph independently of
+    /// the panel count; a malformed graph must not create an unbounded restore
+    /// scaffold even when it references only a few panels. A layout with N
+    /// panels needs at most 2N - 1 nodes, so this stays clear of any snapshot
+    /// within `maxPanelsPerSnapshot`.
+    static let maxLayoutNodes: Int = 16_384
+    static let maxLayoutDepth: Int = 512
     static let maxScrollbackLinesPerTerminal: Int = 4000
     static let maxScrollbackCharactersPerTerminal: Int = 400_000
 

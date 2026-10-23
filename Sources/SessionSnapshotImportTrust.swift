@@ -2,6 +2,15 @@ import CMUXAgentLaunch
 import CmuxControlSocket
 import Foundation
 
+private extension SessionWorkspaceLayoutSnapshot {
+    var isEmptyLayout: Bool {
+        switch self {
+        case .pane(let pane): return pane.panelIds.isEmpty
+        case .split(let split): return split.first.isEmptyLayout && split.second.isEmptyLayout
+        }
+    }
+}
+
 /// What `SessionSnapshotImportTrust` removed or held back from an imported
 /// session file.
 struct SessionSnapshotImportTrustReport: Equatable, Sendable {
@@ -17,6 +26,13 @@ struct SessionSnapshotImportTrustReport: Equatable, Sendable {
     var sanitizedBrowserPanelCount = 0
     /// Terminals whose scrollback had terminal control strings removed.
     var sanitizedScrollbackCount = 0
+    /// Terminals whose imported scrollback exceeded the replay budget and was
+    /// truncated to the newest bounded suffix.
+    var truncatedScrollbackCount = 0
+    /// Windows, workspaces, or panels removed by the structural import caps.
+    var droppedWindowCount = 0
+    var droppedWorkspaceCount = 0
+    var droppedPanelCount = 0
     /// Terminals whose text box draft attachments were dropped.
     var droppedDraftAttachmentCount = 0
 }
@@ -82,9 +98,228 @@ enum SessionSnapshotImportTrust {
         _ snapshot: AppSessionSnapshot,
         source: ControlSessionImportSource
     ) -> (snapshot: AppSessionSnapshot, report: SessionSnapshotImportTrustReport) {
-        source.isTrusted
-            ? (snapshot, SessionSnapshotImportTrustReport())
-            : sanitizingUntrustedImport(snapshot)
+        var report = SessionSnapshotImportTrustReport()
+        let bounded = boundedSnapshotStructure(snapshot, report: &report)
+        guard !source.isTrusted else {
+            return (bounded, report)
+        }
+        let (sanitized, importReport) = sanitizingUntrustedImport(bounded)
+        report.droppedWindowCount += importReport.droppedWindowCount
+        report.droppedWorkspaceCount += importReport.droppedWorkspaceCount
+        report.droppedPanelCount += importReport.droppedPanelCount
+        report.heldBackResumeCount += importReport.heldBackResumeCount
+        report.droppedRemoteWorkspaceCount += importReport.droppedRemoteWorkspaceCount
+        report.sanitizedBrowserPanelCount += importReport.sanitizedBrowserPanelCount
+        report.sanitizedScrollbackCount += importReport.sanitizedScrollbackCount
+        report.truncatedScrollbackCount += importReport.truncatedScrollbackCount
+        report.droppedDraftAttachmentCount += importReport.droppedDraftAttachmentCount
+        return (sanitized, report)
+    }
+
+    /// Bounds the object graph for every restore source, including the
+    /// trusted channel used by the app's own snapshot. Trust controls which
+    /// commands may run; it must never disable resource limits.
+    private static func boundedSnapshotStructure(
+        _ snapshot: AppSessionSnapshot,
+        report: inout SessionSnapshotImportTrustReport
+    ) -> AppSessionSnapshot {
+        var bounded = snapshot
+        var remainingPanelBudget = SessionPersistencePolicy.maxPanelsPerSnapshot
+        var remainingLayoutNodes = SessionPersistencePolicy.maxLayoutNodes
+        let keptWindowCount = min(bounded.windows.count, SessionPersistencePolicy.maxWindowsPerSnapshot)
+        report.droppedWindowCount += bounded.windows.count - keptWindowCount
+        bounded.windows = Array(bounded.windows.prefix(keptWindowCount))
+        for windowIndex in bounded.windows.indices {
+            var window = bounded.windows[windowIndex]
+            let originalWorkspaceCount = window.tabManager.workspaces.count
+            window.tabManager.workspaces = Array(
+                window.tabManager.workspaces.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+            )
+            report.droppedWorkspaceCount += originalWorkspaceCount - window.tabManager.workspaces.count
+            for workspaceIndex in window.tabManager.workspaces.indices {
+                var workspace = window.tabManager.workspaces[workspaceIndex]
+                workspace.panels = boundedPanels(
+                    workspace.panels,
+                    remainingBudget: &remainingPanelBudget,
+                    report: &report
+                )
+                workspace.layout = boundedLayout(
+                    workspace.layout,
+                    panelIDs: workspace.panels.map(\.id),
+                    remainingNodes: &remainingLayoutNodes,
+                    report: &report
+                )
+                if var dock = workspace.dock {
+                    dock.panels = boundedPanels(
+                        dock.panels,
+                        remainingBudget: &remainingPanelBudget,
+                        report: &report
+                    )
+                    dock.layout = boundedLayout(
+                        dock.layout,
+                        panelIDs: dock.panels.map(\.id),
+                        remainingNodes: &remainingLayoutNodes,
+                        report: &report
+                    )
+                    workspace.dock = dock
+                }
+                window.tabManager.workspaces[workspaceIndex] = workspace
+            }
+            if var dock = window.dock {
+                dock.panels = boundedPanels(
+                    dock.panels,
+                    remainingBudget: &remainingPanelBudget,
+                    report: &report
+                )
+                dock.layout = boundedLayout(
+                    dock.layout,
+                    panelIDs: dock.panels.map(\.id),
+                    remainingNodes: &remainingLayoutNodes,
+                    report: &report
+                )
+                window.dock = dock
+            }
+            bounded.windows[windowIndex] = window
+        }
+        return bounded
+    }
+
+    private static func boundedPanels(
+        _ panels: [SessionPanelSnapshot],
+        remainingBudget: inout Int,
+        report: inout SessionSnapshotImportTrustReport
+    ) -> [SessionPanelSnapshot] {
+        // Preserve the existing report contract: per-workspace caps are a
+        // local safety limit, while `droppedPanelCount` reports the global
+        // fan-out budget that discarded already-eligible panels.
+        let locallyEligible = Array(panels.prefix(SessionPersistencePolicy.maxPanelsPerWorkspace))
+        let keptCount = min(locallyEligible.count, remainingBudget)
+        report.droppedPanelCount += locallyEligible.count - keptCount
+        remainingBudget -= keptCount
+        return Array(locallyEligible.prefix(keptCount))
+    }
+
+    private static func boundedLayout(
+        _ layout: SessionWorkspaceLayoutSnapshot,
+        panelIDs: [UUID],
+        remainingNodes: inout Int,
+        report: inout SessionSnapshotImportTrustReport
+    ) -> SessionWorkspaceLayoutSnapshot {
+        let allowed = Set(panelIDs)
+        var usedPanelIDs = Set<UUID>()
+        var hitCap = false
+        let bounded = boundedLayout(
+            layout,
+            allowedPanelIDs: allowed,
+            fallbackPanelIDs: panelIDs,
+            depth: 0,
+            remainingNodes: &remainingNodes,
+            usedPanelIDs: &usedPanelIDs,
+            hitCap: &hitCap
+        )
+        // Restore only builds panels that a layout leaf references. When a
+        // node or depth cap cut a subtree, the panels it held are gone too;
+        // count them rather than losing them silently.
+        if hitCap {
+            report.droppedPanelCount += allowed.subtracting(usedPanelIDs).count
+        }
+        return bounded
+    }
+
+    private static func boundedLayout(
+        _ layout: SessionWorkspaceLayoutSnapshot,
+        allowedPanelIDs: Set<UUID>,
+        fallbackPanelIDs: [UUID],
+        depth: Int,
+        remainingNodes: inout Int,
+        usedPanelIDs: inout Set<UUID>,
+        hitCap: inout Bool
+    ) -> SessionWorkspaceLayoutSnapshot {
+        func unusedFallbackPanelIDs() -> [UUID] {
+            var result: [UUID] = []
+            result.reserveCapacity(fallbackPanelIDs.count)
+            for panelID in fallbackPanelIDs where allowedPanelIDs.contains(panelID) {
+                guard usedPanelIDs.insert(panelID).inserted else { continue }
+                result.append(panelID)
+            }
+            return result
+        }
+        func fallbackLayout() -> SessionWorkspaceLayoutSnapshot {
+            return .pane(SessionPaneLayoutSnapshot(
+                panelIds: [],
+                selectedPanelId: nil
+            ))
+        }
+
+        // Walk the input graph with an explicit work stack. A depth check in
+        // recursive code is insufficient: a hostile or corrupt snapshot can
+        // consume the native stack before reaching that check.
+        enum WorkItem {
+            case visit(SessionWorkspaceLayoutSnapshot, depth: Int)
+            case assemble(SessionSplitLayoutSnapshot)
+        }
+        var work: [WorkItem] = [.visit(layout, depth: depth)]
+        var results: [SessionWorkspaceLayoutSnapshot] = []
+        results.reserveCapacity(min(remainingNodes, SessionPersistencePolicy.maxLayoutDepth) + 1)
+
+        while let item = work.popLast() {
+            switch item {
+            case let .visit(node, nodeDepth):
+                guard remainingNodes > 0,
+                      nodeDepth < SessionPersistencePolicy.maxLayoutDepth else {
+                    hitCap = true
+                    results.append(fallbackLayout())
+                    continue
+                }
+                remainingNodes -= 1
+                switch node {
+                case .pane(let pane):
+                    let panelIDs = pane.panelIds.filter {
+                        allowedPanelIDs.contains($0) && usedPanelIDs.insert($0).inserted
+                    }
+                    let selected = pane.selectedPanelId.flatMap {
+                        panelIDs.contains($0) ? $0 : nil
+                    } ?? panelIDs.first
+                    results.append(.pane(SessionPaneLayoutSnapshot(
+                        panelIds: panelIDs,
+                        selectedPanelId: selected,
+                        isFullWidthTabMode: pane.isFullWidthTabMode
+                    )))
+                case .split(let split):
+                    work.append(.assemble(split))
+                    work.append(.visit(split.second, depth: nodeDepth + 1))
+                    work.append(.visit(split.first, depth: nodeDepth + 1))
+                }
+            case let .assemble(split):
+                guard results.count >= 2 else {
+                    results.append(fallbackLayout())
+                    continue
+                }
+                let second = results.removeLast()
+                let first = results.removeLast()
+                let firstEmpty = first.isEmptyLayout
+                let secondEmpty = second.isEmptyLayout
+                switch (firstEmpty, secondEmpty) {
+                case (true, true): results.append(fallbackLayout())
+                case (true, false): results.append(second)
+                case (false, true): results.append(first)
+                case (false, false):
+                    results.append(.split(SessionSplitLayoutSnapshot(
+                        orientation: split.orientation,
+                        dividerPosition: split.dividerPosition,
+                        first: first,
+                        second: second
+                    )))
+                }
+            }
+        }
+        let result = results.last ?? fallbackLayout()
+        guard result.isEmptyLayout else { return result }
+        let fallback = unusedFallbackPanelIDs()
+        return .pane(SessionPaneLayoutSnapshot(
+            panelIds: fallback,
+            selectedPanelId: fallback.first
+        ))
     }
 
     static func sanitizingUntrustedImport(
@@ -94,13 +329,29 @@ enum SessionSnapshotImportTrust {
         var report = SessionSnapshotImportTrustReport()
         var sanitized = snapshot
         let builtIns = builtInRegistrationsByID
+        var remainingPanelBudget = SessionPersistencePolicy.maxPanelsPerSnapshot
         func sanitize(_ panels: [SessionPanelSnapshot]) -> [SessionPanelSnapshot] {
-            panels.map {
+            let keptCount = min(panels.count, remainingPanelBudget)
+            report.droppedPanelCount += panels.count - keptCount
+            remainingPanelBudget -= keptCount
+            return panels.prefix(keptCount).map {
                 sanitizedPanel($0, builtIns: builtIns, isExistingDirectory: isExistingDirectory, report: &report)
             }
         }
+        // File imports are untrusted input. Apply the same structural limits
+        // used when writing snapshots before constructing any restore models;
+        // otherwise a valid but huge file can create an unbounded number of
+        // terminal/bootstrap surfaces before runtime pacing takes effect.
+        let keptWindowCount = min(sanitized.windows.count, SessionPersistencePolicy.maxWindowsPerSnapshot)
+        report.droppedWindowCount += sanitized.windows.count - keptWindowCount
+        sanitized.windows = Array(sanitized.windows.prefix(keptWindowCount))
         for windowIndex in sanitized.windows.indices {
             var window = sanitized.windows[windowIndex]
+            let originalWorkspaceCount = window.tabManager.workspaces.count
+            window.tabManager.workspaces = Array(
+                window.tabManager.workspaces.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+            )
+            report.droppedWorkspaceCount += originalWorkspaceCount - window.tabManager.workspaces.count
             for workspaceIndex in window.tabManager.workspaces.indices {
                 var workspace = window.tabManager.workspaces[workspaceIndex]
                 if workspace.remote != nil || workspace.cloudVM != nil
@@ -114,15 +365,21 @@ enum SessionSnapshotImportTrust {
                 workspace.environment = nil
                 workspace.surfaceProjections = nil
                 workspace.cloudMachineTeams = nil
-                workspace.panels = sanitize(workspace.panels)
+                workspace.panels = sanitize(
+                    Array(workspace.panels.prefix(SessionPersistencePolicy.maxPanelsPerWorkspace))
+                )
                 if var dock = workspace.dock {
-                    dock.panels = sanitize(dock.panels)
+                    dock.panels = sanitize(
+                        Array(dock.panels.prefix(SessionPersistencePolicy.maxPanelsPerWorkspace))
+                    )
                     workspace.dock = dock
                 }
                 window.tabManager.workspaces[workspaceIndex] = workspace
             }
             if var dock = window.dock {
-                dock.panels = sanitize(dock.panels)
+                dock.panels = sanitize(
+                    Array(dock.panels.prefix(SessionPersistencePolicy.maxPanelsPerWorkspace))
+                )
                 window.dock = dock
             }
             sanitized.windows[windowIndex] = window
@@ -199,7 +456,11 @@ enum SessionSnapshotImportTrust {
             if stripped != scrollback {
                 report.sanitizedScrollbackCount += 1
             }
-            terminal.scrollback = stripped
+            let bounded = SessionPersistencePolicy.truncatedScrollback(stripped)
+            if bounded != stripped {
+                report.truncatedScrollbackCount += 1
+            }
+            terminal.scrollback = bounded
         }
 
         if let draft = terminal.textBoxDraft {
