@@ -1501,7 +1501,9 @@ def cmd_run_part(o):
     # reconciler: after five minutes on a paused target it may spill to another
     # capable worker instead of recreating the GUI starvation queue.
     reroute_target = not any(str(arg).startswith("against=") for arg in args)
-    argv = [o.client, "run", "--class", "exclusive", "--background", "--measurement", "--label", "bench", "--label", "measure",
+    labels = ["measure"] if reroute_target else ["bench", "measure"]
+    argv = [o.client, "run", "--class", "exclusive", "--background", "--measurement",
+            *[flag for label in labels for flag in ("--label", label)],
             "--target-worker", o.worker, *(["--reroute-target"] if reroute_target else []), "--no-supersede", "--script", "scripts/measure/split-spring.sh", "--ref", o.sha, "--key", o.key,
             "--artifact", o.artifact, "--timeout", str(o.run_seconds), "--queue-timeout", str(PART_QUEUE_SECONDS),
             *[f"--arg={a}" for a in args]]

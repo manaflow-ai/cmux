@@ -14,7 +14,8 @@ name: cmux-next frame pacing
 # vars.CI_SIDE_LANE_RUNNER with no Blacksmith fallback. Fling-only runs use
 # debug.motion/debug.frames and CVDisplayLink without recording pixels, so
 # they can use a live CPU/memory gate. Pixel-producing suites (`golden`,
-# `instant`, and `perf`) retain the exclusive gui token.
+# `instant`, and `perf`) retain the exclusive gui token. Fling-only runs use
+# `CI_SESSION_LANE_RUNNER` when that logged-in session pool is configured.
 #
 # The same bench job then runs the golden interactions (scripts/ci/frame-pacing/golden.sh
 # and golden.py, cx-codh2): New Tab cold and warm, sidebar collapse and expand, transcript
@@ -184,13 +185,13 @@ jobs:
       tag: ${{ needs.gate.outputs.tag }}
       ref: ${{ needs.resolve-ref.outputs.sha }}
       platform: macos
-      runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
+      runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.suites == 'fling' && vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SESSION_LANE_RUNNER || github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
       backend_mode: local
 
   bench:
     needs: [resolve-ref, gate, build]
     if: needs.gate.outputs.run == 'true' && github.run_attempt <= 2
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.suites == 'fling' && vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SESSION_LANE_RUNNER || github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
     # The live load gate and bench step both fit in this job timeout. Pixel
     # suites retain the GUI-token wait; fling-only runs use host load.
     timeout-minutes: 45

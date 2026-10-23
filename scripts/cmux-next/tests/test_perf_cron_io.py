@@ -416,6 +416,28 @@ class RunPartTests(unittest.TestCase):
         for flag in ("--background", "--measurement", "--reroute-target", f"--target-worker {cron.BENCH_WORKER}", f"--ref {sha(5)}", "--arg=--suite=budgets"):
             self.assertIn(flag, run)
 
+    def test_a_paired_before_after_step_keeps_its_bench_pin(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", d]))
+        client = os.path.join(d, "cmux-ci")
+        with open(client, "w") as f:
+            f.write(FAKE_CLIENT)
+        os.chmod(client, os.stat(client).st_mode | stat.S_IEXEC)
+        log = os.path.join(d, "calls.log")
+        out = os.path.join(d, "out")
+        env = {"FAKE_LOG": log, "FAKE_EXIT": "0", "FAKE_SECONDS": "1"}
+        with mock.patch.dict(os.environ, env), mock.patch.object(cron.time, "sleep", lambda s: None), \
+                mock.patch.object(cron, "http_json", lambda url, timeout=30: {"queue": []}), \
+                mock.patch("sys.stdout", io.StringIO()):
+            cron.cmd_run_part(argparse.Namespace(sha=sha(5), args=json.dumps(["against=" + sha(4), "--suite=budgets"]),
+                                                 artifact="a/report.json", key="k", run_seconds=900, out=out,
+                                                 worker=cron.BENCH_WORKER, client=client))
+        run = next(c for c in open(log).read().splitlines() if c.startswith("run "))
+        self.assertIn("--label bench", run)
+        self.assertIn("--label measure", run)
+        self.assertIn(f"--target-worker {cron.BENCH_WORKER}", run)
+        self.assertNotIn("--reroute-target", run)
+
     def test_fleet_exits_yield_and_a_timeout_fails(self):
         self.assertEqual(self.run_part(75)[0]["state"], "yielded")
         result = self.run_part(124)[0]
