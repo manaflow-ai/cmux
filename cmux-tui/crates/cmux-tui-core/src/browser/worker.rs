@@ -94,7 +94,11 @@ pub(super) fn start_surface_thread(
                     let url_changed =
                         if info.url.is_empty() { false } else { browser.set_url(info.url) };
                     let title_changed = browser.set_title(title);
-                    clear_attention_if_page_changed(seen_url, browser, &mux, id);
+                    clear_attention_if_page_changed(
+                        seen_url,
+                        browser,
+                        mux_attention_clear(&mux, id),
+                    );
                     if (url_changed || title_changed)
                         && let Some(mux) = mux.upgrade()
                     {
@@ -106,7 +110,11 @@ pub(super) fn start_surface_thread(
                 }
                 CdpEvent::FrameNavigated { params, frame_epoch, .. } => {
                     handle_frame_navigated(browser, params, frame_epoch);
-                    clear_attention_if_page_changed(seen_url, browser, &mux, id);
+                    clear_attention_if_page_changed(
+                        seen_url,
+                        browser,
+                        mux_attention_clear(&mux, id),
+                    );
                     if let Some(mux) = mux.upgrade() {
                         mux.emit(MuxEvent::TitleChanged {
                             surface: id,
@@ -134,7 +142,11 @@ pub(super) fn start_surface_thread(
                     frame_epoch,
                 } => {
                     let _ = handle_same_document_navigated(browser, &params, frame_epoch);
-                    clear_attention_if_page_changed(seen_url, browser, &mux, id);
+                    clear_attention_if_page_changed(
+                        seen_url,
+                        browser,
+                        mux_attention_clear(&mux, id),
+                    );
                     if browser.needs_same_document_paint() {
                         let _ = browser.enqueue_latest_authority(
                             BrowserCommand::AuthorizeSameDocumentPaint {
@@ -194,23 +206,30 @@ pub(super) fn start_surface_thread(
     Ok(())
 }
 
-/// tab-attention-v1: the tab is on `browser.url()`; drop a "needs you" mark
-/// set on another page (the marked page is gone). `seen_url` only skips the
-/// read for a page this thread already asked about.
+/// tab-attention-v1: the tab is on `browser.url()`; `clear` drops a "needs
+/// you" mark set on another page (the marked page is gone). `seen_url` only
+/// skips the call for a page this thread already asked about.
 pub(super) fn clear_attention_if_page_changed(
     seen_url: &mut Option<String>,
     browser: &BrowserSurface,
-    mux: &Weak<Mux>,
-    id: SurfaceId,
+    clear: impl FnOnce(&str),
 ) {
     let url = browser.url();
     if url.is_empty() || seen_url.as_deref() == Some(url.as_str()) {
         return;
     }
-    if let Some(mux) = mux.upgrade() {
-        mux.clear_attention_after_navigation(&crate::Actor::Daemon, id, &url);
-    }
+    clear(&url);
     *seen_url = Some(url);
+}
+
+/// The worker's `clear`: the mux's navigation clear for surface `id`, while
+/// the mux lives.
+fn mux_attention_clear(mux: &Weak<Mux>, id: SurfaceId) -> impl FnOnce(&str) + '_ {
+    move |url| {
+        if let Some(mux) = mux.upgrade() {
+            mux.clear_attention_after_navigation(&crate::Actor::Daemon, id, url);
+        }
+    }
 }
 
 pub(super) fn start_browser_worker(

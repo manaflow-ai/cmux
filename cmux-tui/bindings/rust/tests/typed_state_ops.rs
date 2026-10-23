@@ -269,6 +269,15 @@ fn tab_pin_unpin_and_update_send_their_operations_and_decode_tab_snapshots() {
         TabUpdateOptions { icon: Update::Set(String::new()), ..Default::default() },
         TabUpdateOptions { attention: Update::Set("  ".into()), ..Default::default() },
         TabUpdateOptions { attention: Update::Set("x".repeat(201)), ..Default::default() },
+        TabUpdateOptions { attention: Update::Set("two\nlines".into()), ..Default::default() },
+        TabUpdateOptions {
+            attention: Update::Set("two\u{2028}lines".into()),
+            ..Default::default()
+        },
+        TabUpdateOptions {
+            attention: Update::Set("two\u{2029}lines".into()),
+            ..Default::default()
+        },
     ] {
         assert!(matches!(tab.update(invalid), Err(Error::InvalidArgument(_))));
     }

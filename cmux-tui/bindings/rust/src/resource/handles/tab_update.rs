@@ -131,14 +131,20 @@ fn tab_update_params(params: Params, options: TabUpdateOptions) -> Result<Params
     match attention {
         Update::Unchanged => {}
         Update::Clear => params = params.value("attention", Value::Null),
+        // The daemon's rule: one readable line (no control character, no
+        // U+2028 or U+2029) of at most TAB_ATTENTION_REASON_MAX_BYTES.
         Update::Set(reason)
-            if !reason.trim().is_empty() && reason.len() <= TAB_ATTENTION_REASON_MAX_BYTES =>
+            if !reason.trim().is_empty()
+                && reason.len() <= TAB_ATTENTION_REASON_MAX_BYTES
+                && !reason
+                    .chars()
+                    .any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}')) =>
         {
             params = params.string("attention", reason);
         }
         Update::Set(_) => {
             return Err(Error::InvalidArgument(format!(
-                "tab attention needs a reason of 1 to {TAB_ATTENTION_REASON_MAX_BYTES} bytes"
+                "tab attention needs one line of 1 to {TAB_ATTENTION_REASON_MAX_BYTES} bytes"
             )));
         }
     }

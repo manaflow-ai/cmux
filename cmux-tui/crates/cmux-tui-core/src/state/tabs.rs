@@ -180,12 +180,20 @@ impl Mux {
             &fingerprint,
             None,
             StateEffects::PRESENTATION,
-            |transaction, _| {
-                let cleared = crate::state::tab_state_store::clear_attention_off_page(
-                    transaction,
-                    &tab,
-                    page,
-                )?;
+            |transaction, state| {
+                // A late callback for a page the tab has already left clears
+                // nothing: the mark may be the newer page's, set since.
+                let current = state
+                    .surfaces
+                    .get(&surface)
+                    .and_then(|runtime| runtime.as_browser())
+                    .map(|browser| browser.url());
+                let cleared = current.as_deref() == Some(page)
+                    && crate::state::tab_state_store::clear_attention_off_page(
+                        transaction,
+                        &tab,
+                        page,
+                    )?;
                 let restated: &[String] = if cleared { std::slice::from_ref(&tab) } else { &[] };
                 let changes = crate::state::values::fresh_upserts(transaction, &[], &[], restated)?;
                 Ok(StateChanges::new(serde_json::json!({"tab": tab, "cleared": cleared}), changes))

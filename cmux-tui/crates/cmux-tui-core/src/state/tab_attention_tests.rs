@@ -104,7 +104,16 @@ fn a_browser_tab_drops_its_mark_when_its_page_changes_but_not_on_a_title_change(
     assert!(listed_attention(&mux, &tab).get("page").is_none(), "extra.attention shows no page");
     mux.clear_attention_after_navigation(&crate::Actor::Daemon, browser, "https://github.com/");
     assert_eq!(listed_attention(&mux, &tab)["reason"], REASON, "a late clear for its own page");
-    mux.clear_attention_after_navigation(&crate::Actor::Daemon, browser, "https://github.com/x");
+    // A stale clear for a page the tab already left (two navigations
+    // overlapping) keeps the mark the agent set on the page it is on now.
+    mux.clear_attention_after_navigation(
+        &crate::Actor::Daemon,
+        browser,
+        "https://github.com/settings/apps",
+    );
+    assert_eq!(listed_attention(&mux, &tab)["reason"], REASON, "a stale clear dropped the mark");
+    mux.update_frontend_browser_tab(browser, Some("https://github.com/x".into()), None, None)
+        .unwrap();
     assert!(listed_attention(&mux, &tab).is_null(), "the next page clears it");
 }
 
