@@ -89,6 +89,70 @@ const sends = () =>
     ),
   ]);
 
+const STOPPED_ID = "a5b7309ddf7afa44d";
+const stoppedAgent = (minutes: number) =>
+  row(SUBAGENTS, minutes, {
+    subagents: [
+      {
+        id: "gallery-session/toolu_cap",
+        parent: null,
+        name: "Time-cap pre-push owner check",
+        task: "Time-cap pre-push owner check",
+        kind: "general-purpose",
+        state: "cancelled",
+        startedAt: minutesAgo(minutes),
+        endedAt: minutesAgo(minutes - 1),
+        agentId: STOPPED_ID,
+      },
+    ],
+  });
+
+// A coordinator's chat: one message delivered, one to an agent the person stopped, and a lane's
+// message back.
+const outcomes = () =>
+  chat([
+    user("Check on the pre-push lane and the grid lane", 6),
+    gridAgent(6),
+    stoppedAgent(6),
+    activity(
+      [
+        sendMessage(
+          AGENT_ID,
+          "Rebase on the base branch, then rerun the grid tests.",
+          "completed",
+          JSON.stringify({ success: true, message: `Message delivered to ${AGENT_ID}.` }),
+        ),
+      ],
+      4,
+    ),
+    activity(
+      [
+        sendMessage(
+          STOPPED_ID,
+          "Cap the owner check at 45 s and say so in the hook's output.",
+          "completed",
+          JSON.stringify({
+            success: false,
+            message: `Agent ${STOPPED_ID} was stopped by the user and won't be resumed.`,
+          }),
+        ),
+      ],
+      3.9,
+    ),
+    user("Grid fix is rebased; tests pass.", 2, {
+      incoming: {
+        kind: "message",
+        message: {
+          name: "grid-lane",
+          sessionId: "child-4",
+          text: "Grid fix is rebased; tests pass.",
+          raw: "Grid fix is rebased; tests pass.",
+        },
+      },
+      untyped: true,
+    }),
+  ]);
+
 const long = () =>
   chat([
     user("Send the grid agent the plan", 3),
@@ -153,6 +217,10 @@ export default agentPaneEntry({
         await ctx.click({ selector: ".cv-agentmsg__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-message__text"));
       },
+    },
+    outcomes: {
+      note: "How each send ended, at its line's end: Delivered, muted; a send to an agent the person stopped reads Not delivered: agent stopped in a muted warning tone, never Sent. A lane's message back sits under them.",
+      snapshot: outcomes(),
     },
     "both-directions": {
       note: "A message this agent sent and the answer another agent sent back, one line each at the transcript's left.",

@@ -1456,7 +1456,7 @@ export default agentPaneEntry({
       ),
     },
     "agent-messages": {
-      note: "Messages to other agents say how far they got (Sending…, Sent, Delivered to …) without the receipt's id; a shell call reads without its leading cd and, opened, names its folder beside Shell.",
+      note: "Messages to other agents say how far they got in one word at the line's end (Sent, Queued, Delivered, or why not) without the receipt's id; a shell call reads without its leading cd and, opened, names its folder beside Shell.",
       snapshot: chat(
         [
           user("Tell the coordinator the fix is pushed, then check the branch.", 2),
