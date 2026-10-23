@@ -202,7 +202,7 @@ fn a_new_terminals_first_text_and_reply_do_not_wait_for_the_disk() {
 
 /// The extra time of each terminal-host discovery-file sync (record, lease,
 /// workspace mirror: `barrier_sync`).
-const SLOW_DISCOVERY_SYNC_MS: u64 = 300;
+const SLOW_DISCOVERY_SYNC_MS: u64 = 1000;
 
 /// The host's discovery files (its record, liveness lease and workspace
 /// mirror) are synced after its Ready, off the first text's path; only the
