@@ -36,6 +36,10 @@ pub fn is_subagents(params: &Value) -> bool {
 #[derive(Debug, Default)]
 pub struct SubagentTree {
     parents: HashMap<String, Option<String>>,
+    /// Codex's native id for this session, learned from a collab call. Legacy
+    /// activity metadata can echo this id while a child is running; it is the
+    /// root, never a subagent of the child that reported it.
+    root_thread: Option<String>,
 }
 
 impl SubagentTree {
@@ -139,6 +143,11 @@ impl SubagentTree {
         if let Some(collab) = codex.and_then(|c| c.get("collaboration"))
             && collab.get("tool").and_then(Value::as_str) == Some("spawnAgent")
         {
+            if let Some(sender) = collab.get("senderThreadId").and_then(Value::as_str)
+                && owner.is_none()
+            {
+                self.remember_root(sender);
+            }
             let input = update.get("rawInput");
             let states = input.and_then(|i| i.get("agentsStates"));
             let task = input.and_then(|i| i.get("prompt")).and_then(Value::as_str);
@@ -170,6 +179,11 @@ impl SubagentTree {
         }
         let Some(activity) = codex.and_then(|c| c.get("subagent")) else { return vec![] };
         let Some(id) = activity.get("threadId").and_then(Value::as_str) else { return vec![] };
+        // The root's own id is occasionally echoed as a legacy activity item
+        // while a direct child is active. Do not manufacture a root child.
+        if self.root_thread.as_deref() == Some(id) {
+            return vec![];
+        }
         let name = activity
             .get("path")
             .and_then(Value::as_str)
@@ -198,6 +212,24 @@ impl SubagentTree {
         event.insert("id".into(), json!(id));
         event.insert("parent".into(), json!(parent));
         event
+    }
+
+    /// Record the native root id once, and repair an out-of-order echo that
+    /// arrived before the root's first collab call identified it.
+    fn remember_root(&mut self, id: &str) {
+        if self.root_thread.as_deref() == Some(id) {
+            return;
+        }
+        if self.root_thread.is_some() {
+            return;
+        }
+        self.root_thread = Some(id.to_owned());
+        self.parents.remove(id);
+        for parent in self.parents.values_mut() {
+            if parent.as_deref() == Some(id) {
+                *parent = None;
+            }
+        }
     }
 }
 
@@ -293,5 +325,31 @@ mod codex_tests {
         );
         assert_eq!(second[0]["id"], prior_art);
         assert_eq!(second[0]["parent"], Value::Null);
+    }
+
+    #[test]
+    fn codex_child_sender_remains_the_parent_of_a_grandchild() {
+        let mut tree = SubagentTree::default();
+        let child = "review-thread";
+        let grandchild = "review-helper-thread";
+        let first = subagents_for(
+            &mut tree,
+            "acp-root",
+            json!({"sessionUpdate": "tool_call", "toolCallId": "spawn-review",
+                   "rawInput": {"prompt": "Review", "agentsStates": {}},
+                   "_meta": {"codex": {"collaboration": {"tool": "spawnAgent",
+                     "senderThreadId": "root-native-thread", "receiverThreadIds": [child]}}}}),
+        );
+        assert_eq!(first[0]["parent"], Value::Null);
+        let nested = subagents_for(
+            &mut tree,
+            child,
+            json!({"sessionUpdate": "tool_call", "toolCallId": "spawn-helper",
+                   "rawInput": {"prompt": "Helper", "agentsStates": {}},
+                   "_meta": {"codex": {"collaboration": {"tool": "spawnAgent",
+                     "senderThreadId": child, "receiverThreadIds": [grandchild]}}}}),
+        );
+        assert_eq!(nested[0]["id"], grandchild);
+        assert_eq!(nested[0]["parent"], child);
     }
 }
