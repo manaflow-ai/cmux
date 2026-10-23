@@ -11,8 +11,8 @@ import CmuxNextDaemonService
 /// draw in the key's frame and the page starts loading at once instead of after the daemon's
 /// reply. One path for every person's foreground tab `PaneBrowserTabOpener` sends to the daemon
 /// (New Browser Tab, the New Tab page's browser, a link in a new tab, New WebKit Tab). On the
-/// reply the stand-in's page moves to the daemon's tab (adopted as a popup's page is), which
-/// keeps its cell and selection. Keys typed meanwhile wait for the daemon's tab.
+/// reply the stand-in's page and chrome move to the daemon's tab (`TabContentCache.moveBrowser`),
+/// which keeps its cell, selection and view. Keys typed meanwhile wait for the daemon's tab.
 @MainActor
 struct BrowserTabStandIn {
     let controller: PaneController
@@ -40,7 +40,7 @@ struct BrowserTabStandIn {
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
                 let surface = try await pending.send { surface in
-                    if let page = cache.handOverBrowser(pending.tab) { cache.pageRequests.adopt(page, surface: surface) }
+                    if let tab = controller.daemon.store.tab(surface: surface) { _ = cache.moveBrowser(pending.tab, to: tab) }
                 }
                 let selected = controller.stripModel.selectedID?.rawValue
                 if selected == nil || selected == pending.tab || controller.pendingSelectSurface == pending.surface { controller.selectWhenReported(surface: surface) }
