@@ -295,16 +295,17 @@ export default agentPaneEntry({
       ready: newTab({ template: "default" }),
       snapshot: reasoningChat(),
     },
-    // Minimal, the page as it opens by default (Leo 2026-10-20, newtab/pageWidgets.ts): the greeting
-    // and the composer, with chats on this Mac it does not list. `minimal-default` is a host that
+    // Minimal, the page as it opens by default (Leo 2026-10-20, newtab/pageWidgets.ts): the composer
+    // alone, no greeting (Leo 2026-10-22), with chats on this Mac it does not list. The optional
+    // headline is agent-pane.new-tab-headline. `minimal-default` is a host that
     // sends no template (the app's unset key); `minimal-widgets` turns the stage's widgets on.
     "minimal-default": {
-      note: "Minimal, New Tab's default layout: a quiet greeting over the composer, which keeps its folder and machine, model, effort, mic and Send, and under the page the two composer look dots (Claude, Codex). No project card, quick actions, chats or other template dots: those are widgets, off by default.",
+      note: "Minimal, New Tab's default layout: the composer alone, with its folder and machine, model, effort, mic and Send, and under the page the two composer look dots (Claude, Codex). No greeting. The headline, project card, quick actions, chats and other template dots are widgets, off by default.",
       ready: newTab({ template: undefined }),
       snapshot: noChat(manySessions(12)),
       play: async (ctx: PlayContext) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-greeting") !== null);
-        const extra = ctx.document.querySelector(".nt-stage, .nt-cards, .nt-create");
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        const extra = ctx.document.querySelector(".nt-greeting, .nt-headline, .nt-stage, .nt-cards, .nt-create");
         if (extra) throw new Error(`the minimal page shows ${extra.className}`);
         // The two look dots only (newtab/PageDots.tsx, Leo 2026-10-22), not the other styles.
         const dots = ctx.document.querySelectorAll(".nt-style input[type=radio]").length;
@@ -357,7 +358,7 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
         await ctx.contextMenu({ selector: ".nt-env" });
         await ctx.click({ role: "menuitem", name: "Edit New Tab" });
-        // Four ✕: the greeting over the stage is a widget too, with its own frame.
+        // Four ✕: the headline over the stage is a widget too, with its own frame.
         await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-widget-frame .nt-widget-remove").length === 4);
         await ctx.waitFor(() => ctx.document.querySelector(".nt-edit-bar") !== null);
       },
