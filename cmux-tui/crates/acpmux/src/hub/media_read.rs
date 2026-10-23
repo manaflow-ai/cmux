@@ -1,7 +1,11 @@
 //! The media reader (R10 in leo-workspace#874): the images and videos a chat's agent names are
-//! read on the machine that runs the chat, never as a same-named file on the app's Mac. This is the
-//! reader itself; the `_acpmux/media_open` and `_acpmux/media_range` methods that serve it come in
-//! their own change.
+//! read on the machine that runs the chat, never as a same-named file on the app's Mac.
+//! `_acpmux/media_open {sessionId, path}` answers `{handle, size, mimeType, identity}`, and
+//! `_acpmux/media_range {sessionId, handle, offset, length}` answers `{offset, size, identity,
+//! data}` (base64), with the open's `size` and `identity` repeated so the reader checks them on
+//! every range. Both name a session, so `peer_forward.rs` takes a peer's chat to the peer, and
+//! only to a peer whose `initialize` lists [`FEATURE`]. A Web connection reads nothing
+//! (`mediaRead.remote`, `server/remote_guard.rs`), nor does a read-only device (`pairing.rs`).
 //!
 //! What a chat may read: a file under its folder (`cwd`, the root a relative path starts from) or
 //! its own uploads (`hub/file_uploads.rs`). The hub keeps no `additionalDirectories`, so they are
@@ -24,17 +28,24 @@
 //! - its type is sniffed from its bytes: png, jpeg, gif or webp up to [`MAX_IMAGE_BYTES`], an
 //!   mp4, mov, m4v or webm up to [`MAX_VIDEO_BYTES`]. SVG and PDF are never read.
 //!
-//! Every range is read from the opened descriptor after and before comparing `(dev, ino, size,
-//! mtime, ctime)` with the open's (ctime, since an owner can set mtime back but not ctime), so a file changed since the open is refused, and a file replaced at
-//! its path keeps serving the bytes that were opened. A range is at most [`MAX_RANGE`] bytes:
+//! The descriptor stays in the connection's handle table (`hub/media_handles.rs`) until its final
+//! range, a refused range, two minutes unused, or the connection's end. Every range is read from
+//! it after and before comparing `(dev, ino, size, mtime, ctime)` with the open's (ctime, since an
+//! owner can set mtime back but not ctime), so a file changed since the open is refused. A file
+//! replaced or unlinked at its path serves the bytes that were opened, or is refused as changed
+//! when the unlink moved its ctime: never the new file's bytes. A range is at most [`MAX_RANGE`] bytes:
 //! 8 MiB of base64, under the RPC cap (`rpc.rs`) and an older peer's 16 MiB frame.
 
-use crate::rpc::RpcError;
-use serde_json::json;
+use super::Hub;
+use super::media_handles::Handles;
+use crate::rpc::{RpcError, method};
+use serde_json::{Value, json};
 use std::ffi::OsString;
 use std::fs::File;
 use std::path::{Component, Path, PathBuf};
 
+/// The `initialize` feature of a daemon that serves `_acpmux/media_open` and `_acpmux/media_range`.
+pub const FEATURE: &str = "mediaRead";
 /// The most bytes one range reads.
 pub const MAX_RANGE: usize = 6 << 20;
 /// The largest image read.
@@ -42,7 +53,7 @@ pub const MAX_IMAGE_BYTES: u64 = 10 << 20;
 /// The largest video read.
 pub const MAX_VIDEO_BYTES: u64 = 200 << 20;
 
-fn refused(reason: &str, message: &str) -> RpcError {
+pub(super) fn refused(reason: &str, message: &str) -> RpcError {
     RpcError::invalid_params(message).with_data(json!({"reason": reason}))
 }
 
@@ -312,6 +323,73 @@ pub fn read_range(
         return Err(changed());
     }
     Ok(buf)
+}
+
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, RpcError> + Send + 'static,
+) -> Result<T, RpcError> {
+    tokio::task::spawn_blocking(work).await.map_err(|e| RpcError::internal(e.to_string()))?
+}
+
+/// `_acpmux/media_open` or `_acpmux/media_range` for one of this daemon's chats.
+pub async fn handle(
+    hub: &Hub,
+    handles: &Handles,
+    m: &str,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    let session = hub.resolve(crate::server::session_key(params)?)?;
+    if session.purged.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err(RpcError::invalid_params("no such chat"));
+    }
+    if m == method::MUX_MEDIA_OPEN {
+        let path = params.get("path").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let mut roots = vec![session.meta().cwd.clone()];
+        roots.extend(super::file_uploads::session_dir(&session.id));
+        let home = dirs::home_dir();
+        let opened = blocking(move || open_in(&roots, &path, home.as_deref(), &mut |_| {})).await?;
+        let (size, mime, identity) = (opened.identity.size, opened.mime, opened.identity.token());
+        let handle = handles.insert(&session, opened)?;
+        return Ok(json!({"handle": handle, "size": size, "mimeType": mime, "identity": identity}));
+    }
+    let handle = params.get("handle").and_then(Value::as_str).unwrap_or_default();
+    let (file, identity) = handles.get(&session, handle)?;
+    let number = |key: &str| {
+        params.get(key).and_then(Value::as_u64).ok_or_else(|| {
+            refused("media.range", &format!("{key} must be a whole number of bytes"))
+        })
+    };
+    let read = match (number("offset"), number("length")) {
+        (Ok(offset), Ok(length)) => blocking(move || read_range(&file, &identity, offset, length))
+            .await
+            .map(|bytes| (offset, bytes)),
+        (Err(e), _) | (_, Err(e)) => Err(e),
+    };
+    // A refused range closes the handle: a reader that asks wrong opens the file again.
+    let (offset, bytes) = read.inspect_err(|_| handles.close(&session, handle))?;
+    let end = offset.saturating_add(u64::try_from(bytes.len()).unwrap_or(u64::MAX));
+    if end >= identity.size {
+        handles.close(&session, handle);
+    }
+    use base64::Engine;
+    Ok(json!({
+        "offset": offset,
+        "size": identity.size,
+        "identity": identity.token(),
+        "data": base64::engine::general_purpose::STANDARD.encode(bytes),
+    }))
+}
+
+/// The refusal of `m` for a peer that does not serve the reader: the app shows the media as a
+/// card.
+pub fn peer_unsupported(peer: &crate::peer::Peer, m: &str) -> RpcError {
+    RpcError::method_not_found(&format!(
+        "{m} (peer {} runs acpmux build {}; run `acpmux host update {}`)",
+        peer.name,
+        peer.remote_build().unwrap_or_else(|| "unknown".into()),
+        peer.name
+    ))
+    .with_data(json!({"reason": "mediaRead.unsupported"}))
 }
 
 #[cfg(unix)]
