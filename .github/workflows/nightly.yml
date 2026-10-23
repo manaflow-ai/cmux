@@ -2403,6 +2403,8 @@ jobs:
         run: |
           set -euo pipefail
           app="build-universal/Build/Products/Release/cmux.app"
+          # An app built for the fleet benches keeps the debug.* commands; it never ships.
+          ./scripts/cmux-next/check-no-bench-hooks.sh "$app"
           framework="$app/Contents/Frameworks/Chromium Embedded Framework.framework"
           if [[ -d "$framework" ]]; then
             echo "Chromium engine embedded: $(lipo -archs "$framework/Versions/A/Chromium Embedded Framework")"

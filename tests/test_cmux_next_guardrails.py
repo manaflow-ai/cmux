@@ -409,6 +409,15 @@ class RuleTests(Fixture):
         self.commit("git mv into another package; access internal -> package")
         self.assertEqual(self.refused(), [])
 
+    def test_the_bench_configuration_is_refused_in_shipped_build_settings(self):
+        self.write(".github/workflows/nightly.yml", "jobs:\n  build:\n    steps:\n      - run: ./scripts/reload.sh --config bench\n")
+        self.write("config/Release.xcconfig", "OTHER_SWIFT_FLAGS = $(inherited) -DCMUX_BENCH_HOOKS\n")
+        self.write("scripts/measure/pane-perf.sh", "./scripts/reload.sh --config bench\n")
+        self.commit("bench flags in shipped settings, and in a measure script")
+        self.assertEqual(self.refused(), [("bench-hooks-shipped", [
+            "nightly.yml: - run: ./scripts/reload.sh --config bench",
+            "Release.xcconfig: OTHER_SWIFT_FLAGS = $(inherited) -DCMUX_BENCH_HOOKS"])])
+
     def test_the_generic_class_rule_reads_test_targets_and_honors_nonisolated(self):
         tests = "Packages/macOS/CmuxNext/Tests/CmuxNextFooTests"
         self.write(f"{tests}/Wait.swift", "final class Once<T> {\n    var value: T?\n}\n")

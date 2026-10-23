@@ -46,6 +46,11 @@ SOURCES = "Packages/macOS/CmuxNext/Sources/"
 SWIFT_SOURCES = f":(glob){SOURCES}**/*.swift"
 TESTS = "Packages/macOS/CmuxNext/Tests/"
 SWIFT_TESTS = f":(glob){TESTS}**/*.swift"
+# Where a shipped build's settings live: the release and nightly pipelines, the release script, build
+# settings files and the app's package manifest.
+SHIPPED_BUILD = (".github/workflows/", "scripts/build-sign-upload.sh", "Packages/macOS/CmuxNext/Package.swift")
+SHIPPED_BUILD_SPECS = (".github/workflows", "scripts/build-sign-upload.sh", "Packages/macOS/CmuxNext/Package.swift",
+                       ":(glob)**/*.xcconfig", ":(glob)**/project.pbxproj")
 APP = SOURCES + "CmuxNextApp/"
 UPSTREAM = "origin/feat-cmux-next"
 OWNERS = "plans/cmux-next/OWNERS.md"
@@ -517,6 +522,14 @@ RULES = (
          "// generic-class-allow: <why this class is not main-actor isolated, e.g. its target's default isolation>",
          matcher_rule(Matcher(GENERIC_CLASS, GENERIC_CLASS_ALLOW, implicit_deinit)),
          scope=(SOURCES, TESTS)),
+    Rule("bench-hooks-shipped", "The bench configuration in a shipped build's settings",
+         "CMUX_BENCH_HOOKS (reload.sh --config bench) keeps the debug.* control commands in an optimized app for "
+         "the fleet benches; in a release, nightly or RC build's settings it would ship them to users",
+         "build benches with `scripts/reload.sh --config bench` or a measure script's `--config=bench` only; "
+         "shipped pipelines run scripts/cmux-next/check-no-bench-hooks.sh on their app",
+         None,
+         line_rule(r"CMUX_BENCH_HOOKS|--config[= ]bench\b", None),
+         scope=SHIPPED_BUILD + (".xcconfig", "project.pbxproj")),
     Rule("app-big-file", f"New CmuxNextApp file over {NEW_APP_FILE_MAX} lines",
          "the App target re-emits its whole module on every edit (check-app-size.sh) and CI refuses god files",
          "put the feature in its own target under Packages/macOS/CmuxNext/Sources, one type per file",
@@ -727,7 +740,8 @@ def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added
     """(refusals [(rule, hits)], warnings [(kind, text)]) for what HEAD adds over BASE."""
     # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse.
     diff, names = run_both(repo, ["diff", "-U0", "--no-color", "--no-renames", "--no-ext-diff", "--src-prefix=a/",
-                                  "--dst-prefix=b/", base, head, "--", SWIFT_SOURCES, SWIFT_TESTS],
+                                  "--dst-prefix=b/", base, head, "--", SWIFT_SOURCES, SWIFT_TESTS,
+                                  *SHIPPED_BUILD_SPECS],
                            ["diff", "--name-only", "--no-renames", base, head])
     changes = parse_diff(diff)
     warnings: list[tuple[str, str]] = []
@@ -747,7 +761,7 @@ def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added
     moved = collections.Counter(r.text.strip() for c in files for r in c.removed if r.text.strip())
     refusals = []
     for rule in RULES:
-        hits = rule.find([f for f in files if f.path.startswith(rule.scope)], moved)
+        hits = rule.find([f for f in files if f.path.startswith(rule.scope) or f.path.endswith(rule.scope)], moved)
         if hits:
             refusals.append((rule, hits))
     try:
