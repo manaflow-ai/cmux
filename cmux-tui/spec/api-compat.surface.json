@@ -10043,6 +10043,10 @@
         "ty": "uint64",
         "required": true
       },
+      "/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
       "/rows": {
         "ty": "uint16",
         "nullable": true
@@ -10053,6 +10057,10 @@
       },
       "/shell_args/*": {
         "ty": "string"
+      },
+      "/tab_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/terminal_id": {
         "ty": "string",
@@ -11787,6 +11795,10 @@
       },
       "/name": {
         "ty": "string",
+        "nullable": true
+      },
+      "/proxy": {
+        "ty": "json",
         "nullable": true
       }
     },
@@ -17956,9 +17968,15 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/pane_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/tab_id": {
+        "ty": "string"
       },
       "/data/terminal_id": {
         "ty": "string",

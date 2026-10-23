@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '5d3ff5ed972a33f5c4bb6a49a9dd6aeed437faa9b1ef702813aa5522af7f0eb0'
+IR_SHA256 = '1e8ed8d1c9488496f61ce39773888417486f7d9a3ecf0469f4e801cd383fe3bd'
 
 
 @dataclass(frozen=True)
@@ -3630,6 +3630,7 @@ COMMANDS = {
             'color': CommandFieldMetadata(None, None),
             'icon': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
+            'proxy': CommandFieldMetadata(None, None),
         },
     ),
     'update-frontend-browser-tab': CommandMetadata(
