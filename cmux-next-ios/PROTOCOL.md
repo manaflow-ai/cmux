@@ -589,14 +589,17 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
     bar goes back to the page.
   - **The host checks every `file:` load itself** (2026-10-22): hostd sends
     `rb.file_policy {roots, files}` right after its hello, and again when it
-    changes. `roots` are the shared folders plus the folders of the files the
-    Mac showed this tab when those could be shared (never home, its parents
-    or a credential tree); `files` are those files. The host's request
+    changes. `roots` are the shared folders; `files` are the pages the Mac showed
+    this tab (each page alone, never its folder). The host's request
     handler (`OnBeforeBrowse` for navigations and frames,
     `OnBeforeResourceLoad` for images, iframes, fetch and every other
     subresource) refuses a `file:` URL whose path, resolved at load time, is
     not one of `files` or inside one of `roots`. A host with no policy (the
-    Mac app's own remote tabs) loads every file; a policy is replaced, never
+    Mac app's own remote tabs) loads every file. Known limits: the policy is
+    refreshed when hostd next checks an address (2 s cache), a link the host
+    refuses shows no notice on the phone, and a page restored from the
+    back-forward cache is not checked again by the host (hostd's take-back
+    still applies); a policy is replaced, never
     removed, and a phone cannot send one (hostd's viewer allowlist). A new
     host of a `file:` page starts at `about:blank` and hostd navigates it
     after the policy.
