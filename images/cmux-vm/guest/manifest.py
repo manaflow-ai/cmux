@@ -2,12 +2,15 @@
 # File-hash manifest of the baked image (images/cmux-vm/bake.ts).
 # One line per entry: path, F|L, sha256 or symlink target, size, mode.
 # Roots are the trees the bake writes; the reproducibility check diffs two bakes' manifests.
+# Usage: manifest.py OUT [SKIP_DIR...]; a skipped dir (the bake's dev tree) is left out with its contents.
 import hashlib, os, stat, sys
 
 ROOTS = ["/usr/local", "/opt", "/etc/cmux", "/etc/systemd/system", "/etc/apt", "/etc/profile.d", "/usr/lib/postgresql", "/home/cmux"]
 SKIP = ("/opt/freestyle/",)
 
-def main(out_path: str) -> None:
+def main(out_path: str, extra_skip: list) -> None:
+    global SKIP
+    SKIP = SKIP + tuple(p.rstrip("/") + "/" for p in extra_skip)
     count = 0
     with open(out_path, "w") as out:
         for root in ROOTS:
@@ -38,4 +41,4 @@ def main(out_path: str) -> None:
     print("manifest-entries", count)
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    main(sys.argv[1], sys.argv[2:])

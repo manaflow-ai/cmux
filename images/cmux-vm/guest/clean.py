@@ -6,14 +6,15 @@ ITEMS = {
     "apt-lists": ["/var/lib/apt/lists/*"],
     "apt-cache": ["/var/cache/apt/*.bin", "/var/cache/apt/archives/*.deb", "/var/cache/apt/archives/partial/*"],
     "npm-cache": ["/root/.npm", "/home/cmux/.npm"],
-    "user-caches": ["/root/.cache", "/home/cmux/.cache", "/root/.bun/install/cache"],
+    # The dev tree's Zig package cache stays (bake.ts --dev-tree); nothing else under ~/.cache does.
+    "user-caches": ["/root/.cache", "/home/cmux/.cache/*", "/home/cmux/.cache/.[!.]*", "/root/.bun/install/cache"],
     "tmp": ["/tmp/*", "/tmp/.[!.]*", "/var/tmp/*"],
     "shell-history": ["/root/.bash_history", "/home/cmux/.bash_history", "/root/.python_history", "/root/.lesshst"],
     "claude-json-seed": ["/root/.claude.json", "/home/cmux/.claude.json"],
     # A clone gets its own kind at its bind or team enroll (cmux-host VM_KIND_FILE).
     "vm-kind": ["/etc/cmux/vm-kind"],
 }
-KEEP = {"/var/lib/apt/lists/partial", "/var/lib/apt/lists/lock", "/var/cache/apt/archives/partial", "/var/cache/apt/archives/lock"}
+KEEP = {"/home/cmux/.cache/zig", "/var/lib/apt/lists/partial", "/var/lib/apt/lists/lock", "/var/cache/apt/archives/partial", "/var/cache/apt/archives/lock"}
 
 def size(p: str) -> int:
     if os.path.islink(p):
