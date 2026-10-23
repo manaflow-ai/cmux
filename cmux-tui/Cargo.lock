@@ -1166,6 +1166,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-kitty-media"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "libc",
+ "memchr",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-layout-reducer"
 version = "0.1.0"
 dependencies = [
