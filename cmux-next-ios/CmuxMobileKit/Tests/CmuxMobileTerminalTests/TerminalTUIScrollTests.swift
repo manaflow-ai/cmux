@@ -52,6 +52,50 @@ import Testing
         #expect(!TerminalTUIScroll.takesDrag(motion: .zero))
     }
 
+    /// TUI fast scroll: like a Mac trackpad, a fast finger moves the wheel
+    /// further than the finger; a slow one stays 1:1 (line by line).
+    @Test func aSlowDragStaysOneToOne() {
+        var scroll = TerminalTUIScroll()
+        scroll.began()
+        #expect(scroll.moved(translationY: 10, velocityY: 150) == Wheel(dy: 10, momentum: .none))
+        #expect(scroll.moved(translationY: 4, velocityY: -TerminalTUIScroll.preciseSpeed) == Wheel(dy: -6, momentum: .none))
+    }
+
+    @Test func aFastDragScrollsFurtherThanTheFinger() throws {
+        var scroll = TerminalTUIScroll()
+        scroll.began()
+        let wheel = try #require(scroll.moved(translationY: 16, velocityY: 3000))
+        #expect(wheel.dy == 16 * TerminalTUIScroll.maximumGain)
+        let up = try #require(scroll.moved(translationY: 0, velocityY: -3000))
+        #expect(up.dy == -16 * TerminalTUIScroll.maximumGain)
+    }
+
+    @Test func theGainRisesWithSpeedAndIsCapped() {
+        let gain = TerminalTUIScroll.gain(speed:)
+        #expect(gain(0) == 1)
+        #expect(gain(TerminalTUIScroll.preciseSpeed) == 1)
+        #expect(gain(-TerminalTUIScroll.fullSpeed) == TerminalTUIScroll.maximumGain)
+        #expect(gain(20_000) == TerminalTUIScroll.maximumGain)
+        #expect(TerminalTUIScroll.maximumGain >= 2)
+        var last: CGFloat = 1
+        for speed in stride(from: CGFloat(0), through: 4000, by: 100) {
+            #expect(gain(speed) >= last)
+            last = gain(speed)
+        }
+    }
+
+    @Test func aFastFlickGlidesWithTheGain() throws {
+        var momentum = try #require(TerminalTUIMomentum(velocityY: 3000))
+        let first = try #require(momentum.step(dt: 1.0 / 60))
+        #expect(abs(first.dy - 3000 * TerminalTUIScroll.maximumGain * 0.95 / 60) < 0.001)
+    }
+
+    @Test func aGentleFlickIsNotScaled() throws {
+        var momentum = try #require(TerminalTUIMomentum(velocityY: -250))
+        let first = try #require(momentum.step(dt: 1.0 / 60))
+        #expect(abs(first.dy - (-250 * 0.95 / 60)) < 0.001)
+    }
+
     @Test func aSlowReleaseHasNoMomentum() {
         #expect(TerminalTUIMomentum(velocityY: 30) == nil)
     }

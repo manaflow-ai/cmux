@@ -33,6 +33,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var replay = "hello\r\n$ "
     /// Live output right after the attach reply (nil: none).
     var afterAttach: String? = "\u{1B}[?1049hTUI"
+    /// `send` is recorded but never answered (its reply lost on the way).
+    var unansweredSends = false
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
 
@@ -49,6 +51,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             Self.line(["id": id, "ok": true, "data": data])
         }
         switch cmd {
+        case "send" where lock.withLock({ unansweredSends }):
+            return []
         case "identify" where initialSize || sizeLease:
             return [reply(["capabilities": (initialSize ? ["attach-initial-size"] : []) + (sizeLease ? ["size-lease-v1"] : [])])]
         case "resolve-terminal":
@@ -175,6 +179,51 @@ final class FakeTerminalDaemon: @unchecked Sendable {
                 .compactMap { ($0["bytes"] as? String).flatMap { Data(base64Encoded: $0) }?.count }.reduce(0, +) == typed
         }
         #expect(sent.allSatisfy { $0 == UInt8(ascii: "x") })
+    }
+
+    /// TUI fast scroll: input does not wait for the last `send`'s reply.
+    /// One small request at a time stalled a flick for the link's whole
+    /// retransmission timeout (1 s, then 2 s) whenever a segment was lost
+    /// over TURN; with the next batch already behind it, TCP repairs the loss
+    /// from the duplicate ACKs within a few segments.
+    @Test func inputDoesNotWaitForTheLastReply() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.unansweredSends = true
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let session = DaemonTerminalSession(surface: 7) {
+            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+        }
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        let sends = { daemon.recorded.filter { $0["cmd"] as? String == "send" }
+            .compactMap { ($0["bytes"] as? String).flatMap { Data(base64Encoded: $0) } } }
+        session.send(Data("a".utf8))
+        try await waitUntil { sends().count == 1 }
+        session.send(Data("b".utf8))
+        try await waitUntil { sends().count == 2 }
+        session.send(Data("c".utf8))
+        try await waitUntil { sends().count == 3 }
+        // In order, each once.
+        #expect(sends() == ["a", "b", "c"].map { Data($0.utf8) })
+    }
+
+    /// TUI fast scroll: what one main-queue turn queues (a scroll frame's
+    /// wheel reports, which Ghostty writes one by one) is one `send`.
+    @Test func oneTurnsInputIsOneSend() async throws {
+        let daemon = FakeTerminalDaemon()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let session = DaemonTerminalSession(surface: 7) {
+            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+        }
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        let report = Data("\u{1B}[<64;4;6M".utf8)
+        for _ in 0..<5 { session.send(report) }
+        let sends = { daemon.recorded.filter { $0["cmd"] as? String == "send" }
+            .compactMap { ($0["bytes"] as? String).flatMap { Data(base64Encoded: $0) } } }
+        try await waitUntil { !sends().isEmpty }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(sends() == [Array(repeating: report, count: 5).reduce(Data(), +)])
     }
 
     /// The screen shows "Connecting to <Mac>…" until the attach succeeds,
