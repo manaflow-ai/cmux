@@ -5,7 +5,7 @@
 // drew: they are there to compare against.
 
 /// Every widget, in Settings' order.
-export const PAGE_WIDGETS = ["greeting", "projects", "actions", "chats", "styleDots"] as const;
+export const PAGE_WIDGETS = ["greeting", "projects", "actions", "chats", "styleDots", "weather", "machines"] as const;
 export type PageWidget = (typeof PAGE_WIDGETS)[number];
 export type PageWidgets = ReadonlySet<PageWidget>;
 
@@ -17,8 +17,13 @@ export type MovableWidget = (typeof MOVABLE_WIDGETS)[number];
 /// What Minimal shows when the host sends no list (Settings' defaults): the greeting.
 const MINIMAL_DEFAULT_LIST: readonly PageWidget[] = ["greeting"];
 const MINIMAL_DEFAULT: PageWidgets = new Set<PageWidget>(MINIMAL_DEFAULT_LIST);
+/// The ambient widgets (newtab/ambient.ts): every layout shows them when the user turns them on.
+/// They keep their own row under the composer, so the edit mode does not move them.
+const AMBIENT: ReadonlySet<PageWidget> = new Set<PageWidget>(["weather", "machines"]);
 /// What every other layout shows: everything it drew before the widgets, with no greeting.
-const OTHER_LAYOUTS: PageWidgets = new Set(PAGE_WIDGETS.filter((widget) => widget !== "greeting"));
+const OTHER_LAYOUTS: readonly PageWidget[] = PAGE_WIDGETS.filter(
+  (widget) => widget !== "greeting" && !AMBIENT.has(widget),
+);
 
 /// The widgets a handshake's `pageWidgets` names, in PAGE_WIDGETS' places, the movable ones in the
 /// list's order (the host sends them in the user's, `tabs.newTabWidgets.order`); undefined when it
@@ -93,9 +98,11 @@ export function droppedWidget(
   return next;
 }
 
-/// The widgets a page in `template` shows: the user's on Minimal, the layout's own on the others.
+/// The widgets a page in `template` shows: the user's on Minimal, the layout's own on the others
+/// (with the ambient ones the user turned on).
 export function shownPageWidgets(template: string, widgets?: readonly PageWidget[]): PageWidgets {
-  if (template !== "minimal") return OTHER_LAYOUTS;
+  if (template !== "minimal")
+    return new Set([...OTHER_LAYOUTS, ...(widgets ?? []).filter((widget) => AMBIENT.has(widget))]);
   return widgets ? new Set(widgets) : MINIMAL_DEFAULT;
 }
 

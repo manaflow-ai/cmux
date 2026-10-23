@@ -195,6 +195,7 @@ enum NewTabPage {
         ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
             .startingIn(machine.remoteFolders == nil ? services.newTabChoices.startedProject : nil)
             .warmedOnThisMac(machine.remoteFolders == nil)
+            .withWeather(services)
     }
 
     /// What a prewarmed spare page loads with before Cmd-T adopts it
@@ -207,6 +208,7 @@ enum NewTabPage {
             template: services.settings?.snapshot.newTabTemplate?.rawValue, pageWidgets: services.settings?.snapshot.newTabWidgets.ids
         ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
             .startingIn(services.newTabChoices.startedProject).warmedOnThisMac()
+            .withWeather(services)
     }
 
     /// Show All Chats on New Tab (`sidebar.showChats`; All chats left the sidebar for this page, cx-n0i9).
