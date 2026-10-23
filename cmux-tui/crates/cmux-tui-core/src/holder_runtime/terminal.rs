@@ -84,7 +84,7 @@ impl HolderTerminal {
     fn hang_up(&self) {
         if self.service.close(self.chan, 2000).is_err() {
             for signal in [libc::SIGHUP, libc::SIGTERM] {
-                cmux_holder::pty::signal_terminal(self.pid, self.custody.as_raw_fd(), None, signal);
+                cmux_holder::pty::signal_terminal(self.pid, self.custody.as_raw_fd(), signal);
             }
         }
     }

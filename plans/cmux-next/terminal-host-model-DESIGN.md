@@ -77,9 +77,10 @@ processes and ~2,000 threads fewer.
 - Children (review 2): every descriptor the holder inherited is close-on-exec from its first
   instruction, and each shell gets back the soft `RLIMIT_NOFILE` cmux started with
   (`CMUX_TUI_HOST_NOFILE_SOFT`, as a spawned terminal host). A frontend's shell starts through
-  login(1) on macOS as on the hosted path; CLOSE and its SIGKILL go to every process group on
-  the PTY (the child's, the foreground group, and on macOS each process whose controlling
-  terminal it is), so a shell in its own group under login(1) ends with its tab.
+  login(1) on macOS as on the hosted path; CLOSE and its SIGKILL go to the child's group and
+  the PTY's foreground group (no process-table scan, pty-holder.md 4): an interactive shell in
+  its own group under login(1) is the foreground group, so it ends with its tab and hangs up
+  its own jobs.
 - One kqueue: the daemon link socket, every PTY master (EVFILT_READ), every child
   (EVFILT_PROC NOTE_EXIT, then `waitpid` for the status: the holder is the shells' parent). No
   thread per terminal; no timers.

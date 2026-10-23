@@ -84,8 +84,6 @@ struct Terminal {
     id: [u8; 16],
     master: OwnedFd,
     pid: libc::pid_t,
-    /// The PTY's device number: names every process on it for a CLOSE.
-    tty: Option<u64>,
     /// This holder started the child, so it reaps it and reads its status.
     own_child: bool,
     ring: Ring,
@@ -688,8 +686,7 @@ impl Holder {
             .master
             .try_clone()
             .map_err(|error| (error_code::SPAWN_FAILED, error.to_string()))?;
-        let mut terminal = Terminal::new(request.id, spawned.master, spawned.pid, true, 0);
-        terminal.tty = spawned.tty;
+        let terminal = Terminal::new(request.id, spawned.master, spawned.pid, true, 0);
         self.terminals.insert(chan, terminal);
         self.queue(Kind::Spawned, chan, &Out::default().i32(spawned.pid).0, Some(custody));
         Ok(())
@@ -709,7 +706,6 @@ impl Holder {
         };
         pty::set_nonblocking(master.as_raw_fd());
         let mut terminal = Terminal::new(id, master, pid, false, base);
-        terminal.tty = pty::tty_device(terminal.master.as_raw_fd());
         terminal.prologue = input.rest().to_vec();
         self.terminals.insert(frame.chan, terminal);
         Ok(())
@@ -811,13 +807,8 @@ impl Holder {
             }
             return Ok(());
         }
-        pty::signal_terminal(terminal.pid, terminal.master.as_raw_fd(), terminal.tty, libc::SIGHUP);
-        pty::signal_terminal(
-            terminal.pid,
-            terminal.master.as_raw_fd(),
-            terminal.tty,
-            libc::SIGTERM,
-        );
+        pty::signal_terminal(terminal.pid, terminal.master.as_raw_fd(), libc::SIGHUP);
+        pty::signal_terminal(terminal.pid, terminal.master.as_raw_fd(), libc::SIGTERM);
         terminal.kill_at = Some(Instant::now() + Duration::from_millis(u64::from(grace)));
         if !was_closing {
             self.closing += 1;
@@ -836,12 +827,7 @@ impl Holder {
         for terminal in self.terminals.values_mut() {
             if terminal.kill_at.is_some_and(|at| at <= now) {
                 terminal.kill_at = None;
-                pty::signal_terminal(
-                    terminal.pid,
-                    terminal.master.as_raw_fd(),
-                    terminal.tty,
-                    libc::SIGKILL,
-                );
+                pty::signal_terminal(terminal.pid, terminal.master.as_raw_fd(), libc::SIGKILL);
             }
         }
     }
@@ -1088,7 +1074,6 @@ impl Terminal {
             id,
             master,
             pid,
-            tty: None,
             own_child,
             ring: Ring::new(base, RING_BYTES),
             status: None,

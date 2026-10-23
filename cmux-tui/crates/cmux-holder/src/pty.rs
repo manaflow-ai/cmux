@@ -12,8 +12,6 @@ use crate::SpawnRequest;
 pub struct Spawned {
     pub master: OwnedFd,
     pub pid: libc::pid_t,
-    /// The PTY's device number ([`tty_device`]).
-    pub tty: Option<u64>,
 }
 
 /// Open a PTY sized `cols` x `rows` and start `request.argv` on it with
@@ -66,7 +64,6 @@ pub fn spawn(request: &SpawnRequest, open_file_limit: Option<u64>) -> io::Result
     let (master, slave) = unsafe { (OwnedFd::from_raw_fd(master), OwnedFd::from_raw_fd(slave)) };
     set_cloexec(master.as_raw_fd());
     set_cloexec(slave.as_raw_fd());
-    let tty = tty_device(master.as_raw_fd());
     let (error_read, error_write) = cloexec_pipe()?;
 
     // SAFETY: single-threaded process; the child path below calls only
@@ -108,7 +105,7 @@ pub fn spawn(request: &SpawnRequest, open_file_limit: Option<u64>) -> io::Result
     // daemon holds; the daemon's writer waits for room on its own
     // (holder_runtime::terminal), so non-blocking here is safe for it.
     set_nonblocking(master.as_raw_fd());
-    Ok(Spawned { master, pid, tty })
+    Ok(Spawned { master, pid })
 }
 
 /// The child could not enter its directory.
@@ -258,51 +255,19 @@ fn c_strings(values: &[Vec<u8>]) -> io::Result<Vec<CString>> {
         .collect()
 }
 
-/// The device number of the PTY whose master is `master` (its slave's
-/// `st_rdev`), which names the terminal's processes in the process table.
-pub fn tty_device(master: libc::c_int) -> Option<u64> {
-    use std::os::unix::fs::MetadataExt;
-    // SAFETY: ptsname returns a pointer to a static buffer (the holder is
-    // single threaded) or null.
-    let name = unsafe { libc::ptsname(master) };
-    if name.is_null() {
-        return None;
-    }
-    // SAFETY: a non-null ptsname result is a NUL-terminated string.
-    let name = unsafe { std::ffi::CStr::from_ptr(name) };
-    std::fs::metadata(OsStr::from_bytes(name.to_bytes())).ok().map(|meta| meta.rdev())
-}
-
-/// Send `signal` to every process group of a terminal: its child's
-/// (`leader`), the PTY's foreground group, and on macOS the group of each
-/// process whose controlling terminal is the PTY (`tty`). A login(1) start
-/// puts the shell and its jobs in groups of their own under login's, so
-/// signalling the child's group alone would leave them running. Never the
-/// holder's own group.
-pub fn signal_terminal(
-    leader: libc::pid_t,
-    master: libc::c_int,
-    tty: Option<u64>,
-    signal: libc::c_int,
-) {
+/// Send `signal` to the process groups of a terminal: its child's
+/// (`leader`) and the PTY's foreground group. A login(1) start puts the
+/// shell in a group of its own under login's; an interactive shell makes
+/// that group the foreground one, and on SIGHUP it hangs up its own jobs.
+/// The holder never scans the process table for more (pty-holder.md 4).
+/// Never the holder's own group.
+pub fn signal_terminal(leader: libc::pid_t, master: libc::c_int, signal: libc::c_int) {
     let mut groups = vec![leader];
     // SAFETY: tcgetpgrp on a master this holder keeps open.
     let foreground = unsafe { libc::tcgetpgrp(master) };
     if foreground > 0 {
         groups.push(foreground);
     }
-    #[cfg(target_vendor = "apple")]
-    if let Some(tty) = tty {
-        for pid in tty_processes(tty) {
-            // SAFETY: getpgid reads the group of a pid; a gone pid fails.
-            let group = unsafe { libc::getpgid(pid) };
-            if group > 0 {
-                groups.push(group);
-            }
-        }
-    }
-    #[cfg(not(target_vendor = "apple"))]
-    let _ = tty;
     // SAFETY: getpgrp cannot fail.
     let own = unsafe { libc::getpgrp() };
     groups.sort_unstable();
@@ -313,26 +278,6 @@ pub fn signal_terminal(
             unsafe { libc::killpg(group, signal) };
         }
     }
-}
-
-/// The pids whose controlling terminal is device `tty`.
-#[cfg(target_vendor = "apple")]
-fn tty_processes(tty: u64) -> Vec<libc::pid_t> {
-    /// `PROC_TTY_ONLY` of `<sys/proc_info.h>`; libc does not export it.
-    const PROC_TTY_ONLY: u32 = 3;
-    // dev_t is 32 bits on macOS; a sign-extended one keeps its low half.
-    let tty = tty as u32;
-    // SAFETY: a null buffer asks only for the size the list needs.
-    let bytes = unsafe { libc::proc_listpids(PROC_TTY_ONLY, tty, std::ptr::null_mut(), 0) };
-    let Ok(bytes) = usize::try_from(bytes) else { return Vec::new() };
-    let mut pids: Vec<libc::pid_t> = vec![0; bytes / size_of::<libc::pid_t>() + 16];
-    let room = (pids.len() * size_of::<libc::pid_t>()) as libc::c_int;
-    // SAFETY: fills at most `room` bytes of a live buffer of that size.
-    let filled = unsafe { libc::proc_listpids(PROC_TTY_ONLY, tty, pids.as_mut_ptr().cast(), room) };
-    let Ok(filled) = usize::try_from(filled) else { return Vec::new() };
-    pids.truncate(filled / size_of::<libc::pid_t>());
-    pids.retain(|pid| *pid > 0);
-    pids
 }
 
 /// Mark every descriptor above stderr close-on-exec: the holder starts
