@@ -89,6 +89,9 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     func setVisible(_ visible: Bool) { tab.setContentVisible(visible) }
 
+    /// The page lifecycle freeze browser tabs use (`CEFTab+Freeze.swift`), sent before this returns.
+    func setFrozen(_ frozen: Bool) { tab.setFrozen(frozen) }
+
     func setSeeThrough(_ seeThrough: Bool) { tab.pageSeeThrough = seeThrough }
 
     func close() {
