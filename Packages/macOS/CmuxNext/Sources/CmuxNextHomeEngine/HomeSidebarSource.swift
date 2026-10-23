@@ -110,6 +110,15 @@ public final class HomeSidebarSource {
     /// The owners' replies (nil: that owner does not serve `home-inbox`), for observers of the list.
     public var ownerRows: [HomeInboxRequest.Response?] { inboxes.map(\.reply) }
 
+    /// What the list shows now beyond the conversations, for the next launch's first frame
+    /// (`HomeSidebarLaunchCache`). `archivedChiefs` is the directory's.
+    public func launchSnapshot(archivedChiefs: Set<String>) -> HomeSidebarLaunchSnapshot {
+        var replies: [String: HomeInboxRequest.Response] = [:]
+        for inbox in inboxes { if let reply = inbox.reply { replies[HomeSidebarLaunchSnapshot.key(inbox)] = reply } }
+        return HomeSidebarLaunchSnapshot(account: account(), replies: replies, chiefAvatars: chiefAvatars(),
+                                         chiefHarnesses: chiefHarnesses(), archivedChiefs: archivedChiefs, roster: chiefRoster())
+    }
+
     /// The store's rows (plus DEBUG fixture rows).
     private func listed() -> [InboxRow] {
         #if DEBUG
