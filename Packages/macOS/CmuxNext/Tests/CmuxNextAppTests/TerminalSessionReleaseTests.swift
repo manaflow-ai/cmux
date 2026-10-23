@@ -38,9 +38,17 @@ import Testing
 
         // Freed on main: the lane was closed before ghostty_surface_free, so it runs nothing more.
         // Released off main, the deinit skipped the free and the lane still holds the surface.
-        let ran = DispatchSemaphore(value: 0)
-        lane.perform { _ in ran.signal() }
+        let ran = RanFlag()
+        lane.perform { _ in ran.set() }
         await lane.drained()
-        #expect(ran.wait(timeout: .now()) == .timedOut, "the surface outlived its session (released off main)")
+        #expect(!ran.value, "the surface outlived its session (released off main)")
     }
+}
+
+/// Whether a lane block ran. Written on the lane's queue; read after `drained()` (which orders
+/// after every queued block), so the two never race.
+private nonisolated final class RanFlag: @unchecked Sendable {
+    // Written only by the lane block, read only after the lane drained past it.
+    private(set) var value = false
+    func set() { value = true }
 }
