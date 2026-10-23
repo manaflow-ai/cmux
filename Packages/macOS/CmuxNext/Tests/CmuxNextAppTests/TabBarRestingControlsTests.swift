@@ -101,7 +101,7 @@ import Testing
         toolbar.update(target: "browser", kind: .browser, pinned: ["file.open"])
         let pinnedMenu = try #require(toolbar.view.moreMenu?())
         let pinnedShow = try #require(pinnedMenu.items.first { $0.title == PaneToolbarStrings.showInTabBar })
-        #expect(pinnedShow.submenu?.items.map(\.title).contains("Open File") == true,
+        #expect(pinnedShow.submenu?.items.map(\.title).contains("Open File…") == true,
                 "an incompatible existing pin stays available so it can be removed")
     }
 
