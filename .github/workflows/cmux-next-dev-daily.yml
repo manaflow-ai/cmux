@@ -285,9 +285,12 @@ jobs:
 
   publish:
     name: Publish cmux NEXT DEV
-    # No signing secrets: the job token publishes the archive verify tested.
-    needs: [sign, verify]
-    if: needs.sign.outputs.signed == 'true' && needs.verify.result == 'success'
+    # Leo: "skip whatever else slows it (smoke, train gating, waiting for
+    # nightly)." Signing and codesign verification remain the admission gate;
+    # the sidecar verification job runs independently and never blocks the
+    # cutting-edge DEV artifact.
+    needs: [sign]
+    if: needs.sign.outputs.signed == 'true'
     concurrency:
       group: cmux-next-dev-daily
       cancel-in-progress: false
@@ -306,20 +309,12 @@ jobs:
           name: cmux-next-dev-daily-signed
           path: signed-handoff
 
-      - name: Download the tested digest
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: cmux-next-dev-daily-tested
-          path: tested
-
-      - name: Require the archive verify tested
+      - name: Require the signed archive
         run: |
           set -euo pipefail
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "sign job gave no source SHA" >&2; exit 1; }
-          actual="$(cd signed-handoff && shasum -a 256 "$APP_ARCHIVE_NAME")"
-          [ "$actual" = "$(cat tested/tested.sha256)" ] || { echo "the archive is not the one verify tested" >&2; exit 1; }
           cp "signed-handoff/$APP_ARCHIVE_NAME" "$RUNNER_TEMP/$APP_ARCHIVE_NAME"
-          cp tested/tested.sha256 "$RUNNER_TEMP/$APP_ARCHIVE_NAME.sha256"
+          (cd signed-handoff && shasum -a 256 "$APP_ARCHIVE_NAME") > "$RUNNER_TEMP/$APP_ARCHIVE_NAME.sha256"
 
       - name: Publish the rolling GitHub prerelease
         env:

@@ -41,8 +41,8 @@ check('"queue_ms"' in source_workflow and '"runner_labels"' in source_workflow,
       "the handoff receipt must include queue and runner evidence")
 text = WORKFLOW.read_text()
 schedule = re.findall(r'^    - cron: "([^"]+)"$', text, re.MULTILINE)
-check(schedule == ["7,22,37,52 * * * *"],
-      f"the dev dispatcher must run every 15 minutes off the hour, got {schedule}")
+check(schedule == ["2-59/5 * * * *"],
+      f"the dev dispatcher must run every five minutes, got {schedule}")
 check("run.head_sha === sha" in text and "activeOrSucceeded" in text,
       "the exact-SHA dedupe guard must remain in the dispatcher")
 check("run.conclusion === 'success'" in text and "run.status" in text,
