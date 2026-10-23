@@ -3534,6 +3534,11 @@ export function NewTabComposerChips({ snapshot, cwd }: { snapshot: AcpmuxSnapsho
   return <DefaultComposerChips snapshot={snapshot} cwd={cwd} startsChat />;
 }
 
+/// The chat's own composer chips, as the pane draws them under a chat (tests drive them directly).
+export function ChatComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
+  return <DefaultComposerChips snapshot={snapshot} />;
+}
+
 /// The host closes a New Tab page (`AgentPaneView.discardUnsentChat`).
 const NEW_TAB_CLOSE_EVENT = "acpmux-newtab-close";
 
@@ -3602,6 +3607,21 @@ function DefaultComposerChips({
         void callNative("chat.effort", { configId, value });
       }}
       onHarness={(harness, model) => void callNative("chat.new", { harness, ...(model ? { model } : {}), ...inFolder })}
+      // A started chat forks to another harness through Continue In… (Leo 2026-10-22: "need to be
+      // able to switch to different harnesses, can expose as fork"): the chat menu's own path, its
+      // review in this tab, then the new chat in a tab of its own. Not while a turn or queue runs.
+      {...(!startsChat && snapshot.canHandoff
+        ? {
+            fork: {
+              to: (harness: string) => void callNative("chat.handoff.prepare", { harness }).catch(() => undefined),
+              ready:
+                !!snapshot.handoff?.ready &&
+                !snapshot.handoff.busy &&
+                !snapshot.isWorking &&
+                snapshot.queue.length === 0,
+            },
+          }
+        : {})}
       {...(cwd ? { folder: cwd } : {})}
       // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
       onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
