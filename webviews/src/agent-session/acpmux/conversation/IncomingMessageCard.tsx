@@ -115,7 +115,10 @@ export function IncomingMessageLine({
     const box = textBox.current;
     if (!box) return;
     const measure = () => {
-      const line = parseFloat(getComputedStyle(box).lineHeight);
+      // The box's own window, as PromptText's measure: a page or test without a global
+      // getComputedStyle still draws the card (unmeasured, uncut).
+      const style = box.ownerDocument.defaultView?.getComputedStyle?.(box);
+      const line = style ? parseFloat(style.lineHeight) : NaN;
       setLong(Number.isFinite(line) && box.scrollHeight > line * RECEIVED_LINES + 1);
     };
     measure();

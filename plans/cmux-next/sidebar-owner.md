@@ -1,0 +1,424 @@
+# cmux-next sidebar: owner note
+
+Owner: the sidebar-owner agent (Chief subagent, Oct 23 2026, "one new agent that owns everything about
+sidebar from now on"). Scope: workspace and group rows, nested groups, the group rail, the hover card,
+the row close (X), unread dots, densities, drag and reorder, the Home/pinned band, and sidebar
+performance.
+
+## Rule for every sidebar change
+
+Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents can't mess this up"):
+
+- **Gate.** `scripts/cmux-next/prepush-gate.py` "Sidebar look owner", on every push and per commit in CI: a commit
+  that changes `CmuxNextSidebar/Views/` needs a `Sidebar-Look:` trailer. `Sidebar-Look: no visual change` for
+  behavior or performance work; otherwise the user's words, and the same commit must edit this note.
+  `CMUX_NEXT_CHECKS_SKIP_REASON` does not skip it.
+- **Contract tests.** `SidebarLookContractTests` (text at the inset, members flush with ungrouped rows, one indent
+  step per nested level, rows to the inset, the trailing hover x) and `SidebarGroupRailAlignmentTests` (rail on the
+  header bar's left edge), at every density, Minimal Mode and width. They run in the cmux-next tests job.
+- **Gallery.** `AASidebarLookGalleryTests` draws Lawrence's screenshot fixture at every density, dark and light
+  (`CMUX_TEST_REQUIRE_GUI=1`, artifact `sidebar-look-gallery.tar`): before/after crops for every look change.
+- **Perf.** Sidebar budgets rows (`split-spring.sh --suite=budgets` on cmuxs-Mac-mini.local against
+  `perf-budgets-baseline/`). Run it before and after any sidebar change.
+
+1. Read this note first. A change that alters how the sidebar looks must match the target below, or
+   change this note in the same commit and name who asked for it (a Lawrence message id).
+2. Do not take back a look another commit chose in the last week without naming that commit here.
+3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
+4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
+
+## Target look (Lawrence's words win)
+
+| Part | Target | Source |
+| --- | --- | --- |
+| Row close (X) | The original close: a small x at the row's trailing end, shown on hover, in its rounded box. Not the top-right "dog-ear" fold. | Lawrence 11405 ("revert styling back to original, for the X button") |
+| Group rail | The rail's left edge is the group header pill's left edge, at every depth, every density, light and dark. | Lawrence 11240, 11371, 11405 |
+| Row text | As far left as it originally was. A row with no icon starts its title at the row inset; no empty icon slot pushes it right. A top-level group's rows keep the ungrouped rows' left edge. Only nested groups step in. | Lawrence 11405 ("text needs to be as left as possible (how it originally was)"); #23975 |
+| Home unread | A blue dot, the same dot as other unread rows. No count badge. | Lawrence 11384 |
+| Drag and reorder | The lifted row follows the pointer and a gap opens where it drops. No stray blue line during the drag, and nothing stays after a drop or a cancel. | Lawrence 11405 |
+| Nesting | Groups nest deeply (16 levels). The indent stops growing at 6 steps so a label keeps room. | Lawrence 11240 |
+| Minimal rows | Name plus one state mark (spinner, unread dot, needs-you dot). No times, PR badge, status words or Now line by default. | Lawrence 10-21 |
+| Heights | Group headers, workspace rows and band rows have one height at each density. | Lawrence 10-19, 10-22 |
+| Performance | Terminal typing stays smooth while the sidebar rearranges (p95 frame under 8 ms). | Lawrence 11215 |
+
+Default picked (title x): the 10-21 commit c779988d57d reserved an empty icon slot on every row so that
+rows with and without a favicon line up ("weird spacing"). On 11405 Lawrence asked for the text to sit
+as far left as originally. The new default: no empty slot. If he wants rows with and without icons to
+line up again, the slot comes back only for lists that have an icon.
+
+## Why there were so many changes
+
+From Oct 19 to Oct 23, 233 commits changed the sidebar package
+(`Packages/macOS/CmuxNext/Sources/CmuxNextSidebar`): 110 by Leo's agents (PRs), 113 by Lawrence's
+Chief subagents (lawrencecchen / Lawrence Chen), 7 by Austin Wang, 2 by Abdulaziz Albahar and 1 by
+Lucas Ribeiro. There was no owner and no written target, so each agent fixed the newest complaint and
+some undid each other:
+
+- Row length: #22733 (Leo, 10-20) stopped rows short of the edge; #23783 (Leo, 10-22) took that back.
+- Group indent: bdbf63b5483 (a283, 10-20) indented nested groups; #23975 (Leo, 10-21) removed the
+  top-level indent; c5d9f102340 (a479, 10-22) added nested indent and rails again; ab905adeadd and
+  6c315dd4b83 (a577, 10-23) moved the rail and capped the indent.
+- Title x: c779988d57d (a419, 10-21) added an empty icon slot on every row, which pushed text right.
+- Row close: #23783 (Leo, 10-22) replaced the trailing x with a top-right dog-ear.
+- Heights: 29721e300e5, 9dfd217a4fd, bd65087d66c, f7ecef82c42 (a579, 10-22 to 10-23).
+
+## Look-changing commits (Oct 19-23)
+
+| Commit | Date | Who | Change |
+| --- | --- | --- | --- |
+| [83c8d5b6104](https://github.com/manaflow-ai/cmux/commit/83c8d5b61040b6c8e2f39fd3c5f53b375c7b40d6) | 10-23 | Chief subagent (Home unread dot) | Home's unread is the workspace rows' blue dot on the trailing column, no count (Lawrence 11384) |
+| [cd84bc62d13](https://github.com/manaflow-ai/cmux/commit/cd84bc62d13f501d0b80eae7b65a6164c7d60acc) | 10-22 | Leo (#23783) | Rows run full length; hover close becomes a top-right dog-ear |
+| [6c315dd4b83](https://github.com/manaflow-ai/cmux/commit/6c315dd4b83c2dc546f5de9e9df525b267043d2d) | 10-23 | a577 | Indent stops at six steps; a label keeps 150 pt |
+| [ab905adeadd](https://github.com/manaflow-ai/cmux/commit/ab905adeadd0327f92e2c3f3d1de568c6a6780d1) | 10-23 | a577 | Group rail starts at the header bar's left edge; 16 nesting levels |
+| [c3bd2b29c6b](https://github.com/manaflow-ai/cmux/commit/c3bd2b29c6b9387af7df29c1c9d176756e6d1e49) | 10-23 | a572 | No Color for workspaces and groups |
+| [f7ecef82c42](https://github.com/manaflow-ai/cmux/commit/f7ecef82c42896d99e28e63f3d4ec4015a63c3d7) | 10-23 | a579 | Band rows stay one line in Expanded |
+| [9dfd217a4fd](https://github.com/manaflow-ai/cmux/commit/9dfd217a4fd5c9232a97ffe1f07ce67f255ca42e) | 10-22 | a579 | Group headers and rows share one height |
+| [bd65087d66c](https://github.com/manaflow-ai/cmux/commit/bd65087d66cb23e5a25c753f346ed63c83d0d6b7) | 10-22 | a579 | Band rows follow Minimal Mode's row height |
+| [474a33b67bf](https://github.com/manaflow-ai/cmux/commit/474a33b67bf3b07efb1cddf11750549989f0cfdf) | 10-22 | Leo (#23966) | Hover card lines up, previews status |
+| [05d12a8ffe2](https://github.com/manaflow-ai/cmux/commit/05d12a8ffe27caab053c0e9493d2060bd100da11) | 10-22 | a443 | Thin rail: a mark's hover card beside its row |
+| [c5d9f102340](https://github.com/manaflow-ai/cmux/commit/c5d9f102340ad0ee7aa450cb8c53a4ea31369769) | 10-22 | a479 | Nested groups: one indent rule, nested rails, inside/between drop mark |
+| [c779988d57d](https://github.com/manaflow-ai/cmux/commit/c779988d57d47259141d7e735631ebf5ea5197c9) | 10-21 | a419 | Minimal by default; every row keeps an empty icon slot (one title x) |
+| [fd82636690f](https://github.com/manaflow-ai/cmux/commit/fd82636690fe7b790fe10d364b72c2fdc78201f7) | 10-21 | Leo (#23975) | Group members keep the ungrouped rows' left edge, no indent |
+| [99ed8e9ef98](https://github.com/manaflow-ai/cmux/commit/99ed8e9ef98650a5f3299d63587bad8c296d2cda) | 10-21 | Chief subagent | Thin rail style (sidebar.style = rail) |
+| [10b45915a53](https://github.com/manaflow-ai/cmux/commit/10b45915a53b37700b1d5cd242adda0ef94d715d) | 10-21 | Leo (#23767) | No status words; needs-you is one yellow dot |
+| [a4c95338ae1](https://github.com/manaflow-ai/cmux/commit/a4c95338ae1207e3c7c6d6970122a7a46c23a6d0) | 10-21 | Leo (#23633) | Done workspaces fold into one Done (N) row |
+| [f14426c5443](https://github.com/manaflow-ai/cmux/commit/f14426c5443a96e91a4d68d1175bf2e29b67d01b) | 10-21 | Leo (#23671) | Long groups show Show N more |
+| [358376c4e7d](https://github.com/manaflow-ai/cmux/commit/358376c4e7d10c9388cfca04a306a3237ae4a8bf) | 10-21 | Leo (#24089) | Title fade widened to 24 pt |
+| [0105692a41d](https://github.com/manaflow-ai/cmux/commit/0105692a41d42974be03e91237d10a0d4fc525ac) | 10-21 | Chief subagent | Empty open group keeps a placeholder row |
+| [1231b9d30d3](https://github.com/manaflow-ai/cmux/commit/1231b9d30d3be0bcd1d190d5dd57aad6bd98bc6e) | 10-21 | Chief subagent | Hover card 1 px off the sidebar |
+| [0d6230334c8](https://github.com/manaflow-ai/cmux/commit/0d6230334c8c990df2e51563e0bc40e7fdd0a084) | 10-20 | Leo (#22733) | Row pills stop short of the edge (later taken back) |
+| [4e68eeb968c](https://github.com/manaflow-ai/cmux/commit/4e68eeb968cabc0772c21e763b454a760e757963) | 10-20 | Leo (#22826) | Calm accent dot instead of a spinner on working rows |
+| [63bd306ac66](https://github.com/manaflow-ai/cmux/commit/63bd306ac66247f9147db718a254491de002a478) | 10-20 | Leo (#22864) | Quieter group headers, theme group colors (Debug) |
+| [5e452db8de9](https://github.com/manaflow-ai/cmux/commit/5e452db8de97573d4633301b1064f5b05454eb37) | 10-20 | Leo (#22952) | A drag keeps every header and row in the list |
+| [bdbf63b5483](https://github.com/manaflow-ai/cmux/commit/bdbf63b548374bd739ae90f1e83a58d24f22a21e) | 10-20 | a283 | Nested groups indent per level |
+
+Agent names (aN) come from the Chief's log; "Chief subagent" means a lawrencecchen commit whose agent
+the log does not name.
+
+## Look target, revised Oct 23 (Lawrence: "i liked it the way it was ... the nightly from 1 or 2 days ago")
+
+The sidebar should look like `feat-cmux-next` at 9f0271f3e32 (Oct 21, about noon PDT). Behavior and
+performance work landed since then stays. Only looks change back: the row close (#23783 dog-ear out), the
+title x (c779988d57d's empty icon slot out), and the group indent, rail and row heights where they differ
+from Oct 21. A nested group keeps a step-in so nesting stays readable. Fleet build `sb-oct21-v1` is the
+reference capture.
+
+## Group drag: design for the rewrite (Lawrence 11405 and Oct 23: "a lot of jank ... rethink from first principles")
+
+Why it janks today (`SidebarListView+Drag.swift`, `SidebarListView+GroupReorder.swift`, `SidebarGroupReorder`):
+
+- The hit test reads the displayed (animating) layout: `displayed.gapY`, `gapShift`, and a `shift` patched from
+  the drawn rows. The gap it opens moves the rows it then measures, a feedback loop. The target depends on the
+  current gap, not only on the pointer.
+- A tall group opens a gap as tall as the whole group. One step moves every row below by hundreds of points, and
+  the list under a tall card cannot be seen.
+- Three ways to place the card (`displayY` by morph ratio, by head height, by probe card), two paths (document and
+  legacy), a refused place that keeps the last gap, and an extra drop indicator (c5d9f102340) drawn from a stale
+  layout (the blue line).
+
+The rule for the rewrite:
+
+1. **One frozen base.** At lift, take the list's layout without the dragged block, once. The blocks are
+   the top-level things (groups with their members, loose workspaces, items, section headers), each a range in
+   base y. Nothing during the drag reads a drawn or animating frame for hit testing.
+2. **A capped card.** A lifted group collapses, animated (Motion springs, about 0.2 s), to at most
+   `header + 3 rows`. The rows past the cap fade under a bottom-edge fade. The gap it opens is the card's
+   capped height, not the group's full height. On drop the card lands at the capped height in its slot, then
+   the group grows back to full height and the rows below slide with it.
+3. **The target is a pure function of the pointer.** The slot is the number of blocks whose base midpoint is
+   above the card's centre in base space. A step function of the pointer alone: the same pointer y always gives
+   the same slot, so nothing can oscillate. Unit-tested without AppKit.
+4. **One layout from (base, slot, gap height).** The drawn y of block j = base y + (j >= slot ? gap : 0). One
+   spring moves each row view to it. A slot change sets the row views' targets and nothing else.
+5. **One drop path.** Drop sends the slot to the document (one intent). The card lands on the frame step 4
+   gives, the same function, so the landing does not jump. Cancel = slot back to the origin.
+6. **One drop mark: the gap.** There is no line, no outline and no dot over the rows.
+   Done Oct 23 (a588, landed by the owner): `SidebarNestedDropIndicatorView` is gone; a nested drop shows its
+   level by the gap's left edge only.
+7. Group drags reorder top-level blocks only (u9772): a group never drops into another group by drag.
+
+Delete what the rule replaces (`SidebarGroupReorder`'s shift and hysteresis, the group branch of
+`updateDocDrag`, `showGroupReorder`'s refused-keeps-gap, `SidebarNestedDropIndicatorView`). Do not keep them
+as a fallback.
+
+Status (Oct 23, owner): implemented as `SidebarGroupDragPlan` (pure: blocks, slot, cap, layout) and
+`SidebarListView+GroupDrag` (lift freezes the base, a move asks for the slot, drop sends the slot's move); the cut
+card's fade is `SidebarLiftCap`. A drop in the slot it came from sends nothing. Captures (fleet-built app,
+`debug.sidebar_group_drag` on the `tallGroup` fixture): ~/fun/cmux-galleries/group-drag-rewrite/{before,after}-strip.png.
+
+Tests: the slot function (monotonic in y, no state, both edges of every block), the capped card height, the
+layout function (rows above the slot unchanged, rows below shifted by the capped gap), and a real-app drag on
+the fleet driven through `updateDrag` with frames recorded at each step (no frame where a row moves by more than
+the gap, no row left out of place after drop or cancel).
+
+## Open work (Oct 23)
+
+- Base red, not ours: `SidebarPinnedRowWidthTests` fails on feat-cmux-next before these changes (36 issues: the group
+  header sits 4 pt off the pinned rows since the a579 height commits). Next for the owner.
+- a593 (multi-window routing, 5dceeca..ef02482): behavior only in SidebarBridge+Sections/PinnedItems and
+  SidebarNavigation; a row, pinned or Cmd-1..9 pick acts in the clicked window. No look change.
+- Sidebar owner: the Oct 21 look (took over a585's X revert 31ad64e4dc4 and red tests 2b40f979ca2) and the
+  group drag rewrite (took over a588's blue-line fix 41c8c60c5a5 and red test 42a1811bb6b).
+  Group drag rewrite landed b16f04f365e..58036f2c789 (see the design section's status).
+- a587: Home unread badge becomes the blue dot.
+- Sidebar owner (from a576): terminal lag while the sidebar rearranges. Remaining main-thread causes at 400 workspaces (a576 profile): SidebarBridge.observe re-projects every list per change (14%), ControlSnapshotPublisher topology rebuild (9%), WindowManager.reconcileMembership via DaemonStore.workspaceListMayHaveChanged (9%), SidebarDocStore.show/projection (10%), full list reloads.
+
+## Owner landings
+
+| Range | Change |
+| --- | --- |
+| [92bf50b1c92..35a6f075512](https://github.com/manaflow-ai/cmux/compare/92bf50b1c92...35a6f075512) | sb-churn-b (92bf50b1c92 red, 35a6f075512 fix): a move, a group change or a one-workspace change no longer runs `WindowManager.reconcileMembership` (the store hook compares the workspace set, not the ordered list; `observeMembership` reads load state and room rules, not order or the personal revision). `workspace <id> update --task-status` sent `tree-changed`, so the app refetched and re-applied the whole tree at 10 Hz; a notes-only `workspace.update` (description, task status) now sends none (the raw tree does not carry them; the state feed patches the one workspace). No event shape change. Bench at 400 workspaces, cmux8s, before e6048d7c387 (step a7135ee58f10398c68d0bba0) / after (step 94375ca84f7ad361e1c23fff): churn p95 165.0 / 143.4 ms, hangs 149 / 109, worst hang 354.0 / 116.1 ms; resync + `apply(snapshot:)` 9.3% / 0%, `workspaceListMayHaveChanged` 405 / 12 samples. Still over 8 ms: `SidebarSameTurn.observe` 17.5%, `ControlSnapshotPublisher.publishNow` 12.1%, `SidebarDocStore.show` 10.4%. No look change. |
+| [5846e103ece..d46123a6d79](https://github.com/manaflow-ai/cmux/compare/5846e103ece...d46123a6d79) | a576 churn fix (f533c272408 red, d295dc19007 fix): a reorder rewrites no row; `SidebarRowFeed.fill` writes only new or re-mapped rows (was 31% of main at 400 workspaces). No look change. |
+| [6205b02791b..710e98db4c2](https://github.com/manaflow-ai/cmux/compare/6205b02791b...710e98db4c2) | a576 bench: `scripts/cmux-next/sidebar-churn-typing.py` (`split-spring.sh --suite=sidebar-churn`, cmux8s only, needs a logged-in console); `debug.key` takes the client's send time. At 400 workspaces after the fix: churn p95 70.7 ms, worst hang 258 ms, idle p95 27.8 ms (target 8 ms). Owner continues. |
+| [9dd6cf65a85..04df9ec4a88](https://github.com/manaflow-ai/cmux/compare/9dd6cf65a85~1...04df9ec4a88) | sb-churn-c (9dd6cf65a85 red, 898523f2261 fix): a control snapshot publish maps only the workspaces whose tracking fired and the panes whose app facts can be set (mounted, page tabs); real use pays it on every model change and after every CLI request's work-queue frame. cmux8s, 150 workspaces (suite default), steps fb4201b8e05 before / 94acbd5cc13 after: `topology` 215 to 61 samples idle (23.1% to 6.0% of main), 369 to 147 in churn; churn key-to-frame p95 92.8 to 81.5 ms. Left in `publishNow`: `TabSearchFactsBuilder.facts` (closed tabs, about 10%) and `ControlTopology.tabCount`. 04df9ec4a88: SidebarLagTests' growth check takes the lower p95 of two interleaved passes and scales its 1 ms floor (a576's 4.27 vs 3.56 ms miss was runner noise: 3 runs at cc7a964ef61, step bb8516536f1, at most 1.63 ms at 500). No look change. |
+| [dcd4316ef5c](https://github.com/manaflow-ai/cmux/commit/dcd4316ef5c) | a595 scrollers (8de6f7f4ef9 red, dcd4316ef5c fix): sidebar list, bands, Priority and hover-card scrollbars fade 0.8 s after a scroll and grow 3 to 7 pt within 20 pt of the edge. Only sidebar file: `SidebarView+Reveal.swift` (pointer enter flashes the shared scroller). Reached the branch without a `Sidebar-Look:` trailer (an old hook copy; its CI run was cancelled); reviewed and logged by the owner. |
+| [b16f04f365e..b671d11b764](https://github.com/manaflow-ai/cmux/compare/b16f04f365e...b671d11b764) | Group drag rewrite: capped card, frozen base, the pointer alone picks the slot; no blue drop line |
+| [3110ef77bed..7542622b53e](https://github.com/manaflow-ai/cmux/compare/3110ef77bed...7542622b53e) Updated card x (a592: a069f81c3d1 red, 7542622b53e fix) | The "Updated to Nightly" card's x is native again (`SidebarUpdatedCardHost`): it shows on hover at the card's top right (8 by 7 pt inset, 18 pt, the page's old spot) and takes the first click, Escape closes the card. The page's own x never showed or clicked while a Chromium page's window had the key (Lawrence 2026-10-23: "i cant X this out anymore even when hovering on it"). No row, rail or indent change. |
+| [62c427ab5bd..a1af264c7a7](https://github.com/manaflow-ai/cmux/compare/62c427ab5bd...a1af264c7a7) | The Sidebar-Look gate and SidebarLookContractTests |
+| [89dbae323b5..30d164e1ec6](https://github.com/manaflow-ai/cmux/compare/89dbae323b5...30d164e1ec6) | Row close back to the trailing x (takes back #23783's dog-ear); a row without an icon starts its title at the inset (takes back c779988d57d's empty slot); look gallery test |
+
+## Every sidebar package commit, Oct 19-23
+
+| Commit | Date | Who | Change |
+| --- | --- | --- | --- |
+| [58036f2c789](https://github.com/manaflow-ai/cmux/commit/58036f2c789739ff47703df9e9018fcc417660db) | 10-23 | Lawrence's Chief subagents (lawrencecchen) | cmux NEXT sidebar: debug.sidebar_group_drag holds a group drag for captures; a tallGroup fixture |
+| [c8959d9d772](https://github.com/manaflow-ai/cmux/commit/c8959d9d772746d0d4f0e305ba16623b1fbf21c7) | 10-23 | Lawrence's Chief subagents (lawrencecchen) | cmux NEXT sidebar: a group drags as a capped card over a frozen base; the pointer alone picks its slot |
+| [ac9c8c8196a](https://github.com/manaflow-ai/cmux/commit/ac9c8c8196a64c365680519725502b7231006d17) | 10-23 | Lawrence's Chief subagents (lawrencecchen) | cmux NEXT sidebar: tests that a tall group drags as a capped card, by the pointer alone (red) |
+| [2a8d5c6c250](https://github.com/manaflow-ai/cmux/commit/2a8d5c6c250e6769b264f0d25f629e2c7095172e) | 10-23 | Lawrence's Chief subagents (lawrencecchen) | cmux NEXT sidebar: a drag draws no blue line or outline; the gap is its one drop mark |
+| [b16f04f365e](https://github.com/manaflow-ai/cmux/commit/b16f04f365edf62dae3b11ab8d07d3ae577337b4) | 10-23 | Lawrence's Chief subagents (lawrencecchen) | cmux NEXT sidebar: tests that a drag draws no line or outline over the rows (red) |
+| [83c8d5b6104](https://github.com/manaflow-ai/cmux/commit/83c8d5b61040b6c8e2f39fd3c5f53b375c7b40d6) | 10-23 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: Home's unread is a workspace row's blue dot, not a count |
+| [488ef6667db](https://github.com/manaflow-ai/cmux/commit/488ef6667dbfa443f217e7484c3d1de5ff0852f3) | 10-23 | Lawrence's Chief subagents (lawrencecchen) | test(sidebar): capture Home beside an unread workspace row at every density |
+| [b70369ea301](https://github.com/manaflow-ai/cmux/commit/b70369ea3014aa758a97774e8fc67c405054fbec) | 10-23 | Lawrence's Chief subagents (lawrencecchen) | test(sidebar): Home shows a blue unread dot, not a count (red) |
+| [6c315dd4b83](https://github.com/manaflow-ai/cmux/commit/6c315dd4b83c2dc546f5de9e9df525b267043d2d) | 10-23 02:35 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: the indent goes six steps deep, a label keeps 150 pt |
+| [ab905adeadd](https://github.com/manaflow-ai/cmux/commit/ab905adeadd0327f92e2c3f3d1de568c6a6780d1) | 10-23 01:20 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: a group's rail starts at its header bar's left edge; groups nest 16 levels |
+| [bab65850337](https://github.com/manaflow-ai/cmux/commit/bab658503376845a3ddc09c1b793338bb9c6d066) | 10-23 02:11 | Leo's agents (Leo) | cmux NEXT: a classic import keeps classic's workspace order again (base red since #22593) (#23693) |
+| [9dfd217a4fd](https://github.com/manaflow-ai/cmux/commit/9dfd217a4fd5c9232a97ffe1f07ce67f255ca42e) | 10-22 22:14 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: group headers and workspace rows share one height at every density, Expanded included |
+| [bd65087d66c](https://github.com/manaflow-ai/cmux/commit/bd65087d66cb23e5a25c753f346ed63c83d0d6b7) | 10-22 22:12 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: band rows follow Minimal Mode's row height, like workspace rows and group headers |
+| [c3bd2b29c6b](https://github.com/manaflow-ai/cmux/commit/c3bd2b29c6b9387af7df29c1c9d176756e6d1e49) | 10-23 01:18 | Lawrence's Chief subagents (lawrencecchen) | feat(sidebar): No Color for workspaces and groups, Remove All Workspace Colors, sidebar.showColors |
+| [cd84bc62d13](https://github.com/manaflow-ai/cmux/commit/cd84bc62d13f501d0b80eae7b65a6164c7d60acc) | 10-22 23:44 | Leo's agents (Leo) | cmux NEXT sidebar: workspace rows run full length; the hover close is a top-right dog-ear (#23783) |
+| [474a33b67bf](https://github.com/manaflow-ai/cmux/commit/474a33b67bf3b07efb1cddf11750549989f0cfdf) | 10-22 22:09 | Leo's agents (Leo) | cmux NEXT sidebar: the workspace hover card lines up and previews the status (#23966) |
+| [c009b81a217](https://github.com/manaflow-ai/cmux/commit/c009b81a217be3f75abacb6229b3543930e169b1) | 10-22 00:35 | Abdulaziz Albahar | cmux NEXT: review fixes for tab hints and Shift range selection |
+| [c4686288295](https://github.com/manaflow-ai/cmux/commit/c4686288295e655018bbc3f9872c4967e0339de2) | 10-22 00:25 | Abdulaziz Albahar | cmux NEXT sidebar: Shift+Arrow selects a range that shrinks going back |
+| [3c9abe9e8a5](https://github.com/manaflow-ai/cmux/commit/3c9abe9e8a56108e9aa80a7720f0838616894670) | 10-22 20:26 | Leo's agents (Leo) | cmux-next sidebar: VoiceOver names a remote row's machine once (#24122) |
+| [05d12a8ffe2](https://github.com/manaflow-ai/cmux/commit/05d12a8ffe27caab053c0e9493d2060bd100da11) | 10-22 16:15 | Lawrence's Chief subagents (lawrencecchen) | cmux NEXT sidebar rail: a mark's hover card beside its row; Toggle Sidebar opens the full sidebar |
+| [68a1b373681](https://github.com/manaflow-ai/cmux/commit/68a1b3736812a4d38fc3cbf0c3fbea68d71ca7b9) | 10-22 16:14 | Lawrence's Chief subagents (lawrencecchen) | cmux NEXT sidebar rail: tests for a mark's hover card beside its row (red) |
+| [39f51c07e54](https://github.com/manaflow-ai/cmux/commit/39f51c07e5408e90ad3bf914bc13b83b23ec1978) | 10-22 13:15 | Leo's agents (Leo) | cmux NEXT sidebar: rows make room on the render server, not on the main thread each frame (#24187) |
+| [d48b8d08022](https://github.com/manaflow-ai/cmux/commit/d48b8d08022e11138dde9819860abaccdb0dbef5) | 10-22 07:51 | Leo's agents (Leo) | cmux NEXT sidebar: the show/hide slide sizes the content once, not on every frame (#24342) |
+| [f4a3e650ae7](https://github.com/manaflow-ai/cmux/commit/f4a3e650ae79616a901cc6fa5a5048640488a945) | 10-22 07:40 | Leo's agents (Leo) | cmux NEXT: pick each machine's color (appearance.machineColors) (#24059) |
+| [1231b9d30d3](https://github.com/manaflow-ai/cmux/commit/1231b9d30d3be0bcd1d190d5dd57aad6bd98bc6e) | 10-21 23:14 | Lawrence's Chief subagents (lawrencecchen) | cmux NEXT sidebar: the hover card stands 1 px off the sidebar; its icons sit on their first line |
+| [51b295b866e](https://github.com/manaflow-ai/cmux/commit/51b295b866e7fecd0bfb324c0c686dc4a6efc708) | 10-22 06:58 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: SidebarIndent clamps before Int conversion (an unbounded width trapped) |
+| [c5d9f102340](https://github.com/manaflow-ai/cmux/commit/c5d9f102340ad0ee7aa450cb8c53a4ea31369769) | 10-22 06:16 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: groups in groups draw by one indent rule, nested rails, roll-up and an inside/between drop mark |
+| [c055630834f](https://github.com/manaflow-ai/cmux/commit/c055630834f29c7f91ca5801417b97a90ccd02c0) | 10-21 20:07 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: a plain click on a workspace row switches on mouse-down again; a drag puts the shown workspace back |
+| [5692626e53e](https://github.com/manaflow-ai/cmux/commit/5692626e53e9abc9948bdda77adaf7d9e349aee1) | 10-21 19:44 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: since-looked stamps stay in memory and are written once the selection settles |
+| [0105692a41d](https://github.com/manaflow-ai/cmux/commit/0105692a41d42974be03e91237d10a0d4fc525ac) | 10-21 23:36 | Lawrence's Chief subagents (lawrencecchen) | cmux NEXT sidebar: an open empty group keeps a quiet placeholder row (user 9757) |
+| [60d04d158b3](https://github.com/manaflow-ai/cmux/commit/60d04d158b3b74c7d2d3540d15b8d91e5d3efb81) | 10-21 20:24 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: delete the local Chief section (its "Update available" header, "Started by Chief", no +) |
+| [c779988d57d](https://github.com/manaflow-ai/cmux/commit/c779988d57d47259141d7e735631ebf5ea5197c9) | 10-21 18:09 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: minimal by default: no status words or log line, no Now line; one title x; no Update available on headers |
+| [318d8fc90cb](https://github.com/manaflow-ai/cmux/commit/318d8fc90cbab4daf199eb3a490b3c7cc868e9c0) | 10-21 18:05 | Lawrence's Chief subagents (lawrencecchen) | test(cmux-next sidebar): minimal by default: no times, PR badge, status words or Now line; one title x; no Update available header (red) |
+| [7d50820b5f9](https://github.com/manaflow-ai/cmux/commit/7d50820b5f912c22733b6313f35968ddfaf656a8) | 10-22 06:20 | Lawrence's Chief subagents (lawrencecchen) | fix(next sidebar l10n): the rail's Workspaces label in all 21 locales |
+| [ecc390df3e9](https://github.com/manaflow-ai/cmux/commit/ecc390df3e92992d3c1208b0cd4adae2c7ed1f4b) | 10-21 22:05 | Lawrence's Chief subagents (lawrencecchen) | fix(cmux-next sidebar): the footer avatar is the icon box again; the space + sits right after the last space |
+| [42353e6d262](https://github.com/manaflow-ai/cmux/commit/42353e6d262eaa4917f41a768a14980144e8ea1c) | 10-21 22:47 | Lawrence's Chief subagents (lawrencecchen) | sidebar: a dragged group never nests through a member row's gap; group depth comes only from a listed parent |
+| [086eb475a35](https://github.com/manaflow-ai/cmux/commit/086eb475a352bd696d5a0022af0a248823e43af2) | 10-21 22:46 | Lawrence's Chief subagents (lawrencecchen) | sidebar: one leading offset per row (SidebarRow.groupGutter) and alignment tests for top-level groups (red) |
+| [8f4e8f04d45](https://github.com/manaflow-ai/cmux/commit/8f4e8f04d45e34edfff528095e3960a4b9aacc65) | 10-21 19:48 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: lane status, row status and the Now: line are off by default |
+| [7618802bac4](https://github.com/manaflow-ai/cmux/commit/7618802bac4024643c7325ea835240b5d44fae2a) | 10-21 18:49 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: an agent event maps its own row only; badges and machine marks patch in place |
+| [44284b5f94d](https://github.com/manaflow-ai/cmux/commit/44284b5f94d732ffcc12f84aa5ee53a8f7494e13) | 10-21 23:42 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: a hover card slides to the next row in under a frame; its history lines lay out by frame, not as twenty stack views under constraints |
+| [56fe600cd39](https://github.com/manaflow-ai/cmux/commit/56fe600cd392ead5d7fe08d443ebede34cbcda63) | 10-21 23:48 | Lawrence's Chief subagents (lawrencecchen) | fix(next sidebar): a group reorder drops beside a whole top-level block, never into a group; a parent lifts and swaps with its subgroups |
+| [82a67f9af36](https://github.com/manaflow-ai/cmux/commit/82a67f9af3604f1939e74de60aa85196d3e2a271) | 10-21 21:41 | Lawrence's Chief subagents (lawrencecchen) | cmux NEXT sidebar rail: no property named like NSView.layout(); working means a busy activity |
+| [99ed8e9ef98](https://github.com/manaflow-ai/cmux/commit/99ed8e9ef98650a5f3299d63587bad8c296d2cda) | 10-21 21:37 | Lawrence's Chief subagents (lawrencecchen) | cmux NEXT sidebar: a thin rail style (sidebar.style = rail) that opens the full sidebar over the content |
+| [20ba26aadd1](https://github.com/manaflow-ai/cmux/commit/20ba26aadd1f8d4d4a0be3d7d7fa894dfc68554f) | 10-21 21:18 | Lawrence's Chief subagents (lawrencecchen) | cmux NEXT sidebar: tests for the thin rail style (sidebar.style = rail), red |
+| [fd82636690f](https://github.com/manaflow-ai/cmux/commit/fd82636690fe7b790fe10d364b72c2fdc78201f7) | 10-21 22:14 | Leo's agents (Leo) | cmux NEXT sidebar: group members keep the ungrouped rows' left edge, no indent (#23975) |
+| [f878238803f](https://github.com/manaflow-ai/cmux/commit/f878238803f45d875fc54284517f21dcf31042c0) | 10-21 22:11 | Leo's agents (Leo) | feat(cloud): show a paused Cloud machine as "Paused (idle)" with a Resume button (#23836) |
+| [022ad1e2860](https://github.com/manaflow-ai/cmux/commit/022ad1e2860662cb0e68d7ead7df78fe19cbf660) | 10-21 19:16 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: row more button and right-click open the menu in place (green) |
+| [f2eb20d0bea](https://github.com/manaflow-ai/cmux/commit/f2eb20d0bea90765254e8d43c73df0e72988c69a) | 10-21 21:13 | Leo's agents (Leo) | cmux NEXT sidebar: group by status, ported onto the Priority state (Debug toggle, off) (#20905) |
+| [530eabf3238](https://github.com/manaflow-ai/cmux/commit/530eabf32383dabbc1035f847e831f638ec75074) | 10-21 21:07 | Leo's agents (Leo) | cmux-next sidebar: arranging an arranged list changes nothing (#23724) |
+| [40e77b85ab7](https://github.com/manaflow-ai/cmux/commit/40e77b85ab79db0d0fbf4208f9fcbbba1387bc5e) | 10-21 20:57 | Leo's agents (Leo) | cmux NEXT: a saved sidebar with no rows shows in the launch's first frame (#23697) |
+| [3d38d0fd38e](https://github.com/manaflow-ai/cmux/commit/3d38d0fd38e89ba33b80ada8111aa06ebbad0106) | 10-21 20:39 | Leo's agents (Leo) | cmux NEXT sidebar: the session tree at real depth, with folds and roll-ups (#21836) |
+| [fbcb3d3fb68](https://github.com/manaflow-ai/cmux/commit/fbcb3d3fb68616ce023ff5b95fb42c4c07f4e4be) | 10-21 20:35 | Leo's agents (Leo) | Gallery fixtures name neutral machines, and a check keeps fleet host names out (#23499) |
+| [09364d7da74](https://github.com/manaflow-ai/cmux/commit/09364d7da746ee39849be6b28db90ae701a78214) | 10-21 20:18 | Leo's agents (Leo) | cmux NEXT: a Cloud machine's sidebar header shows its rate, running time, cost so far and the account's machine cap (#23691) |
+| [358376c4e7d](https://github.com/manaflow-ai/cmux/commit/358376c4e7d10c9388cfca04a306a3237ae4a8bf) | 10-21 20:15 | Leo's agents (Leo) | cmux NEXT sidebar: widen the row title fade to 24 pt so a clipped title no longer looks cut off (#24089) |
+| [4667546845c](https://github.com/manaflow-ai/cmux/commit/4667546845c08597bf789fb6cd4912a1ac7ec393) | 10-21 19:45 | Leo's agents (Leo) | cmux NEXT Update Ready card: the switch sits on its label's line and slides; Restart is never a white slab (#23987) |
+| [dcf8cb5a840](https://github.com/manaflow-ai/cmux/commit/dcf8cb5a840004995e1697268f393be208a4ca3d) | 10-21 19:32 | Leo's agents (Leo) | cmux NEXT sidebar: pull request indicators on rows follow sidebar.workspaceRow.pullRequest (off by default) (#23989) |
+| [f1e7e26b94d](https://github.com/manaflow-ai/cmux/commit/f1e7e26b94dbbd4a8371e951cee7f3998257ee5e) | 10-21 19:25 | Leo's agents (Leo) | cmux-next: no namespace enum for the Chief's workspace names (base red) (#23678) |
+| [4ce08874dce](https://github.com/manaflow-ai/cmux/commit/4ce08874dce743aaaefcef32b8ad6de239e40f37) | 10-21 19:25 | Leo's agents (Leo) | cmux NEXT sidebar: a held drag keeps going when a page window takes the keys (#24007) |
+| [0b71d5ea640](https://github.com/manaflow-ai/cmux/commit/0b71d5ea64037bb9d5892126b43d36d47601217a) | 10-21 19:20 | Leo's agents (Leo) | cmux NEXT: every popover, menu and panel is glass, never a solid card; a lint keeps it so (#23801) |
+| [81f5db8f439](https://github.com/manaflow-ai/cmux/commit/81f5db8f439b52d77257d919040513c194c09a98) | 10-21 19:18 | Leo's agents (Leo) | cmux NEXT sidebar: the workspace hover card's top lines up with its row's top (#23729) |
+| [6df32f64d83](https://github.com/manaflow-ai/cmux/commit/6df32f64d83e5da3928a55bb59bb51105889aae2) | 10-21 19:17 | Leo's agents (Leo) | cmux-next sidebar: a working row shows no running time (#23812) |
+| [1794aca4570](https://github.com/manaflow-ai/cmux/commit/1794aca4570c899fd10b74284747fa0b3a33e66f) | 10-21 19:15 | Leo's agents (Leo) | cmux NEXT sidebar: a right-click or a press on a workspace row no longer switches to it (#23977) |
+| [00031ec49e9](https://github.com/manaflow-ai/cmux/commit/00031ec49e90ecac8a42c8964dab0a3d4baf113c) | 10-21 19:12 | Leo's agents (Leo) | cmux NEXT: the tip card's close x sits on its heading's cap center (#23884) |
+| [10b45915a53](https://github.com/manaflow-ai/cmux/commit/10b45915a53b37700b1d5cd242adda0ef94d715d) | 10-21 19:01 | Leo's agents (Leo) | cmux-next sidebar: rows draw no status words; needs you is one yellow dot, never Done (#23767) |
+| [f14426c5443](https://github.com/manaflow-ai/cmux/commit/f14426c5443a96e91a4d68d1175bf2e29b67d01b) | 10-21 18:47 | Leo's agents (Leo) | cmux-next sidebar: a long group or list shows its first rows then Show N more (#23671) |
+| [ec749fa3994](https://github.com/manaflow-ai/cmux/commit/ec749fa399416c8e2e0e9c23dc1eeb41be66b61f) | 10-21 18:47 | Leo's agents (Leo) | cmux-next sidebar: an idle workspace nobody named reads quiet (#22840) |
+| [4e912c02304](https://github.com/manaflow-ai/cmux/commit/4e912c02304f213d06d2be3b0619338588098d1d) | 10-21 18:38 | Leo's agents (Leo) | cmux NEXT sidebar: the chat's thin scroller, no fat bar or track (#23762) |
+| [0f9944689ef](https://github.com/manaflow-ai/cmux/commit/0f9944689ef4c4341a18e17fcbd835d84d8a2ac0) | 10-21 17:46 | Leo's agents (Leo) | fix(sidebar): rows land exactly on their layout frames after a move; the rebuild check waits for it (#23857) |
+| [0038f3eecf1](https://github.com/manaflow-ai/cmux/commit/0038f3eecf192d3c429fcfe93acdd21c14399b67) | 10-21 17:26 | Leo's agents (Leo) | cmux-next: machine identity: each machine's color on rows, tabs, chip and palette (#22763) |
+| [a4c95338ae1](https://github.com/manaflow-ai/cmux/commit/a4c95338ae1207e3c7c6d6970122a7a46c23a6d0) | 10-21 16:58 | Leo's agents (Leo) | cmux-next sidebar: workspaces marked Done fold into one Done (N) row (#23633) |
+| [cb213babf31](https://github.com/manaflow-ai/cmux/commit/cb213babf312da72e5f95bf7c877b3e9ca829867) | 10-21 16:52 | Leo's agents (Leo) | cmux NEXT: a bigger footer avatar, Search flush after it, its lens on the avatar's center (#23757) |
+| [9c55299af74](https://github.com/manaflow-ai/cmux/commit/9c55299af7497c198e21cc64b2228351facccb4c) | 10-21 16:51 | Leo's agents (Leo) | cmux NEXT sidebar: the account icon is a glass monogram on the theme accent; the email is its tooltip (#23717) |
+| [01b25c3563a](https://github.com/manaflow-ai/cmux/commit/01b25c3563ad1b95c23dddbb5329ea0b07f385c1) | 10-21 15:32 | Austin Wang | cmux NEXT: a new window's sidebar shows only its own workspaces in the band (#22783) |
+| [b2f5b94c2dc](https://github.com/manaflow-ai/cmux/commit/b2f5b94c2dccbd1770e560ee6c8a3e15f7527ed7) | 10-21 14:18 | Austin Wang | cmux NEXT: GUI Delete Group and group edits name the group's sidebar document item (#23059) |
+| [f485ee4fa28](https://github.com/manaflow-ai/cmux/commit/f485ee4fa28bdb8d677891797eeb8b75e263c82b) | 10-21 13:10 | Leo's agents (Leo) | cmux-next: folding the Chief group no longer drops the sidebar list (#23684) |
+| [d1970c506e4](https://github.com/manaflow-ai/cmux/commit/d1970c506e42416b8ea5cd420fef65e385d44882) | 10-21 12:45 | Leo's agents (Leo) | cmux NEXT: multi-view window, a row dropped on a pane edge shows its workspace beside the shown one (Debug toggle) (#23651) |
+| [bd60f6fac4b](https://github.com/manaflow-ai/cmux/commit/bd60f6fac4ba2fd61ad2ab127d4551c5c406700f) | 10-21 12:38 | Leo's agents (Leo) | cmux-next sidebar: every row shows its pull request badge, not only with the session tree on (#23495) |
+| [b035c0bae4d](https://github.com/manaflow-ai/cmux/commit/b035c0bae4db72141e0e5cd2d59ffe9c4d78fc39) | 10-21 12:25 | Leo's agents (Leo) | cmux-next sidebar: a workspace's hover card says what its agents did since you looked (#23510) |
+| [89015a5d67f](https://github.com/manaflow-ai/cmux/commit/89015a5d67f180df1916a65caa359d5cf03df038) | 10-21 12:23 | Leo's agents (Leo) | cmux-next: fix the two Chief title reds from #23391 (#23636) |
+| [f43268546be](https://github.com/manaflow-ai/cmux/commit/f43268546be3e8cd84eb46fec6d95e10497e0a6b) | 10-21 12:21 | Leo's agents (Leo) | cmux-next sidebar: a working row's second line says what its agent does now ("Now: …") (#23474) |
+| [c2bab662bc8](https://github.com/manaflow-ai/cmux/commit/c2bab662bc80c9d6f22e6d629712d6694a899bd9) | 10-21 12:04 | Leo's agents (Leo) | cmux NEXT sidebar: Priority view follow-ups (palette titles, closing rows, archive check) (#23597) |
+| [69367a1599c](https://github.com/manaflow-ai/cmux/commit/69367a1599c090d8935601bd2f770f3e37e3dc09) | 10-21 11:52 | Leo's agents (Leo) | cmux NEXT Cloud: an agent's machine request goes when the asking chat closes (#23488) |
+| [7771639dab2](https://github.com/manaflow-ai/cmux/commit/7771639dab2791e88148c405fdd5a57a92f157e3) | 10-21 11:24 | Leo's agents (Leo) | cmux-next sidebar: the Chief's workspaces are one collapsible Chief group (#23546) |
+| [3e20ec6b96c](https://github.com/manaflow-ai/cmux/commit/3e20ec6b96c0c11e753cc49eff992282a95e909a) | 10-21 10:21 | Leo's agents (Leo) | cmux NEXT sidebar: Channels draws right after Home, not above it (#23591) |
+| [59c1dca242a](https://github.com/manaflow-ai/cmux/commit/59c1dca242aa110a03d89b668f463012eda2662a) | 10-21 10:07 | Leo's agents (Leo) | cmux NEXT sidebar: Priority rows slide to their new place by default (#23577) |
+| [e56cd1e5d0f](https://github.com/manaflow-ai/cmux/commit/e56cd1e5d0fe9438c22cb6dda30deb9761da2d29) | 10-21 10:06 | Leo's agents (Leo) | cmux NEXT sidebar: chats whose PR checks fail rank as Red CI in the Priority view (#23531) |
+| [70a56a0b26d](https://github.com/manaflow-ai/cmux/commit/70a56a0b26de2a79b6775a6bacef67d6eb560735) | 10-21 09:44 | Leo's agents (Leo) | cmux NEXT sidebar: Priority rows' mark read, pin, snooze and archive are actions (palette, menu) (#23527) |
+| [5f3f10b532a](https://github.com/manaflow-ai/cmux/commit/5f3f10b532a47c27b37a15d9aa1b180a410a3c53) | 10-21 09:31 | Leo's agents (Leo) | cmux NEXT sidebar: multi-view prototype (navigate on release, drag without switching, on-screen rows lit) (#23437) |
+| [0ba04dd0436](https://github.com/manaflow-ai/cmux/commit/0ba04dd0436f47649edbe494ca300ac383b0c69a) | 10-21 09:30 | Leo's agents (Leo) | cmux-next sidebar: pinned rows end where the other rows do (row trim) (#23478) |
+| [e5e6e224934](https://github.com/manaflow-ai/cmux/commit/e5e6e224934d42e639465be0675db514c0ac3764) | 10-21 09:11 | Leo's agents (Leo) | cmux-next sidebar: the Chief's workspaces read like any workspace (no aN id, no Chief line) (#23391) |
+| [6daa65960c4](https://github.com/manaflow-ai/cmux/commit/6daa65960c4d5a1fc890b96bd3b65807e7b1eb2b) | 10-21 08:36 | Leo's agents (Leo) | cmux NEXT: every lit glyph is ThemeTokens.litGlyph, never the raw accent, guarded in Swift and CSS (#23347) |
+| [91084b0a092](https://github.com/manaflow-ai/cmux/commit/91084b0a092fe00c10697c274ce5c7f958d4863b) | 10-21 08:23 | Leo's agents (Leo) | cmux NEXT sidebar: workspaces as tabs prototype (Debug, off): one-line rows, Cmd-Shift-[ / ] step workspaces (#23404) |
+| [9b0dd794c9b](https://github.com/manaflow-ai/cmux/commit/9b0dd794c9b5f55a2ea5d80ac4f376c823c5e49f) | 10-21 07:50 | Leo's agents (Leo) | cmux NEXT sidebar: a slide does not resize every terminal's PTY on every frame (#22979) |
+| [fab3d514f83](https://github.com/manaflow-ai/cmux/commit/fab3d514f838e061d706a5f29e71937a8d3173c9) | 10-21 07:07 | Leo's agents (Leo) | cmux-next sidebar: each row says when its agent needs you, finished or failed (the Priority view's words) (#23390) |
+| [efe95ba3a9f](https://github.com/manaflow-ai/cmux/commit/efe95ba3a9ff79ed0746f5b94472db4517d89320) | 10-21 07:01 | Leo's agents (Leo) | cmux NEXT sidebar: chat history (Earlier) and pinning under the session tree (#22323) |
+| [78361e8d1fc](https://github.com/manaflow-ai/cmux/commit/78361e8d1fc8d25d06bdb62dfdc983620a68fc4b) | 10-21 06:37 | Leo's agents (Leo) | fix(next): a sidebar tile shows again after a press on the list ends its drag (#23426) |
+| [3254990e335](https://github.com/manaflow-ai/cmux/commit/3254990e3356d53cdd2832ced2d6a8774a8b12f0) | 10-21 02:21 | Lawrence's Chief subagents (lawrencecchen) | fix(cmux-next): Cmd-N's workspace is first from its first frame, in one daemon change |
+| [2ef423b86f0](https://github.com/manaflow-ai/cmux/commit/2ef423b86f0650d3c480c027b257a20ad6b52eb7) | 10-21 05:22 | Leo's agents (Leo) | cmux-next sidebar: the list matches a fresh rebuild after each operation (invariant test, rails in list order) (#23389) |
+| [d99acebf209](https://github.com/manaflow-ai/cmux/commit/d99acebf20996c16330f62d610991e8d8e8db18b) | 10-21 05:00 | Leo's agents (Leo) | cmux NEXT: an agent's Cloud machine request waits in the sidebar card, not a sheet (#23340) |
+| [b8725e094b9](https://github.com/manaflow-ai/cmux/commit/b8725e094b9b9166d37507b4cb726f2f14a130a6) | 10-21 04:56 | Leo's agents (Leo) | cmux NEXT: Update Ready card: themed switch, primary Restart to Update, click-to-pin preview, Simulate pending update (#22688) |
+| [bc70489ae5a](https://github.com/manaflow-ai/cmux/commit/bc70489ae5a6c294e9ceb52cb7c4deb81c029a52) | 10-21 04:40 | Leo's agents (Leo) | cmux-next: Picture in Picture for browser tabs, and a media card like macOS's (#23004) |
+| [2082377995b](https://github.com/manaflow-ai/cmux/commit/2082377995b52259abae697bb68ffb2d1645880f) | 10-21 04:22 | Leo's agents (Leo) | cmux-next sidebar: a group dropped past an empty group keeps its members' rail (#23182) |
+| [d2b1ba3c94d](https://github.com/manaflow-ai/cmux/commit/d2b1ba3c94dfc87ac29b7f795b959f7e70e30be1) | 10-21 03:41 | Leo's agents (Leo) | cmux NEXT sidebar: avatar-only account control; its menu shows the team, Accounts… and Cloud (#22845) |
+| [cf628e80490](https://github.com/manaflow-ai/cmux/commit/cf628e804907eb593b681a91b8bfb8c3edb454d5) | 10-21 03:33 | Leo's agents (Leo) | cmux NEXT sidebar: edit mode to reorder, remove and add items (#22983) |
+| [0771181611f](https://github.com/manaflow-ai/cmux/commit/0771181611fc94412c5bfe44db1c7b6971f56d4c) | 10-21 03:15 | Leo's agents (Leo) | cmux-next sidebar: the group ⋮ editor stays inside the window (#23197) |
+| [c95444dcbc9](https://github.com/manaflow-ai/cmux/commit/c95444dcbc920784da7a5bcaaf9843cc51f9e0e1) | 10-21 02:51 | Leo's agents (Leo) | fix(next): downloads popup, Stashed page and calm row tooltips go through themed tooltips (NativeTooltipGuardTests red on base) (#23132) |
+| [0d59bfd9078](https://github.com/manaflow-ai/cmux/commit/0d59bfd90784db56346a82fa135620ddeecafea3) | 10-21 02:00 | Leo's agents (Leo) | cmux-next: translate the selection menu titles into every catalog language (#23225) |
+| [6b19b5d9180](https://github.com/manaflow-ai/cmux/commit/6b19b5d918065d529f1cab56e3d09263ddffa9ff) | 10-21 01:51 | Leo's agents (Leo) | feat(cmux-next): Chrome's menu for several selected sidebar workspaces (#23110) |
+| [69d0c89787e](https://github.com/manaflow-ai/cmux/commit/69d0c89787e0160bca9b1e336609d0dde8b328e5) | 10-21 01:15 | Leo's agents (Leo) | cmux-next sidebar: account chip and Search on one line above the bottom margin; profile picture in the avatar (#23076) |
+| [6e95269b214](https://github.com/manaflow-ai/cmux/commit/6e95269b214b898ccd1b9ccdb3ebd903acbe0755) | 10-21 01:11 | Leo's agents (Leo) | Sidebar resize edge works while a browser tab has focus (#22984) |
+| [600f1508278](https://github.com/manaflow-ai/cmux/commit/600f15082782a84faae84b803b32d671073eb615) | 10-21 01:07 | Leo's agents (Leo) | cmux-next: the Priority bell says "Needs attention", and only the newest Undo toast shows ⌘Z (#23181) |
+| [f8e1b0c8eee](https://github.com/manaflow-ai/cmux/commit/f8e1b0c8eeedbdb6f7fdf822f77074c4301175a9) | 10-20 23:20 | Lawrence's Chief subagents (lawrencecchen) | fix: sidebar space dots reorder by drag, dropped on the footer band |
+| [31ae568f522](https://github.com/manaflow-ai/cmux/commit/31ae568f52290462cdb659a02f24468345c4aaf2) | 10-20 23:03 | Lawrence's Chief subagents (lawrencecchen) | fix: sidebar document adds app-contributed sections |
+| [0157f0f3aa5](https://github.com/manaflow-ai/cmux/commit/0157f0f3aa59a19adcac421149ca819b20a0fcc1) | 10-21 00:58 | Leo's agents (Leo) | cmux-next: sidebar and tab-bar icons say what they mean (#23148) |
+| [6fa9a128188](https://github.com/manaflow-ai/cmux/commit/6fa9a12818828a9b8a644f0edee849ddc085e4fd) | 10-21 00:05 | Austin Wang | cmux NEXT: Cmd-N's row stops jumping, and new workspaces go after the current one as in classic (#23014) |
+| [b334adfcf4d](https://github.com/manaflow-ai/cmux/commit/b334adfcf4d1b820886ea07bd0dcc237d3c2c8b6) | 10-20 22:17 | Lawrence's Chief subagents (lawrencecchen) | fix(next sidebar): a dragged row swaps when its top passes the middle above or its bottom the middle below |
+| [447a8de357d](https://github.com/manaflow-ai/cmux/commit/447a8de357d90f93a980e645b351da7f1e0750f3) | 10-20 22:15 | Lawrence's Chief subagents (lawrencecchen) | test(next sidebar): a dragged row swaps when its top passes the middle above or its bottom the middle below (red) |
+| [ac7cf07f952](https://github.com/manaflow-ai/cmux/commit/ac7cf07f952d608ec1fcc0ec7256a6e5f97aff6c) | 10-20 22:52 | Leo's agents (Leo) | cmux NEXT: sidebar rows show each agent session's live lane status (Debug toggle) (#20956) |
+| [4e68eeb968c](https://github.com/manaflow-ai/cmux/commit/4e68eeb968cabc0772c21e763b454a760e757963) | 10-20 22:52 | Leo's agents (Leo) | cmux NEXT: agent work breathes a calm accent dot instead of a spinner on every row (#22826) |
+| [33ce33ca499](https://github.com/manaflow-ai/cmux/commit/33ce33ca4994b4e2d73f09f737bd442bea85c6de) | 10-20 22:51 | Leo's agents (Leo) | cmux-next sidebar: a click moves no row, and a move changes the order once (#22960) |
+| [2f954de51a9](https://github.com/manaflow-ai/cmux/commit/2f954de51a9555f396d50930f6505742bca885be) | 10-20 22:45 | Leo's agents (Leo) | cmux-next sidebar: manual order only; attention order lives in the Priority view (#22907) |
+| [38dd0fb5f13](https://github.com/manaflow-ai/cmux/commit/38dd0fb5f1318f2a2a902d436e11b266bfd0f280) | 10-20 22:37 | Leo's agents (Leo) | cmux-next sidebar: a vertical ⋮ more button shared app-wide; a group's card counts its subgroups (#22972) |
+| [948e7686e47](https://github.com/manaflow-ai/cmux/commit/948e7686e47f3f9828ca141b5a95c418f2fa585f) | 10-20 22:02 | Lawrence's Chief subagents (lawrencecchen) | fix(next): the Update Ready card's Hide works while its highlights popup is open |
+| [5e452db8de9](https://github.com/manaflow-ai/cmux/commit/5e452db8de97573d4633301b1064f5b05454eb37) | 10-20 22:02 | Leo's agents (Leo) | cmux-next sidebar: a drag keeps every group header and every other row in the list (#22952) |
+| [bab4a82cb9f](https://github.com/manaflow-ai/cmux/commit/bab4a82cb9ff4d33f3dff2d14a188011432448b5) | 10-20 21:57 | Leo's agents (Leo) | cmux NEXT sidebar: session tree with PR badges and keycaps (sidebar.sessionTree, off by default) (#21814) |
+| [f6b021a3c6a](https://github.com/manaflow-ai/cmux/commit/f6b021a3c6ac1814b3a9f0b4762e584aaa3d9444) | 10-20 21:50 | Leo's agents (Leo) | cmux NEXT: pull request links get a styled hover card; tooltip audit (#22743) |
+| [dad83b1ec7c](https://github.com/manaflow-ai/cmux/commit/dad83b1ec7c18f7439e3a2c4864d538a71279789) | 10-20 21:37 | Leo's agents (Leo) | CmuxNext: one-line and two-line sidebar rows keep the same spacing (#22863) |
+| [63bd306ac66](https://github.com/manaflow-ai/cmux/commit/63bd306ac66247f9147db718a254491de002a478) | 10-20 21:33 | Leo's agents (Leo) | feat(next): quieter group headers and the theme's group colors, as Debug choices (adopts #20645) (#22864) |
+| [0deaabf7070](https://github.com/manaflow-ai/cmux/commit/0deaabf707079a716012ec12fc44b742a3934614) | 10-20 21:14 | Austin Wang | cmux NEXT: Calm Mode turns off motion, hover cards and hover highlights (#22623) |
+| [51f452a7b84](https://github.com/manaflow-ai/cmux/commit/51f452a7b841f9e4a15a2af99b210cf38a72a31e) | 10-20 20:58 | Leo's agents (Leo) | cmux NEXT: stopped sidebar and tab spinners start again on their own (#22802) |
+| [da0403c73f4](https://github.com/manaflow-ai/cmux/commit/da0403c73f42c45bd66d0a388835e6f880daea30) | 10-20 20:52 | Leo's agents (Leo) | cmux-next sidebar: Priority row's label no longer overrides NSView.tag (base compile red from #22778) (#22853) |
+| [cdffca34013](https://github.com/manaflow-ai/cmux/commit/cdffca3401341ef23f232e149b239369971843b1) | 10-20 20:36 | Lawrence Chen | cmux NEXT: no main-thread waits behind the CEF map, bundle creation or link-menu LaunchServices; hang reports name the lock holder (#22813) |
+| [aeaa1dad26e](https://github.com/manaflow-ai/cmux/commit/aeaa1dad26e399230e922dd6b4ea043f4be1479f) | 10-20 20:27 | Leo's agents (Leo) | cmux-next sidebar: an optional Chief item with its status and its subagents under it (#22759) |
+| [ab0fbd92aa8](https://github.com/manaflow-ai/cmux/commit/ab0fbd92aa8da34540889e17afe7626920021f34) | 10-20 20:08 | Leo's agents (Leo) | fix(next): sidebar drag follow-ups (tile press ends a stale drag, no gray header mid-drag) (#22829) |
+| [5a74f437d8c](https://github.com/manaflow-ai/cmux/commit/5a74f437d8c97c2295978b0f0a6871e87fc99da1) | 10-20 19:59 | Leo's agents (Leo) | cmux-next sidebar: Priority view, every agent chat ranked by what needs you (#22778) |
+| [28cea6d4f3c](https://github.com/manaflow-ai/cmux/commit/28cea6d4f3c451ca75a25200b0825a82d0f0f0aa) | 10-21 15:54 | Lucas Ribeiro | cmux NEXT: workspaces only cmd-number skips home and the app store (#22820) |
+| [67eea145792](https://github.com/manaflow-ai/cmux/commit/67eea145792d84d4993e3d8849a719a711c169be) | 10-20 19:51 | Leo's agents (Leo) | fix(next): a dragged tab stays glass in a translucent window (#22807) |
+| [0d6230334c8](https://github.com/manaflow-ai/cmux/commit/0d6230334c8c990df2e51563e0bc40e7fdd0a084) | 10-20 19:05 | Leo's agents (Leo) | cmux-next sidebar: hover follows the pointer, row pills stop short of the edge, the row card stands off its row (#22733) |
+| [92389138ba5](https://github.com/manaflow-ai/cmux/commit/92389138ba5ec0266d6639cc2fbc15286c8b9448) | 10-20 18:33 | Leo's agents (Leo) | cmux-next sidebar: the Updated card takes its own room and has an opaque fill (#22670) |
+| [fbc87535724](https://github.com/manaflow-ai/cmux/commit/fbc8753572486a9516c935981b667f4bce25d0c7) | 10-20 17:18 | Leo's agents (Leo) | cmux-next sidebar: an 8 pt margin above the window's bottom edge (#22663) |
+| [1950034e60e](https://github.com/manaflow-ai/cmux/commit/1950034e60e946d87c0a990d7f08a7ca19b2b753) | 10-20 17:09 | Leo's agents (Leo) | cmux-next sidebar: a click never drags, a cancelled or lost drag leaves no stray fill, hidden rows or opened groups (#22659) |
+| [df694bddc1a](https://github.com/manaflow-ai/cmux/commit/df694bddc1a50372fd6f26a5978dc02eba4dc669) | 10-20 16:51 | Leo's agents (Leo) | cmux-next sidebar: a group with no stored color draws a palette color, not grey (#22651) |
+| [a89418dc293](https://github.com/manaflow-ai/cmux/commit/a89418dc2935496fc85fb23b59640a5c5d801e59) | 10-20 14:45 | Leo's agents (Leo) | cmux NEXT sidebar: rows take hover only inside their rounded pill, not the gap or corners (#22294) |
+| [5f507df2ffb](https://github.com/manaflow-ai/cmux/commit/5f507df2ffbcabb0f1b67234eb2f2c96afdac1ca) | 10-20 14:19 | Austin Wang | cmux NEXT: workspace groups pin in the sidebar and keep their place (#22263) |
+| [126f4cee807](https://github.com/manaflow-ai/cmux/commit/126f4cee807378742ade2b15863f552f82e710aa) | 10-20 14:00 | Austin Wang | cmux NEXT: New Workspace in Group puts the workspace in the group (#22593) |
+| [4da77aaf8fb](https://github.com/manaflow-ai/cmux/commit/4da77aaf8fbad4501227d5b1600996371145eb1d) | 10-20 13:57 | Leo's agents (Leo) | cmux NEXT: a group's +, Delete and Ungroup work on the sidebar document (#22401) |
+| [923f0b10780](https://github.com/manaflow-ai/cmux/commit/923f0b10780c89bd79f3a514391380986a7281dc) | 10-20 13:05 | Leo's agents (Leo) | cmux NEXT sidebar: tile and quiet-button hovers are neutral, not the accent (#22489) |
+| [032f274a953](https://github.com/manaflow-ai/cmux/commit/032f274a9532be3243eba9e2a1ba3ba99b4db33d) | 10-20 13:02 | Leo's agents (Leo) | cmux NEXT sidebar: an empty slot beside a workspace dismisses its hover card (#22473) |
+| [0124bab991a](https://github.com/manaflow-ai/cmux/commit/0124bab991a8b9f308ff4470ab97a1fb703a9106) | 10-20 13:02 | Leo's agents (Leo) | Sidebar: profile button shows avatar, name and a menu chevron (#22569) |
+| [b41247dcb51](https://github.com/manaflow-ai/cmux/commit/b41247dcb51e29d68c8b861b9a9fb088dca6dab1) | 10-20 13:01 | Leo's agents (Leo) | cmux-next: the background aspect-fills the window, centered, with no framing logic (#22562) |
+| [2a68b093e1d](https://github.com/manaflow-ai/cmux/commit/2a68b093e1d2111e44387d372fcaedcbcebf6b4c) | 10-20 09:14 | Lawrence Chen | Merge origin/feat-cmux-next (ee8c1f7bcd36) into feat-cmux-next |
+| [120fefdb8fc](https://github.com/manaflow-ai/cmux/commit/120fefdb8fcd61ff39a74b2476935c42e30e901a) | 10-20 02:03 | Lawrence's Chief subagents (lawrencecchen) | Group hover cards: summary cards on sidebar workspace groups and tab groups |
+| [9eb4dd176a6](https://github.com/manaflow-ai/cmux/commit/9eb4dd176a6ae2efc650a45b5a2afa2b4ea5bfc4) | 10-20 02:03 | Lawrence's Chief subagents (lawrencecchen) | Group hover cards: failing tests for sidebar group and tab group summary cards |
+| [fa1539b7884](https://github.com/manaflow-ai/cmux/commit/fa1539b78844f1aacfa69ed1fed131875611bef9) | 10-20 08:41 | Lawrence Chen | fix(sidebar): Release compile no longer crashes the Swift 6.3.3 optimizer in SidebarDocRecords.apply(batch:) |
+| [afca512ec6c](https://github.com/manaflow-ai/cmux/commit/afca512ec6c7d355f51774c2b840965c3951c010) | 10-20 07:24 | Lawrence's Chief subagents (lawrencecchen) | fix: the fast group fold leaves nested groups to the full layout and gives members their depth (a283) |
+| [0b17c548f87](https://github.com/manaflow-ai/cmux/commit/0b17c548f87c594f5cb999494fa7e2266cac5d62) | 10-20 03:56 | Lawrence's Chief subagents (lawrencecchen) | feat: remote group header names every host state; Remove Remote Group (header menu, palette, CLI remote remove-group, MCP; 21 languages) (a283 slice 5) |
+| [dcc899baede](https://github.com/manaflow-ai/cmux/commit/dcc899baede1efceaadbff33371f840d3c2df6c2) | 10-20 03:55 | Lawrence's Chief subagents (lawrencecchen) | test: remote group header names every host state; Remove Remote Group unmarks it (red, a283 slice 5) |
+| [ec3953e0fa6](https://github.com/manaflow-ai/cmux/commit/ec3953e0fa658e28b147bc0a8bcd0b4f0a4b36f8) | 10-20 03:54 | Lawrence's Chief subagents (lawrencecchen) | feat: New Remote Group connects a host and makes its section a remote group with its header in one list (palette, sidebar menu, CLI remote new-group, MCP; 21 languages) (a283 slice 4) |
+| [4fbd440c1b1](https://github.com/manaflow-ai/cmux/commit/4fbd440c1b10b3dd19377bd1f9e831b48c360eeb) | 10-20 03:52 | Lawrence's Chief subagents (lawrencecchen) | test: New Remote Group marks a host section a remote group with a header in one list, on every surface (red, a283 slice 4) |
+| [5a36208b95e](https://github.com/manaflow-ai/cmux/commit/5a36208b95e3780f389010f5c67026346fe8e693) | 10-20 03:50 | Lawrence's Chief subagents (lawrencecchen) | feat(cmux-next): New Subgroup makes a group inside a group (menu, palette, CLI workspace-group new-subgroup, MCP; 21 languages) (a283 slice 3) |
+| [2c217fe49d7](https://github.com/manaflow-ai/cmux/commit/2c217fe49d77a8df5df4425cd3ec2f70a230b02e) | 10-20 03:47 | Lawrence's Chief subagents (lawrencecchen) | test(cmux-next): New Subgroup plans a group under its parent within 3 levels, on every surface (red, a283 slice 3) |
+| [bdbf63b5483](https://github.com/manaflow-ai/cmux/commit/bdbf63b548374bd739ae90f1e83a58d24f22a21e) | 10-20 03:43 | Lawrence's Chief subagents (lawrencecchen) | feat: sidebar draws nested groups (indent per level, collapse hides subtree, filter keeps the path) and a drag nests a group within 3 levels (a283 slice 2) |
+| [18e14c8f431](https://github.com/manaflow-ai/cmux/commit/18e14c8f4310f5a6270a843b82e6d4b8833e0584) | 10-20 03:42 | Lawrence's Chief subagents (lawrencecchen) | test: nested groups draw with depth, collapse hides subtrees, drag nests a group within 3 levels (red, a283 slice 2) |
+| [f35023e54c1](https://github.com/manaflow-ai/cmux/commit/f35023e54c1c62c4139e4e561d17947937efd01e) | 10-20 02:41 | Lawrence's Chief subagents (lawrencecchen) | feat(motion): master no-animation switch and per-area motion switches |
+| [abee7dfa443](https://github.com/manaflow-ai/cmux/commit/abee7dfa443d01f6f2f625ba42aaba394e40a3c5) | 10-20 05:24 | Lawrence's Chief subagents (lawrencecchen) | perf(sidebar): a fold moves the rows below it with one strided vector add |
+| [33f920294ec](https://github.com/manaflow-ai/cmux/commit/33f920294ec0ea982a5339ca76bd731714eafa83) | 10-20 04:30 | Lawrence's Chief subagents (lawrencecchen) | perf(sidebar): a fold moves later rows in place, with no row copies |
+| [079b18365e9](https://github.com/manaflow-ai/cmux/commit/079b18365e907d98552bbe689673a8fc5a39c52f) | 10-20 03:40 | Lawrence's Chief subagents (lawrencecchen) | perf(sidebar): a fold follows calm movement; state ownership design |
+| [c72c4519fd9](https://github.com/manaflow-ai/cmux/commit/c72c4519fd93f5f4d2952547faa34ab347fd2182) | 10-20 02:09 | Lawrence's Chief subagents (lawrencecchen) | perf(sidebar): a group's fold costs its rows, not the list's |
+| [912f2ce12df](https://github.com/manaflow-ai/cmux/commit/912f2ce12df2d684963106b7ac5153f1bf538cfa) | 10-19 23:34 | Lawrence's Chief subagents (lawrencecchen) | feat(next): sidebar Search button searches every kind in one palette scope |
+| [0e4c318270c](https://github.com/manaflow-ai/cmux/commit/0e4c318270c6c523f30cb13bba10cfb168779a25) | 10-20 01:44 | Lawrence's Chief subagents (lawrencecchen) | fix(sidebar): Move to Top lifts a workspace the document does not place yet |
+| [7c3b90af801](https://github.com/manaflow-ai/cmux/commit/7c3b90af80152c1519620f8996a3eaf7f5568b8a) | 10-20 01:44 | Lawrence's Chief subagents (lawrencecchen) | fix(sidebar): pinned groups list first on daemons without the sidebar document |
+| [ecfb2a6413d](https://github.com/manaflow-ai/cmux/commit/ecfb2a6413dcabff67ae8f6f898c4c1ba8856754) | 10-20 01:40 | Lawrence's Chief subagents (lawrencecchen) | test(sidebar): Move to Top lifts a workspace the document does not place yet (red) |
+| [b7de0375a1d](https://github.com/manaflow-ai/cmux/commit/b7de0375a1de65df73e701ba7b35436fdd73b915) | 10-20 01:36 | Lawrence's Chief subagents (lawrencecchen) | fix(sidebar): Pin/Unpin Workspace reads a member pinned in its group as pinned |
+| [d1386e90184](https://github.com/manaflow-ai/cmux/commit/d1386e90184f34ae5ffb4cab0df11b2dbb3a0618) | 10-20 01:29 | Lawrence's Chief subagents (lawrencecchen) | test(sidebar): a member pinned in its group reads pinned in the client (red) |
+| [761839c5e8b](https://github.com/manaflow-ai/cmux/commit/761839c5e8be6f9071cc8f10ffd2cf40ac9064f4) | 10-20 04:17 | Lawrence's Chief subagents (lawrencecchen) | fix(sidebar): a plain header click only toggles; the spinner rests on the chevron column and slides left on hover; the opt-in count is small and light |
+| [5cac4ded467](https://github.com/manaflow-ai/cmux/commit/5cac4ded467220831ce92e595be4f7eb0971f46a) | 10-20 03:39 | Lawrence's Chief subagents (lawrencecchen) | fix(cmux-next): one sidebar card that morphs between update and workspace cards |
+| [234463fefe4](https://github.com/manaflow-ai/cmux/commit/234463fefe4e132141e01dfac082255bc639138f) | 10-19 22:57 | Lawrence's Chief subagents (lawrencecchen) | fix(cmux-next): update loading card names each stage, counts bytes, keeps its height |
+| [79a0ccc604c](https://github.com/manaflow-ai/cmux/commit/79a0ccc604c64069e0eefe807a124e86172a7025) | 10-20 04:02 | Lawrence's Chief subagents (lawrencecchen) | cmux-next: the sidebar row pool parks two pages, so a space switch takes back the other space's rows instead of evicting them |
+| [fbcfb3d8cbd](https://github.com/manaflow-ai/cmux/commit/fbcfb3d8cbd8e0b6458a2280efbe9b63309d0bf5) | 10-20 02:03 | Lawrence's Chief subagents (lawrencecchen) | cmux-next: a sidebar render checks for provisional rows in place, not by copying every workspace of every section |
+| [300dee6b394](https://github.com/manaflow-ai/cmux/commit/300dee6b3946cd3b9d9c14179808364d66f9f3a9) | 10-20 02:03 | Lawrence's Chief subagents (lawrencecchen) | cmux-next: a sidebar scroll walks a few screens of row views, not ten rows of overscan a side and 96 parked |
+| [b6c0783e831](https://github.com/manaflow-ai/cmux/commit/b6c0783e831dedb14fc047b1b62b44fa060a9568) | 10-20 02:55 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: a tab switch's row patch draws only the tab rows it changes (tab-switch-rewrite) |
+| [742ffead0c4](https://github.com/manaflow-ai/cmux/commit/742ffead0c48b30b18fd3f61ef4a20eda70a58c5) | 10-20 02:26 | Lawrence's Chief subagents (lawrencecchen) | feat(sidebar): group headers show only loading by default; the spinner slides in and out with no gap |
+| [aeac086d348](https://github.com/manaflow-ai/cmux/commit/aeac086d3484c720014aaff57b5656ea5c3ab928) | 10-20 01:30 | Lawrence's Chief subagents (lawrencecchen) | fix(sidebar): one trailing column for the header chevron and every row's dot and spinner |
+| [cb00fe652ad](https://github.com/manaflow-ai/cmux/commit/cb00fe652ad4252e19ae213eaa8ced89e69395c7) | 10-20 01:42 | Lawrence's Chief subagents (lawrencecchen) | Sidebar: pinned rows take the list's width on a sidebar resize; group headers share the row radius token |
+| [f86e7ed65e6](https://github.com/manaflow-ai/cmux/commit/f86e7ed65e6fb8db322eff11086a3e73491391fd) | 10-20 01:13 | Lawrence's Chief subagents (lawrencecchen) | Sidebar test: pinned Home/App Store fills match the group header at every density and after a resize (red) |
+| [ad551c0de7c](https://github.com/manaflow-ai/cmux/commit/ad551c0de7c8a5e50ca8baa885f2a9e960f0ee6c) | 10-20 01:50 | Lawrence's Chief subagents (lawrencecchen) | fix(next sidebar): only the user's own changes move rows; others show in place, after the pointer leaves |
+| [f717d136311](https://github.com/manaflow-ai/cmux/commit/f717d136311e5b211e5be1793a2ba378ab3548e1) | 10-20 01:50 | Lawrence's Chief subagents (lawrencecchen) | test(next sidebar): changes nobody asked for move no row, wait under the pointer (red) |
+| [2cdb54eaf82](https://github.com/manaflow-ai/cmux/commit/2cdb54eaf8281e68b11abec5b4da34007f5080bd) | 10-20 01:19 | Lawrence's Chief subagents (lawrencecchen) | fix(cmux-next): sidebar draws a nested group tree as its top group, never dropping members (a283) |
+| [a92e3757ad2](https://github.com/manaflow-ai/cmux/commit/a92e3757ad2fc7d1aee592493df0226693507641) | 10-20 01:59 | Lawrence's Chief subagents (lawrencecchen) | feat(next): Update Ready popover scrolls the full change list; one super-thin card scroller with edge fades |
+| [c1afbd1723c](https://github.com/manaflow-ai/cmux/commit/c1afbd1723c95c04f0444958d7922cac679e9f4d) | 10-20 01:56 | Lawrence's Chief subagents (lawrencecchen) | fix(next): sidebar group drag stays its size, card on overlay Liquid Glass (u5506) |
+| [e90ff01902b](https://github.com/manaflow-ai/cmux/commit/e90ff01902be3c319b1ddf541e0faf5bd4f587a4) | 10-19 21:50 | Lawrence's Chief subagents (lawrencecchen) | fix(sidebar): a group header's + and more fade in and out on hover (u2397) |
+| [7eae6b12c9b](https://github.com/manaflow-ai/cmux/commit/7eae6b12c9b2488283926c0eeb7a1dd9f6914019) | 10-20 01:36 | Leo's agents (Leo) | New Tab Now Playing: right-click menu, a setting to hide it, and the widget's look (#22227) |
+| [8414192fcf8](https://github.com/manaflow-ai/cmux/commit/8414192fcf8e6cb6776617b15f63ae0052fa7cbf) | 10-19 21:50 | Lawrence's Chief subagents (lawrencecchen) | fix(next): pinned groups read as pinned and unpin; a group header's right-click is one flat menu |
+| [21bf9baaaaf](https://github.com/manaflow-ai/cmux/commit/21bf9baaaaf26fe148f1c6dc41c2b6252d3cf536) | 10-19 22:33 | Lawrence's Chief subagents (lawrencecchen) | cmux-next: a space slide that outlives its sidebar finishes without reading it |
+| [5467b8ede0a](https://github.com/manaflow-ai/cmux/commit/5467b8ede0afd62392c0816da9a3a58ebd784b4e) | 10-19 23:22 | Lawrence's Chief subagents (lawrencecchen) | Hover card history: size the history document by frame, so a wheel right after the card shows scrolls it (u3320) |
+| [f3a79ef79e1](https://github.com/manaflow-ai/cmux/commit/f3a79ef79e1a4fc82323d56dec0e1a8f232a6219) | 10-19 23:38 | Lawrence's Chief subagents (lawrencecchen) | fix(sidebar): AXPress on New Workspace reports success |
+| [1d5430585ef](https://github.com/manaflow-ai/cmux/commit/1d5430585ef34af6b6b8a27fa76669b294bbf99a) | 10-19 18:15 | Lawrence's Chief subagents (lawrencecchen) | fix(sidebar): Cmd-1…9 pressed again keeps the selection and scrolls it into view |
+| [c9d224ad6d7](https://github.com/manaflow-ai/cmux/commit/c9d224ad6d7175267549f0b81abd4df8fb3bf5fe) | 10-19 17:52 | Lawrence's Chief subagents (lawrencecchen) | fix(sidebar): Cmd-1…9 reveal the selection with its header, up to the list's top |
+| [a7a60a35dbb](https://github.com/manaflow-ai/cmux/commit/a7a60a35dbb84dde417d7f3825200f21c6654125) | 10-19 19:33 | Lawrence's Chief subagents (lawrencecchen) | feat(cmux-next): workspace checklists (workspace-checklist-v1) |
+| [30be4775a5a](https://github.com/manaflow-ai/cmux/commit/30be4775a5a0aed558b14583bea0ea2f33b52bd0) | 10-19 22:49 | Lawrence's Chief subagents (lawrencecchen) | fix(hints): modifier-hold chips fade in/out and cover every Cmd-digit sidebar slot (u4457) |
+| [76bb414ddb1](https://github.com/manaflow-ai/cmux/commit/76bb414ddb1bbb0f363eea9580c686ffc9ed1758) | 10-19 22:48 | Lawrence's Chief subagents (lawrencecchen) | test(hints): sidebar chips follow Cmd-digit slots incl. Home/App Store; chips fade in/out (u4457, red) |
+| [ddcd2dc3003](https://github.com/manaflow-ai/cmux/commit/ddcd2dc3003361a062710a38092e519b9321d285) | 10-19 23:15 | Leo's agents (Leo) | ui: add compact sidebar status pills (#21259) |
+| [d7726155dc7](https://github.com/manaflow-ai/cmux/commit/d7726155dc78d9917aeff18dfe4a52c92c0d7fd0) | 10-19 18:09 | Lawrence's Chief subagents (lawrencecchen) | fix(a11y): name and identify every chrome control for computer-use agents |
+| [12789dcd087](https://github.com/manaflow-ai/cmux/commit/12789dcd087cbc423977d6e2a9003044d20dc57d) | 10-19 20:48 | Lawrence's Chief subagents (lawrencecchen) | Sidebar: rows show no timestamps by default; sidebar.showTimestamps brings them back |
+| [4656386e677](https://github.com/manaflow-ai/cmux/commit/4656386e677975c63bbc4f36e8f052550eb57349) | 10-19 19:07 | Lawrence's Chief subagents (lawrencecchen) | feat(next): workspace description and task status (workspace-description-v1, workspace-status-v1) |
+| [bce81b40f35](https://github.com/manaflow-ai/cmux/commit/bce81b40f35f55ed1c3675e5e0702239d0e90c52) | 10-19 19:07 | Lawrence's Chief subagents (lawrencecchen) | cmux NEXT sidebar: group header bar fills its row, one row height for headers and workspace rows |
+| [cf73f56dd1d](https://github.com/manaflow-ai/cmux/commit/cf73f56dd1d6cfccac0f4acfc2344573d9cba04e) | 10-19 19:51 | Lawrence's Chief subagents (lawrencecchen) | fix(cmux-next): update card's hover card enters, sits and fades like a workspace card |
+| [316fa433f2e](https://github.com/manaflow-ai/cmux/commit/316fa433f2e59e72af8cd5683c880b68a5c140b5) | 10-19 17:00 | Lawrence's Chief subagents (lawrencecchen) | fix(sidebar): popups opened from a button open at that button (u2250) |
+| [1cc156fdd8c](https://github.com/manaflow-ai/cmux/commit/1cc156fdd8cbe9f9587f7bf49ef65f084386fb99) | 10-19 20:10 | Lawrence's Chief subagents (lawrencecchen) | Workspace hover card: prompt/wait/finish history, layouts and settings (u3320) |
+| [ed7e0348206](https://github.com/manaflow-ai/cmux/commit/ed7e03482060b75a2a2fe8daff795f41af5ae56e) | 10-19 21:18 | Leo's agents (Leo) | cmux-next: tab and session hover cards share one Codex-style row (#22245) |
+| [d0033bc95b6](https://github.com/manaflow-ai/cmux/commit/d0033bc95b6fd3cedbfcab28710f9ac0dfd8f441) | 10-19 20:48 | Lawrence's Chief subagents (lawrencecchen) | cmux-next tabs: the tab and sidebar row speakers draw Chromium's tab audio and muted icons |
+| [2b5efeb345e](https://github.com/manaflow-ai/cmux/commit/2b5efeb345eb682cc99fd1171ddc2dfd6a38c60c) | 10-19 18:52 | Lawrence's Chief subagents (lawrencecchen) | Sidebar: Pin on a selection is one undo step |
+| [989d2915fca](https://github.com/manaflow-ai/cmux/commit/989d2915fcab035532facdd816a57527152a06e7) | 10-19 18:24 | Lawrence's Chief subagents (lawrencecchen) | Sidebar: Move Up/Down, Pin and Duplicate act on every selected row; Sort Group tested; importEditorSettings surface decisions |
+| [184861e1edd](https://github.com/manaflow-ai/cmux/commit/184861e1edd6239832cc44dc59dbc60dd06a4a06) | 10-19 17:46 | Lawrence's Chief subagents (lawrencecchen) | cmux-next: a tab's speaker mutes it; sidebar rows show and mute their workspace's sound; Mute Tab in the palette, CLI and MCP |
+| [31ffd219f0b](https://github.com/manaflow-ai/cmux/commit/31ffd219f0beeecef2272e61dfa69b29dc29417b) | 10-19 17:24 | Lawrence's Chief subagents (lawrencecchen) | cmux-next tabs: test that a tab's speaker mutes it and a sidebar row's speaker mutes its workspace (red) |
+| [3ccafbb9111](https://github.com/manaflow-ai/cmux/commit/3ccafbb9111f6c2b3b26c8bd016445e875a1c0b2) | 10-19 19:03 | Lawrence's Chief subagents (lawrencecchen) | cmux-next: a space switch's top reveal reads the drawn rows, not the whole item order |
+| [c7a2eb30876](https://github.com/manaflow-ai/cmux/commit/c7a2eb308764a67a5b587698a90cf0a9f42325b2) | 10-19 18:30 | Lawrence's Chief subagents (lawrencecchen) | cmux-next: a space switch reuses row views: one kept page, leaving rows park first; guard compares 100 vs 500 |
+| [04cc02feaf9](https://github.com/manaflow-ai/cmux/commit/04cc02feaf9142a5cb443c2c823978cfb8bcf0e4) | 10-19 18:13 | Lawrence's Chief subagents (lawrencecchen) | cmux-next: a space page realizes its frame only, no scroll overscan |
+| [e611b597606](https://github.com/manaflow-ai/cmux/commit/e611b597606bafabe9b66cf6246ce5e1017e0e60) | 10-19 17:44 | Lawrence's Chief subagents (lawrencecchen) | cmux-next: a space page makes views for the rows on screen only; O(1) personal lookups |
+| [324f5609b61](https://github.com/manaflow-ai/cmux/commit/324f5609b61ffefbf3b26ce7322d80f1adf7261d) | 10-19 16:56 | Lawrence's Chief subagents (lawrencecchen) | fix(cmux-next): sidebar resize edge takes a 10 pt band across the edge |
+| [55cbe4c85a6](https://github.com/manaflow-ai/cmux/commit/55cbe4c85a6b95b65745a009b268548735054400) | 10-19 17:37 | Lawrence's Chief subagents (lawrencecchen) | fix(next): the media card hides from a hover x and its right-click menu |
+| [bd4b56e4638](https://github.com/manaflow-ai/cmux/commit/bd4b56e4638999cc1a45135926dadd86d1df0f76) | 10-19 18:10 | Lawrence's Chief subagents (lawrencecchen) | fix(next): Check for Updates shows Checking at once and never hides behind Now Playing |
+| [f3a2be28e43](https://github.com/manaflow-ai/cmux/commit/f3a2be28e43f76b99fa5da65c53b9b6a09758c9e) | 10-19 19:02 | Leo's agents (Leo) | cmux NEXT: Update Ready popup waits for the pointer, is menu-sized and scrolls; compact card (#22254) |
+| [57997c329e8](https://github.com/manaflow-ai/cmux/commit/57997c329e878ab5d1abd0364ced6baa05d6ad10) | 10-19 17:04 | Lawrence's Chief subagents (lawrencecchen) | fix(next): a tab or workspace row shows one state mark, on the right; only the icon on the left |
+| [fe35a7b7f57](https://github.com/manaflow-ai/cmux/commit/fe35a7b7f5763f2e8ae5e7b8483331ceb31f7871) | 10-19 17:04 | Lawrence's Chief subagents (lawrencecchen) | cmux-next: every plain click opens on mouse-down (green) |
+| [128c0a6240c](https://github.com/manaflow-ai/cmux/commit/128c0a6240c13384c0a9acb01c0f4e26dfecea7a) | 10-19 18:17 | Lawrence's Chief subagents (lawrencecchen) | fix(sidebar): the group reorder rule measures the blocks below the gap where they are drawn |
+| [09a3493f1a4](https://github.com/manaflow-ai/cmux/commit/09a3493f1a445ba79cbecdb7a7f50b62320b684f) | 10-19 17:06 | Lawrence's Chief subagents (lawrencecchen) | fix(cmux-next): hover cards fade out the moment the pointer leaves |
+| [2209b46e5af](https://github.com/manaflow-ai/cmux/commit/2209b46e5afd7cd6532125a7cbee9a5a1a08f9e8) | 10-19 18:06 | Austin Wang | [CMUX Next] Sidebar: scroll to the top when Home or the first workspace is selected (#22253) |
+| [e50f7c3618e](https://github.com/manaflow-ai/cmux/commit/e50f7c3618ec1f52c807220ed09e7199a49a6e6a) | 10-19 17:56 | Lawrence's Chief subagents (lawrencecchen) | fix(next): the Updated card's x goes through the sidebar's one card-dismiss path |
+| [59b8a7c83d1](https://github.com/manaflow-ai/cmux/commit/59b8a7c83d1af0c5f766c40e1bf5974de6590bcd) | 10-19 17:35 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: Move Group to Top/Bottom, Collapse Other Groups, Sort Group, Move ▸ on the row menu, selection-wide moves |
+| [dca496976f8](https://github.com/manaflow-ai/cmux/commit/dca496976f82e3f8531bf9201ffb1a5fa084fb33) | 10-19 17:43 | Lawrence's Chief subagents (lawrencecchen) | fix(sidebar): group line shows after a drop; a click re-renders two rows; groups reorder by their edges |
+| [8f1ef46e62a](https://github.com/manaflow-ai/cmux/commit/8f1ef46e62af6b8a53673fb23d69ad31fd17ef85) | 10-19 17:36 | Lawrence's Chief subagents (lawrencecchen) | test(sidebar): group line after a drop, edge-based group reorder, render counts (red) |
+| [fc1d07a5afe](https://github.com/manaflow-ai/cmux/commit/fc1d07a5afe412caef04127f8d077ab824e73eca) | 10-19 17:17 | Leo's agents (Leo) | cmux-next: the session hover card reads like Claude desktop's on the shared glass (#22223) |
+| [a343ba92b10](https://github.com/manaflow-ai/cmux/commit/a343ba92b10947f8893fb21bb439521bb94ef9a0) | 10-19 16:48 | Leo's agents (Leo) | fix: sidebar profile button is the avatar alone; one-row profile in its menu (#20458) |
+| [95b9bbe0a44](https://github.com/manaflow-ai/cmux/commit/95b9bbe0a44330e3a95e1dde1c6dba23b5ab4cd2) | 10-19 16:32 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: pinned workspace, tab and space tiles switch on mouse-down (green) |
+| [003d6682bf8](https://github.com/manaflow-ai/cmux/commit/003d6682bf8fb24de2ef76b9446dbfc0677ab9fa) | 10-19 16:12 | Leo's agents (Leo) | cmux-next: clear every base red in cmux-next checks (type scale, strings, tree key, state root, concurrency, bundle key) (#22117) |
+| [61097470c25](https://github.com/manaflow-ai/cmux/commit/61097470c254f10b47ca3a216fb5a9985d1eeaa0) | 10-19 14:16 | Leo's agents (Leo) | fix(nightly-next): post-publication contract follows the rollback guard; fix two stale comments (#22015) |
+| [86efbba6452](https://github.com/manaflow-ai/cmux/commit/86efbba6452a0fa7295564e5ffc8354bcb43297b) | 10-19 13:34 | Leo's agents (Leo) | cmux-next: overlays are themed Liquid Glass, and tooltips let more through (#21785) |
+| [51b858dd146](https://github.com/manaflow-ai/cmux/commit/51b858dd146cb61717d632bada94e97d5f7c959d) | 10-19 13:25 | Leo's agents (Leo) | fix(cmux-next): running spinners draw bare, with no disc or ring behind them (#22047) |
+| [126426d9674](https://github.com/manaflow-ai/cmux/commit/126426d9674468f33ea7b6a0e47748e9a82a2b6a) | 10-19 13:02 | Leo's agents (Leo) | cmux-next sidebar: selected rows read as one selection in every theme (#21940) |
+| [2e9e3125d34](https://github.com/manaflow-ai/cmux/commit/2e9e3125d34ef20dd6eafcd51f118318ef3d4051) | 10-19 12:40 | Leo's agents (Leo) | Now Playing card: level bars and a filled Play/Pause (#21697) |

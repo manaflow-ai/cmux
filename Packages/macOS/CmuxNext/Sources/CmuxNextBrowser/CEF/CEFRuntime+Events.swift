@@ -40,6 +40,20 @@ let cefKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent in
     }
 }
 
+/// C entry after the page left a key down unhandled: the host's held shortcut runs.
+let cefUnhandledKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent in
+    // Keys arrive on the main thread; off it, Chromium keeps the key.
+    guard let context, let nsEvent, Thread.isMainThread else { return 0 }
+    let address = UInt(bitPattern: context)
+    let eventAddress = UInt(bitPattern: nsEvent)
+    return MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread in the guard above
+        guard let runtime = CEFRuntime.from(address),
+              let pointer = UnsafeMutableRawPointer(bitPattern: eventAddress) else { return 0 }
+        let event = Unmanaged<NSEvent>.fromOpaque(pointer).takeUnretainedValue()
+        return runtime.routeUnhandledKey(event, browser: browser) ? 1 : 0
+    }
+}
+
 /// C entry before a DevTools browser sees a key down; `browser` is the
 /// inspected page.
 let cefDevToolsKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent in
@@ -146,6 +160,14 @@ extension CEFRuntime {
         let store = extensionStores.store(for: tab.profileID)
         guard let command = store.command(matching: event) else { return false }
         return store.run(command, in: tab)
+    }
+
+    /// The page left a Command or Control chord unhandled: the host runs the shortcut it held
+    /// back for the page (Find after a page without its own search), else Chromium goes on.
+    func routeUnhandledKey(_ event: NSEvent, browser: Int32) -> Bool {
+        guard event.type == .keyDown, !event.modifierFlags.isDisjoint(with: [.command, .control]),
+              let tab = tabsByBrowser[browser], let router = tab.keyRouter else { return false }
+        return router.browserTab(tab, unhandledKeyEquivalent: event)
     }
 
     func routeDevToolsKey(_ event: NSEvent, inspected browser: Int32) -> Bool {

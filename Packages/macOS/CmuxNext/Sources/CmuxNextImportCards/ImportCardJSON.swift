@@ -2,9 +2,9 @@ import AppKit
 import CmuxNextImportSuggestions
 import CmuxNextSettings
 
-/// A card list as the web surfaces read it (New Tab's `importCards` push, Settings' host lists
-/// `import_suggestions`, `import.list`): the Codable cards, each with its source app's icon as
-/// a small `data:image/png` URL (a cmux page's CSP allows `img-src data:` only).
+/// A card list as the web surfaces read it (Settings' host lists `import_suggestions`,
+/// `import.list`): the Codable cards, each with its source app's icon as a small
+/// `data:image/png` URL (a cmux page's CSP allows `img-src data:` only).
 @MainActor
 struct ImportCardJSON {
     /// Null for an empty list: the surface draws nothing and keeps no room.

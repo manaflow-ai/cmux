@@ -185,9 +185,27 @@
   > :is(.acpmux-composer-strip, .acpmux-composer-queue, .acpmux-queue-foldbar):has(+ .nt-box) {
   mask: linear-gradient(black calc(100% - var(--acpmux-tray-tuck, 0px)), transparent 0);
 }
+/* Codex's look tucks New Tab's tray (.nt-above, composerLook.css) under the box the same way, less
+   the composer's gap (--nt-composer-gap, newtab/screen.css): over the desktop it showed through the
+   box's glass as a band across the field's top (Leo 2026-10-23, cx-ncc.113.116). The tray now ends
+   at the box's top edge; the box stays glass. */
+:root[data-cmux-see-through]:not([data-reduce-transparency]) .nt-composer[data-composer-look="codex"]
+  > .nt-above:has(+ .nt-box) {
+  mask: linear-gradient(
+    black calc(100% - var(--acpmux-tray-tuck, 0px) + var(--nt-composer-gap, 0px)),
+    transparent 0
+  );
+}
 @media (prefers-reduced-transparency: reduce) {
   :root[data-top-strip="tray"] :is(.acpmux-composer, .nt-composer)
     > :is(.acpmux-composer-strip, .acpmux-composer-queue, .acpmux-queue-foldbar) {
+    mask: none;
+  }
+  /* The Codex tray's mask above, at its own specificity (a plainer selector loses to it). The app
+     also says Reduce Transparency with data-reduce-transparency, which that rule leaves out; WebKit
+     has no prefers-reduced-transparency, so the mask is never scoped to its no-preference. */
+  :root[data-cmux-see-through]:not([data-reduce-transparency]) .nt-composer[data-composer-look="codex"]
+    > .nt-above:has(+ .nt-box) {
     mask: none;
   }
 }

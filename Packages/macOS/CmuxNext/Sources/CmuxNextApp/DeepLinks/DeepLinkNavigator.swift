@@ -121,12 +121,9 @@ struct DeepLinkNavigator {
     private func openAgent(harness: String, session: String, message: String?,
                            _ intent: WindowActivation.Intent) throws {
         guard AgentPaneTunables.agentLinks.value else { throw ActionFailure(message: RefusalStrings.agentLinksOff) }
-        let adopted = services.agentTabs.tab(resuming: AgentPaneAdopt(harness: harness, agentSessionId: session))
-        let tabs = DeepLink.agentTabs(harness: harness, session: session, adopted: adopted,
-                                      harnessSessions: services.machines.daemons.flatMap(\.store.reachableAgentHarnessSessions))
-        guard let shown = tabs.first(where: { services.revealTab($0, intent: intent) }) else { throw Self.gone }
-        if let message, shown == adopted {
-            services.agentTabs.revealTurn(AgentTabStore.messageReveal(message), in: shown)
+        guard let shown = services.revealedAgentSessionTab(harness: harness, session: session, intent: intent) else { throw Self.gone }
+        if let message, shown.adopted {
+            services.agentTabs.revealTurn(AgentTabStore.messageReveal(message), in: shown.tab)
         }
     }
 

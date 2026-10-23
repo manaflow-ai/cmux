@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// The content view every window kit window gets (plans/cmux-next/windows.md,
 /// one backdrop rule): the window's one backdrop, the same material and
@@ -12,7 +13,7 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
     /// The window's one material and tint.
     public let backdropView = WindowMaterialView(frame: .zero)
     private let reduceTransparency: @MainActor () -> Bool
-    private var displayOptionsObserver: (any NSObjectProtocol)?
+    private var displayOptionsObserver: MainActorObservation?
 
     public init(content: NSView,
                 reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency }) {
@@ -28,18 +29,8 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
         addSubview(content)
         // queue: .main: the workspace center may post off main; a selector
         // into this main-actor view trapped there.
-        displayOptionsObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.repaint() } // main-proof: observer on queue: .main
-        }
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            if let displayOptionsObserver { NSWorkspace.shared.notificationCenter.removeObserver(displayOptionsObserver) }
+        displayOptionsObserver = MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
+            self?.repaint()
         }
     }
 

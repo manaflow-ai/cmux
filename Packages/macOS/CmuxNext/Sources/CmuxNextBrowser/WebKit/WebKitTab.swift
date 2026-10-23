@@ -35,6 +35,10 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// Permission use and certificate failures of the current document (Page Info).
     @ObservationIgnored public let pageInfoActivity = PageInfoActivity()
     @ObservationIgnored var observations: [NSKeyValueObservation] = []
+    /// Title changes reach `machine` at most 4 a second (`TitleCoalescer`), as on Chromium:
+    /// a ticking title re-rendered the toolbar and rows and wrote history every frame.
+    @ObservationIgnored var titleCoalescer = TitleCoalescer()
+    @ObservationIgnored let titleTimer = DemandTimer(owner: "WebKitTab.title")
     @ObservationIgnored private var navigationIDs: [ObjectIdentifier: BrowserNavigationID] = [:]
     @ObservationIgnored private var nextNavigation: UInt64 = 0
     /// `observeNavigationEvents` handlers (WebKitTab+Navigations.swift).
@@ -252,6 +256,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         guard !isClosed else { return }
         isClosed = true
         faviconTask?.cancel()
+        titleTimer.cancel()
         rateReshow?.cancel()
         pageBaseHold.cancel()
         for prompt in pendingPrompts { prompt.respond(prompt.dismissalResponse) }
@@ -268,11 +273,35 @@ public final class WebKitTab: NSObject, BrowserTab {
     // MARK: Internals shared with the delegate extension
 
     func apply(_ event: BrowserNavigationEvent) {
+        if case .titleChanged = event {
+            // This title replaces one still waiting (the commit's authoritative read), which must not land after it.
+            if titleCoalescer.flush(now: ProcessInfo.processInfo.systemUptime) != nil { titleTimer.cancel() }
+        } else if let waiting = titleCoalescer.flush(now: ProcessInfo.processInfo.systemUptime) {
+            // A title that waited goes before this event, so the state sees them in order.
+            titleTimer.cancel()
+            machine.apply(.titleChanged(waiting.title))
+        }
         let previousFavicon = machine.state.faviconURL
         machine.apply(event)
         for observer in navigationObservers.values { observer(event) }
         if machine.state.faviconURL != previousFavicon {
             faviconURLDidChange()
+        }
+    }
+
+    /// Applies a page title now, or keeps the latest for the end of the
+    /// coalescing interval (`TitleCoalescer`, as `CEFTab.offerTitle`).
+    private func offerTitle(_ title: String?) {
+        let now = ProcessInfo.processInfo.systemUptime
+        switch titleCoalescer.offer(title, now: now) {
+        case .apply(let update):
+            apply(.titleChanged(update.title))
+        case .later(let until):
+            titleTimer.scheduleIfIdle(after: .milliseconds(Int64(max(0, until - now) * 1000) + 1)) { @MainActor [weak self] in
+                guard let self, !self.isClosed,
+                      let update = self.titleCoalescer.fire(now: ProcessInfo.processInfo.systemUptime) else { return }
+                self.apply(.titleChanged(update.title))
+            }
         }
     }
 
@@ -359,7 +388,7 @@ public final class WebKitTab: NSObject, BrowserTab {
                 MainDelivery().run { self?.apply(.urlChanged(webView.url)) }
             },
             webView.observe(\.title, options: [.new]) { @Sendable [weak self] webView, _ in
-                MainDelivery().run { self?.apply(.titleChanged(webView.title)) }
+                MainDelivery().run { self?.offerTitle(webView.title) }
             },
             webView.observe(\.estimatedProgress, options: [.new]) { @Sendable [weak self] webView, _ in
                 MainDelivery().run { self?.apply(.progress(webView.estimatedProgress)) }

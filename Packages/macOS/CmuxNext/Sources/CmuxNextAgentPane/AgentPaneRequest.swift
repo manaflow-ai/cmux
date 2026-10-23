@@ -62,8 +62,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case editNewTab(AgentPaneNewTabEdit)
     /// The New Tab page player's control (`nowPlaying.command {command, seconds}`).
     case nowPlaying(AgentPaneNowPlaying.Command)
-    /// An import card's button on the New Tab page (`importCards.act {id, action}`).
-    case importCard(AgentPaneImportCards.Act)
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched
