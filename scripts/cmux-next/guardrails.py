@@ -417,20 +417,31 @@ def in_row(version: Version, index: int) -> tuple[bool, list[int]]:
 # a source line as check-app-size.sh --base counts it (count-swift-code-lines.py's lexer: blank and comment lines
 # do not count), so a comment such as a `// main-proof:` reason is neither growth nor credit.
 #
-# The values below are PROPOSED by the arch-app-size slice (session cmux-4f, 2026-10-23). None is measured and no
-# lead decision is recorded for them yet. Refusing every net source-line growth of a feature App file (the `other`
+# The values below are PROPOSED by the arch-app-size slice (session cmux-4f, 2026-10-23); no lead or session
+# cmux-b6 decision is recorded for them yet. Refusing every net source-line growth of a feature App file (the `other`
 # bucket, which replaces the `app-grow` warning) is a cross-session policy that session cmux-b6 must confirm before
-# it lands. The intent of each value, as proposed:
+# it lands. Measured on origin/feat-cmux-next at 2952080b0a5 (CI's lexer, first-parent commits, each commit against
+# its first parent):
 # - ROOT_BUDGET: the wiring of a few domains per push (a stored instance, its construction, passing it on), never
-#   their logic; the `total` bucket makes the same push pay for it with an App shrink.
+#   their logic; the `total` bucket makes the same push pay for it with an App shrink. Of the last 600 App commits
+#   (2026-10-20..23), 62 changed root files: net root growth p50 +2, p95 +11, max +41; 61 of 62 are within +30. The
+#   one over (4aa19112632, +41) is folder and harness logic in AppServices+WorkContext.swift, not wiring.
 # - HOST_FILE_MAX: one domain's Host protocol forwards, one member per line; a larger Host protocol is a sign that
-#   the domain still reaches into the App.
+#   the domain still reaches into the App. No AppServices+<Domain>Host.swift exists yet; the four `*Host` protocols
+#   in Sources have 4 to 9 members (BrowserRestoredSessionHost 9), so 60 lines is about 6x the largest known Host.
 # - MOVE_RUN: one or two lines in a row that match removed text can be chance (`let x = 0`, a shared call); a
-#   moved block is longer.
+#   moved block is longer. Over 1500 Sources commits (2026-10-19..23): of 133 new files git calls a >= 90% rename,
+#   132 reach MOVE_SHARE at runs of 2 or 3, 129 at 4, 122 at 5; of 1779 plain new files the p95 credited share is
+#   0.19 at 2, 0.14 at 3, 0.10 at 4. 3 is the longest run that still credits every near-pure move run 2 credits.
 # - MOVE_SHARE: a git mv or a split also edits some lines (a renamed type, a changed access level); a mostly
-#   unchanged file is still a move, not new code.
+#   unchanged file is still a move, not new code. Same 1500 commits at MOVE_RUN 3: 0.8 passes 132 of 133 renames
+#   >= 90% similar and 18 of 30 at 80-89%, and passes 23 of 1779 plain new files (splits git does not see as
+#   renames); 0.7 would pass 25 of 30 at 80-89% and 29 plain new files.
 # - MOVE_GENERIC_PER_LINE: a moved specific line usually closes one or two blocks (`}` of an `if` and of its
 #   function); generic lines beyond that are not explained by the run's specific lines.
+# - The `other` bucket as a refusal: in the same 600 App commits, 404 grew feature App files (net +14726 source
+#   lines against -2417 shrinks); the App grew +12500 source lines in those four days. A refusal stops that growth
+#   at the push; it also refuses about two of every three App pushes of that period until they move lines out.
 # A source line is the unit (CI's unit): joining statements onto one line lowers the count without removing code,
 # a count dodge this rule cannot see; review rejects it.
 ROOT_BUDGET = 30  # source lines of wiring the root may add per push, moved-in lines included, paid by a shrink
