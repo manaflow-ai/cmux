@@ -11,6 +11,11 @@
 // own defaults, and an upgrade must not move anyone's chat. Code follows the terminal font
 // (`--cmux-diff-code-font-family`) unless a code font is set.
 import { useSyncExternalStore } from "react";
+import { isArm } from "../../experiments/experiment";
+import { threadMinimapLayout } from "./threadMinimap/layout.experiment";
+
+/// An arm of the thread minimap experiment (`off`, `full`, `compact`, whatever its definition lists).
+export type ThreadMinimapArm = keyof typeof threadMinimapLayout.arms;
 
 export type ChatFontPreset = "system" | "serif" | "mono";
 /// What the chat keys hold: `markdown` follows the Markdown viewer's font.
@@ -35,10 +40,19 @@ export interface ChatDisplay {
   /// lies over the transcript's text (Leo, 2026-10-21); `push` always moves the chat aside. Not a
   /// look: the Text & Width popover's Reset leaves it.
   inspector: "push" | "overlay";
+  /// What the chat's edge shows (threadMinimap/ThreadMinimap.tsx), Settings > Agent Chat > Chat
+  /// Minimap: one of the `thread-minimap-layout` experiment's arms (the prompt rail, the VS Code-like
+  /// full map, or nothing; the App Store's Chat Minimap card picks the full map, Leo 2026-10-22:
+  /// "addng in the app store the vscode-like minimap situation"). Null when the key is unset or not
+  /// an arm: the experiment decides (its debug key, else its default arm). Not a look: Reset leaves it.
+  minimap: ThreadMinimapArm | null;
 }
 
 /// Settings > Agent Chat > Inspector (Swift AgentPaneDisplaySettingsSchema has the same row).
 export const INSPECTOR_PLACEMENT_KEY = "agentPane.display.inspector.placement";
+/// Settings > Agent Chat > Chat Minimap, and the App Store's Chat Minimap card (Swift
+/// AgentPaneDisplaySettingsSchema has the same row, AppFeature+Catalog the card).
+export const MINIMAP_KEY = "agentPane.display.minimap";
 
 /// Each option: its cmux.json key, its range and default. The Swift schema has the same rows
 /// (AgentPaneDisplaySettingsSchema).
@@ -69,6 +83,7 @@ export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
   codeFamily: null,
   codeScale: null,
   inspector: "overlay",
+  minimap: null,
 };
 
 /// The body font stacks, as the Markdown viewer's presets (pages/markdown/settings.ts).
@@ -97,6 +112,15 @@ const family = (value: unknown): string | null => {
   return trimmed;
 };
 
+/// The Chat Minimap key's arm, or null for the experiment to decide. The key was an on/off toggle
+/// before it was this choice: on (`true`) was the full map, and off left the chat to the experiment,
+/// as no value does now. The Swift bridge reads it the same way (AgentPaneDisplaySettingsSchema
+/// `pageValue`).
+function minimapArm(value: unknown): ThreadMinimapArm | null {
+  const arm = value === true ? "full" : value;
+  return isArm(threadMinimapLayout, arm) ? arm : null;
+}
+
 /// The host's map (or anything else: the defaults).
 export function resolveChatDisplay(raw: unknown): ChatDisplay {
   const values = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Values;
@@ -117,6 +141,7 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
       number(values[CHAT_DISPLAY.codeScale.key], CHAT_DISPLAY.codeScale) ??
       number(values[MARKDOWN_FOLLOWED.codeScale], CHAT_DISPLAY.codeScale),
     inspector: values[INSPECTOR_PLACEMENT_KEY] === "push" ? "push" : "overlay",
+    minimap: minimapArm(values[MINIMAP_KEY]),
   };
 }
 

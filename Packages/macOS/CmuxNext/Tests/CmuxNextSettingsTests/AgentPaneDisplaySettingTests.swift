@@ -29,6 +29,8 @@ struct AgentPaneDisplaySettingTests {
             refused: [.number(0.2), .number(3)]),
         Row(key: "agentPane.display.inspector.placement", fallback: .string("overlay"), accepted: [.string("push")],
             refused: [.string("left"), .bool(true)]),
+        Row(key: "agentPane.display.minimap", fallback: .string("off"), accepted: [.string("compact"), .string("full")],
+            refused: [.bool(true), .string("left")]),
         Row(key: "markdown.code.family", fallback: nil, accepted: [.string("Menlo")], refused: [.bool(true)]),
     ]
 
@@ -65,9 +67,26 @@ struct AgentPaneDisplaySettingTests {
         #expect(AgentPaneDisplaySetting(fileRoot: .object([:])) == .fallback)
     }
 
+    /// `agentPane.display.minimap` was an on/off toggle before it was the Rail / Full Map / Off choice.
+    /// A settings file the toggle wrote keeps its meaning on the way to the page: `true` (the full
+    /// map) arrives as `"full"`, and `false` (the experiment decides) arrives as no value at all,
+    /// as it did before. Without this the choice row refused `true`, the page got nothing, and a
+    /// person who had turned the map on lost it.
+    @Test func theOldMinimapToggleKeepsItsMeaning() {
+        func page(_ value: JSONValue) -> JSONValue? {
+            let root: JSONValue = .object(["agentPane": .object(["display": .object(["minimap": value])])])
+            return AgentPaneDisplaySetting(fileRoot: root).values["agentPane.display.minimap"]
+        }
+        #expect(page(.bool(true)) == .string("full"))
+        #expect(page(.bool(false)) == nil)
+        #expect(page(.string("compact")) == .string("compact"))
+        #expect(page(.string("off")) == .string("off"))
+        #expect(page(.string("yes")) == nil)
+    }
+
     @Test(arguments: [
         "agentPane.display.width", "agentPane.display.code.family", "agentPane.display.font.size",
-        "agentPane.display.inspector.placement",
+        "agentPane.display.inspector.placement", "agentPane.display.minimap",
     ])
     func thePageMayWriteTheChatKeys(_ key: String) {
         #expect(AgentPaneDisplaySetting.writablePath(key) == key.split(separator: ".").map(String.init))
