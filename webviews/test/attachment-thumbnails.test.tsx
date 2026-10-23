@@ -237,7 +237,10 @@ try {
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
       expect(host.querySelector(".cv-media video")).toBeNull();
+      expect(host.querySelector(".acpmux-attachment-media-fallback")).not.toBeNull();
+      expect(host.querySelector(".cv-media")).toBeNull();
       expect(host.textContent).toContain("login-tests.mp4");
+      expect(host.querySelector(".acpmux-attachment-remove")).not.toBeNull();
       expect(calls).not.toContain("media.load");
     } finally {
       await act(async () => {
@@ -275,7 +278,10 @@ try {
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
       expect(host.querySelector(".cv-media video")).toBeNull();
+      expect(host.querySelector(".acpmux-attachment-media-fallback")).not.toBeNull();
+      expect(host.querySelector(".cv-media")).toBeNull();
       expect(host.textContent).toContain("refused.mp4");
+      expect(host.querySelector(".acpmux-attachment-remove")).not.toBeNull();
       expect(calls).toContain("media.load");
     } finally {
       await act(async () => {
