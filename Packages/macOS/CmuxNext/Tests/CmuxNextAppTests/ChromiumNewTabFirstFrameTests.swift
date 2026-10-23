@@ -41,6 +41,24 @@ import Testing
         #expect(entry.tab.state.url?.absoluteString == "https://example.com/")
     }
 
+    /// The stand-in's page moves to the daemon's tab on the reply: taken out of the cache open,
+    /// never closed (its load and its Chromium window go on).
+    @Test func aStandInHandsItsPageOverOpen() throws {
+        let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil))
+        cache.browserTabs.cefUnavailable = { nil }
+        cache.chromiumNow.runs = { true }
+        cache.chromiumNow.make = { MockBrowserEngine(kind: .cef, completesNavigationsImmediately: false).makeMockTab($0) }
+        let provisional = ProvisionalTab()
+        let tab = TabModel(TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.id), kind: .browser,
+                                       url: BrowserNewTabPage.chromiumURL, browserRenderer: "frontend", browserEngine: "cef"))
+        let page = try #require(cache.browser(for: tab)?.tab as? MockBrowserTab)
+        let handed = try #require(cache.handOverBrowser(tab.id))
+        #expect(handed === page)
+        #expect(!page.isClosed)
+        #expect(cache.existingBrowser(tab.id) == nil)
+        page.close()
+    }
+
     /// A reopened tab on the New Tab page whose page cannot be made now (Chromium still
     /// starting) takes the asynchronous path, which must still find the tab's closed history:
     /// the fast path may claim it only for the page it makes.

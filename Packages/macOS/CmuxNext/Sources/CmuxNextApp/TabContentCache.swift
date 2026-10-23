@@ -368,6 +368,17 @@ final class TabContentCache {
         return entry
     }
 
+    /// The page of stand-in tab `key` (`BrowserTabStandIn`), taken out of the cache without closing
+    /// it, for the daemon's tab to adopt (`BrowserPageRequests.adopt`). Everything else the key
+    /// held is released as for a closed tab; the pane showing it lets go of its view. Nil when the
+    /// stand-in has no page (yet): the daemon's tab then makes its own.
+    func handOverBrowser(_ key: String) -> (any BrowserTab)? {
+        guard !pendingBrowsers.contains(key), let entry = browsers.removeValue(forKey: key) else { return nil }
+        release(key)
+        entry.chrome.removeFromSuperview()
+        return entry.tab
+    }
+
     /// Swaps `tab`'s page for `page` (an adopted popup that arrived after
     /// the tab's placeholder page was created).
     func replacePage(of tab: TabModel, with page: any BrowserTab) {

@@ -49,7 +49,7 @@ struct PaneBrowserTabOpener {
     /// False when the tab is refused (no tab, no daemon request). A local file goes where
     /// `LocalFileHandoff` shows it (a tab's first load is not guarded): Markdown opens the markdown
     /// page unless the caller waits for the tab, and media Chromium cannot play opens in WebKit.
-    func open(url: URL?, engine requested: String?, inherited: String?, adopting child: (any BrowserTab)?,
+    func open(url: URL?, engine requested: String?, inherited: String?, adopting child: (any BrowserTab)?, // perf-hot: 10ms new-tab (the key's turn of every new browser tab)
               background: Bool, profile: String?, notice: String?, opener: SurfaceID?,
               then: (@MainActor (SurfaceID) -> Void)?) -> Bool {
         let services = controller.services
@@ -105,6 +105,12 @@ struct PaneBrowserTabOpener {
             if child != nil { choice = BrowserPageRequests.choice(adopting: child, inherited: inherited, browserTabs: browserTabs) }
             let pageRequests = services.cache.pageRequests
             let newTabAddress = services.newTabAddress(for: choice)
+            // A person's foreground tab: shown with its page in this turn (BrowserTabStandIn).
+            if BrowserTabStandIn.applies(child: child, opener: opener, background: background, controller: controller) {
+                BrowserTabStandIn(controller: controller).open(choice, address: url?.absoluteString ?? newTabAddress, focusesAddressBar: url == nil,
+                                                               profile: profile, notice: notice, then: then)
+                return true
+            }
             let controller = controller, model = controller.pane
             // Home's pinned dock takes dragged tabs (`allow_tabs`, Leo 2026-10-21) but opens nothing in
             // itself (HomeDockOpens): a new browser tab aimed at it (History, Bookmarks, a URL from another

@@ -209,7 +209,10 @@ final class BrowserTabService {
     func takeNotice(forKey key: String) -> String? { pendingTabNotices.removeValue(forKey: key) }
 
     /// Whether `tab` was created in this process (`open`), not restored.
-    func wasOpenedHere(_ tab: TabModel) -> Bool { openedSurfaces.contains(key(daemonForTab(tab), tab.surface)) }
+    /// A stand-in tab (`BrowserTabStandIn`) is opened here by definition.
+    func wasOpenedHere(_ tab: TabModel) -> Bool {
+        ProvisionalTab.isProvisional(surface: tab.surface) || openedSurfaces.contains(key(daemonForTab(tab), tab.surface))
+    }
 
     /// The daemon record URL of an incognito tab.
     static let incognitoPlaceholderURL = "about:blank"
@@ -334,6 +337,8 @@ final class BrowserTabService {
     }
 
     func track(_ page: any BrowserTab, for tab: TabModel) {
+        // A stand-in has no daemon record to write back to: the daemon's tab tracks the page it adopts.
+        guard !ProvisionalTab.isProvisional(surface: tab.surface) else { return }
         trackEmulation(page, id: tab.id)
         guard tab.isFrontendOwned, writers[tab.id] == nil, !isIncognitoTab(tab.id) else { return }
         let update = update, updateState = updateState, id = tab.id, daemonForTab = daemonForTab
