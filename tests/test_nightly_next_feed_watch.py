@@ -253,6 +253,13 @@ class StarvationGuardTests(unittest.TestCase):
         self.assertEqual(result, "unchanged")
         self.assertEqual(gh.dispatched, [])
 
+    def test_a_six_hour_cache_seed_does_not_block_classic_starvation(self):
+        cache_seed = {"id": 9, "status": "in_progress", "event": "schedule",
+                      "created_at": "2026-10-23T23:17:00Z", "html_url": "run/9"}
+        self.assertFalse(watch.is_active_delivery_run("nightly.yml", "main", cache_seed))
+        publish = {**cache_seed, "created_at": "2026-10-23T08:47:00Z"}
+        self.assertTrue(watch.is_active_delivery_run("nightly.yml", "main", publish))
+
 
 class FakeGitHub:
     def __init__(self, issues):
