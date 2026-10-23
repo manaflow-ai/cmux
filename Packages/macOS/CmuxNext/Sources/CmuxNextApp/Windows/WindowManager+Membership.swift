@@ -55,8 +55,12 @@ extension WindowManager {
         // new terminal workspace, a duplicate, a pane moved out) draws its selection in this turn,
         // as a switch does (`show(workspaceID:in:from:)`), not on its observation's main-actor hop
         // after the frame this turn commits (perf-lead issue 11: visible in the first frame).
+        // Contract for every claimant: the content mounts here, inside the turn that lists the
+        // workspace (for Cmd-N, inside `store.intend` and its list hook), so the claimant prepares
+        // the workspace's view state (seeds, New Tab pages, transferred views) before the store
+        // lists it. The mount is now part of the key's synchronous time (bench `key_ms`).
         for id in preferred.keys where value.window(id)?.isOpen == true {
-            if let receiver = controller(for: id) { receiver.showWorkspace(requested: receiver.state.workspaceID) }
+            controller(for: id)?.showSelectionIfNeeded()
         }
         for id in Array(states.keys) where value.window(id) == nil && id != launchWindowID { states[id] = nil }
         if closedKey { handOffKey(to: receivers) }
@@ -148,7 +152,8 @@ extension WindowManager {
             return
         }
         claim(workspaceID: workspaceID, in: state)
-        controller(for: state.id)?.showWorkspace(requested: state.workspaceID)
+        // A claim that moved the workspace in already mounted it (`sync`); one that only selected does here.
+        controller(for: state.id)?.showSelectionIfNeeded()
     }
 
     /// Shows `workspaceID` where it lives: its window when open, else the

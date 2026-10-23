@@ -209,6 +209,16 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if content == nil { showConnecting() }
     }
 
+    /// Shows the window's selection unless its content already draws it (no top page or Cloud
+    /// creation view, the selected workspace mounted): a transition that mounted it in this turn
+    /// (`WindowManager.sync`) is not followed by a second show and arrange from the entry point
+    /// that ran it (`openWindow`, `show(workspaceID:in:)`).
+    func showSelectionIfNeeded() {
+        if state.page == nil, state.cloudCreation == nil, let shown = content?.workspace, let selected = state.workspaceID,
+           services.machines.workspace(id: selected)?.0 === shown { return }
+        showWorkspace(requested: state.workspaceID)
+    }
+
     /// The local daemon's first connection, connecting or unavailable, until a workspace shows.
     private func showConnecting() {
         let view = connectingView ?? DaemonConnectingView(frame: .zero, recovery: services.daemon.recovery)
