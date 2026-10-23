@@ -1,4 +1,4 @@
-import CmuxNextDaemon
+public import CmuxNextDaemon
 
 /// The name a workspace the user never named takes from its front tab
 /// (hq#1957, `workspaces.autoName`). Pure, so every case is tested; the
