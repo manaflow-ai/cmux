@@ -24,9 +24,11 @@ open-panel warm-up, CmuxNextDesign OpenPanelWarmGate; change all three together)
 no such key, or no answer at all means nobody, and the check fails closed. This account has a GUI session only
 when it is that user. A locked screen is reported (`screen_locked`, from IOConsoleUsers) but does not fail the
 check.
-`launch()` checks the session first and raises LaunchError("no-gui-session") at once
-(BENCH_LAUNCH_ANY_SESSION=1 launches anyway, for socket-only checks); every other failure gets its reason
-after the wait.
+`launch()` checks the session first and raises LaunchError("no-gui-session") at once; every other failure gets its
+reason after the wait. Nothing in the environment turns the check off. The one launch without a session is a
+socket-only check (`BenchApp(..., socket_only=True)`, `check --socket-only`): it reads only the socket and the window
+list, never a frame, and every report it writes carries `socket_only: true` and its `gui_session`. A bench that
+measures frames never passes it. Tests inject the session read (`BenchApp(..., session=...)`).
 
 On the fleet: `scripts/measure/split-spring.sh --suite=launch-check` builds the app and runs `check` below (with no
 session `check` itself reports no-gui-session; the build has run by then, only the launch timeout is saved).
@@ -46,6 +48,7 @@ Check a host by hand or from a fleet step (exit 0 when the socket answered and a
 `BENCH-LAUNCH {json}` line either way):
 
     python3 scripts/cmux-next/bench_launch.py check --app "/path/cmux DEV <tag>.app" [--out DIR] [--timeout 180]
+    python3 scripts/cmux-next/bench_launch.py check --socket-only --app ...   # also with no GUI session; no frames
     python3 scripts/cmux-next/bench_launch.py session    # only the GUI session check, no app
 """
 import argparse, glob, json, os, platform, pwd, re, signal, socket, subprocess, sys, tempfile, time
@@ -231,11 +234,11 @@ def no_session_detail(session):
             f"{session['user']}), or run GUI steps only on hosts where it is the console user")
 
 
-def require_gui_session(who="bench", argv=None):
+def require_gui_session(who="bench", argv=None, session=None):
     """Exits 1 at once, with one BENCH-LAUNCH line (and the --json report when argv names one), when this
-    account has no GUI session; BENCH_LAUNCH_ANY_SESSION=1 skips the check."""
-    session = gui_session()
-    if session["ok"] or os.environ.get("BENCH_LAUNCH_ANY_SESSION"):
+    account has no GUI session. `session` reads the session (default ``gui_session``; tests pass their own)."""
+    session = (session or gui_session)()
+    if session["ok"]:
         return session
     argv = sys.argv[1:] if argv is None else argv
     report = {"ok": False, "reason": "no-gui-session", **host_facts(), "gui_session": session,
@@ -318,10 +321,14 @@ class BenchApp:
 
     `env` adds to (and overrides) BASE_ENV; `config` is written as the app's cmux.json; `window` is
     (x, y, width, height) or None; `screen` is CMUX_NEXT_TEST_WINDOW_SCREEN (`0` = the main display).
+    `session` reads whether this account has a GUI session (default ``gui_session``, read at each launch;
+    tests pass a stub). `socket_only=True` launches without a GUI session for a check that reads only the socket
+    and the window list: its failure reports carry `socket_only` and `gui_session`, and its crash or exit is
+    reported as such, not as no-gui-session. A bench that measures frames never passes it.
     """
 
     def __init__(self, app, out=None, env=None, config=None, window=(40, 40, 1440, 900), screen="0",
-                 log_name=None, teardown=True):
+                 log_name=None, teardown=True, session=None, socket_only=False):
         self.app = os.path.realpath(app).rstrip("/")
         self.tag = tag_of(self.app)
         self.out = os.path.abspath(out or tempfile.mkdtemp(prefix=f"bench-launch-{self.tag}-"))
@@ -335,6 +342,9 @@ class BenchApp:
         self.socket = socket_candidates(self.tag)[0]
         self.launched_at = None
         self.ready_seconds = None
+        self.read_session = session
+        self.socket_only = socket_only
+        self.gui_session = None  # the session read at the last launch
         self.teardown = None
         if teardown:
             sys.path.insert(0, HERE)
@@ -361,6 +371,10 @@ class BenchApp:
             if command.lstrip().startswith(prefix) and pid.isdigit() and int(pid) != os.getpid():
                 pids.append(int(pid))
         return pids
+
+    def session(self):
+        """This account's GUI session now (the injected read, else ``gui_session``)."""
+        return (self.read_session or gui_session)()
 
     @property
     def cli(self):
@@ -394,10 +408,10 @@ class BenchApp:
         `on_start(process)` runs right after the spawn (a script's own PID list for its cleanup). On a
         failure the report is printed to stdout (a fleet step log is stdout only), then LaunchError is raised.
         """
-        session = gui_session()
-        if not session["ok"] and not os.environ.get("BENCH_LAUNCH_ANY_SESSION"):
-            # Without the console session the display does not tick and the open-panel warm-up blocks the main
-            # thread ~40 s; say so now instead of after the timeout. BENCH_LAUNCH_ANY_SESSION=1 tries anyway.
+        session = self.gui_session = self.session()
+        if not session["ok"] and not self.socket_only:
+            # Without the console session the display does not tick (frame numbers mean nothing); say so now
+            # instead of after the timeout. Only a socket-only check launches anyway, and says so in its reports.
             self._fail("no-gui-session", {"tag": self.tag, **host_facts(), "gui_session": session,
                                           "detail": no_session_detail(session), "log_tail": ""})
         running = self.running_pids()
@@ -444,8 +458,10 @@ class BenchApp:
         log.flush()
         self._fail(*self.diagnose(last, timeout))
 
-    @staticmethod
-    def _fail(reason, report):
+    def _fail(self, reason, report):
+        report.setdefault("gui_session", self.gui_session)
+        if self.socket_only:
+            report["socket_only"] = True
         error = LaunchError(reason, report)
         note(str(error))
         note("BENCH-LAUNCH " + json.dumps({"ok": False, "reason": reason,
@@ -454,7 +470,7 @@ class BenchApp:
 
     def diagnose(self, last, timeout):
         """(reason, report) for a launch that did not answer."""
-        session = gui_session()
+        session = self.session()
         sockets = {p: os.path.exists(p) for p in socket_candidates(self.tag)}
         exit_code = self.process.poll() if self.process else None
         report = {"tag": self.tag, **host_facts(), "pid": self.process.pid if self.process else None, "exit": exit_code,
@@ -465,7 +481,9 @@ class BenchApp:
             report["crash"] = crash_summary(crashes[-1])
         ended = f"the app ended (exit {exit_code}) before its socket answered" + \
                 (f"; crash report {crashes[-1]}" if crashes else "") if exit_code is not None else None
-        if not session["ok"]:
+        if not session["ok"] and not self.socket_only:
+            # The session went away during the launch (a socket-only check launched without one on purpose: its
+            # crash or silence is reported as what it is).
             reason = "no-gui-session"
             report["detail"] = no_session_detail(session) + (f"; {ended}" if ended else "")
         elif ended:
@@ -552,14 +570,19 @@ def main(argv=None):
     check.add_argument("--out")
     check.add_argument("--timeout", type=float, default=180)
     check.add_argument("--json", help="also write the result here")
+    check.add_argument("--socket-only", action="store_true",
+                       help="launch even with no GUI session: only the socket and the window list are checked, no "
+                            "frames; the result says socket_only and gui_session")
     sub.add_parser("session", help="only report whether this account has a GUI session")
     opts = parser.parse_args(argv)
     if opts.command == "session":
         result = {**host_facts(), "gui_session": gui_session()}
         print("BENCH-LAUNCH " + json.dumps(result), flush=True)
         return 0 if result["gui_session"]["ok"] else 1
-    app = BenchApp(opts.app, out=opts.out)
-    result = {"tag": app.tag, **host_facts(), "gui_session": gui_session()}
+    app = BenchApp(opts.app, out=opts.out, socket_only=opts.socket_only)
+    result = {"tag": app.tag, **host_facts(), "gui_session": app.session()}
+    if opts.socket_only:
+        result["socket_only"] = True
     try:
         app.launch(timeout=opts.timeout)
         windows = app.rpc("debug.windows")

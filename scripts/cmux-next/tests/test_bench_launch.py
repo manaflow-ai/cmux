@@ -5,15 +5,18 @@
    teardown: that teardown ends every process of the bundle, which here is the live app, not one this run started.
 2. The pre-launch socket probe unlinks only a socket nothing listens on: a socket that accepts but does not answer in
    time (a busy main thread, a long restore) belongs to a live app of the tag (another bundle path).
+3. No environment variable passes the GUI-session gate; the one launch without a session is the explicit socket-only
+   check, and its report says so.
 
-Runs on any Mac, no GUI session or build needed (BENCH_LAUNCH_ANY_SESSION=1, a copy of /bin/sleep stands in for the
-app's executable). Signals only the processes it starts.
+Runs on any Mac, no GUI session or build needed (the session read is injected or the check is `--socket-only`, and a
+copy of /bin/sleep stands in for the app's executable). Signals only the processes it starts.
 
     python3 scripts/cmux-next/tests/test_bench_launch.py
 """
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import socket
@@ -40,6 +43,8 @@ def fake_bundle(folder: str, tag: str) -> str:
     return app
 
 
+OK_SESSION = {"ok": True, "user": "worker", "console_user": "worker", "screen_locked": False,
+              "detail": "worker is the console user"}
 NO_SESSION = {"ok": False, "user": "worker", "console_user": None, "screen_locked": None,
               "detail": "nobody is logged in on the console (login window); worker has no GUI session"}
 
@@ -96,13 +101,33 @@ class TagInUseTests(unittest.TestCase):
         app = fake_bundle(self.folder, self.tag)
         live = subprocess.Popen([os.path.join(app, "Contents/MacOS/cmux DEV"), "300"])
         self.started.append(live)
+        report_path = os.path.join(self.folder, "check.json")
         result = subprocess.run(
-            [sys.executable, str(HERE / "bench_launch.py"), "check", "--app", app, "--timeout", "5",
-             "--out", os.path.join(self.folder, "out")],
-            env=dict(os.environ, BENCH_LAUNCH_ANY_SESSION="1"), capture_output=True, text=True, timeout=120)
+            [sys.executable, str(HERE / "bench_launch.py"), "check", "--socket-only", "--app", app, "--timeout", "5",
+             "--out", os.path.join(self.folder, "out"), "--json", report_path],
+            capture_output=True, text=True, timeout=120)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("tag-in-use", result.stdout)
         self.assertIsNone(live.poll(), "the refused check's teardown ended the live app of the bundle:\n" + result.stdout)
+        with open(report_path) as f:
+            report = json.load(f)
+        self.assertEqual(report.get("reason"), "tag-in-use")
+        self.assertIs(report.get("socket_only"), True, "a socket-only check's report does not say so")
+        self.assertIn("ok", report.get("gui_session") or {}, "a socket-only check's report has no gui_session")
+
+    def test_a_launch_with_an_injected_session_is_refused_as_tag_in_use_and_stops_nothing(self):
+        app_path = fake_bundle(self.folder, self.tag)
+        live = subprocess.Popen([os.path.join(app_path, "Contents/MacOS/cmux DEV"), "300"])
+        self.started.append(live)
+        app = bl.BenchApp(app_path, out=os.path.join(self.folder, "out"), session=lambda: OK_SESSION)
+        with mock.patch.object(bl, "note"):
+            with self.assertRaises(bl.LaunchError) as refused:
+                app.launch(timeout=5)
+            app.stop()  # what every bench's finally runs: the bundle's live app is another run's
+        self.assertEqual(refused.exception.reason, "tag-in-use")
+        self.assertIsNone(app.process)
+        self.assertEqual(refused.exception.report.get("gui_session"), OK_SESSION)
+        self.assertIsNone(live.poll(), "stop() after a refused launch ended the live app of the bundle")
 
     def test_a_socket_that_accepts_but_does_not_answer_is_in_use(self):
         path = os.path.join(self.folder, "silent.sock")
