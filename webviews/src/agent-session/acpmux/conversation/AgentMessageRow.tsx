@@ -28,6 +28,7 @@ export function AgentMessageRow({
   icon,
   sentence,
   name,
+  nameTitle,
   onOpenName,
   openNameLabel,
   preview,
@@ -51,6 +52,8 @@ export function AgentMessageRow({
   sentence: string;
   /// The other agent, drawn as a chip.
   name: string;
+  /// The chip's tooltip: the full id behind a name or a short id.
+  nameTitle?: string;
   /// Opens the other agent's chat; without it the chip is plain and opens the message.
   onOpenName?(): void;
   /// The chip's label for a screen reader when it opens a chat.
@@ -94,11 +97,17 @@ export function AgentMessageRow({
           </span>
         )}
         {onOpenName ? (
-          <button type="button" className="cv-agentmsg__name" aria-label={openNameLabel} onClick={onOpenName}>
+          <button
+            type="button"
+            className="cv-agentmsg__name"
+            aria-label={openNameLabel}
+            title={nameTitle}
+            onClick={onOpenName}
+          >
             {name}
           </button>
         ) : (
-          <span className="cv-agentmsg__name is-plain" aria-hidden onClick={onToggle}>
+          <span className="cv-agentmsg__name is-plain" aria-hidden title={nameTitle} onClick={onToggle}>
             {name}
           </span>
         )}
