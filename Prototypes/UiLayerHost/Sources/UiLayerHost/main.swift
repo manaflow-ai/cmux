@@ -49,8 +49,8 @@ final class ProjectionModel {
                 case .success(let snapshot):
                     self.snapshot = snapshot
                     self.error = nil
-                case .failure(let message):
-                    self.error = "Projection unavailable at \(source.path): \(message)"
+                case .failure(.message(let detail)):
+                    self.error = "Projection unavailable at \(source.path): \(detail)"
                 }
             }
         }
@@ -71,15 +71,25 @@ final class ProjectionModel {
 
 private let maxProjectionBytes = 8 * 1024 * 1024
 
-private func readProjection(_ source: URL) -> Result<ProjectionSnapshot, String> {
+private enum ProjectionReadError: Error {
+    case message(String)
+
+    var localizedDescription: String {
+        switch self {
+        case let .message(message): return message
+        }
+    }
+}
+
+private func readProjection(_ source: URL) -> Result<ProjectionSnapshot, ProjectionReadError> {
     do {
         let handle = try FileHandle(forReadingFrom: source)
         defer { try? handle.close() }
         let data = try handle.read(upToCount: maxProjectionBytes + 1) ?? Data()
-        guard data.count <= maxProjectionBytes else { return .failure("snapshot exceeds 8 MiB") }
+        guard data.count <= maxProjectionBytes else { return .failure(.message("snapshot exceeds 8 MiB")) }
         return .success(try JSONDecoder().decode(ProjectionSnapshot.self, from: data))
     } catch {
-        return .failure(error.localizedDescription)
+        return .failure(.message(error.localizedDescription))
     }
 }
 
