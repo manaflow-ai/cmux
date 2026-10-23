@@ -12,8 +12,8 @@ pre-push rule, and an unreadable measured_sha applies none; an older commit or a
 changes nothing; a rewritten branch (the last point diverged, or its commit is gone) restarts the trend and says
 so; a shallow, sparse, blobless clone whose HEAD is not the measured commit (made by git clone, and the way
 actions/checkout makes it) is counted with a few fetches, not one per blob; a count past the deadline is still
-noted in the issue in time; an unreadable state is never overwritten; the in-process run_report() and
-report_finished() change only their own keys.
+noted in the issue in time; an unreadable state is never overwritten; with no repository or GH_TOKEN the point is
+kept and no GitHub request is made; the in-process run_report() and report_finished() change only their own keys.
 Run: python3 -I scripts/cmux-next/tests/test_perf_cron_arch_report.py (not a CI job)."""
 import contextlib, copy, importlib.util, io, json, os, subprocess, tempfile, time, unittest, urllib.error
 from unittest import mock
@@ -571,6 +571,27 @@ class ArchReportTests(unittest.TestCase):
         self.assertEqual(self.state_text(), before)
         self.assertEqual(self.gh.writes(), [])
         self.assertIn("would open an issue", out)
+
+    def test_no_repository_or_token_keeps_the_point_and_never_calls_github(self):
+        _, _, c = self.rise()
+        self.gh.calls.clear()
+        with mock.patch.dict(os.environ):
+            os.environ.pop("GH_TOKEN")
+            out = self.run_report(c)
+        self.assertIn("no repository or GH_TOKEN: the issue is not kept this run", out)
+        self.assertIn("1 row(s) over the limit", out)
+        self.assertEqual(self.gh.calls, [], "with no token, no GitHub request is made")
+        state = self.load_state()
+        self.assertEqual(state[report.STATE_KEY][-1]["sha"], c, "the trend point is still kept")
+        self.assertNotIn(report.ISSUE_KEY, state)
+        d = self.commit("feat: one more singleton", counts(7, 4))
+        before = self.state_text()
+        with mock.patch.dict(os.environ):
+            os.environ.pop("GITHUB_REPOSITORY")
+            out = self.run_report(d, "--dry-run")
+        self.assertIn("no repository or GH_TOKEN: the issue is not kept this run", out)
+        self.assertEqual(self.gh.calls, [], "with no repository, also a dry run makes no GitHub request")
+        self.assertEqual(self.state_text(), before)
 
     def capture(self, fn):
         out = io.StringIO()
