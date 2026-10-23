@@ -14,13 +14,20 @@ on waitpid for the app, and on kqueue NOTE_EXIT for the tag's daemon.
         new daemon adopts them (a crash or a version handoff)
   warm  a priming launch leaves the daemon running (keep sessions); only
         the app quits before the measured launch
+  kept  the priming launch quits with End Sessions, Keep Layout (every
+        terminal ends, its tab stays with a relaunch record, the daemon
+        stops): the next launch shows the layout, and a terminal starts only
+        when its workspace is shown (#17587). After the first live terminal
+        frame and a settle window the run counts the terminal tabs running
+        in the workspaces a visible window shows and in the rest
   daemon  the daemon side alone, with the tag's bundled cmux-tui: `--version`
         (process spawn), `server ensure` after only the owner was stopped
         (state kept, terminal hosts adopted), `server ensure` on an empty
         state root, then one connection's identify and snapshot round trips
 
   scripts/cmux-next/bench-startup.py --tag nxboot [--tag other] [--runs 5]
-      [--mode cold --mode warm] [--profile empty|realistic] [--json out.json]
+      [--mode cold --mode warm --mode kept] [--profile empty|realistic] [--json out.json]
+      [--launch-guard]
   scripts/cmux-next/bench-startup.py --app "/path/cmux DEV launch-1.app" ...
 
 --app runs a fleet artifact staged anywhere (its tag comes from the
@@ -32,6 +39,16 @@ terminal tabs and a split, then splits the selected pane and opens an agent
 chat in it, so the measured launch restores a full sidebar, a terminal and
 an agent pane. Its runs wait for the agent pane's handshake as well as the
 first terminal frame.
+
+--launch-guard (the regression guard of #17587, a script, not a CI gate)
+exits 1 when a launch restores hidden work eagerly or reads its cached
+layout on the main thread: in kept mode a terminal of a workspace no
+visible window shows runs again after the launch (`--max-hidden-started`,
+default 0), and in every run that drew the launch snapshot its read and
+decode (`launch_snapshot_read`) ended before AppKit was ready
+(`did_finish_launching_start`), so it overlapped AppKit's start instead of
+holding the first window frame. Use it with --budget for the time targets,
+for example `--budget first_window_frame_committed=150`.
 
 Several tags run interleaved (A run 1, B run 1, A run 2, ...), so machine
 load affects them alike. Prints the load average and, per tag and mode, one
@@ -78,6 +95,7 @@ MARKS = [
     ("dfl.settings", "dfl: settings and control"),
     ("dfl.menu", "dfl: main menu"),
     ("daemon.binary_resolved", "daemon binary resolved"),
+    ("launch_snapshot_read", "launch snapshot read and decoded"),
     ("launch_snapshot_applied", "cached layout read (launch snapshot)"),
     ("dfl.daemon_cloud_updater", "dfl: daemon, cloud, updater"),
     ("dfl.first_window_hooks", "dfl: first window hooks"),
@@ -265,8 +283,31 @@ class Launch:
         stop([self.process.pid], timeout=20)
         self.process.wait()
 
+    def quit_ending_sessions(self, tag, timeout=60):
+        """Quits with End Sessions, Keep Layout (`quitEndSessions`, no sheet):
+        every terminal ends, its tab stays with a relaunch record, and the
+        daemon stops. Waits for the app and the tag's daemon to exit."""
+        client = app_client(tag)
+        try:
+            client.call("action.run", {"action": "quitEndSessions", "args": {"confirm": True}})
+        except (OSError, ValueError):
+            pass  # the app may exit before it answers
+        finally:
+            client.close()
+        os.close(self.read_fd)
+        try:
+            self.process.wait(timeout)
+        except subprocess.TimeoutExpired:
+            print(f"  {tag}: End Sessions, Keep Layout did not quit within {timeout} s; stopping the app", file=sys.stderr)
+            stop([self.process.pid], timeout=20)
+            self.process.wait()
+        if not wait_exit(tag_pids(tag), timeout):
+            raise SystemExit(f"tag {tag}: the daemon did not stop after End Sessions, Keep Layout")
+
 
 RUN_TAGS = []
+# --settle: kept mode's wait after the first live terminal frame before it counts running terminals.
+KEPT_SETTLE_S = 5.0
 # --focus: the realistic profile's focused pane at quit ("agent" or "terminal").
 SEED_FOCUS = "agent"
 # --chat-pane: with --focus terminal, the chat's pane (first or last).
@@ -459,6 +500,12 @@ def one_run(tag, mode, timeout, profile=None):
             stop(tag_pids(other))
         if tag_pids(tag):
             raise SystemExit(f"tag {tag}: daemon processes did not exit")
+    elif mode == "kept":
+        # The priming launch ends every session and keeps the layout, as Quit and End
+        # Sessions, Keep Layout does: the measured launch finds every terminal tab dead.
+        prime = Launch(tag, scratch)
+        prime.wait_for([FINAL_MARK, AGENT_MARK], timeout, any_of=True)
+        prime.quit_ending_sessions(tag)
     elif mode == "restart":
         if not owner_pids(f"cmux-app-{tag}"):
             prime = Launch(tag, scratch)
@@ -470,18 +517,48 @@ def one_run(tag, mode, timeout, profile=None):
         prime.wait_for([FINAL_MARK, AGENT_MARK], timeout, any_of=True)
         prime.quit()
     launch = Launch(tag, scratch)
+    terminals = None
     try:
         reached = launch.wait_for(final, timeout, any_of=any_of)
         if HANG_THRESHOLD_MS:
             launch.stalls = launch_stalls(tag)
+        if mode == "kept":
+            # A measurement window, not a wait for a condition: a launch that restarts
+            # hidden terminals does so within it (eight at a time, each answering when
+            # its worker started); one that does not has nothing to wait for.
+            time.sleep(KEPT_SETTLE_S)
+            terminals = terminal_states(tag)
     finally:
         launch.quit()
     if not reached:
         missing = [mark for mark in final if mark not in launch.marks]
         print(f"  {tag} {mode}: {', '.join(missing)} not reached within {timeout} s", file=sys.stderr)
+    marks = dict(launch.marks)
     if getattr(launch, "stalls", None) is not None:
-        return {**launch.marks, "stalls": launch.stalls}
-    return launch.marks
+        marks["stalls"] = launch.stalls
+    if terminals is not None:
+        marks["terminals"] = terminals
+    return marks
+
+
+def terminal_states(tag):
+    """The app's terminal tabs, running or dead, in the workspaces a visible
+    window shows and in the rest (`snapshot.get`)."""
+    client = app_client(tag)
+    try:
+        topology = (client.call("snapshot.get").get("result") or {}).get("topology") or {}
+    finally:
+        client.close()
+    shown = {window.get("workspace") for window in topology.get("windows", []) if window.get("visible")}
+    counts = {"shown_live": 0, "shown_dead": 0, "hidden_live": 0, "hidden_dead": 0}
+    for workspace in topology.get("workspaces", []):
+        where = "shown" if workspace.get("id") in shown else "hidden"
+        for screen in workspace.get("screens", []):
+            for pane in screen.get("panes", []):
+                for tab in pane.get("tabs", []):
+                    if tab.get("kind") == "terminal":
+                        counts[f"{where}_{'dead' if tab.get('dead') else 'live'}"] += 1
+    return counts
 
 
 def launch_stalls(tag):
@@ -588,6 +665,7 @@ def table(runs):
 
 
 def main():
+    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE, KEPT_SETTLE_S
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tag", action="append", default=[])
     parser.add_argument("--app", action="append", default=[], help="a staged `cmux DEV <tag>.app` (fleet artifact)")
@@ -599,7 +677,7 @@ def main():
     parser.add_argument("--chat-pane", choices=["first", "last"], default="last",
                         help="realistic with --focus terminal: the chat's pane; first puts the focused terminal after it")
     parser.add_argument("--runs", type=int, default=5)
-    parser.add_argument("--mode", action="append", choices=["cold", "restart", "warm", "daemon"])
+    parser.add_argument("--mode", action="append", choices=["cold", "restart", "warm", "kept", "daemon"])
     parser.add_argument("--timeout", type=float, default=30.0, help="seconds per launch to reach the first frame")
     parser.add_argument("--json", help="write every run's marks here")
     parser.add_argument("--budget", action="append", default=[], metavar="MARK=MS",
@@ -609,9 +687,16 @@ def main():
                              "(for example first_window_frame_committed<launch.non_paint_services)")
     parser.add_argument("--hangs", type=int, metavar="MS",
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
+    parser.add_argument("--settle", type=float, default=KEPT_SETTLE_S,
+                        help="kept mode: seconds after the first live terminal frame before the terminals are counted")
+    parser.add_argument("--launch-guard", action="store_true",
+                        help="exit 1 when a launch starts hidden terminals (kept mode) or reads its launch snapshot "
+                             "on the main thread (#17587)")
+    parser.add_argument("--max-hidden-started", type=int, default=0, metavar="N",
+                        help="with --launch-guard: kept mode's limit of running terminals in workspaces no visible window shows")
     args = parser.parse_args()
-    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE
     HANG_THRESHOLD_MS = args.hangs
+    KEPT_SETTLE_S = args.settle
     SEED_FOCUS = args.focus
     SEED_CHAT_PANE = args.chat_pane
     for path in args.app:
@@ -640,6 +725,11 @@ def main():
                         return "%.0f ms" % marks[mark] if mark in marks else "missing"
                     print(f"  {tag} {mode} run {index + 1}: first live terminal frame {shown(FINAL_MARK)}, "
                           f"agent pane {shown(AGENT_MARK)}", flush=True)
+                    if "terminals" in marks:
+                        counts = marks["terminals"]
+                        print(f"    terminals after {KEPT_SETTLE_S:.0f} s: shown {counts['shown_live']} running, "
+                              f"{counts['shown_dead']} dead; hidden {counts['hidden_live']} running, "
+                              f"{counts['hidden_dead']} dead", flush=True)
                     for stall in marks.get("stalls", [])[:3]:
                         print(f"    stall {stall['ms']:.0f} ms (cpu {stall['cpu_ms']:.0f}): "
                               + " < ".join(stall["frames"][:4]), flush=True)
@@ -661,6 +751,11 @@ def main():
             json.dump(results, out, indent=1)
     orders = args.order + (LAUNCH_ORDER if args.budget else [])
     over = check_budgets(results, args.budget) + check_orders(results, orders)
+    if args.launch_guard:
+        guard = check_launch_guard(results, args.max_hidden_started)
+        print(f"launch guard: {'FAIL' if guard else 'pass'}"
+              + "".join(f"\n  {line}" for line in guard), file=sys.stderr if guard else sys.stdout)
+        over += guard
     for line in over:
         print(f"over budget: {line}", file=sys.stderr)
     if over:
@@ -680,6 +775,37 @@ def check_budgets(results, budgets):
                 elif values and statistics.median(values) > float(limit):
                     over.append(f"{tag} {mode}: {mark} median {statistics.median(values):.0f} ms > {limit} ms")
     return over
+
+
+def check_launch_guard(results, max_hidden_started):
+    """#17587's regression guard: nothing hidden is restored eagerly, and the
+    cached layout is read off the main thread. Every kept-mode run counts at
+    most `max_hidden_started` running terminals outside the shown
+    workspaces (and at least one running in them: the shown workspace is
+    live), and every run that applied a launch snapshot finished reading it
+    before AppKit was ready."""
+    out = []
+    for tag, modes in results.items():
+        for mode, runs in modes.items():
+            for index, run in enumerate(runs):
+                where = f"{tag} {mode} run {index + 1}"
+                counts = run.get("terminals")
+                if mode == "kept":
+                    if counts is None:
+                        out.append(f"{where}: no terminal count (the app never answered snapshot.get)")
+                    elif counts["hidden_live"] > max_hidden_started:
+                        out.append(f"{where}: {counts['hidden_live']} terminals of hidden workspaces started at launch "
+                                   f"(limit {max_hidden_started})")
+                    elif counts["shown_live"] == 0:
+                        out.append(f"{where}: no terminal of the shown workspace runs")
+                if "launch_snapshot_applied" in run:
+                    read, ready = run.get("launch_snapshot_read"), run.get("did_finish_launching_start")
+                    if read is None or ready is None:
+                        out.append(f"{where}: launch_snapshot_read or did_finish_launching_start missing")
+                    elif read >= ready:
+                        out.append(f"{where}: launch snapshot read at {read:.0f} ms, after AppKit was ready at "
+                                   f"{ready:.0f} ms (on the main thread, before the first window)")
+    return out
 
 
 def check_orders(results, orders):

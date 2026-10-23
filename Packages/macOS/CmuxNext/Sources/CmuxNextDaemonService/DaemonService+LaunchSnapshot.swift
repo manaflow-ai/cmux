@@ -25,6 +25,7 @@ extension DaemonService {
             logger.error("launch snapshot skipped: \(String(describing: error), privacy: .public)")
             return
         }
+        Self.launchMark("launch_snapshot_read")
         store.applyProvisional(snapshot: snapshot.tree)
         launchSnapshotWindows = snapshot.windows
         Self.launchMark("launch_snapshot_applied")
