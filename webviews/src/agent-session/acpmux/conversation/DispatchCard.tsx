@@ -43,7 +43,7 @@ export function DispatchCard({ item, call }: { item: AcpmuxActivity; call: Dispa
   return (
     <div
       className={`cv-dispatch cv-dispatch--${call.kind}`}
-      id={call.kind !== "report" && anchor ? anchor : undefined}
+      id={call.kind === "dispatch" && anchor ? anchor : undefined}
       data-dispatch-kind={call.kind}
       data-brief-id={briefId}
       data-from={call.from}
@@ -60,10 +60,7 @@ export function DispatchCard({ item, call }: { item: AcpmuxActivity; call: Dispa
         <span className="cv-tool__icon">
           {running ? <Spinner size={16} /> : call.kind === "report" ? <Envelope /> : <ToolGroup />}
         </span>
-        <span className="cv-tool__text">
-          {line}
-          {call.status && call.status !== "completed" && <span className="cv-dispatch__status"> · {call.status}</span>}
-        </span>
+        <span className="cv-tool__text">{line}</span>
         <ChevronRight
           size={14}
           strokeWidth={1.2}

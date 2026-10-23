@@ -79,7 +79,9 @@ export function dispatchCall(item: AcpmuxActivity): DispatchCall | undefined {
 function operationName(tool: Tool): DispatchKind | undefined {
   const title = tool.title.trim();
   const input = parseJSON(tool.inputSummary);
-  if (isRecord(input) && typeof input.tool === "string") {
+  if (isRecord(input) && typeof input.server === "string" && typeof input.tool === "string" && "arguments" in input) {
+    const server = input.server.toLowerCase();
+    if (!["acpmux", "cmux", "codex_apps", "agent_dispatch"].includes(server)) return undefined;
     const codexTool = input.tool.toLowerCase();
     if (["dispatch", "steer", "report", "briefs", "briefs_ls", "briefs_list"].includes(codexTool)) {
       return codexTool === "dispatch"

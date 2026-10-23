@@ -82,6 +82,13 @@ test("parses Codex MCP envelopes for dispatch and reports", () => {
   ).toMatchObject({ kind: "report", briefId: "b-17", summary: "Done" });
 });
 
+test("does not classify unrelated MCP or shell envelopes by tool word alone", () => {
+  expect(
+    dispatchCall(activity("github.report", { server: "github", tool: "report", arguments: { issue: 4 } })),
+  ).toBeUndefined();
+  expect(dispatchCall(activity("Shell", { tool: "report", command: "echo report" }))).toBeUndefined();
+});
+
 test("recognizes steer, report and briefs aliases without classifying ordinary shell work", () => {
   expect(
     dispatchCall(activity("mcp__acpmux__steer", { brief_id: "b-17", text: "Keep the title short." })),
