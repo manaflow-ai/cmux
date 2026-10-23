@@ -76,6 +76,8 @@ final class CEFLayerHosting {
     nonisolated static let resizeSyncForkAPI: Int32 = 27
 
     weak var view: NSView?
+    /// Called after the hosted page view comes or goes (`page`).
+    var onPageChange: (() -> Void)?
     /// The page's pixels in this window's layer tree; nil while the page
     /// draws in its own window.
     private(set) var page: CEFHostedPageView?
@@ -280,6 +282,7 @@ final class CEFLayerHosting {
         // Below the tracker's probe and every other subview.
         view.addSubview(page, positioned: .below, relativeTo: nil)
         self.page = page
+        onPageChange?()
         return page
     }
 
@@ -287,6 +290,7 @@ final class CEFLayerHosting {
         guard let page else { return }
         page.removeFromSuperview()
         self.page = nil
+        onPageChange?()
     }
 
     /// Runs `block` on the main run loop at the end of this turn, after the

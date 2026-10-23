@@ -35,9 +35,17 @@ final class CEFHostView: NSView {
     /// Hands files dragged in from another app to the shown page (`CEFFileDragRelay`).
     let fileDrag = CEFFileDragRelay()
     /// Layer hosting (fork API 26) of the page window over this view (`CEFLayerHosting`).
-    let layerHosting = CEFLayerHosting()
+    let layerHosting: CEFLayerHosting
 
-    override init(frame: NSRect) {
+    /// Whether the page's pixels are in this window's layer tree (`CEFHostedPageView`): its own
+    /// window then draws nothing and only routes the mouse.
+    var isLayerHosted: Bool { layerHosting.page != nil }
+
+    /// - Parameters:
+    ///   - frame: the view's frame; zero for a pane's host, which its tab's content view lays out.
+    ///   - layerHosting: the page window's layer hosting; tests pass one driven by a fake fork.
+    init(frame: NSRect = .zero, layerHosting: CEFLayerHosting = CEFLayerHosting()) {
+        self.layerHosting = layerHosting
         super.init(frame: frame)
         wantsLayer = true
         updateBackground()
@@ -173,14 +181,19 @@ final class CEFHostView: NSView {
 
     private func occlusionRects(clip: ClipMemo) -> [CGRect] {
         if CEFClipShape.showsNothing(clip.path), !bounds.isEmpty { return [bounds] }
-        var rects = occlusionRects
-        if let provider = window as? any BrowserWindowOcclusionProviding {
-            for rect in provider.browserOcclusionRectsInWindow {
-                let local = convert(rect, from: nil).intersection(bounds)
-                if !local.isNull, !local.isEmpty { rects.append(local) }
-            }
+        return Self.outermost(occlusionRects + windowOcclusionRects)
+    }
+
+    /// The window's rects over this view that the page must leave to the window, in this view's
+    /// coordinates: its interactive overlays and occluders, and while the page draws in the
+    /// window's layer tree also the rects that only take the mouse (divider hit areas).
+    var windowOcclusionRects: [CGRect] {
+        guard let provider = window as? any BrowserWindowOcclusionProviding else { return [] }
+        let inWindow = provider.browserOcclusionRectsInWindow
+        return inWindow.compactMap { rect in
+            let local = convert(rect, from: nil).intersection(bounds)
+            return local.isNull || local.isEmpty ? nil : local
         }
-        return Self.outermost(rects)
     }
 
     /// `rects` without those inside another (one of equal rects stays): a

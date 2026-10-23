@@ -16,8 +16,8 @@ nonisolated struct CEFHostGeometry: Equatable, Sendable {
     var clip: CEFClipShape.Inputs
     /// The host's own occlusion rects (find bar, prompt bar).
     var occlusion: [CGRect]
-    /// The window's interactive overlays and occluders over the host
-    /// (`BrowserWindowOcclusionProviding`), in the host's coordinates: a divider
+    /// The window's rects over the host the page leaves to the window
+    /// (`CEFHostView.windowOcclusionRects`), in the host's coordinates: a divider
     /// line moving elsewhere in the window changes nothing here.
     var windowOcclusion: [CGRect]
     var backingScale: CGFloat
@@ -38,11 +38,7 @@ nonisolated struct CEFHostGeometry: Equatable, Sendable {
             CEFHostView.trackerStats.clipInputWalks += 1
         }
         occlusion = view.occlusionRects
-        let bounds = view.bounds
-        windowOcclusion = ((window as? any BrowserWindowOcclusionProviding)?.browserOcclusionRectsInWindow ?? []).compactMap { rect in
-            let local = view.convert(rect, from: nil).intersection(bounds)
-            return local.isNull || local.isEmpty ? nil : local
-        }
+        windowOcclusion = view.windowOcclusionRects
         backingScale = window?.backingScaleFactor ?? 0
         hidden = view.isHiddenOrHasHiddenAncestor
     }

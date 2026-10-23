@@ -9,6 +9,21 @@ public import Foundation
 public protocol BrowserWindowOcclusionProviding: AnyObject {
     /// Rects in window coordinates.
     var browserOcclusionRectsInWindow: [CGRect] { get }
+    /// Rects in window coordinates that take the mouse but draw nothing over
+    /// the content (divider hit areas). A page that draws in its own window
+    /// keeps drawing there (the window covers them some other way); a page whose
+    /// pixels are in this window's layer tree (layer hosting, fork API 26) draws
+    /// nothing in its window, so it leaves them uncovered too and the mouse
+    /// goes to the window.
+    var browserMouseOnlyRectsInWindow: [CGRect] { get }
+    /// A page over `host` (a view in this window) started or stopped drawing in
+    /// this window's layer tree instead of its own window.
+    func browserPageHostingDidChange(_ host: NSView, hosted: Bool)
+}
+
+public extension BrowserWindowOcclusionProviding {
+    var browserMouseOnlyRectsInWindow: [CGRect] { [] }
+    func browserPageHostingDidChange(_ host: NSView, hosted: Bool) {}
 }
 
 extension Notification.Name {
