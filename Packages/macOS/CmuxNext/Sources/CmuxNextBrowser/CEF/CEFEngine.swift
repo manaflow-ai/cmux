@@ -149,6 +149,13 @@ public final class CEFEngine: BrowserEngine {
         CEFSpareWindow.shared.prepare(runtime: .shared)
     }
 
+    /// Closes the untaken spare Chromium window, if one is up (`debug.cef drop_spare`: what the
+    /// spare costs). The next take-free idle moment does not make another; a warm start or a
+    /// take does.
+    public func dropSpareWindow() {
+        CEFSpareWindow.shared.drop(runtime: .shared)
+    }
+
     /// Runs when a pane took the spare Chromium window, so the caller can make
     /// the next one at an idle moment (`prepareSpareWindow`). Nil: none.
     public var onSpareWindowTaken: (@MainActor () -> Void)? {

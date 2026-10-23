@@ -41,6 +41,7 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--rounds", type=int, default=6)
 parser.add_argument("--cases", default="cold_pane,warm_pane,second_pane,third_pane,url_warm,url_cold,webkit_new,webkit_url")
 parser.add_argument("--sessions", default="light", help="light, stress, or both (comma list, in that order)")
+parser.add_argument("--spare-cost", action="store_true", help="after the light rounds: the spare Chromium window's resident memory")
 parser.add_argument("--budget-ms", type=float, default=10.0, help="visible p95 target (reported, not enforced)")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
@@ -222,6 +223,35 @@ def bench_stress(window):
     return rows
 
 
+def app_rss_mb():
+    """(MB, processes): resident memory of the app and its helpers (Chromium's included)."""
+    ps = subprocess.run(["ps", "-axo", "rss=,command="], capture_output=True, text=True).stdout
+    total, count = 0, 0
+    for line in ps.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) == 2 and parts[1].startswith(APP + "/"):
+            total += int(parts[0])
+            count += 1
+    return round(total / 1024, 1), count
+
+
+def spare_cost():
+    """What the always-ready spare Chromium window costs: the app's resident memory with the spare
+    up, then again once `debug.cef drop_spare` closed it."""
+    live = wait(lambda: (rpc("debug.cef") or {}).get("spare_window") == "live", 60, step=0.5)
+    if not live:
+        return {"spare": (rpc("debug.cef") or {}).get("spare_window"), "note": "no live spare"}
+    time.sleep(3)  # test harness: the spare's renderer settles
+    with_spare = app_rss_mb()
+    rpc("debug.cef", {"drop_spare": True})
+    time.sleep(5)  # test harness: the spare's renderer exits
+    without = app_rss_mb()
+    cost = {"with_spare_mb": with_spare[0], "with_spare_processes": with_spare[1], "without_mb": without[0],
+            "without_processes": without[1], "spare_mb": round(with_spare[0] - without[0], 1)}
+    print("SPARE-COST " + json.dumps(cost), flush=True)
+    return cost
+
+
 def summary(rows):
     out = {}
     for session in sorted({r.get("session") for r in rows if r.get("session")}):
@@ -290,15 +320,17 @@ def main():
         sys.exit("the tagged app did not come up")
     time.sleep(2)  # test harness: first workspace
     window = window_key()
-    rows, stress = [], None
+    rows, stress, spare = [], None, None
     for session in [s for s in opts.sessions.split(",") if s]:
         if session == "stress":
             stress = build_stress()
             rows += bench_stress(window)
         else:
             rows += bench_session(session, window)
+            if session == "light" and opts.spare_cost:
+                spare = spare_cost()
     cef = rpc("debug.cef") or {}
-    result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "stress_session": stress,
+    result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "stress_session": stress, "spare_cost": spare,
               "budget_visible_ms": opts.budget_ms, "summary": summary(rows), "runs": rows,
               "cef": {k: cef.get(k) for k in ("spare_window", "start_steps", "likely", "state") if k in cef}}
     print("\nSUMMARY", json.dumps(result["summary"], indent=1), flush=True)
