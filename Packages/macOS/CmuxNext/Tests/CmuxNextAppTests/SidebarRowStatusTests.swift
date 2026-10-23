@@ -9,8 +9,9 @@ import Testing
 @testable import CmuxNextApp
 
 /// Leo 2026-10-21 (sidebar organization, item A): every workspace row says what its agent needs
-/// in the Priority view's words, needs you, done, failed or lost, from the same classifier
-/// (`AgentPriorityRanking.state`), with the same read marks. Manual order stays as it is.
+/// in the Priority view's words, needs you, failed or lost, from the same classifier
+/// (`AgentPriorityRanking.state`), with the same read marks. Manual order stays as it is. Never
+/// Done (Leo 2026-10-21, "WHO BROUGHT BACK THE DONE"): a finished chat's row keeps its unread dot.
 @MainActor @Suite(.serialized) struct SidebarRowStatusTests {
     typealias Lanes = SidebarLaneStatusTests
 
@@ -56,44 +57,67 @@ import Testing
         try body()
     }
 
-    @Test func rowsNameWhatTheirAgentNeedsByDefault() throws {
+    @Test func rowsNameWhatTheirAgentNeeds() throws {
         let fixture = try Fixture()
-        try Self.withRowStatus(nil) {
+        try Self.withRowStatus(true) {
             let chips = fixture.chips()
-            #expect(chips == ["waiting": .needsYou, "failed": .failed, "finished": .done],
-                    "a working or idle chat leaves the row as it was")
+            #expect(chips == ["waiting": .needsYou, "failed": .failed],
+                    "a working, idle or finished chat leaves the row as it was")
         }
     }
 
     @Test func theChipReadsOnTheNamesLine() throws {
         let fixture = try Fixture()
-        try Self.withRowStatus(nil) {
+        try Self.withRowStatus(true) {
             let rows = Dictionary(uniqueKeysWithValues: fixture.rows().map { ($0.title, $0) })
             let options = SidebarLayoutOptions()
             let waiting = options.rowContent(try #require(rows["waiting"]), machine: nil)
             #expect(waiting.chip == .needsYou)
-            #expect(waiting.time == nil, "the chip takes the name line's trailing slot")
             #expect(options.rowContent(try #require(rows["working"]), machine: nil).chip == nil)
         }
     }
 
     @Test func markingAChatReadClearsItsRowLikeThePriorityView() throws {
         let fixture = try Fixture()
-        try Self.withRowStatus(nil) {
+        try Self.withRowStatus(true) {
             fixture.marks.markRead(try #require(fixture.lanes.lanes["s-failed"]))
             fixture.marks.markRead(try #require(fixture.lanes.lanes["s-finished"]))
             #expect(fixture.chips() == ["waiting": .needsYou])
         }
     }
 
-    @Test func theStatusMarkFollowsTheLanesByDefault() throws {
+    /// Off by default (Lawrence 2026-10-21): no chip and no lane state unless the toggles are on.
+    @Test func rowsReadNoLanesByDefault() throws {
         let fixture = try Fixture()
-        Self.withRowStatus(nil) {
+        Self.withRowStatus(nil) { #expect(fixture.chips().isEmpty) }
+    }
+
+    @Test func theStatusMarkFollowsTheLanes() throws {
+        let fixture = try Fixture()
+        let key = SidebarTunables.laneStatus.key
+        Self.withRowStatus(true) {
+            TunableStore.shared.set(key, .bool(true))
+            defer { TunableStore.shared.set(key, nil) }
             let activity = Dictionary(uniqueKeysWithValues: fixture.rows().map { ($0.title, $0.activity) })
             #expect(activity["waiting"] == .waiting)
             #expect(activity["failed"] == .error)
             #expect(activity["working"] == .working)
         }
+    }
+
+    /// A finished chat drops out before the ranking: it never hides a failed chat in the same
+    /// workspace, and its failing checks still read as Red CI.
+    @Test func aFinishedChatHidesNothing() throws {
+        func lane(_ name: String, _ state: String, unread: Bool) throws -> AgentActivityLane {
+            try #require(AgentActivityLane.of(summary: [
+                "sessionId": "s-\(name)", "name": name, "unread": unread, "lane": ["state": state],
+            ]))
+        }
+        let finished = try lane("finished", "idle", unread: true), failed = try lane("failed", "failed", unread: false)
+        let marks = AgentPriorityMarks(defaults: nil).state
+        #expect(SidebarLaneStatus.chip([finished, failed], marks: marks, failingChecks: { _ in false }) == .failed)
+        #expect(SidebarLaneStatus.chip([finished], marks: marks, failingChecks: { _ in false }) == nil)
+        #expect(SidebarLaneStatus.chip([finished], marks: marks, failingChecks: { _ in true }) == .ciFailing)
     }
 
     @Test func toggleOffDrawsNoChip() throws {
@@ -105,7 +129,7 @@ import Testing
 
     @Test func manualOrderStaysWhateverTheChips() throws {
         let fixture = try Fixture()
-        Self.withRowStatus(nil) {
+        Self.withRowStatus(true) {
             #expect(fixture.rows().map(\.title) == ["working", "waiting", "failed", "idle", "finished"])
         }
     }

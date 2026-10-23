@@ -19,8 +19,8 @@ import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
-import { GROUP_TAIL } from "./ToolGroupRow";
-import { isRunning, toolGroups } from "./toolGroups";
+import { tailStart } from "./ToolGroupRow";
+import { isDraftCall, isRunning, toolGroups } from "./toolGroups";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -69,6 +69,24 @@ export function workedLabel(t: Translate, row: AcpmuxRow): string {
   const time = formatDuration(row.durationMs);
   return row.status === "cancelled" ? t("turn.stopped", { time }) : t("turn.worked", { time });
 }
+
+/// What a turn's footer says before its buttons, or nothing: a turn whose work folds under "Worked
+/// for" says it there, and a turn under a second says nothing, since "Worked for 0s" is no news
+/// (Leo, 2026-10-21: "IF WE 0 SECONDS THEN IT DOESNT NEED TO TAKE UP SPACE"). A stopped turn still
+/// says it stopped, and a footer without timing (history paged in mid-turn) its count.
+export function footerLabel(t: Translate, row: AcpmuxRow): string | undefined {
+  return footerSays(row) ? workedLabel(t, row) : undefined;
+}
+const footerSays = (row: AcpmuxRow) =>
+  !row.folded &&
+  (row.previous !== undefined || row.durationMs === undefined || row.durationMs >= 1000 || row.status === "cancelled");
+
+/// A footer with nothing to show at rest and only hover controls (Pin, Fork, its age): no label, no
+/// answer to copy or read aloud, and the turn did not fail. It takes no line in the transcript
+/// (conversation.css `.cv-turn-actions--empty`, model.ts fallbackRowHeight); pointed at, its controls
+/// show over the turn gap below, so nothing moves.
+export const isEmptyFooter = (row: AcpmuxRow) =>
+  row.kind === "turnSummary" && row.status !== "failed" && row.status !== "error" && !row.text && !footerSays(row);
 
 const isEditTool = (tool: { kind?: string } | undefined) => tool?.kind === "edit" || tool?.kind === "fileChange";
 const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).some((item) => isEditTool(item.tool));
@@ -352,13 +370,17 @@ const isWork = (row: AcpmuxRow) =>
   row.kind === "activity" &&
   (row.items ?? []).some((item) => item.tool && !isEditTool(item.tool) && !renderCall(item.tool));
 
-/// Where a finished turn's answer is in `rows`: the last text, unless the turn went on to work
-/// after it (-1: no answer, so all of it folds, as the Codex and Claude desktop apps fold it).
+/// Where a finished turn's answer is in `rows`: its last reply. A reply is never folded away, also
+/// when the turn ran a tool after it (Leo, 2026-10-21: "Those replies should never be collapsed";
+/// the work after a reply used to fold the reply with it). Only a short interim note the turn
+/// worked on after ("Checking the tests next.") is status, not a reply, and folds with the work.
+/// -1: no reply, so all of it folds, as the Codex and Claude desktop apps fold it.
 function answerAt(rows: readonly AcpmuxRow[]): number {
+  let worked = false;
   for (let at = rows.length - 1; at >= 0; at -= 1) {
     const row = rows[at]!;
-    if (isAnswer(row)) return at;
-    if (isWork(row)) return -1;
+    if (isAnswer(row) && !(worked && isShortNote(row))) return at;
+    if (isWork(row)) worked = true;
   }
   return -1;
 }
@@ -383,7 +405,7 @@ function shapeTurn(
     return live
       ? liveTurn(user, turn, clockOffset, liveRuns, sessionStatus, lineBelow)
       : last
-        ? turn.map(endedPlan)
+        ? turn.flatMap(withoutDrafts).map(endedPlan)
         : settledWithoutSummary(turn);
   const summary = turn[end]!;
   const body = turn.slice(0, end);
@@ -401,17 +423,20 @@ function shapeTurn(
   for (const part of turnParts(user, body)) {
     if (part.opener !== user) shaped.push(part.opener);
     const rows = part.rows;
-    // The text that ends the part, unless it went on to work after it (the turn's own answer in
-    // its last part, the reply a steer followed in an earlier one).
+    // The part's last reply, also when the agent went on to work after it (the turn's own answer
+    // in its last part, the reply a steer followed in an earlier one; answerAt).
     const reply = answerAt(rows);
     const said = reply >= 0 ? rows[reply] : undefined;
     // Work before that text folds away (all of it, when the part ended without one); edits also
     // close the turn as their card. Subagent groups and the todo list stay out, under the fold's
     // line.
     const before = (reply >= 0 ? rows.slice(0, reply) : rows).filter((row) => row.kind !== "typing");
-    const work = before.filter((row) => !staysOut(row));
     const after = reply >= 0 ? rows.slice(reply + 1) : [];
-    // Edits after the text join the card too, so its Undo covers the whole turn.
+    // Work after the text (a tool the agent ran once it had replied, and its interim notes) folds
+    // with the rest, so the reply stays the part's last words. Edits after it join the card too,
+    // so its Undo covers the whole turn.
+    const later = after.filter((row) => row.kind !== "typing" && !isEdit(row) && !staysOut(row));
+    const work = [...before.filter((row) => !staysOut(row)), ...later];
     edits.push(...work.filter(isEdit), ...after.filter(isEdit));
     if (work.length) {
       folded = true;
@@ -427,30 +452,32 @@ function shapeTurn(
         // Only the turn's last part ended as the turn did (a Stop stopped that one).
         ...(lastPart && { status: summary.status }),
         toolCount: summary.toolCount,
-        durationMs: said
-          ? Math.max(0, said.at - from)
-          : !lastPart
-            ? Math.max(0, part.until! - from)
-            : part.opener === user
-              ? (summary.durationMs ?? Math.max(0, summary.at - user.at))
-              : Math.max(0, summary.at - from),
+        durationMs:
+          said && !later.length
+            ? Math.max(0, said.at - from)
+            : !lastPart
+              ? Math.max(0, part.until! - from)
+              : part.opener === user
+                ? (summary.durationMs ?? Math.max(0, summary.at - user.at))
+                : Math.max(0, summary.at - from),
       });
       // Open, each run of its work folds into its summary line between the commentary, as in a
-      // running turn (codexRuns).
+      // running turn (codexRuns). A run that edited folds too: its edits stay in sight between the
+      // summary lines of the work around them (TurnRows.tsx `runStretches`).
       if (open)
         shaped.push(
-          ...(liveRuns ? mergeShortNotes(work) : work).map((row) => ({
+          ...(liveRuns ? mergeShortNotes(work) : work).flatMap(withoutDrafts).map((row) => ({
             ...row,
             id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
             settled: true,
             // A folded run draws otherwise, so its version moves (memos compare versions).
-            ...(liveRuns && row.kind === "activity" && !isEdit(row) && { foldRun: true, version: row.version * 4 + 3 }),
+            ...(liveRuns && row.kind === "activity" && { foldRun: true, version: row.version * 4 + 3 }),
           })),
         );
     }
     shaped.push(...before.filter(staysOut).map(endedPlan), ...renderRows(rows, version));
     if (said) shaped.push(said);
-    shaped.push(...after.filter((row) => !isEdit(row)).map(endedPlan));
+    shaped.push(...after.filter((row) => !isEdit(row) && !later.includes(row)).map(endedPlan));
   }
   shaped.push(...editsCard(edits));
   const preview = turnPreviewCardsOn() ? turnPreviewUrl(user, turn) : undefined;
@@ -461,6 +488,7 @@ function shapeTurn(
     ...summary,
     folded,
     text: answer?.text ?? summary.text,
+    ...(answer && { answerId: answer.id }),
     // Retry sends the prompt as the agent got it: an incoming message with its sender. A
     // notification is the harness's, not a prompt to send again (incomingMessage.ts).
     ...(retryable &&
@@ -474,8 +502,14 @@ function shapeTurn(
   });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.
-  // A turn the agent started on its own while still working keeps its plan live.
-  shaped.push(...turn.slice(end + 1).map(live ? (row) => row : endedPlan));
+  // A turn the agent started on its own while still working keeps its plan live. Once it runs tools
+  // the Codex layout draws it as a running turn (a task notification's work, Leo 2026-10-21: four
+  // bare command rows stacked under "Worked for 1s"): its finished runs folded, the call in
+  // flight on the one live line under them, timed from the summary.
+  const tail = turn.slice(end + 1);
+  if (live && liveRuns && lineBelow && tail.some((row) => row.kind === "activity"))
+    shaped.push(...liveTurn(summary, tail, clockOffset, liveRuns, sessionStatus, lineBelow));
+  else shaped.push(...(live ? tail : tail.flatMap(withoutDrafts).map(endedPlan)));
   return shaped;
 }
 
@@ -549,6 +583,8 @@ const staysOut = (row: AcpmuxRow) =>
   // who answers it; folded, nobody would see it happened.
   row.kind === "compaction" ||
   row.kind === "failover" ||
+  // A policy the harness cannot keep: the agent runs without the asks the person chose.
+  row.kind === "policyUnenforced" ||
   // A paused agent pair waits for the person's Resume.
   row.kind === "agentPair" ||
   // Where the session started: what it runs on.
@@ -573,7 +609,26 @@ const endedPlan = (row: AcpmuxRow): AcpmuxRow =>
 /// Its edits still close it as one card, which offers Undo.
 function settledWithoutSummary(turn: AcpmuxRow[]): AcpmuxRow[] {
   const rows = turn.filter((row) => row.kind !== "typing");
-  return [...rows.filter((row) => !isEdit(row)).map(endedPlan), ...editsCard(rows.filter(isEdit))];
+  return [
+    ...rows
+      .filter((row) => !isEdit(row))
+      .flatMap(withoutDrafts)
+      .map(endedPlan),
+    ...editsCard(rows.filter(isEdit)),
+  ];
+}
+
+/// An activity row without the calls it has nothing to show for yet (toolGroups.ts `isDraftCall`),
+/// or no row when they were all it held, so bare "Running a command" rows never stack up (Leo,
+/// 2026-10-21: they should replace each other, as Thinking does). A running turn's live line names
+/// the newest (codexLiveTurn); an ended turn's never got their input. Which calls it drops follows
+/// from the row's items, so its version stands.
+function withoutDrafts(row: AcpmuxRow): AcpmuxRow[] {
+  if (row.kind !== "activity") return [row];
+  const items = row.items ?? [];
+  const kept = items.filter((item) => !(item.tool && isDraftCall(item.tool)));
+  if (kept.length === items.length) return [row];
+  return kept.length ? [{ ...row, items: kept }] : [];
 }
 
 /// The live status. With `lineBelow` (the default in the app, Debug Settings
@@ -810,14 +865,14 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
   )
     return true;
   const kind = group.type === "mcp" ? "mcp" : group.kind;
-  const tail = kind === "mcp" || kind === "edits" || group.items.indexOf(item) >= group.items.length - GROUP_TAIL;
+  const tail = kind === "mcp" || kind === "edits" || group.items.indexOf(item) >= tailStart(group.items);
   if (!tail) return undefined;
   const key = `group:${kind}:${group.items[0]!.tool!.id || `${row.id}:${at}`}`;
   return { key, open: kind !== "mcp" && kind !== "edits" };
 }
 
 /// A running turn's runs as the Codex desktop app draws them (cx-ncc.108): each run folds into its
-/// summary line between the paragraphs ("Read files, ran commands", or one group's "Ran 3
+/// summary line between the paragraphs ("Read 6 files, ran 4 commands", or one group's "Ran 3
 /// commands"), the latest one too as its calls finish, and opens on a click. The call in flight and
 /// a thought still coming are not in the run: the turn's live line names them (WorkingFor.tsx
 /// `doing`, "Thinking") and each step replaces it in place. A call still running in an earlier run
@@ -828,7 +883,14 @@ function codexRuns(rows: AcpmuxRow[]): AcpmuxRow[] {
   while (latest > 0 && rows[latest]!.kind === STARTED_SESSIONS) latest -= 1;
   return rows.flatMap((row, index) => {
     if (row.kind !== "activity" || isEdit(row)) return [row];
-    if (index !== latest) return [{ ...row, settled: true, foldRun: true, version: row.version * 4 + 2 }];
+    // An earlier run draws no call that has nothing to show yet; its row comes with its input.
+    if (index !== latest)
+      return withoutDrafts(row).map((kept) => ({
+        ...kept,
+        settled: true,
+        foldRun: true,
+        version: row.version * 4 + 2,
+      }));
     // The latest run: what is happening now leaves it for the live line, so the run holds only
     // finished steps and never grows a stack of live rows (Leo 2026-10-20: "rows pile up instead
     // of replacing each other").

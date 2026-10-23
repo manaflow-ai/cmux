@@ -15,6 +15,19 @@ struct AgentSubsessionFamilyTests {
         #expect(links == ["c1": "root"])
     }
 
+    /// A chat its agent made with `acpmux new` carries `spawnedBy` only; the tray and the Inspector
+    /// list it as started, so a click on it must open it, not be refused.
+    @Test func aSpawnedChatIsFamilyToo() {
+        #expect(AgentTurnStateStore.startedBy(summary: ["sessionId": "lane", "spawnedBy": "coord"]) == "coord")
+        #expect(AgentTurnStateStore.startedBy(summary: ["sessionId": "c", "startedBy": "a", "spawnedBy": "b"]) == "a",
+                "the sub-session link wins")
+        #expect(AgentTurnStateStore.startedBy(summary: ["sessionId": "c", "startedBy": " ", "spawnedBy": "b"]) == "b")
+        #expect(AgentTurnStateStore.startedBy(summary: ["sessionId": "x", "spawnedBy": "x"]) == nil)
+        let turns = AgentTurnStateStore()
+        turns.replaceStartedBy(AgentTurnStateStore.startedBy(["sessions": [["sessionId": "lane", "spawnedBy": "coord"]]]))
+        #expect(turns.isFamily("lane", of: "coord"))
+    }
+
     /// The watch's lines carry the links: its page, a change, and none for a purge.
     @Test func theFeedReadsStartedByFromItsPageAndItsChanges() {
         func message(_ json: String) -> AgentTurnStateFeed.Message? { AgentTurnStateFeed.Message(line: Data(json.utf8)) }
