@@ -274,6 +274,7 @@ wait_http "$index_origin/"
 echo
 echo "cmux-next web dev ready"
 echo "INDEX_URL=$index_origin/"
+if [[ "$gallery_enabled" -eq 1 ]]; then echo "GALLERY_URL=$gallery_origin/gallery/"; fi
 echo "app hot reload: CMUX_NEXT_PAGES_DEV_URL=$pages_origin/ CMUX_NEXT_AGENT_PANE_DEV_URL=$agent_origin/"
 echo "timing: React edit -> Vite HMR update $hmr_seconds (visible change is normally about 1 s)"
 echo "timing: acpmux fleet build + fetch $fleet_seconds; daemon restart/readiness $daemon_seconds"

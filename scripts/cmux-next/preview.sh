@@ -282,8 +282,10 @@ http_ready() {
   curl -fsS --max-time 2 "$url" >/dev/null 2>&1
 }
 
-gallery_url_for_port() {
-  printf 'http://127.0.0.1:%s/gallery/' "${CMUX_WEB_DEV_GALLERY_PORT:-4178}"
+published_gallery_url() {
+  local log="$1" candidate
+  candidate="$(sed -n 's/^GALLERY_URL=//p' "$log" | tail -1 || true)"
+  if http_ready "$candidate"; then printf '%s' "$candidate"; fi
 }
 
 start_web() {
@@ -323,10 +325,10 @@ start_web() {
   [[ -n "$index_url" ]] && http_ready "$index_url" \
     || fail "web helper did not publish a reachable INDEX_URL within ${timeout}s (log: $log)" 1
 
-  local gallery_url=""
-  local candidate
-  candidate="$(gallery_url_for_port)"
-  if http_ready "$candidate"; then gallery_url="$candidate"; fi
+  # A server on the configured port may belong to another checkout. Only the
+  # managed helper's readiness output can associate a gallery with this preview.
+  local gallery_url
+  gallery_url="$(published_gallery_url "$log")"
   state_phase="ready"; state_index_url="$index_url"; state_gallery_url="$gallery_url"
   write_state
   index_result_url="$index_url"
@@ -354,9 +356,9 @@ ensure_web() {
       && http_ready "$state_index_url"; then
       index_result_url="$state_index_url"; gallery_result_url="$state_gallery_url"
       pid_result="$state_pid"; log_result="$state_log"; reused_result="true"; phase_result="ready"
-      # A gallery can disappear independently; refresh the derived URL on reuse.
-      local candidate="$(gallery_url_for_port)"
-      if http_ready "$candidate"; then gallery_result_url="$candidate"; fi
+      # A gallery can disappear independently. Re-read the helper's published URL
+      # and clear it when unavailable, including state written by older wrappers.
+      gallery_result_url="$(published_gallery_url "$state_log")"
       state_gallery_url="$gallery_result_url"; write_state
       return 0
     fi

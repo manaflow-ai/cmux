@@ -10,11 +10,10 @@ foreign_gallery_pid=""
 cleanup() {
   local state_file pid
   [[ -z "$foreign_gallery_pid" ]] || kill "$foreign_gallery_pid" 2>/dev/null || true
-  state_file=$(find "$state" -name '*.state' -type f -print -quit 2>/dev/null || true)
-  if [[ -n "$state_file" ]]; then
+  while IFS= read -r state_file; do
     pid=$(sed -n 's/^pid[[:space:]]*//p' "$state_file" | head -1 || true)
     [[ -z "$pid" ]] || kill "$pid" 2>/dev/null || true
-  fi
+  done < <(find "$TMP" -name '*.state' -type f -print 2>/dev/null || true)
   rm -rf "$TMP"
 }
 trap cleanup EXIT
@@ -74,6 +73,7 @@ for _ in $(seq 1 50); do
 done
 port=$(cat "$port_file")
 echo "INDEX_URL=http://127.0.0.1:$port/"
+if [[ "${TMP_FAKE_WEB_PUBLISH_GALLERY:-0}" == 1 ]]; then echo "GALLERY_URL=http://127.0.0.1:$port/"; fi
 wait "$server_pid"
 FAKE
 chmod +x "$TMP/fake-web.sh"
@@ -137,6 +137,22 @@ result = json.loads(sys.argv[1])
 assert result["ok"] is False
 assert "live gallery is unavailable" in result["error"]
 assert result["gallery_url"] is None
+PY
+
+# A helper-published gallery is accepted even while the configured port belongs
+# to that other server. The URL must come from the managed helper's readiness.
+published_json=$(CMUX_PREVIEW_STATE_DIR="$TMP/published-state" CMUX_PREVIEW_WEB_DEV_SCRIPT="$TMP/fake-web.sh" \
+  TMP_FAKE_WEB_PORT_FILE="$TMP/published-port" TMP_FAKE_WEB_PUBLISH_GALLERY=1 \
+  CMUX_WEB_DEV_GALLERY_PORT="$foreign_gallery_port" CMUX_PREVIEW_START_TIMEOUT=10 \
+  "$ROOT/scripts/cmux-next/preview.sh" gallery --json)
+python3 - "$published_json" "$foreign_gallery_port" <<'PY'
+import json
+import sys
+
+result = json.loads(sys.argv[1])
+assert result["ok"] is True
+assert result["gallery_url"] == result["index_url"]
+assert result["gallery_url"] != f"http://127.0.0.1:{sys.argv[2]}/gallery/"
 PY
 
 grep -q 'No native build is performed' <("$ROOT/scripts/cmux-next/preview.sh" --help)
