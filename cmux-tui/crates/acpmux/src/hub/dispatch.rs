@@ -9,26 +9,53 @@ use std::sync::Mutex as StdMutex;
 pub(crate) struct Briefs {
     rows: StdMutex<BTreeMap<String, Value>>,
     path: Option<std::path::PathBuf>,
+    load_failed: bool,
 }
 
 impl Briefs {
     pub(crate) fn open() -> Self {
         let path = crate::config::home().join("briefs.json");
-        let rows = match std::fs::read(&path) {
+        let (rows, load_failed) = match std::fs::read(&path) {
             Ok(bytes) => match serde_json::from_slice(&bytes) {
-                Ok(rows) => rows,
+                Ok(rows) => (rows, false),
                 Err(error) => {
                     eprintln!("acpmux: brief ledger unreadable; starting empty: {error}");
-                    BTreeMap::new()
+                    (BTreeMap::new(), true)
                 }
             },
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (BTreeMap::new(), false),
             Err(error) => {
                 eprintln!("acpmux: brief ledger could not be read; starting empty: {error}");
-                BTreeMap::new()
+                (BTreeMap::new(), true)
             }
         };
-        Self { rows: StdMutex::new(rows), path: Some(path) }
+        Self { rows: StdMutex::new(rows), path: Some(path), load_failed }
+    }
+
+    pub(crate) fn load_failed(&self) -> bool {
+        self.load_failed
+    }
+
+    pub(crate) fn claim(&self, id: &str, key: Option<&str>) -> Option<Value> {
+        let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(row) = rows.get(id).cloned() {
+            return Some(row);
+        }
+        if let Some(key) = key
+            && let Some(row) = rows
+                .values()
+                .find(|row| row.get("idempotencyKey").and_then(Value::as_str) == Some(key))
+                .cloned()
+        {
+            return Some(row);
+        }
+        let mut row = json!({"briefId": id, "status": "starting"});
+        if let Some(key) = key {
+            row["idempotencyKey"] = json!(key);
+        }
+        rows.insert(id.to_owned(), row);
+        self.save(&rows);
+        None
     }
 
     fn save(&self, rows: &BTreeMap<String, Value>) {
@@ -113,7 +140,8 @@ mod tests {
 
     #[test]
     fn brief_identity_keeps_non_claude_harness_pair() {
-        let briefs = Briefs { rows: StdMutex::new(BTreeMap::new()), path: None };
+        let briefs =
+            Briefs { rows: StdMutex::new(BTreeMap::new()), path: None, load_failed: false };
         let row = briefs.put(json!({
             "title": "opencode to pi",
             "harness": "pi",

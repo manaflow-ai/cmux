@@ -172,7 +172,28 @@ async fn dispatch_brief(
     conn: &Arc<Conn>,
     mut params: Value,
 ) -> Result<Value, RpcError> {
+    if hub.briefs.load_failed() {
+        return Err(RpcError::internal(
+            "brief ledger is unreadable; repair $ACPMUX_HOME/briefs.json before dispatch",
+        ));
+    }
     let brief = dispatch_text(&params)?;
+    let id = params
+        .get("briefId")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("brief-{}", uuid::Uuid::now_v7()));
+    let idempotency = params
+        .get("idempotencyKey")
+        .or_else(|| params.get("idempotency_key"))
+        .and_then(Value::as_str)
+        .filter(|key| !key.is_empty());
+    if let Some(existing) = hub.briefs.claim(&id, idempotency) {
+        return Ok(
+            json!({"brief":existing,"event":crate::hub::dispatch::event("dispatch", &existing),"replayed":true}),
+        );
+    }
     let selected = params
         .get("host")
         .or_else(|| params.get("target"))
@@ -206,6 +227,10 @@ async fn dispatch_brief(
         let original = params.clone();
         params["forwarded"] = json!(true);
         params["host"] = json!(peer_name);
+        params["_meta"]["acpmux"]["dispatchSource"] = json!({
+            "from": conn.caller().map(|id| hub.session_name(id)).unwrap_or_else(|| conn.label()),
+            "host": crate::host_pressure::host_name(),
+        });
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, &original, &mut params);
         let result = peer.request(method::MUX_DISPATCH, params).await.map_err(|e| {
             RpcError::internal(format!(
@@ -225,7 +250,13 @@ async fn dispatch_brief(
         .to_owned();
     // Sender attribution comes from the authenticated connection, never a
     // caller supplied field (cx3-s30).
-    let from = conn.caller().map(|id| hub.session_name(id)).unwrap_or_else(|| conn.label());
+    let from = params
+        .pointer("/_meta/acpmux/dispatchSource/from")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            conn.caller().map(|id| hub.session_name(id)).unwrap_or_else(|| conn.label())
+        });
     let to = params.get("to").and_then(Value::as_str).unwrap_or("local").to_owned();
     let stop = params
         .get("stopCondition")
@@ -233,24 +264,6 @@ async fn dispatch_brief(
         .and_then(Value::as_str)
         .unwrap_or("report when the task is complete")
         .to_owned();
-    let id = params
-        .get("briefId")
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned)
-        .unwrap_or_else(|| format!("brief-{}", uuid::Uuid::now_v7()));
-    let idempotency = params
-        .get("idempotencyKey")
-        .or_else(|| params.get("idempotency_key"))
-        .and_then(Value::as_str)
-        .filter(|key| !key.is_empty());
-    if let Some(existing) =
-        hub.briefs.get(&id).or_else(|| idempotency.and_then(|key| hub.briefs.by_idempotency(key)))
-    {
-        return Ok(
-            json!({"brief":existing,"event":crate::hub::dispatch::event("dispatch", &existing),"replayed":true}),
-        );
-    }
     let name = dispatch_name(&params, &brief);
     let pick = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);
     let (harness, model) = match (pick("harness"), pick("model")) {
