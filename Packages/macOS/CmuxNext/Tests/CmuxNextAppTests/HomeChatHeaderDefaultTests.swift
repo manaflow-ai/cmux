@@ -5,6 +5,7 @@ import CmuxNextDesign
 import Foundation
 @testable import MessagesLabHome
 import Testing
+import UniformTypeIdentifiers
 
 /// Lawrence 2026-10-23: "chief centered profile pic is gone, chief settings gone". #23796 (Leo
 /// 2026-10-21) turned Home's chat header off by default: no centered avatar, no "Chief >" name pill,
@@ -40,5 +41,21 @@ import Testing
         #expect(avatarShown, "no avatar over the chat")
         #expect(pillShown, "no name pill over the chat")
         #expect(abs(avatarMid - hostMid) <= 1, "the avatar is not centered: \(avatarMid) vs \(hostMid)")
+        try Self.writePicture(of: view)
+    }
+
+    /// The chat's top as drawn, in `.build/home-chief-header.png` of the package (a fleet step returns
+    /// it with `--artifact`); for people, not checked.
+    private static func writePicture(of view: NSView) throws {
+        let top = NSRect(x: 0, y: view.isFlipped ? 0 : view.bounds.height - 260, width: view.bounds.width, height: 260)
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: top) else { return }
+        view.cacheDisplay(in: top, to: rep)
+        guard let image = rep.cgImage else { return }
+        let package = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let out = package.appendingPathComponent(".build/home-chief-header.png")
+        try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let dest = try #require(CGImageDestinationCreateWithURL(out as CFURL, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(dest, image, nil)
+        #expect(CGImageDestinationFinalize(dest))
     }
 }
