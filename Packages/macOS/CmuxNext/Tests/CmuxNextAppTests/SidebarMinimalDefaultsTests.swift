@@ -93,10 +93,10 @@ import Testing
     func iconlessTitlesStartFlushAtOneX(minimal: Bool) throws {
         let sidebar = Self.sidebar(minimal: minimal)
         let xs = try [Self.busy, Self.plain, Self.reported].map { try Self.row(sidebar, $0).title.frame.minX }
-        #expect(Set(xs) == [SidebarStyle.horizontalInset - WorkspaceRowView.labelInset], "title x per icon-less row: \(xs)")
+        #expect(Set(xs) == [SidebarStyle.horizontalInset], "title x per icon-less row: \(xs)")
         let withIcon = try Self.row(sidebar, Self.favicon)
         #expect(!withIcon.icon.isHidden && withIcon.icon.frame.maxX <= withIcon.title.frame.minX + WorkspaceRowView.labelInset)
-        #expect(withIcon.title.frame.minX == SidebarStyle.titleTextX(leading: SidebarStyle.horizontalInset) - WorkspaceRowView.labelInset)
+        #expect(withIcon.title.frame.minX == SidebarStyle.titleTextX(leading: SidebarStyle.horizontalInset))
     }
 
     /// Rows with and without an icon are equally tall.

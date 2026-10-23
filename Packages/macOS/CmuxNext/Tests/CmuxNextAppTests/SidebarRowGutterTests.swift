@@ -69,7 +69,7 @@ import Testing
             #expect(leading == trailing, "\(name): icon slot \(leading) pt in, marks \(trailing) pt in")
             // A row with no icon starts its title flush with the leading inset, no empty icon slot.
             #expect(row.icon.frame.width == 0, "\(name): the fixture row has no icon")
-            #expect(row.title.frame.minX == gutter - WorkspaceRowView.labelInset, "\(name): the title at the leading inset")
+            #expect(row.title.frame.minX == gutter, "\(name): the title at the leading inset")
             // The pill's own inset from the list's edges is the same token, plus the trim on the right.
             #expect(leading == gutter, "\(name): text \(leading) pt in, pill inset \(gutter)")
             #expect(row.frame.minX == gutter)
