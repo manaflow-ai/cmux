@@ -2,7 +2,11 @@
 """One launch path for every GUI bench and live script: start a tagged `cmux DEV <tag>.app`, wait for its
 control socket to answer, and say exactly why when it does not.
 
-Why one helper: each bench copied its own launch, and the copies drifted. A tagged build keeps its socket in
+Why one helper: each bench copied its own launch, and the copies drifted. So far five scripts launch through it
+(split-spring-terminal.py's default suite, tab-switch-stages.py, palette-open-stages.py,
+instant-new-surfaces-bench.py, omnibar-click-bench.py); pane-perf-terminal, app-perf, anim-perf-terminal,
+typing-frame-bench, every-action-sweep, sidebar-churn-typing, perf-gate, bench-startup and the perf-budgets
+sub-benches still launch on their own (/tmp socket, no failure reason): moving them is open. A tagged build keeps its socket in
 the account's state folder (`~/.local/state/cmux/cmux-debug-<tag>.sock`, with a `/tmp/cmux-debug-<tag>.sock`
 link; `/tmp` only when the path is too long for `sun_path`), and `~` there is the account's home from the
 password database, not `$HOME` (a fleet step's HOME is a scratch folder). A launch also needs the bench
@@ -10,13 +14,21 @@ environment below, and a GUI login session of this account on the console: from 
 (which runs its steps over SSH as the worker account) an app whose account is not the console user gets no
 working session: its display does not tick (frame numbers mean nothing), and the made-ahead open panel
 blocked its main thread about 40 s on ViewBridge (`HostCallsAuxiliary: Connection interrupted`), so the
-socket often never answered, then crashed it (MadeAheadOpenPanel, fixed in c41e7e7296a; the 40 s block
-stays). Found on the AWS measure workers 2026-10-23, where only aws-m4pro-9 had ec2-user on the console.
+socket often never answered, then crashed it (MadeAheadOpenPanel; the crash fixed in c41e7e7296a, and the
+warm-up no longer runs off the console session or again after a dead panel since the review-pl-fleet-gui fix).
+Found on the AWS measure workers 2026-10-23, where only aws-m4pro-9 had ec2-user on the console.
+
+The session rule (the same as the hq worker gate, build-fleet console_session.go readConsoleUser; change both
+together): the console user is the `Name` of SCDynamicStore `State:/Users/ConsoleUser` (`scutil`); `loginwindow`,
+no such key, or no answer at all means nobody, and the check fails closed. This account has a GUI session only
+when it is that user. A locked screen is reported (`screen_locked`, from IOConsoleUsers) but does not fail the
+check.
 `launch()` checks the session first and raises LaunchError("no-gui-session") at once
 (BENCH_LAUNCH_ANY_SESSION=1 launches anyway, for socket-only checks); every other failure gets its reason
 after the wait.
 
-On the fleet: `scripts/measure/split-spring.sh --suite=launch-check` builds the app and runs `check` below.
+On the fleet: `scripts/measure/split-spring.sh --suite=launch-check` builds the app and runs `check` below (with no
+session `check` itself reports no-gui-session; the build has run by then, only the launch timeout is saved).
 
 Use from a bench:
 
@@ -131,19 +143,32 @@ def console_user():
     match = re.search(r"^\s*Name : (\S+)", out, re.M)
     if match:
         return None if match.group(1) == "loginwindow" else match.group(1)
-    if "No such key" in out or "<dictionary>" in out:
+    # No such key, a dictionary with no name, or no answer at all: nobody, fail closed like the hq worker gate (not
+    # /dev/console's owner, which disagrees with scutil).
+    return None
+
+
+def screen_locked(user):
+    """Whether `user`'s console session has its screen locked (IOConsoleUsers CGSSessionScreenIsLocked), None
+    when ioreg does not say. Reported only: the session rule does not use it."""
+    try:
+        import plistlib
+        out = subprocess.run(["/usr/sbin/ioreg", "-n", "Root", "-d1", "-a"], capture_output=True, timeout=10).stdout
+        root = plistlib.loads(out)
+    except Exception:  # ioreg missing, timed out or not a plist: unknown
         return None
-    try:  # no scutil answer: the device owner is the next best signal
-        name = pwd.getpwuid(os.stat("/dev/console").st_uid).pw_name
-        return None if name == "root" else name
-    except (OSError, KeyError):
-        return None
+    if isinstance(root, list):
+        root = root[0] if root else {}
+    for entry in root.get("IOConsoleUsers") or []:
+        if entry.get("kCGSSessionUserNameKey") == user and entry.get("kCGSSessionOnConsoleKey"):
+            return bool(entry.get("CGSSessionScreenIsLocked", False))
+    return None
 
 
 def gui_session():
     """Whether an app this account starts gets a GUI session: the console user must be this account.
 
-    `root` on the console is the login window (nobody logged in); another name is someone else's session.
+    Nobody on the console is the login window (or no answer); another name is someone else's session.
     """
     me = pwd.getpwuid(os.getuid()).pw_name
     console = console_user()
@@ -154,7 +179,10 @@ def gui_session():
         detail = f"nobody is logged in on the console (login window); {me} has no GUI session"
     else:
         detail = f"the console session belongs to {console}, not {me}; {me}'s apps get no working GUI session"
-    return {"ok": ok, "user": me, "console_user": console, "detail": detail}
+    locked = screen_locked(me) if ok else None
+    if locked:
+        detail += " (its screen is locked: frames may not be comparable)"
+    return {"ok": ok, "user": me, "console_user": console, "screen_locked": locked, "detail": detail}
 
 
 def no_session_detail(session):
@@ -190,13 +218,37 @@ def host_facts():
     return {"host": platform.node(), "macos": macos}
 
 
-def crash_reports(since, name="cmux DEV"):
-    """Crash and hang reports of the app written after `since` (epoch seconds)."""
+def report_matches(path, pid=None, binary=None):
+    """Whether the crash or hang report at `path` is of process `pid` or of the executable `binary` (another tag's
+    app on the same host writes `cmux DEV*` reports too). No filter given: every report matches."""
+    if pid is None and binary is None:
+        return True
+    try:
+        text = open(path, errors="replace").read()
+    except OSError:
+        return False
+    if text.lstrip().startswith("{"):  # .ips: a JSON header line, then the JSON body with pid and procPath
+        try:
+            body = json.loads(text.split("\n", 1)[1])
+            if pid is not None and body.get("pid") == pid:
+                return True
+            return binary is not None and os.path.realpath(body.get("procPath") or "") == os.path.realpath(binary)
+        except (ValueError, IndexError):
+            pass
+    # Text reports: "Process: name [pid]" and "Path: /path/to/binary".
+    if pid is not None and re.search(rf"^\s*Process:\s.*\[{pid}\]", text, re.M):
+        return True
+    return binary is not None and re.search(rf"^\s*Path:\s+{re.escape(binary)}\s*$", text, re.M) is not None
+
+
+def crash_reports(since, name="cmux DEV", pid=None, binary=None):
+    """Crash and hang reports of the app written after `since` (epoch seconds); with `pid` or `binary`, only
+    those of that process or executable."""
     found = []
     for folder in (os.path.join(account_home(), "Library/Logs/DiagnosticReports"), "/Library/Logs/DiagnosticReports"):
         for path in glob.glob(os.path.join(folder, f"{name}*")):
             try:
-                if os.path.getmtime(path) >= since:
+                if os.path.getmtime(path) >= since and report_matches(path, pid, binary):
                     found.append(path)
             except OSError:
                 pass
@@ -258,6 +310,17 @@ class BenchApp:
             raise SystemExit(f"bench-launch: no executable in {self.app}/Contents/MacOS")
         return found[0]
 
+    def running_pids(self):
+        """PIDs of processes running an executable of this bundle (another run of the same app)."""
+        out = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
+        prefix = self.app + "/Contents/MacOS/"
+        pids = []
+        for line in out.splitlines():
+            pid, _, command = line.strip().partition(" ")
+            if command.lstrip().startswith(prefix) and pid.isdigit() and int(pid) != os.getpid():
+                pids.append(int(pid))
+        return pids
+
     @property
     def cli(self):
         return os.path.join(self.app, "Contents/Resources/bin/cmux")
@@ -296,8 +359,17 @@ class BenchApp:
             # thread ~40 s; say so now instead of after the timeout. BENCH_LAUNCH_ANY_SESSION=1 tries anyway.
             self._fail("no-gui-session", {"tag": self.tag, **host_facts(), "gui_session": session,
                                           "detail": no_session_detail(session), "log_tail": ""})
+        running = self.running_pids()
+        if running:
+            self._fail("tag-in-use", {"tag": self.tag, **host_facts(), "pids": running, "log_tail": "",
+                                      "detail": f"an app of {self.app} already runs (pid {', '.join(map(str, running))}); "
+                                                "quit it or pick a fresh tag"})
         for path in socket_candidates(self.tag):
             if os.path.lexists(path) and not os.path.isdir(path):
+                if not (rpc_at(path, "debug.windows", timeout=2) or {}).get("unreachable"):
+                    # Another app of this tag (another bundle path) answers there: never cut it off.
+                    self._fail("tag-in-use", {"tag": self.tag, **host_facts(), "socket": path, "log_tail": "",
+                                              "detail": f"an app of tag {self.tag} answers on {path}; quit it or pick a fresh tag"})
                 os.unlink(path)  # a socket a killed run of this tag left; the app makes it again
         if self.teardown:
             self.teardown.install()
@@ -343,7 +415,8 @@ class BenchApp:
         exit_code = self.process.poll() if self.process else None
         report = {"tag": self.tag, **host_facts(), "pid": self.process.pid if self.process else None, "exit": exit_code,
                   "sockets": sockets, "last_reply": last, "gui_session": session, "log": self.log_path}
-        crashes = crash_reports(self.launched_at - 1) if self.launched_at else []
+        crashes = crash_reports(self.launched_at - 1, pid=self.process.pid if self.process else None,
+                                binary=self.binary) if self.launched_at else []
         if crashes:
             report["crash_report"] = crashes[-1]
             report["crash"] = crash_summary(crashes[-1])
