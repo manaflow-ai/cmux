@@ -196812,259 +196812,259 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إغلاق المراقِب"
+            "value": "إغلاق معلومات الجلسة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zatvori inspektor"
+            "value": "Zatvori informacije o sesiji"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Luk inspektør"
+            "value": "Luk sessionsinfo"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspektor schließen"
+            "value": "Sitzungsinfo schließen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close Inspector"
+            "value": "Close Session Info"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cerrar el inspector"
+            "value": "Cerrar la información de la sesión"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fermer l’inspecteur"
+            "value": "Fermer les infos de la session"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chiudi l’ispettore"
+            "value": "Chiudi info sessione"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インスペクタを閉じる"
+            "value": "セッション情報を閉じる"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បិទអ្នកត្រួតពិនិត្យ"
+            "value": "បិទព័ត៌មានវគ្គ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "인스펙터 닫기"
+            "value": "세션 정보 닫기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lukk inspektør"
+            "value": "Lukk øktinfo"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zamknij inspektor"
+            "value": "Zamknij informacje o sesji"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fechar o inspetor"
+            "value": "Fechar informações da sessão"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Закрыть инспектор"
+            "value": "Закрыть сведения о сеансе"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ปิดตัวตรวจสอบ"
+            "value": "ปิดข้อมูลเซสชัน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Denetçiyi kapat"
+            "value": "Oturum bilgilerini kapat"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Закрити інспектор"
+            "value": "Закрити відомості про сеанс"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đóng trình kiểm tra"
+            "value": "Đóng thông tin phiên"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "关闭检查器"
+            "value": "关闭会话信息"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "關閉檢閱器"
+            "value": "關閉工作階段資訊"
           }
         }
       }
     },
     "chatInspector.title": {
-      "comment": "Agent pane: the Inspector, the chat's right-hand panel (Environment, Context, Changes, Subagents...); also its header toggle's label",
+      "comment": "Agent pane: Session Info (formerly the Inspector), the chat's right-hand panel (Environment, Context, Changes, Subagents...); also its header toggle's label and its palette entry",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "المراقِب"
+            "value": "معلومات الجلسة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspektor"
+            "value": "Informacije o sesiji"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspektør"
+            "value": "Sessionsinfo"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspektor"
+            "value": "Sitzungsinfo"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspector"
+            "value": "Session Info"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspector"
+            "value": "Información de la sesión"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspecteur"
+            "value": "Infos de la session"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ispettore"
+            "value": "Info sessione"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インスペクタ"
+            "value": "セッション情報"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "អ្នកត្រួតពិនិត្យ"
+            "value": "ព័ត៌មានវគ្គ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "인스펙터"
+            "value": "세션 정보"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspektør"
+            "value": "Øktinfo"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspektor"
+            "value": "Informacje o sesji"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspetor"
+            "value": "Informações da sessão"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Инспектор"
+            "value": "Сведения о сеансе"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ตัวตรวจสอบ"
+            "value": "ข้อมูลเซสชัน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Denetçi"
+            "value": "Oturum bilgileri"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Інспектор"
+            "value": "Відомості про сеанс"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trình kiểm tra"
+            "value": "Thông tin phiên"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "检查器"
+            "value": "会话信息"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "檢閱器"
+            "value": "工作階段資訊"
           }
         }
       }
