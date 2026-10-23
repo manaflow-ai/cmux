@@ -255,6 +255,12 @@ final class ScreenContentView: NSView {
         if context.model.acceptsRowOps {
             for edge in baseGeometry.rowEdges { targets[.rowEdge(edge.column, edge.upper)] = (edge.hitFrame, .vertical) }
         }
+        // A column edge whose column changed id at the same place (an optimistic New Column's
+        // column handed over to the daemon's) keeps its spring: it does not jump to its rest.
+        var renamedEdges: [AnimatedFrame] = dividerFrames.compactMap { kind, frame in
+            if case .columnEdge = kind, targets[kind] == nil { return frame }
+            return nil
+        }
         for (kind, target) in targets {
             let view: DividerHandleView
             if let existing = dividerViews[kind] {
@@ -275,6 +281,12 @@ final class ScreenContentView: NSView {
                     if carried { carriedDividers[kind] = frame.x.value + before.viewShift(offset: offset) }
                     frame.x.value += drift
                 }
+                frame.setTarget(target.rect, alpha: 1)
+                if !animateFrames { frame.snap() }
+                dividerFrames[kind] = frame
+            } else if case .columnEdge = kind,
+                      let index = renamedEdges.firstIndex(where: { abs($0.targetRect.minX - target.rect.minX) < 0.5 && abs($0.targetRect.width - target.rect.width) < 0.5 }) {
+                var frame = renamedEdges.remove(at: index)
                 frame.setTarget(target.rect, alpha: 1)
                 if !animateFrames { frame.snap() }
                 dividerFrames[kind] = frame
