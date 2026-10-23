@@ -4674,7 +4674,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>timeline</string>
+			<string>compact</string>
 			<key>pfm_description</key>
 			<string>What a workspace's hover card shows: its history of prompts and waits, its details, or both.</string>
 			<key>pfm_name</key>

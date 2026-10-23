@@ -597,7 +597,7 @@
     "setting.sidebar.hoverCards.groups.sections.status": true,
     "setting.sidebar.hoverCards.groups.tabGroups": true,
     "setting.sidebar.hoverCards.groups.workspaceGroups": true,
-    "setting.sidebar.hoverCards.layout": "timeline",
+    "setting.sidebar.hoverCards.layout": "compact",
     "setting.sidebar.hoverCards.maxRows": 20,
     "setting.sidebar.hoverCards.sections.git": true,
     "setting.sidebar.hoverCards.sections.ports": true,
