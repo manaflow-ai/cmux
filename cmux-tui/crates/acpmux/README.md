@@ -563,8 +563,9 @@ allows four, so a client has room for one.
 ### Bring your own ACP harness
 
 Every harness is a `harnesses` entry in `~/.acpmux/config.json`. Discovery fills in the ones on
-PATH (Claude Code, Codex, OpenCode, pi, oh-my-pi, prime-agent, Gemini, `sr claude proxy`); a
-configured entry always wins over a discovered one. A complete entry:
+PATH (Claude Code, Codex, OpenCode, pi, oh-my-pi, prime-agent, Gemini, `sr claude proxy`, and
+Muse Code through the [cmux-muse-acp](https://github.com/manaflow-ai/cmux-muse-acp) adapter
+`muse-acp`, else Muse Code in a terminal tab); a configured entry always wins over a discovered one. A complete entry:
 
 ```jsonc
 {
@@ -790,6 +791,11 @@ binary only once it runs on the peer, keeps the binary it replaces as `~/.local/
 not answer with the new build. A daemon that runs under a hand-written `acpmux*.service` unit is
 moved to the standard `acpmux.service` (its home, socket and drop-ins carried over, agents kept).
 A cmux Cloud VM is never updated this way (`cloudMachine`): `cmux link machine update --to-bundled` owns it.
+One update of a host runs at a time: `host update`, `host setup` and `host enroll --fix` take the
+host's update lock (a lease in `~/.acpmux`, kept by the update's connection; it needs `flock` or
+`perl` on the host), and one that finds it held changes nothing (`host update`: `updateRunning`). Every step checks the lease on the host first,
+so an update whose connection dropped stops (`lockLost`). The updates reach the daemon through the
+`ACPMUX_HOME` and `ACPMUX_SOCKET` that `acpmux.service` and its drop-ins set.
 `--json` reports each peer's `outcome`: `updated`, `current`, `busy`, `needsBinary`,
 `rolledBack` or `failed`. `host setup` needs ssh + scp access and a Mac or Linux box with `launchctl`
 (Linux hosts run `acpmux daemon` under whatever supervisor you use). Hosts added by hand still

@@ -6,8 +6,8 @@
 //   - the button is quiet text: no edge, ring or fill at rest; the effort one step back of the name;
 //     keyboard focus (a menu closed with Esc hands it back) draws the soft pill and a hairline, never
 //     the bright ring the capture showed;
-//   - the context ring sits on the row's grid: on the buttons' center line, its glyph about 8 px
-//     after the effort, not 17;
+//   - the context ring sits on the row's grid: on the buttons' center line, its glyph after the effort
+//     with no margin of its own (13 px with the 8 px pill inset of #24138), not 17;
 //   - the button, its labels and the mode use the composer's own font, the prompt's (the app's UI
 //     font), so a fallback can never come from the row itself;
 //   - the row keeps "Opus 5.5  Medium" while it fits (a 410 px composer: live-qa read "Opus Med" with
@@ -199,7 +199,7 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
     expect(focus.outlineAlpha, "in the row's quiet ink").toBeLessThanOrEqual(0.3);
   });
 
-  test("the context ring sits on the row's grid, its glyph about 8 px after the effort", async () => {
+  test("the context ring sits on the row's grid, its glyph after the effort with no margin of its own", async () => {
     const page = await open("quiet-chips");
     const grid = await page.evaluate((selector) => {
       const button = document.querySelector<HTMLElement>(selector)!;
@@ -217,7 +217,8 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
       };
     }, BUTTON);
     await page.close();
-    expect(grid.gap, "the ring's glyph follows the effort at the row's label rhythm").toBeLessThanOrEqual(10);
+    // The button's 8 px pill inset (#24138) and the ring's own 5 px, no margin on top (was 17 px).
+    expect(grid.gap, "the ring's glyph follows the effort with no margin of its own").toBeLessThanOrEqual(14);
     expect(grid.gap, "and never touches it").toBeGreaterThanOrEqual(6);
     expect(grid.centers, "on the buttons' center line").toBeLessThanOrEqual(0.5);
   });
