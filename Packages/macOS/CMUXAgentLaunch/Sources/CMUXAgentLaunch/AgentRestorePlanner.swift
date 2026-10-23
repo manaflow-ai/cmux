@@ -186,20 +186,6 @@ public struct AgentRestorePlanner: Sendable {
                 environment: &environment
             )
         }
-        // Preserve a validated outer Codex launcher (for example a scheduler
-        // or account wrapper) while still using this structured restore plan.
-        // Replayability rejects prefixes that carry an old session or secret.
-        if request.mode == .resumeAgent,
-           kind == "codex",
-           let prefix = request.launchCommand?.launcherPrefix,
-           AgentLauncherPrefix.isReplayable(prefix),
-           !routedArguments.starts(with: prefix),
-           !routedArguments.isEmpty {
-            // The prefix already contains the captured agent executable (for
-            // example `caffeinate -i codex`). Append only the fresh resume
-            // arguments so the executable is not passed twice.
-            routedArguments = prefix + routedArguments.dropFirst()
-        }
         guard !routedArguments.isEmpty else { return nil }
 
         var preflights = hermesPreflights(
