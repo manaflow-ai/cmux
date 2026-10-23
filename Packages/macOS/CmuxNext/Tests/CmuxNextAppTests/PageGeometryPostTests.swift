@@ -11,10 +11,16 @@ import Testing
 /// the fork reads (its screen rect, visible rect, clip inputs, occlusion holes) changed since the
 /// fork last read it.
 @MainActor @Suite struct PageGeometryPostTests {
+    /// A window with native overlays over its content (divider lines, the screen switcher).
+    final class OccludingWindow: NSWindow, BrowserWindowOcclusionProviding {
+        var browserOcclusionRectsInWindow: [CGRect] = []
+    }
+
     /// The app's window with two pages side by side, as the layout places them.
     struct TwoPages {
-        /// A plain window: `ShellWindow.setFrame` keeps frames on the test screen, which can undo a move.
-        let window: NSWindow
+        /// A plain window (`ShellWindow.setFrame` keeps frames on the test screen, which can undo a
+        /// move) that reports native overlays over its pages, as the app's window does.
+        let window: OccludingWindow
         let left = CEFHostView(frame: CGRect(x: 0, y: 0, width: 400, height: 500))
         let right = CEFHostView(frame: CGRect(x: 400, y: 0, width: 400, height: 500))
         /// Both pages' common ancestor below the content view (the layout root's place).
@@ -23,7 +29,7 @@ import Testing
         init() {
             _ = NSApplication.shared
             let content = NSView(frame: CGRect(x: 0, y: 0, width: 800, height: 500))
-            window = NSWindow(contentRect: content.frame, styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+            window = OccludingWindow(contentRect: content.frame, styleMask: [.titled, .resizable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.contentView = content
             _ = WindowOverlayHost.host(for: window)
@@ -48,9 +54,10 @@ import Testing
             return CEFHostView.trackerStats.geometryPosts - before
         }
 
-        func requestPageUpdate() {
+        func requestPageUpdate(force: Bool = false) {
             // global-notice-allow: CEFHostView observes its window's page update request on the default center (the production path)
-            NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
+            NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window,
+                                            userInfo: force ? [browserPagesForceUpdateKey: true] : nil)
         }
     }
 
@@ -89,5 +96,30 @@ import Testing
         pages.left.isHidden = true
         #expect(pages.posts { pages.requestPageUpdate() } == 1, "the hide reaches the fork")
         #expect(pages.posts { pages.requestPageUpdate() } == 0, "a page still hidden has nothing new")
+    }
+
+    /// A divider line coming over one page (a window occlusion rect) reaches only that page.
+    @Test func aWindowOverlayOverOnePageReachesOnlyThatPage() {
+        let pages = TwoPages()
+        pages.forkReads()
+        pages.window.browserOcclusionRectsInWindow = [CGRect(x: 100, y: 0, width: 2, height: 500)]
+        #expect(pages.posts { pages.requestPageUpdate() } == 1, "only the page under the line")
+    }
+
+    /// A corner radius coming to an ancestor moves no frame and changes both pages' clip.
+    @Test func aClipChangeWithoutAMoveReachesThePages() {
+        let pages = TwoPages()
+        pages.stage.wantsLayer = true
+        pages.forkReads()
+        pages.stage.layer?.cornerRadius = 12
+        pages.stage.layer?.masksToBounds = true
+        #expect(pages.posts { pages.requestPageUpdate() } == 2, "both pages lose a corner")
+    }
+
+    /// A page window moved by another app: the forced request reaches every page, moved or not.
+    @Test func aForcedRequestReachesEveryPage() {
+        let pages = TwoPages()
+        pages.forkReads()
+        #expect(pages.posts { pages.requestPageUpdate(force: true) } == 2)
     }
 }

@@ -24,11 +24,6 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// of a 120 Hz frame, so the app's own frame work and the display link fit beside a pass.
     static let pumpTimeSliceMicroseconds = 2_000
 
-    /// The first fork API with the resize-sync call: the fork waits for a page's frame at a new
-    /// size only up to a deadline the app sets (the same version as `CEFLayerHosting.resizeSyncForkAPI`,
-    /// which is main-actor isolated; this value is read where the switches are worked out, off it).
-    static let resizeSyncForkAPI: Int32 = 27
-
     var arguments: [String] {
         var result: [String] = []
         if forkAPIVersion >= 1 {
@@ -60,9 +55,11 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // or close that resized a page waited for that page's relayout and raster. AsyncLiveResize
         // skips the wait in NativeWidgetNSWindowBridge::UpdateWindowGeometry; a page window is never
         // in a live resize of its own, so the async live-resize path it also turns on never runs.
+        // An API 26 fork (layer hosting without resize sync) gets the switch too: its hosted pages
+        // then show their last frame through a resize instead of holding our commit up to 500 ms.
         // From fork API 27 the fork's own default is no wait, and a layer-hosted page waits up to
         // the deadline CEFLayerHosting sets, so AsyncLiveResize would only lose that sync.
-        if forkAPIVersion < Self.resizeSyncForkAPI { result.append("enable-features=AsyncLiveResize") }
+        if forkAPIVersion < CEFLayerHosting.resizeSyncForkAPI { result.append("enable-features=AsyncLiveResize") }
         result.append(contentsOf: Self.chromePromptOffSwitches)
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it

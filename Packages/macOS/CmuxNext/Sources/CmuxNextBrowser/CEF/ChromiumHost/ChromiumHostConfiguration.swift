@@ -37,7 +37,7 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
                           environment: [String: String]) -> [String] {
         // The host refuses a fork without layer hosting, so the switch set is the one for
         // the resize-sync fork API (no AsyncLiveResize).
-        let switches = CEFSwitches.current(forkAPIVersion: CEFSwitches.resizeSyncForkAPI,
+        let switches = CEFSwitches.current(forkAPIVersion: CEFLayerHosting.resizeSyncForkAPI,
                                            bundleIdentifier: bundleIdentifier, environment: environment).arguments
             // The host runs Chromium's own message loop: there is no external pump pass to slice.
             .filter { !$0.hasPrefix("cmux-pump-time-slice-us=") }
