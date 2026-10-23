@@ -200,11 +200,16 @@ def rows_of_part(part, report, budgets_mod, budgets):
                                                         "budget": budget, "floor": 20.0}
     elif part["kind"] == "diff":
         sidecar, stream = report.get("sidecar") or {}, report.get("stream") or {}
+
+        def num(obj, *keys):  # the sidecar prints camelCase (serde rename); accept snake_case too
+            return next((obj[k] for k in keys if isinstance(obj.get(k), (int, float))), None)
+        decode = num(sidecar, "manifestDecodeP95Micros", "manifest_decode_p95_micros")
+        read = num(sidecar, "sequentialReadMibPerSecond", "sequential_read_mib_per_second")
         values = {}
-        if isinstance(sidecar.get("manifest_decode_p95_micros"), (int, float)):
-            values["diff.sidecar.manifest_decode_p95"] = (sidecar["manifest_decode_p95_micros"], "us", 50.0)
-        if isinstance(sidecar.get("sequential_read_mib_per_second"), (int, float)) and sidecar["sequential_read_mib_per_second"] > 0:
-            values["diff.sidecar.read_ms_per_gib"] = (round(1024 * 1000 / sidecar["sequential_read_mib_per_second"], 2), "ms/GiB", 50.0)
+        if decode is not None:
+            values["diff.sidecar.manifest_decode_p95"] = (decode, "us", 50.0)
+        if read:
+            values["diff.sidecar.read_ms_per_gib"] = (round(1024 * 1000 / read, 2), "ms/GiB", 50.0)
         if isinstance(stream.get("p95Ms"), (int, float)):
             values["diff.stream.p95"] = (stream["p95Ms"], "ms", 10.0)
         for name, (v, unit, floor) in values.items():
@@ -218,8 +223,17 @@ def frame_sensitive(name, row):
 
 
 def same_refresh(a, b):
-    """Two refresh periods (ms) within 20 %; an unknown one counts as the same."""
-    return not a or not b or abs(a - b) <= 0.2 * max(a, b)
+    """Two refresh periods (ms) within 20 %. Both unknown counts as the same setup; one known and one unknown
+    does not (the display may have changed)."""
+    if not a and not b:
+        return True
+    return bool(a) and bool(b) and abs(a - b) <= 0.2 * max(a, b)
+
+
+def refresh_skipped(rows, base_rows, refresh_ms, base_refresh_ms):
+    """The frame rows find_regressions leaves out because the display refresh changed since the last good run."""
+    return sorted(n for n, r in rows.items() if frame_sensitive(n, r) and n in base_rows
+                  and not same_refresh(r.get("refresh_ms") or refresh_ms, base_rows[n].get("refresh_ms") or base_refresh_ms))
 
 
 def target_of(name, row, refresh_ms):
@@ -252,10 +266,8 @@ def find_regressions(rows, base_rows, refresh_ms, base_refresh_ms, budgets_mod):
     measured at another display refresh than its last good value is not compared (the next good run rebases it)."""
     if not base_rows:
         return []
-    def refresh(r, fallback):
-        return r.get("refresh_ms") or fallback
-    rows = {n: r for n, r in rows.items() if not (frame_sensitive(n, r) and n in base_rows
-            and not same_refresh(refresh(r, refresh_ms), refresh(base_rows[n], base_refresh_ms)))}
+    skipped = set(refresh_skipped(rows, base_rows, refresh_ms, base_refresh_ms))
+    rows = {n: r for n, r in rows.items() if n not in skipped}
     listed = [{"name": n, "p95": r["p95"], "floor": r.get("floor", 1.0)} for n, r in rows.items()]
     worse = {r["name"]: r for r in budgets_mod.compare(listed, {n: b["p95"] for n, b in base_rows.items() if b.get("p95") is not None})}
     out = []
@@ -570,6 +582,8 @@ def supported_parts_at(sha):
 
 
 MEASURE_SCRIPT = "scripts/measure/split-spring.sh"
+# What split-spring.sh prints when its tagged build fails (it prints up to 60 compiler lines after it).
+BUILD_FAILED_MARK = "the tagged reload printed no app path"
 
 
 def script_blob(sha):
@@ -634,6 +648,10 @@ def issue_body(state, repo, now):
         lines += ["", f"Last measurement: {link(repo, last['sha'])} at {last.get('measured_at')} on {last.get('host') or BENCH_WORKER}, "
                       f"display {round(1000 / refresh) if refresh else 'unknown'} Hz ({fmt(refresh)} ms frames), "
                       f"[run]({last.get('run_url')})." + (f" Parts that did not run: {', '.join(last['failed_parts'])}." if last.get("failed_parts") else "")]
+        if last.get("refresh_skipped"):
+            lines += ["", f"Not compared: {len(last['refresh_skipped'])} frame row(s) ran at another display refresh than "
+                          f"their last good value ({', '.join(last['refresh_skipped'][:8])}"
+                          + (", ..." if len(last["refresh_skipped"]) > 8 else "") + ")."]
     if stale_hours(state, now) > STALE_HOURS:
         lines += ["", f"**Stale:** no finished measurement since {stale_basis(state)} ({round(stale_hours(state, now))} h): "
                       "the bench host had no idle time, a nightly or dev build kept waiting for a Mac, or the tick failed."]
@@ -662,8 +680,10 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     cur = state["current"]
     failed = sorted(n for n, p in cur["parts"].items() if p.get("state") != "done")
     good = state.get("last_good")
+    base = state.get("last_good") or {}
     record = {"sha": cur["sha"], "measured_at": iso(t), "rows": part_rows, "refresh_ms": refresh_ms, "host": host,
-              "run_url": run_url, "failed_parts": failed}
+              "run_url": run_url, "failed_parts": failed,
+              "refresh_skipped": refresh_skipped(part_rows, base.get("rows") or {}, refresh_ms, base.get("refresh_ms"))}
     state["current"] = None
     state.setdefault("history", []).append({"sha": cur["sha"], "kind": cur["kind"], "at": iso(t), "run_url": run_url,
                                             "failed_parts": failed})
@@ -694,8 +714,15 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
             state["first_bad"] = {"sha": cur["sha"], "run_url": run_url, "measured_at": iso(t)}
             state["range"] = {"good": good["sha"], "bad": cur["sha"]}
         return "still" if was else "regressed"
+    # A frame row from another display refresh replaces its last good value only when it ran faster: a 60 Hz
+    # fallback run never rebases a 120 Hz baseline, and the first 120 Hz run rebases a 60 Hz one.
     merged = dict(good.get("rows") or {})
-    merged.update(part_rows)
+    skipped = set(record["refresh_skipped"])
+    for name, r in part_rows.items():
+        old = merged.get(name) or {}
+        if name in skipped and (r.get("refresh_ms") or refresh_ms or 1e9) >= (old.get("refresh_ms") or good.get("refresh_ms") or 1e9):
+            continue
+        merged[name] = r
     state["last_good"] = {**record, "rows": merged}
     state["regressions"], state["first_bad"], state["range"] = [], None, None
     return "recovered" if was else "good"
@@ -825,7 +852,8 @@ def cmd_run_part(o):
         step_id = m.group(1) if m else None
     state = "done" if code == 0 else ("yielded" if yielded_to or code == 75 else "failed")
     result = {"state": state, "exit": code, "step_id": step_id, "seconds": round(time.monotonic() - started),
-              "yielded_to": yielded_to, "worker": o.worker, "tail": text.splitlines()[-40:]}
+              "yielded_to": yielded_to, "worker": o.worker, "tail": text.splitlines()[-40:],
+              "build_failed": BUILD_FAILED_MARK in text}
     if state == "done" and step_id:
         got = run_capture([o.client, "artifact", step_id, os.path.join(o.out, "report.json")], timeout=600)
         if got.returncode != 0:
@@ -935,7 +963,8 @@ def record_part(cur, part, result, run_url):
     if entry["state"] != "yielded" and part in cur["parts_todo"]:
         cur["parts_todo"].remove(part)
     cur["parts"][part] = entry
-    build_failed = part == "build" or any("printed no app path" in line for line in result.get("tail") or [])
+    build_failed = (part == "build" or bool(result.get("build_failed"))
+                    or any(BUILD_FAILED_MARK in line for line in result.get("tail") or []))
     if entry["state"] == "failed" and build_failed:
         for other in [p for p in cur["parts_todo"] if not is_linux_part(p)]:
             cur["parts"][other] = {"state": "build_failed", "run_url": run_url}

@@ -207,8 +207,8 @@ class PartTests(unittest.TestCase):
         self.assertEqual(cur["parts_todo"], ["diff-viewer"])
         self.assertEqual(cur["parts"]["sidebar"]["state"], "build_failed")
         cur = cron.new_measurement("a" * 40, "tip", ["motion", "sidebar"], T0)
-        cron.record_part(cur, "motion", {"state": "failed", "tail": ["split-spring: the tagged reload printed no app path"]}, "r")
-        self.assertEqual(cur["parts_todo"], [], "a part that had to build and failed ends the rest too")
+        cron.record_part(cur, "motion", {"state": "failed", "tail": ["error: 60 compiler lines"], "build_failed": True}, "r")
+        self.assertEqual(cur["parts_todo"], [], "a part that had to build and failed ends the rest too, whatever its tail")
 
 
 class DisplayTests(unittest.TestCase):
@@ -219,6 +219,29 @@ class DisplayTests(unittest.TestCase):
                 "t.e2e": {**row(9.0), "refresh_ms": 8.33}}
         regs = cron.find_regressions(now, base, 16.67, 8.33, budgets_mod)
         self.assertEqual([r["name"] for r in regs], ["t.e2e"], "latency compares across refresh rates, frames do not")
+
+    def test_a_known_refresh_against_an_unknown_one_is_not_compared(self):
+        now = {"p.frame": {**row(33.3), "refresh_ms": 16.67}}
+        self.assertEqual(cron.find_regressions(now, {"p.frame": row(16.7)}, 16.67, None, budgets_mod), [])
+        self.assertEqual(cron.refresh_skipped(now, {"p.frame": row(16.7)}, 16.67, None), ["p.frame"])
+        both_unknown = cron.find_regressions({"p.frame": row(33.3)}, {"p.frame": row(16.7)}, None, None, budgets_mod)
+        self.assertEqual([r["name"] for r in both_unknown], ["p.frame"], "the same unknown setup still compares")
+
+    def test_the_issue_says_which_frame_rows_were_not_compared(self):
+        state = cron.empty_state(T0)
+        state["current"] = cron.new_measurement("a" * 40, "tip", [], T0)
+        state["current"]["parts"] = {"stress": {"state": "done"}}
+        cron.finish_measurement(state, {"p.frame": {**row(8.4), "refresh_ms": 8.33}}, 8.33, "bench", "r", T0, budgets_mod)
+        state["current"] = cron.new_measurement("b" * 40, "tip", [], at(1))
+        state["current"]["parts"] = {"stress": {"state": "done"}}
+        event = cron.finish_measurement(state, {"p.frame": {**row(16.7), "refresh_ms": 16.67}}, 16.67, "bench", "r", at(1), budgets_mod)
+        self.assertEqual(event, "good", "a 60 Hz fallback run opens no issue")
+        self.assertIn("Not compared: 1 frame row(s)", cron.issue_body(state, "o/r", at(1)))
+        self.assertEqual(state["last_good"]["rows"]["p.frame"]["refresh_ms"], 8.33, "a 60 Hz fallback keeps the 120 Hz baseline")
+        state["current"] = cron.new_measurement("c" * 40, "tip", [], at(2))
+        state["current"]["parts"] = {"stress": {"state": "done"}}
+        cron.finish_measurement(state, {"p.frame": {**row(9.9), "refresh_ms": 8.33}}, 8.33, "bench", "r", at(2), budgets_mod)
+        self.assertEqual([r["name"] for r in state["regressions"]], ["p.frame"], "back at 120 Hz it compares again")
 
     def test_dropped_frames_are_judged_in_frames(self):
         report = {"summary": [{"action": "close", "layout": "stress", "frames_p50_ms": 8.3, "frames_p95_ms": 8.4, "missed": 2}]}
@@ -242,7 +265,7 @@ class DisplayTests(unittest.TestCase):
 
 class DiffTests(unittest.TestCase):
     def test_diff_viewer_rows_and_their_budgets(self):
-        report = {"sidecar": {"manifest_decode_p95_micros": 400, "sequential_read_mib_per_second": 1024.0},
+        report = {"sidecar": {"manifestDecodeP95Micros": 400, "sequentialReadMibPerSecond": 1024.0},
                   "stream": {"p95Ms": 120.5}}
         rows = cron.rows_of_part(cron.PART_BY_NAME["diff-viewer"], report, budgets_mod, {"rows": {}})
         self.assertEqual(rows["diff.sidecar.read_ms_per_gib"]["p95"], 1000.0)
