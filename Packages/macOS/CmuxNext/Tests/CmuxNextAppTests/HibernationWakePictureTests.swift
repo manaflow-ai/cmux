@@ -49,5 +49,8 @@ import Testing
         window.contentView?.addSubview(tab.contentView)
         let shown = try #require(tab.contentView as? NSImageView)
         #expect(shown.image != nil, "the woken tab showed an empty pane until its picture decoded")
+        // What it shows is what the woken page's chrome keeps over the page until it draws
+        // (`BrowserChromeView.holdPicture(whileWaking:)`): no decode, the same pixels.
+        #expect(tab.wakePicture === preview, "the woken page would cover itself with another picture than the one shown")
     }
 }
