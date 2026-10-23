@@ -10856,11 +10856,22 @@
         "ty": "string",
         "nullable": true
       },
+      "/expect_agent": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/expect_agent/session": {
+        "ty": "string",
+        "nullable": true
+      },
       "/expect_foreground": {
         "ty": "string",
         "nullable": true
       },
       "/paste": {
+        "ty": "boolean"
+      },
+      "/submit": {
         "ty": "boolean"
       },
       "/surface": {
