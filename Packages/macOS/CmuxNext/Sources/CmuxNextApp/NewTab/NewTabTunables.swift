@@ -9,7 +9,7 @@ nonisolated enum NewTabLayoutChoice: String, Sendable, CaseIterable, TunableChoi
 
     var tunableTitle: String {
         switch self {
-        case .b: "B: Search | Ask field, agent rows, chat cards"
+        case .b: "B: One field, agent rows, chat cards"
         case .a: "A: Terminal | Browser | Agent switch"
         }
     }

@@ -25,6 +25,17 @@ struct NewTabWidgetSettingsTests {
         #expect(snapshot.diagnostics.isEmpty, "\(snapshot.diagnostics)")
     }
 
+    /// New Tab picks open, ask or search itself (#22816): the Search | Ask switch's key is retired,
+    /// so an old file's value is dropped quietly and Settings has no row for it.
+    @Test func theRetiredModeSwitchKeyIsIgnored() {
+        let snapshot = Self.parse(["modeSwitch": .bool(true)])
+        #expect(snapshot.newTabWidgets.ids == ["greeting"])
+        #expect(snapshot.diagnostics.isEmpty, "\(snapshot.diagnostics)")
+        #expect(snapshot.retiredKeys == ["tabs.newTabWidgets.modeSwitch"])
+        #expect(SettingsSchema.descriptor(for: ["tabs", "newTabWidgets", "modeSwitch"]) == nil)
+        #expect(!SettingsSchema.agentSettableKeys.contains("tabs.newTabWidgets.modeSwitch"))
+    }
+
     @Test func aBadValueKeepsItsDefaultAndSaysWhy() {
         let snapshot = Self.parse(["chats": .string("on")])
         #expect(snapshot.newTabWidgets.ids == ["greeting"])

@@ -216,7 +216,7 @@ final class AppServices {
     let paneFullWidthTabs = PaneFullWidthTabs()
     /// Pane controller mounts and releases in any window (`PaneMounts`).
     let paneMounts = PaneMounts()
-    /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.
+    /// The new tab screen's last agent and model, and what `!` typed ahead.
     let newTabChoices = NewTabChoiceMemory()
     /// The models picked per harness in the Chief card's Model menu (its Recent section).
     let chiefModelRecents = HomeChiefModelRecents(defaults: .standard)
