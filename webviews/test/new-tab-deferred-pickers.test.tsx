@@ -82,7 +82,7 @@ const effortOption = (id = "effort", values = ["low", "medium", "high"]): Option
   currentValue: "medium",
   options: values.map((value) => ({ value, name: value })),
 });
-const fastOption = (id = "fast-mode", values: [string, string] = ["off", "on"]): Option => ({
+const fastOption = (id = "fast-mode", values: string[] = ["off", "on"]): Option => ({
   id,
   name: "Fast mode",
   currentValue: values[0],
@@ -92,7 +92,9 @@ const fastOption = (id = "fast-mode", values: [string, string] = ["off", "on"]):
 /// A New Tab pane as App wires it: its chips draw the harness switch's view of the page's empty
 /// summary, and a pick starts the deferred chat (`chat.new {deferred}`) and goes to the switch
 /// (`chat.model`, `chat.effort`). The port records what reaches acpmux once the session opens with
-/// `opened` as its options.
+/// `opened` as its options; the page's summary then reports that session (its id, harness, model and
+/// the values set on it), so the composer's after-open fallbacks run and any late or second send
+/// shows on the wire.
 async function mountNewTab({ opened, model = "claude-sonnet-5-5" }: { opened: Option[]; model?: string }) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
@@ -112,10 +114,13 @@ async function mountNewTab({ opened, model = "claude-sonnet-5-5" }: { opened: Op
   const wire: string[] = [];
   let open = false;
   let started = "claude";
+  let running = model;
+  // The session's options as it reports them: each set value becomes the option's current one.
+  const options = opened.map((option) => ({ ...option }));
   const store = new HarnessSwitch();
   store.connect({
     turnRunning: () => false,
-    shown: () => (open ? { sessionId: "s-1", harness: started, empty: true, configOptions: opened } : undefined),
+    shown: () => (open ? { sessionId: "s-1", harness: started, empty: true, configOptions: options } : undefined),
     create: async (harness: string) => {
       started = harness;
       wire.push(`new ${harness}`);
@@ -127,31 +132,52 @@ async function mountNewTab({ opened, model = "claude-sonnet-5-5" }: { opened: Op
       return sessionId;
     },
     send: async (text: string) => void wire.push(`prompt ${text}`),
-    setModel: async (modelId: string) => void wire.push(`model ${modelId}`),
+    setModel: async (modelId: string) => {
+      wire.push(`model ${modelId}`);
+      running = modelId;
+    },
     setMode: async () => undefined,
-    setConfig: async (configId: string, value: string) => void wire.push(`${configId}=${value}`),
+    setConfig: async (configId: string, value: string) => {
+      wire.push(`${configId}=${value}`);
+      const option = options.find((candidate) => candidate.id === configId);
+      if (option) option.currentValue = value;
+    },
     discard: () => undefined,
     prewarm: () => undefined,
     prewarmSupported: () => false,
   });
-  const raw: Snapshot = {
-    type: "snapshot",
-    protocolVersion: 1,
-    rows: [],
-    sessions: [],
-    connection: "test",
-    isWorking: false,
-    queue: [],
-    canLoadOlder: false,
-    catalog,
-    summary: { sessionId: "", harness: "claude", model, turnCount: 0 },
-  } as Snapshot;
-  // The page's chat.new names the harness its chips draw: the switch's, once a pick made one.
-  const start = () => void store.switchTo(store.view().intent?.harness ?? "claude", "/tmp/project", { deferred: true });
+  const raw = (): Snapshot =>
+    ({
+      type: "snapshot",
+      protocolVersion: 1,
+      rows: [],
+      sessions: [],
+      connection: "test",
+      isWorking: false,
+      queue: [],
+      canLoadOlder: false,
+      catalog,
+      summary: open
+        ? {
+            sessionId: "s-1",
+            harness: started,
+            model: running,
+            turnCount: 0,
+            configOptions: options.map((o) => ({ ...o })),
+          }
+        : { sessionId: "", harness: "claude", model, turnCount: 0 },
+    }) as Snapshot;
+  // The page's chat.new names the harness its chips draw: the switch's, once a pick made one. Once
+  // the chat has its session, App's chips start nothing (`start` in DefaultComposerChips).
+  const start = () => {
+    if (!open) void store.switchTo(store.view().intent?.harness ?? "claude", "/tmp/project", { deferred: true });
+  };
+  // App's chat.model and chat.effort: held during the switch, else sent to the open session.
+  const live = () => (open ? { sessionId: "s-1" } : undefined);
 
   function Host() {
     const view = useSyncExternalStore(store.subscribe, store.view);
-    const snapshot = applySwitch(raw, view, catalog, profiles);
+    const snapshot = applySwitch(raw(), view, catalog, profiles);
     const picker = usePickerCatalog(
       snapshot.catalog,
       { harness: "claude", configOptions: snapshot.summary?.configOptions },
@@ -164,12 +190,12 @@ async function mountNewTab({ opened, model = "claude-sonnet-5-5" }: { opened: Op
         holdsModePick
         onModel={(modelId) => {
           start();
-          void store.pickModel(modelId);
+          void store.pickModel(modelId, live());
         }}
         onMode={() => undefined}
         onEffort={(configId, value) => {
           start();
-          store.pickConfig(configId, value);
+          store.pickConfig(configId, value, live());
         }}
         // App's chat.new for a pick of another harness: a deferred switch carrying the combo.
         onHarness={(harness, picked, options) =>
@@ -320,4 +346,28 @@ test("a combo back to the harness still on screen sends its held options to that
   await new Promise((done) => setTimeout(done, 0));
   expect(store.view().intent).toBeUndefined();
   expect(wire).toEqual(["model claude-opus-5-5", "reasoning_effort=high", "fast_mode=true"]);
+});
+
+// Codex review of #24509 at 348093f4: a tiered Fast option (standard, fast, ultrafast) lists no
+// on-like value, so a combo's generic Fast on was dropped and Fast came only after the first turn.
+test("a combo's Fast reaches a tiered Fast option as its fast tier, never ultrafast, before the first prompt", async () => {
+  const { wire, pickCombo, send } = await mountNewTab({
+    opened: [effortOption("reasoning_effort"), fastOption("fast_mode", ["standard", "fast", "ultrafast"])],
+  });
+  await pickCombo("astra high fast", "Astra");
+  await send("hello");
+  expect(wire).toEqual(["new codex", "model gpt-6-astra", "reasoning_effort=high", "fast_mode=fast", "prompt hello"]);
+});
+
+test("a generic Fast on or off takes the option's own spelling, and on never becomes a higher tier", async () => {
+  const { heldOptionPick } = await import("../src/agent-session/acpmux/heldOptions");
+  const tiered = [fastOption("fast_mode", ["standard", "fast", "ultrafast"])];
+  expect(heldOptionPick("fast-mode", "on", tiered)).toEqual({ configId: "fast_mode", value: "fast" });
+  expect(heldOptionPick("fast-mode", "off", tiered)).toEqual({ configId: "fast_mode", value: "standard" });
+  // Only a higher tier past standard: nothing stands in for plain fast.
+  expect(heldOptionPick("fast-mode", "on", [fastOption("fast_mode", ["standard", "ultrafast"])])).toBeUndefined();
+  expect(heldOptionPick("fast-mode", "on", [fastOption("fast", ["false", "true"])])).toEqual({
+    configId: "fast",
+    value: "true",
+  });
 });
