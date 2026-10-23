@@ -138,8 +138,10 @@ type Props = {
   settleTimer?: SettleTimer;
   /// Starts a new chat in another harness (the model picker offers it), on `model` when a model
   /// row of that harness was picked: the switch carries it, so the new chat starts on that model
-  /// and draws it at once, also before it opens (a New Tab's deferred switch).
-  onHarness?(harness: string, model?: string): void;
+  /// and draws it at once, also before it opens (a New Tab's deferred switch). `options`: a typed
+  /// combo's effort and Fast, held under their kind's id (heldOptions.ts); the switch applies them
+  /// to the new session before its first prompt.
+  onHarness?(harness: string, model?: string, options?: Readonly<Record<string, string>>): void;
   /// The folder a pick is remembered for (lastPick.ts), when the chat has none yet (a New Tab's).
   folder?: string;
   /// The pointer or keyboard rests on a harness row (undefined: it left them), for a prewarm hint.
@@ -470,8 +472,9 @@ export function ComposerPickers({
   };
   // A typed combo ("gpt medium fast", ModelPicker): its model and effort land as a pick does, and
   // fast mode turns on once the agent reports the model and offers it. A combo for another harness
-  // starts that harness and waits for its new session, then lands the same way. A failed switch,
-  // or a session that is not the one the pick started, drops it.
+  // starts that harness with the whole combo held on the switch (applied before the first prompt),
+  // then checks the effort and Fast once its new session opens. A failed switch, or a session that
+  // is not the one the pick started, drops it.
   const crossing = useRef<(ModelCombo & { from?: string }) | undefined>(undefined);
   const fastWanted = useRef<{ sessionId?: string; model: string } | undefined>(undefined);
   const combo = (picked: ModelCombo) => {
@@ -481,7 +484,14 @@ export function ComposerPickers({
       if (!switchHarness) return;
       crossing.current = { ...picked, from: summary?.sessionId };
       if (remembers) rememberPick({ harness: picked.harness, model: picked.model }, folder ?? summary?.cwd);
-      switchHarness(picked.harness, picked.model);
+      // The effort and Fast ride the switch, so a prompt sent right after the pick (it queues on the
+      // switch) runs its first turn on the whole combo; the effect below only fills in what the new
+      // session still reports otherwise.
+      const held: Record<string, string> = {
+        ...(picked.effort ? { [HELD_EFFORT_ID]: picked.effort } : {}),
+        ...(picked.fast ? { [HELD_FAST_ID]: HELD_FAST_ON } : {}),
+      };
+      switchHarness(picked.harness, picked.model, Object.keys(held).length > 0 ? held : undefined);
       return;
     }
     land(picked.model, picked.effort);
@@ -502,8 +512,10 @@ export function ComposerPickers({
     }
     if (switching || !summary?.sessionId || summary.sessionId === wanted.from || harness !== wanted.harness) return;
     crossing.current = undefined;
-    // The switch already sent the model: only its effort remains, now when the agent runs that
-    // model (its default, or it reported the switch first), else once it reports it.
+    // The switch already sent the model, and the effort and Fast it could resolve against the new
+    // session's options: each is sent again only where the session still reports another value
+    // (an older acpmux whose attach named no options), now when the agent runs that model (its
+    // default, or it reported the switch first), else once it reports it.
     pending.current = undefined;
     if (wanted.effort && current === wanted.model) {
       if (effort && wanted.effort !== currentEffort && efforts.some((choice) => choice.id === wanted.effort))

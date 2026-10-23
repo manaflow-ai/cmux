@@ -3601,7 +3601,14 @@ function DefaultComposerChips({
         start();
         void callNative("chat.effort", { configId, value });
       }}
-      onHarness={(harness, model) => void callNative("chat.new", { harness, ...(model ? { model } : {}), ...inFolder })}
+      onHarness={(harness, model, options) =>
+        void callNative("chat.new", {
+          harness,
+          ...(model ? { model } : {}),
+          ...(options ? { options } : {}),
+          ...inFolder,
+        })
+      }
       {...(cwd ? { folder: cwd } : {})}
       // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
       onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
@@ -6246,7 +6253,7 @@ function AcpmuxPane() {
           // A pick of another harness is a switch: drawn now, started behind it.
           // A new chat without a folder starts in the chat's start folder (startFolder.tsx);
           // a chat with no project (`noProject`) or for a peer gets no start folder.
-          "chat.new": async ({ harness, cwd, peer, deferred, noProject, model }) => {
+          "chat.new": async ({ harness, cwd, peer, deferred, noProject, model, options }) => {
             const folder = cwd ? String(cwd) : peer || noProject === true ? undefined : startFolderRef.current;
             if (harness && !peer && noProject !== true) {
               // A new chat starts on its pick, else on acpmux's saved default, else on the model last
@@ -6259,9 +6266,19 @@ function AcpmuxPane() {
                   ? undefined
                   : lastOfferedModel(String(harness), catalogRef.current, folder);
               const picked = asked && asked !== start?.model ? asked : undefined;
+              // A typed combo's effort and Fast (ComposerPickers `combo`), held for the new session.
+              const held =
+                options && typeof options === "object"
+                  ? Object.fromEntries(
+                      Object.entries(options as Record<string, unknown>).filter(
+                        (entry): entry is [string, string] => typeof entry[1] === "string",
+                      ),
+                    )
+                  : {};
               return harnessSwitch.switchTo(String(harness), folder, {
                 deferred: deferred === true,
                 ...(picked ? { model: picked } : {}),
+                ...(Object.keys(held).length > 0 ? { options: held } : {}),
               });
             }
             harnessSwitch.cancel();

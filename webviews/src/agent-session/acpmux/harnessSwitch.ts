@@ -259,26 +259,36 @@ export class HarnessSwitch {
   /// pick or a cancel replaced it, or it failed). `deferred`: the pane stays where it is (the New
   /// Tab page, cx-e2aa) and the new chat shows with the next prompt, as a pick during a turn does.
   /// `model`: a model row of `harness` was picked; the new chat starts on it and draws it now.
+  /// `options`: config picks made with it (a typed combo's effort and Fast, under their kind's id,
+  /// heldOptions.ts), held as a pick during the switch is: applied before the first prompt.
   switchTo(
     harness: string,
     folder?: string,
-    options: { deferred?: boolean; model?: string } = {},
+    options: { deferred?: boolean; model?: string; options?: Readonly<Record<string, string>> } = {},
   ): Promise<string | undefined> {
     const previous = this.intent;
     const port = this.port;
     const shownSession = port?.shown();
     const cwd = folder ?? previous?.cwd ?? shownSession?.cwd;
+    const held = Object.entries(options.options ?? {});
     if (previous && previous.harness === harness && previous.phase !== "failed" && previous.cwd === cwd) {
       if (options.model) void this.pickModel(options.model);
+      for (const [configId, value] of held) this.pickConfig(configId, value);
       return previous.done.promise;
     }
     // While the shown session's turn streams (or the pane holds a page), the pick applies to the next turn.
     const shown = options.deferred ? false : (previous?.shown ?? !(port?.turnRunning() ?? false));
-    // Back to the harness of the session still on screen: there is nothing left to switch.
+    // Back to the harness of the session still on screen: there is nothing left to switch. The
+    // pick's held options go to that session now, after its model, as the session names them.
     if (!shown && previous && shownSession?.harness === harness) {
       this.cancel();
       if (options.model && options.model !== shownSession.model)
         void this.pickModel(options.model, { sessionId: shownSession.sessionId, model: shownSession.model });
+      const offered = shownSession.configOptions;
+      for (const [configId, value] of held) {
+        const pick = offered ? heldOptionPick(configId, value, offered) : { configId, value };
+        if (pick) void port?.setConfig(pick.configId, pick.value).catch(() => undefined);
+      }
       return Promise.resolve(shownSession.sessionId);
     }
     const done = deferred<string | undefined>();
@@ -304,6 +314,8 @@ export class HarnessSwitch {
     this.modelPick = undefined;
     this.configPick = undefined;
     this.intent = intent;
+    // Each held option takes its gesture ticket now, in the pick's own handler.
+    for (const [configId, value] of held) this.holdConfig(intent, configId, value);
     if (shown && shownSession && !previous) {
       this.left = shownSession.empty ? { sessionId: shownSession.sessionId, harness: shownSession.harness } : undefined;
       port?.leave();
@@ -413,13 +425,18 @@ export class HarnessSwitch {
       });
       return true;
     }
-    this.intent.config = { ...this.intent.config, options: { ...this.intent.config.options, [configId]: value } };
-    this.intent.tickets.set(
+    this.holdConfig(this.intent, configId, value);
+    this.changed();
+    return true;
+  }
+
+  /// Records a config pick on `intent` for its session, with the pick's gesture ticket.
+  private holdConfig(intent: Intent, configId: string, value: string): void {
+    intent.config = { ...intent.config, options: { ...intent.config.options, [configId]: value } };
+    intent.tickets.set(
       `config:${configId}`,
       this.takeTicket({ method: "session/set_config_option", params: { configId, value } }),
     );
-    this.changed();
-    return true;
   }
 
   private takeTicket(intent: GestureIntent): Promise<string | undefined> {

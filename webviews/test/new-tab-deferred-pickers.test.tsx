@@ -111,11 +111,16 @@ async function mountNewTab({ opened, model = "claude-sonnet-5-5" }: { opened: Op
   const profiles = new HarnessProfiles(() => undefined);
   const wire: string[] = [];
   let open = false;
+  let started = "claude";
   const store = new HarnessSwitch();
   store.connect({
     turnRunning: () => false,
-    shown: () => (open ? { sessionId: "s-1", harness: "claude", empty: true, configOptions: opened } : undefined),
-    create: async () => "s-1",
+    shown: () => (open ? { sessionId: "s-1", harness: started, empty: true, configOptions: opened } : undefined),
+    create: async (harness: string) => {
+      started = harness;
+      wire.push(`new ${harness}`);
+      return "s-1";
+    },
     leave: () => undefined,
     open: async (sessionId: string) => {
       open = true;
@@ -141,7 +146,8 @@ async function mountNewTab({ opened, model = "claude-sonnet-5-5" }: { opened: Op
     catalog,
     summary: { sessionId: "", harness: "claude", model, turnCount: 0 },
   } as Snapshot;
-  const start = () => void store.switchTo("claude", "/tmp/project", { deferred: true });
+  // The page's chat.new names the harness its chips draw: the switch's, once a pick made one.
+  const start = () => void store.switchTo(store.view().intent?.harness ?? "claude", "/tmp/project", { deferred: true });
 
   function Host() {
     const view = useSyncExternalStore(store.subscribe, store.view);
@@ -165,7 +171,14 @@ async function mountNewTab({ opened, model = "claude-sonnet-5-5" }: { opened: Op
           start();
           store.pickConfig(configId, value);
         }}
-        onHarness={() => undefined}
+        // App's chat.new for a pick of another harness: a deferred switch carrying the combo.
+        onHarness={(harness, picked, options) =>
+          void store.switchTo(harness, "/tmp/project", {
+            deferred: true,
+            ...(picked ? { model: picked } : {}),
+            ...(options ? { options } : {}),
+          })
+        }
         showPlan={false}
       />
     );
@@ -213,14 +226,14 @@ test("a New Tab combo's effort and Fast reach the chat before the prompt sent ri
   const { wire, pickCombo, send } = await mountNewTab({ opened: [effortOption(), fastOption()] });
   await pickCombo("opus high fast", "Opus 5.5");
   await send("hello");
-  expect(wire).toEqual(["model claude-opus-5-5", "effort=high", "fast-mode=on", "prompt hello"]);
+  expect(wire).toEqual(["new claude", "model claude-opus-5-5", "effort=high", "fast-mode=on", "prompt hello"]);
 });
 
 test("a New Tab combo for the model already shown still carries its effort into the first turn", async () => {
   const { wire, pickCombo, send } = await mountNewTab({ opened: [effortOption(), fastOption()] });
   await pickCombo("sonnet high", "Sonnet 5.5");
   await send("hello");
-  expect(wire).toEqual(["effort=high", "prompt hello"]);
+  expect(wire).toEqual(["new claude", "effort=high", "prompt hello"]);
 });
 
 test("a held New Tab combo takes the opened session's own option names and values", async () => {
@@ -230,21 +243,27 @@ test("a held New Tab combo takes the opened session's own option names and value
   });
   await pickCombo("opus high fast", "Opus 5.5");
   await send("hello");
-  expect(wire).toEqual(["model claude-opus-5-5", "reasoning_effort=high", "fast_mode=true", "prompt hello"]);
+  expect(wire).toEqual([
+    "new claude",
+    "model claude-opus-5-5",
+    "reasoning_effort=high",
+    "fast_mode=true",
+    "prompt hello",
+  ]);
 });
 
 test("a held Fast pick the opened session does not offer is not sent", async () => {
   const { wire, pickCombo, send } = await mountNewTab({ opened: [effortOption()] });
   await pickCombo("opus high fast", "Opus 5.5");
   await send("hello");
-  expect(wire).toEqual(["model claude-opus-5-5", "effort=high", "prompt hello"]);
+  expect(wire).toEqual(["new claude", "model claude-opus-5-5", "effort=high", "prompt hello"]);
 });
 
 test("a session that reports no options takes none of the held picks", async () => {
   const { wire, pickCombo, send } = await mountNewTab({ opened: [] });
   await pickCombo("opus high fast", "Opus 5.5");
   await send("hello");
-  expect(wire).toEqual(["model claude-opus-5-5", "prompt hello"]);
+  expect(wire).toEqual(["new claude", "model claude-opus-5-5", "prompt hello"]);
 });
 
 test("a held effort the opened session does not offer is not sent, and no other level stands in", async () => {
@@ -253,5 +272,52 @@ test("a held effort the opened session does not offer is not sent, and no other 
   });
   await pickCombo("opus high fast", "Opus 5.5");
   await send("hello");
-  expect(wire).toEqual(["model claude-opus-5-5", "fast-mode=on", "prompt hello"]);
+  expect(wire).toEqual(["new claude", "model claude-opus-5-5", "fast-mode=on", "prompt hello"]);
+});
+
+// Codex review of #24509: a combo for another harness sent only its model into the switch, so the
+// first prompt ran without its effort and Fast (they followed after the first turn).
+test("a New Tab combo for another harness carries its effort and Fast into that chat's first turn", async () => {
+  const { wire, pickCombo, send } = await mountNewTab({
+    opened: [effortOption("reasoning_effort"), fastOption("fast_mode", ["false", "true"])],
+  });
+  await pickCombo("astra high fast", "Astra");
+  await send("hello");
+  expect(wire).toEqual(["new codex", "model gpt-6-astra", "reasoning_effort=high", "fast_mode=true", "prompt hello"]);
+});
+
+test("a combo back to the harness still on screen sends its held options to that session, after its model", async () => {
+  const { HarnessSwitch } = await import("../src/agent-session/acpmux/harnessSwitch");
+  const wire: string[] = [];
+  const store = new HarnessSwitch();
+  store.connect({
+    turnRunning: () => true,
+    shown: () => ({
+      sessionId: "s-0",
+      harness: "claude",
+      model: "claude-sonnet-5-5",
+      empty: false,
+      configOptions: [effortOption("reasoning_effort"), fastOption("fast_mode", ["false", "true"])],
+    }),
+    create: async () => undefined,
+    leave: () => undefined,
+    open: async (sessionId: string) => sessionId,
+    send: async () => undefined,
+    setModel: async (modelId: string) => void wire.push(`model ${modelId}`),
+    setMode: async () => undefined,
+    setConfig: async (configId: string, value: string) => void wire.push(`${configId}=${value}`),
+    discard: () => undefined,
+    prewarm: () => undefined,
+    prewarmSupported: () => false,
+  });
+  // A turn streams: a pick of Codex waits for the next prompt, then a combo picks Claude again.
+  void store.switchTo("codex");
+  wire.length = 0;
+  void store.switchTo("claude", undefined, {
+    model: "claude-opus-5-5",
+    options: { effort: "high", "fast-mode": "on" },
+  });
+  await new Promise((done) => setTimeout(done, 0));
+  expect(store.view().intent).toBeUndefined();
+  expect(wire).toEqual(["model claude-opus-5-5", "reasoning_effort=high", "fast_mode=true"]);
 });
