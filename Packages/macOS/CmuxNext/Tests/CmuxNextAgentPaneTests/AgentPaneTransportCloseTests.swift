@@ -15,7 +15,8 @@ struct AgentPaneTransportCloseTests {
         defer { subscription.cancel() }
         for index in 0...AgentPageProvider.maximumBufferedEvents {
             provider.eventDeliveryDropped(stream: AgentPageProvider.hostEvents,
-                                          data: AgentPageEvent.command("overflow-\(index)").data)
+                                          data: AgentPageEvent.command("overflow-\(index)").data,
+                                          publicationID: UInt64(index + 1))
         }
 
         let transport = AgentPaneTransport()

@@ -126,7 +126,8 @@ struct AgentPageProviderEventsTests {
         let provider = AgentPageProvider { _ in nil }
         for index in 0...AgentPageProvider.maximumBufferedEvents {
             provider.eventDeliveryDropped(stream: AgentPageProvider.hostEvents,
-                                          data: Self.command("dropped-\(index)").data)
+                                          data: Self.command("dropped-\(index)").data,
+                                          publicationID: UInt64(index + 1))
         }
         #expect(!provider.publish(Self.command("backpressure")))
     }
@@ -135,7 +136,8 @@ struct AgentPageProviderEventsTests {
         let provider = AgentPageProvider { _ in nil }
         for index in 0...AgentPageProvider.maximumBufferedEvents {
             provider.eventDeliveryDropped(stream: AgentPageProvider.hostEvents,
-                                          data: Self.command("dropped-\(index)").data)
+                                          data: Self.command("dropped-\(index)").data,
+                                          publicationID: UInt64(index + 1))
         }
         #expect(!provider.publish(Self.command("closed")))
         provider.transportDidOpen(1)
@@ -173,23 +175,6 @@ struct AgentPageProviderEventsTests {
         defer { next.cancel() }
         await nextPage.waitFor(1)
         #expect(Self.names(nextPage.events) == ["router-reset"])
-    }
-
-    @Test func resetDroppedPrefixStaysBeforeRequeuedPendingSuffix() async throws {
-        let provider = AgentPageProvider { _ in nil }
-        provider.publish(Self.command("pending-prefix"))
-        let old = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { _ in }
-        provider.publish(Self.command("pending-suffix"))
-        provider.eventDeliveryDropped(stream: AgentPageProvider.hostEvents, data: Self.command("reset-prefix").data)
-        old.cancel()
-
-        let nextPage = Received()
-        let next = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { event in
-            nextPage.append(event)
-        }
-        defer { next.cancel() }
-        await nextPage.waitFor(3)
-        #expect(Self.names(nextPage.events) == ["reset-prefix", "pending-prefix", "pending-suffix"])
     }
 
     @Test func resetOfMultipleSubscribersRequeuesOnePublication() async throws {
@@ -234,12 +219,14 @@ struct AgentPageProviderEventsTests {
         provider.publish(Self.command("live"))
         await livePage.waitFor(1)
 
-        provider.replay = { Array(repeating: Self.command("prior"), count: 129) }
+        provider.eventDeliveryDropped(stream: AgentPageProvider.hostEvents,
+                                      data: Self.command("old").data, publicationID: 1)
+        provider.replay = { [] }
         let pending = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null,
                                                    context: Self.context) { _ in }
-        let mixed = AgentPageEvent(kind: "command", value: .string("mixed"), deliveryID: 77)
-        #expect(provider.publish(mixed))
-        provider.eventDeliveryDropped(stream: AgentPageProvider.hostEvents, data: mixed.data, publicationID: 77)
+        let newer = AgentPageEvent(kind: "command", value: .string("newer"), deliveryID: 2)
+        #expect(provider.publish(newer))
+        provider.eventDeliveryDropped(stream: AgentPageProvider.hostEvents, data: newer.data, publicationID: 2)
         live.cancel()
         pending.cancel()
 
@@ -248,7 +235,21 @@ struct AgentPageProviderEventsTests {
         let next = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null,
                                                 context: Self.context) { event in nextPage.append(event) }
         defer { next.cancel() }
-        await nextPage.waitFor(1)
-        #expect(Self.names(nextPage.events) == ["mixed"])
+        await nextPage.waitFor(2)
+        #expect(Self.names(nextPage.events) == ["old", "newer"])
+    }
+
+    @Test func pendingCancelRetainsHostEventWithAnotherSubscriber() async throws {
+        let provider = AgentPageProvider { _ in nil }
+        provider.publish(Self.command("pending"))
+        let pending = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { _ in }
+        let other = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { _ in }
+        pending.cancel()
+        other.cancel()
+        let page = Received()
+        let next = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { page.append($0) }
+        defer { next.cancel() }
+        await page.waitFor(1)
+        #expect(Self.names(page.events) == ["pending"])
     }
 }

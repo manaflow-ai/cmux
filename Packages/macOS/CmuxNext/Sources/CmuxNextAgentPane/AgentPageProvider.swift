@@ -90,6 +90,7 @@ public final class AgentPageProvider: PageProvider {
     private var nextDeliveryID: UInt64 = 1
     private var activeDeliveryID: UInt64?
     private var droppedPublicationIDs: Set<UInt64> = []
+    private var deliveredPublicationIDs: Set<UInt64> = []
     /// True when the provider's own gap queue, rather than a subscriber handoff, overflowed. A
     /// replacement socket may discard only this queue after its explicit resync signal.
     private var bufferedQueueOverflowed = false
@@ -147,6 +148,7 @@ public final class AgentPageProvider: PageProvider {
         guard transportConnection != connection else { return }
         transportConnection = connection
         droppedPublicationIDs.removeAll(keepingCapacity: true)
+        deliveredPublicationIDs.removeAll(keepingCapacity: true)
         // Preserve partial gap queues across socket reconnects: they also contain commands and
         // chrome updates that transport cannot recreate. A full gap queue was already explicit
         // backpressure, so the replacement socket's authoritative resync may discard that queue.
@@ -165,22 +167,21 @@ public final class AgentPageProvider: PageProvider {
 
     public func eventDeliveryDropped(stream: String, data: JSONValue, publicationID: UInt64? = nil) {
         guard stream == Self.hostEvents,
-              case .string(let kind)? = data["kind"] else { return }
-        if let publicationID {
-            guard droppedPublicationIDs.insert(publicationID).inserted else { return }
-            if droppedPublicationIDs.count > Self.maximumBufferedEvents {
-                droppedPublicationIDs.removeAll(keepingCapacity: true)
-            }
+              case .string(let kind)? = data["kind"],
+              let publicationID else { return }
+        guard droppedPublicationIDs.insert(publicationID).inserted else { return }
+        if droppedPublicationIDs.count > Self.maximumBufferedEvents {
+            droppedPublicationIDs.removeAll(keepingCapacity: true)
         }
+        deliveredPublicationIDs.remove(publicationID)
+        bufferedEvents.removeAll { $0.deliveryID == publicationID }
         let value = data["value"] ?? .null
-        let deliveryID = publicationID ?? nextDeliveryID
-        if publicationID == nil { nextDeliveryID &+= 1 }
         guard bufferedEvents.count < Self.maximumBufferedEvents else {
             bufferedQueueOverflowed = true
             deliveryOverflowed = true
             return
         }
-        bufferedEvents.append(AgentPageEvent(kind: kind, value: value, deliveryID: deliveryID))
+        bufferedEvents.append(AgentPageEvent(kind: kind, value: value, deliveryID: publicationID))
     }
 
     /// Sends `event` to every subscribed page.
@@ -222,6 +223,7 @@ public final class AgentPageProvider: PageProvider {
                 }
                 pending.events.append(event)
             } else {
+                if let deliveryID = event.deliveryID { deliveredPublicationIDs.insert(deliveryID) }
                 listeners[id]?(event.data)
             }
             activeDeliveryID = previousDeliveryID
@@ -235,6 +237,7 @@ public final class AgentPageProvider: PageProvider {
                           onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard stream == Self.hostEvents else { throw PageError.unknownOp(stream) }
         if listeners.isEmpty { droppedPublicationIDs.removeAll(keepingCapacity: true) }
+        if listeners.isEmpty { deliveredPublicationIDs.removeAll(keepingCapacity: true) }
         if deliveryOverflowed, listeners.isEmpty {
             // The transport already reported backpressure; its reconnect performs the authoritative
             // acpmux resync, while this page stream starts from current replay state.
@@ -280,6 +283,7 @@ public final class AgentPageProvider: PageProvider {
             pending.next += 1
             let previousDeliveryID = activeDeliveryID
             activeDeliveryID = event.deliveryID
+            if let deliveryID = event.deliveryID { deliveredPublicationIDs.insert(deliveryID) }
             listener(event.data)
             activeDeliveryID = previousDeliveryID
         }
@@ -293,38 +297,43 @@ public final class AgentPageProvider: PageProvider {
     }
 
     /// A page can disappear before its queued replay runs. Keep the not-yet-delivered suffix for
-    /// the next page only when this was the last listener; another live page already received it.
+    /// A pending suffix is retained even when another listener remains; delivered publication IDs
+    /// filter the copies that already reached a live subscriber.
     private func cancel(id: UInt64) {
         listeners.removeValue(forKey: id)
         overflowedPendingListeners.remove(id)
-        guard let pending = pendingEvents.removeValue(forKey: id), listeners.isEmpty else { return }
-        appendRequeued(pending.requeueRemaining())
+        if let pending = pendingEvents.removeValue(forKey: id) { appendRequeued(pending.requeueRemaining()) }
     }
 
     private func requeuePendingEvents(for id: UInt64, pending: PendingEvents) {
         pendingEvents.removeValue(forKey: id)
         listeners.removeValue(forKey: id)
         overflowedPendingListeners.remove(id)
-        guard listeners.isEmpty else { return }
         appendRequeued(pending.requeueRemaining())
     }
 
     private func appendRequeued(_ events: [AgentPageEvent]) {
         guard !events.isEmpty else { return }
-        var existingIDs = Set(bufferedEvents.compactMap(\.deliveryID))
+        var byID: [UInt64: AgentPageEvent] = [:]
+        for event in bufferedEvents {
+            if let deliveryID = event.deliveryID { byID[deliveryID] = event }
+        }
         let uniqueEvents = events.filter { event in
             // Replay snapshots have no publication identity; the next subscription regenerates
             // current replay, so never requeue an old snapshot after a reset.
             guard let deliveryID = event.deliveryID else { return false }
-            return existingIDs.insert(deliveryID).inserted
+            guard byID[deliveryID] == nil, !deliveredPublicationIDs.contains(deliveryID) else { return false }
+            byID[deliveryID] = event
+            return true
         }
-        let available = Self.maximumBufferedEvents - bufferedEvents.count
-        guard uniqueEvents.count <= available else {
+        let merged = byID.values.sorted { ($0.deliveryID ?? 0) < ($1.deliveryID ?? 0) }
+        guard merged.count <= Self.maximumBufferedEvents else {
             bufferedQueueOverflowed = true
             deliveryOverflowed = true
             return
         }
-        bufferedEvents.append(contentsOf: uniqueEvents)
+        guard !uniqueEvents.isEmpty else { return }
+        bufferedEvents = merged
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
