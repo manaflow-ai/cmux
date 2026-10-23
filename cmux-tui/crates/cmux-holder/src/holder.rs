@@ -917,10 +917,11 @@ impl Holder {
     /// A starting terminal's child reported ([`pty::Start::poll`]): once
     /// its program runs, SPAWNED with the custody dups to the link that
     /// asked; when it could not start, ERROR SPAWN_FAILED with what it
-    /// could not do, and the terminal is forgotten (the child exits 127 and
-    /// is reaped like any other). The error also goes to a link that
-    /// attached the terminal meanwhile (a daemon that reconnected while it
-    /// started), so its stream ends instead of waiting for ever.
+    /// could not do, and the terminal is forgotten (the child exits 127, or
+    /// is killed when its report could not be read, and is reaped like any
+    /// other). The error also goes to a link that attached the terminal
+    /// meanwhile (a daemon that reconnected while it started), so its
+    /// stream ends instead of waiting for ever.
     fn finish_start(&mut self, chan: u32) {
         let Some(terminal) = self.terminals.get_mut(&chan) else { return };
         let Some(result) = terminal.starting.as_mut().and_then(|starting| starting.start.poll())
@@ -928,7 +929,8 @@ impl Holder {
             return;
         };
         let Some(starting) = terminal.starting.take() else { return };
-        let (pid, attached) = (terminal.pid, terminal.sent.is_some());
+        let (pid, attached, reaped) =
+            (terminal.pid, terminal.sent.is_some(), terminal.status.is_some());
         let asked = self.link.as_ref().is_some_and(|link| link.id == starting.link);
         match result {
             Ok(()) => {
@@ -939,6 +941,11 @@ impl Holder {
                 }
             }
             Err(error) => {
+                if !reaped {
+                    // SAFETY: SIGKILL to this holder's own child, not reaped
+                    // yet (its pid is still its own).
+                    unsafe { libc::kill(pid, libc::SIGKILL) };
+                }
                 if self.terminals.remove(&chan).is_some_and(|removed| removed.closing) {
                     self.closing -= 1;
                 }
