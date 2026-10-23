@@ -282,11 +282,11 @@ import Testing
             service = HostPressureService(acpmux: nil, store: store)
         }
 
-        /// A window whose indicator samples (it counts as seen).
+        /// A window whose indicator samples (it counts as seen while it is in one).
         func window() -> (window: NSWindow, indicator: HostPressureIndicatorView) {
             let service = service
             let indicator = HostPressureIndicatorView(services: AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SHOWCASE": "1"])),
-                                                      store: store, notifications: NotificationCenter(), windowVisible: { _ in true },
+                                                      store: store, notifications: NotificationCenter(), windowVisible: { $0 != nil },
                                                       service: { service }, toasts: toasts) {}
             let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled],
                                   backing: .buffered, defer: true)
@@ -304,17 +304,22 @@ import Testing
             _ = store.set(tunable.key, value.tunableValue)
         }
 
-        /// Yields (no timer, no sleep) until `done`, as the observation streams deliver.
-        func settle(_ done: () -> Bool) async {
-            for _ in 0 ..< 200 where !done() { await Task.yield() }
+        /// Yields (no timer, no sleep) until `done`, as the observation streams deliver; a test
+        /// whose condition never comes fails here.
+        func settle(_ done: () -> Bool, sourceLocation: SourceLocation = #_sourceLocation) async {
+            for _ in 0 ..< 500 where !done() { await Task.yield() }
+            #expect(done(), "the observation never delivered", sourceLocation: sourceLocation)
         }
 
+        /// Leaving its window unsubscribes each indicator (and ends its banner); then the service stops.
         func tearDown() {
             set(HostPressureTunables.force, .off)
             for (window, indicator) in windows {
                 indicator.removeFromSuperview()
-                window.orderOut(nil)
+                #expect(!indicator.isSampling && !indicator.isBannerShown)
+                window.close()
             }
+            #expect(service.subscriberCount == 0)
             service.stop()
         }
     }
