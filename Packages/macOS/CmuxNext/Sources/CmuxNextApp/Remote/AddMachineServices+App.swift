@@ -27,12 +27,8 @@ extension AddMachineServices {
                 return list?.map { candidate in
                     var candidate = candidate
                     let peerHost = candidate.peerSSHDestination.flatMap { try? SSHDestination(parsing: $0) }
-                    var routeNames = [candidate.dnsName, candidate.ip, peerHost?.host ?? "", peerHost?.displayName ?? ""]
-                    // A custom sidebar label is not a route identity. Only use the Tailscale host
-                    // name when MagicDNS and an address are both absent, where it is the only route
-                    // the status payload gives us.
-                    if routeNames.allSatisfy({ $0.isEmpty }) { routeNames.append(candidate.name) }
-                    candidate.inApp = machines.sshMachine(named: routeNames) != nil
+                    let routeNames = [candidate.name, candidate.dnsName, candidate.ip, peerHost?.host ?? "", peerHost?.displayName ?? ""]
+                    candidate.inApp = machines.sshMachine(routeNames: routeNames) != nil
                     return candidate
                 }
             },
