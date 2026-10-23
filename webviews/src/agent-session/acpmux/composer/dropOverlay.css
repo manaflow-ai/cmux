@@ -64,7 +64,7 @@
   x: 6px;
   y: 6px;
   width: calc(100% - 12px);
-  height: calc(100% - var(--ds-space-3));
+  height: calc(100% - 12px);
   rx: 13px;
   ry: 13px;
   fill: none;
