@@ -125,12 +125,22 @@ class Fixture(unittest.TestCase):
         self.git("add", "-A")
         self.git("commit", "--quiet", "--no-verify", "-m", message)
 
-    def check(self):
+    def check(self, function=None, *args):
         saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
         try:
-            return guardrails.check(self.repo, self.base, "HEAD")
+            return (function or guardrails.check)(self.repo, *(args or (self.base, "HEAD")))
         finally:
             os.environ.update(saved)
+
+    def refused(self, *args):
+        return [(r.id, [f"{h.path.rsplit('/', 1)[-1]}: {h.text.strip()}" for h in hits]) for r, hits in self.check(*args)[0]]
+
+    def report(self, skip, refusals):
+        os.environ[guardrails.SKIP_ENV] = skip
+        try:
+            return guardrails.format_report(refusals, [])
+        finally:
+            del os.environ[guardrails.SKIP_ENV]
 
 
 class RuleTests(Fixture):
@@ -229,6 +239,129 @@ class RuleTests(Fixture):
                 self.commit("short name")
                 self.assertIn("broadcast-name", [r.id for r, _ in self.check()[0]])
 
+    def test_a_removed_one_shot_delay_does_not_pay_for_a_new_poll(self):
+        self.rebase_on({f"{KIT}/Wait.swift": "func wait() async throws {\n    try await Task.sleep(for: .seconds(2))\n}\n"})
+        self.write(f"{KIT}/Wait.swift", "func wait() async throws {\n    while !ready() {\n"
+                                        "        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n")
+        self.commit("delay -> poll")
+        self.assertEqual(self.refused(), [("sleep-poll", ["Wait.swift: try await Task.sleep(for: .milliseconds(5))"])])
+
+    def test_wrapping_an_old_sleep_in_a_new_loop_is_refused(self):
+        delay = "func wait() async throws {\n    try await Task.sleep(for: .seconds(2))\n}\n"
+        start = self.base
+        for name, wrapped in (
+            ("re-indented", "func wait() async throws {\n    while !ready() {\n        try await Task.sleep(for: .seconds(2))\n"
+                            "    }\n}\n"),
+            ("same indent", "func wait() async throws {\n    while !ready() {\n    try await Task.sleep(for: .seconds(2))\n"
+                            "    }\n}\n"),
+        ):
+            with self.subTest(name):
+                self.git("reset", "--quiet", "--hard", start)
+                self.rebase_on({f"{KIT}/Wait.swift": delay})
+                self.write(f"{KIT}/Wait.swift", wrapped)
+                self.commit("wraps the delay in a loop")
+                self.assertEqual([rule for rule, _ in self.refused()], ["sleep-poll"])
+
+    def test_a_struct_that_becomes_a_class_around_a_named_static_is_refused(self):
+        start = self.base
+        for name, after in (
+            ("static unchanged", "final class Prefs {\n    static let standard = Prefs()\n}\n"),
+            ("static edited", "final class Prefs {\n    static let standard = Prefs(suite: 2)\n}\n"),
+        ):
+            with self.subTest(name):
+                self.git("reset", "--quiet", "--hard", start)
+                self.rebase_on({f"{KIT}/Prefs.swift": "struct Prefs {\n    static let standard = Prefs()\n}\n"})
+                self.write(f"{KIT}/Prefs.swift", after)
+                self.commit("struct -> class")
+                self.assertEqual([rule for rule, _ in self.refused()], ["singleton"])
+
+    def test_an_edit_of_the_opener_around_old_debt_adds_none(self):
+        poll = "func wait() async throws {\n    while !ready() {\n        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n"
+        self.rebase_on({f"{KIT}/Wait.swift": poll})
+        self.write(f"{KIT}/Old.swift", "final class Old: Sendable {\n    static let shared = Old()\n}\n")
+        self.write(f"{KIT}/Wait.swift", poll.replace("!ready()", "!isReady()"))
+        self.commit("edits the class and loop lines around old debt")
+        self.assertEqual(self.refused(), [])
+
+    def test_a_view_renamed_to_a_row_around_a_store_is_refused(self):
+        view = ("import SwiftUI\nstruct EntryView: View {\n    @Environment(SidebarStore.self) private var store\n"
+                "    var body: some View { Text(\"x\") }\n}\n")
+        self.rebase_on({f"{KIT}/Entry.swift": view})
+        self.write(f"{KIT}/Entry.swift", view.replace("EntryView", "EntryRow"))
+        self.commit("renames the view to a row")
+        self.assertEqual([rule for rule, _ in self.refused()], ["row-store"])
+
+    def test_a_removed_escaped_line_does_not_pay_for_an_unescaped_one(self):
+        self.rebase_on({f"{KIT}/Box.swift": "// crash-allow: x is written once in init, then only read\n"
+                                            "final class Box: @unchecked Sendable {\n    let x = 0\n}\n"})
+        self.write(f"{KIT}/Box.swift", "final class Other: @unchecked Sendable {\n    var y = 0\n}\n")
+        self.commit("swaps a justified box for an unjustified one")
+        self.assertEqual([rule for rule, _ in self.refused()], ["unchecked-sendable"])
+
+    def test_a_removed_line_pays_once_not_also_as_a_move(self):
+        self.rebase_on({f"{KIT}/Cache.swift": "final class Cache {\n    static let shared = Cache()\n}\n"})
+        self.write(f"{KIT}/Cache.swift", "final class Cache {\n    static let shared = Cache(limit: 2)\n}\n")
+        self.write(f"{KIT}/Store.swift", "final class Store {\n    static let shared = Cache()\n}\n")
+        self.commit("edits one singleton and copies its old line into another class")
+        self.assertEqual(self.refused(), [("singleton", ["Cache.swift: static let shared = Cache(limit: 2)"])])
+
+    def test_only_declared_notification_names_are_refused(self):
+        cases = {
+            "func observe() {\n    NotificationCenter.default.addObserver(forName: "
+            "Notification.Name(\"com.apple.screenIsLocked\"), object: nil, queue: nil) { _ in }\n}\n": False,
+            "func post(name: Notification.Name = .pagesChanged) {}\n": False,
+            "enum Names {\n    static let pagesChanged = Notification.Name(\"pagesChanged\")\n}\n": True,
+            "let pagesChanged = Notification.Name(\"pagesChanged\")\n": True,
+        }
+        for text, refused in cases.items():
+            with self.subTest(text=text):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(f"{KIT}/Added.swift", text)
+                self.commit("notification name")
+                self.assertEqual("broadcast-name" in [rule for rule, _ in self.refused()], refused)
+
+    def test_a_no_prefix_diff_config_still_applies_the_rules(self):
+        self.git("config", "diff.noprefix", "true")
+        self.git("config", "diff.mnemonicPrefix", "true")
+        self.write(f"{KIT}/Added.swift", CASES["singleton"][0])
+        self.write(f"{KIT}/Conflict.swift", "<<<<<<< HEAD\nlet a = 1\n=======\nlet a = 2\n>>>>>>> topic\n")
+        self.commit("a singleton and a conflict")
+        self.assertEqual([rule for rule, _ in self.refused()], ["singleton"])
+        spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate", SOURCE / "scripts/cmux-next/prepush-gate.py")
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+        try:
+            markers = gate.conflict_markers(self.repo, self.base, "HEAD")
+        finally:
+            os.environ.update(saved)
+        self.assertEqual(len(markers), 2, markers)
+
+    def test_lines_brought_in_from_feat_cmux_next_never_count(self):
+        self.git("checkout", "--quiet", "-b", "topic")
+        self.write(f"{KIT}/Topic.swift", "struct Topic {}\n")
+        self.commit("topic work")
+        pushed = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.write(f"{KIT}/Landed.swift", CASES["singleton"][0])
+        self.commit("debt that landed past the guardrails (a skip reason, a clone without hooks)")
+        self.git("checkout", "--quiet", "topic")
+        self.git("merge", "--quiet", "--no-edit", "feat-cmux-next")
+        self.assertEqual(self.refused(guardrails.check, pushed, "HEAD"),
+                         [("singleton", ["Landed.swift: static let shared = Cache()"])], "control: the plain range has it")
+        self.assertEqual(self.refused(guardrails.check_push, pushed, "HEAD", "feat-cmux-next"), [], "merged")
+        self.write(f"{KIT}/Own.swift", "final class Own {\n    static let shared = Own()\n}\n")
+        self.commit("the branch's own singleton")
+        self.assertEqual(self.refused(guardrails.check_push, pushed, "HEAD", "feat-cmux-next"),
+                         [("singleton", ["Own.swift: static let shared = Own()"])])
+        self.git("reset", "--quiet", "--hard", pushed)
+        self.git("rebase", "--quiet", "feat-cmux-next")
+        # The hook's base for a force push is the merge base of the new and the old head: the old fork point.
+        fork = self.git("merge-base", "HEAD", pushed).stdout.strip()
+        self.assertEqual(self.refused(guardrails.check, fork, "HEAD"),
+                         [("singleton", ["Landed.swift: static let shared = Cache()"])], "control: the plain range has it")
+        self.assertEqual(self.refused(guardrails.check_push, fork, "HEAD", "feat-cmux-next"), [], "rebased")
+
     def test_big_new_app_file_is_refused_and_app_growth_warns(self):
         self.write(f"{APP}/Feature.swift", "import Foundation\n" + "let x = 1\n" * 450)
         self.commit("big new App file")
@@ -277,6 +410,24 @@ class RuleTests(Fixture):
         self.assertFalse(refused)
         self.assertIn("SKIPPED", text)
 
+    def test_skip_reason_skips_only_the_named_rules(self):
+        self.write(f"{KIT}/Added.swift", CASES["singleton"][0] + CASES["main-async"][0])
+        self.commit("adds a singleton and a main hop")
+        refusals, _ = self.check()
+        self.assertEqual(sorted(r.id for r, _ in refusals), ["main-async", "singleton"])
+        text, refused = self.report("singleton: a fixture", refusals)
+        self.assertTrue(refused, text)
+        self.assertIn("[main-async]", text)
+        self.assertIn("SKIPPED", text)
+        text, refused = self.report("singleton, main-async: a fixture", refusals)
+        self.assertFalse(refused, text)
+        for bad, error in (("singletons: typo", "names no rule singletons"), ("singleton", "must be"),
+                           ("singleton:   ", "must be")):
+            with self.subTest(skip=bad):
+                text, refused = self.report(bad, refusals)
+                self.assertTrue(refused, text)
+                self.assertIn(error, text)
+
 
 class WarningTests(Fixture):
     def test_changing_a_perf_hot_function_names_its_bench(self):
@@ -300,6 +451,13 @@ class WarningTests(Fixture):
         self.commit("drops the marker")
         _, warnings = self.check()
         self.assertTrue(any("removes a perf-hot marker" in w for _, w in warnings), warnings)
+
+    def test_editing_a_marked_declaration_line_keeps_its_marker_without_a_warning(self):
+        self.write(f"{KIT}/Router.swift", HOT.replace("func dispatch(_ key: Int) {", "func dispatch(_ key: Int, again: Bool = false) {"))
+        self.commit("adds a parameter to the hot function")
+        _, warnings = self.check()
+        self.assertFalse(any("removes a perf-hot marker" in w for _, w in warnings), warnings)
+        self.assertTrue(any(kind == "perf-hot" for kind, _ in warnings), warnings)
 
     def test_touching_an_owned_area_names_the_owner_and_doc(self):
         self.write(f"{KIT}/Sidebar/Row.swift", "struct R {}\n")
@@ -370,9 +528,39 @@ class HookTests(Fixture):
         self.write(f"{KIT}/Added.swift", "final class Cache {\n    static let shared = Cache()\n}\n")
         self.commit("adds a singleton")
 
-    def push(self, **env):
-        return subprocess.run(["git", "-C", str(self.repo), "push", "origin", "feat-cmux-next"],
+    def push(self, *args, **env):
+        return subprocess.run(["git", "-C", str(self.repo), "push", "origin", *(args or ("feat-cmux-next",))],
                               env={**self.env, **env}, text=True, capture_output=True)
+
+    def test_debt_landed_on_feat_cmux_next_does_not_block_a_branch_merged_with_or_rebased_onto_it(self):
+        other = {"CMUX_NEXT_CHECKS_SKIP_REASON": "fixture: other checks"}
+        self.git("checkout", "--quiet", "-b", "topic", "HEAD~1")
+        self.write(f"{KIT}/Topic.swift", "struct Topic {}\n")
+        self.commit("topic work")
+        first = self.push("topic", **other)
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        before = self.git("rev-parse", "HEAD").stdout.strip()
+        # The singleton commit lands on feat-cmux-next past the guardrails (a skip reason, a clone without hooks).
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.git("merge", "--quiet", "--no-edit", "--no-verify", "origin/feat-cmux-next")
+        merged = self.push("topic", **other)
+        output = merged.stdout + merged.stderr
+        self.assertEqual(merged.returncode, 0, output)
+        self.assertNotIn("[singleton]", output)
+        self.git("reset", "--quiet", "--hard", before)
+        self.git("rebase", "--quiet", "origin/feat-cmux-next")
+        rebased = self.push("--force", "topic", **other)
+        output = rebased.stdout + rebased.stderr
+        self.assertEqual(rebased.returncode, 0, output)
+        self.assertNotIn("[singleton]", output)
+        self.write(f"{KIT}/Own.swift", "final class Own {\n    static let shared = Own()\n}\n")
+        self.commit("the branch's own singleton")
+        own = self.push("topic", **other)
+        output = own.stdout + own.stderr
+        self.assertNotEqual(own.returncode, 0, output)
+        self.assertIn("Own.swift", output)
+        self.assertNotIn("Added.swift", output)
 
     def test_hook_refuses_a_new_singleton_even_with_the_checks_skip_reason(self):
         result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="fixture: other checks")

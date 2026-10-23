@@ -431,8 +431,12 @@ plans/cmux-next/remote-hosts/DESIGN.md: plans/cmux-next/object-sync/DESIGN.md
 `scripts/cmux-next/guardrails.py`, run by the pre-push hook through `prepush-gate.py --pre-push`, looks only at
 lines the push adds under `Packages/macOS/CmuxNext/Sources` and takes well under a second. Per file and rule it
 is a count ratchet: an edit of a line that already has the debt adds none, and a line moved from another file
-does not count. Refusals print the rule, why, the right pattern and the escape. Skip one push with
-`CMUX_GUARDRAILS_SKIP_REASON="<rule>: <why>"` and say so in your report. `guardrails.py --list` prints every rule.
+does not count. Removed lines pay only when they were debt in the base (same context and escape rules), and an
+unchanged line counts when the push changes its context (a new loop around a sleep, `struct` -> `class`). Lines a
+push only brings in from origin/feat-cmux-next (a merge or a rebase onto it) never count. Refusals print the rule,
+why, the right pattern and the escape. Skip one rule for one push with
+`CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>"` (the other rules still refuse) and say so in your report.
+`guardrails.py --list` prints every rule.
 If the script itself fails, the hook prints a warning and lets the push through.
 It also warns (never refuses) when a push changes a `// perf-hot:` function (names the bench,
 `scripts/cmux-next/perf-hot-benches.json`) or an area in [OWNERS.md](OWNERS.md).

@@ -83,12 +83,13 @@ ln -s "$CHECKS_VERSION" "$TRUSTED_CHECKS_DIR.link.$$"
 "$PYTHON3_BIN" -I -c 'import os, sys; os.replace(sys.argv[1], sys.argv[2])' \
     "$TRUSTED_CHECKS_DIR.link.$$" "$TRUSTED_CHECKS_DIR"
 # Keep the copy just replaced (a push that started before the swap may still read it) and any copy younger
-# than 10 minutes (another install may be about to link it, or a push started on it); remove older ones, but
-# never another install's unfinished stage or link.
+# than 10 minutes (another install may be about to link it, or a push started on it); remove older ones. That
+# includes `.partial` stages and `.link.` temporaries older than 10 minutes: an install takes seconds, so those
+# were left by a killed install (about 570 files each) and would otherwise stay forever.
 while IFS= read -r -d '' old; do
     name="$(basename "$old")"
     case "$name" in
-        "$CHECKS_VERSION"|"$PREVIOUS_CHECKS"|*.partial|cmux-next-checks.link.*) continue ;;
+        "$CHECKS_VERSION"|"$PREVIOUS_CHECKS") continue ;;
     esac
     rm -rf "$old"
 done < <(find "$TRUSTED_HOOK_DIR" -mindepth 1 -maxdepth 1 -name 'cmux-next-checks.*' -mmin +10 -print0)
