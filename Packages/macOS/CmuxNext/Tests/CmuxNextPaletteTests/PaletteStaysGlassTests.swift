@@ -22,7 +22,7 @@ import Testing
         case .dark: ThemeInput(background: ThemeRGB(hex: 0x1E1E2E), foreground: ThemeRGB(hex: 0xCDD6F4))
         }
         input.accentColor = ThemeRGB(hex: 0x8B5CF6)
-        scope.setOverride(try #require(ThemeSpec("Palette Glass \(look.rawValue)")), input: input, animated: false)
+        scope.setOverride(ThemeSpec("Palette Glass \(look.rawValue)"), input: input, animated: false)
         return scope
     }
 
@@ -156,7 +156,8 @@ import Testing
         let (content, panel) = palette(in: scope)
         defer { panel.orderOut(nil) }
         content.glass.materialOverride = .opaque
-        let fill = try #require(content.glass.subviews.compactMap { $0.layer?.backgroundColor }.first)
+        let fills = content.glass.subviews.compactMap { $0.layer?.backgroundColor }
+        let fill = try #require(fills.first, "Reduce Transparency's palette paints no surface")
         #expect(fill.alpha == 1, "Reduce Transparency's palette is not solid (\(fill.alpha))")
         content.glass.materialOverride = .liquidGlass
         #expect(content.glass.material == .liquidGlass)
