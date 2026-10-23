@@ -471,7 +471,7 @@ class Wiring(unittest.TestCase):
         text = self.read("nightly-next-train.yml")
         guard = (CI / "promote-nightly-next.mjs").read_text(encoding="utf-8")
         self.assertIn(f"name: {drive.GATE_JOB}\n", text)
-        self.assertIn(f"export const TRAIN_GATE_JOB = '{drive.GATE_JOB}';", guard)
+        self.assertNotIn("TRAIN_GATE_JOB", guard)
         self.assertIn("export const TRAIN_TRAILER = 'Nightly-Train: v1';", guard)
         self.assertEqual(train.TRAILER, "Nightly-Train: v1")
         self.assertIn("startsWith(github.ref, 'refs/heads/nightly-train/')", text)
@@ -496,7 +496,8 @@ class Wiring(unittest.TestCase):
     def test_the_tick_starts_the_train(self) -> None:
         tick = self.read("nightly-next-tick.yml")
         self.assertIn("gh workflow run nightly-next-train.yml", tick)
-        self.assertIn("if: vars.NIGHTLY_NEXT_TRAIN != 'on'", tick)
+        self.assertIn("if: vars.NIGHTLY_NEXT_TRAIN == 'on'", tick)
+        self.assertIn("MODE: drive", tick)
 
 
 if __name__ == "__main__":

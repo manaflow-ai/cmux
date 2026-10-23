@@ -1,13 +1,13 @@
 name: nightly-next tick
 
 # A NEXT nightly used to start only from a feat-cmux-next push: cmux-next.yml's
-# request-nightly-next after a green Release compile, or cmux-tui-artifacts.yml
+# request-nightly-next after its CI tiers, or cmux-tui-artifacts.yml
 # once the commit's tree published. A push whose run was cancelled by the next
 # push, or whose request waited on a stalled pool, asked for nothing. This tick
 # asks again whenever a cmux-next or cmux-tui artifacts push run on
 # feat-cmux-next finishes, whatever its conclusion (a cancelled run finishes
-# too), and on demand, for the newest feat-cmux-next commit that is buildable
-# (green Release compile, published cmux-tui tree, fresh strings;
+# too), and on demand, for the newest feat-cmux-next commit whose source inputs
+# are ready (published cmux-tui tree and fresh strings;
 # scripts/cmux-next/request-nightly-next.sh). No clock: the user wants nightlies
 # as soon as possible, not on a cron (2026-10-20; the dedicated builder Mac is
 # cmux22, plans/cmux-next/nightly-builder-DESIGN.md). Main's promote job ignores
@@ -45,8 +45,7 @@ jobs:
     runs-on: ubuntu-24.04 # nightly path never waits on Blacksmith
     timeout-minutes: 15
     permissions:
-      # actions: read finds the Release compile; actions: write dispatches
-      # main's promote-nightly-next.
+      # actions: write dispatches main's promote-nightly-next.
       actions: write
       contents: read
     steps:
@@ -56,16 +55,13 @@ jobs:
           ref: ${{ inputs.sha != '' && inputs.sha || 'refs/heads/feat-cmux-next' }}
           fetch-depth: 150
 
-      # The release train (nightly-next-train.yml, docs/ci/nightly-next-train.md).
-      # Unset or dry-run: the train plans from the last good build and its run
-      # summary is the plan; the promotion below still goes ahead. on: the
-      # train replaces it (a train commit is not on feat-cmux-next, so a plain
-      # promotion after one is refused). off: nothing.
+      # The release train is opt-in. Do not spend a train planning run on every
+      # push when the variable is unset; the ordinary promotion is immediate.
       - name: Start the nightly-next train
-        if: vars.NIGHTLY_NEXT_TRAIN != 'off'
+        if: vars.NIGHTLY_NEXT_TRAIN == 'on'
         env:
           GH_TOKEN: ${{ github.token }}
-          MODE: ${{ vars.NIGHTLY_NEXT_TRAIN == 'on' && 'drive' || 'plan' }}
+          MODE: drive
         run: |
           set -euo pipefail
           gh workflow run nightly-next-train.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next -f mode="$MODE" \
@@ -78,8 +74,7 @@ jobs:
         run: |
           set -euo pipefail
           # The tip's cmux-tui tree is often still publishing, so walk back
-          # first-parent commits until one has a published, daemon-tested tree; the script
-          # then picks the newest green Release compile with that tree.
+          # first-parent commits until one has a published, daemon-tested tree.
           for sha in $(git rev-list --first-parent -n 120 HEAD); do
             git checkout -q --detach "$sha"
             out="$(scripts/cmux-next/request-nightly-next.sh --tree-ready "$sha" --repo "$GITHUB_REPOSITORY" 2>&1)" || { printf '%s\n' "$out"; exit 1; }

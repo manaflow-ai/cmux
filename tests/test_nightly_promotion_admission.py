@@ -6,9 +6,8 @@ in-memory GitHub API (runs, jobs, refs, commits, pull requests, repository
 activity, deployment approvals) and checks the decision the workflow acts on:
 
 - G1: a SHA that is not on feat-cmux-next is refused.
-- G2: only a cmux-next.yml push run of this repository proves the Release
-  compile; a same-named job in another workflow does not. The lookup retries
-  while GitHub's index lags.
+- G2: removed. The nightly build is the admission boundary and promotion never
+  waits for a cmux-next CI job.
 - G3: a range that changes no release surface file is promoted; a range that
   changes one needs an approval.
 - G4: the approval must come from someone who did not land the surface
@@ -352,23 +351,23 @@ def test_sha_not_on_feat_cmux_next_is_refused() -> None:
     assert "is not on feat-cmux-next" in out["decision"]["reason"]
 
 
-def test_same_named_job_in_another_workflow_does_not_admit() -> None:
+def test_ci_workflow_identity_does_not_affect_promotion() -> None:
     out = run(scenario(runs=[gate_run(path=".github/workflows/other.yml")]))
-    assert out["decision"]["action"] == "refuse"
+    assert out["decision"]["action"] == "promote", out["decision"]
     out = run(scenario(runs=[gate_run(head_repository={"full_name": "someone/cmux"})]))
-    assert out["decision"]["action"] == "refuse"
+    assert out["decision"]["action"] == "promote", out["decision"]
 
 
-def test_admission_retries_while_the_index_lags() -> None:
+def test_promotion_does_not_retry_a_ci_admission_lookup() -> None:
     out = run(scenario(emptyRuns=2))
     assert out["decision"]["action"] == "promote"
-    assert out["calls"]["runs"] == 3
-    assert any("retry" in notice for notice in out["notices"])
+    assert out["calls"]["runs"] == 0
+    assert not any("retry" in notice for notice in out["notices"])
 
 
-def test_in_progress_success_is_not_admission() -> None:
+def test_in_progress_ci_compile_does_not_block_promotion() -> None:
     out = run(scenario(jobs={7: [dict(GREEN[0], status="in_progress")]}))
-    assert out["decision"]["action"] == "refuse"
+    assert out["decision"]["action"] == "promote"
 
 
 def test_surface_change_needs_a_non_lander_approval() -> None:
@@ -755,10 +754,10 @@ def test_a_newer_request_replaces_an_older_waiter() -> None:
     assert out["decision"]["sha"] == SHA
 
 
-def test_a_refused_waiter_commit_falls_back_to_the_request() -> None:
+def test_a_waiter_is_not_filtered_by_a_ci_compile_result() -> None:
     out = run(with_waiter(NEWER, "9" * 40, green=False))
     assert out["decision"]["action"] == "promote", out["decision"]
-    assert out["decision"]["sha"] == SHA
+    assert out["decision"]["sha"] == NEWER
 
 
 def test_an_approved_live_waiter_is_not_cancelled() -> None:
@@ -767,9 +766,9 @@ def test_an_approved_live_waiter_is_not_cancelled() -> None:
     assert out["decision"]["sha"] == MID
 
 
-def test_a_refused_newest_waiter_falls_back_to_the_next_newest() -> None:
-    # Run 900 waits for NEWER (no green compile any more), run 901 for SHA2
-    # between SHA and NEWER; both were decided against an older nightly-next.
+def test_a_newest_waiter_wins_without_a_ci_compile_filter() -> None:
+    # Run 900 waits for NEWER, run 901 for SHA2 between SHA and NEWER; the
+    # newest request wins regardless of compile results.
     sha2 = "e" * 40
     case = with_waiter(NEWER, "9" * 40, green=False)
     case["commits"][0]["parents"] = [{"sha": sha2}]
@@ -780,7 +779,7 @@ def test_a_refused_newest_waiter_falls_back_to_the_next_newest() -> None:
     case["dispatchRuns"].append({"id": 901, "status": "waiting"})
     out = run(case)
     assert out["decision"]["action"] == "promote", out["decision"]
-    assert out["decision"]["sha"] == sha2
+    assert out["decision"]["sha"] == NEWER
 
 
 def test_an_uncomparable_waiter_is_skipped_not_a_scan_failure() -> None:
@@ -837,9 +836,9 @@ def test_an_older_evicted_request_does_not_replace_the_request() -> None:
     assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out["decision"]
 
 
-def test_an_evicted_request_without_a_green_compile_falls_back_to_the_request() -> None:
+def test_an_evicted_request_is_recovered_without_a_ci_compile() -> None:
     out = run(with_evicted(NEWER, green=False))
-    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out["decision"]
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == NEWER, out["decision"]
 
 
 def test_a_request_a_person_cancelled_is_not_recovered() -> None:
@@ -976,14 +975,14 @@ def test_a_crashed_tree_check_is_refused() -> None:
     assert decision["action"] == "refuse" and "failed to run" in decision["reason"], decision
 
 
-def test_a_train_commit_needs_its_own_train_gate_run() -> None:
-    # The cmux-next.yml push run of its second parent is not the train's gate.
+def test_a_train_commit_does_not_need_a_separate_compile_gate() -> None:
+    # The tree verifier is the train contract; no Release compile lookup runs.
     decision = run(train_case(runs=[gate_run(head_sha=TRAIN)], jobs={"7": GREEN}))["decision"]
-    assert decision["action"] == "refuse" and "nightly-next-train.yml" in decision["reason"], decision
+    assert decision["action"] == "promote", decision
     decision = run(train_case(runs=[train_run(head_branch="feat-cmux-next")]))["decision"]
-    assert decision["action"] == "refuse", decision
+    assert decision["action"] == "promote", decision
     decision = run(train_case(jobs={"9": [{**TRAIN_GATE[0], "conclusion": "failure"}]}))["decision"]
-    assert decision["action"] == "refuse", decision
+    assert decision["action"] == "promote", decision
 
 
 def test_a_train_commit_on_an_old_nightly_head_is_refused() -> None:
@@ -999,8 +998,8 @@ def test_a_train_commit_whose_tip_is_not_on_the_source_is_refused() -> None:
     assert decision["action"] == "refuse" and "second parent" in decision["reason"], decision
 
 
-def test_a_plain_commit_still_takes_g1_and_g2() -> None:
-    # No trailer: the train path is not taken even with a verifier present.
+def test_a_plain_commit_uses_source_and_surface_checks_only() -> None:
+    # No trailer: the train path is not taken, and no CI gate is consulted.
     case = scenario(trainVerify={"ok": True, "reason": "unused"})
     assert run(case)["decision"]["action"] == "promote"
 

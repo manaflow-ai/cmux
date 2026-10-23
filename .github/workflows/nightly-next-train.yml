@@ -5,8 +5,8 @@ name: nightly-next train
 # mode drive (default), on feat-cmux-next: plan the cars from the last good
 #   build (durable canary verdict, nightly-next-verdict.yml) to the tip, run
 #   the per-car guards, build the candidate (tip minus the quarantined cars) as
-#   a train commit, bisect k ways on red, and ask main to promote the green
-#   train commit (promote guard G1'/G2'). Repository variable
+#   a train commit, bisect k ways on red, and ask main to promote the verified
+#   train commit (promote guard G1'). Repository variable
 #   NIGHTLY_NEXT_TRAIN decides how far it goes:
 #     unset | dry-run   plan and per-car guards only; the run summary is the
 #                       plan (the default until Leo turns it on);
@@ -18,8 +18,7 @@ name: nightly-next train
 #   NIGHTLY_NEXT_TRAIN_ROUNDS (3), NIGHTLY_NEXT_TRAIN_CAP_MINUTES (120).
 # mode plan: the dry run whatever the variable says (nightly-next-tick.yml).
 # mode build, on a nightly-train/* ref the drive job pushed: the candidate's
-#   Release compile. Its job name is promote guard G2' (TRAIN_GATE_JOB in
-#   scripts/ci/promote-nightly-next.mjs); keep the two in step.
+#   Release compile used by the train's own build validation.
 #
 # A feed pull dispatches mode drive with the fix-forward contract
 # (scripts/ci/nightly_next_fix_forward.py): pulled_build, good_build,

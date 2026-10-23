@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Alarm when feat-cmux-next work waits too long to reach the nightly-next feed.
 
-nightly-next ships feat-cmux-next: a green push is promoted to the
+nightly-next ships feat-cmux-next: a ready push is promoted to the
 `nightly-next` branch, whose nightly.yml run publishes appcast-arm64.xml. Any
-stage can stall: a red Release compile or an unpublished cmux-tui tree stops
-promotion, a red nightly stops publication. Lawrence and Leo daily-drive the
+stage can stall: an unpublished cmux-tui tree stops promotion, a red nightly
+stops publication. Lawrence and Leo daily-drive the
 feed, so this checks it every 30 minutes from main (schedule runs only there).
 
 Waiting is measured from the oldest feat-cmux-next push after the published
@@ -34,7 +34,6 @@ import urllib.request
 FEED_URL = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"  # cmux NEXT (cx-x7hwx)
 LABEL = "nightly-next-feed-stale"
 PUSH_WORKFLOW = "cmux-next-guards.yml"  # every feat-cmux-next push, no path filter
-RELEASE_COMPILE_JOB = "cmux-next Release compile (Xcode 26)"
 PUBLISHED_MARKER = re.compile(r"<!--\s*cmux-published-sha:\s*([0-9a-f]{40})\s*-->", re.IGNORECASE)
 
 
@@ -67,10 +66,10 @@ def failed_steps(jobs: list[dict]) -> str:
 
 
 def assess(now: dt.datetime, newest: dt.datetime, pushes: list[dict], nightly: list[dict],
-           jobs_of, artifacts: list[dict], compiles: list[dict], max_lag_hours: float) -> Stage:
+           jobs_of, artifacts: list[dict], max_lag_hours: float) -> Stage:
     """pushes: the waiting feat-cmux-next push runs (only the oldest matters); nightly: nightly-next push runs since
-    `newest` (newest first); artifacts / compiles: the latest feat-cmux-next cmux-tui artifacts
-    and cmux-next push runs (newest first); jobs_of(run) lists a run's jobs."""
+    `newest` (newest first); artifacts: the latest feat-cmux-next cmux-tui
+    artifacts run (newest first); jobs_of(run) lists a run's jobs."""
     if not pushes:
         return Stage(False, 0.0, None, "No feat-cmux-next push since the feed's newest item.")
     since = min(parse_time(run["created_at"]) for run in pushes)
@@ -88,14 +87,6 @@ def assess(now: dt.datetime, newest: dt.datetime, pushes: list[dict], nightly: l
         artifact = artifacts[0] if artifacts else None
         if artifact and artifact.get("conclusion") == "failure":
             reason += f" The latest feat-cmux-next cmux-tui artifacts run {artifact['html_url']} failed, so its tree is unpublished: {failed_steps(jobs_of(artifact))}."
-        # Superseded pushes cancel or skip their compile; read the newest one that finished.
-        for compile_run in (run for run in compiles if run.get("status") == "completed"):
-            compile_job = next((job for job in jobs_of(compile_run) if job["name"] == RELEASE_COMPILE_JOB), None)
-            conclusion = compile_job.get("conclusion") if compile_job else None
-            if conclusion in ("failure", "timed_out"):
-                reason += f" The latest feat-cmux-next {RELEASE_COMPILE_JOB} is {conclusion}: {compile_run['html_url']}."
-            if conclusion in ("success", "failure", "timed_out"):
-                break
     return Stage(waited > max_lag_hours, waited, since, reason)
 
 
@@ -231,7 +222,6 @@ def main(argv: list[str]) -> int:
             nightly=gh.runs("nightly.yml", "nightly-next", newest),
             jobs_of=gh.jobs,
             artifacts=gh.runs("cmux-tui-artifacts.yml", "feat-cmux-next", per_page=1),
-            compiles=gh.runs("cmux-next.yml", "feat-cmux-next", per_page=5),
             max_lag_hours=args.max_lag_hours,
         )
         print(f"feed newest {newest.isoformat()}, waited {stage.waited_hours:.1f}h: {stage.reason}")

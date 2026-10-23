@@ -119,15 +119,14 @@ class WiringTests(unittest.TestCase):
         self.assertNotIn("vars.NIGHTLY_NEXT_CANARY == 'enforce'", self.canary)
         self.assertIn("NIGHTLY_NEXT_CANARY_ENFORCE_AFTER: ${{ vars.NIGHTLY_NEXT_CANARY_ENFORCE_AFTER }}", self.canary)
 
-    def test_pre_publication_canary_uses_the_resolved_mode(self):
+    def test_pre_publication_nightly_has_no_app_canary_or_visual_smoke(self):
         block = self.nightly[self.nightly.index("  verify-signed-nightly:"):]
         block = block[:block.index("\n  verify-final-dmg-nightly:")] if "\n  verify-final-dmg-nightly:" in block else block
-        self.assertIn("scripts/ci/nightly_next_canary_mode.py resolve", block)
-        self.assertIn("continue-on-error: ${{ steps.canary-mode.outputs.mode != 'enforce' }}", block)
-        self.assertNotIn("continue-on-error: ${{ vars.NIGHTLY_NEXT_CANARY != 'enforce' }}", block)
-        # Enforcing must not block publication on one flaky launch: two attempts.
-        self.assertRegex(block, r"for attempt in 1 2; do\s+if \./scripts/smoke-signed-app-cli\.sh \"\$CHANNEL_APP_PATH\" --canary")
-        self.assertRegex(block, r"(?ms)verify-signed-nightly:.*?permissions:\s+contents: read\s+issues: read")
+        self.assertNotIn("nightly_next_canary_mode.py", block)
+        self.assertNotIn("--canary", block)
+        self.assertNotIn("visual-smoke", block)
+        self.assertIn("- name: Smoke bundled CLI against the signed app", block)
+        self.assertIn("if: env.TRACK != 'nightly-next'", block)
 
 
 if __name__ == "__main__":

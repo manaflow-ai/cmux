@@ -2,8 +2,8 @@ name: nightly-next feed watch
 
 # feat-cmux-next work must reach the nightly-next feed (appcast-arm64.xml),
 # which Lawrence and Leo daily-drive. nightly.yml's own alarm runs only inside
-# nightly-next push runs, so a stall before promotion (a red Release compile,
-# an unpublished cmux-tui tree) never raised it. A schedule runs only from the
+# nightly-next push runs, so a stall before promotion (an unpublished cmux-tui
+# tree) never raised it. A schedule runs only from the
 # default branch, so this lives on main. Every 30 minutes it measures how long
 # feat-cmux-next pushes have waited for the feed and keeps one
 # `nightly-next-feed-stale` issue naming the stuck stage
@@ -37,8 +37,8 @@ jobs:
 
       # A nightly-next run stops waiting for Apple and leaves a recovery
       # artifact. Only a continuation run publishes it once Apple accepts, and
-      # feat-cmux-next asks for one only after a green Release compile. This
-      # tick asks too, so a quiet branch never holds an accepted build. The
+      # feat-cmux-next asks for one once its source inputs are ready. This tick
+      # asks too, so a quiet branch never holds an accepted build. The
       # run builds and submits nothing, and the script dispatches at most
       # every 30 minutes (scripts/cmux-next/continue-nightly-next.sh, tested by
       # scripts/cmux-next/tests/continue-nightly-next.test.sh).

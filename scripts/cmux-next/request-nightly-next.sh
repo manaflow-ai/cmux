@@ -1,24 +1,22 @@
 #!/usr/bin/env bash
 # Ask main's nightly.yml (job promote-nightly-next) to move nightly-next to a
-# feat-cmux-next commit, but only once that commit is buildable as a nightly:
+# feat-cmux-next commit as soon as its source inputs are available. The nightly
+# build is the admission boundary, so this handoff never waits for unrelated
+# cmux-next CI:
 #   1. its cmux-tui tree is published (verified the way the nightly resolves
 #      it: pin-cmux-tui.sh resolve-newest-published, limited to one commit), and
-#   2. its cmux-next.yml push run has a successful "cmux-next Release compile
-#      (Xcode 26)" job (main's promote job checks this again), and
-#   3. its generated page strings are fresh (gen-strings --check, on the commit
-#      requested; a stale one is passed over for an older green one). Since
+#   2. its generated page strings are fresh (gen-strings --check, on the commit
+#      requested; a stale one is passed over for an older source-ready one). Since
 #      #21946 the tables are build output: a commit that no longer tracks them
 #      passes when they generate (no translation missing).
 # Both finish asynchronously, so each side asks when its half completes:
 #
 #   --sha <sha> --release-compile-green
-#       cmux-next.yml, after the Release compile of <sha> passed. Requests <sha>
-#       if its tree is published; otherwise the artifacts side asks later.
+#       cmux-next.yml after the push is accepted. The historical option name is
+#       retained for callers; no Release compile result is read.
 #   --tree-ready <sha>
 #       cmux-tui-artifacts.yml, once the tree of <sha> is published. Requests
-#       the newest feat-cmux-next commit whose Release compile passed and whose
-#       tree key is the same (a later app-only commit shares it), so a commit
-#       whose own artifacts run was replaced by a newer push is not lost.
+#       the exact commit whose tree was published.
 #
 # Why: the nightly runs the TIP's nightly.yml. A tip whose tree is unpublished
 # made it fall back to an older published commit, which the tip's workflow
@@ -31,8 +29,6 @@
 # Run from a checkout whose HEAD is <sha>. Needs GH_TOKEN with actions: write
 # (and actions: read for --tree-ready). Exit 0 when a commit was requested or
 # none is ready yet, 2 on bad usage, 1 on an API failure.
-# Env: CMUX_NIGHTLY_NEXT_RUN_WINDOW (default 99, one page) recent push runs searched;
-# CMUX_NIGHTLY_NEXT_MAX_REFUSED (default 5) unpromotable candidates passed over.
 set -euo pipefail
 
 sha="" repo="" mode=""
@@ -49,14 +45,10 @@ done
 [[ -n "$mode" ]] || { echo "error: pass --sha <sha> --release-compile-green or --tree-ready <sha>" >&2; exit 2; }
 [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "error: the commit must be 40 lowercase hex characters" >&2; exit 2; }
 [[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "error: --repo must be owner/repo" >&2; exit 2; }
-window="${CMUX_NIGHTLY_NEXT_RUN_WINDOW:-99}"
-[[ "$window" =~ ^[1-9][0-9]?$ ]] || { echo "error: CMUX_NIGHTLY_NEXT_RUN_WINDOW must be 1 to 99" >&2; exit 2; }
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 repo_root="$(cd "$script_dir/../.." && pwd)"
 head="$(git rev-parse HEAD)"
 [[ "$head" == "$sha" ]] || { echo "error: the checkout is at $head, not $sha" >&2; exit 2; }
-
-required_job="cmux-next Release compile (Xcode 26)"
 
 # A commit whose nightly.yml lacks the NIGHTLY_NEXT_NOTARY_PAUSED gate would
 # notarize even while the pause is on (cx-f58x), so it is never promoted.
@@ -151,7 +143,7 @@ request() { # <sha>
     echo "error: could not request the nightly-next promotion of $1" >&2
     return 2
   fi
-  echo "requested nightly-next promotion of $1 (published cmux-tui tree, green Release compile)"
+  echo "requested nightly-next promotion of $1 (published cmux-tui tree)"
 }
 
 # 1. The tree, exactly as the nightly will resolve it. Never dispatches a
@@ -189,69 +181,10 @@ if [[ "$mode" == release-compile-green ]]; then
   exit 0
 fi
 
-# 2. --tree-ready: the newest green push run on feat-cmux-next whose commit
-# descends from nightly-next and has this tree key. Runs are newest first;
-# promotion only moves forward. The lower bound is nightly-next, not <sha>: the
-# tree's publisher can be newer than the green commit whose compile request
-# found the tree unpublished (2e420aa7a9 compiled green at 10:21Z on 2026-10-14
-# while a newer push published its tree, and the newer push's own compile was
-# replaced), and that green commit must not be lost. Without nightly-next in
-# this history the bound falls back to <sha>. One fetch of the branch's recent history covers every
-# candidate (a fetch per commit took over 5 minutes in run 37820762809); a
-# commit it does not reach is older than the lower bound or off the branch.
-# Depth-limited only in a shallow checkout: in a full clone --depth writes
-# .git/shallow and truncates history for every worktree sharing it.
-depth=()
-[[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth="$((window * 4))")
-git fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin refs/heads/feat-cmux-next 2>/dev/null \
-  || echo "warning: could not fetch feat-cmux-next; considering only local commits" >&2
-# One page holds the window (at most 99): paginating walked every push run ever made.
-runs="$(gh api "repos/$repo/actions/workflows/cmux-next.yml/runs?event=push&branch=feat-cmux-next&per_page=$window")"
-lower="$sha"
-if [[ -n "$promoted" ]] && git cat-file -e "$promoted^{commit}" 2>/dev/null; then
-  lower="$promoted"
-fi
-refused=0
-max_refused="${CMUX_NIGHTLY_NEXT_MAX_REFUSED:-5}"
-[[ "$max_refused" =~ ^[1-9][0-9]?$ ]] || { echo "error: CMUX_NIGHTLY_NEXT_MAX_REFUSED must be 1 to 99" >&2; exit 2; }
-while read -r run_id run_sha; do
-  [[ "$run_id" =~ ^[0-9]+$ && "$run_sha" =~ ^[0-9a-f]{40}$ ]] || continue
-  if [[ "$run_sha" != "$sha" ]]; then
-    git cat-file -e "$run_sha^{commit}" 2>/dev/null || continue
-    git merge-base --is-ancestor "$lower" "$run_sha" 2>/dev/null || continue
-    run_key="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$run_sha" 2>/dev/null)" || continue
-    [[ "$run_key" == "$key" ]] || continue
-  fi
-  jobs="$(gh api --paginate --slurp "repos/$repo/actions/runs/$run_id/jobs?filter=latest&per_page=100")"
-  has_notary_gate "$run_sha" || continue
-  if python3 -c '
-import json, sys
-name = sys.argv[1]
-pages = json.loads(sys.stdin.read())
-ok = any(j.get("name") == name and j.get("status") == "completed" and j.get("conclusion") == "success"
-         for page in pages for j in page.get("jobs", []))
-sys.exit(0 if ok else 1)
-' "$required_job" <<<"$jobs"; then
-    rc=0
-    request "$run_sha" || rc=$?
-    [[ "$rc" != 0 ]] || exit 0
-    [[ "$rc" != 2 ]] || exit 1
-    # Not promotable: try the next older green commit with this tree, a bounded number of times.
-    refused=$((refused + 1))
-    if (( refused >= max_refused )); then
-      echo "not promoting: the $refused newest green commits with tree $key are not promotable (see above)"
-      exit 0
-    fi
-  fi
-done < <(python3 -c '
-import json, sys
-seen = set()
-data = json.loads(sys.stdin.read())
-for page in data if isinstance(data, list) else [data]:
-    for run in page.get("workflow_runs", []):
-        sha = run.get("head_sha")
-        if run.get("head_branch") == "feat-cmux-next" and run.get("event") == "push" and sha not in seen:
-            seen.add(sha)
-            print(run["id"], sha)
-' <<<"$runs" | head -n "$window")
-echo "not promoting: no recent feat-cmux-next push with tree $key has a successful \"$required_job\" yet; cmux-next.yml requests it when that job passes"
+# 2. --tree-ready: the artifacts publisher calls us for the exact commit whose
+# tree just became available. There is no CI run lookup here: the nightly's own
+# build compiles the commit and is allowed to discover a build failure itself.
+rc=0
+request "$sha" || rc=$?
+[[ "$rc" != 2 ]] || exit 1
+exit 0

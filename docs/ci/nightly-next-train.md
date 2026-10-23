@@ -1,8 +1,8 @@
 # cmux NEXT nightly release train
 
 Design: leo-workspace `workstreams/cmux-next-nightly-train.md` ([leo-workspace#624](https://github.com/teamleaderleo/leo-workspace/pull/624)).
-This page covers what is built: the durable canary verdict, the train planner,
-the train workflow and the promote guard's train path (G1'/G2'). Per-car fast
+This page covers what is built: the durable artifact-validation verdict, the
+train planner, the train workflow and the promote guard's train path (G1'). Per-car fast
 guards (design PR 3), the pulled-build banner (PR 4) and the native workflow
 runtime (PR 6) plug into it and are not here.
 
@@ -10,7 +10,7 @@ runtime (PR 6) plug into it and are not here.
 
 | Repository variable | Default | Effect |
 | --- | --- | --- |
-| `NIGHTLY_NEXT_TRAIN` | unset (= `dry-run`) | `dry-run`: every tick plans a train and its run summary is the plan; promotion stays as before. `on`: the tick starts the full train instead of a plain promotion. `off`: no train runs. Once a train commit has shipped, keep `on` (see below). |
+| `NIGHTLY_NEXT_TRAIN` | unset (= plain promotion) | unset or `off`: every tick promotes the newest source-ready commit directly. `on`: the tick starts the full train instead of a plain promotion. |
 | `NIGHTLY_NEXT_TRAIN_K` | 4 | Builds per bisection round (1 to 8). |
 | `NIGHTLY_NEXT_TRAIN_ROUNDS` | 3 | Bisection rounds before the train gives up (1 to 6). |
 | `NIGHTLY_NEXT_TRAIN_CAP_MINUTES` | 120 | Wall-clock cap for one train (30 to 300). |
@@ -41,8 +41,8 @@ Before `NIGHTLY_NEXT_TRAIN=on`:
    gh secret set CMUX_RELEASE_APP_KEY -R manaflow-ai/cmux --env nightly-next-train < release-app.private-key.pem
    ```
 
-   No required reviewers: the canary verdict and the train's Release compile
-   (G2') are the gate.
+   No required reviewers: the train tree verifier is the train commit's guard;
+   the nightly build admits the resulting app.
 2. Land the main mirror: main's `nightly.yml` promote job, the promote guard,
    `scripts/ci/nightly_next_train.py` (the guard runs its `verify`), the tick,
    the canary, and the dispatch stubs of `nightly-next-train.yml` and
@@ -68,8 +68,8 @@ holds the feed's R2 token). It writes
 ```
 
 The writer reads the commit from the build's own nightly-next run (build number
-= `<run id><attempt>`). It accepts `pass` only from a scheduled
-`nightly-next-canary.yml` run whose `canary <build>` job succeeded. `fail` and
+= `<run id><attempt>`). It accepts `pass` from a scheduled
+`nightly-next-canary.yml` run whose static validation job succeeded. `fail` and
 `skipped` never make a build a base, so they are written as given. The pass
 also needs the run's own `verdict pass <build>` job, because a skipped check
 leaves the canary job green too. The canary's
@@ -133,7 +133,7 @@ still only fast-forwards. Once a train commit has shipped, nightly-next is no
 longer an ancestor of feat-cmux-next, so every later promotion is a train
 commit, and with nothing quarantined its tree equals the tip.
 
-## Promote guard: G1' and G2'
+## Promote guard: G1'
 
 `scripts/ci/promote-nightly-next.mjs` takes the train path for a commit with
 the `Nightly-Train: v1` trailer and two parents:
@@ -144,13 +144,12 @@ the `Nightly-Train: v1` trailer and two parents:
   (`nightly_next_train.py verify --fetch`, from main's checkout) rebuilds the
   tree from that parent and the `Nightly-Train-Revert:` list, then compares.
   The guard trusts no list it did not rebuild.
-- **G2'**: a `nightly-next-train.yml` `workflow_dispatch` run of this
-  repository on a `nightly-train/*` ref, for that exact SHA, has a green
-  `nightly-next train Release compile` job.
+- There is no separate CI admission lookup. The nightly build compiles and
+  validates the candidate itself.
 - The first parent must be the current nightly-next.
 
-G3/G4 (release-surface ack) are unchanged. Any other commit takes G1/G2 as
-before.
+G3/G4 (release-surface ack) are unchanged. Any other commit only needs the
+source and surface checks.
 
 ## Commands
 
@@ -166,8 +165,5 @@ python3 scripts/ci/nightly_next_train.py verify --commit <train commit>
 
 ## Not built yet
 
-- The unsigned in-app smoke on the candidate (window, New Tab, agent answers,
-  no crash). The candidate gets only the Release compile; the signed app still
-  gets `verify-signed-nightly` before publication.
 - Triage of a car that fails the same guard twice (flake list), and the daily
   digest for cars out for 3 trains.

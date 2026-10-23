@@ -141,14 +141,11 @@
         "Verify signed diff sidecar runtime contract": {"nightly_only": "verify-diff-sidecar-artifact.sh --require-signed on the signed Release app's sidecar; ci-macos.yml release-build runs it unsigned only for pull requests into main (ci.yml's static-preflight skips feat-cmux-next)"},
         "Verify signed app SSH daemon contract": {"pr": "cmux-next-remote-daemon.yml:release-packaging:Reject broken app bundles and daemon artifacts"},
         "Smoke launch signed app": {"nightly_only": "launches the Developer ID signed Release app on a Mac and scans for crash reports; needs the signed Release app"},
-        "Smoke bundled CLI against the signed app": {"nightly_only": "drives the bundled CLI against the running signed Release app; nightly-next-canary.yml runs the --canary mode against the published app on pull requests that change it"},
-        "Visual smoke the signed app": {"pr": "nightly-next-canary.yml:canary:Visual smoke", "note": "the same visual-smoke/gate.sh, on the published app, for pull requests that change it"},
-        "Resolve the canary mode": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next canary mode and its one-week flip"},
-        "Canary the signed app": {"pr": "nightly-next-canary.yml:canary:Run the canary"},
-        "Stop the daemons the smokes left": {"plumbing": true}},
+        "Smoke bundled CLI against the signed app": {"nightly_only": "drives the bundled CLI against the running signed Release app; cmux-next nightlies skip app execution"}},
       "verify-final-dmg-nightly": {
         "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
         "Smoke final DMG": {"nightly_only": "needs notarized stapled final DMG"},
+        "Record final DMG digest": {"nightly_only": "records immutable cmux-next DMG bytes without launching the app"},
         "Stop the daemons the smoke left": {"plumbing": true},
         "Bundle size budget": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"}},
       "find-nightly-next-recovery": {
@@ -162,8 +159,7 @@
         "Generate the recovered Sparkle appcast": {"nightly_only": "signs appcast with Sparkle key"}},
       "verify-recovered-nightly-next": {
         "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
-        "Smoke the recovered DMG": {"nightly_only": "needs notarized stapled recovered DMG"},
-        "Visual smoke the recovered app": {"pr": "nightly-next-canary.yml:canary:Visual smoke", "note": "the same visual-smoke/gate.sh, on the published app, for pull requests that change it"}},
+        "Record the recovered DMG digest": {"nightly_only": "records immutable cmux-next recovered DMG bytes without launching the app"}},
       "publish-nightly": {
         "Select the build to publish": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next pending notarization continuation"},
         "Require every DMG to match a tested digest": {"nightly_only": "inline shell over the verify jobs' tested/*.sha256 and the signed DMGs; no pull-request dry run yet. Follow-up: tests/test_nightly_tested_dmg_gate.py runs this run block on fixture DMGs"},

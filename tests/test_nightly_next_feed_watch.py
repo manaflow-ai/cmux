@@ -2,8 +2,8 @@
 """nightly-next feed watch (scripts/ci/nightly_next_feed_watch.py, cx-npz7g).
 
 feat-cmux-next work must reach the nightly-next feed. The nightly.yml alarm
-runs only inside nightly-next push runs, so a promotion stall (red Release
-compile, unpublished cmux-tui tree) never raised it. The watch runs from main
+runs only inside nightly-next push runs, so a promotion stall (unpublished
+cmux-tui tree) never raised it. The watch runs from main
 every 30 minutes and measures how long feat-cmux-next pushes have waited.
 """
 from __future__ import annotations
@@ -42,15 +42,12 @@ JOBS = {
          "steps": [{"name": "libghostty-vt Zig packages are covered by the notices", "conclusion": "failure"}]}],
     8: [{"name": "build / build x86_64-apple-darwin", "conclusion": "failure",
          "steps": [{"name": "Build the macOS binaries on Linux (no Apple SDK)", "conclusion": "failure"}]}],
-    9: [{"name": "cmux-next Release compile (Xcode 26)", "conclusion": "failure", "steps": []}],
-    10: [{"name": "cmux-next Release compile (Xcode 26)", "conclusion": "cancelled", "steps": []}],
-    11: [{"name": "cmux-next Release compile (Xcode 26)", "conclusion": "success", "steps": []}],
 }
 
 
-def assess(pushes, nightly=(), artifacts=(), compiles=()):
+def assess(pushes, nightly=(), artifacts=()):
     return watch.assess(NOW, NEWEST, list(pushes), list(nightly), lambda r: JOBS.get(r["id"], []),
-                        list(artifacts), list(compiles), 4.0)
+                        list(artifacts), 4.0)
 
 
 class AssessTests(unittest.TestCase):
@@ -59,12 +56,11 @@ class AssessTests(unittest.TestCase):
         self.assertFalse(assess([run(1, 0.5)]).stale)  # a first push after 30h of quiet
 
     def test_promotion_stall_alarms_and_names_the_stage(self):
-        stage = assess([run(1, 5), run(2, 1)], artifacts=[run(8, 1, conclusion="failure")], compiles=[run(9, 1)])
+        stage = assess([run(1, 5), run(2, 1)], artifacts=[run(8, 1, conclusion="failure")])
         self.assertTrue(stage.stale)
         self.assertAlmostEqual(stage.waited_hours, 5.0)
         self.assertIn("Nothing was promoted", stage.reason)
         self.assertIn("build / build x86_64-apple-darwin (step: Build the macOS binaries on Linux (no Apple SDK))", stage.reason)
-        self.assertIn("cmux-next Release compile (Xcode 26) is failure", stage.reason)
 
     def test_failed_nightly_names_its_job_and_step(self):
         stage = assess([run(1, 6)], nightly=[run(7, 2, conclusion="failure")])
@@ -82,11 +78,10 @@ class AssessTests(unittest.TestCase):
         self.assertIn("runs/6", stage.reason)
         self.assertIn("did not publish", stage.reason)
 
-    def test_release_compile_is_read_from_the_newest_decided_run(self):
-        # Superseded pushes cancel their compile; that is not the stuck stage.
-        stage = assess([run(1, 5)], compiles=[run(10, 1), run(9, 2)])
-        self.assertIn("is failure: https://github.com/o/r/actions/runs/9", stage.reason)
-        stage = assess([run(1, 5)], compiles=[run(10, 1), run(11, 2), run(9, 3)])
+    def test_ci_compile_results_do_not_describe_the_stuck_stage(self):
+        # cmux-next nightlies are admitted by their own nightly build; this
+        # watcher only reports promotion, tree publication and nightly stages.
+        stage = assess([run(1, 5)], artifacts=[run(8, 1, conclusion="success")])
         self.assertNotIn("Release compile", stage.reason)
 
 

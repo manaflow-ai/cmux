@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""The nightly-next canary's effective mode (docs/ci/nightly-next-canary.md).
+"""The nightly-next artifact validation mode (docs/ci/nightly-next-canary.md).
 
-Both canaries read it: nightly.yml's verify-signed-nightly (before
-publication) and nightly-next-canary.yml (after). One resolver, so the two
-always agree.
+The post-publication artifact validation reads it. One resolver keeps its
+reporting and rollback behavior consistent.
 
   resolve [--value V] [--enforce-after WHEN] [--now ISO] [--repo OWNER/NAME]
 
@@ -20,8 +19,8 @@ Repository variable NIGHTLY_NEXT_CANARY (--value):
                            the date. The decision depends only on that fixed
                            week, so it does not flap.
 
-The report week is read from the `nightly-next canary failed` issue the canary
-opens or comments on (one entry per failed build). That needs GH_TOKEN with
+The report week is read from the `nightly-next artifact validation failed` issue
+the validator opens or comments on (one entry per failed build). That needs GH_TOKEN with
 issues: read. When the read fails, auto stays in report and says so.
 
 Prints `mode=...` and `why=...` lines for $GITHUB_OUTPUT. Exit 0 always for a
@@ -44,7 +43,7 @@ from typing import Callable, Iterable
 # 2026-10-19) and the train design (leo-workspace#624, 2026-10-20).
 DEFAULT_ENFORCE_AFTER = "2026-10-27T16:00:00Z"
 REPORT_WEEK = dt.timedelta(days=7)
-ISSUE_TITLE = "nightly-next canary failed"
+ISSUE_TITLE = "nightly-next artifact validation failed"
 # Every entry the canary writes starts with this (nightly-next-canary.yml).
 FAILURE_PREFIX = "cmux NEXT build "
 EXPLICIT = ("report", "enforce", "off")
@@ -99,7 +98,7 @@ def resolve(value: str, enforce_after: str, now: dt.datetime,
         return "report", f"auto: could not read the report week ({err}); staying in report"
     failed = failures_in(entries, start, when)
     if failed:
-        return "report", (f"auto: the canary failed {len(failed)} build(s) in the report week before {stamp} "
+        return "report", (f"auto: artifact validation failed for {len(failed)} build(s) in the report week before {stamp} "
                           f"(first: {failed[0]}); triage, then set NIGHTLY_NEXT_CANARY=enforce or move "
                           "NIGHTLY_NEXT_CANARY_ENFORCE_AFTER")
     return "enforce", f"auto: enforce since {stamp} (no canary failure in the report week)"

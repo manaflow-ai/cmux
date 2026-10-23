@@ -330,22 +330,21 @@ class Wiring(unittest.TestCase):
         for name in config["scenes"]:
             self.assertRegex(driver, rf'scene\("{name}"')
 
-    def test_nightly_publishes_only_after_the_visual_smoke(self):
+    def test_nightly_next_does_not_gate_publication_on_visual_smoke(self):
         text = (ROOT / ".github/workflows/nightly.yml").read_text()
         job = text[text.index("\n  verify-signed-nightly:\n"):text.index("\n  verify-final-dmg-nightly:\n")]
-        step = job[job.index("- name: Visual smoke the signed app"):]
-        step = step[:step.index("\n      - name:", 1)]
-        self.assertIn('visual-smoke/gate.sh "$CHANNEL_APP_PATH"', step)
-        # Enforced: no continue-on-error and no repository variable can skip it.
-        self.assertNotIn("continue-on-error", step)
-        self.assertNotIn("vars.", step)
+        self.assertNotIn("visual-smoke", job)
+        self.assertIn("Smoke launch signed app", job)
+        self.assertIn("if: env.TRACK != 'nightly-next'", job)
+        self.assertIn("Smoke bundled CLI against the signed app", job)
         recovered = text[text.index("\n  verify-recovered-nightly-next:\n"):text.index("\n  publish-nightly:\n")]
-        self.assertIn("- name: Visual smoke the recovered app", recovered)
-        self.assertIn("visual-smoke/gate.sh", recovered)
+        self.assertNotIn("Visual smoke", recovered)
+        self.assertNotIn("visual-smoke", recovered)
         publish = text[text.index("\n  publish-nightly:\n"):]
         needs = [n.strip() for n in re.search(r"\n    needs: \[([^\]]*)\]", publish).group(1).split(",")]
         self.assertIn("verify-signed-nightly", needs)
         self.assertIn("verify-recovered-nightly-next", needs)
+
 
     def test_the_gate_fails_unless_an_attempt_passes(self):
         gate = (SMOKE / "gate.sh").read_text()

@@ -14,7 +14,9 @@ run-name for each request, applies GitHub's one-running/one-waiting rule, then
 runs the job's real "Decide the promotion" and "Move nightly-next" step
 scripts (which load scripts/ci/promote-nightly-next.mjs from this checkout)
 for each surviving request in order, against a mocked API whose cancelled
-dispatch runs carry the evaluated titles and GitHub's cancel annotations.
+dispatch runs carry the evaluated titles and GitHub's cancel annotations. The
+promotion guard does not inspect cmux-next CI jobs: the nightly build itself is
+the admission boundary.
 """
 
 from __future__ import annotations
@@ -61,9 +63,7 @@ const listJobs = (params) => {
     const run = dispatchRun(params.run_id);
     return [{ id: 5000 + run.id, name: 'promote-nightly-next', status: 'completed', conclusion: run.conclusion }];
   }
-  const sha = history[params.run_id - 1000];
-  const green = !scenario.notGreen.includes(sha);
-  return [{ name: 'cmux-next Release compile (Xcode 26)', status: 'completed', conclusion: green ? 'success' : 'failure' }];
+  return [];
 };
 const runsFor = (params) => {
   if (params.workflow_id === 'nightly.yml') {
@@ -77,13 +77,7 @@ const runsFor = (params) => {
       .filter((run) => run.conclusion === params.status && run.cancelledAt <= active.arrived)
       .slice().reverse();
   }
-  if (params.workflow_id !== 'cmux-next.yml' || params.event !== 'push' || params.branch !== 'feat-cmux-next') {
-    throw new Error(`unexpected run lookup ${JSON.stringify(params)}`);
-  }
-  return [{
-    id: position(params.head_sha) + 1000, head_sha: params.head_sha, head_branch: 'feat-cmux-next', event: 'push',
-    path: '.github/workflows/cmux-next.yml', head_repository: { full_name: 'manaflow-ai/cmux' },
-  }];
+  throw new Error(`unexpected run lookup ${JSON.stringify(params)}`);
 };
 const actions = {
   listWorkflowRuns: async (params) => ({ data: { workflow_runs: runsFor(params), total_count: runsFor(params).length } }),
@@ -328,13 +322,13 @@ def test_a_newer_request_after_an_older_one_still_wins() -> None:
     assert result["writes"] == [RUNNING, NEWER], [short(sha) for sha in result["writes"]]
 
 
-def test_a_cancelled_request_without_a_green_compile_is_not_promoted() -> None:
-    """Recovered requests pass the same guard (Release compile admission) as the input."""
+def test_a_cancelled_request_is_recovered_without_a_ci_compile() -> None:
+    """A recovered request is admitted by the nightly build, not cmux-next CI."""
     requests, dispatch_runs = queue(RUNNING, [UNGREEN, OLDER])
     result = run_promotions(requests, dispatch_runs, not_green=[UNGREEN])
     assert result["failed"] == [], result["failed"]
-    assert result["target"] == OLDER, short(result["target"])
-    assert UNGREEN not in result["writes"]
+    assert result["target"] == UNGREEN, short(result["target"])
+    assert result["writes"] == [RUNNING, UNGREEN], [short(sha) for sha in result["writes"]]
 
 
 def test_a_request_cancelled_by_a_person_is_not_promoted() -> None:
@@ -388,7 +382,7 @@ def main() -> None:
     test_one_writer_for_every_request()
     test_a_late_older_request_does_not_drop_a_cancelled_newer_one()
     test_a_newer_request_after_an_older_one_still_wins()
-    test_a_cancelled_request_without_a_green_compile_is_not_promoted()
+    test_a_cancelled_request_is_recovered_without_a_ci_compile()
     test_a_request_cancelled_by_a_person_is_not_promoted()
     test_a_failed_recovery_scan_still_promotes_the_admitted_commit()
     test_an_unreadable_cancel_annotation_still_promotes_the_admitted_commit()

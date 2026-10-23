@@ -5,9 +5,8 @@
 //
 // decide() checks, in order:
 //   G1  the SHA is on feat-cmux-next (not a fork-network or dropped commit);
-//   G2  a cmux-next.yml push run of this repository on feat-cmux-next for that
-//       exact SHA has a successful "cmux-next Release compile (Xcode 26)" job;
-//       the gate workflow is itself on the release surface;
+//   G2  removed: the nightly.yml build is the build admission boundary, so
+//       promotion does not wait for cmux-next CI.
 //   G3  the files changed from the current nightly-next to the SHA. If none
 //       matches the release surface the promotion goes ahead ("promote");
 //       otherwise it needs a release approver ("needs-ack");
@@ -18,14 +17,11 @@
 //       policy line `@require_non_lander_approver on` the approval must come
 //       from someone who is not a lander (ackDecision()); off, any approval in
 //       the approval environment counts.
-// A train commit (nightly-next-train.yml; docs/ci/nightly-next-train.md) is
-// checked by G1'/G2' in place of G1/G2:
+// A train commit (nightly-next-train.yml; docs/ci/nightly-next-train.md) uses
+// the tree-contract check G1' in place of G1/G2:
 //   G1' its second parent is on feat-cmux-next, and its tree is that parent
 //       with exactly its `Nightly-Train-Revert:` reverts, which the injected
 //       verifyTrain() rebuilds (scripts/ci/nightly_next_train.py verify);
-//   G2' a nightly-next-train.yml dispatch run of this repository on a
-//       nightly-train/* ref for that exact SHA has a successful
-//       "nightly-next train Release compile" job;
 // and its first parent must be the current nightly-next. G3/G4 are unchanged.
 // Anything it cannot establish is a "refuse" (fail closed).
 //
@@ -33,8 +29,6 @@
 
 export const SOURCE = 'feat-cmux-next';
 export const TARGET = 'nightly-next';
-export const GATE_WORKFLOW = '.github/workflows/cmux-next.yml';
-export const GATE_JOB = 'cmux-next Release compile (Xcode 26)';
 export const ACK_ENVIRONMENT = 'release-surface-ack';
 const BOT_LOGINS = new Set(['web-flow', 'github-actions[bot]', 'GitHub']);
 const MAX_ACTIVITY_PAGES = 20;
@@ -90,38 +84,11 @@ export function surfaceMatcher(globs) {
 
 const refuse = (reason, extra = {}) => ({ action: 'refuse', reason, ...extra });
 
-async function admitted(github, owner, repo, sha, { attempts, delayMs, sleep, core }) {
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
-      owner, repo, workflow_id: 'cmux-next.yml', event: 'push', branch: SOURCE, head_sha: sha, per_page: 100,
-    });
-    for (const run of runs) {
-      if (run.head_sha !== sha || run.head_branch !== SOURCE || run.event !== 'push') continue;
-      if (run.path !== GATE_WORKFLOW) continue;
-      if (run.head_repository?.full_name !== `${owner}/${repo}`) continue;
-      const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
-        owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
-      });
-      if (jobs.some((job) => job.status === 'completed' && job.name === GATE_JOB && job.conclusion === 'success')) {
-        return true;
-      }
-    }
-    if (attempt < attempts) {
-      core?.notice?.(`The exact ${GATE_JOB} result is not visible yet; retrying promotion admission (${attempt}/${attempts - 1}).`);
-      await sleep(delayMs);
-    }
-  }
-  return false;
-}
-
 // A train commit (scripts/ci/nightly_next_train.py): two parents, the
 // nightly-next head it was made on and a feat-cmux-next tip, and the
 // `Nightly-Train: v1` trailer. Anything else (or an unreadable commit) is not a
-// train commit and goes through G1/G2, which refuse what they cannot place.
+// train commit and goes through the source and release-surface checks.
 export const TRAIN_TRAILER = 'Nightly-Train: v1';
-export const TRAIN_WORKFLOW = '.github/workflows/nightly-next-train.yml';
-export const TRAIN_GATE_JOB = 'nightly-next train Release compile';
-export const TRAIN_REF_PREFIX = 'nightly-train/';
 
 export async function readTrainCommit(github, owner, repo, sha) {
   let data;
@@ -152,30 +119,6 @@ export function trainVerifier(script, { cwd = process.cwd(), spawn } = {}) {
     }
     return { ok: verdict.ok && proc.status === 0, reason: verdict.reason };
   };
-}
-
-async function admittedTrain(github, owner, repo, sha, { attempts, delayMs, sleep, core }) {
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
-      owner, repo, workflow_id: 'nightly-next-train.yml', event: 'workflow_dispatch', head_sha: sha, per_page: 100,
-    });
-    for (const run of runs) {
-      if (run.head_sha !== sha || run.event !== 'workflow_dispatch') continue;
-      if (run.path !== TRAIN_WORKFLOW || !String(run.head_branch || '').startsWith(TRAIN_REF_PREFIX)) continue;
-      if (run.head_repository?.full_name !== `${owner}/${repo}`) continue;
-      const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
-        owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
-      });
-      if (jobs.some((job) => job.status === 'completed' && job.name === TRAIN_GATE_JOB && job.conclusion === 'success')) {
-        return true;
-      }
-    }
-    if (attempt < attempts) {
-      core?.notice?.(`The ${TRAIN_GATE_JOB} result of ${sha} is not visible yet; retrying (${attempt}/${attempts - 1}).`);
-      await sleep(delayMs);
-    }
-  }
-  return false;
 }
 
 // The compare API returns at most this many commits per page and files only on
@@ -386,7 +329,7 @@ async function landersOf(github, owner, repo, commit, actors) {
 
 export async function decide({
   github, owner, repo, sha, surfaceText, core, sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
-  debounce = false, minIntervalHours = 0, admissionAttempts = 6, admissionDelayMs = 5000, now = () => Date.now(),
+  debounce = false, minIntervalHours = 0, now = () => Date.now(),
   verifyTrain = null,
 }) {
   if (!/^[0-9a-f]{40}$/.test(sha)) return refuse(`promote_nightly_next_sha must be 40 lowercase hex characters, got ${sha}`);
@@ -418,10 +361,6 @@ export async function decide({
       return refuse(`train commit ${sha}: the tree check failed to run (${error.message})`);
     }
     if (!verdict?.ok) return refuse(`train commit ${sha}: ${verdict?.reason || 'its tree is not its second parent minus its listed reverts'}`);
-    // G2': a green Release compile of this exact commit in nightly-next-train.yml.
-    if (!(await admittedTrain(github, owner, repo, sha, { attempts: admissionAttempts, delayMs: admissionDelayMs, sleep, core }))) {
-      return refuse(`train commit ${sha} has no ${TRAIN_WORKFLOW} dispatch run on a ${TRAIN_REF_PREFIX}* ref in ${owner}/${repo} with a successful "${TRAIN_GATE_JOB}" job`);
-    }
     trainFirstParent = train.firstParent;
   } else {
     // G1: on feat-cmux-next.
@@ -431,10 +370,6 @@ export async function decide({
       return refuse(`${sha} is not on ${SOURCE} (compare status ${onSource})`);
     }
 
-    // G2: the trusted gate.
-    if (!(await admitted(github, owner, repo, sha, { attempts: admissionAttempts, delayMs: admissionDelayMs, sleep, core }))) {
-      return refuse(`${sha} has no ${GATE_WORKFLOW} push run on ${SOURCE} in ${owner}/${repo} with a successful "${GATE_JOB}" job`);
-    }
   }
 
   if (debounce && Number.isFinite(minIntervalHours) && minIntervalHours > 0) {
@@ -629,8 +564,8 @@ export async function evictedPromotions({ github, owner, repo, runId, now = () =
 }
 
 // Newest request wins. A request is cheap to repeat but an approval is not, and
-// requests arrive out of order (an older commit's Release compile or cmux-tui
-// tree can finish after a newer one's). Before deciding, read the requests that
+// requests arrive out of order (an older commit's source inputs can finish
+// after a newer one's). Before deciding, read the requests that
 // wait for (or just got) the release-surface-ack approval:
 // - when one of them was decided against the current nightly-next and either
 //   targets a commit that contains this request's commit or is already

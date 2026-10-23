@@ -3,7 +3,7 @@
 # run stopped waiting (cx-f58x). A nightly-next run that waited 20 minutes
 # leaves a recovery artifact. Until now only the next promoted push run
 # continued it, so publication waited for an unrelated promotion. cmux-next.yml
-# calls this after each green Release compile of feat-cmux-next, and main's
+# calls this after each source-ready feat-cmux-next push, and main's
 # nightly-next-feed-watch.yml calls it every 30 minutes (GitHub runs `schedule`
 # only from main), so a quiet feat-cmux-next never holds an accepted build.
 # main and feat-cmux-next keep identical copies of this script and its test.
