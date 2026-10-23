@@ -112,6 +112,16 @@ final class CEFSpareWindow {
         if runtime.lastShownHost === taken { runtime.lastShownHost = nil }
     }
 
+    /// Closes the untaken spare: its placeholder goes, and the window with it.
+    func drop(runtime: CEFRuntime) {
+        guard let spare = host, let blank = spare.placeholder else { return }
+        host = nil
+        spare.placeholder = nil
+        spare.removed(blank)
+        blank.close()
+        runtime.hosts[spare.key] = nil
+    }
+
     /// Chromium put `browser` into the spare's window before a tab took it.
     func park(_ browser: Int32, disposition: BrowserNewTabDisposition, bounds: CGRect?) {
         parked.append((browser, disposition, bounds))
