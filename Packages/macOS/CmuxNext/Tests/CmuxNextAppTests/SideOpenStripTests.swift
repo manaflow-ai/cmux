@@ -149,6 +149,25 @@ import Testing
         #expect(Self.listed(pane) == [Self.home, Self.link], "a selected tab was hidden again when its move landed")
     }
 
+    /// Codex on #24308: an open named while another open's stand-in is in the pane holds only its own,
+    /// so the other's stand-in shows once that open ends, not when this one's move lets go.
+    @Test func anOpenNamedBesideAnotherOpensStandInLeavesItAlone() throws {
+        let (services, pane, state) = try Self.pane()
+        defer { withExtendedLifetime(state) { pane.teardown() } }
+        let first = OutboundTab.begin(in: pane)
+        let second = OutboundTab.begin(in: pane)
+        let standIn = ProvisionalTab()
+        services.daemon.store.intend(.createTab(pane: pane.pane.handle, provisional:
+            TabSnapshot(surface: standIn.surface, tabResourceID: ResourceID(rawValue: standIn.id), title: "page")),
+                                     transaction: .generate())
+        #expect(second.started(true))
+        first.made(Self.link)
+        second.finish(moved: false)
+        #expect(pane.pane.tabs.contains { $0.id == standIn.id }, "the stand-in is not in the pane")
+        #expect(!OutboundTab.hidden(in: pane).contains(standIn.id), "an open held another open's stand-in")
+        first.finish(moved: false)
+    }
+
     /// Codex on #23969: the move can land before the source pane's tabs drop the tab. The hold lasts
     /// until they do (not a fixed delay), then ends, so the tab never comes back into the left strip.
     @Test func aLandedMoveHoldsTheTabUntilTheSourcePaneDropsIt() throws {
