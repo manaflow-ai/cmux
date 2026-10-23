@@ -20,12 +20,13 @@
 #
 # It starts the binary as an isolated daemon (temporary HOME, TMPDIR and
 # CMUX_TUI_STATE_DIR, `server ensure` with the app's reap grace), sends a raw `identify` over its
-# socket, and stops it (`server stop --end-terminals`).
+# socket, and stops it (`server stop --end-terminals`). Distribution workflows
+# use `--static-only` so runtime checks stay in the daemon integration lane.
 #
 # The Xcode "Bundle cmux-tui" phase runs it on every non-release bundle, and
 # the cmux-next workflow runs it on the same-tree binary.
 #
-# Usage: check-daemon-capabilities.sh [--binary <cmux-tui>] [--capabilities <json>]
+# Usage: check-daemon-capabilities.sh [--binary <cmux-tui>] [--capabilities <json>] [--static-only]
 #   default binary: scripts/cmux-next/pin-cmux-tui.sh path (this tree's binary)
 set -euo pipefail
 
@@ -33,12 +34,14 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/../.." && pwd)"
 binary=""
 capabilities="$repo_root/plans/cmux-next/daemon-capabilities.json"
+static_only=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --binary) binary="${2:?--binary needs a path}"; shift 2 ;;
     --capabilities) capabilities="${2:?--capabilities needs a path}"; shift 2 ;;
+    --static-only) static_only=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
-    *) echo "usage: check-daemon-capabilities.sh [--binary <cmux-tui>] [--capabilities <json>]" >&2; exit 2 ;;
+    *) echo "usage: check-daemon-capabilities.sh [--binary <cmux-tui>] [--capabilities <json>] [--static-only]" >&2; exit 2 ;;
   esac
 done
 [[ -n "$binary" ]] || binary="$("$script_dir/pin-cmux-tui.sh" path)"
@@ -55,6 +58,11 @@ if [[ -d "$repo_root/Packages/macOS/CmuxNext/Sources" && -d "$repo_root/cmux-tui
   python3 -I "$script_dir/check-app-capability-references.py" --repo "$repo_root"
 else
   echo "check-daemon-capabilities: note: no app or cmux-tui-core source under $repo_root; skipped check-app-capability-references.py"
+fi
+
+if [[ "$static_only" = true ]]; then
+  echo "check-daemon-capabilities: static source checks passed; runtime daemon probe is reserved for integration tests"
+  exit 0
 fi
 
 # A short private root: the daemon's socket path must fit sun_path (104 bytes).

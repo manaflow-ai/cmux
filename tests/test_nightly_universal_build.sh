@@ -455,26 +455,30 @@ if ! awk '
   exit 1
 fi
 
-# Nightly runs no bundle code in the signing job. verify-signed-nightly, a job
-# without secrets, launches the signed app and drives its CLI, and both
-# publication paths wait for it (publish-nightly needs it; the notarization
-# continuation requires its success). A launch failure is found after the
-# Apple submission, never after publication.
+# Nightly distribution verification runs no bundle code. The signed-app and
+# final-DMG jobs retain static artifact checks and gate publication, while
+# runtime behavior stays in the path-routed daemon/app integration lane.
 if ! awk '
   /^  verify-signed-nightly:/ { job="verify"; next }
-  /^  verify-final-dmg-nightly:/ { job="verify"; dmg_job=1; next }
+  /^  verify-final-dmg-nightly:/ { job="verify-dmg"; dmg_job=1; next }
   /^  publish-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   job == "verify" && /^    environment:/ { verify_env=1 }
   job == "verify" && /secrets\./ { verify_secret=1 }
-  job == "verify" && /^      - name: Smoke final DMG$/ { dmg=1 }
+  job == "verify" && /verify-diff-sidecar-artifact\.sh/ { sidecar=1 }
+  job == "verify" && /--static-only/ { static_sidecar=1 }
+  job == "verify-dmg" && /^      - name: Verify final DMG artifact$/ { dmg=1 }
+  job == "verify-dmg" && /verify-dmg-artifact\.sh/ { static_dmg=1 }
   job == "publish" && /needs: .*verify-final-dmg-nightly/ { dmg_gated=1 }
-  job == "verify" && /^      - name: Smoke launch signed app$/ { smoke=1 }
-  job == "verify" && /^ +\.\/scripts\/smoke-signed-app-cli\.sh/ { cli=1 }
   job == "publish" && /needs: .*verify-signed-nightly/ { gated=1 }
-  END { exit !(smoke && cli && gated && dmg_job && dmg && dmg_gated && !verify_env && !verify_secret) }
+  END { exit !(sidecar && static_sidecar && static_dmg && gated && dmg_job && dmg && dmg_gated && !verify_env && !verify_secret) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly must launch the signed app and its CLI in a secret-free verify job that gates publication"
+  echo "FAIL: nightly must use secret-free static verification jobs that gate publication, with no runtime smoke"
+  exit 1
+fi
+
+if grep -Eq 'smoke-launch|smoke-signed-app-cli|smoke-dmg' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly publication workflows must contain no smoke-shaped runtime checks"
   exit 1
 fi
 
@@ -612,31 +616,15 @@ if ! grep -A3 -F 'case "$cmux_next_tui_source" in' "$ROOT_DIR/scripts/reload.sh"
   exit 1
 fi
 
-if ! awk '
-  /^      - name: Codesign app/ { sign_line=NR }
-  /^      - name: Smoke launch signed app before notarization/ { smoke_line=NR }
-  /^      - name: Notarize app/ { notarize_line=NR }
-  END { exit !(sign_line && smoke_line && notarize_line && sign_line < smoke_line && smoke_line < notarize_line) }
-' "$RELEASE_WORKFLOW_FILE"; then
-  echo "FAIL: release must smoke-launch the signed app before paying the Apple notarization wait"
+if grep -Eq 'Smoke launch signed app|Smoke bundled CLI|smoke-launch-macos-app|smoke-signed-app-cli' "$RELEASE_WORKFLOW_FILE"; then
+  echo "FAIL: release must contain no app launch or bundled CLI smoke"
   exit 1
 fi
-
-# release still smokes in its signing job (its split is a separate change);
-# it must also drive the signed app through its bundled CLI before notarization.
-
-for workflow in "$RELEASE_WORKFLOW_FILE"; do
-  if ! awk '
-    /^      - name: Smoke launch signed app before notarization/ { smoke_line=NR }
-    /^      - name: Smoke bundled CLI against the signed app/ { cli_line=NR }
-    /^ +\.\/scripts\/smoke-signed-app-cli\.sh/ { cli_run=NR }
-    /^      - name: Notarize app/ { if (!notarize_line) notarize_line=NR }
-    END { exit !(smoke_line && cli_line && cli_run && notarize_line && smoke_line < cli_line && cli_line < cli_run && cli_run < notarize_line) }
-  ' "$workflow"; then
-    echo "FAIL: $(basename "$workflow") must run the bundled CLI smoke on the signed app after the launch smoke and before notarization"
-    exit 1
-  fi
-done
+if ! grep -Fq './scripts/ci/verify-dmg-artifact.sh "$DMG_RELEASE" stable --require-stapled-app' "$RELEASE_WORKFLOW_FILE" \
+   || ! grep -Fq -- '--static-only' "$RELEASE_WORKFLOW_FILE"; then
+  echo "FAIL: release must retain static DMG and sidecar verification"
+  exit 1
+fi
 
 # PR release builds restore the cache nightly warms from main by this prefix.
 # Renaming it on either side, or on a key but not its restore-keys, silently
@@ -1305,8 +1293,8 @@ for expected in \
   fi
 done
 # Split contract (cx-vws1x): the signing job holds the secrets and runs no
-# bundle code; the verify job smokes the exact DMG with no environment and no
-# secret on a literal ephemeral label; publish takes only the tested digest.
+# bundle code; the verify job statically verifies the exact DMG with no environment and no
+# secret on a literal ephemeral label; publish takes only the verified digest.
 for expected in \
   "environment: release-next" \
   "CMUX_DEFER_LAUNCH_SMOKES: \"true\"" \
@@ -1320,8 +1308,8 @@ for expected in \
   "needs: [legacy-identity-target, sign-nightly-identity-legacy]" \
   "runs-on: macos-26" \
   'stapled_flag=(--require-stapled-app)' \
-  './scripts/ci/smoke-dmg.sh "$dmg" nightly --expect-sha256 "$SIGNED_SHA256" "${stapled_flag[@]}"' \
-  "tested_sha256: \${{ steps.smoke.outputs.tested_sha256 }}"; do
+  './scripts/ci/verify-dmg-artifact.sh "$dmg" nightly --expect-sha256 "$SIGNED_SHA256" "${stapled_flag[@]}"' \
+  "tested_sha256: \${{ steps.verify.outputs.tested_sha256 }}"; do
   grep -Fq -- "$expected" <<<"$verify_job" || { echo "FAIL: verify-nightly-identity-legacy must contain: $expected"; exit 1; }
 done
 if grep -Eq 'environment:|secrets\.|vars\.[A-Z_]*RUNNER' <<<"$verify_job"; then
