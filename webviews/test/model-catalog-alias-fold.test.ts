@@ -233,7 +233,10 @@ for (const harness of ["claude-sr2", "claude"])
       ],
       { [`${harness}/opus`]: { hidden: true } },
     );
-    expect(opusRows(models).map((model) => model.id), models.map((model) => model.id).join(", ")).toEqual([]);
+    expect(
+      opusRows(models).map((model) => model.id),
+      models.map((model) => model.id).join(", "),
+    ).toEqual([]);
   });
 
 test("an alias the user renamed still folds into its release: one row", () => {
