@@ -74,6 +74,12 @@ pub struct HostState {
     /// answers it too.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub carry_answers: Vec<String>,
+    /// The Chief conversation's person messages that no posted reply has
+    /// answered yet (brain/reply_ledger.rs, user 2026-10-21: "the Chief never
+    /// forgets to respond"). Kept across restarts; a message leaves only when
+    /// a reply posts, the owner stops its turn, or the failure note posts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub awaiting: Vec<Awaiting>,
     /// E22: ids a posted reply named in `answers_pending`: the turn that
     /// ends their work answers them even when it says nothing (a done
     /// marker), so a waiting `cmux chief -p` ends.
@@ -1149,4 +1155,29 @@ mod security_tests {
         assert!(resume_again.requires_approval);
         assert!(spawn_again.requires_approval);
     }
+}
+
+/// A person message of the Chief conversation that waits for a reply
+/// (brain/reply_ledger.rs).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Awaiting {
+    /// The message's id in the conversation.
+    pub id: String,
+    pub seq: u64,
+    /// When it arrived (ms since the epoch).
+    pub since_ms: u64,
+    /// The start of its text, for the retry note and the failure note.
+    #[serde(default)]
+    pub preview: String,
+    /// Retry turns started for it so far.
+    #[serde(default)]
+    pub tries: u32,
+    /// When the next check is due (ms since the epoch); None while a turn
+    /// that sees it is queued or running.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due_ms: Option<u64>,
+    /// Why the last turn left it unanswered (`NO_REPLY`, a silent end, an
+    /// error, a refused post), for the retry note and the failure note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
 }

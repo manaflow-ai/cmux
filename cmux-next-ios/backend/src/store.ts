@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm"
+import { and, eq, inArray, isNull, sql } from "drizzle-orm"
 import type { Env } from "./env.ts"
 import { devices, pushTokens, teamPrefs } from "./schema.ts"
 
@@ -12,6 +12,8 @@ export interface Device {
   kind: DeviceKind
   name: string
   wgPublicKey: string | null
+  /** A Mac's machine id; null when it sent none (phones, older hosts). */
+  machineId: string | null
   createdAt: string
   updatedAt: string
   lastSeenAt: string | null
@@ -24,6 +26,8 @@ export interface DeviceInput {
   kind: DeviceKind
   name: string
   wgPublicKey: string | null
+  /** Undefined keeps the stored machine id (a host that predates it, or a phone). */
+  machineId?: string
 }
 
 export interface Prefs {
@@ -67,6 +71,13 @@ export interface Store {
   getDevice(deviceId: string): Promise<Device | undefined>
   /** Insert or update; "not_owner" when the id already belongs to another user (nothing changes). */
   upsertDevice(d: DeviceInput): Promise<{ device: Device; previousTeamId: string | null } | "not_owner">
+  /**
+   * Gives `machineId` to those of `deviceIds` that are Macs of `ownerUserId` with no machine id yet (other builds
+   * on the registering Mac, PROTOCOL.md "Devices"). A Mac's own report always wins. Returns every one of
+   * `deviceIds` that has this machine id now (claimed now or earlier), so a hub that missed an earlier claim
+   * catches up.
+   */
+  claimSiblings(ownerUserId: string, machineId: string, deviceIds: ReadonlyArray<string>): Promise<Array<string>>
   /** Every Mac one owner registered, in any team or personal space (`ownerUserId` is the owner key). */
   listOwnerMacs(ownerUserId: string): Promise<Array<Device>>
   /** Every device (Mac or phone) of one owner, with whether it has a push token. */
@@ -100,6 +111,7 @@ const row = (r: typeof devices.$inferSelect): Device => ({
   kind: r.kind,
   name: r.name,
   wgPublicKey: r.wgPublicKey,
+  machineId: r.machineId,
   createdAt: r.createdAt.toISOString(),
   updatedAt: r.updatedAt.toISOString(),
   lastSeenAt: iso(r.lastSeenAt)
@@ -131,17 +143,30 @@ export const pgStore = async (hyperdrive: Hyperdrive): Promise<Store> => {
       // Read the previous team for the move; the conditional update (setWhere) still refuses a racing other owner.
       const [prev] = await db.select({ teamId: devices.teamId, owner: devices.ownerUserId }).from(devices).where(eq(devices.deviceId, d.deviceId)).limit(1)
       if (prev && prev.owner !== d.ownerUserId) return "not_owner"
+      const machine = d.machineId === undefined ? {} : { machineId: d.machineId }
       const [r] = await db
         .insert(devices)
-        .values({ ...d })
+        .values({ ...d, machineId: d.machineId ?? null })
         .onConflictDoUpdate({
           target: devices.deviceId,
-          set: { teamId: d.teamId, kind: d.kind, name: d.name, wgPublicKey: d.wgPublicKey, updatedAt: sql`now()` },
+          set: { teamId: d.teamId, kind: d.kind, name: d.name, wgPublicKey: d.wgPublicKey, ...machine, updatedAt: sql`now()` },
           setWhere: eq(devices.ownerUserId, d.ownerUserId)
         })
         .returning()
       if (!r) return "not_owner"
       return { device: row(r), previousTeamId: prev && prev.teamId !== d.teamId ? prev.teamId : null }
+    },
+    async claimSiblings(ownerUserId, machineId, deviceIds) {
+      if (!deviceIds.length) return []
+      await db
+        .update(devices)
+        .set({ machineId })
+        .where(and(eq(devices.ownerUserId, ownerUserId), eq(devices.kind, "mac"), isNull(devices.machineId), inArray(devices.deviceId, [...deviceIds])))
+      const rs = await db
+        .select({ deviceId: devices.deviceId })
+        .from(devices)
+        .where(and(eq(devices.ownerUserId, ownerUserId), eq(devices.kind, "mac"), eq(devices.machineId, machineId), inArray(devices.deviceId, [...deviceIds])))
+      return rs.map((r) => r.deviceId)
     },
     async listOwnerMacs(ownerUserId) {
       const rs = await db.select().from(devices).where(and(eq(devices.ownerUserId, ownerUserId), eq(devices.kind, "mac"))).orderBy(devices.name)
@@ -227,9 +252,25 @@ export const memoryStore = (): Store => ({
     const prev = mem.devices.get(d.deviceId)
     if (prev && prev.ownerUserId !== d.ownerUserId) return "not_owner"
     const now = new Date().toISOString()
-    const device: Device = { ...d, createdAt: prev?.createdAt ?? now, updatedAt: now, lastSeenAt: prev?.lastSeenAt ?? null }
+    const device: Device = {
+      ...d,
+      machineId: d.machineId === undefined ? (prev?.machineId ?? null) : d.machineId,
+      createdAt: prev?.createdAt ?? now,
+      updatedAt: now,
+      lastSeenAt: prev?.lastSeenAt ?? null
+    }
     mem.devices.set(d.deviceId, device)
     return { device: { ...device }, previousTeamId: prev && prev.teamId !== d.teamId ? prev.teamId : null }
+  },
+  async claimSiblings(owner, machineId, ids) {
+    const claimed: Array<string> = []
+    for (const id of ids) {
+      const d = mem.devices.get(id)
+      if (!d || d.ownerUserId !== owner || d.kind !== "mac" || (d.machineId !== null && d.machineId !== machineId)) continue
+      if (d.machineId === null) mem.devices.set(id, { ...d, machineId })
+      claimed.push(id)
+    }
+    return claimed
   },
   async listOwnerMacs(owner) {
     return [...mem.devices.values()].filter((d) => d.ownerUserId === owner && d.kind === "mac").sort((a, b) => a.name.localeCompare(b.name))
