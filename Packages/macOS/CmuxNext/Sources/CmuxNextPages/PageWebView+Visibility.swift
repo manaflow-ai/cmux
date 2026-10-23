@@ -14,18 +14,26 @@ extension PageWebView {
         if router.isPageHidden != hidden { router.isPageHidden = hidden }
     }
 
-    /// Follows the occlusion of the window the page is in now (none when out of a window).
+    /// Follows the occlusion of the window the page is in now (none when out of a window). The
+    /// observation ends when the page moves to another window, closes (``close()``) or goes away.
     func followWindowOcclusion() {
-        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
-        occlusionObserver = nil
+        endWindowOcclusion()
         if let window {
-            occlusionObserver = NotificationCenter.default.addObserver(
-                forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.updatePageVisibility() } // main-proof: observer on queue: .main
+            occlusionObservation = Task { [weak self, weak window] in
+                guard let window else { return }
+                for await _ in NotificationCenter.default.notifications(named: NSWindow.didChangeOcclusionStateNotification,
+                                                                         object: window) {
+                    self?.updatePageVisibility()
+                }
             }
         }
         updatePageVisibility()
+    }
+
+    /// Stops following the window's occlusion.
+    func endWindowOcclusion() {
+        occlusionObservation?.cancel()
+        occlusionObservation = nil
     }
 
     /// Whether nobody can see `view`: out of a window, hidden, or (unless `ignoringOcclusion`) its
