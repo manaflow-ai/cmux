@@ -338,8 +338,11 @@ public final class HomeStore {
         var uploadedAfterSweep = false
     }
 
+    /// Rows from the mirror, the log and who types. Equal rows are not assigned: an assignment
+    /// notifies every observer of `rows` even when nothing changed.
     func rebuildRows() {
-        rows = mirror.inboxRows(log: log, typing: Set(typing.keys))
+        let next = mirror.inboxRows(log: log, typing: Set(typing.keys))
+        if next != rows { rows = next }
         scheduleCacheWrite()
     }
 }

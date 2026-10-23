@@ -12,9 +12,12 @@ import CmuxNextCompat
 /// the Core Animation commit). Time between two stamps while the loop is not asleep
 /// is main-thread work; a gap over the threshold is a stall, measured
 /// exactly on the main thread when it ends. A dedicated watchdog thread
-/// parks while the main run loop sleeps (no wakeups when the app is idle),
-/// and while it is awake checks once per threshold whether the heartbeat
-/// stopped; if so it samples the main thread's stack mid-stall.
+/// parks until a main-thread turn outlasts the sample delay (a one-shot
+/// kernel timer the main thread arms when its run loop wakes and deletes
+/// before it sleeps, ``MainThreadWatchdogAlarm``), so a short turn wakes no
+/// other thread and an idle app costs it nothing. While a turn runs past the
+/// delay it checks once per threshold whether the heartbeat stopped; if so it
+/// samples the main thread's stack mid-stall.
 public final class MainThreadWatchdog: Sendable {
     public struct Configuration: Sendable {
         public var threshold: Duration
@@ -133,10 +136,10 @@ public final class MainThreadWatchdog: Sendable {
     let mainAsleep = Atomic<Bool>(true)
     /// A decided quit is ending (``endHangAssertions()``).
     private let assertionsEnded = Atomic<Bool>(false)
-    private let watchdogParked = Atomic<Bool>(false)
     let running = Atomic<Bool>(false)
-    // concurrency-allow: only the watchdog thread waits on it; the main thread only signals.
-    private let wake = DispatchSemaphore(value: 0)
+    /// The watchdog thread's wait: the main thread arms it on each wake and deletes it before
+    /// each sleep, so only a turn longer than `sampleAfterNanos` wakes the watchdog thread.
+    private let alarm = MainThreadWatchdogAlarm()
     /// The stall sample, published by the watchdog thread while the main
     /// thread is still suspended (so a stall that ends right after the
     /// sample still finds it): the beat it belongs to, and its frame count
@@ -225,6 +228,11 @@ public final class MainThreadWatchdog: Sendable {
         observer.withLock { $0 = box }
         let sampler = configuration.sampleStacks ? ThreadStackSampler(thread: mach_thread_self()) : nil
         self.sampler.withLock { $0 = sampler }
+        // Without its kqueue the thread could not wait: stalls are still measured on the main thread.
+        guard alarm.isAvailable else {
+            logger.error("main-thread watchdog: no kqueue; stalls are measured, not sampled")
+            return
+        }
         let thread = Thread { [self] in watch(sampler: sampler) }
         thread.name = "cmux-next main-thread watchdog"
         thread.qualityOfService = .userInteractive
@@ -236,7 +244,7 @@ public final class MainThreadWatchdog: Sendable {
         if let box = observer.withLock({ observer in defer { observer = nil }; return observer }) {
             for runLoopObserver in box.observers { CFRunLoopObserverInvalidate(runLoopObserver) }
         }
-        wake.signal()
+        alarm.wake()
     }
 
     // MARK: - Main thread
@@ -267,9 +275,12 @@ public final class MainThreadWatchdog: Sendable {
         beatSequence.store(beat &+ 1, ordering: .releasing)
         let asleep = activity == .beforeWaiting
         mainAsleep.store(asleep, ordering: .releasing)
-        if wasAsleep, !asleep { busy.noteAwake() }
-        if !asleep, watchdogParked.compareExchange(expected: true, desired: false, ordering: .acquiringAndReleasing).exchanged {
-            wake.signal()
+        if wasAsleep, !asleep {
+            busy.noteAwake()
+            // The watchdog thread wakes only if this turn is still running when it is due to sample.
+            alarm.arm(afterNanos: sampleAfterNanos)
+        } else if asleep, !wasAsleep {
+            alarm.disarm()
         }
     }
 
@@ -297,24 +308,17 @@ public final class MainThreadWatchdog: Sendable {
             closeRecoveredEpisode(&hang.episodes) // the beat moved while busy (also before the early waits)
             if mainAsleep.load(ordering: .acquiring) {
                 closeRecoveredEpisode(&hang.episodes) // seen asleep: an open hang ended; before parking
-                watchdogParked.store(true, ordering: .releasing)
-                // Re-check after publishing `parked`: the main thread may have woken in between.
-                if !mainAsleep.load(ordering: .acquiring),
-                   watchdogParked.compareExchange(expected: true, desired: false, ordering: .acquiringAndReleasing).exchanged {
-                    continue
-                }
-                // concurrency-allow: dedicated watchdog thread parks while the main run loop sleeps; never the main thread.
-                wake.wait()
-                noteWake()
+                // Parked until a main turn outlasts the sample delay (its alarm) or stop(). A wake
+                // between the check and the wait is not lost: the kernel keeps the fired timer.
+                waitForAlarm(nanos: nil)
                 continue
             }
             let beat = beatSequence.load(ordering: .acquiring)
             let due = beatNanos.load(ordering: .acquiring) &+ (beat == sampledBeat ? thresholdNanos : sampleAfterNanos)
             let now = uptime()
             if now < due {
-                // concurrency-allow: dedicated watchdog thread; bounded wait until the next heartbeat check.
-                _ = wake.wait(timeout: .now() + .nanoseconds(Int(clamping: due - now)))
-                noteWake()
+                // Bounded wait until the next heartbeat check (or the main thread's next alarm).
+                waitForAlarm(nanos: due - now)
                 continue
             }
             // The heartbeat is old enough that the main thread may be stalling.
@@ -333,16 +337,17 @@ public final class MainThreadWatchdog: Sendable {
                 }
             }
             checkHang(beat: beat, sampler: sampler, state: &hang)
-            // Check again one threshold later (or when the stall ends and the loop sleeps).
-            // concurrency-allow: dedicated watchdog thread; bounded wait between stall checks.
-            _ = wake.wait(timeout: .now() + .nanoseconds(Int(clamping: thresholdNanos)))
-            noteWake()
+            // Check again one threshold later; once the turn ended the next pass parks.
+            waitForAlarm(nanos: thresholdNanos)
         }
         if let event = hang.episodes.finish() { handle(event) } // stopped mid-hang: the duration so far
     }
 
-    /// Counts one return from a wait of the watchdog thread (debug builds: tests read it).
-    private func noteWake() {
+    /// The watchdog thread's one wait (``MainThreadWatchdogAlarm/wait(nanos:)``); debug builds
+    /// count each return (tests read the count).
+    private func waitForAlarm(nanos: UInt64?) {
+        // concurrency-allow: the dedicated watchdog thread's kevent wait; never the main thread.
+        alarm.wait(nanos: nanos)
         #if DEBUG
         watchdogWakes.add(1, ordering: .relaxed)
         #endif
