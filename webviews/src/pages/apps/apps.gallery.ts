@@ -61,6 +61,11 @@ export default appsPageEntry({
       hash: "#/discover?layout=grid",
       data: base,
     },
+    "detail-installed": {
+      note: "An installed app's page: screenshots, what it adds, permissions, settings and versions.",
+      hash: "#/discover?layout=split&app=cmux.github-prs",
+      data: base,
+    },
     loading: {
       note: "The catalog is still loading.",
       mode: "loading",

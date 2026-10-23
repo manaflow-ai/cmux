@@ -1,10 +1,10 @@
 // A listing's page: header (icon, name, publisher, tier, state, Open and the item action),
 // description, then the shared detail sections (items.tsx): screenshots (the live preview comes
-// later with a web scene renderer; coordinator Q6), permissions with reasons (grant switches once
-// installed), versions, repository.
+// later with a web scene renderer; coordinator Q6), what it adds, permissions with reasons (grant
+// switches once installed), settings once installed, versions, repository.
 import type { Strings } from "../shared/i18n";
 import { GrantsPanel } from "./GrantsPanel";
-import { DetailSection, ItemAction, ScreenshotStrip, StateBadge } from "./items";
+import { AddsList, DetailSection, ItemAction, ItemSettings, ScreenshotStrip, StateBadge } from "./items";
 import { orderScopes, RiskLabel, TierLabel } from "./model";
 import { AppIcon, Badge } from "./parts";
 import type { AppsSnapshot, AppsStore } from "./store";
@@ -98,6 +98,7 @@ export function AppDetailView({
         </header>
         <p className="apps-detail-description selectable">{detail.description}</p>
         <ScreenshotStrip screenshots={detail.screenshots} strings={strings} />
+        <AddsList contributes={detail.contributes} strings={strings} />
         <DetailSection title={t("store.detail.permissions")}>
           {detail.scopes.length === 0 ? (
             <p className="apps-muted">{t("store.detail.noPermissions")}</p>
@@ -116,6 +117,7 @@ export function AppDetailView({
             </ul>
           )}
         </DetailSection>
+        <ItemSettings app={detail} store={store} strings={strings} />
         <DetailSection title={t("store.detail.versions")}>
           <ul className="apps-versions">
             {detail.versions.map((version) => (

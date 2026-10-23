@@ -5,9 +5,9 @@
 import type { ReactNode } from "react";
 import type { Strings } from "../shared/i18n";
 import { categoryLabel, isRemovable, itemState, TierLabel, type CardStyle } from "./model";
-import { AppIcon, Badge } from "./parts";
+import { AppIcon, Badge, Switch } from "./parts";
 import type { AppsStore } from "./store";
-import type { CatalogApp } from "./types";
+import type { AppContribution, CatalogApp } from "./types";
 
 type ItemProps = { app: CatalogApp; store: AppsStore; strings: Strings };
 
@@ -212,6 +212,48 @@ export function ScreenshotStrip({ screenshots, strings }: { screenshots: readonl
           .map((src, index) => (
             <img key={index} src={src} alt="" className="apps-screenshot" />
           ))}
+      </div>
+    </DetailSection>
+  );
+}
+
+const CONTRIBUTION_KEYS: Record<string, string> = {
+  section: "store.contribution.section",
+  command: "store.contribution.command",
+  statusItem: "store.contribution.statusItem",
+};
+
+/** "What it adds": the places the app puts something in cmux, each with its kind. */
+export function AddsList({ contributes, strings }: { contributes?: readonly AppContribution[]; strings: Strings }) {
+  if (!contributes?.length) return null;
+  const { t } = strings;
+  return (
+    <DetailSection title={t("store.detail.adds")}>
+      <ul className="apps-adds">
+        {contributes.map((item) => (
+          <li key={`${item.kind}\u0000${item.title}`} className="apps-add">
+            <span className="apps-add-title">{item.title}</span>
+            <Badge text={CONTRIBUTION_KEYS[item.kind] ? t(CONTRIBUTION_KEYS[item.kind]!) : item.kind} />
+          </li>
+        ))}
+      </ul>
+    </DetailSection>
+  );
+}
+
+/** An installed app's settings on its page: Enabled, the same switch as the Installed tab. */
+export function ItemSettings({ app, store, strings }: ItemProps) {
+  if (!app.installed) return null;
+  const { t } = strings;
+  return (
+    <DetailSection title={t("store.detail.settings")}>
+      <div className="apps-setting">
+        <span>{t("store.action.enabled")}</span>
+        <Switch
+          on={app.enabled !== false}
+          label={t("store.action.enabled")}
+          onChange={(on) => void store.setEnabled(app.id, on)}
+        />
       </div>
     </DetailSection>
   );

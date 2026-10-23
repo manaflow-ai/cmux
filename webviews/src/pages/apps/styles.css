@@ -879,3 +879,32 @@ code {
 .apps-card.artwork .apps-card-footer {
   padding: 10px 14px 14px;
 }
+
+.apps-adds {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.apps-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.apps-add-title {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.apps-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 360px;
+}

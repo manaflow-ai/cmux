@@ -4,6 +4,7 @@
 import type { PageClient } from "../shared/pageClient";
 import {
   AppsOps,
+  type AppContribution,
   type AppDetail,
   type AppIconRef,
   type AppSource,
@@ -50,6 +51,8 @@ export interface WireDetail extends WireListing {
   versions?: AppVersion[];
   repository?: string;
   screenshots?: string[];
+  /** The manifest's contributions; the owner's `catalog.get` does not send them yet. */
+  contributes?: AppContribution[];
 }
 
 export interface WireCatalogPage {
@@ -125,6 +128,7 @@ export function fromDetail(detail: WireDetail): AppDetail {
     versions: detail.versions ?? [],
     repository: detail.repository,
     screenshots: detail.screenshots ?? [],
+    contributes: detail.contributes?.filter((item) => typeof item?.title === "string" && item.title.trim() !== ""),
   };
 }
 
