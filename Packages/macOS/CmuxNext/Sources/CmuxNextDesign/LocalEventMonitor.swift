@@ -22,6 +22,9 @@ final class LocalEventMonitor {
         self.token = token
     }
 
+    /// Whether the monitor is still installed (not yet removed).
+    var isInstalled: Bool { token != nil }
+
     /// Removes the monitor; later calls do nothing.
     func remove() {
         guard let token else { return }

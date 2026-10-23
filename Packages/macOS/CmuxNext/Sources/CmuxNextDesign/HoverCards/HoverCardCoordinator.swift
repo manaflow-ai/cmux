@@ -32,10 +32,11 @@ public final class HoverCardCoordinator {
     /// A card its owner shows in the one card window (`presentOwned`), nil while none does.
     var owned: HoverCardOwned?
     private var activated: HoverTargetID?
-    private var monitor: LocalEventMonitor?
+    /// The dismissal monitor (key presses, clicks, wheel scrolls), while a card is pending or shown.
+    private(set) var monitor: LocalEventMonitor?
     /// Pointer moves while a card shows: the card ignores the mouse, so over it no source
     /// sees the pointer leave it; this sees it at once (no wait for a deadline).
-    private var moveMonitor: LocalEventMonitor?
+    private(set) var moveMonitor: LocalEventMonitor?
     /// The card's parent and whether it took mouse moves before the card showed: while a
     /// card shows, the parent takes them everywhere, so moves over the card reach `moveMonitor`.
     private var movesParent: (window: NSWindow, accepted: Bool)?
