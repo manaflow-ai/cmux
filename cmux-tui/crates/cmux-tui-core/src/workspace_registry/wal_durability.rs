@@ -399,7 +399,8 @@ mod tests {
         for _ in 0..100 {
             connection.execute("INSERT INTO t VALUES (?1)", [&blob]).unwrap();
         }
-        durability.wait_durable();
+        // A reply is out: the syncer looks at the WAL and checkpoints it.
+        durability.request_flush();
         // The checkpoint follows the flush on the syncer thread.
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
         let db_len = loop {
