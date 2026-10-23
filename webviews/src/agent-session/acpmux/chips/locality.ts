@@ -7,6 +7,7 @@
 // they must, and every waiting image, video and path chip asks the host once more. The host
 // decides what loads; the page only waits and asks.
 import { useSyncExternalStore } from "react";
+import { callChipHost } from "./host";
 
 export type Locality = { locality: "local" | "remote" | "unknown"; machine?: string };
 
@@ -20,6 +21,24 @@ const listeners = new Set<() => void>();
 /// Whether a host answer is the pending refusal.
 export function isPending(reply: unknown): boolean {
   return (reply as { pending?: unknown } | null | undefined)?.pending === true;
+}
+
+type Request = { generation: number; reply: Promise<unknown> };
+const requests = new Map<string, Request>();
+
+/// The host's answer to `method` for `src` under the current locality: one request per source and
+/// locality, shared by every image and player that shows it. A pending answer stays shared until
+/// the locality changes; any other is asked afresh next time.
+export function askOnce(method: string, src: string): Request {
+  const key = `${method}\u0000${src}`;
+  const known = requests.get(key);
+  if (known?.generation === generation) return known;
+  const request = { generation, reply: callChipHost(method, { src }) };
+  requests.set(key, request);
+  void request.reply.then((reply) => {
+    if (!isPending(reply) && requests.get(key) === request) requests.delete(key);
+  });
+  return request;
 }
 
 export function currentLocality(): Locality {
@@ -41,6 +60,7 @@ export function setLocality(value: unknown): void {
   const before = current;
   current = { locality: next.locality!, ...(machine ? { machine } : {}) };
   generation += 1;
+  requests.clear();
   for (const reset of resets) reset(before);
   for (const listener of listeners) listener();
 }

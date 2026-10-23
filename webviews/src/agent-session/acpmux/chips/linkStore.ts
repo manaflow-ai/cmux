@@ -116,12 +116,10 @@ function ask(path?: string, url?: string) {
   }
 }
 
-/// A new locality asks again what the host answered pending. Moving away from this Mac also asks
-/// again every path it answered: those answers were about this Mac's files.
-onLocalityChange((before) => {
-  const again = [...paths.keys()].filter(
-    (path) => pending.has(path) || (before.locality === "local" && !asking.has(path)),
-  );
+/// A new locality asks again every path the host answered (pending or not): each answer was about
+/// the old locality's files. A path still being asked is asked again when its stale answer lands.
+onLocalityChange(() => {
+  const again = [...paths.keys()].filter((path) => pending.has(path) || !asking.has(path));
   pending.clear();
   for (const path of again) {
     paths.set(path, null);

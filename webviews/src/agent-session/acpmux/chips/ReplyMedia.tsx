@@ -16,9 +16,8 @@ import { Dialog } from "../../../ui/Dialog";
 import { keyedIconProps } from "../../../ui/DialogButton";
 import { useT } from "../i18n";
 import { Close, Expand } from "../conversation/icons";
-import { callChipHost } from "./host";
 import { usePathInfo, useReplyPolicy } from "./linkStore";
-import { isPending, localityGeneration, onLocalityChange, useLocalityGeneration } from "./locality";
+import { askOnce, isPending, localityGeneration, onLocalityChange, useLocalityGeneration } from "./locality";
 import { useNearViewport } from "../useNearViewport";
 import { isDeniedPath, linkPath, pathName } from "./paths";
 
@@ -73,8 +72,8 @@ function useMediaLoad(source: string, auto: boolean) {
   const ask = useCallback(
     (byClick: boolean) => {
       setState("loading");
-      const asked = localityGeneration();
-      void callChipHost("media.load", { src: source }).then((reply) => {
+      const { generation: asked, reply: answer } = askOnce("media.load", source);
+      void answer.then((reply) => {
         const url = (reply as { src?: unknown } | undefined)?.src;
         // Pending, or any answer about a locality that has changed since (a grant, a refusal, web
         // or local): nothing is kept, and it is asked again under the new one.

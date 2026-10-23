@@ -18,7 +18,7 @@ import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { callChipHost } from "./host";
 import { DataUrlCache, IMAGE_CACHE_MAX_CHARS, IMAGE_CACHE_MAX_ENTRIES } from "./imageCache";
 import { usePathInfo, useReplyPolicy } from "./linkStore";
-import { isPending, localityGeneration, onLocalityChange, useLocalityGeneration } from "./locality";
+import { askOnce, isPending, localityGeneration, onLocalityChange, useLocalityGeneration } from "./locality";
 import { isRemoteMedia, mediaKind, RemoteMedia, ReplyMedia } from "./ReplyMedia";
 import { isDeniedPath, linkPath, pathName } from "./paths";
 
@@ -79,8 +79,8 @@ function useImageLoad(src: string, auto: boolean) {
   const [state, setState] = useState<State>(() => initialState(src));
   const load = (byClick: boolean) => {
     setState({ kind: "loading" });
-    const asked = localityGeneration();
-    void callChipHost("image.load", { src }).then((reply) => {
+    const { generation: asked, reply: answer } = askOnce("image.load", src);
+    void answer.then((reply) => {
       const data = (reply as { src?: unknown } | undefined)?.src;
       started.delete(src);
       // Pending, or any answer about a locality that has changed since (an image, a refusal, web
