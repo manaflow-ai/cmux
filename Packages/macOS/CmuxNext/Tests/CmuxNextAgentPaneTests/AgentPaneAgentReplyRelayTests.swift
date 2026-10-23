@@ -116,4 +116,41 @@ struct AgentPaneAgentReplyRelayTests {
         #expect(unsent.contains("reply.daemon_unavailable"), "\(unsent)")
         #expect(sent.replies.isEmpty)
     }
+
+    /// A prewarmed spare opens its socket before its tab wires the sender, and a provisional tab's
+    /// rekey wires a new one: each reply goes to the sender wired when it is sent.
+    @Test func aReplyGoesToTheSenderWiredWhenItIsSent() async throws {
+        let server = AcpmuxStandInServer()
+        try await server.start()
+        defer { server.stop() }
+        server.answer("_acpmux/app_reply", with: Self.signed(from: "s"))
+        let inbox = AgentPaneRelayedAllowTests.PageInbox()
+        let transport = AgentPaneTransport()
+        transport.deliver = { event, done in inbox.deliver(event.frames); done() }
+        let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
+        #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
+        transport.sessions.add("s")
+
+        let spare = Sent()
+        transport.sendAgentReply = { reply in
+            spare.replies.append(reply)
+            return AgentPaneAgentReply.Stored(id: "msg_9", threadId: reply.threadId)
+        }
+        transport.gestures.record()
+        #expect(await transport.send(connection: id, frames: [Self.reply(id: 7, session: "s")]) == nil)
+        let first = await inbox.frame(containing: #""id":7"#)
+        #expect(first.contains("msg_9"), "a sender wired after open was not used: \(first)")
+        #expect(spare.replies.count == 1)
+
+        let rekeyed = Sent()
+        transport.sendAgentReply = { reply in
+            rekeyed.replies.append(reply)
+            return AgentPaneAgentReply.Stored(id: "msg_10", threadId: reply.threadId)
+        }
+        transport.gestures.record()
+        #expect(await transport.send(connection: id, frames: [Self.reply(id: 8, session: "s")]) == nil)
+        let second = await inbox.frame(containing: #""id":8"#)
+        #expect(second.contains("msg_10"), "the replaced sender was used: \(second)")
+        #expect(spare.replies.count == 1 && rekeyed.replies.count == 1)
+    }
 }
