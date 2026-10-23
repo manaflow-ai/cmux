@@ -32,6 +32,23 @@ import Testing
         #expect(runs == 1)
         #expect(token == nil)
     }
+
+    /// A site that still calls `removeObserver` with the token (a missed migration) stops
+    /// observing instead of silently doing nothing (`removeObserver(_: Any)` would take it). The two
+    /// deprecation warnings below are the point of the test.
+    @Test func removeObserverWithTheTokenStopsDelivery() {
+        let center = NotificationCenter()
+        var runs = 0
+        let token = MainActorObservation(name, center: center) { runs += 1 }
+        center.post(name: name, object: nil)
+        center.removeObserver(token)
+        center.post(name: name, object: nil)
+        let optional: MainActorObservation? = MainActorObservation(name, center: center) { runs += 1 }
+        center.removeObserver(optional)
+        center.post(name: name, object: nil)
+        #expect(runs == 1)
+        withExtendedLifetime((token, optional)) {}
+    }
 }
 
 @MainActor

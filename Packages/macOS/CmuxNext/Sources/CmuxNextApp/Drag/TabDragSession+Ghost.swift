@@ -152,7 +152,6 @@ extension TabDragSession {
     func removeMonitors(_ drag: Drag) {
         if let monitor = drag.monitor { NSEvent.removeMonitor(monitor) }
         drag.monitor = nil
-        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
         resignObserver = nil
     }
 

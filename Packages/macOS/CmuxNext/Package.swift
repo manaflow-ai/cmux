@@ -1130,6 +1130,11 @@ let package = Package(
             dependencies: [.product(name: "Atomics", package: "swift-atomics")],
             swiftSettings: daemonSwiftSettings
         ),
+        .testTarget(
+            name: "CmuxNextCompatTests",
+            dependencies: ["CmuxNextCompat"],
+            swiftSettings: uiSwiftSettings
+        ),
         // The error journal (`cmux errors`): one bounded, deduplicated NDJSON log of the
         // app's warnings, errors, faults and crashes, written off the main actor.
         .target(

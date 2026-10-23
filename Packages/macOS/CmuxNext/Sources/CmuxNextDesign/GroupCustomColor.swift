@@ -136,7 +136,6 @@ public final class GroupColorPanel: NSObject {
         borrowed = nil
         onColor = nil
         closeObserver = nil
-        closeObserver = nil
     }
 
     @objc private func changed(_ sender: Any?) {
