@@ -27,6 +27,7 @@ const initialSnapshot: AcpmuxSnapshot = {
           efforts: ["low", "medium", "high"],
           defaultEffort: "medium",
           fast: true,
+          inlineFast: true,
           contextWindow: 200_000,
         },
         { id: "gpt-6-astra", name: "GPT-6 Astra", efforts: ["low", "high"] },
@@ -139,8 +140,8 @@ const quickRows = '.acpmux-quick-menu [role="menuitemradio"]';
 const openModel: Play = async (ctx) => {
   await ctx.click(MODEL);
   await ctx.waitFor(() => ctx.document.querySelector(quickRows) !== null);
-  if (!ctx.document.querySelector(".acpmux-quick-menu .acpmux-quick-fast"))
-    throw new Error("the model menu has no Fast mode row");
+  if (!ctx.document.querySelector(".acpmux-model .acpmux-fast"))
+    throw new Error("the model picker has no inline Fast bolt");
 };
 
 const modelFocus: Play = async (ctx) => {
@@ -223,13 +224,11 @@ const effortPick: Play = async (ctx) => {
 };
 
 const fastMode: Play = async (ctx) => {
-  await ctx.click(MODEL);
-  const fast = { selector: ".acpmux-quick-menu .acpmux-quick-fast" } as const;
+  const fast = { selector: ".acpmux-model .acpmux-fast" } as const;
   await ctx.waitFor(() => ctx.document.querySelector(fast.selector) !== null);
-  if (ctx.find(fast).getAttribute("aria-checked") !== "false") throw new Error("Fast mode must start off");
-  // A checkbox row keeps the menu open, so the row shows the confirmed state in place.
+  if (ctx.find(fast).getAttribute("aria-pressed") !== "false") throw new Error("Fast mode must start off");
   await ctx.click(fast);
-  await ctx.waitFor(() => ctx.document.querySelector(fast.selector)?.getAttribute("aria-checked") === "true");
+  await ctx.waitFor(() => ctx.document.querySelector(fast.selector)?.getAttribute("aria-pressed") === "true");
 };
 
 const morePicker: Play = async (ctx) => {
@@ -321,7 +320,7 @@ export default componentEntry<Props>({
       props: {},
     },
     "model-menu": {
-      note: "The model button opens its one menu: this harness's models, numbered, then Effort, More models and Fast mode.",
+      note: "The model button opens its one menu: this harness's models, numbered, then Effort and More models; the free Fast bolt stays beside the model name.",
       props: {},
       play: openModel,
     },
@@ -357,7 +356,7 @@ export default componentEntry<Props>({
       play: effortPick,
     },
     "fast-mode": {
-      note: "Fast mode is the model menu's last row, a checkbox (Leo 2026-10-20): a click turns it on, and the menu shows it checked.",
+      note: "The free Fast mode is the bolt beside the model name: a click turns it on and the model picker stays the one control.",
       props: {},
       play: fastMode,
     },

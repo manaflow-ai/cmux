@@ -339,6 +339,21 @@ export default agentPaneEntry({
         if (dots !== 3) throw new Error(`the minimal page shows ${dots} dots, not the three`);
       },
     },
+    "layout-codex-tabs-above": {
+      note: "Codex-style comparison: project and machine context sit above the composer, with the model name and a free Fast bolt together in one picker button.",
+      ready: newTab({ template: "minimal", pageWidgets: ["greeting"] }),
+      snapshot: noChat(manySessions(12)),
+    },
+    "layout-claude-chips-below": {
+      note: "Claude-style comparison: the composer stays spacious while project, machine, permission and model controls sit in the quiet row below it; paid Fast remains in the model menu.",
+      ready: newTab({ template: "default" }),
+      snapshot: noChat(manySessions(12)),
+    },
+    "layout-current-fixed": {
+      note: "Current fixed layout: the work-on headline names the project picker, real project and machine icons remain visible, and the existing glass spacing is preserved.",
+      ready: newTab({ template: "minimal", pageWidgets: ["greeting"] }),
+      snapshot: noChat(manySessions(12)),
+    },
     // A user who had turned the greeting off before it went (`"greeting": false` in cmux.json, which
     // the host sends as `headlineOff`): the composer stays where it sat for them, at the page's top
     // padding, with no room kept for the headline.

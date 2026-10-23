@@ -56,7 +56,7 @@ export function useSpeedToggle(speed: SpeedTiers | undefined): boolean {
 /// disc, no fill at rest; hover draws the row's soft pill (composerLocation.css `.acpmux-fast`). A
 /// click steps to the next offered tier, and from the last one back to off; with one tier it is
 /// on/off.
-export function FastToggle({ speed }: { speed: SpeedTiers }) {
+export function FastToggle({ speed, inline = false }: { speed: SpeedTiers; inline?: boolean }) {
   const t = useT();
   if (speed.tiers.length === 0) return null;
   const at = speed.tiers.indexOf(speed.current ?? "");
@@ -71,6 +71,34 @@ export function FastToggle({ speed }: { speed: SpeedTiers }) {
   const label = t("composer.speedLabel", { tier: name(at) });
   return (
     <span className="acpmux-speed">
+      {inline ? (
+        <span
+          role="button"
+          tabIndex={0}
+          className="acpmux-fast"
+          data-tier={at < 0 ? "off" : at === 0 ? "fast" : "ultrafast"}
+          aria-pressed={at >= 0}
+          aria-label={label}
+          {...tooltipProps(t("composer.speedTooltip", { tier: name(at), next: name(nextAt) }), undefined)}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onClick={(event) => {
+            event.stopPropagation();
+            speed.onPick(nextAt < 0 ? speed.off : speed.tiers[nextAt]!);
+          }}
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              speed.onPick(nextAt < 0 ? speed.off : speed.tiers[nextAt]!);
+            }
+          }}
+        >
+          <BoltIcon />
+        </span>
+      ) : (
       <button
         type="button"
         className="acpmux-fast"
@@ -85,7 +113,8 @@ export function FastToggle({ speed }: { speed: SpeedTiers }) {
         <BoltIcon />
         <span>{name(at < 0 ? 0 : at)}</span>
       </button>
-      <Menu>
+      )}
+      {!inline && <Menu>
         <MenuButton className="acpmux-speed-choices" label={label} data-menu="Speed">
           ⌄
         </MenuButton>
@@ -98,7 +127,7 @@ export function FastToggle({ speed }: { speed: SpeedTiers }) {
             ))}
           </MenuRadioGroup>
         </MenuPopup>
-      </Menu>
+      </Menu>}
     </span>
   );
 }

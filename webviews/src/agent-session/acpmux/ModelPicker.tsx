@@ -32,6 +32,7 @@ import {
   PickerOptionList,
 } from "../../ui/PickerPrimitives";
 import { ScrollArea } from "../../ui/ScrollArea";
+import { FastToggle } from "./FastToggle";
 
 type HarnessChoice = {
   id: string;
@@ -45,6 +46,7 @@ type HarnessChoice = {
     unavailable?: string;
     efforts?: string[];
     fast?: boolean;
+    inlineFast?: boolean;
     release?: string;
   }[];
   unavailable?: string;
@@ -280,6 +282,7 @@ export function ModelPicker(props: ModelPickerProps) {
     onHarnessEnable,
     onCombo,
     fastMode,
+    speed,
     catalogRefresh,
     signedOut,
     onLogIn,
@@ -932,6 +935,7 @@ export function ModelPicker(props: ModelPickerProps) {
           onMore={more}
         >
           {chipFace}
+          {speed && <FastToggle speed={speed} inline />}
           {/* A quiet label, as Claude Code's: the model, then its effort, and no chevron. */}
           {detail && (
             <span
@@ -978,6 +982,7 @@ export function ModelPicker(props: ModelPickerProps) {
           {...press}
         >
           {chipFace}
+          {speed && <FastToggle speed={speed} inline />}
           <ChevronIcon />
         </PickerButton>
       )}

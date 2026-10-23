@@ -20,7 +20,7 @@ export const MOVABLE_WIDGETS = ["projects", "actions", "chats"] as const;
 export type MovableWidget = (typeof MOVABLE_WIDGETS)[number];
 
 /// What Minimal shows when the host sends no list (Settings' defaults): nothing but the composer.
-const MINIMAL_DEFAULT_LIST: readonly PageWidget[] = [];
+const MINIMAL_DEFAULT_LIST: readonly PageWidget[] = ["greeting"];
 const MINIMAL_DEFAULT: PageWidgets = new Set<PageWidget>(MINIMAL_DEFAULT_LIST);
 /// The ambient widgets (newtab/ambient.ts): every layout shows them when the user turns them on.
 /// They keep their own row under the composer, so the edit mode does not move them.

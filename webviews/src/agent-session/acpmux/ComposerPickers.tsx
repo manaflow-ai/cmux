@@ -13,7 +13,7 @@ import {
 import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot } from "./model";
 import type { SpeedSection } from "./EffortPicker";
-import { type SpeedTiers, useSpeedToggle } from "./FastToggle";
+import { type SpeedTiers } from "./FastToggle";
 import { pendingSpeed } from "./pendingSpeed";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker, pickerFaceHarness } from "./ModelPicker";
@@ -229,8 +229,8 @@ export function ComposerPickers({
   // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts).
   // The model button is the row's one model control (Leo 2026-10-20): it names the model and its
   // effort ("Opus 5.5  Medium") and opens the compact menu, which carries Effort, More models,
-  // Account and, for Claude Code, Fast mode. There is no effort chip beside it; Codex's speed is the
-  // bolt left of the mic (FastToggle.tsx), never a menu row as well.
+  // Account and, when the model advertises a free inline toggle, Fast mode. Paid or otherwise
+  // non-toggleable Fast remains in the model menu.
   const { showContextUsage, harnessSwitch } = useComposerSettings();
   const chatAccounts = useChatAccounts();
   const summary = snapshot.summary;
@@ -406,16 +406,24 @@ export function ComposerPickers({
           onPick: (value: string) => onEffort(fastOption.id, value),
         }
       : undefined;
-  // Codex keeps its bolt left of the mic; Claude Code's Fast mode is a row of the model button's
-  // menu (Leo 2026-10-21: "REMOVE it for Claude, where Fast mode lives inside the menu. KEEP it for
-  // Codex"). A second Codex profile ("codex-work") is still the Codex family.
-  const codex = /codex/i.test(summary?.family ?? "") || /codex/i.test(summary?.harness ?? "");
+  // The catalog marks models whose Fast tier is a free, easy inline toggle. Paid or otherwise
+  // non-toggleable Fast modes stay inside the model menu, regardless of harness name.
+  const inlineFast =
+    catalogModel?.inlineFast === true ||
+    (catalogModel?.serviceTiers?.length ?? 0) > 0 ||
+    snapshot.catalog.some(
+      (entry) =>
+        entry.id === summary?.harness &&
+        entry.models.some(
+          (model) => model.id === runningModel && (model.inlineFast === true || (model.serviceTiers?.length ?? 0) > 0),
+        ),
+    );
   // Fast mode is offered where the running model honors it, or while it is still on.
   const fastOffered =
     fastMode !== undefined && (catalogModel?.fast !== false || fastMode.currentValue !== fastMode.offValue);
   // The bolt: every tier the option offers past off.
   const speedTiers: SpeedTiers | undefined =
-    codex && fastOption && fastMode && fastOffered
+    inlineFast && fastOption && fastMode && fastOffered
       ? {
           current: fastOption.currentValue,
           off: fastMode.offValue,
@@ -425,7 +433,7 @@ export function ComposerPickers({
         }
       : undefined;
   // A Codex chip with no composer to draw the bolt (a bare gallery row) keeps Fast mode in its menu.
-  const bolted = useSpeedToggle(speedTiers) && speedTiers !== undefined;
+  const bolted = speedTiers !== undefined;
   const model = models.find((choice) => choice.id === summary?.model);
   const effortName = efforts.find((choice) => choice.id === effort?.currentValue)?.name;
   // Recents follow what the session actually runs, whichever control changed it,
@@ -907,6 +915,7 @@ export function ComposerPickers({
           harnessFixed={locked}
           {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
           fastMode={bolted ? undefined : fastMode}
+          {...(speedTiers ? { speed: speedTiers } : {})}
           catalogRefresh={catalogRefresh}
           harnessNotes={
             snapshot.switching?.phase === "failed"

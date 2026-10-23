@@ -137,19 +137,19 @@ test("Minimal is the default layout and the first dot; no other layout is gone",
   expect(PAGE_STYLES).toEqual(["minimal", "cards", "default", "composer", "threads", "console", "classic"]);
 });
 
-test("by default Minimal is the composer alone, with its project strip and no greeting", async () => {
+test("by default Minimal shows the work-on headline with its project strip", async () => {
   const root = await render("minimal", undefined);
   try {
     expect(parts()).toEqual({
       minimal: true,
-      headline: null,
+      headline: "What should we work on in atlas?",
       stage: 0,
       projects: 0,
       actions: 0,
       chats: 0,
       strip: 1,
     });
-    // No greeting of any kind: no greeting element, no time-of-day text.
+    // No time-of-day greeting.
     expect(host.querySelector(".nt-greeting")).toBeNull();
     expect(host.textContent).not.toMatch(/Good (morning|afternoon|evening)/);
   } finally {
@@ -290,7 +290,7 @@ test("the handshake's pageWidgets: known names in order, Settings' defaults when
   expect(newTabHost({ newTab: { pageWidgets: ["chats"] } })?.pageWidgets).toEqual(["chats"]);
   expect(newTabHost({ newTab: { pageWidgets: [] } })?.pageWidgets).toEqual([]);
   expect(newTabHost({ newTab: {} })?.pageWidgets).toBeUndefined();
-  expect([...shownPageWidgets("minimal")]).toEqual([]);
+  expect([...shownPageWidgets("minimal")]).toEqual(["greeting"]);
   expect([...shownPageWidgets("minimal", [])]).toEqual([]);
   expect([...shownPageWidgets("cards", ["greeting"])]).toEqual(
     PAGE_WIDGETS.filter((widget) => widget !== "greeting" && widget !== "weather" && widget !== "machines"),
