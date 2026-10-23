@@ -76,7 +76,7 @@ final class CEFHostView: NSView {
             layer?.backgroundColor = nil
             return
         }
-        if let pageBackdrop {
+        if inLiveResize, let pageBackdrop {
             layer?.backgroundColor = pageBackdrop
             return
         }
