@@ -325,6 +325,26 @@ def in_loop(version: Version, index: int) -> tuple[bool, list[int]]:
     return bool(loops), loops
 
 
+# A deinit that tests for the main thread (`guard Thread.isMainThread else { return }`, `if !Thread.isMainThread`,
+# `if Thread.isMainThread { MainActor.assumeIsolated { ... } }`, `Thread.current.isMainThread`, `pthread_main_np()`)
+# skips its cleanup whenever the last reference goes on another thread: the task, stream or observer it should
+# stop runs on.
+MAIN_ONLY_GUARD = re.compile(r"\bThread(\.current)?\.isMainThread\b|\bpthread_main_np\s*\(")
+DEINIT_OPENER = re.compile(r"\bdeinit\b[^{]*\{")
+DEINIT_MAIN_ALLOW = re.compile(r"//\s*deinit-main-allow:\s*\S")
+
+
+def in_deinit(version: Version, index: int) -> tuple[bool, list[int]]:
+    """The main-thread test's nearest enclosing func, init, deinit or Task body is a deinit."""
+    code = code_of(version.lines[index])
+    match = MAIN_ONLY_GUARD.search(code)
+    prefix = code[:match.start()] if match else ""
+    openers = enclosing_openers(version.lines, index, FUNC_STOP, prefix)
+    if openers and DEINIT_OPENER.search(openers[-1][0]):
+        return True, [openers[-1][1]]
+    return False, []
+
+
 SINGLETON = re.compile(r"\bstatic\s+(let|var)\s+(shared|sharedInstance|instance)\b")
 # CLAUDE.md names these too; as stored statics of a class or actor, or mutable ones, they hold runtime state.
 # A struct or enum's `static let standard = Style()` is a value constant and passes.
@@ -798,6 +818,13 @@ RULES = (
          "`// main-proof: <why this always runs on main>` (e.g. an observer registered with queue: .main)",
          "// main-proof: <why>",
          line_rule(r"\bMainActor\.assumeIsolated\b", "main-proof:")),
+    Rule("deinit-main-only", "A deinit that tests for the main thread (and skips its cleanup off main)",
+         "the last reference often goes on another thread (a task, a callback, an action's scope): the deinit then "
+         "skips its cleanup and the task, stream or observer it owns runs on for good",
+         "cancel the Sendable handles (Task, AsyncStream continuation, DemandTimer, a Sendable connection) directly "
+         "in the nonisolated deinit, and hold observers in a MainActorObservation, which removes itself when released",
+         "// deinit-main-allow: <the main-only teardown and why skipping it off main is safe>",
+         matcher_rule(Matcher(MAIN_ONLY_GUARD, DEINIT_MAIN_ALLOW, in_deinit))),
     Rule("unchecked-sendable", "`@unchecked Sendable` / `nonisolated(unsafe)` without a safety argument",
          "it switches off the data-race checker; without a written argument nobody can review it",
          "an actor, a Sendable value type, or CmuxNextCompat `Mutex` around the state; when it is truly safe, "
