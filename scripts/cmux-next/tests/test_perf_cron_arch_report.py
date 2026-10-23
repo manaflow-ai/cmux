@@ -7,13 +7,14 @@ Covered: a rise opens the issue with the row, the packages that rose, the first 
 the range; the same rise updates it; a fall closes it; a new rise reopens it; the history is capped; a run that
 cannot judge every row (a renamed row, another method version, a missing ratchet file, a failed count) notes it in
 the issue, opens or reopens it when needed, and never closes it; a commit with neither ratchet file is only logged;
-an exceptions entry already in the recorded total allows no new rise, one added after it raises the limit like the
-pre-push rule, and an unreadable measured_sha applies none; an older commit or a bisect step after a newer point
-changes nothing; a rewritten branch (the last point diverged, or its commit is gone) restarts the trend and says
+an exceptions entry --update applied (applied_sha) allows no new rise, a pending one (no applied_sha) raises the
+limit like the pre-push rule and an invalid one is ignored, also when the measured_sha was rebased away; an older
+commit or a bisect step after a newer point changes nothing; a kept point whose sha is not a sha is dropped before it
+reaches git or GitHub; a rewritten branch (the last point diverged, or its commit is gone) restarts the trend and says
 so; a shallow, sparse, blobless clone whose HEAD is not the measured commit (made by git clone, and the way
 actions/checkout makes it) is counted with a few fetches, not one per blob; a count past the deadline is still
 noted in the issue in time; an unreadable state is never overwritten; with no repository or GH_TOKEN the point is
-kept and no GitHub request is made; the in-process run_report() and report_finished() change only their own keys.
+kept and no GitHub request is made, also in a dry run; the in-process run_report() and report_finished() change only their own keys.
 Run: python3 -I scripts/cmux-next/tests/test_perf_cron_arch_report.py (not a CI job)."""
 import contextlib, copy, importlib.util, io, json, os, subprocess, tempfile, time, unittest, urllib.error
 from unittest import mock
@@ -485,48 +486,63 @@ class ArchReportTests(unittest.TestCase):
         self.assertEqual(self.state_text(), "{not json")
         self.assertIn("bad arguments", self.capture(lambda: report.main(["--state", self.state])))
 
-    def recorded(self, entries_then, entries_now):
-        """(m, the ratchet file): the file --update wrote at m's child, recording m's totals, and m's own file had
-        entries_then; the file now has entries_now. Its commit is the first point (at the ratchet: no issue)."""
-        self.commit("before --update", counts(5, 2), ratchet=ratchet(exceptions=entries_then))
-        m = git(self.repo, "rev-parse", "HEAD")
-        now = ratchet(measured_sha=m, exceptions=entries_now)
-        self.run_report(self.commit("arch-ratchet.py --update", ratchet=now))
-        self.assertEqual(self.gh.writes(), [])
-        return m, now
-
-    def test_an_entry_already_in_the_recorded_total_allows_no_new_rise(self):
-        # The entry (allow 5) was in the file when --update recorded 5; a later +3 with no new entry (a skip reason,
-        # --no-verify, a merge) is a regression, not "within its exception entries".
-        m, file = self.recorded([entry(5)], [entry(5)])
-        sha = self.commit("feat: three singletons, no entry", counts(8, 5), ratchet=file)
-        out = self.run_report(sha)
-        body = self.own_issues()[0]["body"]
-        self.assertIn("| stateful_singletons | CmuxNextBrowser 2→5 | 5 | 8 |", body, out)
-        self.assertIn(f"were in the file when the total was recorded at {m[:12]}", body)
+    def test_an_entry_update_applied_allows_no_new_rise(self):
+        # The pending entry E (allow 2) covers a +2; --update records 7 and marks E applied_sha. A later +2 with no new
+        # entry (a skip reason, --no-verify, a GitHub merge) is a regression, not "within E" again.
+        a = self.commit("baseline", counts(5, 2))
+        self.run_report(a)
+        e = entry(2)
+        b = self.commit("feat: two reviewed singletons, their entry", counts(7, 4), ratchet=ratchet(exceptions=[e]))
+        out = self.run_report(b)
+        self.assertEqual(self.own_issues(), [], out)
+        applied = ratchet(singletons=7, browser=4, measured_sha=b, exceptions=[{**e, "applied_sha": b}])
+        out = self.run_report(self.commit("arch-ratchet.py --update", ratchet=applied))
+        self.assertEqual(self.own_issues(), [], out)
+        out = self.run_report(self.commit("feat: two more, no entry", counts(9, 6), ratchet=applied))
+        issues = self.own_issues()
+        self.assertEqual(len(issues), 1, out)
+        body = issues[0]["body"]
+        self.assertIn("| stateful_singletons | CmuxNextBrowser 4→6 | 7 | 9 |", body, out)
+        self.assertIn(f"this entry was folded into the total at {b[:12]} (applied_sha)", body)
+        self.assertIn(report.exception_key(e), body, "the entry prints without its applied_sha")
         self.assertNotIn("--update", body, "the issue never tells anyone to record an unapproved rise")
 
-    def test_an_entry_added_after_the_recorded_total_raises_the_limit_like_the_pre_push_rule(self):
-        m, _ = self.recorded([], [])
-        file = ratchet(measured_sha=m, exceptions=[entry(1)])
+    def test_a_pending_entry_raises_the_limit_like_the_pre_push_rule(self):
+        self.run_report(self.commit("baseline", counts(5, 2)))
+        file = ratchet(exceptions=[entry(1), entry(4, why=" "), entry(4, date="soon"), entry(4, row="no_such_row")])
         out = self.run_report(self.commit("feat: one reviewed singleton, its entry", counts(6, 3), ratchet=file))
         self.assertEqual(self.own_issues(), [], out)
-        self.assertIn("run scripts/cmux-next/arch-ratchet.py --update to record it", out)
+        self.assertIn("run scripts/cmux-next/arch-ratchet.py --update to fold them into the total", out)
+        self.assertEqual(out.count("ignored exceptions entry"), 3, out)
         out = self.run_report(self.commit("feat: two more, no entry", counts(8, 5), ratchet=file))
         body = self.own_issues()[0]["body"]
         self.assertIn("| stateful_singletons | CmuxNextBrowser 2→5 | 5 + 1 | 8 |", body, out)
-        self.assertIn("+1 of the rise (+3 over the total) is allowed", body)
+        self.assertIn("+1 of the rise (+3 over the total recorded at 000000000000) is allowed by pending entries", body)
         self.assertIn("The rest (+2) needs the fix.", body)
 
-    def test_an_unreadable_measured_sha_applies_no_allowance(self):
-        gone = "f" * 40
-        file = ratchet(measured_sha=gone, exceptions=[entry(1)])
+    def test_a_measured_sha_rebased_away_still_applies_the_pending_entries(self):
+        # The file at measured_sha is never read: a measured_sha that was rebased away and never pushed (the brief
+        # rebases before every push) neither fails a fetch nor drops the pending allowance.
+        file = ratchet(measured_sha="f" * 40, exceptions=[entry(1)])
         self.run_report(self.commit("baseline", counts(5, 2), ratchet=file))
-        out = self.run_report(self.commit("feat: one singleton", counts(6, 3), ratchet=file))
-        body = self.own_issues()[0]["body"]
-        self.assertIn("| stateful_singletons | CmuxNextBrowser 2→3 | 5 | 6 |", body, out)
-        self.assertIn("Which `exceptions` entries are newer than the recorded totals is not known", body)
-        self.assertIn(f"measured_sha {gone[:12]} cannot be read", body)
+        out = self.run_report(self.commit("feat: one reviewed singleton", counts(6, 3), ratchet=file))
+        self.assertEqual(self.own_issues(), [], out)
+        self.assertNotIn("fetching", out)
+        self.assertNotIn("OVER", out)
+
+    def test_a_kept_point_whose_sha_is_not_a_sha_is_dropped(self):
+        a = self.commit("baseline", counts(5, 2))
+        state = self.load_state()
+        bad = "--output=" + os.path.join(self.tmp.name, "written-by-git")
+        state[report.STATE_KEY] = [{"sha": bad, "at": "2026-10-22T00:00:00Z", "method_version": 1,
+                                    "totals": {"stateful_singletons": 4}, "packages": {}}]
+        with open(self.state, "w") as f:
+            json.dump(state, f)
+        out = self.run_report(a)
+        self.assertNotIn("restarts", out, "the bad point is not a point: there is no trend to restart")
+        self.assertEqual([p["sha"] for p in self.load_state()[report.STATE_KEY]], [a])
+        self.assertFalse([c for c in self.gh.calls if "--output" in c[1]], "the bad sha never reaches a GitHub path")
+        self.assertFalse(os.path.exists(bad.split("=", 1)[1]))
 
     def test_the_count_does_not_get_the_jobs_token_by_accident(self):
         # Not a security boundary (the child can read its parent's environment): it stops an accidental use only.
@@ -591,6 +607,13 @@ class ArchReportTests(unittest.TestCase):
             out = self.run_report(d, "--dry-run")
         self.assertIn("no repository or GH_TOKEN: the issue is not kept this run", out)
         self.assertEqual(self.gh.calls, [], "with no repository, also a dry run makes no GitHub request")
+        self.assertEqual(self.state_text(), before)
+        with mock.patch.dict(os.environ):
+            os.environ.pop("GH_TOKEN")
+            out = self.run_report(d, "--dry-run")
+        self.assertIn("no repository or GH_TOKEN: the issue is not kept this run", out)
+        self.assertNotIn("cannot keep the issue", out)
+        self.assertEqual(self.gh.calls, [], "with a repository but no token, also a dry run makes no GitHub request")
         self.assertEqual(self.state_text(), before)
 
     def capture(self, fn):
