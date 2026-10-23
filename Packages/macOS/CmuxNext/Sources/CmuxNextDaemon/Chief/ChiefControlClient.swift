@@ -13,12 +13,43 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
         public var effort: String?
         /// `fast` (the harness's priority tier), else nil or `default`: the harness's own.
         public var speed: String?
+        /// The reaction classifier (a416): its harness, model and instructions ("" in `engine`: the
+        /// host's Claude route, the built-in prompt), and whether a tapback may wake the Chief. In
+        /// `engine` the brain's resolution (engine.json over cmux.json); in `choice` this Chief's own.
+        /// Nil from an older brain.
+        public var classifierHarness: String?
+        public var classifierModel: String?
+        public var classifierPrompt: String?
+        public var reactionsCanWake: Bool?
 
         public init(harness: String? = nil, model: String? = nil, effort: String? = nil, speed: String? = nil) {
             self.harness = harness
             self.model = model
             self.effort = effort
             self.speed = speed
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case harness, model, effort, speed
+            case classifierHarness = "classifier_harness", classifierModel = "classifier_model"
+            case classifierPrompt = "classifier_prompt", reactionsCanWake = "reactions_can_wake"
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            harness = try c.decodeIfPresent(String.self, forKey: .harness)
+            model = try c.decodeIfPresent(String.self, forKey: .model)
+            effort = try c.decodeIfPresent(String.self, forKey: .effort)
+            speed = try c.decodeIfPresent(String.self, forKey: .speed)
+            classifierHarness = try c.decodeIfPresent(String.self, forKey: .classifierHarness)
+            classifierModel = try c.decodeIfPresent(String.self, forKey: .classifierModel)
+            classifierPrompt = try c.decodeIfPresent(String.self, forKey: .classifierPrompt)
+            // engine.json may keep it as the string a set sent ("true"/"false").
+            if let on = try? c.decodeIfPresent(Bool.self, forKey: .reactionsCanWake) {
+                reactionsCanWake = on
+            } else {
+                reactionsCanWake = (try? c.decodeIfPresent(String.self, forKey: .reactionsCanWake)).flatMap { $0.flatMap(Bool.init) }
+            }
         }
     }
 
@@ -215,7 +246,21 @@ public struct ChiefControlClient: Sendable {
     public func setChiefEngine(harness: String? = nil, model: String? = nil, effort: String? = nil,
                                speed: String? = nil, chief: String? = nil) async throws(ChiefControlError) -> ChiefEngineReport {
         let fields = [("harness", harness), ("model", model), ("effort", effort), ("speed", speed)]
-        let params = Self.naming(chief, Dictionary(uniqueKeysWithValues: fields.compactMap { key, value in value.map { (key, JSONValue.string($0)) } }))
+        return try await setChiefEngine(Dictionary(uniqueKeysWithValues: fields.compactMap { key, value in value.map { (key, $0) } }), chief: chief)
+    }
+
+    /// The fields `chief.engine.set` takes: the turns' engine, and the reaction classifier (a416).
+    public static let engineSetKeys: Set<String> = ["harness", "model", "effort", "speed", "classifier_harness",
+                                                    "classifier_model", "classifier_prompt", "reactions_can_wake"]
+
+    /// `params` of a `chief.engine.set` of `fields` (only ``engineSetKeys``; "default" clears one).
+    static func engineSetParams(_ fields: [String: String], chief: String?) -> [String: JSONValue] {
+        naming(chief, fields.filter { engineSetKeys.contains($0.key) }.mapValues(JSONValue.string))
+    }
+
+    /// `chief.engine.set` of any ``engineSetKeys`` fields: absent ones stay, "default" clears one.
+    public func setChiefEngine(_ fields: [String: String], chief: String? = nil) async throws(ChiefControlError) -> ChiefEngineReport {
+        let params = Self.engineSetParams(fields, chief: chief)
         let key = "cmux-next-chief-engine-" + UUID().uuidString.lowercased()
         do {
             return try await connection.resourceRequest({ id in
