@@ -140,6 +140,28 @@
             "name": "uint32"
           },
           "description": "The profile's place in the person's order."
+        },
+        "proxy": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "BrowserProfileProxy"
+          },
+          "description": "The profile's own proxy (#24432); absent when the profile is direct. Never a secret."
+        }
+      },
+      "extra": false
+    },
+    "BrowserProfileProxy": {
+      "kind": "object",
+      "fields": {
+        "scheme": {"required": true, "type": {"kind": "enum", "values": ["http", "https", "socks5"]}},
+        "host": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 253}},
+        "port": {"required": true, "type": {"kind": "primitive", "name": "uint32"}},
+        "bypass": {
+          "required": false,
+          "type": {"kind": "array", "items": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 253}},
+          "description": "Hosts that skip the proxy (Chromium bypass rules)."
         }
       },
       "extra": false
@@ -15915,7 +15937,7 @@
         "fields": {},
         "extra": false,
         "constraints": [
-          "Answers {browser_profiles}: every browser profile in the person's order, the default profile included. Each has its id, name, color, icon and index only: never its import origin, cookies, history or site data."
+          "Answers {browser_profiles}: every browser profile in the person's order, the default profile included. Each has its id, name, color, icon, index and proxy (absent when direct; never a secret) only: never its import origin, cookies, history or site data."
         ]
       },
       "result": {
