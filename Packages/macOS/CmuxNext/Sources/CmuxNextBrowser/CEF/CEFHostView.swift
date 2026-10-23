@@ -183,6 +183,8 @@ final class CEFHostView: NSView {
         if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
         windowObserver = nil
         readGeometry = nil
+        // The display that caps a hosted page's resize wait (CEFResizeSyncDeadline) may differ.
+        layerHosting.windowDidChange()
         guard let window else { return }
         windowObserver = NotificationCenter.default.addObserver(forName: Notification.Name.browserChildWindowPagesNeedUpdate, object: window, queue: .main) { [weak self] note in
             let force = note.userInfo?[browserPagesForceUpdateKey] as? Bool ?? false

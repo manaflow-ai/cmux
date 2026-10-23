@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 
 /// Layer hosting (fork API 26) of the page window over one ``CEFHostView``:
 /// asks the fork for the page window's Core Animation context and shows it in
@@ -16,6 +17,13 @@ import AppKit
 /// When the fork still refuses, the next read of the host view by the fork's
 /// tracker (``trackerDidRead()``, proof that the tracker is attached) retries
 /// once; another refusal waits for the next show.
+///
+/// While hosted (fork API 27), a resize of the page window may hold this
+/// window's commit for Chromium's frame at the new size, up to
+/// ``CEFResizeSyncDeadline``: the `browserResize.syncDeadline` tunable capped at
+/// half a frame of the window's display. A change of either (a tunable edit, the
+/// window on another display) reaches the fork at the next show or screen
+/// change, and only when the deadline changed.
 ///
 /// Tests drive it through ``Fork`` and the `schedule` seam, without Chromium.
 final class CEFLayerHosting {
@@ -78,6 +86,11 @@ final class CEFLayerHosting {
     private let schedule: Scheduler
     private let makePage: (CGRect) -> CEFHostedPageView
     private let resizeDeadlineMs: () -> Int32
+    private let refreshInterval: (NSWindow?) -> Double?
+    /// The resize deadline the fork has for this page window (nil: none given yet).
+    private var appliedDeadlineMs: Int32?
+    /// Re-applies the deadline when the view's window moves to another display.
+    private var screenObservation: MainActorObservation?
 
     /// Runs a block later on the main actor.
     typealias Scheduler = (_ block: @escaping @MainActor @Sendable () -> Void) -> Void
@@ -86,12 +99,17 @@ final class CEFLayerHosting {
     ///   - isEnabled: whether hosting is wanted; the tunable by default.
     ///   - schedule: runs a block at the end of this run-loop turn; tests run it when they choose.
     ///   - makePage: the hosted view for a frame; tests pass one whose layer host fails.
+    ///   - resizeDeadlineMs: the upper bound of a hosted page's resize wait; the tunable by default.
+    ///   - refreshInterval: the shortest frame interval of a window's display, which caps the wait
+    ///     (``CEFResizeSyncDeadline``); tests pass a fixed rate.
     init(isEnabled: @escaping () -> Bool = { BrowserResizeTunables.layerHosting.value },
          schedule: @escaping Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
          makePage: @escaping (CGRect) -> CEFHostedPageView = { CEFHostedPageView(frame: $0) },
-         resizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.syncDeadline.value * 1_000).rounded()) }) {
+         resizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.syncDeadline.value * 1_000).rounded()) },
+         refreshInterval: @escaping (NSWindow?) -> Double? = { $0?.screen?.minimumRefreshInterval }) {
         self.isEnabled = isEnabled
         self.resizeDeadlineMs = resizeDeadlineMs
+        self.refreshInterval = refreshInterval
         self.schedule = schedule
         self.makePage = makePage
     }
@@ -112,13 +130,16 @@ final class CEFLayerHosting {
     }
 
     /// A tab of the page window shows (`CEFPaneHost.present`). While the page
-    /// is hosted and hosting is still wanted, nothing reaches the fork; a
-    /// tunable change applies here.
+    /// is hosted and hosting is still wanted, nothing reaches the fork unless
+    /// the resize deadline changed; a tunable change applies here.
     func pageShown(browser: Int32) { // perf-hot: 10ms tab-switch (every Chromium tab show)
         guard let fork else { return }
         self.browser = browser
         let wanted = isEnabled()
-        if wanted == (page != nil) { return }
+        if wanted == (page != nil) {
+            if wanted { syncDeadline() }
+            return
+        }
         if wanted {
             if case .scheduled = pending { return }
             pending = .none
@@ -130,6 +151,19 @@ final class CEFLayerHosting {
             fork.setResizeSync?(browser, 0)
             dropPage()
         }
+    }
+
+    /// The host view moved to another window (or out of one,
+    /// `CEFHostView.viewDidMoveToWindow`): the display that caps the resize
+    /// wait may differ, and the window's later screen changes re-apply it.
+    func windowDidChange() {
+        screenObservation = nil
+        if let window = view?.window {
+            screenObservation = MainActorObservation(NSWindow.didChangeScreenNotification, object: window) { [weak self] in
+                self?.syncDeadline()
+            }
+        }
+        syncDeadline()
     }
 
     /// The fork's tracker read the host view (`-cmuxClipPath`): it is attached
@@ -170,7 +204,8 @@ final class CEFLayerHosting {
             let page = self.page ?? addPage(to: view)
             if page.host(contextID: id) {
                 // The page's frame at a new size commits with the pane's only while hosted.
-                fork.setResizeSync?(browser, resizeDeadlineMs())
+                appliedDeadlineMs = nil
+                syncDeadline()
                 return
             }
             // No CALayerHost to show the context: the page window would stay
@@ -183,6 +218,18 @@ final class CEFLayerHosting {
         }
         refused()
         if !retry { pending = .armed }
+    }
+
+    /// Gives the fork this page window's resize deadline when it changed
+    /// (``CEFResizeSyncDeadline``). Only while hosted: a page in its own
+    /// window keeps the 0 it got when hosting ended.
+    private func syncDeadline() {
+        guard page != nil, let browser, let setResizeSync = fork?.setResizeSync else { return }
+        let deadline = CEFResizeSyncDeadline(tunableMilliseconds: resizeDeadlineMs(),
+                                             refreshInterval: refreshInterval(view?.window)).milliseconds
+        guard deadline != appliedDeadlineMs else { return }
+        appliedDeadlineMs = deadline
+        setResizeSync(browser, deadline)
     }
 
     private func refused() {
@@ -199,6 +246,7 @@ final class CEFLayerHosting {
     }
 
     private func dropPage() {
+        appliedDeadlineMs = nil
         guard let page else { return }
         page.removeFromSuperview()
         self.page = nil
