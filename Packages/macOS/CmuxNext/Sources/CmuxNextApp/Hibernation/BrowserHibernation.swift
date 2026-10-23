@@ -77,7 +77,9 @@ final class BrowserHibernation {
     /// freeze is undone on show.
     static let unansweredLimit = 3
     private let freezeDeadline = DemandTimer(owner: "BrowserFreeze")
-    private var pressureSource: (any DispatchSourceMemoryPressure)?
+    /// The memory pressure events it follows, made by `AppServices` (tests pass their own).
+    private let memoryPressure: MemoryPressureEvents
+    private var pressureObservation: MainActorHandlerRegistration<KernelMemoryPressure>?
     /// Pinned state of a tab (the daemon record); injected by the App.
     var isPinned: (String) -> Bool = { _ in false }
     /// Memory pressure changed (the App resizes the terminal warm set).
@@ -126,9 +128,10 @@ final class BrowserHibernation {
     private var probeKeptAt: [String: ContinuousClock.Instant] = [:]
     static let keptBackoff: Double = 60
 
-    init(cache: TabContentCache, lowPower: LowPowerMode = .system) {
+    init(cache: TabContentCache, memoryPressure: MemoryPressureEvents, lowPower: LowPowerMode = .system) {
         self.cache = cache
         self.lowPower = lowPower
+        self.memoryPressure = memoryPressure
     }
 
     /// Tabs on each side of a shown tab that stay awake now: the setting, or 0
@@ -137,24 +140,20 @@ final class BrowserHibernation {
         NeighborTabs.radius(setting: setting.neighborRadius, pressure: pressure, lowPower: lowPower.isEnabled)
     }
 
-    /// Starts listening to memory pressure (the dispatch source; no polling).
+    /// Starts listening to memory pressure (`memoryPressure`'s dispatch source; no polling). Each event
+    /// arrives synchronously on the main queue, so none lands after `stop()`.
     func start() {
-        guard pressureSource == nil else { return }
-        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.normal, .warning, .critical], queue: .main)
-        source.setEventHandler { [weak self, weak source] in
-            guard let event = source?.data else { return }
-            let level: MemoryPressureLevel = event.contains(.critical) ? .critical : event.contains(.warning) ? .warning : .normal
-            MainActor.assumeIsolated { self?.pressureDidChange(level) } // main-proof: dispatch source on queue: .main
+        guard pressureObservation == nil else { return }
+        pressureObservation = memoryPressure.observe { [weak self] pressure in
+            self?.pressureDidChange(MemoryPressureLevel(pressure))
         }
-        source.activate()
-        pressureSource = source
         lowPowerObservation = lowPower.observe { [weak self] _ in self?.refreshNeighbors() }
     }
 
     func stop() {
         settingsObservation?.cancel()
-        pressureSource?.cancel()
-        pressureSource = nil
+        pressureObservation?.cancel()
+        pressureObservation = nil
         lowPowerObservation?.cancel()
         lowPowerObservation = nil
         deadline.cancel()
@@ -688,4 +687,15 @@ struct PageProbe {
 
 private extension Duration {
     var seconds: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
+}
+
+private extension MemoryPressureLevel {
+    /// The level for the kernel's memory pressure event.
+    init(_ pressure: KernelMemoryPressure) {
+        switch pressure {
+        case .normal: self = .normal
+        case .warning: self = .warning
+        case .critical: self = .critical
+        }
+    }
 }
