@@ -56,6 +56,9 @@ import Testing
 
     @Test func removedMainMenuActionsResolveFromPaletteSearch() {
         let registry = ActionRegistry.standard()
+        // Give the provider every catalog fact so target-sensitive actions are included in
+        // this catalog-level reachability check; runtime palette filtering still follows focus.
+        registry.context = registry.descriptors.reduce(into: ActionContext()) { $0.formUnion($1.requires) }
         let items = RegistryPaletteProvider(registry: registry, includeUnbound: true).makeItems()
         let actionIDs = Set(items.compactMap(\.actionID))
         for id in MainMenu.removedMainMenuActionIDs {
