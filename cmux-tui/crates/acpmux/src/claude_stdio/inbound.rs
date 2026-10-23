@@ -546,6 +546,25 @@ impl Translator {
                     // A step stopped for a steer sent now (`MUX_STEP_NOW`).
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
                     out.push(Message::ok(id, json!({"interrupted": ok})));
+                } else if let Some(acp) = rid.strip_prefix("mcp-") {
+                    // An mcp_reconnect's answer (`MCP_RECONNECT`).
+                    let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
+                    out.push(if ok {
+                        Message::ok(id, json!({}))
+                    } else {
+                        let why = resp.get("error").and_then(Value::as_str);
+                        let why = why.unwrap_or("Claude Code did not reconnect the MCP server");
+                        Message::err(id, RpcError::internal(why))
+                    });
+                } else if rid.starts_with("ctx-")
+                    && let Some(breakdown) = ok.then(|| context_breakdown(&inner)).flatten()
+                {
+                    // The turn's context breakdown (`get_context_usage`, asked at its result). A
+                    // Claude Code that cannot answer leaves the last one, or none.
+                    out.push(upd(json!({
+                        "sessionUpdate": "session_info_update",
+                        "_meta": {"acpmux": {"contextBreakdown": breakdown}},
+                    })));
                 }
                 // "int-*" acks need no reply; the result message ends the turn.
             }
@@ -613,6 +632,11 @@ impl Translator {
                 self.in_turn.store(false, Ordering::SeqCst);
                 // A Ctrl-B still unanswered leaves no mark past its turn.
                 self.end_background_asks(false, |_, _| true).await;
+                // What the context holds now, as Claude Code's /context breaks it down; its
+                // answer comes after the turn ended (`context_breakdown`). `summary` answers
+                // from the last response's usage, with no token-count API call.
+                let n = self.next_control.fetch_add(1, Ordering::SeqCst);
+                self.stdin_replies.lock().await.push(json!({"type": "control_request", "request_id": format!("ctx-{n}"), "request": {"subtype": "get_context_usage", "detail": "summary"}}));
                 let waiting: Vec<String> = self
                     .pending
                     .lock()
