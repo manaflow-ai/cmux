@@ -10,14 +10,13 @@ import { mediaKind, ReplyMedia } from "../chips/ReplyMedia";
 import { pathName } from "../chips/paths";
 import { toolImages } from "../toolImages";
 import { toolLabel } from "../toolPaths";
-import { shortCommand } from "./shortCommand";
+import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
 import { CopyButton } from "./CopyButton";
 import { experimentArm } from "../../../experiments/experiment";
 import { hoverActions } from "../../../ui/hoverActions.experiment";
 import { menuPartRef } from "./menuParts";
-import { BackgroundHint } from "./BackgroundHint";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { toolDuration } from "./toolGroups";
@@ -27,6 +26,8 @@ import { Lines, lineCount, PreviewMore, SIDEWAYS_SCROLLER, usePreview, useSidewa
 import { cleanText } from "./mcpCalls";
 import { useFold } from "./fold";
 import { WriteLabel, writeCall } from "./WriteLabel";
+import { rowFailed, toolFailure } from "./toolFailure";
+import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
 /// ACP tool kinds (`ToolKind`) to row glyphs.
@@ -77,11 +78,15 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   const label = toolLabel(
     tool,
     item.text,
-    (command) => t("tools.ranCommand", { command }),
+    // "Running …" until it is done, "Ran …" after; its ⌃B hint is the live line's (Thinking.tsx).
+    (command) => t(foreground ? "tools.runningCommand" : "tools.ranCommand", { command }),
     cwd,
     t(foreground ? "tools.runningUnnamed" : "tools.ranUnnamed"),
   );
-  const failed = tool.status === "failed";
+  // Failed by its status or a nonzero exit; in the background, by its status (toolFailure.ts rowFailed).
+  const failed = rowFailed(tool);
+  // Why it failed, in a word on the row and one line under it (toolFailure.ts); read only once it failed.
+  const failure = useMemo(() => (failed ? toolFailure(tool) : undefined), [failed, tool]);
   // A Write reads as an edit does: "Writing notes.md", then "Wrote notes.md +18" (WriteLabel.tsx).
   const write = writeCall(tool);
   // A shell that went on in the background says how it stands there, and its time once it ended.
@@ -92,7 +97,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   // Only a call with a command line is a shell; an MCP call can also say "execute".
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // Find counts a shell's whole line: a label that is its description or a shortened line is skipped.
-  const drawsCommand = !tool.description && shortCommand(tool.command ?? "") === tool.command?.trim();
+  const drawsCommand = !tool.description && shortCommand(tool.command ?? "", ROW_WIDTH) === tool.command?.trim();
   // A shell prints what it printed; any other output loses the context a host injects into it.
   const body = useMemo(
     () => (shell || !tool.output ? tool.output : cleanText(tool.output))?.replace(/\n$/, ""),
@@ -104,7 +109,13 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
       <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
       <span className="cv-tool__text" data-find-skip={(shell && (open || !drawsCommand)) || undefined}>
         {write ? <WriteLabel tool={tool} write={write} t={t} /> : label}
-        {failed && <span className="cv-tool__detail"> {t("tools.failed")}</span>}
+        {failure && (
+          <span className="cv-tool__failed" data-find-skip>
+            {" "}
+            {failureWord(t, failure)}
+          </span>
+        )}
+        <InlineFailureCause failure={failure} />
       </span>
       {background ? (
         <span className="cv-command__meta cv-tool__meta">
@@ -137,11 +148,11 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
             strokeWidth={1.2}
             className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
           />
-          {foreground && shell && <BackgroundHint />}
         </button>
       ) : (
         <div className={`cv-tool${running ? " is-live" : " is-strong"}`}>{content}</div>
       )}
+      <ToolFailureCause failure={failure} />
       {images.length > 0 && <ToolImages sources={images} />}
       {fold.present && (shell || files.length > 0 || body) && (
         <div ref={fold.ref} className="cv-fold">
@@ -149,8 +160,8 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
             <ShellBlock
               id={detailsId}
               command={tool.command}
-              output={body}
-              exitCode={tool.exitCode}
+              output={failure?.output?.replace(/\n$/, "") ?? body}
+              exitCode={failure?.exitCode ?? tool.exitCode}
               reveal={reveal}
               live={running}
             />

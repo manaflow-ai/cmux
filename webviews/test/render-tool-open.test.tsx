@@ -140,14 +140,16 @@ test("a render tool call with no title names its card by the page's <title>", as
   }
 });
 
-test("a render tool card's row has no row Copy over the card's Open; a prompt's row keeps its Copy", async () => {
+test("a render tool card's row has no row Copy over the card's Open; a prompt's one Copy is under its bubble", async () => {
   const root = await pane({ html: PAGE, title: "Desk clamp" });
   try {
     const document = dom.window.document;
     // The row's Copy sits at the row's top right, where a render row's card has its Open.
     expect(document.querySelector("article.acpmux-render")).not.toBeNull();
     expect(document.querySelector("article.acpmux-render .acpmux-row__copy")).toBeNull();
-    expect(document.querySelector("article.acpmux-user .acpmux-row__copy")).not.toBeNull();
+    // A prompt has no floating row Copy either (it sat alone at the row's top left; Leo 2026-10-21).
+    expect(document.querySelector("article.acpmux-user .acpmux-row__copy")).toBeNull();
+    expect(document.querySelector('article.acpmux-user .cv-user__actions button[aria-label="Copy"]')).not.toBeNull();
   } finally {
     await act(async () => root.unmount());
   }
