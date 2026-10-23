@@ -10,6 +10,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 mod lock;
+#[cfg(unix)]
+mod open_file_limit;
 use lock::{LockHeld, acquire_lock, wait_for_lock_release};
 mod router_owner;
 #[cfg(unix)]
@@ -67,6 +69,10 @@ fn install_panic_log() {
         is_test_panic_thread,
     );
     #[cfg(debug_assertions)]
+    #[allow(
+        clippy::panic,
+        reason = "debug-build test trigger for the acpmux panic log; release builds have no seam"
+    )]
     if std::env::var(TEST_PANIC_ENV).as_deref() == Ok("thread") {
         let _ = std::thread::Builder::new()
             .name(TEST_PANIC_THREAD.into())
@@ -126,6 +132,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // home with the process umask; narrow it before reading any of them.
     crate::config::private_state_dir(&home())?;
     install_panic_log();
+    // Before the store, the sockets and any agent: launchd's soft limit is 256.
+    #[cfg(unix)]
+    open_file_limit::raise();
     let mut config = Config::load()?;
     // config.json holds the dashboard token: owner-only, also when another
     // tool wrote it with the umask's mode and the daemon never saves it.
@@ -192,7 +201,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             .unwrap_or_default();
         config.websocket = Some(crate::config::WebSocketConfig {
             listen: first_run_listen(shared_home, saved_listen.as_deref()).to_owned(),
-            token: Some(kept_token.unwrap_or_else(random_token)),
+            token: Some(kept_token.map_or_else(random_token, Ok)?),
             allowed_origins,
             allowed_hosts,
             // A kept token was rotated just above; a new one is new.
@@ -365,12 +374,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     )?;
     // The listener's token is on the hub before the unix socket serves, so a
     // `_acpmux/web_token_rotate` can never be overwritten by the launch token.
-    let ws_listener = ws_listener.map(|(l, token)| {
-        // `needs_token` above gave the saved listener a token.
-        let token = token.unwrap_or_else(random_token);
-        hub.web_token.set(token.clone());
-        (l, token)
-    });
+    let ws_listener = match ws_listener {
+        Some((l, token)) => {
+            // `needs_token` above gave the saved listener a token.
+            let token = token.map_or_else(random_token, Ok)?;
+            hub.web_token.set(token.clone());
+            Some((l, token))
+        }
+        None => None,
+    };
     let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
     // A new LocalApp token at every launch (`server/local_app.rs`), for the
     // app's bundled pane and an explicit `--allow-dev-origin` page only.
@@ -626,17 +638,22 @@ pub async fn start_keyed(fd: i32) -> Result<String> {
     // buffer keeps another copy. One line: 64 hex characters and a newline.
     let mut line = zeroize::Zeroizing::new([0u8; 129]);
     let mut filled = 0;
-    while filled < line.len() && !line[..filled].contains(&b'\n') {
-        match (&*input).read(&mut line[filled..]) {
+    while filled < line.len() && !line.get(..filled).unwrap_or_default().contains(&b'\n') {
+        let Some(rest) = line.get_mut(filled..) else { break };
+        match (&*input).read(rest) {
             Ok(0) => break,
             Ok(n) => filled += n,
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
             Err(e) => return Err(e).context("read the person key"),
         }
     }
-    let end = line[..filled].iter().position(|b| *b == b'\n').unwrap_or(filled);
+    let read = line.get(..filled).unwrap_or_default();
+    let end = read.iter().position(|b| *b == b'\n').unwrap_or(filled);
     let key = zeroize::Zeroizing::new(
-        std::str::from_utf8(&line[..end]).unwrap_or_default().trim().to_owned(),
+        std::str::from_utf8(read.get(..end).unwrap_or_default())
+            .unwrap_or_default()
+            .trim()
+            .to_owned(),
     );
     if !crate::hub::person::valid_key(&key) {
         return Err(anyhow!(
@@ -776,7 +793,15 @@ fn rotate_saved_token_once(config: &mut crate::config::Config) -> bool {
     if w.token_rotated >= TOKEN_ROTATION || w.token.as_deref().is_none_or(|t| t.trim().is_empty()) {
         return false;
     }
-    let old = w.token.replace(random_token());
+    let fresh = match random_token() {
+        Ok(token) => token,
+        Err(e) => {
+            // Keep the saved token and try again at the next start.
+            tracing::warn!("could not rotate the saved WebSocket token: {e}");
+            return false;
+        }
+    };
+    let old = w.token.replace(fresh);
     w.token_rotated = TOKEN_ROTATION;
     match config.save() {
         Ok(()) => {
@@ -798,10 +823,10 @@ fn rotate_saved_token_once(config: &mut crate::config::Config) -> bool {
     }
 }
 
-fn random_token() -> String {
+fn random_token() -> Result<String> {
     let mut bytes = [0u8; 24];
-    getrandom::fill(&mut bytes).expect("the OS random generator");
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    getrandom::fill(&mut bytes).map_err(|e| anyhow!("the OS random generator: {e}"))?;
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
 static DAEMON_PREFIX: std::sync::OnceLock<Vec<std::ffi::OsString>> = std::sync::OnceLock::new();
