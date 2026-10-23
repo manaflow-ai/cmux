@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextResources
+import CmuxNextWakeups
 import QuartzCore
 
 /// What a hover card shows.
@@ -68,29 +69,17 @@ final class TabHoverCardController: HoverCardSource {
     /// The next card opens from hidden, not by a retarget: a tab whose thumbnail is not
     /// known yet gets the empty frame its thumbnail fades into.
     private var opensFresh = true
-    private var memoryPressure: (any DispatchSourceMemoryPressure)?
+    /// Drops the thumbnails and samples under memory pressure; it stops when released, on any thread, so no deinit.
+    private var memoryPressure: MainMemoryPressureWatch?
 
     init(coordinator: HoverCardCoordinator = HoverCardCoordinator()) {
         self.coordinator = coordinator
         #if DEBUG
         HoverCardGallery.register("tabs") { TabHoverCardGallery.cards() }
         #endif
-        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
-        source.setEventHandler { [weak self] in
-            Task { @MainActor in
-                self?.thumbnails.removeAll()
-                self?.lastReports.removeAll()
-            }
-        }
-        source.activate()
-        memoryPressure = source
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            memoryPressure?.cancel()
+        memoryPressure = MainMemoryPressureWatch([.warning, .critical]) { [weak self] in
+            self?.thumbnails.removeAll()
+            self?.lastReports.removeAll()
         }
     }
 

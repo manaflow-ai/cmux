@@ -22,8 +22,8 @@ public final class OwnedTask: Sendable {
         self.task = task
     }
 
-    /// Whether the task was cancelled (by ``cancel()`` or otherwise).
-    public var isCancelled: Bool { task.isCancelled }
+    /// Whether the task was cancelled (by ``cancel()`` or otherwise); for tests.
+    var isCancelled: Bool { task.isCancelled }
 
     /// Cancels the task now (also happens when the handle is released).
     public func cancel() {

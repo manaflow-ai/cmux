@@ -75,6 +75,11 @@ public final class AgentTurnStateFeed {
     // MARK: Watch
 
     private func connect() {
+        // The reconnect handle goes first, so start() and lost() see no pending reconnect. When the
+        // reconnect task itself called this, releasing its OwnedTask cancels that running task: intended
+        // and harmless, because this function is synchronous main-actor code, the call is the task's last
+        // statement, and nothing on this path awaits or reads Task.isCancelled. Keep it that way: an
+        // await here would see a cancelled task.
         reconnect = nil
         guard FileManager.default.fileExists(atPath: socket) else { return watchForSocket() }
         directoryWatch = nil

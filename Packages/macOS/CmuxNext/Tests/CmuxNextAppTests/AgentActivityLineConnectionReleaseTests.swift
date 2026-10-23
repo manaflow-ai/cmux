@@ -1,4 +1,6 @@
 import CmuxNextAgentActivity
+import CmuxNextAgentLanes
+import CmuxNextBridge
 import Darwin
 import Foundation
 import Testing
@@ -34,6 +36,31 @@ nonisolated struct AgentActivityLineConnectionReleaseTests {
         connection.cancel()
         #expect(ListeningSocket.read(peer, within: 10) == Data())
         withExtendedLifetime(connection) {}
+    }
+
+    /// An owner released off the main thread (the last reference dropped by a background task):
+    /// the feed's watch connection closes and acpmux reads end of file. The old deinit returned
+    /// there without cancelling its subscription, so the socket stayed open.
+    @MainActor @Test func releasingTheTurnStateFeedOffTheMainThreadClosesItsWatch() async throws {
+        let server = try ListeningSocket()
+        defer { server.close() }
+        let turns = AgentTurnStateStore(), lanes = AgentLaneStore()
+        var feed: AgentTurnStateFeed? = AgentTurnStateFeed(socketPath: server.path, turns: turns, lanes: lanes)
+        feed?.start(localHost: "install:release")
+        let peer = try server.accept(within: 10)
+        defer { Darwin.close(peer) }
+        #expect(ListeningSocket.read(peer, within: 10)?.isEmpty == false, "the watch is live and sent its request")
+        // The capture list holds the only reference, so the detached task drops the last one.
+        await Task.detached { [feed = Self.handOff(&feed)] in _ = feed }.value
+        #expect(feed == nil)
+        #expect(ListeningSocket.readsToEnd(peer, within: 10), "the released feed closed its watch (end of file)")
+        withExtendedLifetime((turns, lanes)) {}
+    }
+
+    /// Moves the reference out of `value`: the caller's capture then holds the only one.
+    private static func handOff<Value>(_ value: inout Value?) -> Value? {
+        defer { value = nil }
+        return value
     }
 }
 
@@ -74,6 +101,14 @@ private nonisolated final class ListeningSocket {
         var buffer = [UInt8](repeating: 0, count: 4096)
         let count = Darwin.read(peer, &buffer, buffer.count)
         return count >= 0 ? Data(buffer[0..<count]) : nil
+    }
+
+    /// Whether `peer` reaches end of file (after whatever it still has to read) within `seconds` per read.
+    static func readsToEnd(_ peer: Int32, within seconds: Int32) -> Bool {
+        while let data = read(peer, within: seconds) {
+            if data.isEmpty { return true }
+        }
+        return false
     }
 
     private static func readable(_ fd: Int32, within seconds: Int32) -> Bool {
