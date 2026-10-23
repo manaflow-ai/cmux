@@ -100,4 +100,18 @@ import Testing
         #expect(tall.rowShift(keeping: nil, from: 99) == 20)
         #expect(layout(host: (50, 30), rows: 40).rowShift(keeping: 29, from: 3) == 0)
     }
+
+    /// Review finding 6: a Mac grid wider than the widest surface the phone
+    /// draws is not silently rewrapped: the layout says it is capped and the
+    /// note names it.
+    @Test func aGridWiderThanThePhoneCanDrawIsNamedInTheNote() {
+        let wide = TerminalHostGridLayout(viewportWidth: 390, cell: CGSize(width: 7, height: 15), scale: 3,
+                                          hostColumns: 500, hostRows: 20, visibleRows: 40)
+        #expect(wide.isCapped)
+        #expect(wide.columns == 390)
+        #expect(wide.note(owner: "Studio") == "500×20, too wide for this iPhone (390 columns shown) · set by Studio")
+        let fits = TerminalHostGridLayout(viewportWidth: 390, cell: CGSize(width: 7, height: 15), scale: 3,
+                                          hostColumns: 120, hostRows: 20, visibleRows: 40)
+        #expect(!fits.isCapped)
+    }
 }

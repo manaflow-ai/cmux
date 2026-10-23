@@ -58,6 +58,14 @@ public struct TerminalHostGridLayout: Equatable, Sendable {
         return min(hostColumns, max(1, widest))
     }
 
+    /// The Mac's grid is wider than the widest surface the phone draws
+    /// (about 390 columns at 3x): the mirror shows only its first
+    /// ``columns`` and the note says so (lines past them wrap on the phone).
+    public var isCapped: Bool {
+        guard let hostColumns else { return false }
+        return columns < hostColumns
+    }
+
     /// Whether the mirror is not the phone's own width.
     public var followsHost: Bool { columns != phoneColumns }
 
@@ -120,14 +128,16 @@ public struct TerminalHostGridLayout: Equatable, Sendable {
     /// Whether the Mac's grid differs from what the phone would show (the note shows).
     public var differsFromPhone: Bool {
         guard let hostColumns, let hostRows else { return false }
-        return hostColumns != phoneColumns || hostRows != visibleRows
+        return isCapped || hostColumns != phoneColumns || hostRows != visibleRows
     }
 
     /// The one-line note in the letterbox: `120×40 · set by Aziz's Mac`.
     /// `owner` is the device that set the grid, when the size state names it.
     public func note(owner: String?) -> String? {
         guard differsFromPhone, let hostColumns, let hostRows else { return nil }
-        let size = "\(hostColumns)×\(hostRows)"
+        let size = isCapped
+            ? "\(hostColumns)×\(hostRows), too wide for this iPhone (\(columns) columns shown)"
+            : "\(hostColumns)×\(hostRows)"
         guard let owner, !owner.isEmpty else { return "\(size) · set by another device" }
         return "\(size) · set by \(owner)"
     }

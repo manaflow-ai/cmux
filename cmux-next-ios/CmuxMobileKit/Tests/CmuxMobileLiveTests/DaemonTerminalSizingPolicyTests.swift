@@ -32,8 +32,8 @@ import Testing
         let capabilities = info["capabilities"] as? [String] ?? []
         #expect(capabilities.contains("size-lease-v1"))
         #expect(capabilities.contains("shared-sizing-v1"))
-        // Only the renderer lane may say it renders a larger host grid.
-        #expect(!capabilities.contains("host-grid-view-v1"))
+        // The phone renders a larger host grid (pans, letterboxes), so it says so.
+        #expect(capabilities.contains("host-grid-view-v1"))
     }
 
     @Test func theSizeStateReachesThePageLive() async throws {

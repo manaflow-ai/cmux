@@ -29,6 +29,46 @@ import Testing
         #expect(session.remoteRows == 20)
     }
 
+    /// Review finding 8: a change of the Mac's columns reaches the screen as
+    /// its own event, in order with the bytes, even with no output after it.
+    @Test func aColumnsChangeIsAnEventInOrderWithTheBytes() {
+        let session = DaemonTerminalSession(surface: 7) { throw LinkError(code: "unused", message: "") }
+        var seen: [TerminalSessionEvent] = []
+        session.start { seen.append($0) }
+        session.handle(FakeTerminalDaemon.line(["event": "vt-state", "surface": 7, "cols": 120, "rows": 40,
+                                                "data": Data("wide".utf8).base64EncodedString()]))
+        let columns = seen.firstIndex(of: .hostColumns(120))
+        let bytes = seen.firstIndex(of: .output(Data("wide".utf8)))
+        #expect(columns != nil && bytes != nil && columns! < bytes!)
+        seen.removeAll()
+        session.handle(FakeTerminalDaemon.line(["event": "vt-state", "surface": 7, "cols": 120, "rows": 40, "data": ""]))
+        #expect(!seen.contains(.hostColumns(120)), "the same columns again is not a change")
+        session.handle(FakeTerminalDaemon.line(["event": "vt-state", "surface": 7, "cols": 90, "rows": 40, "data": ""]))
+        #expect(seen.contains(.hostColumns(90)))
+    }
+
+    /// Review finding 7: the letterbox note follows the size state, not the
+    /// next layout or output.
+    @Test func theGridOwnerIsAnEventWhenTheSizeStateChanges() {
+        let session = DaemonTerminalSession(surface: 7) { throw LinkError(code: "unused", message: "") }
+        var seen: [TerminalSessionEvent] = []
+        session.start { seen.append($0) }
+        func state(_ generation: Int, owner: String) -> Data {
+            FakeTerminalDaemon.line(["event": "size-state", "surface": 7, "state": [
+                "generation": generation, "cols": 120, "rows": 40, "reason": "priority", "owners": [owner],
+                "policy": ["mode": "priority", "priority": [], "fixed": NSNull()],
+                "participants": [
+                    ["id": "c1", "device_kind": "mac", "device_name": "Mac mini", "viewport": ["cols": 120, "rows": 40], "counts": true],
+                    ["id": "c2", "device_kind": "iphone", "device_name": "Other iPhone", "viewport": ["cols": 60, "rows": 30], "counts": true],
+                ],
+            ] as [String: Any]])
+        }
+        session.handle(state(1, owner: "c1"))
+        #expect(seen.last == .hostGridOwner("Mac mini"))
+        session.handle(state(2, owner: "c2"))
+        #expect(seen.last == .hostGridOwner("Other iPhone"))
+    }
+
     @Test func thePhoneSaysItRendersTheMacsGrid() async throws {
         let daemon = FakeTerminalDaemon()
         let link = MockMacLink { service, line in daemon.respond(service, line) }

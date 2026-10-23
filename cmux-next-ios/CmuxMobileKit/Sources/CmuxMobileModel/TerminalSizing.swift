@@ -155,6 +155,21 @@ public struct HostSizePolicy: Hashable, Sendable {
     /// The viewer whose device id is `id`.
     public static func deviceToken(_ id: String) -> String { "device:\(id)" }
 
+    /// Most tokens the Mac keeps in an order.
+    public static let maxOrder = 32
+
+    /// A token the Mac accepts: `mac`, or `device:<id>` with a 1 to 128
+    /// character id of `[A-Za-z0-9_.:-]` (the daemon refuses a whole order
+    /// with any other token).
+    public static func isValidToken(_ token: String) -> Bool {
+        if token == macToken { return true }
+        guard let id = deviceID(fromToken: token), id.utf8.count <= 128 else { return false }
+        return id.utf8.allSatisfy { byte in
+            (byte >= 0x30 && byte <= 0x39) || (byte >= 0x41 && byte <= 0x5A) || (byte >= 0x61 && byte <= 0x7A)
+                || byte == UInt8(ascii: "_") || byte == UInt8(ascii: ".") || byte == UInt8(ascii: ":") || byte == UInt8(ascii: "-")
+        }
+    }
+
     /// The device id of a `device:<id>` token.
     public static func deviceID(fromToken token: String) -> String? {
         guard token.hasPrefix("device:") else { return nil }
@@ -332,11 +347,18 @@ public struct TerminalSizingPresentation: Equatable, Sendable {
     /// not in it (this Mac and this iPhone first), so a reorder ranks every
     /// device in sight. Stored tokens of absent devices keep their slots.
     public func orderRows(_ order: [String]) -> [OrderRow] {
-        var tokens = order
+        var tokens: [String] = []
         func add(_ token: String?) {
-            guard let token, !tokens.contains(token) else { return }
+            guard let token, tokens.count < HostSizePolicy.maxOrder, HostSizePolicy.isValidToken(token),
+                  !tokens.contains(token) else { return }
             tokens.append(token)
         }
+        // This Mac and this iPhone always have a place, ahead of devices
+        // the stored order does not rank.
+        let pinned = [HostSizePolicy.macToken, thisDeviceID.map(HostSizePolicy.deviceToken)].compactMap { $0 }
+        let stored = order.filter(HostSizePolicy.isValidToken)
+        let room = HostSizePolicy.maxOrder - pinned.filter { !stored.contains($0) }.count
+        for token in stored.prefix(max(0, room)) { add(token) }
         add(HostSizePolicy.macToken)
         add(thisDeviceID.map(HostSizePolicy.deviceToken))
         for participant in state?.participants ?? [] { add(token(of: participant)) }

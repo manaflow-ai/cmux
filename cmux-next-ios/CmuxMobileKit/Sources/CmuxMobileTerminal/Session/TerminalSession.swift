@@ -16,6 +16,13 @@ public enum TerminalSessionEvent: Sendable, Equatable {
     /// Keys typed while the terminal was unreachable were dropped, not sent
     /// late (a command must never run long after it was typed).
     case inputNotSent(bytes: Int)
+    /// The Mac's terminal has this many columns from here on in the byte
+    /// stream (`vt-state`, `resized`): the bytes after it are drawn for it,
+    /// so the screen resizes its mirror at exactly this point.
+    case hostColumns(Int)
+    /// The device that sets the Mac's grid changed (its name, or nil when it
+    /// is this phone or unknown), for the letterbox note.
+    case hostGridOwner(String?)
 }
 
 /// Whether the screen shows the Mac's terminal yet. Anything but `attached`

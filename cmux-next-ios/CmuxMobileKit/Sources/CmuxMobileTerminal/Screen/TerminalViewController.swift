@@ -108,6 +108,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var tuiPanStartX: CGFloat = 0
     /// The device that set the Mac's grid, when the size state names it
     /// (set by the size-state model; nil until then).
+    /// The Mac's columns as of the bytes fed so far (``TerminalSessionEvent/hostColumns(_:)``,
+    /// taken in feed order); nil until the first, then the session's value.
+    var appliedHostColumns: Int?
     var hostGridOwner: String? {
         didSet { if hostGridOwner != oldValue { applyTUIPlacement() } }
     }
@@ -972,6 +975,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // In order with the bytes: applied once the bytes before it were parsed.
             output.append(alternateScreen: on)
             scheduleOutput()
+        case .hostColumns(let columns):
+            // In order with the bytes too: the mirror takes the Mac's new
+            // width right before the first byte drawn for it.
+            output.append(hostColumns: columns)
+            scheduleOutput()
+        case .hostGridOwner(let name):
+            hostGridOwner = name
         default:
             model.ingest(event)
         }
@@ -1032,6 +1042,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             case .alternateScreen(let on):
                 model.ingest(.alternateScreen(on))
                 applyMode(tui: on)
+            case .hostColumns(let columns):
+                appliedHostColumns = columns
+                syncHostGrid()
             case .bytes(let data):
                 syncHostGrid()
                 pacer.started(frameEnd: outputLink?.targetTimestamp ?? CACurrentMediaTime() + frameInterval,
@@ -2484,7 +2497,7 @@ public enum TerminalChrome: Sendable {
 /// rows differ. The phone's claim stays its own grid (`measuredGrid`).
 extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
     var hostLayout: TerminalHostGridLayout {
-        let remoteColumns = model.session.remoteColumns
+        let remoteColumns = appliedHostColumns ?? model.session.remoteColumns
         return TerminalHostGridLayout(viewportWidth: view.bounds.width - 2 * Self.sidePadding, cell: cell,
                                       scale: view.window?.screen.scale ?? 3, hostColumns: remoteColumns,
                                       hostRows: remoteColumns == nil ? nil : model.session.remoteRows, visibleRows: tuiRows)
@@ -2514,7 +2527,7 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
     func syncHostGrid() {
         guard cell.width > 0, view.bounds.width > 0 else { return }
         if hostLayout.surfaceWidth != mirrorWidth {
-            sizingLog.notice("mirror columns follow the Mac: \(self.hostLayout.columns, privacy: .public) (phone \(self.hostLayout.phoneColumns, privacy: .public))")
+            sizingLog.notice("mirror columns follow the Mac: \(self.hostLayout.columns, privacy: .public) (phone \(self.hostLayout.phoneColumns, privacy: .public), capped \(self.hostLayout.isCapped, privacy: .public))")
             view.setNeedsLayout()
             view.layoutIfNeeded()
         }
@@ -2548,7 +2561,7 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         if surface.frame.origin != origin {
             UIView.performWithoutAnimation { surface.frame.origin = origin }
         }
-        if let box = layout.letterbox, let note = layout.note(owner: hostGridOwner ?? model.session.hostGridOwnerName) {
+        if let box = layout.letterbox, let note = layout.note(owner: hostGridOwner) {
             hostGridNote.text = note
             hostGridNote.isHidden = false
             let height = ceil(hostGridNote.font.lineHeight)

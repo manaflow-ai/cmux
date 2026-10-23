@@ -59,6 +59,17 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The Mac terminal's columns (`vt-state`, `resized`); nil before the
     /// first attach. The screen renders this grid when it is not the phone's.
     public var remoteColumns: Int? { reportedColumns }
+    /// The owner the screen was last told (``TerminalSessionEvent/hostGridOwner(_:)``).
+    private var toldHostGridOwner: String??
+
+    /// Tells the screen when the device that sets the grid changed.
+    private func noteHostGridOwner() {
+        let name = hostGridOwnerName
+        guard toldHostGridOwner != .some(name) else { return }
+        toldHostGridOwner = .some(name)
+        handler?(.hostGridOwner(name))
+    }
+
     /// The device that sets the Mac's grid, when it is not this phone.
     public var hostGridOwnerName: String? {
         guard let state = sizing.state, !sizing.selfIsOwner, let owner = state.owners.first,
@@ -541,6 +552,7 @@ public final class DaemonTerminalSession: TerminalSession {
             guard self.client === client else { heldEvents = nil; return }
             let (sizeState, participant) = Self.attachSizing(reply)
             sizing.apply(sizeState, selfParticipant: participant)
+            noteHostGridOwner()
             // The replay rebuilds the screen and scrollback. The reset also
             // tells the screen where the Mac's screen starts in its taller
             // mirror (TerminalRowShift).
@@ -636,7 +648,9 @@ public final class DaemonTerminalSession: TerminalSession {
         case .alternateScreen(let on):
             setAlternate(on)
         case .columns(let columns):
+            let changed = reportedColumns != columns
             reportedColumns = columns
+            if changed { handler?(.hostColumns(columns)) }
         case .rows(let rows):
             reportedRows = rows
             // The Mac answered a size other than the one asked for (another
@@ -661,6 +675,7 @@ public final class DaemonTerminalSession: TerminalSession {
             log.notice("surface \(self.surface, privacy: .public): resized event at the mirrored grid \(columns, privacy: .public)x\(rows, privacy: .public): kept, no reset")
         case .sizeState(let state, let participant):
             sizing.apply(state, selfParticipant: participant)
+            noteHostGridOwner()
         }
     }
 
