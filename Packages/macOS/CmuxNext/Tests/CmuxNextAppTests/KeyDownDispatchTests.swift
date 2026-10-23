@@ -16,7 +16,9 @@ struct KeyDownDispatchTests {
                                                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: 0, context: nil,
                                                 characters: "c", charactersIgnoringModifiers: "c", isARepeat: false, keyCode: 8))
         NSApp.postEvent(key, atStart: true)
-        _ = NSApp.nextEvent(matching: .keyDown, until: .distantPast, inMode: .default, dequeue: true)
+        // A mode with no sources: the posted key comes off the app's queue without running the
+        // main run loop's default-mode sources, which ended the whole test process on macOS 26.
+        _ = NSApp.nextEvent(matching: .keyDown, until: .distantPast, inMode: RunLoop.Mode("cmux.test.staleKey"), dequeue: true)
         try #require(NSApp.currentEvent?.type == .keyDown, "the test could not leave a stale key in currentEvent")
         #expect(!services.registry.isDispatchingKeyDown(), "a key whose dispatch ended counts as a key-down dispatch")
     }
