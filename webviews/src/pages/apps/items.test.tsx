@@ -112,12 +112,13 @@ test("every style names the app, its description and its state for tests and ass
   }
 });
 
-test("the row shows the state badge beside the tier and the action", () => {
+test("the row keeps its look: the tier and the action, no state badge", () => {
   const html = renderToStaticMarkup(
     <ItemRow app={app({ installed: true })} selected store={store} strings={strings} />,
   );
   expect(html).toContain('class="apps-row selected"');
-  expect(html).toContain(en["store.badge.installed"]!);
+  expect(html).toContain('data-item-state="installed"');
+  expect(html).not.toContain(en["store.badge.installed"]!);
   expect(html).toContain(en["store.action.remove"]!);
 });
 
@@ -132,10 +133,13 @@ test("the category bar leads with All and presses the selected category", () => 
   expect(git).toMatch(/aria-pressed="false"[^>]*>All</);
 });
 
-test("the screenshots strip draws only data images", () => {
-  expect(renderToStaticMarkup(<ScreenshotStrip screenshots={["https://example.com/a.png"]} strings={strings} />)).toBe(
-    "",
+test("the screenshots strip shows for any listed screenshot and draws only data images", () => {
+  expect(renderToStaticMarkup(<ScreenshotStrip screenshots={[]} strings={strings} />)).toBe("");
+  const remote = renderToStaticMarkup(
+    <ScreenshotStrip screenshots={["https://example.com/a.png"]} strings={strings} />,
   );
+  expect(remote).toContain(`<h2>${en["store.detail.screenshots"]}</h2>`);
+  expect(remote).not.toContain("<img");
   const html = renderToStaticMarkup(
     <ScreenshotStrip screenshots={["data:image/png;base64,AAAA", "https://example.com/a.png"]} strings={strings} />,
   );

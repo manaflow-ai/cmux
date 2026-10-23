@@ -151,7 +151,6 @@ export function ItemRow({ app, selected, store, strings }: ItemProps & { selecte
         </span>
       </button>
       <Badge text={strings.t(TierLabel[app.tier])} />
-      <StateBadge app={app} strings={strings} />
       <ItemAction app={app} store={store} strings={strings} />
     </div>
   );
@@ -199,16 +198,20 @@ export function DetailSection({ title, children }: { title: string; children: Re
   );
 }
 
-/** The screenshots strip: only images the owner sent as data URLs; nothing when there are none. */
+/**
+ * The screenshots strip: the section shows when the owner lists any screenshot, and draws only the
+ * ones sent as data URLs (the page loads nothing from the network).
+ */
 export function ScreenshotStrip({ screenshots, strings }: { screenshots: readonly string[]; strings: Strings }) {
-  const images = screenshots.filter((src) => src.startsWith("data:image/"));
-  if (images.length === 0) return null;
+  if (screenshots.length === 0) return null;
   return (
     <DetailSection title={strings.t("store.detail.screenshots")}>
       <div className="apps-screenshots">
-        {images.map((src, index) => (
-          <img key={index} src={src} alt="" className="apps-screenshot" />
-        ))}
+        {screenshots
+          .filter((src) => src.startsWith("data:image/"))
+          .map((src, index) => (
+            <img key={index} src={src} alt="" className="apps-screenshot" />
+          ))}
       </div>
     </DetailSection>
   );
