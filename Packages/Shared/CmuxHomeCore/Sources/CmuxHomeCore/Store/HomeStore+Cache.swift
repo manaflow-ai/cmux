@@ -77,16 +77,16 @@ extension HomeStore {
     }
 
     /// The owner's state as the mirror has it (the view cache adds the client's own state). The
-    /// mirror's `me` is the store's (every assignment of `me` copies it).
-    func ownerCacheSnapshot() -> HomeCacheSnapshot {
-        var snapshot = HomeCacheSnapshot()
-        snapshot.me = mirror.me ?? me
-        snapshot.conversations = mirror.conversations.values.sorted { $0.id.rawValue < $1.id.rawValue }
-        snapshot.windows = mirror.windows.compactMapValues { window in
-            window.messages.isEmpty ? nil : Array(window.messages.suffix(HomeCache.windowLimit))
-        }
-        snapshot.sends = log.entries.compactMap(HomeCachedSend.init)
-        return snapshot
+    /// mirror's `me` is the store's (every assignment of `me` copies it). O(open windows + unsent
+    /// sends) on the main actor: the dictionaries and message arrays are copy-on-write copies; the
+    /// cache actor sorts, trims and encodes them.
+    func ownerCacheState() -> HomeCacheState {
+        var state = HomeCacheState()
+        state.me = mirror.me ?? me
+        state.conversations = mirror.conversations
+        state.windows = mirror.windows.compactMapValues { $0.messages.isEmpty ? nil : $0.messages }
+        state.sends = log.entries.compactMap(HomeCachedSend.init)
+        return state
     }
 
     /// `Caches/cmux-home-blobs`.
