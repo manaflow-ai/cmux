@@ -52,6 +52,10 @@ struct AppEnvironment: Sendable {
     /// This Mac's layout templates (`LayoutTemplateRepository`): only the real app process sets
     /// it; without it templates live in memory only (tests that build `AppServices`).
     var layoutTemplatesFile: URL?
+    /// Where the unsaved-document recovery drafts live (`RecoveryDraftStore`, R96): only the real
+    /// app process sets it; without it each `AppServices` gets a temporary directory of its own,
+    /// so tests never write a draft that the user's next launch would offer to restore.
+    var recoveryDraftsDirectory: URL?
 
     var tag: String? { launch.tag }
     /// The build whose state roots this app uses (per-build isolation, cx-is1kf).

@@ -26,8 +26,9 @@ final class QuitCoordinator {
     /// The last dialog brought the app forward (`debug.quit`).
     private(set) var lastAskActivated = false
     private unowned let services: AppServices
-    /// The quit hook's participants (`AppServices.quitUnsaved`; tests replace it).
-    var unsaved: QuitUnsavedRegistry
+    /// The quit hook's participants: `AppServices.quitUnsaved`, the one registry the
+    /// file documents and the update handoff also use.
+    let unsaved: QuitUnsavedRegistry
     /// The app's main-thread watchdog (AppDelegate): a quit that is ending
     /// stops its debug hang assertion.
     weak var watchdog: MainThreadWatchdog?

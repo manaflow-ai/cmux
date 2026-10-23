@@ -38,8 +38,8 @@ import CmuxNextTabs
 final class AppServices {
     /// The app's theme store (the one ``ThemeScope/app`` roots on), handed to the App's theme owners.
     let themeStore = ThemeScope.app.store
-    /// The recovery-draft backstop of unsaved documents (R96).
-    let recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory)
+    /// The recovery-draft backstop of unsaved documents (R96), in `environment.recoveryDraftsDirectory`.
+    let recoveryDrafts: RecoveryDraftStore
     /// The quit hook's unsaved-document participants; drafts go to ``recoveryDrafts``.
     private(set) lazy var quitUnsaved = QuitUnsavedRegistry(drafts: recoveryDrafts)
     /// The open files' quit documents, shared by the markdown and editor pages.
@@ -377,6 +377,8 @@ final class AppServices {
     /// - Parameter launchReveal: The launch load-in the windows' sidebars
     ///   hold for; the app-wide one by default.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil) {
+        recoveryDrafts = RecoveryDraftStore(directory: environment.recoveryDraftsDirectory
+            ?? FileManager.default.temporaryDirectory.appending(path: "cmux-next-recovery-\(UUID().uuidString)", directoryHint: .isDirectory))
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
