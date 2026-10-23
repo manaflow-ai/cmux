@@ -64,7 +64,7 @@ import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { PageDots } from "./newtab/PageDots";
 import { useSessionCommands } from "./newtab/useSessionCommands";
-import { editedPageWidgets, editNewTabWidgets, shownPageWidgets } from "./newtab/pageWidgets";
+import { editNewTabWidgets, shownPageWidgets, withWidgetEdit } from "./newtab/pageWidgets";
 import { screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
@@ -210,6 +210,7 @@ import { PromptActions, ReceivedActions } from "./conversation/MessageActions";
 import { AgentNamesContext, agentNames } from "./conversation/agentNames";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { ANCHORED_COLLAPSE_EVENT, foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
+import { settleTurnFold, startTurnFold, watchTurnFold, type TurnFold } from "./conversation/turnFold";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { loadHighlightedCode } from "./conversation/CodeBlock";
 import { loadEditDiffHunks } from "./conversation/EditDiff";
@@ -2026,6 +2027,10 @@ export function VirtualTranscript({
   // Rows that arrive live (a reply, a tool call, a status line) enter once. The rows at the first
   // render, and many at once (a session switch, older history), are a load and do not.
   const knownRows = useRef<Set<string> | null>(null);
+  /// A "Worked for" (or subagent group) the reader toggled, while its rows slide and fade
+  /// (conversation/turnFold.ts), and the drawn copies of rows a close hid, while they fade out.
+  const turnFold = useRef<TurnFold | undefined>(undefined);
+  const foldGhosts = useRef(new Set<HTMLElement>());
   const knownFor = useRef<AcpmuxRow[] | null>(null);
   /// Where this snapshot first differs from the last, found once below; the rail reads it instead
   /// of comparing the rows again (model.ts minimapTurns).
@@ -2061,7 +2066,8 @@ export function VirtualTranscript({
     // A row that arrived while the chat is hidden (another tab or workspace shows), or that lands
     // before its first frame back, came while the user was away: it draws in place. WebKit
     // suspends a hidden page's animations, so its entrance would play on return (shared/pageReveal.ts).
-    if (arrived.length <= LIVE_ROWS_PER_UPDATE && entranceAllowed())
+    // The rows a "Worked for" the reader opened reveals fade in with its fold (turnFold.ts) instead.
+    if (arrived.length <= LIVE_ROWS_PER_UPDATE && entranceAllowed() && !turnFold.current?.opening)
       for (const row of arrived) enteringRows.current.add(row.id);
   }
   knownFor.current = rows;
@@ -2826,6 +2832,63 @@ export function VirtualTranscript({
     minimapPlaced.current?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height, width, dockSpace, room, lift, sessionId, seekExpired, canLoadOlder]);
+  // A toggled "Worked for" plays when its rows are placed again (watchTurnFold, started at the
+  // toggle), not on every render. A render only checks, in O(1), whether the fold is over or another
+  // chat shows, so nothing of it is left drawn over the new rows.
+  useLayoutEffect(() => {
+    const fold = turnFold.current;
+    if (!fold || (performance.now() <= fold.until && fold.sessionId === sessionId)) return;
+    settleTurnFold(thread.current, fold, foldGhosts.current);
+    turnFold.current = undefined;
+  });
+  // Unmounted: the playing fold stops and lets go of its rows, and its copies go.
+  useEffect(
+    () => () => {
+      settleTurnFold(thread.current, turnFold.current, foldGhosts.current);
+      turnFold.current = undefined;
+      for (const ghost of foldGhosts.current) ghost.remove();
+      foldGhosts.current.clear();
+    },
+    [],
+  );
+  // Read at the click, so the callback stays the same across snapshots (rows compare it).
+  const foldInputs = useRef({ layout, expanded, sessionId });
+  foldInputs.current = { layout, expanded, sessionId };
+  /// The reader's toggle of a row that opens or closes other rows ("Worked for", a subagent group):
+  /// its motion starts from the rows as they are drawn now (turnFold.ts), then the pane toggles it.
+  const toggleRow = useCallback(
+    (id: string) => {
+      const node = ref.current;
+      const shown = rowsRef.current;
+      const host = thread.current;
+      settleTurnFold(host, turnFold.current, foldGhosts.current);
+      const fold = node
+        ? startTurnFold(
+            host,
+            id,
+            !foldInputs.current.expanded.has(id),
+            { count: shown.length, idAt: (index) => shown[index]?.id, tops: foldInputs.current.layout.tops },
+            foldInputs.current.sessionId,
+          )
+        : undefined;
+      turnFold.current = fold;
+      // The rows as placed by the latest render, read when a pass runs.
+      const read = () => {
+        const placed = rowsRef.current;
+        const { layout, sessionId } = foldInputs.current;
+        return {
+          placed: { count: placed.length, idAt: (index: number) => placed[index]?.id, tops: layout.tops },
+          sessionId,
+        };
+      };
+      if (fold && host)
+        watchTurnFold(fold, host, read, foldGhosts.current, () => {
+          if (turnFold.current === fold) turnFold.current = undefined;
+        });
+      onToggleActivity(id);
+    },
+    [onToggleActivity],
+  );
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
   // The page picks adaptive rendering; the host supplies the display interval and applies it.
   const renderRate = useMemo(() => new AdaptiveRenderRate(), []);
@@ -3209,9 +3272,20 @@ export function VirtualTranscript({
     for (const name of inputs) node?.addEventListener(name, reader, { passive: true });
     // A click on a disclosure line holds it where it is (foldAnchor.ts), before the row's own handler
     // opens it.
+    // A turn fold still sliding rows lands first, and the offset takes up however far that moved the
+    // clicked line, so the hold keeps it on the pixel it was clicked at.
+    const settleFold = (line: HTMLElement) => {
+      if (!turnFold.current) return;
+      const before = line.getBoundingClientRect().top;
+      settleTurnFold(thread.current, turnFold.current, foldGhosts.current);
+      turnFold.current = undefined;
+      const moved = line.getBoundingClientRect().top - before;
+      if (node && Math.abs(moved) >= 0.5) node.scrollTop += moved;
+    };
     const holdClicked = (event: MouseEvent) => {
       const toggle = node ? foldToggleAt(event.target, node) : undefined;
       if (!toggle) return;
+      settleFold(toggle);
       foldAnchor.current = holdFold(toggle);
     };
     // A collapsible's header that asks to be held (useAnchoredCollapse.ts): a toggle from the keyboard
@@ -3221,6 +3295,7 @@ export function VirtualTranscript({
       if (!node || typeof header?.closest !== "function" || !node.contains(header) || !header.closest(".acpmux-row"))
         return;
       event.preventDefault();
+      settleFold(header);
       foldAnchor.current = holdFold(header);
     };
     // The reader scrolling lets go of it.
@@ -3440,7 +3515,7 @@ export function VirtualTranscript({
                       onCopyRow={copyRow}
                       contentType={Component}
                       controls={controls}
-                      onToggleActivity={onToggleActivity}
+                      onToggleActivity={toggleRow}
                       onOpenDiff={onOpenDiff}
                       githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
                       referenceScope={scopeAt(absoluteIndex)}
@@ -3448,7 +3523,7 @@ export function VirtualTranscript({
                       <Component
                         row={row}
                         sessionId={sessionId}
-                        onToggleActivity={onToggleActivity}
+                        onToggleActivity={toggleRow}
                         onOpenDiff={onOpenDiff}
                         expanded={isExpanded}
                         controls={controls}
@@ -8181,14 +8256,17 @@ function AcpmuxPane() {
           data-summary={summaryCard.column ? "inline" : "popover"}
         >
           {!harnessesOpen && showNewTab && !newTab.history && (
-            // The page's dots, under it: the composer's two looks, then with the style dots on (on
-            // Minimal a widget, off by default: newtab/pageWidgets.ts) the page's other styles
-            // (newtab/PageDots.tsx); a pick shows in place at once.
+            // The page's dots, under it: Claude Minimal, Claude Minimal with the quick actions, Codex
+            // Minimal (newtab/tabDots.ts, from the look and Minimal's actions widget), then with the
+            // style dots on (on Minimal a widget, off by default: newtab/pageWidgets.ts) the page's
+            // other styles (newtab/PageDots.tsx); a pick shows in place at once.
             <PageDots
               template={shownTemplate(newTab)}
               styleDots={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets).has("styleDots")}
+              actions={shownPageWidgets("minimal", newTab.pageWidgets).has("actions")}
               callNative={callNative}
               show={(next) => setNewTab((current) => current && { ...current, template: next })}
+              showWidgets={(done) => setNewTab((current) => current && withWidgetEdit(current, done))}
               onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
             />
           )}
@@ -8242,10 +8320,7 @@ function AcpmuxPane() {
               onEditWidgets={(edit) =>
                 editNewTabWidgets(edit, {
                   callNative,
-                  show: (done) =>
-                    setNewTab(
-                      (current) => current && { ...current, pageWidgets: editedPageWidgets(current.pageWidgets, done) },
-                    ),
+                  show: (done) => setNewTab((current) => current && withWidgetEdit(current, done)),
                 })
               }
               snapshot={commandSession ? { ...newTabSnapshot, commands: pendingCommands ?? [] } : newTabSnapshot}
