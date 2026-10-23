@@ -115,6 +115,7 @@ enum AppActions {
         IconMenuVisibility.install(registry, context: context)
         TabSelectionTitles(context: context).install(in: registry)
         TopPages.installTabTargetReasons(services)
+        NameEditorReasons.install(services)
         HomeRules.install(services)
         TopPages.registerProviders(services)
         context.observeRefusals()
