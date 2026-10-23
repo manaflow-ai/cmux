@@ -199,14 +199,25 @@ Now hidden live pages share the one warm-set budget with the hidden terminal
 surfaces (`WarmSetBudget.pageCapacity`: 1/64 of memory at 56 MB a page,
 4 to 16; warning 2; critical 0). `HibernationPlanner.plan(warmPages:)`
 counts every eligible hidden page except the neighbors and hovered tabs, the
-probe's recent keeps and the exemptions. Each pane's shown tab (`fronts`: also
-a parked workspace's or an off-screen column's, what a switch shows again)
-counts but ranks after every other page, so past the budget the workspaces
-left longest ago let theirs go and the most recently left keep a live page
-(before, fronts were out of the budget and every parked workspace held a
-renderer for the whole timeout: O(workspaces), the STRESS session's 10
-Chromium workspaces ~550 MB). Past the budget the least valuable (the same
-ranking) are due
+probe's recent keeps, the exemptions and the warm fronts. Each pane's shown tab
+(`NeighborTabs.fronts`, what a switch shows again) is a front, grouped by
+workspace: the fronts of a workspace on screen (its off-screen columns) and of
+the workspace left last (`Front.warm`) stay out of the budget together, so a
+column scroll or a switch back to the last workspace wakes nothing, however
+many panes it has (the STRESS workspace has 12). The fronts of workspaces left
+before that (`Front.parked`) count, in one idleness order with every other
+page, with a bounded credit (`frontCreditShare`, one show: 5 min at the 30 min
+default). So a tab left a minute ago in the pane the person works in still
+ranks before a workspace left twenty minutes ago, and parked workspaces do not
+each hold a renderer (before 2026-10-23 every front was out of the budget, so
+every parked workspace held one for the whole timeout: O(workspaces), the
+STRESS session's 10 Chromium workspaces ~550 MB; a first fix ranked all fronts
+after every other page, so once they filled the budget no other hidden tab
+stayed live, and the last workspace's panes past the budget went after a
+minute). Hidden-page memory is bounded by the budget plus two workspaces'
+fronts. A switch to a workspace left before the last one may wake its shown
+pages (picture first; the Chromium wake cover until first contentful paint is
+still open, below). Past the budget the least valuable (`overBudget`) are due
 once hidden `overBudgetMinimumHidden` (60 s, the planner's "the person just
 left it"), at the normal pace, through the same probe (form input, media,
 capture stay). The timeout and memory pressure rules are unchanged; "off"
@@ -215,12 +226,20 @@ still disables everything. `debug.surfaces` hibernation reports
 
 Agent chat pages (one web content process each, about 75 MB) had no budget
 either and waited for the whole timeout: a STRESS pane's five hidden chats held
-~375 MB. `AgentPageHibernation` now applies the same `pageCapacity` to the
-hidden chat pages it may release: all but the most recently left go once
-hidden `overBudgetMinimumHidden`; each pane's shown chat (`fronts`) counts
-but goes last, and a busy turn, pinned, New Tab and shell chats still stay. A released chat
-keeps its session, wake state and last frame, as before. Tests:
-`AgentPageHibernationTests.hiddenChatsPastTheWarmBudgetLetGoAfterAMinute`.
+~375 MB. `AgentPageHibernation` now applies a budget of the same size
+(`pageCapacity`, a second budget, not a share of the browser pages': hidden
+live pages are up to twice `pageCapacity`, on a 16 GB Mac 4 x 55 MB + 4 x
+75 MB, about 520 MB) to the hidden chat pages it may release, ranked by the
+same `HibernationPlanner.overBudget` (warm fronts out, parked fronts with the
+credit, then the most recently left): the rest go once hidden
+`overBudgetMinimumHidden`. A busy turn, pinned, New Tab and shell chats still
+stay. A pane reports its new shown tab after it hid the old one, so a chat
+hidden by a switch inside its pane is first planned as a front; the fronts'
+change replans the chats (`frontsDidChange`). A released chat keeps its
+session, wake state and last frame, as before. Tests:
+`AgentPageHibernationTests.hiddenChatsPastTheWarmBudgetLetGoAfterAMinute`,
+`parkedWorkspacesShownChatsCountInTheBudget`,
+`aChatHiddenByASwitchInItsPaneCountsOnceTheFrontsMove`.
 
 Wake picture: a hibernated page's JPEG took 10 to 30 ms to decode off the
 main thread after its placeholder entered a window, so a woken tab showed an
