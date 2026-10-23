@@ -42,8 +42,9 @@ public final class DaemonStore: StateResourceQueries {
     public internal(set) var registryID: String?
     public internal(set) var workspaceRevision: UInt64 = 0
     /// Bumped once per apply (batch, snapshot, intent) that changed which
-    /// tabs the tree lists, their panes or their order: one read for an
-    /// observer that follows every tab list, instead of a walk of every pane.
+    /// tabs the tree lists, their panes or their order, or which panes it
+    /// lists: one read for an observer that follows every tab list, instead
+    /// of a walk of every pane (``liveTabListRevision``).
     public private(set) var tabListRevision: UInt64 = 0
     public let session = SessionStateStore()
     /// Recent notifications, newest last (bounded).
@@ -191,6 +192,29 @@ public final class DaemonStore: StateResourceQueries {
     public func tab(id: String) -> TabModel? {
         _ = tabListRevision
         return index.tabsByID[id]
+    }
+    /// The pane with durable id `id` (`PaneModel.id`).
+    public func pane(id: String) -> PaneModel? {
+        _ = tabListRevision
+        return index.panesByID[id]
+    }
+
+    /// `tabListRevision` while the tree is live (connected, with a loaded snapshot), else nil.
+    ///
+    /// The one tracked read for an owner that keeps state per tab or pane and lets it go once
+    /// the tree drops it: three properties, whatever the tree's size. On each new value it looks
+    /// up only the ids it holds (``tab(id:)``, ``pane(id:)``, O(1) each), never a set of every
+    /// tab or pane id, which tracked every workspace's screens, every screen's panes and every
+    /// pane's tabs on each tab added, closed or moved anywhere (perf-lead.md cause 6).
+    ///
+    /// ```swift
+    /// for await revision in ObservationStream({ store.liveTabListRevision }) where revision != nil {
+    ///     for key in held where store.tab(id: key) == nil { release(key) }
+    /// }
+    /// ```
+    public var liveTabListRevision: UInt64? {
+        guard case .connected = connectionState, isLoaded else { return nil }
+        return tabListRevision
     }
     /// The tab with durable id or tab resource id `id` (a tab first seen
     /// without a `tab_` resource id keeps its first id; links name it by
