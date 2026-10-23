@@ -338,8 +338,37 @@ fn a_holder_shell_that_exits_ends_its_terminal_with_its_status() {
 /// instead, and keeps using that one.
 #[test]
 fn a_standalone_holder_that_never_starts_falls_back_to_the_built_in_holder() {
-    let mut daemon =
-        Daemon::start_with_env(&[("CMUX_TUI_HOLDER_EXE", Path::new("/usr/bin/false"))]);
+    let daemon = Daemon::start_with_env(&[("CMUX_TUI_HOLDER_EXE", Path::new("/usr/bin/false"))]);
+    falls_back_to_the_built_in_holder(daemon, "false");
+}
+
+/// Review 2 of holder items 1-3: a standalone holder that hangs before it
+/// says `ready` and never exits (a stall in its setup or its first exec)
+/// must not block every terminal create for ever under the daemon's
+/// connecting lock: the daemon gives up after its ready timeout, kills it
+/// and falls back to the built-in holder.
+#[test]
+fn a_standalone_holder_that_hangs_before_ready_falls_back_to_the_built_in_holder() {
+    let stand_in = std::env::temp_dir().join(format!("cmux-hung-holder-{}", std::process::id()));
+    fs::write(&stand_in, "#!/bin/sh\nexec sleep 3600\n").unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&stand_in, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let daemon = Daemon::start_with_env(&[("CMUX_TUI_HOLDER_EXE", stand_in.as_path())]);
+    let started = Instant::now();
+    falls_back_to_the_built_in_holder(daemon, "sleep");
+    assert!(
+        started.elapsed() < cmux_holder::client::READY_TIMEOUT + Duration::from_secs(20),
+        "the creates waited far past the ready timeout: {:?}",
+        started.elapsed()
+    );
+    let _ = fs::remove_file(&stand_in);
+}
+
+/// Two terminals start and take input, on a holder that is not the
+/// stand-in `stand_in_name` that never started.
+fn falls_back_to_the_built_in_holder(mut daemon: Daemon, stand_in_name: &str) {
     for index in 0..2 {
         let created = request(
             &daemon.socket,
@@ -351,7 +380,7 @@ fn a_standalone_holder_that_never_starts_falls_back_to_the_built_in_holder() {
         send(&daemon.socket, surface, &format!("built-in-{index}"));
         screen_contains(&daemon.socket, surface, &format!("built-in-{index}"));
         let holder = parent_of(shell_pid(&daemon.socket, surface));
-        assert_ne!(exe_name(holder), "false", "the shell runs on a holder");
+        assert_ne!(exe_name(holder), stand_in_name, "the shell runs on a holder");
     }
 }
 

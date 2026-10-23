@@ -3,7 +3,7 @@
 //! holder crash.
 
 use std::collections::HashMap;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, Write};
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -450,10 +450,10 @@ impl HolderService {
                 }
                 Err(error) => {
                     // A standalone holder that answers `--version` but does
-                    // not start (a startup error, a crash in serve, a macOS
-                    // major it fails on) must not cost every holder
-                    // terminal: this daemon runs the built-in holder from
-                    // now on.
+                    // not start (a startup error, a crash in serve, a hang
+                    // before `ready`, a macOS major it fails on) must not
+                    // cost every holder terminal: this daemon runs the
+                    // built-in holder from now on.
                     eprintln!(
                         "cmux-tui: the terminal holder {} did not start ({error}); \
                          using the built-in holder",
@@ -471,8 +471,9 @@ impl HolderService {
     }
 
     /// Hand a just-started holder its token and wait for its `ready`. A
-    /// holder that answers anything else is killed and reaped; one that is
-    /// ready is reaped whenever it exits while this daemon runs.
+    /// holder that answers anything else, or nothing in time, is killed and
+    /// reaped; one that is ready is reaped whenever it exits while this
+    /// daemon runs.
     fn handshake(&self, mut child: std::process::Child) -> io::Result<()> {
         match first_line(&mut child, &self.token) {
             Ok(line) if line.trim() == "ready" => {}
@@ -495,16 +496,17 @@ impl HolderService {
 }
 
 /// Write `token` to a just-started holder's stdin and read the first line
-/// it prints (`ready` once it listens).
+/// it prints (`ready` once it listens), waiting at most
+/// [`cmux_holder::client::READY_TIMEOUT`]: a holder that hangs before it
+/// (and does not exit) must not hold the `connecting` lock, and with it
+/// every terminal create and holder restart, for ever.
 fn first_line(child: &mut std::process::Child, token: &[u8; 32]) -> io::Result<String> {
     let hex: String = token.iter().map(|byte| format!("{byte:02x}")).collect();
     let mut stdin = child.stdin.take().ok_or_else(|| io::Error::other("no holder stdin"))?;
     stdin.write_all(format!("{hex}\n").as_bytes())?;
     drop(stdin);
-    let stdout = child.stdout.take().ok_or_else(|| io::Error::other("no holder stdout"))?;
-    let mut line = String::new();
-    BufReader::new(stdout).read_line(&mut line)?;
-    Ok(line)
+    let mut stdout = child.stdout.take().ok_or_else(|| io::Error::other("no holder stdout"))?;
+    cmux_holder::client::first_line_within(&mut stdout, cmux_holder::client::READY_TIMEOUT)
 }
 
 /// The standalone holder this daemon starts, when it has one whose wire

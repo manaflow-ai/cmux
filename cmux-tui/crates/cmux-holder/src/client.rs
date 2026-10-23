@@ -1,11 +1,11 @@
 //! The daemon's side of the holder link.
 
 use std::collections::VecDeque;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdout, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use crate::wire::{self, In, Kind, Out};
@@ -67,6 +67,52 @@ pub struct Adopted {
     pub ring: Option<OwnedFd>,
 }
 
+/// How long a just-started holder may take to say `ready`. One that hangs
+/// before it (a stall in its setup or its first exec) is killed then, so
+/// it cannot hold up every terminal create for ever.
+pub const READY_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The first line a just-started holder prints on `stdout` (`ready` once it
+/// listens), waiting at most `timeout`. An answer that ends without a
+/// newline (the holder exited) is returned as it is; no answer in time is a
+/// `TimedOut` error.
+pub fn first_line_within(stdout: &mut ChildStdout, timeout: Duration) -> io::Result<String> {
+    let deadline = Instant::now() + timeout;
+    let mut line = Vec::new();
+    let mut buf = [0u8; 256];
+    while !line.contains(&b'\n') && line.len() < 4096 {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!("the holder did not say ready within {timeout:?}"),
+            ));
+        }
+        let mut poll_fd = libc::pollfd { fd: stdout.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+        let millis = i32::try_from(left.as_millis()).unwrap_or(i32::MAX).max(1);
+        // SAFETY: polls one live pollfd; the timeout is the deadline left.
+        let ready = unsafe { libc::poll(&mut poll_fd, 1, millis) };
+        if ready < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(error);
+        }
+        if ready == 0 {
+            continue;
+        }
+        match stdout.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => line.extend_from_slice(&buf[..n]),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
+    }
+    let end = line.iter().position(|byte| *byte == b'\n').map_or(line.len(), |at| at + 1);
+    Ok(String::from_utf8_lossy(&line[..end]).into_owned())
+}
+
 /// A terminal a holder started: its pid and the custody dups.
 #[derive(Debug)]
 pub struct Spawned {
@@ -102,15 +148,17 @@ pub fn launch_with(
     let mut stdin = child.stdin.take().ok_or_else(|| io::Error::other("no holder stdin"))?;
     stdin.write_all(format!("{hex}\n").as_bytes())?;
     drop(stdin);
-    let stdout = child.stdout.take().ok_or_else(|| io::Error::other("no holder stdout"))?;
-    let mut line = String::new();
-    BufReader::new(stdout).read_line(&mut line)?;
-    if line.trim() != "ready" {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(io::Error::other(format!("holder did not start: {line:?}")));
+    let mut stdout = child.stdout.take().ok_or_else(|| io::Error::other("no holder stdout"))?;
+    let answer = first_line_within(&mut stdout, READY_TIMEOUT);
+    if matches!(&answer, Ok(line) if line.trim() == "ready") {
+        return Ok(child);
     }
-    Ok(child)
+    let _ = child.kill();
+    let _ = child.wait();
+    Err(match answer {
+        Ok(line) => io::Error::other(format!("holder did not start: {line:?}")),
+        Err(error) => error,
+    })
 }
 
 /// An authenticated link to a holder.
