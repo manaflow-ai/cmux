@@ -12,6 +12,9 @@ window and skip that. The python process needs the host's event-posting permissi
               in mode on (below 26 the app never hosts, so an "on" number would be an "off" number)
   hosted      debug.cef tracker.hosted_pages >= 1 (on) or == 0 (off), read as soon as the first page of a new pane
               loaded (no tab switch first: the request made at window creation must host it by itself)
+  hosted.fork the fork really moved the page's pixels, not only the app's view: debug.layers counts the CALayerHost
+              layers (Chromium's GPU output) per shown page; on: >= 1 in the pane's tree and 0 in the page window's
+              (the fork moved them into the hosted context), off: 0 in the pane and >= 1 in the page window
   pixels      the page's red top bar shows above its blue bottom bar (the hosted layer is the right way up), in the
               app's own window image (`pixels.window`) and in a screencapture of the page rect (`pixels.screen`);
               either can be blank on a host without Screen Recording for that process
@@ -26,7 +29,7 @@ window and skip that. The python process needs the host's event-posting permissi
   drag        an HID drag inside the page fires the page's pointer events (mousedown, moves, mouseup)
   context     an HID right click opens Chromium's context menu (the page sees a contextmenu event)
 
---checks hosted runs only `valid` and `hosted` (cef-layer-ab.py's check of each mode). --tunables build sets the
+--checks hosted runs only `valid`, `hosted` and `hosted.fork` (cef-layer-ab.py's check of each mode). --tunables build sets the
 tunable in the build's own debug-tunables.json (the path `debug.tunables` reports, which the benches read) instead
 of a scratch file, and records that path.
 
@@ -301,6 +304,27 @@ def check_valid_and_hosted():
         {"hosted_pages": hosted, "hosting_refused": tracker.get("hosting_refused"), "fork_api": fork_api})
 
 
+def check_fork_hosted():
+    """hosted.fork: the CALayerHost layers of each shown Chromium page are where the mode puts them."""
+    def pages():
+        rows = [b for w in (rpc("debug.layers") or {}).get("windows") or [] for b in w.get("browsers") or []
+                if "page_window_layer_hosts" in b]
+        if not rows:
+            return None
+        if opts.mode == "on":
+            good = all((b.get("hosted_layer_hosts") or 0) >= 1 and b.get("page_window_layer_hosts") == 0 for b in rows)
+        else:
+            good = all(b.get("hosted_layer_hosts") == 0 and (b.get("page_window_layer_hosts") or 0) >= 1 for b in rows)
+        return (good, rows) if good else None
+    # Chromium's first GPU frame makes its CALayerHost: give it a moment, then report what is there.
+    found = wait(pages, 5)
+    rows = found[1] if found else [b for w in (rpc("debug.layers") or {}).get("windows") or [] for b in w.get("browsers") or []
+                                   if "page_window_layer_hosts" in b]
+    FACTS["layer_hosts"] = [{k: b.get(k) for k in ("pane", "hosted_layer_hosts", "page_window_layer_hosts")} for b in rows]
+    row("hosted.fork", bool(found), {"pages": FACTS["layer_hosts"],
+                                     "note": None if rows else "no shown Chromium page in debug.layers (a build without the counts?)"})
+
+
 def main():
     global SOCKET
     if os.path.exists(SOCKET):
@@ -344,6 +368,7 @@ def main():
             return
         # Right after the first page of the new pane loaded, before anything shows a tab again.
         check_valid_and_hosted()
+        check_fork_hosted()
         if opts.checks == "hosted":
             return
         time.sleep(1.5)  # test harness: first frames settle

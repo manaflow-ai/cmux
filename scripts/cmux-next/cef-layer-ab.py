@@ -6,7 +6,9 @@ window over its pane) and once on (the page's pixels in the cmux window's layer 
 cef-layer-verify.py --checks hosted --tunables build launches the build the way the benches do, sets the tunable in
 the build's own debug-tunables.json (the path the app reports, which every bench launch reads) and checks that the
 mode is real: the page is Chromium (no `unavailable`, no `fallback`), fork_api >= 26 in mode on, and
-tracker.hosted_pages > 0 in mode on, == 0 in mode off. A mode that fails runs no benches and fails the run, so two
+tracker.hosted_pages > 0 in mode on, == 0 in mode off, and debug.layers' CALayerHost counts show the fork moved the
+page's pixels out of its page window in mode on and left them there in mode off (`hosted.fork`; the app-side count
+alone says only that cmux made its view). A mode that fails runs no benches and fails the run, so two
 "off" runs are never labelled off/on. summary.json records those values per mode.
 
   switch     sidebar-stress-bench.py switch_matrix at --workspaces workspaces (10 tickers): Chromium and terminal
