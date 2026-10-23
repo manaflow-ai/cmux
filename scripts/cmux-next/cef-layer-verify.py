@@ -10,8 +10,8 @@ window and skip that. The python process needs the host's event-posting permissi
 
   valid       the page is Chromium: debug.cef shows no `unavailable` and no `fallback`, and windows.fork_api >= 26
               in mode on (below 26 the app never hosts, so an "on" number would be an "off" number)
-  hosted      debug.cef tracker.hosted_pages >= 1 (on) or == 0 (off), read as soon as the first page of a new pane
-              loaded (no tab switch first: the request made at window creation must host it by itself)
+  hosted      debug.cef layer_hosting.hosted_pages >= 1 (on) or == 0 (off), read as soon as the first page of a new
+              pane loaded (no tab switch first: the request made at window creation must host it by itself)
   pixels      the page's red top bar shows above its blue bottom bar (the hosted layer is the right way up), in the
               app's own window image (`pixels.window`) and in a screencapture of the page rect (`pixels.screen`);
               either can be blank on a host without Screen Recording for that process
@@ -28,7 +28,8 @@ window and skip that. The python process needs the host's event-posting permissi
 
 --checks hosted runs only `valid` and `hosted` (cef-layer-ab.py's check of each mode). --tunables build sets the
 tunable in the build's own debug-tunables.json (the path `debug.tunables` reports, which the benches read) instead
-of a scratch file, and records that path.
+of a scratch file, and records that path and its contents before the change (`tunables_original`, null when there
+was no file), so cef-layer-ab.py can put the file back however it ends.
 
 Each row prints PASS or FAIL; OUT/verify-<mode>.json holds them, the debug.cef values and the tunables file. IME,
 accessibility, DevTools, popups and full screen are not covered here (see the design doc's feature table).
@@ -262,16 +263,16 @@ def write_build_tunable(path, value):
 
 def check_valid_and_hosted():
     cef = rpc("debug.cef") or {}
-    tracker = cef.get("tracker") or {}
+    hosting = cef.get("layer_hosting") or {}
     fork_api = (cef.get("windows") or {}).get("fork_api") or 0
     unavailable, fallback = cef.get("unavailable"), cef.get("fallback")
-    hosted = tracker.get("hosted_pages", 0)
+    hosted = hosting.get("hosted_pages", 0)
     FACTS.update({"fork_api": fork_api, "unavailable": unavailable, "fallback": fallback,
-                  "hosted_pages": hosted, "hosting_refused": tracker.get("hosting_refused")})
+                  "hosted_pages": hosted, "refusals": hosting.get("refusals"), "fork_calls": hosting.get("fork_calls")})
     row("valid", unavailable is None and fallback is None and (opts.mode == "off" or fork_api >= LAYER_HOSTING_FORK_API),
         {"fork_api": fork_api, "unavailable": unavailable, "fallback": fallback})
     row("hosted", hosted >= 1 if opts.mode == "on" else hosted == 0,
-        {"hosted_pages": hosted, "hosting_refused": tracker.get("hosting_refused"), "fork_api": fork_api})
+        {"hosted_pages": hosted, "refusals": hosting.get("refusals"), "fork_api": fork_api})
 
 
 def main():
@@ -303,6 +304,14 @@ def main():
             return
         time.sleep(4)  # test harness: launch work settles
         if opts.tunables == "build":
+            # The file as it was, before this run changes it (cef-layer-ab.py restores it).
+            before = rpc("debug.tunables", {"action": "state"}) or {}
+            if before.get("file") and "tunables_original" not in FACTS:
+                try:
+                    with open(before["file"]) as existing:
+                        FACTS["tunables_original"] = existing.read()
+                except OSError:
+                    FACTS["tunables_original"] = None
             # The benches launch with no override: they read this file. Set the value live for this launch too.
             state = rpc("debug.tunables", {"action": "set", "key": KEY, "value": opts.mode == "on"}) or {}
             FACTS["tunables_file"] = state.get("file")
