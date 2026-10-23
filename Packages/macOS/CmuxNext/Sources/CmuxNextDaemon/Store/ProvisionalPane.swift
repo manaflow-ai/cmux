@@ -27,10 +27,21 @@ public struct ProvisionalPane: Sendable, Hashable {
     /// id of the split it shows under, which the daemon's split keeps, so the daemon's layout
     /// names the split already shown.
     public let splitID: String
+    /// Set when the pane opens as a new scrolling column after the target's column (New Column,
+    /// `new-pane-right`) instead of splitting the target.
+    public private(set) var column: ProvisionalColumn?
 
     /// A fresh provisional pane with new client-minted ids.
     @MainActor public init() {
         self.init(tab: nil)
+    }
+
+    /// A fresh provisional terminal pane that opens as a new column (New Column): `width` is its
+    /// viewport fraction; `widths` and `treeWidth` are the width changes it brings
+    /// (``ProvisionalColumn``).
+    @MainActor public init(columnWidth width: Double, widths: [ColumnID: Double] = [:], treeWidth: Double? = nil) {
+        self.init(tab: nil)
+        column = ProvisionalColumn(paneHandle: handle, width: width, widths: widths, treeWidth: treeWidth)
     }
 
     /// A provisional pane holding `tab`, a new conversation tab (an agent chat or the New Tab page)
