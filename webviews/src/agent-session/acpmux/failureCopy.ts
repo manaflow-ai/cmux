@@ -128,6 +128,15 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
 
 /// The way out a failure's card offers first: send the prompt again, or move to another model (with
 /// Retry after it). Signing in is the footer's (TurnRows.tsx); a trust answer is its card's.
+/// Whether a failed turn offers cmux's own route, CodeRouter, beside Switch model (Lawrence
+/// 2026-10-23: "good opportunity for upsell here"): a key, sign-in or capacity failure that another
+/// route fixes. Never on a chat CodeRouter already serves (sending it there again does nothing), and
+/// never on a team machine's missing account, which CodeRouter itself refused.
+export function offersOwnRoute(kind: FailureKind, route?: FailureRoute): boolean {
+  if (route?.harness === "claude-cr") return false;
+  return kind === "invalid-key" || kind === "subscription-login" || kind === "auth" || kind === "rate-limited";
+}
+
 export function failureRecovery(kind: FailureKind): "retry" | "switch-model" | undefined {
   switch (kind) {
     case "rate-limited":

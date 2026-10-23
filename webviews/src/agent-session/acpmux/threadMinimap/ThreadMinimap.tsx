@@ -19,6 +19,7 @@ import { animateScroll, highlightBubble, reducedMotion, settleScroll, stopScroll
 import { PreviewCard } from "./PreviewCard";
 import { ScrollMap } from "./ScrollMap";
 import { threadMinimapLayout } from "./layout.experiment";
+import { LIT_OPACITY, threadMinimapLit } from "./lit.experiment";
 import { experimentArm } from "../../../experiments/experiment";
 import {
   CARD_DELAY,
@@ -121,6 +122,8 @@ export function ThreadMinimap({
   /// The compact Codex rail below (the wave, the default), the full-height map (ScrollMap.tsx), or
   /// none (`off`: the turn steps below still run), read once per pane.
   const [arm] = useState(() => experimentArm(threadMinimapLayout));
+  /// How bright the prompts on screen draw (lit.experiment.ts), read once per pane.
+  const [lit] = useState(() => LIT_OPACITY[experimentArm(threadMinimapLit)]);
   const full = arm === "full";
   const marks = usePromptMarks(sessionId);
   /// The turns of the last commit: the next render reads from them and leaves them as they are, so
@@ -474,6 +477,19 @@ export function ThreadMinimap({
     followPointer(node);
   }, [onScreen.first, onScreen.last, turns.length, overflow, height, scrubbing, followPointer]);
 
+  // The previewed prompt stays lit while the pointer is on its card, as ChatGPT's rail does.
+  const active = hovered ?? focused ?? (showCard ? cardRow : undefined);
+  /// The band glides only when the scroll moves it (threadMinimap.css): a commit that changes the
+  /// active row, the hover or the scrub (the pointer leaving the rail, a key focusing a tick) marks
+  /// the rail `data-snap`, so the rows it changes switch at once. The rail's next render that changes
+  /// none of these (the scroll's next band move) drops the mark, and its rows glide.
+  const pose = `${active ?? ""}|${hovered !== undefined}|${scrubbing}`;
+  const committedPose = useRef(pose);
+  const snap = pose !== committedPose.current;
+  useLayoutEffect(() => {
+    committedPose.current = pose;
+  });
+
   /// The rows' actions: stable for the memoized rows, reading the latest state through `live`.
   const actions = useMemo<TickActions>(
     () => ({
@@ -560,8 +576,6 @@ export function ThreadMinimap({
   };
   const railTop = railTopAt(height, viewportHeight, foot);
   const fades = railFades(onScreen, turns.length, height, listTop);
-  // The previewed prompt stays lit while the pointer is on its card, as ChatGPT's rail does.
-  const active = hovered ?? focused ?? (showCard ? cardRow : undefined);
   const cardMarked = cardTurn ? marks.has(cardTurn) : false;
   const cardTop =
     cardRow === undefined
@@ -573,10 +587,19 @@ export function ThreadMinimap({
         ref={rail}
         className="acpmux-minimap__rail"
         aria-label={t("minimap.label")}
-        style={{ left: RAIL_LEFT, top: railTop, width: ROW_WIDTH, height }}
+        style={
+          {
+            left: RAIL_LEFT,
+            top: railTop,
+            width: ROW_WIDTH,
+            height,
+            "--acpmux-minimap-lit": lit,
+          } as React.CSSProperties
+        }
         data-hovering={hovered !== undefined || undefined}
         data-scrubbing={scrubbing || undefined}
         data-reduce={reduce || undefined}
+        data-snap={snap || undefined}
         onPointerLeave={(event) => {
           if (scrub.current?.moved) return;
           pointerY.current = undefined;
