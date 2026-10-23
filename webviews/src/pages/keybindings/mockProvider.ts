@@ -219,7 +219,7 @@ export class MockKeybindingsProvider implements PageClient {
   }
 
   private set(params: SetParams): void {
-    this.layers.unbound = this.layers.unbound?.filter((command) => command !== params.command);
+    // An unbound command stays unbound: its new key is a cmux.json override, the defaults stay out.
     if (params.replaces) {
       this.removeEntry({ command: params.command, key: params.replaces.key, when: params.replaces.when });
     }

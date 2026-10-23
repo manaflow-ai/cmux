@@ -35,6 +35,12 @@ struct KeybindingPageWrites {
             throw PageError(code: "cmux.keybindings.invalid", message: KeybindingStrings.invalidKeys(text))
         }
         let args = params["args"]?.objectValue ?? [:]
+        // An unset family (the page's Remove took its keys) gets all nine keys back on the
+        // recorded modifiers, checked as a family.
+        if registry.descriptor(for: id)?.shortcutFamily == .digits, target == nil, keys.count == 1,
+           case .some(.none) = registry.shortcutOverrides[id] {
+            return try await moveFamily(id, to: keys[0].modifiers)
+        }
         if registry.descriptor(for: id)?.shortcutFamily == .digits, let target, let digit = target.argument {
             if keys.count == 1, keys[0].key == digit, target.source != .app, !isFromFile(target),
                params["when"]?.stringValue == target.when?.text {

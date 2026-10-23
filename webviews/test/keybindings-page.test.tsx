@@ -159,5 +159,8 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
   await click(unset?.querySelector(".keys-key-button"));
   await record("cmd+shift+o");
   expect(lastSet()).toEqual({ command: "palette.open", key: "cmd+shift+o", when: null, idempotency_key: "key" });
-  expect(row("Open Command Palette")?.querySelector(".keys-key-button")?.textContent).toBe("⇧⌘O");
+  const palette = [...host.querySelectorAll<HTMLElement>(".keys-row")].filter(
+    (candidate) => candidate.querySelector(".keys-command-title")?.textContent === "Open Command Palette",
+  );
+  expect(palette.map((candidate) => candidate.querySelector(".keys-col-key")?.textContent)).toEqual(["⇧⌘O"]);
 });

@@ -124,8 +124,8 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
             type="button"
             className={`keys-icon-button keys-record${searchRecording ? " on" : ""}`}
             aria-pressed={searchRecording}
-            aria-label={t("keybindings.page.recordSearch")}
-            title={t("keybindings.page.recordSearch")}
+            aria-label={t("keybindings.page.record")}
+            title={t("keybindings.page.record")}
             disabled={disconnected}
             onClick={() => void store.toggleSearchRecording()}
           >
