@@ -24,6 +24,7 @@ same commit that changes ownership, and name who decided it.
 | Wakeup primitives (FrameScheduler, DemandTimer, Backoff) | `Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/` | Performance Lead | [idle-wakeups.md](idle-wakeups.md) |
 | Perf gate and budgets (CI runs them; do not add rows) | `scripts/cmux-next/perf-gate.py`, `scripts/cmux-next/perf-budgets.json`, `scripts/cmux-next/perf-budgets-baseline/` | Aziz's agent and the Performance Lead | [perf-lead.md](perf-lead.md) |
 | Guardrails, pre-push gate, codebase health | `scripts/cmux-next/guardrails.py`, `scripts/cmux-next/prepush-gate.py`, `scripts/cmux-next/perf-hot-benches.json`, `scripts/git-hooks/`, `plans/cmux-next/OWNERS.md` | Performance Lead (PL-guardrails) | [codebase-health.md](codebase-health.md) |
+| Package layering, signpost catalog (CmuxNextSignposts names; app moves out of CmuxNextApp) | `Packages/macOS/CmuxNext/Sources/CmuxNextSignposts/`, `plans/cmux-next/architecture-layers.json`, `plans/cmux-next/architecture-refactor-DESIGN.md`, `scripts/cmux-next/arch-layers.py`, `scripts/cmux-next/perf-signposts.py` | PL-arch (Performance Lead, 2026-10-23); new signpost names: PL-arch + PL-telemetry | [architecture-refactor-DESIGN.md](architecture-refactor-DESIGN.md) |
 | Ghostty-default keys | `schemas/keybindings/ghostty-reserved-keys.json` | Lawrence (explicit OK only, `Ghostty-defaults-OK:` trailer) | `CLAUDE.md` "cmux-next checks before every push" |
 
 Not listed: no owner yet. Before a large change there, ask the Performance Lead to add a row.
