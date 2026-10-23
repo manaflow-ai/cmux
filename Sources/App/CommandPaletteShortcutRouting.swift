@@ -80,16 +80,27 @@ func contextAwareCommandPaletteSelectionDelta(
         (KeyboardShortcutSettings.Action.commandPaletteNext, 1),
         (.commandPalettePrevious, -1),
     ] {
-        guard let shortcut = KeyboardShortcutSettings.shortcutIfBound(for: action),
-              !shortcut.hasChord,
-              shortcut.matches(
-                keyCode: event.keyCode,
-                modifierFlags: event.modifierFlags,
-                eventCharacter: characters,
-                layoutCharacterProvider: KeyboardLayout.character(forKeyCode:modifierFlags:)
-              ),
-              AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) != false else { continue }
-        return delta
+        for binding in KeyboardShortcutSettings.shortcutBindings(for: action) {
+            let shortcut = binding.shortcut
+            guard !shortcut.hasChord,
+                  shortcut.matches(
+                      keyCode: event.keyCode,
+                      modifierFlags: event.modifierFlags,
+                      eventCharacter: characters,
+                      layoutCharacterProvider: KeyboardLayout.character(forKeyCode:modifierFlags:)
+                  ) else { continue }
+            if let appDelegate = AppDelegate.shared,
+               !binding.whenClause.evaluate(
+                   appDelegate.shortcutWhenClauseContext(
+                       for: action,
+                       clause: binding.whenClause,
+                       event: event
+                   )
+               ) {
+                continue
+            }
+            return delta
+        }
     }
     return nil
 }
