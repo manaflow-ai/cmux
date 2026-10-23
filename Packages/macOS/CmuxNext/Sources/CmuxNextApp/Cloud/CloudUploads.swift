@@ -127,7 +127,9 @@ final class CloudUploads {
             let target: Target
             if let batchToken {
                 guard let batch = batches[batchToken], batch.target.chat.session == session,
-                      batch.expires > Date(), batch.remaining.first?.0 == name, batch.remaining.first?.1 == size else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
+                      batch.expires > Date(), batch.remaining.first?.0 == name, batch.remaining.first?.1 == size,
+                      let current = Self.target(tab: tab, services: services), current.chat.session == batch.target.chat.session,
+                      current.machine.machineID == batch.target.machine.machineID, current.remoteRoot == batch.target.remoteRoot else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
                 target = batch.target
                 batches[batchToken] = Batch(target: batch.target, remaining: Array(batch.remaining.dropFirst()), expires: Date().addingTimeInterval(Self.stageLifetime))
             } else {
