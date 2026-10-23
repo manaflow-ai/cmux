@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+@testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextDaemon
@@ -79,8 +80,18 @@ struct SubagentTabCloseTests {
             window.orderFrontRegardless()
             defer { window.orderOut(nil) }
             window.contentView?.layoutSubtreeIfNeeded()
+            // The chats' tools share their panes' tab rows, as a loaded chat page's do.
+            for view in [tabs.existingView(chatID), tabs.existingView(key)].compactMap({ $0 }) { view.model.tabRow.report(width: 120) }
+            window.contentView?.layoutSubtreeIfNeeded()
             let strip = controller.view.stripView
             let point = try Self.closeButton(id, in: strip)
+            // A Chromium chat page is a window above the whole window: one over the x leaves a hole there.
+            for (name, view) in [("chat", tabs.existingView(chatID)), ("subagent", tabs.existingView(key))] {
+                guard let view, let page = view.page, view.window === window, !view.isHiddenOrHasHiddenAncestor,
+                      page.convert(page.bounds, to: nil).contains(point) else { continue }
+                #expect(page.nativeRects.contains { page.convert($0, to: nil).contains(point) },
+                        "the \(name)'s page covers the x with no hole: holes \(page.nativeRects.map { page.convert($0, to: nil) }), x at \(point)")
+            }
             let hit = window.contentView?.hitTest(window.contentView?.superview?.convert(point, from: nil) ?? point)
             #expect(hit.map { $0 === strip || $0.isDescendant(of: strip) } == true,
                     "the x is under \(hit.map { String(describing: type(of: $0)) } ?? "nothing"), not the strip: \(Self.describe(services))")
