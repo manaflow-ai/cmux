@@ -87,6 +87,43 @@ extension PageWebView {
         return value
     }
 
+    /// The page's `requestAnimationFrame` intervals over `windowMs` (capped at 1500, inside the
+    /// control router's 2 s deadline; a bench calls it again for more frames), as
+    /// ``PageFrameCadence``. `scrollPixels` > 0 scrolls the element matching `selector` (default the
+    /// document's scroller) by that many CSS pixels each frame, turning at either end, so the frames
+    /// measured carry the page's scroll work. A page that renders nothing in the window (hidden,
+    /// covered) reports 0 frames. Either engine; nil when the page did not answer.
+    public func debugFrameCadence(windowMs: Double, scrollPixels: Double, selector: String?,
+                                  displayFPS: Double?) async -> PageFrameCadence? {
+        let window = min(max(windowMs, 100), 1500)
+        let script = """
+        const scroller = selector ? document.querySelector(selector) : document.scrollingElement;
+        const intervals = [];
+        let last = null, done = false, direction = 1;
+        const step = (now) => {
+          if (done) { return; }
+          if (last !== null) { intervals.push(now - last); }
+          last = now;
+          if (scroller && pixels > 0) {
+            const end = scroller.scrollHeight - scroller.clientHeight;
+            if (end > 0) {
+              if ((direction > 0 && scroller.scrollTop >= end) || (direction < 0 && scroller.scrollTop <= 0)) { direction = -direction; }
+              scroller.scrollTop += direction * pixels;
+            }
+          }
+          requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+        await new Promise((resolve) => setTimeout(resolve, windowMs)); // the probe window itself
+        done = true;
+        return JSON.stringify(intervals);
+        """
+        let arguments: [String: Any] = ["selector": selector ?? NSNull(), "pixels": scrollPixels, "windowMs": window]
+        guard let text = await callPageFunction(script, arguments: arguments) as? String,
+              case .array(let values)? = try? JSONValue.parse(Data(text.utf8)) else { return nil }
+        return PageFrameCadence(intervalsMs: values.compactMap(\.doubleValue), windowMs: window, displayFPS: displayFPS)
+    }
+
     /// Clicks the first element that matches the CSS `selector` (live GUI proofs drive a page
     /// control with no pointer). Returns whether an element matched.
     /// Ends this page's WebContent process (WebKit's `_killWebContentProcess`), so a live check can
