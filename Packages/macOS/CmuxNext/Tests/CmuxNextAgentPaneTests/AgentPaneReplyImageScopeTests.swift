@@ -10,7 +10,7 @@ import UniformTypeIdentifiers
 /// RGBA PNGs are normalized before the page or its viewer receives them.
 struct AgentPaneReplyImageScopeTests {
     @Test func imageRootsDoNotWidenOrdinaryPathChips() throws {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("reply-image-scope-(UUID().uuidString)", isDirectory: true)
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("reply-image-scope-\(UUID().uuidString)", isDirectory: true)
         let project = folder.appendingPathComponent("project", isDirectory: true)
         let home = folder.appendingPathComponent("home", isDirectory: true)
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
@@ -26,7 +26,7 @@ struct AgentPaneReplyImageScopeTests {
     }
 
     @Test func aLargeRGBAImageBecomesABoundedVisibleSRGBPNG() async throws {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("reply-image-large-(UUID().uuidString)", isDirectory: true)
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("reply-image-large-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let file = folder.appendingPathComponent("sidebar-clean-cmux.png")
@@ -35,7 +35,7 @@ struct AgentPaneReplyImageScopeTests {
         let result = await AgentPaneReplyImages.local(file.path)
         guard case .success(let source) = result, let comma = source.firstIndex(of: ","),
               let data = Data(base64Encoded: String(source[source.index(after: comma)...])) else {
-            Issue.record("large PNG did not become a data URL: (result)")
+            Issue.record("large PNG did not become a data URL: \(result)")
             return
         }
         let imageSource = try #require(CGImageSourceCreateWithData(data as CFData, nil))
