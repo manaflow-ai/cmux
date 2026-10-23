@@ -321,3 +321,78 @@ async fn a_turn_a_restart_cut_off_resumes_first_and_its_steer_and_queue_deliver_
     let echoed = |text: &str| events.iter().filter(|e| chunk(e, text)).count();
     assert_eq!(echoed("echo: queued after the turn"), 1, "the queued message ran twice");
 }
+
+/// The continuation of a turn a restart cut off carries the cut prompt's image and goes through
+/// the trust gate as the cut turn did. A daemon that stopped before it moved the continuation to
+/// the head of the queue (its `queue_order` never written) still restores it there.
+#[tokio::test]
+async fn a_restart_continuation_keeps_its_images_its_trust_gate_and_its_place() {
+    let mut daemon = Daemon::with_env("rrkeep", "approve-all", &[("ACPMUX_AGENT_HOSTS", "0")]);
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let image =
+        json!({"type": "image", "mimeType": "image/png", "data": "iVBORw==", "name": "shot.png"});
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("gate: {} <the cut task>", gate.display())}, image], "_meta": {"acpmux": {"promptId": "cut-1"}}}),
+        )
+        .await;
+    daemon.wait_event(&session, "before-gate chunk", |e| chunk(e, "before-gate"));
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "queued after the turn"}], "_meta": {"acpmux": {"promptId": "q-1"}}}),
+        )
+        .await;
+    daemon.wait_event(&session, "queued record", |e| {
+        e["kind"] == "queued" && e["msg"]["promptId"] == "q-1"
+    });
+    daemon.sigkill();
+    drop(client);
+
+    hold_startup(&daemon);
+    daemon.start();
+    let continuation = daemon.wait_event(&session, "the continuation's queued record", |e| {
+        e["kind"] == "queued" && e["msg"]["promptId"] == "cut-1~resume-1"
+    });
+    let msg = &continuation["msg"];
+    assert_eq!(
+        msg["images"][0]["name"], "shot.png",
+        "the cut prompt's image is not named: {msg:#}"
+    );
+    let blocks = msg["prompt"].as_array().expect("the continuation's blocks");
+    assert!(
+        blocks.iter().any(|b| b["type"] == "image" && b["data"] == "iVBORw=="),
+        "the continuation does not send the cut prompt's image again: {msg:#}"
+    );
+    assert_eq!(
+        msg["trustGate"], false,
+        "a local turn's continuation changed its trust gate: {msg:#}"
+    );
+    let started = daemon.events(&session);
+    let cut =
+        started.iter().find(|e| e["kind"] == "turn_started" && e["msg"]["promptId"] == "cut-1");
+    assert_eq!(cut.map(|e| e["msg"]["trustGate"].clone()), Some(json!(false)), "{cut:?}");
+    daemon.sigkill();
+
+    // As if that daemon had stopped before it moved the continuation ahead.
+    let events = daemon.home.join("sessions").join(&session).join("events");
+    for file in std::fs::read_dir(&events).unwrap().filter_map(Result::ok) {
+        let text = std::fs::read_to_string(file.path()).unwrap();
+        let kept: String = text
+            .lines()
+            .filter(|l| !l.contains("\"queue_order\""))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        std::fs::write(file.path(), kept).unwrap();
+    }
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    let queue = attached["session"]["queue"].as_array().expect("queue in the attach reply");
+    let ids: Vec<&str> = queue.iter().filter_map(|q| q["promptId"].as_str()).collect();
+    assert_eq!(ids, ["cut-1~resume-1", "q-1"], "the continuation lost its place: {attached:#}");
+}

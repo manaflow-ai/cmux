@@ -20,7 +20,9 @@
 //! - `autoResumeDelaysMs: []` turns it off, as it does the transport continuation, and a chain
 //!   of restarts gives up after [`MAX_ATTEMPTS`] continuations (`auto_resume_exhausted`).
 //! - A crash between the continuation's `queued` record and its move to the head
-//!   (`queue_order`) leaves it at the queue's end: it still runs once.
+//!   (`queue_order`) still restores it at the head (`queue.rs` `restore_queue`), and once.
+//! - It goes through the trust gate as the cut turn did (`turn_started` records `trustGate`),
+//!   and carries the images the cut turn's prompt and steers sent (`prompt_images.rs`).
 
 use super::{MAX_ATTEMPTS, SUFFIX, split_attempt};
 use crate::hub::{Hub, Session};
@@ -64,10 +66,11 @@ impl Hub {
         if off {
             return None;
         }
-        // The cut turn's prompt id, control and texts: its `turn_started`, the `user_message`
-        // that started it and those steered into it.
-        let (mut prompt_id, mut control) = (None::<String>, None::<String>);
+        // The cut turn's prompt id, control, trust gate, texts and images: its `turn_started`,
+        // the `user_message` that started it and those steered into it.
+        let (mut prompt_id, mut control, mut gate) = (None::<String>, None::<String>, None);
         let mut prompts: Vec<String> = Vec::new();
+        let mut images: Vec<Value> = Vec::new();
         let kinds = ["turn_started", "user_message"];
         let _ = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
             if e.msg.get("turnId").and_then(Value::as_str) != Some(turn_id) {
@@ -78,8 +81,17 @@ impl Hub {
                 "turn_started" => {
                     prompt_id = field("promptId");
                     control = field("control");
+                    gate = e.msg.get("trustGate").and_then(Value::as_bool);
                 }
-                _ => prompts.extend(field("text").filter(|t| !t.trim().is_empty())),
+                _ => {
+                    let named = e.msg.get("images").and_then(Value::as_array);
+                    let shown = named.map_or(0, Vec::len);
+                    images.extend(named.into_iter().flatten().cloned());
+                    let text = field("text").filter(|t| !t.trim().is_empty());
+                    prompts.extend(text.or_else(|| {
+                        (shown > 0).then(|| format!("({shown} image(s), attached again below)"))
+                    }));
+                }
             }
             true
         });
@@ -100,17 +112,24 @@ impl Hub {
         self.append(session, "mux", "auto_resume_scheduled", msg);
         let text = continue_text(&prompts);
         let provenance = json!({"kind": "auto_resume", "reason": "daemon_restart", "promptId": root, "attempt": attempt, "turnId": turn_id});
-        let queued = json!({
+        let control = control.as_deref().unwrap_or("web");
+        let mut blocks = vec![json!({"type": "text", "text": text})];
+        blocks.extend(super::super::prompt_images::blocks_of(&images));
+        let mut queued = json!({
             "text": text,
             "client": "acpmux",
             "position": 0,
             "promptId": id,
             "turnId": format!("{turn_id}{SUFFIX}{attempt}"),
-            "prompt": [{"type": "text", "text": text}],
-            "control": control.as_deref().unwrap_or("web"),
-            // The cut turn passed the folder-trust gate; going on with it asks nothing new.
-            "trustGate": false,
+            "prompt": blocks,
+            "control": control,
+            // Checked again as the cut turn was: the folder's trust may have changed across the
+            // restart. A log from before `turn_started` recorded it checks a web turn again.
+            "trustGate": gate.unwrap_or(control == "web"),
         });
+        if !images.is_empty() {
+            queued["images"] = Value::Array(images);
+        }
         let queued = crate::prompt_provenance::marked(queued, Some(&provenance));
         self.append(session, "mux", "queued", queued);
         Some(id)
