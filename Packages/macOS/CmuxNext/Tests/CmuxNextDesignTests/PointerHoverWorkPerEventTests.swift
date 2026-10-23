@@ -165,10 +165,12 @@ struct PointerHoverWorkPerEventTests {
         #expect(grid.hovering() == [second])
         check(layout, "a geometry refresh")
 
-        // A Cmd-Tab posts the window's resign and become key.
+        // A Cmd-Tab posts the window's resign and become key, and `KeyWindowObserver` refreshes
+        // the window once per notice. The test runs those two refreshes itself: a post to the
+        // process-wide center would reach every other suite's and AppKit's observers.
         let key = grid.work {
-            NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: grid.window)
-            NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: grid.window)
+            PointerHover.refresh(in: grid.window)
+            PointerHover.refresh(in: grid.window)
         }
         #expect(grid.hovering() == [second])
         check(key, "a key-window change (resign + become)", recomputeBudget: 2 * Self.budget)
