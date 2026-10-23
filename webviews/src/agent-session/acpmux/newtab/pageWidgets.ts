@@ -41,21 +41,33 @@ export function shownMovable(widgets: PageWidgets): MovableWidget[] {
   return [...widgets].filter(isMovable);
 }
 
-/// What the page's edit mode did (`newTab.editWidgets`; the host writes it as Settings would).
+/// What the page's edit mode or its dots did (`newTab.editWidgets`; the host writes it as Settings
+/// would). `show` turns a widget on (the second dot's quick actions, tabDots.ts).
 export type WidgetEdit =
   | { edit: "remove"; widget: PageWidget }
+  | { edit: "show"; widget: PageWidget }
   | { edit: "order"; order: MovableWidget[] }
   | { edit: "add" };
 
-/// The page's widget list after `edit`: a removed one goes; a new order moves the movable ones
-/// and keeps the others where they are. `+` changes nothing here (the App Store turns one on).
+/// The page's widget list after `edit`: a removed one goes; a shown one joins in its place; a new
+/// order moves the movable ones and keeps the others where they are. `+` changes nothing here (the
+/// App Store turns one on).
 export function editedPageWidgets(widgets: readonly PageWidget[] | undefined, edit: WidgetEdit): PageWidget[] {
   const list = widgets ?? MINIMAL_DEFAULT_LIST;
   if (edit.edit === "remove") return list.filter((widget) => widget !== edit.widget);
+  if (edit.edit === "show") return list.includes(edit.widget) ? [...list] : parsePageWidgets([...list, edit.widget])!;
   if (edit.edit === "add") return [...list];
   const moved = edit.order.filter((widget) => list.includes(widget));
   let next = 0;
   return list.map((widget) => (isMovable(widget) ? (moved[next++] ?? widget) : widget));
+}
+
+/// The page's handshake with an edit shown in place, on any style. `pageWidgets` is always Minimal's
+/// list (`tabs.newTabWidgets.*`; the host's, else Settings' defaults), so a dot's pick on Default or
+/// Cards edits only that widget of Minimal's and the style on screen keeps all it draws
+/// (shownPageWidgets).
+export function withWidgetEdit<Page extends { pageWidgets?: PageWidget[] }>(page: Page, edit: WidgetEdit): Page {
+  return { ...page, pageWidgets: editedPageWidgets(page.pageWidgets, edit) };
 }
 
 /// `order` with `widget` moved `by` places (-1 earlier, 1 later), clamped to the list.

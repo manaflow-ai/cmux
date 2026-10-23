@@ -72,10 +72,10 @@ enum SidebarNavigation {
             window.sidebar.activateLayoutItem(id)
         case .workspace(let id):
             if showCreation(row: id.rawValue, in: window.state, services) { return }
-            services.windows.show(workspaceID: id.rawValue, in: window.state)
+            services.windows.show(workspaceID: id.rawValue, in: window.state, from: .thisWindow)
         case .group(let id):
             guard let first = window.sidebar.model.group(id)?.workspaces.first else { return }
-            services.windows.show(workspaceID: first.id.rawValue, in: window.state)
+            services.windows.show(workspaceID: first.id.rawValue, in: window.state, from: .thisWindow)
         }
     }
 

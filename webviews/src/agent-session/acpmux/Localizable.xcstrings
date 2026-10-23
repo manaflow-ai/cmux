@@ -134876,6 +134876,666 @@
         }
       }
     },
+    "turn.failure.diskFull": {
+      "comment": "Agent pane: a failed turn's error card (the cause in one line); {harness} is the agent's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "القرص ممتلئ، لذا لم يتمكن {harness} من المتابعة. حرّر بعض المساحة ثم أعد المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disk je pun, pa {harness} nije mogao nastaviti. Oslobodite malo prostora, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disken er fuld, så {harness} kunne ikke fortsætte. Frigør noget plads, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Datenträger ist voll, daher konnte {harness} nicht weitermachen. Gib etwas Speicher frei und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The disk is full, so {harness} couldn’t keep going. Free up some space, then retry."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El disco está lleno, así que {harness} no pudo continuar. Libera espacio y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le disque est plein, {harness} n’a donc pas pu continuer. Libérez de l’espace, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il disco è pieno, quindi {harness} non è riuscito a continuare. Libera un po’ di spazio, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ディスクがいっぱいのため、{harness} は処理を続行できませんでした。空き容量を確保してから再試行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ថាសពេញ ដូច្នេះ {harness} មិនអាចបន្តបានទេ។ សូមបង្កើនទំហំទំនេរ រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "디스크가 가득 차서 {harness}이(가) 계속할 수 없었습니다. 공간을 확보한 뒤 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disken er full, så {harness} kunne ikke fortsette. Frigjør litt plass, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dysk jest pełny, więc {harness} nie mógł kontynuować. Zwolnij trochę miejsca i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O disco está cheio, então {harness} não conseguiu continuar. Libere espaço e tente de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Диск заполнен, поэтому {harness} не смог продолжить. Освободите место и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ดิสก์เต็ม {harness} จึงทำงานต่อไม่ได้ ลบไฟล์เพื่อเพิ่มพื้นที่ แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disk dolu, bu yüzden {harness} devam edemedi. Biraz yer açın, sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Диск заповнений, тому {harness} не зміг продовжити. Звільніть місце й повторіть спробу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ổ đĩa đã đầy nên {harness} không thể tiếp tục. Hãy giải phóng dung lượng rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "磁盘已满，{harness} 无法继续。请释放一些空间后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "磁碟已滿，{harness} 無法繼續。請釋放一些空間後再試一次。"
+          }
+        }
+      }
+    },
+    "turn.failure.tailscale": {
+      "comment": "Agent pane: a failed turn's error card (the cause in one line); {harness} is the agent's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر على {harness} الوصول إلى جهازه عبر Tailscale. تحقّق من اتصال Tailscale ثم أعد المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} nije mogao doći do svog računara preko Tailscalea. Provjerite je li Tailscale povezan, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} kunne ikke nå sin maskine via Tailscale. Tjek, at Tailscale er forbundet, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} hat seinen Rechner über Tailscale nicht erreicht. Prüfe, ob Tailscale verbunden ist, und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} couldn’t reach its machine over Tailscale. Check that Tailscale is connected, then retry."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} no pudo llegar a su máquina por Tailscale. Comprueba que Tailscale esté conectado y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} n’a pas pu joindre sa machine via Tailscale. Vérifiez que Tailscale est connecté, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} non è riuscito a raggiungere la sua macchina tramite Tailscale. Controlla che Tailscale sia connesso, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} が Tailscale 経由でマシンに接続できませんでした。Tailscale が接続されているか確認してから再試行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} មិនអាចភ្ជាប់ទៅម៉ាស៊ីនរបស់វាតាម Tailscale បានទេ។ សូមពិនិត្យថា Tailscale បានភ្ជាប់ រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness}이(가) Tailscale로 컴퓨터에 연결하지 못했습니다. Tailscale이 연결되어 있는지 확인한 뒤 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} nådde ikke maskinen sin via Tailscale. Sjekk at Tailscale er tilkoblet, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} nie mógł połączyć się ze swoim komputerem przez Tailscale. Sprawdź, czy Tailscale jest połączony, i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} não conseguiu acessar a máquina pelo Tailscale. Verifique se o Tailscale está conectado e tente de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} не смог связаться со своей машиной через Tailscale. Проверьте подключение Tailscale и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} เชื่อมต่อเครื่องผ่าน Tailscale ไม่ได้ ตรวจสอบว่า Tailscale เชื่อมต่ออยู่ แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness}, Tailscale üzerinden makinesine ulaşamadı. Tailscale’in bağlı olduğunu kontrol edin, sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} не зміг зв’язатися зі своєю машиною через Tailscale. Перевірте підключення Tailscale й повторіть спробу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} không kết nối được tới máy qua Tailscale. Hãy kiểm tra Tailscale đã kết nối rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} 无法通过 Tailscale 连接到它的机器。请确认 Tailscale 已连接后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} 無法透過 Tailscale 連到它的機器。請確認 Tailscale 已連線後再試一次。"
+          }
+        }
+      }
+    },
+    "turn.failure.agentExited": {
+      "comment": "Agent pane: a failed turn's error card (the cause in one line); {harness} is the agent's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "توقّف {harness} قبل أن يُنهي هذا الدور."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} se ugasio prije nego što je završio ovaj korak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} lukkede, før den var færdig med denne tur."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} wurde beendet, bevor dieser Durchgang fertig war."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} quit before it finished this turn."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} se cerró antes de terminar este turno."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} s’est arrêté avant d’avoir fini ce tour."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} si è chiuso prima di finire questo turno."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} はこのターンを終える前に終了しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} បានបិទ មុនពេលបញ្ចប់វេននេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness}이(가) 이번 턴을 마치기 전에 종료되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} avsluttet før den var ferdig med denne runden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} zakończył działanie przed ukończeniem tej tury."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} fechou antes de terminar este turno."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} завершился, не закончив этот ход."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} ปิดไปก่อนทำรอบนี้เสร็จ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} bu turu bitirmeden kapandı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} завершився, не закінчивши цей хід."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} đã thoát trước khi xong lượt này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} 在完成本轮之前退出了。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} 在完成這一輪之前結束了。"
+          }
+        }
+      }
+    },
+    "turn.failure.spawnFailed": {
+      "comment": "Agent pane: a failed turn's error card (the cause in one line); {harness} is the agent's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر تشغيل {harness}."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} se nije mogao pokrenuti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} kunne ikke starte."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} konnte nicht starten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} couldn’t start."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} no pudo iniciarse."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} n’a pas pu démarrer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} non è riuscito ad avviarsi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} を起動できませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} មិនអាចចាប់ផ្តើមបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness}을(를) 시작하지 못했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} kunne ikke starte."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się uruchomić {harness}."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} não conseguiu iniciar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось запустить {harness}."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เริ่ม {harness} ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} başlatılamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося запустити {harness}."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không khởi động được {harness}."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} 无法启动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} 無法啟動。"
+          }
+        }
+      }
+    },
+    "turn.failure.generic": {
+      "comment": "Agent pane: a failed turn's error card (the cause in one line); {harness} is the agent's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "واجه {harness} مشكلة وتوقّف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} je naišao na problem i zaustavio se."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} stødte på et problem og stoppede."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} ist auf ein Problem gestoßen und hat angehalten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} ran into a problem and stopped."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} tuvo un problema y se detuvo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} a rencontré un problème et s’est arrêté."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} ha avuto un problema e si è fermato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} で問題が発生し、停止しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} បានជួបបញ្ហា ហើយបានឈប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness}에 문제가 생겨 중지되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} støtte på et problem og stoppet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} napotkał problem i się zatrzymał."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} teve um problema e parou."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} столкнулся с проблемой и остановился."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} พบปัญหาและหยุดทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} bir sorunla karşılaştı ve durdu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} натрапив на проблему й зупинився."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} gặp sự cố và đã dừng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} 遇到问题，已停止。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} 遇到問題，已停止。"
+          }
+        }
+      }
+    },
     "turn.failure.details": {
       "comment": "Agent pane: a failed turn's note (cx-w10a)",
       "extractionState": "manual",

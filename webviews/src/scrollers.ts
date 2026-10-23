@@ -238,9 +238,24 @@ export const MONACO_SCROLLER_CSS = `
 `;
 
 /**
+ * On a transcript block's sideways scroller while its lines run past its width (an unwrapped diff,
+ * Shell block or call output; conversation/sideways.ts `watchSideways` keeps it current). Such a
+ * block keeps its thin thumb at rest, on no track, whatever the macOS setting: a line cut at the
+ * edge with nothing at rest to say it scrolls read as clipped (Leo 2026-10-21, ask-d900f5acf9:
+ * "doesn't really display properly or even show that there's a horizontal scrollbar"). The thumb
+ * is the root rule's color (`--cmux-scroller-thumb`), in a lane `--cmux-sideways-lane` tall that
+ * the block makes room for (conversation.css `--cv-lane`).
+ */
+export const SIDEWAYS_ATTRIBUTE = "data-cmux-sideways";
+
+/** The thumb's color: the root rule's, or its value where the root rules are not installed. */
+const SIDEWAYS_THUMB = "var(--cmux-scroller-thumb, color-mix(in srgb, currentColor 38%, transparent))";
+
+/**
  * Appended to every @pierre/diffs `unsafeCSS`. The library's code rows have a custom horizontal
  * scrollbar whose thumb shows on hover; here it shows only while the row scrolls
- * (`--cmux-scroller-rest` is unset: nothing at rest).
+ * (`--cmux-scroller-rest` is unset: nothing at rest), except in a transcript block whose rows run
+ * past its edge (`SIDEWAYS_ATTRIBUTE`), where it stays, in the same color while it scrolls.
  */
 export const PIERRE_DIFFS_SCROLLER_CSS = `
 [data-code]::-webkit-scrollbar-thumb,
@@ -250,7 +265,57 @@ export const PIERRE_DIFFS_SCROLLER_CSS = `
 [data-code][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb {
   background-color: var(--diffs-bg-context);
 }
+[data-code][${SIDEWAYS_ATTRIBUTE}] {
+  --cmux-scroller-rest: ${SIDEWAYS_THUMB};
+}
+[data-code][${SIDEWAYS_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb {
+  background-color: var(--cmux-scroller-rest);
+}
 `;
+
+/**
+ * On a transcript block's own sideways box (a Shell block's or a call output's body) from the
+ * moment it is made (its JSX), as `SIDEWAYS_SCROLLER_CSS` is installed with the page's other
+ * scroller rules: the engine picks a scroller's kind (overlay or styled) when it makes it, and
+ * WebKit keeps that kind when the style changes later.
+ */
+export const SIDEWAYS_SCROLLER_ATTRIBUTE = "data-cmux-sideways-scroller";
+
+/**
+ * The page side of `SIDEWAYS_ATTRIBUTE`: such a box's scrollbar is a thin thumb on no track, drawn
+ * whenever it has one (an `overflow: auto` box has one only while its lines run past it), at rest
+ * too. `--cmux-sideways-lane` is its lane's height while it has one. The `:root` prefix outranks
+ * the "Always" rule's hidden thumb (`SCROLLER_ROOT_CSS`).
+ */
+export const SIDEWAYS_SCROLLER_CSS = `
+:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}][${SIDEWAYS_ATTRIBUTE}] {
+  --cmux-sideways-lane: var(--cmux-scroller-size, 8px);
+}
+:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar {
+  width: var(--cmux-scroller-size, 8px);
+  height: var(--cmux-scroller-size, 8px);
+  background: transparent;
+}
+:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-track,
+:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-corner {
+  background: transparent;
+}
+:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb {
+  min-width: 24px;
+  border: 2px solid transparent;
+  border-radius: var(--cmux-scroller-size, 8px);
+  background: ${SIDEWAYS_THUMB} padding-box;
+}
+`;
+
+/** Installs `SIDEWAYS_SCROLLER_CSS` once per document: with the others (`installScrollers`), or by `watchSideways` on a page without them. */
+export function installSidewaysScrollers(document: Document): void {
+  if (document.getElementById("cmux-sideways-scrollers")) return;
+  const style = document.createElement("style");
+  style.id = "cmux-sideways-scrollers";
+  style.textContent = SIDEWAYS_SCROLLER_CSS;
+  (document.head ?? document.documentElement).appendChild(style);
+}
 
 /** Appended to every @pierre/trees `unsafeCSS`: the same rule for the tree's list. */
 export const PIERRE_TREES_SCROLLER_CSS = `
@@ -340,7 +405,10 @@ export function scrollEdges(box: { scrollTop: number; clientHeight: number; scro
   above: boolean;
   below: boolean;
 } {
-  return { above: box.scrollTop > 0.5, below: box.scrollTop + box.clientHeight < box.scrollHeight - 0.5 };
+  return {
+    above: box.scrollTop > 0.5,
+    below: box.scrollTop + box.clientHeight < box.scrollHeight - 0.5,
+  };
 }
 
 /**
@@ -425,7 +493,9 @@ export const MINIMAL_SCROLLER_ATTRIBUTE = "data-cmux-minimal-scroller";
  * `auto` rule, since its track is transparent and a box with nothing to scroll draws no thumb.
  * (`scrollbar-gutter: stable` does not do it: WebKit ignores it on a custom scrollbar.) Take
  * `--cmux-scroller-size` out of the scroller's right padding to keep its text width. The track
- * stops `--cmux-minimal-scroller-inset` short of each end, clear of a rounded corner. The `:root`
+ * stops `--cmux-minimal-scroller-inset` short of each end, clear of a rounded corner;
+ * `--cmux-minimal-scroller-inset-end`, when set, replaces it at the bottom end (the composer's
+ * track stops above Send, composerLocation.css). The `:root`
  * prefix outranks the legacy rule's hidden thumb above and the scroller's own `overflow-y`.
  */
 export const MINIMAL_SCROLLER_CSS = `
@@ -439,7 +509,7 @@ export const MINIMAL_SCROLLER_CSS = `
 }
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-track {
   margin-top: var(--cmux-minimal-scroller-inset, 0px);
-  margin-bottom: var(--cmux-minimal-scroller-inset, 0px);
+  margin-bottom: var(--cmux-minimal-scroller-inset-end, var(--cmux-minimal-scroller-inset, 0px));
   background: transparent;
 }
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-corner {
@@ -462,5 +532,6 @@ export function installScrollers(document: Document, timers: ScrollTimers = defa
     style.textContent = SCROLLER_ROOT_CSS + CARD_SCROLLER_CSS + MINIMAL_SCROLLER_CSS + MONACO_SCROLLER_CSS;
     (document.head ?? document.documentElement).appendChild(style);
   }
+  installSidewaysScrollers(document);
   installScrollingMarks(document, timers);
 }

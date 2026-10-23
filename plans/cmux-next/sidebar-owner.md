@@ -7,6 +7,20 @@ performance.
 
 ## Rule for every sidebar change
 
+Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents can't mess this up"):
+
+- **Gate.** `scripts/cmux-next/prepush-gate.py` "Sidebar look owner", on every push and per commit in CI: a commit
+  that changes `CmuxNextSidebar/Views/` needs a `Sidebar-Look:` trailer. `Sidebar-Look: no visual change` for
+  behavior or performance work; otherwise the user's words, and the same commit must edit this note.
+  `CMUX_NEXT_CHECKS_SKIP_REASON` does not skip it.
+- **Contract tests.** `SidebarLookContractTests` (text at the inset, members flush with ungrouped rows, one indent
+  step per nested level, rows to the inset, the trailing hover x) and `SidebarGroupRailAlignmentTests` (rail on the
+  header bar's left edge), at every density, Minimal Mode and width. They run in the cmux-next tests job.
+- **Gallery.** `AASidebarLookGalleryTests` draws Lawrence's screenshot fixture at every density, dark and light
+  (`CMUX_TEST_REQUIRE_GUI=1`, artifact `sidebar-look-gallery.tar`): before/after crops for every look change.
+- **Perf.** Sidebar budgets rows (`split-spring.sh --suite=budgets` on cmuxs-Mac-mini.local against
+  `perf-budgets-baseline/`). Run it before and after any sidebar change.
+
 1. Read this note first. A change that alters how the sidebar looks must match the target below, or
    change this note in the same commit and name who asked for it (a Lawrence message id).
 2. Do not take back a look another commit chose in the last week without naming that commit here.
@@ -52,6 +66,7 @@ some undid each other:
 
 | Commit | Date | Who | Change |
 | --- | --- | --- | --- |
+| [83c8d5b6104](https://github.com/manaflow-ai/cmux/commit/83c8d5b61040b6c8e2f39fd3c5f53b375c7b40d6) | 10-23 | Chief subagent (Home unread dot) | Home's unread is the workspace rows' blue dot on the trailing column, no count (Lawrence 11384) |
 | [cd84bc62d13](https://github.com/manaflow-ai/cmux/commit/cd84bc62d13f501d0b80eae7b65a6164c7d60acc) | 10-22 | Leo (#23783) | Rows run full length; hover close becomes a top-right dog-ear |
 | [6c315dd4b83](https://github.com/manaflow-ai/cmux/commit/6c315dd4b83c2dc546f5de9e9df525b267043d2d) | 10-23 | a577 | Indent stops at six steps; a label keeps 150 pt |
 | [ab905adeadd](https://github.com/manaflow-ai/cmux/commit/ab905adeadd0327f92e2c3f3d1de568c6a6780d1) | 10-23 | a577 | Group rail starts at the header bar's left edge; 16 nesting levels |
@@ -131,15 +146,28 @@ the gap, no row left out of place after drop or cancel).
 
 ## Open work (Oct 23)
 
+- Base red, not ours: `SidebarPinnedRowWidthTests` fails on feat-cmux-next before these changes (36 issues: the group
+  header sits 4 pt off the pinned rows since the a579 height commits). Next for the owner.
+- a593 (multi-window routing, 5dceeca..ef02482): behavior only in SidebarBridge+Sections/PinnedItems and
+  SidebarNavigation; a row, pinned or Cmd-1..9 pick acts in the clicked window. No look change.
 - Sidebar owner: the Oct 21 look (took over a585's X revert 31ad64e4dc4 and red tests 2b40f979ca2) and the
   group drag rewrite (took over a588's blue-line fix 41c8c60c5a5 and red test 42a1811bb6b).
 - a587: Home unread badge becomes the blue dot.
 - a576: terminal lag while the sidebar rearranges.
 
+## Owner landings
+
+| Range | Change |
+| --- | --- |
+| this push | Row close back to the trailing x (takes back #23783's dog-ear); a row without an icon starts its title at the inset (takes back c779988d57d's empty slot); look gallery test |
+
 ## Every sidebar package commit, Oct 19-23
 
 | Commit | Date | Who | Change |
 | --- | --- | --- | --- |
+| [83c8d5b6104](https://github.com/manaflow-ai/cmux/commit/83c8d5b61040b6c8e2f39fd3c5f53b375c7b40d6) | 10-23 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: Home's unread is a workspace row's blue dot, not a count |
+| [488ef6667db](https://github.com/manaflow-ai/cmux/commit/488ef6667dbfa443f217e7484c3d1de5ff0852f3) | 10-23 | Lawrence's Chief subagents (lawrencecchen) | test(sidebar): capture Home beside an unread workspace row at every density |
+| [b70369ea301](https://github.com/manaflow-ai/cmux/commit/b70369ea3014aa758a97774e8fc67c405054fbec) | 10-23 | Lawrence's Chief subagents (lawrencecchen) | test(sidebar): Home shows a blue unread dot, not a count (red) |
 | [6c315dd4b83](https://github.com/manaflow-ai/cmux/commit/6c315dd4b83c2dc546f5de9e9df525b267043d2d) | 10-23 02:35 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: the indent goes six steps deep, a label keeps 150 pt |
 | [ab905adeadd](https://github.com/manaflow-ai/cmux/commit/ab905adeadd0327f92e2c3f3d1de568c6a6780d1) | 10-23 01:20 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: a group's rail starts at its header bar's left edge; groups nest 16 levels |
 | [bab65850337](https://github.com/manaflow-ai/cmux/commit/bab658503376845a3ddc09c1b793338bb9c6d066) | 10-23 02:11 | Leo's agents (Leo) | cmux NEXT: a classic import keeps classic's workspace order again (base red since #22593) (#23693) |

@@ -254,9 +254,9 @@ final class TabDragSession: NSObject {
     func providers(in controller: WindowController, near point: CGPoint, drag: Drag) -> [any TabDropTargetProviding] {
         let adapters = self.adapters(for: controller, drag: drag)
         var list: [any TabDropTargetProviding] = [adapters.sidebar]
-        // The Home Chief pane's strip (a pinned dock that takes no other tab) takes no drop: the
-        // daemon would refuse it (home-chief-pane.md H4).
-        for pane in controller.onScreenContents.flatMap(\.panes.values) where !pane.isPinnedDockPane {
+        // A pinned dock's strip that takes no other tab takes no drop: the daemon would refuse it
+        // (home-chief-pane.md H4). Home's dock takes tabs, so its strip takes drops.
+        for pane in controller.onScreenContents.flatMap(\.panes.values) where !pane.isClosedPinnedDockPane {
             let strip = pane.view.stripView
             guard let window = strip.window, !strip.isHiddenOrHasHiddenAncestor else { continue }
             let frame = window.convertToScreen(strip.convert(strip.bounds, to: nil)).insetBy(dx: 0, dy: -Metrics.space4)
