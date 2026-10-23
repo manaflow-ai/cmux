@@ -1134,6 +1134,34 @@ class BlobReadTests(Fixture):
         self.assertNotIn("[singleton]", stdout.getvalue())
 
 
+class GateWrapperTests(Fixture):
+    """prepush-gate.guardrails(): a checker failure lets through only the range it could not judge."""
+
+    def test_a_failure_on_one_pushed_range_keeps_the_refusal_of_another(self):
+        trusted = self.root / "trusted"
+        trusted.mkdir()
+        (trusted / "guardrails.py").write_text(
+            "def check_push(repo, base, head):\n"
+            "    if head == 'feat-b':\n"
+            "        raise SystemExit('guardrails: git diff failed')\n"
+            "    return ['refusal'], []\n"
+            "check = check_push\n"
+            "def format_report(refusals, warnings):\n"
+            "    return ('[singleton] feat-a adds one', True) if refusals else ('', False)\n")
+        spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate", SOURCE / "scripts/cmux-next/prepush-gate.py")
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        stderr, stdout = io.StringIO(), io.StringIO()
+        try:
+            with contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(stdout):
+                refused = gate.guardrails(self.repo, [(self.base, "feat-a"), (self.base, "feat-b")], trusted)
+        finally:
+            sys.modules[_spec.name] = guardrails
+        self.assertTrue(refused, stderr.getvalue())
+        self.assertIn("[singleton] feat-a adds one", stdout.getvalue())
+        self.assertIn("feat-b", stderr.getvalue(), "the warning names the range it could not judge")
+
+
 class HookTests(Fixture):
     """The installed pre-push hook runs the guardrails; CI (GITHUB_ACTIONS, --commits) never does."""
 
