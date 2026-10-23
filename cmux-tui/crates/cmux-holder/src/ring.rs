@@ -313,6 +313,8 @@ impl Drop for Ring {
 /// version 4, so the next holder crash loses no byte either.
 pub fn create_segment(base: u64, capacity: usize) -> io::Result<OwnedFd> {
     let segment = new_segment()?;
+    // Already close-on-exec where the platform opens it so; else this
+    // closes the rest of the window (see `new_segment`).
     crate::pty::set_cloexec(segment.as_raw_fd());
     let size = (HEADER + capacity) as libc::off_t;
     // SAFETY: sizes a descriptor this function owns.
@@ -376,6 +378,14 @@ fn new_segment() -> io::Result<OwnedFd> {
 }
 
 /// An unlinked POSIX shared memory object: only descriptors reach it.
+///
+/// It is opened close-on-exec (`O_CLOEXEC`), so a process another thread
+/// of a multithreaded daemon spawns meanwhile does not inherit a writable
+/// descriptor to a terminal's output. A system whose `shm_open` refuses the
+/// flag (`EINVAL`) gets the object without it and [`create_segment`] sets
+/// `FD_CLOEXEC` right after: there, a process spawned on another thread
+/// between the two calls can inherit the descriptor, and with it keep the
+/// segment alive and write to it.
 #[cfg(not(target_os = "linux"))]
 fn new_segment() -> io::Result<OwnedFd> {
     use std::sync::atomic::AtomicU32;
@@ -392,14 +402,22 @@ fn new_segment() -> io::Result<OwnedFd> {
             nanos
         );
         let name = std::ffi::CString::new(name).map_err(|_| invalid("ring name"))?;
-        // SAFETY: shm_open with a NUL-terminated name; the mode is variadic.
-        let fd = unsafe {
-            libc::shm_open(
-                name.as_ptr(),
-                libc::O_RDWR | libc::O_CREAT | libc::O_EXCL,
-                0o600 as libc::c_uint,
-            )
+        let open = |flags: libc::c_int| {
+            // SAFETY: shm_open with a NUL-terminated name; the mode is variadic.
+            unsafe {
+                libc::shm_open(
+                    name.as_ptr(),
+                    flags | libc::O_RDWR | libc::O_CREAT | libc::O_EXCL,
+                    0o600 as libc::c_uint,
+                )
+            }
         };
+        let mut fd = open(libc::O_CLOEXEC);
+        if fd < 0 && io::Error::last_os_error().raw_os_error() == Some(libc::EINVAL) {
+            // SAFETY: removes the name in case the refused open made it.
+            unsafe { libc::shm_unlink(name.as_ptr()) };
+            fd = open(0);
+        }
         if fd < 0 {
             let error = io::Error::last_os_error();
             if error.kind() == io::ErrorKind::AlreadyExists {

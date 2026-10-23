@@ -240,9 +240,12 @@ pub(crate) fn holder_local_launch(
         wait: Box::new(move || {
             let end = waited.sink.wait_end();
             if end != SinkEnd::Detached {
-                // Ended: the holder may forget it.
+                // Ended: the holder may forget it, and no holder takes it
+                // over again, so the custody dup of its ring segment (up to
+                // a MiB of output no process maps) goes too.
                 let _ = waited.service.close(waited.chan, 0);
                 waited.service.untrack(waited.chan);
+                waited.ring.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
             }
             terminal_end(end)
         }),
