@@ -150,4 +150,25 @@ struct ChiefTileDragOutTests {
                 beside ? "a release beside the sidebar, sent to another window, kept the Chief" : "a release over the sidebar removed the Chief")
         #expect(!h.dragging)
     }
+
+    /// The same for the older top band: its drag lives in the band (`SidebarRegionView.reorder`), which sees the
+    /// release that went elsewhere too. It must not stay lifted with its tile hidden.
+    @Test(arguments: [true, false])
+    func aBandReleaseSentToAnotherWindowStillDecides(beside: Bool) async throws {
+        defer { Motion.reduceMotionOverride = nil }
+        let h = Harness(document: false)
+        defer { h.window.orderOut(nil) }
+        let (_, inside) = try h.dragChiefOut()
+        let other = NSWindow(contentRect: NSRect(x: 900, y: 200, width: 200, height: 200), styleMask: [.borderless],
+                             backing: .buffered, defer: false)
+        other.isReleasedWhenClosed = false
+        defer { other.close() }
+        let release = beside ? NSPoint(x: h.sidebar.convert(h.sidebar.bounds, to: nil).maxX + 80, y: inside.y) : inside
+        try #require(h.region).releaseSeen(in: other, at: h.window.convertPoint(toScreen: release))
+        await withCheckedContinuation { done in DispatchQueue.main.async { done.resume() } }
+        h.finish()
+        #expect(h.removed == (beside ? [Self.chief.rawValue] : []),
+                beside ? "a band release beside the sidebar, sent to another window, kept the Chief" : "a band release over the sidebar removed the Chief")
+        #expect(!h.dragging, "the band's drag stayed alive after its release went to another window")
+    }
 }
