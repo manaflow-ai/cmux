@@ -505,13 +505,14 @@ extension SidebarListViewComponents {
         decorations.frame = bounds
         decorations.setGap(gapFrame, animated: true)
         let lines = groupLineViews.update(groupLines(layout), from: groupLines(layout, current: true), in: self, above: decorations, animated: true)
+        SidebarDragSpring.move(lines.springs, in: self)
         Motion.sidebar.animate(.move, in: self, { lines.changes() }, completion: { [leaving = lines.leaving] in leaving.forEach { $0.removeFromSuperview() } })
     }
 
     /// An adopting apply's motion: kept rows spring from where they are,
     /// new ones fade in at their slots, leaving ones fade where they are.
     func adoptRows(targets: [(SidebarRowView, NSRect)], leaving: [(SidebarRowView, NSRect)],
-                   lines: (changes: () -> Void, leaving: [NSView])) {
+                   lines: SidebarGroupLineViews.LineMotion) {
         for (view, target) in targets {
             SidebarDragSpring.move(view, to: target)
             SidebarDragSpring.fade(view, to: 1)
