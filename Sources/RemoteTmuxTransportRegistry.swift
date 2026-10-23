@@ -617,6 +617,8 @@ struct RemoteTmuxSSHTransportProfile: RemoteTmuxTransportProfile {
     var requiresPseudoTerminal: Bool { false }
 
     /// Killing the ssh client closes tmux's pty, so tmux drops the control client itself.
+    /// Not always: a client blocked writing output survives the hangup (issue #24388), which is
+    /// why the control-stream wrapper prunes orphaned control clients on every attach.
     var remoteHalfSurvivesLocalExit: Bool { false }
 }
 
