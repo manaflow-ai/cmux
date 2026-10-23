@@ -2,7 +2,7 @@
 // Screenshots in replies (inlineMedia.ts, chips/ReplyImage.tsx `thumb`): agents show UI with images
 // instead of describing it. A before/after pair sits side by side, a labelled pair one per line
 // does too, an image path in a sentence stays its chip with the thumbnail under the paragraph, a
-// PR's media from GitHub loads at once, and an image from any other site waits for Load image in
+// PR's media on raw.githubusercontent.com loads at once, and an image from any other site waits for Load image in
 // the same frame.
 import { agentPaneEntry, type ChipHostFixture } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
@@ -40,11 +40,11 @@ const HOST: ChipHostFixture = {
     [WEB_IMAGE]: svg(sampleDiagram()),
   },
   media: { [VIDEO]: MP4, [REEL]: MP4 },
-  // As the host answers it: GitHub's sites load without a click (AgentPaneReplySetting.clickFreeImageHosts).
+  // As the host answers it: raw.githubusercontent.com loads without a click (AgentPaneSafeFetch.clickFreeImageHosts).
   policy: {
     outsideRoots: "confirm",
     remoteImages: "click",
-    clickFreeImageHosts: ["github.com", "raw.githubusercontent.com"],
+    clickFreeImageHosts: ["raw.githubusercontent.com"],
   },
 };
 
@@ -85,7 +85,7 @@ export default agentPaneEntry({
       ),
     },
     "pr-media": {
-      note: "A PR's media address on raw.githubusercontent.com loads at once under images.remote = click (a click-free GitHub site).",
+      note: "A PR's media address on raw.githubusercontent.com loads at once under images.remote = click (the click-free site).",
       chipHost: HOST,
       snapshot: reply("Where are the PR screenshots?", `Light mode:\n\n![Tabs, light](${PR_MEDIA})`),
     },

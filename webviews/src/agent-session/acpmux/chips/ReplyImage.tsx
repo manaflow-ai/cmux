@@ -3,8 +3,9 @@
 // a data URL. A file inside the session's folders loads at once; a web image follows
 // `agentPane.images.remote`: a placeholder with its site and "Load image" (click, the default),
 // its link only (never), or at once (always). Under click, an image from a site the host names
-// click-free (GitHub's: PR screenshots) loads at once too (`loadsWithoutClick`). Every web load
-// uses the host's network rules, and the host checks the site again.
+// click-free (raw.githubusercontent.com: PR screenshots) loads at once too (`loadsWithoutClick`);
+// if the host refuses that load, its Load image shows. Every web load uses the host's network
+// rules, and the host checks the site again.
 // A local image the host will not show (outside the folders, missing, or a failed load) draws as
 // a compact card: its alt text, its file name and Open, the path chip's open with the same
 // outside-folders confirmation. A deny-listed path is its alt text only.
@@ -44,22 +45,12 @@ export function remoteImageHost(src: string): string | undefined {
   }
 }
 
-/// Whether the web image at `src` loads without a click under `click`: https, no user info, the
-/// default port, and its host name exactly one the host named (never a suffix or a lookalike).
+/// Whether the web image at `src` loads without a click under `click`: it is written exactly
+/// `https://<a host the host named>/…` (lowercase, no port, user info, backslash or space before
+/// the path), the same test the host makes on the same string, so the two never disagree.
 export function loadsWithoutClick(src: string, policy: ReplyPolicy): boolean {
   if (policy.remoteImages !== "click" || !Array.isArray(policy.clickFreeImageHosts)) return false;
-  try {
-    const url = new URL(src);
-    return (
-      url.protocol === "https:" &&
-      !url.username &&
-      !url.password &&
-      url.port === "" &&
-      policy.clickFreeImageHosts.includes(url.hostname)
-    );
-  } catch {
-    return false;
-  }
+  return policy.clickFreeImageHosts.some((host) => typeof host === "string" && src.startsWith(`https://${host}/`));
 }
 
 /// Sources an automatic load started for, so a render twice in a row asks the host once.
@@ -71,19 +62,26 @@ const loaded = new DataUrlCache(IMAGE_CACHE_MAX_ENTRIES, IMAGE_CACHE_MAX_CHARS, 
 /// click (the host spends a gesture on each), so forgetting it would leave its placeholder.
 const clicked = new Map<string, string>();
 
-function useImageLoad(src: string, auto: boolean) {
+/// `auto`: load without a click. `clickFree`: that load is one the host may refuse (the image is
+/// not one it calls click-free after all); the page tells it so (`auto: true`), so a refusal spends
+/// no gesture, and the image then waits for its Load image instead of drawing as unavailable.
+function useImageLoad(src: string, auto: boolean, clickFree = false) {
   const [state, setState] = useState<State>(() => {
     const known = clicked.get(src) ?? loaded.get(src);
     return known ? { kind: "shown", src: known } : { kind: "idle" };
   });
   const load = (byClick: boolean) => {
     setState({ kind: "loading" });
-    void callChipHost("image.load", { src }).then((reply) => {
+    const asked = !byClick && clickFree;
+    void callChipHost("image.load", asked ? { src, auto: true } : { src }).then((reply) => {
       const data = (reply as { src?: unknown } | undefined)?.src;
       if (typeof data === "string" && data.startsWith("data:image/")) {
         if (byClick) clicked.set(src, data);
         else loaded.set(src, data);
         setState({ kind: "shown", src: data });
+      } else if (asked) {
+        // `started` keeps it, so it is not asked again by itself; a click loads it as any other.
+        setState({ kind: "idle" });
       } else {
         started.delete(src);
         setState({ kind: "failed" });
@@ -248,8 +246,8 @@ function RemoteImage({
 }) {
   const t = useT();
   const policy = useReplyPolicy();
-  const auto = policy.remoteImages === "always" || loadsWithoutClick(src, policy);
-  const { state, load } = useImageLoad(src, auto);
+  const clickFree = loadsWithoutClick(src, policy);
+  const { state, load } = useImageLoad(src, policy.remoteImages === "always" || clickFree, clickFree);
   if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} thumb={thumb} />;
   if (policy.remoteImages === "never") return <>{fallback}</>;
   const placeholder = (

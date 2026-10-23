@@ -2,41 +2,50 @@ import { expect, test } from "bun:test";
 import { loadsWithoutClick } from "../src/agent-session/acpmux/chips/ReplyImage";
 import type { ReplyPolicy } from "../src/agent-session/acpmux/chips/linkStore";
 
-// Which reply images load without a click under agentPane.images.remote = click: only https images
-// whose host name is exactly one the host named (GitHub's), never a lookalike, http, another port or
-// a URL with user info. Leo 2026-10-23: "i feel like this is a bit lame idk".
+// Which reply images load without a click under agentPane.images.remote = click: only images
+// written exactly https://<a host the host named>/…, never a lookalike, http, a port, user info or
+// another spelling the host's own parser could read differently. Leo 2026-10-23: "i feel like this
+// is a bit lame idk".
 const click: ReplyPolicy = {
   outsideRoots: "confirm",
   remoteImages: "click",
-  clickFreeImageHosts: ["github.com", "raw.githubusercontent.com"],
+  clickFreeImageHosts: ["raw.githubusercontent.com"],
 };
 
-test("GitHub images load without a click", () => {
+test("a PR's media on raw.githubusercontent.com loads without a click", () => {
   for (const src of [
     "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/24546/before-dark.png",
-    "https://RAW.GITHUBUSERCONTENT.COM/manaflow-ai/cmux/pr-media/24546/after-dark.png",
-    "https://raw.githubusercontent.com:443/o/r/main/a.png",
-    "https://github.com/manaflow-ai/cmux/raw/pr-media/1/a.png",
+    "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/24546/after-dark.png",
+    "https://raw.githubusercontent.com/o/r/main/a.png",
   ])
     expect(loadsWithoutClick(src, click)).toBe(true);
 });
 
-test("an unknown host, a lookalike, http, another port or user info still waits for a click", () => {
+test("an unknown host, a lookalike, http, a port, user info or an odd spelling still waits for a click", () => {
   for (const src of [
     "https://images.example.com/a.png",
+    // github.com stays behind the click: a release asset's download count shows its owner each fetch.
+    "https://github.com/attacker/repo/releases/download/v1/pixel.png",
+    "https://github.com/o/r/raw/main/a.png",
     "https://raw.githubusercontent.com.evil.example/a.png",
     "https://evilraw.githubusercontent.com/a.png",
     "https://camo.githubusercontent.com/a.png",
-    "https://gist.github.com/a.png",
-    "https://github.com.evil.example/a.png",
+    "https://media.githubusercontent.com/media/o/r/main/a.png",
     "https://evil.example/raw.githubusercontent.com/a.png",
-    "https://evil.example/?u=https://github.com/a.png",
+    "https://evil.example/?u=https://raw.githubusercontent.com/a.png",
     "https://evil.example#@raw.githubusercontent.com/a.png",
     "https://raw.githubusercontent.com./a.png",
+    "https://raw.githubusercontent.com:443/a.png",
     "https://raw.githubusercontent.com:8443/a.png",
+    "https://RAW.githubusercontent.com/a.png",
+    "https://raw.githubusercontent%2Ecom/a.png",
+    "https://raw.githubusercontent.com\\@evil.example/a.png",
+    "https:\\\\raw.githubusercontent.com/a.png",
+    " https://raw.githubusercontent.com/a.png",
+    "https://raw.githubusercontent.com",
+    "https://raw.githubusercontent.com?a.png",
     "http://raw.githubusercontent.com/a.png",
     "https://user:pass@raw.githubusercontent.com/a.png",
-    "https://user@github.com/a.png",
     "/tmp/shots/a.png",
     "not a url",
   ])

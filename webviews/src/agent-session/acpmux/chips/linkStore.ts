@@ -12,7 +12,7 @@ export type ReplyPolicy = {
   outsideRoots: "confirm" | "text" | "open";
   remoteImages: "click" | "never" | "always";
   /// Sites whose web images load without a click under `click` (the host's declared list,
-  /// `AgentPaneReplySetting.clickFreeImageHosts`); an older host names none.
+  /// `AgentPaneSafeFetch.clickFreeImageHosts`); an older host names none.
   clickFreeImageHosts: readonly string[];
 };
 

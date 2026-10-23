@@ -1,5 +1,4 @@
 import CmuxNextRemoteFetch
-import CmuxNextSettings
 import Foundation
 
 /// Fetches a reply's web image for the page, which has no network of its own (CSP
@@ -41,11 +40,26 @@ nonisolated struct AgentPaneSafeFetch: AgentPaneImageFetching {
     /// a local name or a private literal.
     static func isFetchable(_ url: URL) -> Bool { GuardedRemoteFetch.allows(url) }
 
-    /// Whether a reply's web image at `url` loads without a click under `click`: https, no user
-    /// info, the default port, and its host exactly one of
-    /// ``AgentPaneReplySetting/clickFreeImageHosts``.
-    static func isClickFree(_ url: URL) -> Bool {
-        GuardedRemoteFetch.isListed(url, in: AgentPaneReplySetting.clickFreeImageHosts)
+    /// Sites whose web images load in a reply without a click under `agentPane.images.remote` =
+    /// `click`, the one declared list (the page gets it from `link.inspect`'s policy). The click
+    /// keeps a site from learning that a reply was read (a tracking pixel, or a prompt-injected
+    /// address that carries data out). raw.githubusercontent.com, where PR screenshots and our
+    /// `pr-media` branch live, gives a repository's owner no count or log of who fetched a file,
+    /// so it tells no one but GitHub. github.com stays behind the click: a release asset's
+    /// download count and a repository's traffic page show its owner each fetch. A click-free
+    /// load's redirects must stay on this list too (``fetch(_:within:)``). Leo, 2026-10-23, of a
+    /// before/after pair whose second image waited on Load image: "i feel like this is a bit lame idk".
+    static let clickFreeImageHosts: Set<String> = ["raw.githubusercontent.com"]
+
+    /// Whether the reply image `src` loads without a click under `click`: it is written exactly
+    /// `https://<a click-free host>/…` (lowercase, no port, user info, backslash or space before
+    /// the path, so the page's WHATWG parse and this one agree), and it parses to that host
+    /// (``GuardedRemoteFetch/isListed(_:in:)``).
+    static func isClickFree(_ src: String) -> Bool {
+        guard clickFreeImageHosts.contains(where: { src.hasPrefix("https://\($0)/") }), let url = URL(string: src) else {
+            return false
+        }
+        return GuardedRemoteFetch.isListed(url, in: clickFreeImageHosts)
     }
 
     func fetch(_ url: URL) async -> Result<Data, AgentPaneReplyError> {

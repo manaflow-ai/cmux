@@ -209,8 +209,12 @@ describe("rendered replies", () => {
 
   const IMAGE = "data:image/png;base64,iVBORw0KGgo=";
   const loads: string[] = [];
-  const GITHUB = ["github.com", "raw.githubusercontent.com"];
-  async function render(markdown: string, host: "answer" | "silent" = "answer", clickFreeImageHosts: string[] = []) {
+  const CLICK_FREE = ["raw.githubusercontent.com"];
+  async function render(
+    markdown: string,
+    host: "answer" | "silent" | "refuse" = "answer",
+    clickFreeImageHosts: string[] = [],
+  ) {
     const { act } = await import("react");
     const { createRoot } = await import("react-dom/client");
     const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
@@ -227,8 +231,9 @@ describe("rendered replies", () => {
     });
     loads.length = 0;
     setChipHost(async (method, params) => {
-      if (method === "image.load") loads.push(String(params.src));
-      if (method === "image.load" && host === "answer") return { src: IMAGE };
+      if (method === "image.load") loads.push(params.auto === true ? `auto ${String(params.src)}` : String(params.src));
+      if (method === "image.load" && host === "refuse" && params.auto === true) return undefined;
+      if (method === "image.load" && host !== "silent") return { src: IMAGE };
       if (method === "image.load") return new Promise(() => {});
       return {};
     });
@@ -266,26 +271,42 @@ describe("rendered replies", () => {
     await unmount();
   });
 
-  test("a before/after pair from pr-media draws inline side by side with no click (GitHub is click-free)", async () => {
+  test("a before/after pair from pr-media draws inline side by side with no click (its site is click-free)", async () => {
     // Leo 2026-10-23, of a pair whose second image waited on Load image: "i feel like this is a bit lame idk".
     const before = PR_MEDIA.replace("tabs-light", "before"),
       after = PR_MEDIA.replace("tabs-light", "after");
-    const { container, unmount } = await render(`![](${before}) ![](${after})`, "answer", GITHUB);
+    const { container, unmount } = await render(`![](${before}) ![](${after})`, "answer", CLICK_FREE);
     const row = container.querySelector(".cv-thumbs.is-row");
     expect(row!.querySelectorAll(".cv-thumb img.cv-thumb__img").length).toBe(2);
     expect(container.querySelector(".cv-image-placeholder__load")).toBeNull();
-    expect(loads).toEqual([before, after]);
+    // Each asks as the page's own load, so a refusal spends no click.
+    expect(loads).toEqual([`auto ${before}`, `auto ${after}`]);
     await unmount();
   });
 
-  test("an image from another site still waits for Load image when GitHub is click-free", async () => {
-    const lookalikes = [
+  test("a click-free image the host refuses waits for its Load image, which then loads it", async () => {
+    const src = PR_MEDIA.replace("tabs-light", "refused");
+    const { container, unmount } = await render(`![](${src})`, "refuse", CLICK_FREE);
+    const button = container.querySelector<HTMLButtonElement>(".cv-image-placeholder__load");
+    expect(button).not.toBeNull();
+    expect(container.querySelector(".cv-image-placeholder__note")).toBeNull();
+    const { act } = await import("react");
+    await act(async () => button!.click());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(container.querySelector(".cv-thumb img.cv-thumb__img")).not.toBeNull();
+    expect(loads).toEqual([`auto ${src}`, src]);
+    await unmount();
+  });
+
+  test("an image from another site still waits for Load image while raw.githubusercontent.com is click-free", async () => {
+    const others = [
       "https://images.example.com/chart.png",
+      "https://github.com/o/r/releases/download/v1/chart.png",
       "https://raw.githubusercontent.com.evil.example/chart.png",
       "http://raw.githubusercontent.com/o/r/main/chart.png",
     ];
-    for (const src of lookalikes) {
-      const { container, unmount } = await render(`![Chart](${src})`, "answer", GITHUB);
+    for (const src of others) {
+      const { container, unmount } = await render(`![Chart](${src})`, "answer", CLICK_FREE);
       expect(container.querySelector("img")).toBeNull();
       await unmount();
     }
