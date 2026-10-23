@@ -231,11 +231,10 @@ final class UIInspectorController {
         "SidebarView": "CmuxNextSidebar/Views/SidebarView.swift:21",
         "SidebarContainerView": "CmuxNextSidebar/Views/SidebarContainerView.swift:22",
         "SidebarRowView": "CmuxNextSidebar/Views/SidebarRowView.swift:8",
-        "SidebarItemRowView": "CmuxNextSidebar/Views/SidebarItemRowView.swift:13",
+        "SidebarItemListRowView": "CmuxNextSidebar/Views/SidebarItemListRowView.swift:9",
         "SidebarTabRowView": "CmuxNextSidebar/Views/SidebarTabRowView.swift:11",
         "TabStripView": "CmuxNextTabs/TabStripView.swift:15",
         "PaneToolbarView": "CmuxNextTabs/PaneToolbarView.swift:32",
-        "ComposerView": "CmuxNextAgentPane/ComposerView.swift:1",
     ]
 
     private func isInspectorView(_ view: NSView) -> Bool { view is UIInspectorHighlightView }
