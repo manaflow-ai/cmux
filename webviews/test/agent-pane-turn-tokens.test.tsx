@@ -242,8 +242,10 @@ test("a turn's tokens split into output and what its calls read, while every cal
         6,
       ),
     );
-    await until(() => !snapshot().isWorking, "the turn's end");
-    const row = snapshot().rows.find((row: AcpmuxRow) => row.kind === "turnSummary");
+    // The fake daemon never reports the session idle, so the turn's end is its summary row.
+    const summary = () => snapshot().rows.find((row: AcpmuxRow) => row.kind === "turnSummary");
+    await until(() => summary() !== undefined, "the turn's end");
+    const row = summary();
     expect(row?.tokens).toEqual({ output: 9_400, input: 2_000, cacheRead: 65_000, cacheWrite: 4_000 });
     expect(snapshot().turnTokenSplit).toBeUndefined();
   } finally {
