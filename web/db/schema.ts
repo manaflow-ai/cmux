@@ -2930,7 +2930,7 @@ export const appleNotifications = pgTable("apple_notifications", {
 ]);
 
 /**
- * Opt-in hang reports from cmux NEXT Nightly (schema 1, see
+ * Opt-in hang reports from cmux NEXT Nightly (schema 2, see
  * `app/api/hang-reports`). Anonymous: `install_id` is a random per-Mac UUID
  * the client rotates every 30 days. No IP address, account or user agent is
  * stored. `received_day` is the server's UTC day and carries the per-install
