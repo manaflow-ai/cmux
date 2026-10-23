@@ -329,10 +329,26 @@ SINGLETON = re.compile(r"\bstatic\s+(let|var)\s+(shared|sharedInstance|instance)
 # CLAUDE.md names these too; as stored statics of a class or actor, or mutable ones, they hold runtime state.
 # A struct or enum's `static let standard = Style()` is a value constant and passes.
 SINGLETON_NAMED = re.compile(r"\bstatic\s+(let|var)\s+(`default`|standard|current|live)\s*(:[^={]*)?=")
-SINGLETON_ANY = re.compile(SINGLETON.pattern + "|" + SINGLETON_NAMED.pattern)
+# A class's stored `static let app = Type(...)` (ThemeScope.app, FrameScheduler.app, MotionClock.app) is the same
+# global under another name (perf-lead.md ratchet rule); a string or collection constant is not.
+SINGLETON_APP = re.compile(r"\bstatic\s+(let|var)\s+app\s*(:[^={]*)?=\s*[A-Za-z_]")
+SINGLETON_ANY = re.compile(SINGLETON.pattern + "|" + SINGLETON_NAMED.pattern + "|" + SINGLETON_APP.pattern)
 STATEFUL = re.compile(r"\bstatic\s+var\b|=\s*(Mutex|NSHashTable|NSMapTable|OSAllocatedUnfairLock)\b")
 TYPE_OPENER = re.compile(r"\b(class|actor|struct|enum|extension|protocol)\b")
 SINGLETON_ALLOW = re.compile(r"//\s*singleton-allow:\s*\S")
+
+
+# The ambient theme root (ThemeScope.app, the Palette fallback until Palette takes an explicit theme context;
+# perf-lead.md, lead 2026-10-23: not an accepted exception). Outside CmuxNextDesign, which implements the
+# fallback, no new line names it: take the view's `themeScope`, or the root the composition root injects
+# (`AppServices.themeRoot` / `.themeStore`).
+AMBIENT_THEME = re.compile(r"\bThemeScope\.app\b|\bThemeScope\s*=\s*\.app\b")
+AMBIENT_THEME_ALLOW = re.compile(r"//\s*theme-root-allow:\s*\S")
+DESIGN = SOURCES + "CmuxNextDesign/"
+
+
+def outside_design(version: Version, index: int) -> tuple[bool, list[int]]:
+    return not version.path.startswith(DESIGN), []
 
 
 def holds_state(version: Version, index: int) -> tuple[bool, list[int]]:
@@ -779,19 +795,27 @@ def implicit_deinit(version: Version, index: int) -> tuple[bool, list[int]]:
 
 
 singleton = matcher_rule(Matcher(SINGLETON_ANY, SINGLETON_ALLOW, holds_state))
+ambient_theme = matcher_rule(Matcher(AMBIENT_THEME, AMBIENT_THEME_ALLOW, outside_design))
 sleep_in_loop = matcher_rule(Matcher(SLEEP, POLL_ALLOW, in_loop))
 broadcast_name = matcher_rule(Matcher(BROADCAST_ANY, BROADCAST_ALLOW, declares_name))
 row_store = matcher_rule(Matcher(ROW_STORE, ROW_ALLOW, in_row))
 
 
 RULES = (
-    Rule("singleton", "New singleton (`static let shared`, or a class's stored `standard`/`default`/`current`/`live`)",
+    Rule("singleton", "New singleton (`static let shared`, or a class's stored `standard`/`default`/`current`/`live`/`app`)",
          "a global hides runtime state: no injection, no test seam, every caller couples to one instance "
          "(codebase-health.md counts the ones already there)",
          "construct it once at the composition root (the App's startup) and pass it through `init`; "
          "`static let` is fine for constants and identifiers",
          "// singleton-allow: <why a process-wide instance is the only correct shape>",
          singleton),
+    Rule("ambient-theme-root", "A new read of the ambient theme root (`ThemeScope.app`) outside CmuxNextDesign",
+         "ThemeScope.app is ThemeStore.shared under another name: one global theme every caller couples to, which "
+         "tests mutate in parallel (review 1 of pl-arch B3); the count only goes down until it is gone",
+         "read the view's or window's `themeScope` (`.store` for the store), or take the root the composition "
+         "root injects (`AppServices.themeRoot`, `.themeStore`) through `init`",
+         "// theme-root-allow: <why no scope or injected root can reach this line>",
+         ambient_theme),
     Rule("assume-isolated", "`MainActor.assumeIsolated` without a main-thread proof",
          "it traps in Release when the caller is not on main, and nothing proves it is",
          "make the caller `@MainActor` (and await it), or prove the thread on the line or above: "

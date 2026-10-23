@@ -30,7 +30,12 @@ PERF_HOT_ID = re.compile(r"//\s*perf-hot:\s*\S+\s+([\w-]+)")
 
 # (id, title, pattern on comment-stripped code, waiver marker or None, note)
 CATEGORIES = (
-    ("singleton", "`static let/var shared` singletons", r"\bstatic\s+(let|var)\s+(shared|sharedInstance|instance)\b", r"singleton-allow:",
+    # A stored `static let/var app = Type(...)` (ThemeScope.app, FrameScheduler.app, MotionClock.app) is the same global
+    # under another name (perf-lead.md ratchet rule); a string constant (`static let app = "cmux/cloud"`) or a computed
+    # `static var app: T { ... }` is not.
+    ("singleton", "`static let/var shared` and stored `static let/var app` singletons",
+     r"\bstatic\s+(let|var)\s+(shared|sharedInstance|instance)\b|\bstatic\s+(let|var)\s+app\s*(:[^={]*)?=\s*[A-Za-z_]"
+     r"|\bstatic\s+var\s+app\s*:[^={]*$", r"singleton-allow:",
      "runtime state behind a global; construct at the composition root and inject (CLAUDE.md Package design discipline)"),
     ("assume_isolated", "`MainActor.assumeIsolated`", r"\bMainActor\.assumeIsolated\b", r"main-proof:",
      "traps off main; each needs `// main-proof: <why>` (crash_ratchet.py counts the rest)"),
