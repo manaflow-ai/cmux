@@ -208,11 +208,6 @@ async fn dispatch_brief(
         }
         Some(selected.clone())
     };
-    if let Some(existing) = hub.briefs.claim(&id, idempotency) {
-        return Ok(
-            json!({"brief":existing,"event":crate::hub::dispatch::event("dispatch", &existing),"replayed":true}),
-        );
-    }
     if let Some(peer_name) = host {
         let peer = hub.peer_by_name(&peer_name).ok_or_else(|| {
             RpcError::not_found(format!(
@@ -223,6 +218,11 @@ async fn dispatch_brief(
             return Err(RpcError::internal(format!(
                 "peer {peer_name:?} is not connected; retry after it reconnects"
             )));
+        }
+        if let Some(existing) = hub.briefs.claim(&id, idempotency) {
+            return Ok(
+                json!({"brief":existing,"event":crate::hub::dispatch::event("dispatch", &existing),"replayed":true}),
+            );
         }
         let original = params.clone();
         params["forwarded"] = json!(true);
@@ -339,6 +339,11 @@ async fn dispatch_brief(
         &new_params,
     )
     .await?;
+    if let Some(existing) = hub.briefs.claim(&id, idempotency) {
+        return Ok(
+            json!({"brief":existing,"event":crate::hub::dispatch::event("dispatch", &existing),"replayed":true}),
+        );
+    }
     let created =
         Box::pin(dispatch_request(hub, conn, method::SESSION_NEW, new_params, None)).await?;
     let sid = created
