@@ -246,7 +246,8 @@ final class CEFHostView: NSView {
     /// put back over its host even though the host did not move.
     func pagesNeedUpdate(force: Bool) {
         let now = CEFHostGeometry(of: self)
-        guard force || readGeometry != now else {
+        // A refused hosting request retries on the fork's next read, which this post brings.
+        guard force || readGeometry != now || layerHosting.isRetryArmed else {
             Self.trackerStats.geometrySkips += 1
             return
         }
