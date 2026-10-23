@@ -24,7 +24,7 @@ const controls = {
         { value: "fast", name: "Fast" },
       ],
     },
-    // Fast mode on: a checkbox row of the model button's menu (Leo 2026-10-20); the row draws no bolt.
+    // Fast mode on: a checkbox row of the model button's menu (Leo 2026-10-20); no speed button in the row.
     {
       id: "fast-mode",
       name: "Fast mode",
@@ -171,8 +171,10 @@ export function narrowProblems(document: Document): string[] {
       );
       if (!named) problems.push("the model is cut to its icon in a pane with room for its name");
     }
-  // Fast mode is a row of the model button's menu, never a bolt in the composer (Leo 2026-10-20).
-  if (document.querySelector(".acpmux-fast")) problems.push("the composer draws a speed bolt");
+  // Fast mode is a row of the model button's menu: no speed button anywhere in the composer (Leo
+  // 2026-10-21: "THE BOLT DOESN'T GO THERE"). Codex's running fast tier is a glyph inside the model
+  // button (.acpmux-model-bolt), never a control of its own.
+  if (document.querySelector(".acpmux-fast")) problems.push("the composer draws a speed button");
   // The chips and the turn's controls share one line: Send never wraps under the pickers.
   for (const row of document.querySelectorAll(".acpmux-composer-bar, .nt-pickers")) {
     const chip = row.querySelector(".acpmux-chips > *");
@@ -258,7 +260,7 @@ export default agentPaneEntry({
   ],
   variants: {
     controls: {
-      note: "A finished chat with every composer control: model, effort, access, the speed bolt, mic and Send.",
+      note: "A finished chat with every composer control: the model button with its effort, access, mic and Send.",
       snapshot: withControls(chat(finished)),
       play: check,
     },
@@ -407,7 +409,7 @@ export default agentPaneEntry({
       },
     },
     "controls-single-row": {
-      note: "The chat composer with the plain footer off: every chip, the bolt, the mic and Send in one row.",
+      note: "The chat composer with the plain footer off: every chip, the mic and Send in one row.",
       snapshot: withControls(chat(finished)),
       play: async (ctx) => {
         // Each variant loads its own page, so the setting stays off for the stage's own checks too.

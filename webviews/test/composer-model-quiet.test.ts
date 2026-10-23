@@ -1,7 +1,8 @@
 // cmux-web-test-timeout: 300
 // The quiet row's model button (Leo 2026-10-21, of #23742's capture: "WTF IS THIS UGLY BULLSHIT. WE
-// ALREADY FIXED THE FONTS. THE BOLT DOESN'T GO THERE"), measured on the real composer in Chromium
-// (the bolt's move into the model button is its own change, with its own tests):
+// ALREADY FIXED THE FONTS. THE BOLT DOESN'T GO THERE"), measured on the real composer in Chromium:
+//   - Codex's running fast tier is a small bolt inside the model button, before the model's name, on
+//     the text's line; no speed button sits in the box or the row;
 //   - the button is quiet text: no edge, ring or fill at rest; the effort one step back of the name;
 //     keyboard focus (a menu closed with Esc hands it back) draws the soft pill and a hairline, never
 //     the bright ring the capture showed;
@@ -87,6 +88,46 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
     return page;
   };
   const BUTTON = ".acpmux-composer-foot .acpmux-model .acpmux-picker-button";
+
+  test("Codex with Fast mode on: a small bolt inside the model button, before the name, on its line", async () => {
+    const page = await open("reasoning-codex-fast");
+    const drawn = await page.evaluate((selector) => {
+      const button = document.querySelector<HTMLElement>(selector);
+      const bolt = button?.querySelector<SVGElement>(".acpmux-model-bolt");
+      const name = button?.querySelector<HTMLElement>(".acpmux-model-name");
+      const box = (element: Element | null | undefined) => element?.getBoundingClientRect();
+      return {
+        speedButton: document.querySelectorAll(".acpmux-fast").length,
+        boltsAnywhere: document.querySelectorAll(".acpmux-model-bolt").length,
+        bolt: box(bolt) && {
+          left: box(bolt)!.left,
+          right: box(bolt)!.right,
+          mid: (box(bolt)!.top + box(bolt)!.bottom) / 2,
+          size: box(bolt)!.width,
+        },
+        name: box(name) && { left: box(name)!.left, mid: (box(name)!.top + box(name)!.bottom) / 2 },
+        button: box(button) && { left: box(button)!.left, right: box(button)!.right },
+        fill: bolt?.getAttribute("fill"),
+      };
+    }, BUTTON);
+    await page.close();
+    expect(drawn.speedButton, "no speed button in the box or the row").toBe(0);
+    expect(drawn.boltsAnywhere, "one bolt, the model button's").toBe(1);
+    expect(drawn.bolt, "the bolt is inside the model button").toBeDefined();
+    expect(drawn.bolt!.left).toBeGreaterThanOrEqual(drawn.button!.left);
+    expect(drawn.bolt!.right, "before the model's name").toBeLessThanOrEqual(drawn.name!.left + 0.5);
+    expect(drawn.bolt!.size, "a small glyph").toBeLessThanOrEqual(13);
+    expect(Math.abs(drawn.bolt!.mid - drawn.name!.mid), "on the name's line").toBeLessThanOrEqual(1);
+    expect(drawn.fill, "an outline glyph").toBe("none");
+  });
+
+  for (const variant of ["reasoning-codex", "quiet-chips"])
+    test(`${variant}: Fast mode off or Claude: no bolt anywhere`, async () => {
+      const page = await open(variant);
+      const bolts = await page.evaluate(() => document.querySelectorAll(".acpmux-fast, .acpmux-model-bolt").length);
+      await page.close();
+      expect(bolts).toBe(0);
+    });
 
   const look = (page: Page) =>
     page

@@ -248,7 +248,6 @@
 :where(button).acpmux-plan:active,
 .acpmux-steer:active,
 .acpmux-mic:active,
-.acpmux-fast:active,
 .acpmux-location-button:active {
   transition-duration: 0s;
 }
@@ -356,8 +355,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   .acpmux-send {
     transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
   }
-  .acpmux-mic,
-  .acpmux-fast {
+  .acpmux-mic {
     transition:
       background-color var(--agent-motion-hover) var(--agent-ease-out),
       color var(--agent-motion-hover) var(--agent-ease-out);

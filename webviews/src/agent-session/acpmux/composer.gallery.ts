@@ -389,7 +389,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/ComposerPickers.tsx#Picker",
-    "agent-session/acpmux/FastToggle.tsx",
     // The `/` menu's Fast row (slash-menu-fast-on, slash-menu-fast-off).
     "agent-session/acpmux/BoltIcon.tsx#BoltIcon",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
@@ -521,7 +520,7 @@ export default agentPaneEntry({
       snapshot: footerChat("full-access"),
     },
     // Leo 2026-10-19: no composer button draws a pill at rest (test/composer-quiet-chips.test.ts).
-    // Fast mode is on, and shows only in the model button's menu (Leo 2026-10-20: no bolt).
+    // Fast mode is on, and shows only in the model button's menu: Claude draws no bolt (Leo 2026-10-21).
     // The + is a bare glyph: its tooltip is Codex's short "Add files and more" (Leo, 2026-10-21).
     "plus-tooltip": {
       note: 'Play: hover the +; the tooltip reads "Add files and more".',
@@ -1699,7 +1698,8 @@ export default agentPaneEntry({
       }),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(MODEL_DETAIL)?.textContent?.trim() === "Medium");
-        if (ctx.document.querySelector(".acpmux-fast")) throw new Error("the composer must draw no speed bolt");
+        if (ctx.document.querySelector(".acpmux-fast, .acpmux-model-bolt"))
+          throw new Error("Claude draws no bolt, in the box or in the model button");
         await openModelMenu(ctx);
         const fast = ctx.document.querySelector(".acpmux-quick-menu .acpmux-quick-fast");
         if (fast?.getAttribute("aria-checked") !== "true")
@@ -1739,38 +1739,32 @@ export default agentPaneEntry({
       },
     },
     "reasoning-codex": {
-      note: "Play: Codex keeps its bolt just left of the mic (Leo 2026-10-21), an outline glyph; the model button's menu has no Fast mode row; a click on the bolt sends Fast.",
-      snapshot: withSummary(chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex reasoning" }), {
-        configOptions: [
-          {
-            id: "reasoning_effort",
-            category: "thought_level",
-            currentValue: "medium",
-            options: ["low", "medium", "high", "xhigh", "max", "ultra"].map((value) => ({ value })),
-          },
-          {
-            id: "fast-mode",
-            category: "model_config",
-            currentValue: "off",
-            options: [
-              { value: "off", name: "Off", description: "Default speed, normal usage" },
-              { value: "on", name: "On", description: "1.5x speed, increased usage" },
-            ],
-          },
-        ],
-      }),
+      note: "Play: Codex with Fast mode off. The box draws no speed control and the model button no bolt; the button's menu ends on an unchecked Fast mode row (Leo 2026-10-21: the bolt goes with the model, never by the mic).",
+      snapshot: codexReasoning("off"),
       play: async (ctx) => {
-        const bolt = { selector: ".acpmux-composer-actions .acpmux-fast" };
-        await ctx.waitFor(() => ctx.document.querySelector(bolt.selector));
-        if (ctx.find(bolt).getAttribute("aria-pressed") !== "false") throw new Error("the bolt must start off");
-        if (!ctx.find(bolt).nextElementSibling?.querySelector(".acpmux-mic"))
-          throw new Error("the bolt must sit just left of the mic");
+        await ctx.waitFor(() => ctx.document.querySelector(MODEL_DETAIL)?.textContent?.trim() === "Medium");
+        if (ctx.document.querySelector(".acpmux-fast")) throw new Error("the composer must draw no speed button");
+        if (ctx.document.querySelector(".acpmux-model-bolt"))
+          throw new Error("Fast mode is off: the button draws no bolt");
         await openModelMenu(ctx);
-        if (ctx.document.querySelector(".acpmux-quick-menu .acpmux-quick-fast"))
-          throw new Error("Codex's Fast mode is the bolt, not a menu row as well");
-        await ctx.press("Escape");
-        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-quick-menu"));
-        await ctx.click(bolt);
+        const fast = { selector: ".acpmux-quick-menu .acpmux-quick-fast" };
+        await ctx.waitFor(() => ctx.document.querySelector(fast.selector));
+        if (ctx.find(fast).getAttribute("aria-checked") !== "false") throw new Error("Fast mode must start unchecked");
+      },
+    },
+    "reasoning-codex-fast": {
+      note: "Codex with Fast mode on: a small bolt before the model's name inside the quiet model button, in the name's ink; nothing in the box beside the mic.",
+      snapshot: codexReasoning("on"),
+      play: async (ctx) => {
+        const bolt = ".acpmux-model .acpmux-picker-button .acpmux-model-bolt";
+        await ctx.waitFor(() => ctx.document.querySelector(bolt));
+        const name = ctx.document.querySelector(".acpmux-model .acpmux-picker-button .acpmux-model-name");
+        if (
+          !name ||
+          !(ctx.document.querySelector(bolt)!.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING)
+        )
+          throw new Error("the bolt must come before the model's name");
+        if (ctx.document.querySelector(".acpmux-fast")) throw new Error("the composer must draw no speed button");
       },
     },
     "model-menu-keyboard": {
@@ -2058,6 +2052,29 @@ function withSummary(
 
 /// Every footer button (+, the one model button with its effort, the mode; Fast mode on, which only
 /// the model button's menu shows), for the quiet-chips and composer-state variants.
+/// A finished Codex chat on GPT-6 Astra at Medium, its Fast mode (Codex's Fast service tier) `fast`.
+function codexReasoning(fast: "on" | "off"): ReturnType<typeof chat> {
+  return withSummary(chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex reasoning" }), {
+    configOptions: [
+      {
+        id: "reasoning_effort",
+        category: "thought_level",
+        currentValue: "medium",
+        options: ["low", "medium", "high", "xhigh", "max", "ultra"].map((value) => ({ value })),
+      },
+      {
+        id: "fast-mode",
+        category: "model_config",
+        currentValue: fast,
+        options: [
+          { value: "off", name: "Off", description: "Default speed, normal usage" },
+          { value: "on", name: "On", description: "1.5x speed, increased usage" },
+        ],
+      },
+    ],
+  });
+}
+
 function quietChips(): ReturnType<typeof chat> {
   return withSummary(chat(finished, { title: "Quiet chips" }), {
     modes: {

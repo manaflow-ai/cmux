@@ -1,4 +1,4 @@
-/// The composer's bolt glyph (FastToggle.tsx draws the same one for Codex's speed toggle): the `/`
+/// The composer's bolt glyph (ModelPicker.tsx FastBolt draws the same path inside Codex's model button): the `/`
 /// menu's Fast row (Composer.tsx SlashMenu) shows it beside the plain name Fast, in the row's ink.
 export function BoltIcon({ size = 16 }: { size?: number }) {
   return (

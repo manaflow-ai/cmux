@@ -4,8 +4,8 @@ import { type RefObject, useLayoutEffect } from "react";
 // narrower pane swaps whole units, never letters: the model, effort (its own chip, Leo 2026-10-15:
 // "move it back out"; since Leo 2026-10-20 the model button's detail) and the permission mode each
 // take a shorter form, and +, the access glyph, the mic, Send or Stop and every chevron always stay.
-// Claude Code's Fast mode is a row of the model button's menu; Codex's bolt beside the mic never
-// leaves (it is Codex's only speed control), as the mic never does.
+// Fast mode is a row of the model button's menu; no speed control sits in the row (a running Codex
+// fast tier is a glyph inside the model button, which never leaves).
 //
 // The steps are composer widths, in COMPOSER_FIT_STEPS. composerLocation.css applies them with
 // container queries on the composer (`composer`, #20548), whose widths are literals that

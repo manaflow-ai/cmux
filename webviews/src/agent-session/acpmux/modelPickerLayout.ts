@@ -33,15 +33,7 @@ export type ModelPickerProps = {
   recents: Combo[];
   onLand(model: string, effort?: string): void;
   onEffort(value: string): void;
-  fastMode?: {
-    name: string;
-    currentValue?: string;
-    onValue: string;
-    offValue: string;
-    onLabel: string;
-    offLabel: string;
-    onPick(value: string): void;
-  };
+  fastMode?: FastModeControl;
   /** Refreshes the host-backed model catalog; the host owns transport and live events. */
   catalogRefresh?: CatalogRefreshState;
   /// Starts a new chat in another harness; without it, other harnesses are not offered.
@@ -85,6 +77,9 @@ export type ModelPickerProps = {
   quick?: QuickMenuExtras;
   /// The effort's short name ("Med") the compact chip shows in a narrow row (composerRowFit.ts).
   detailShort?: string;
+  /// Codex's fast tier runs: the chip draws a small bolt before the model's name (Leo 2026-10-21).
+  /// The toggle stays the menu's Fast mode row; Claude Code's chip never draws one.
+  fastBolt?: boolean;
   /// The room, in px, left of the open menu for its submenus (`menuRoom`). Tests pass a
   /// number in place of real layout.
   measureRoom?(menu: HTMLElement): number;
@@ -128,4 +123,31 @@ export function pickerHeightBounds(
   const maxHeight = Math.max(MODEL_PICKER_MIN_HEIGHT, Math.min(roomed, MODEL_PICKER_MAX_HEIGHT));
   const minHeight = Math.min(maxHeight, Math.max(MODEL_PICKER_MIN_HEIGHT, opened ?? 0));
   return { maxHeight, minHeight };
+}
+
+/// The chat's fast mode option as one on/off control (the model menu's Fast mode row and the full
+/// picker's). `onValue` is the option's first tier past off; an option can offer more (Codex's
+/// Ultrafast), and `currentLabel` names whichever tier runs.
+export type FastModeControl = {
+  name: string;
+  currentValue?: string;
+  onValue: string;
+  offValue: string;
+  onLabel: string;
+  offLabel: string;
+  /// The running tier's name: `onLabel` for the first tier, the menu's name for a later one.
+  currentLabel?: string;
+  onPick(value: string): void;
+};
+
+/// Fast mode's on/off state over every tier: on is any tier past off (Codex's Ultrafast too), and
+/// a toggle turns whichever tier runs off, or turns the option's first tier on. Both Fast mode rows
+/// (QuickModelMenu via ComposerPickers, and ModelPicker) read it, so neither treats a later tier as off.
+export function fastModeToggle(fast: FastModeControl): { on: boolean; next: string; label: string } {
+  const on = fast.currentValue !== undefined && fast.currentValue !== fast.offValue;
+  return {
+    on,
+    next: on ? fast.offValue : fast.onValue,
+    label: on ? (fast.currentLabel ?? fast.onLabel) : fast.offLabel,
+  };
 }

@@ -13,13 +13,18 @@ import {
 import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot } from "./model";
 import type { SpeedSection } from "./EffortPicker";
-import { type SpeedTiers, useSpeedToggle } from "./FastToggle";
 import { pendingSpeed } from "./pendingSpeed";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { extraConfigOptions } from "./agentOptions";
-import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
+import {
+  fastModeToggle,
+  type CatalogRefreshState,
+  type FastModeControl,
+  type ModelCombo,
+  type ModelPickerProps,
+} from "./modelPickerLayout";
 import { topModelsFor } from "./topModels";
 import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
@@ -201,6 +206,16 @@ export type ComposerPermissionAccess = {
 /// skips approvals) and a Plan/Build toggle. Each control shows only when the agent offers it.
 /// The row draws no context ring (hq#1957 item 15 compact row): the running state shows on
 /// Send/Stop alone.
+/// A speed tier's name, as the bolt named it before its rows moved into the model menu (#24488): the
+/// agent's first fast tier (Codex's `priority`) is Fast, its ultrafast tier Ultrafast (by value, or a
+/// name that says so), and any other tier keeps the agent's name for it, else its value.
+function speedTierName(option: { value: string; name?: string }, t: (key: StringKey) => string): string {
+  if (/^(priority|fast|on|true|enabled)$/i.test(option.value)) return t("picker.tierFast");
+  if ([option.value, option.name ?? ""].some((text) => /^ultra[-_ ]?fast$/i.test(text.trim())))
+    return t("picker.tierUltrafast");
+  return option.name ?? option.value;
+}
+
 export function ComposerPickers({
   snapshot,
   permissionAccess,
@@ -226,8 +241,8 @@ export function ComposerPickers({
   // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts).
   // The model button is the row's one model control (Leo 2026-10-20): it names the model and its
   // effort ("Opus 5.5  Medium") and opens the compact menu, which carries Effort, More models,
-  // Account and, for Claude Code, Fast mode. There is no effort chip beside it; Codex's speed is the
-  // bolt left of the mic (FastToggle.tsx), never a menu row as well.
+  // Account and Fast mode. There is no effort chip and no speed button beside it: Codex's fast tier
+  // shows as a small bolt inside the button while it runs (Leo 2026-10-21).
   const { showContextUsage, harnessSwitch } = useComposerSettings();
   const chatAccounts = useChatAccounts();
   const summary = snapshot.summary;
@@ -391,7 +406,30 @@ export function ComposerPickers({
     fastOption?.options.find((option) => /^(on|true|enabled)$/i.test(option.value)) ?? fastOption?.options[1];
   const fastOff =
     fastOption?.options.find((option) => /^(off|false|disabled)$/i.test(option.value)) ?? fastOption?.options[0];
-  const fastMode =
+  // A second Codex profile ("codex-work") is still the Codex family.
+  const codex = /codex/i.test(summary?.family ?? "") || /codex/i.test(summary?.harness ?? "");
+  // An option with a tier past Fast (Codex's Ultrafast) gets a second checkbox row in the model menu,
+  // named by speedTierName: Ultrafast only where the tier says so, else the agent's name for it.
+  const ultraOption =
+    fastOn && fastOff
+      ? fastOption?.options.find((option) => option.value !== fastOff.value && option.value !== fastOn.value)
+      : undefined;
+  const ultraTier = ultraOption?.value;
+  const ultraLabel = ultraOption ? speedTierName(ultraOption, t) : "";
+  // The full picker's Fast mode row names the running tier: Codex's by its tier name (its
+  // `priority` reads Fast), any harness's tier past Fast by the second row's name.
+  const runningTier = fastOption?.options.find(
+    (option) => option.value === fastOption.currentValue && option.value !== fastOff?.value,
+  );
+  const currentLabel =
+    runningTier === undefined
+      ? undefined
+      : runningTier.value === ultraTier
+        ? ultraLabel
+        : codex
+          ? speedTierName(runningTier, t)
+          : undefined;
+  const fastMode: FastModeControl | undefined =
     fastOption && fastOn && fastOff && fastOn.value !== fastOff.value
       ? {
           name: fastOption.name ?? t("picker.fastModeSection"),
@@ -400,29 +438,19 @@ export function ComposerPickers({
           offValue: fastOff.value,
           onLabel: fastOn.name ?? fastOn.value,
           offLabel: fastOff.name ?? fastOff.value,
+          ...(currentLabel !== undefined ? { currentLabel } : {}),
           onPick: (value: string) => onEffort(fastOption.id, value),
         }
       : undefined;
-  // Codex keeps its bolt left of the mic; Claude Code's Fast mode is a row of the model button's
-  // menu (Leo 2026-10-21: "REMOVE it for Claude, where Fast mode lives inside the menu. KEEP it for
-  // Codex"). A second Codex profile ("codex-work") is still the Codex family.
-  const codex = /codex/i.test(summary?.family ?? "") || /codex/i.test(summary?.harness ?? "");
   // Fast mode is offered where the running model honors it, or while it is still on.
   const fastOffered =
     fastMode !== undefined && (catalogModel?.fast !== false || fastMode.currentValue !== fastMode.offValue);
-  // The bolt: every tier the option offers past off.
-  const speedTiers: SpeedTiers | undefined =
-    codex && fastOption && fastMode && fastOffered
-      ? {
-          current: fastOption.currentValue,
-          off: fastMode.offValue,
-          tiers: fastOption.options.map((option) => option.value).filter((value) => value !== fastMode.offValue),
-          names: Object.fromEntries(fastOption.options.map((option) => [option.value, option.name ?? option.value])),
-          onPick: fastMode.onPick,
-        }
-      : undefined;
-  // A Codex chip with no composer to draw the bolt (a bare gallery row) keeps Fast mode in its menu.
-  const bolted = useSpeedToggle(speedTiers) && speedTiers !== undefined;
+  // On is any tier past off (fastModeToggle, which the full picker's Fast mode row reads too).
+  const fastRunning = fastMode !== undefined && fastModeToggle(fastMode).on;
+  // Codex's fast tier is a small bolt inside the model button, before the model's name, while it runs
+  // (Leo 2026-10-21: "THE BOLT DOESN'T GO THERE", of a bolt in the box by the mic); its toggle is the
+  // menu's Fast mode row. Claude Code draws no bolt anywhere: its menu row alone says it.
+  const fastBolt = codex && fastOffered && fastRunning;
   const model = models.find((choice) => choice.id === summary?.model);
   const effortName = efforts.find((choice) => choice.id === effort?.currentValue)?.name;
   // Recents follow what the session actually runs, whichever control changed it,
@@ -816,14 +844,24 @@ export function ComposerPickers({
     chatAccounts && summary?.sessionId && !summary.host && summary.hostKind !== "cloud"
       ? { sessionId: summary.sessionId, accounts: chatAccounts }
       : undefined;
-  // Claude Code's Fast mode is one checkbox row of the menu, after Account (Leo 2026-10-20, as Claude
-  // Code's). On is any tier past off; a click turns it off, or on at the option's first tier. Codex
-  // has the bolt instead.
+  // Fast mode is one checkbox row of the menu, after Account (Leo 2026-10-20, as Claude Code's), for
+  // every harness that offers it. On is any tier past off; a click turns it off, or on at the
+  // option's first tier (fastModeToggle). A tier past that one (ultraTier, Codex's Ultrafast) is a
+  // second checkbox row under it: checked while that tier runs; on picks it, off steps back to Fast.
   const quickFast: QuickMenuExtras["fast"] =
-    fastMode && fastOffered && !bolted
+    fastMode && fastOffered
       ? {
-          checked: fastMode.currentValue !== undefined && fastMode.currentValue !== fastMode.offValue,
+          checked: fastRunning,
           onChange: (on) => fastMode.onPick(on ? fastMode.onValue : fastMode.offValue),
+          ...(ultraTier !== undefined
+            ? {
+                ultra: {
+                  label: ultraLabel,
+                  checked: fastMode.currentValue === ultraTier,
+                  onChange: (on: boolean) => fastMode.onPick(on ? ultraTier : fastMode.onValue),
+                },
+              }
+            : {}),
         }
       : undefined;
   const quick: QuickMenuExtras = {
@@ -868,7 +906,8 @@ export function ComposerPickers({
           onAddAgent={onAddAgent}
           harnessFixed={locked}
           {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
-          fastMode={bolted ? undefined : fastMode}
+          fastMode={fastMode}
+          {...(fastBolt ? { fastBolt: true } : {})}
           catalogRefresh={catalogRefresh}
           harnessNotes={
             snapshot.switching?.phase === "failed"
