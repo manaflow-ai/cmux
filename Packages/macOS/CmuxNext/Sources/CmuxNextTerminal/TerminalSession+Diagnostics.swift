@@ -97,11 +97,7 @@ extension TerminalSession {
                                               blendFrames: counters.blend_frames, frameUpdates: counters.frame_updates,
                                               fullPalette: counters.full_palette, fullConfig: counters.full_config,
                                               fullFont: counters.full_font, fullOther: counters.full_other,
-                                              fullSwap: counters.full_swap, fullResize: counters.full_resize,
-                                              hostDisplayPasses: counters.host_display_passes,
-                                              hostMainDraws: counters.host_main_draws,
-                                              hostFreshPresents: counters.host_fresh_presents,
-                                              hostLatePresents: counters.host_late_presents)
+                                              fullSwap: counters.full_swap, fullResize: counters.full_resize)
             },
             windowFraction: surface.window.flatMap { window in
                 let frame = window.frame
@@ -134,20 +130,11 @@ public struct TerminalRenderCounters: Sendable, Equatable {
     /// preview starting or ending) or its grid size changed.
     public var fullSwap: UInt64
     public var fullResize: UInt64
-    /// Host-sized display passes of a new size (ghostty-integration-DESIGN.md G1): frames the main
-    /// thread drew itself (the first frame), frames the renderer thread drew at the new size with
-    /// reflowed text and the pass presented in its own commit, and passes that kept the last frame
-    /// because the new one was not ready within 4 ms (it lands at the next pass).
-    public var hostDisplayPasses: UInt64 = 0
-    public var hostMainDraws: UInt64 = 0
-    public var hostFreshPresents: UInt64 = 0
-    public var hostLatePresents: UInt64 = 0
 
     /// Every counter by its `debug.surfaces` name.
     public var byName: [String: UInt64] {
         ["frames": frames, "cell_rebuilds": cellRebuilds, "blend_frames": blendFrames, "frame_updates": frameUpdates,
          "full_palette": fullPalette, "full_config": fullConfig, "full_font": fullFont, "full_other": fullOther,
-         "full_swap": fullSwap, "full_resize": fullResize, "host_display_passes": hostDisplayPasses, "host_main_draws": hostMainDraws,
-         "host_fresh_presents": hostFreshPresents, "host_late_presents": hostLatePresents]
+         "full_swap": fullSwap, "full_resize": fullResize]
     }
 }
