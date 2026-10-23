@@ -20,6 +20,7 @@ import argparse, glob, json, os, signal, socket, statistics, subprocess, sys, te
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory  # noqa: E402
+from bench_launch import LaunchError, launch_app  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -182,7 +183,7 @@ class Launched:
 
 
 def launch(mode, scratch):
-    global app
+    global app, SOCKET
     config = os.path.join(scratch, "cmux.json")
     json.dump({"browser": {"defaultEngine": "chromium"}}, open(config, "w"))
     tunables = os.path.join(scratch, "debug-tunables.json")
@@ -212,8 +213,18 @@ def launch(mode, scratch):
             return None
         app = Launched(pid)
     else:
-        log = open(log_path, "a")
-        app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+        if opts.activate:
+            env["CMUX_NEXT_NO_ACTIVATE"] = None  # bench_launch: not its default no-activate launch
+
+        def started(process):
+            global app
+            app = process
+        # One launch path (bench_launch.py): socket in the state folder, bench env, the reason when it does not come up.
+        try:
+            app, SOCKET = launch_app(APP, env, log_path, timeout=120, on_start=started)
+        except LaunchError:
+            return False
+        return True
     return wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120)
 
 

@@ -522,6 +522,17 @@ class BenchApp:
                 self.teardown.end()
 
 
+def launch_app(app, env, log_path, timeout=120, on_start=None, ready="debug.windows"):
+    """For a script that keeps its own env, log and cleanup: launches `app` through ``BenchApp`` (the bench defaults
+    under `env`, no window frame or screen of its own, no teardown) and returns (process, socket path). Raises
+    ``LaunchError`` with the reason printed; `on_start(process)` runs at the spawn, so a failed launch is still the
+    caller's to clean up."""
+    bench = BenchApp(app, out=os.path.dirname(os.path.abspath(log_path)), env=env, window=None, screen=None,
+                     log_name=os.path.basename(log_path), teardown=False)
+    bench.launch(timeout=timeout, ready=ready, on_start=on_start)
+    return bench.process, bench.socket
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Launch-and-socket check of a tagged cmux DEV app.")
     sub = parser.add_subparsers(dest="command", required=True)
