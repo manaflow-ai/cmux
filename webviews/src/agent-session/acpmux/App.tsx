@@ -153,6 +153,7 @@ import {
 } from "./inspector/processes";
 import { useInspectorOpen } from "./inspector/inspectorState";
 import { openCommand, opensProcessTerminal } from "./processTerminal";
+import { descendants, subagentChangesFolder, type SubagentScope } from "./inspector/subagentScope";
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { AgentsPill } from "./subagents/AgentsPill";
 import { SubagentTray } from "./subagents/SubagentTray";
@@ -5080,6 +5081,40 @@ function AcpmuxPane() {
       setAutoOpenSubagents,
     ],
   );
+  // While the pane shows a subagent's own view, the Inspector is that subagent's: its own rows, its
+  // worktree, its subagents, and a back button to what spawned it (inspector/subagentScope.ts). A
+  // new scope only when what it shows of the subagent changes, or its rows do.
+  const scopedAgent = shownSubagent === undefined ? undefined : freshAgents.find((agent) => agent.id === shownSubagent);
+  const scopedKey = scopedAgent
+    ? [
+        scopedAgent.id,
+        scopedAgent.name,
+        scopedAgent.task ?? "",
+        scopedAgent.parent ?? "",
+        scopedAgent.state,
+        scopedAgent.tokens ?? "",
+        scopedAgent.toolUses ?? "",
+        scopedAgent.cwd ?? "",
+        scopedAgent.isolated ? 1 : 0,
+        scopedAgent.worktree?.path ?? "",
+        scopedAgent.worktree?.branch ?? "",
+        scopedAgent.agents ? `${scopedAgent.agents.done}/${scopedAgent.agents.started}` : "",
+      ].join("\u0000")
+    : "";
+  const scopedRows = shownSubagent === undefined ? undefined : snapshot.subagentViews?.[shownSubagent];
+  const inspectorSubagent = useMemo((): SubagentScope | undefined => {
+    if (!scopedAgent) return undefined;
+    const parent = scopedAgent.parent;
+    return {
+      agent: scopedAgent,
+      rows: scopedRows ?? [],
+      parent: parent === null ? chatName : (chatAgents.find((agent) => agent.id === parent)?.name ?? chatName),
+      agents: descendants(chatAgents, scopedAgent.id),
+      // As its "Subagent of" pill: back to its parent subagent's view, else the chat's.
+      onBack: () => setSubagentView(parent ?? undefined),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new scope only when what it shows changes
+  }, [scopedKey, scopedRows, chatName, chatAgents]);
   // The Inspector (Debug Settings `agent.inspector`): its toggle the first of the header's
   // top-right icons, the panel beside or over the chat. On, it takes the summary card's place.
   const inspectorSummary = snapshot.summary;
@@ -5093,6 +5128,17 @@ function AcpmuxPane() {
   // Inspector draws): what its task row opens where its terminal cannot (a peer's or Cloud chat).
   const showCallRef = useRef<(toolCallId: string) => boolean>(() => false);
   const showCall = useCallback((toolCallId: string) => showCallRef.current(toolCallId), []);
+  // A subagent's edited files are in its own rows, which the chat's diff (openOutput) never reads:
+  // they open the Changes viewer beside the chat on the subagent's folder, its worktree when it has
+  // one (a chat on this Mac; another machine's folders are not here). The folder is found on the
+  // click, not on every render: finding it reads the subagent's rows.
+  const openSubagentOutput =
+    inspectorSubagent && inspectorLocal
+      ? () => {
+          const cwd = subagentChangesFolder(inspectorSummary, inspectorSubagent);
+          if (cwd) ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.changes, cwd, mode: "open" }));
+        }
+      : undefined;
   // In a narrow pane the side panel covers the whole pane, the header with it (ArtifactPanel.tsx).
   const narrowPane = useArtifactCoversPane();
   const artifactCovers = narrowPane && artifact !== undefined;
@@ -5106,7 +5152,7 @@ function AcpmuxPane() {
     machineName,
     repository: githubRepository,
     shell,
-    onOpenOutput: quick ? undefined : openOutput,
+    onOpenOutput: quick ? undefined : inspectorSubagent ? openSubagentOutput : openOutput,
     onOpenUrl: quick
       ? undefined
       : (url) => ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.preview, url, mode: "open" })),
@@ -5125,6 +5171,7 @@ function AcpmuxPane() {
     // Quick Chat's panel has no room beside it for the side panel.
     onOpenDocument: quick ? undefined : openArtifact,
     onShowCall: quick ? undefined : showCall,
+    subagent: inspectorSubagent,
     // A turn's diff in place, the event Inspector and, in a narrow pane, the side panel take the pane
     // in the chat's place, its header and the toggle with it: the panel steps aside while they show,
     // and opening it closes them.
