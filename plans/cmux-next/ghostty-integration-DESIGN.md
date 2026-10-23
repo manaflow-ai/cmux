@@ -110,8 +110,12 @@ G3, G5, G8 and the daemon half of G2 go to PL-daemon with these citations.
 ## 4b. Done so far (2026-10-23)
 
 ghostty-next (PR 46, then one GhosttyNextKit pin bump), each with a red test commit first:
-- G1: a new host size draws at once on the renderer thread with rebuilt cells; the display pass
-  presents that frame in its own CA commit (bounded 4 ms futex wait), never draws stale cells on main;
+- G1 (UNVERIFIED, possibly a no-op; see "G1 evidence" below): a new host size draws at once on the
+  renderer thread with rebuilt cells; the display pass presents that frame in its own CA commit
+  (bounded 4 ms futex wait), never draws stale cells on main. This holds only if Core Animation runs
+  the layer's display pass for a size change, which the before run did not show. G1 counts as done
+  when bench-terminal-resize shows `host_display_passes > 0` and `host_fresh_presents > 0` at
+  7d5fa1573 (or its successor) and a test fails when a resize frame shows cells of the previous size;
   no wait while frames are held; hidden surfaces draw nothing in a display pass. Counters
   `host_display_passes/main_draws/fresh_presents/late_presents`.
 - G2 app half: a local-history restore holds frames only when a READY-only frame would show less.
