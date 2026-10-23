@@ -327,30 +327,55 @@ impl HolderService {
     /// built at the exact offset the parser confirmed
     /// ([`HolderTerminal::adoption`]). Output the shells wrote meanwhile
     /// waited in their PTYs; output the dead holder read but never sent is
-    /// in the ring segment.
+    /// in the ring segment. Each terminal's custody segment becomes the one
+    /// the new holder says it writes (its ADOPTED answer), so the next
+    /// crash never hands on a segment nobody wrote. Every ADOPT goes out
+    /// before the first answer is waited for: one round trip, not one per
+    /// terminal. Both resume and adopt count the holder's credit from the
+    /// offset the parser confirmed, not the one it received.
     fn readopt(&self, link: &HolderLink, still_held: &HashMap<u32, [u8; 16]>) {
         let live: Vec<_> =
             self.live.lock().recover_poison().values().filter_map(Weak::upgrade).collect();
+        let mut answers = Vec::new();
         for terminal in live {
             if still_held.get(&terminal.chan) == Some(&terminal.id) {
                 let sink = terminal.sink.clone() as Arc<dyn TerminalSink>;
-                if let Err(error) = link.resume(terminal.chan, terminal.sink.received(), sink) {
+                let at = (terminal.sink.received(), terminal.sink.confirmed());
+                if let Err(error) = link.resume(terminal.chan, at, sink) {
                     eprintln!("cmux-tui: resume holder terminal {}: {error}", terminal.chan);
                 }
                 continue;
             }
             let adoption =
-                terminal.adoption(link.has_rings(), super::terminal::ADOPT_PROLOGUE_MAX_BYTES);
+                terminal.adoption(link.takes_rings(), super::terminal::ADOPT_PROLOGUE_MAX_BYTES);
             let sink = terminal.sink.clone() as Arc<dyn TerminalSink>;
-            if let Err(error) = link.adopt(
+            match link.adopt(
                 terminal.chan,
                 &terminal.id,
                 (terminal.pid, adoption.base, adoption.resume),
                 (&terminal.custody, adoption.ring.as_ref()),
                 (sink, &adoption.prologue),
             ) {
-                eprintln!("cmux-tui: hand terminal {} to the new holder: {error}", terminal.chan);
+                Ok(answer) => answers.push((terminal, answer)),
+                // The ADOPT did not go out whole, so the holder never
+                // adopted the terminal: the custody segment stays.
+                Err(error) => {
+                    eprintln!(
+                        "cmux-tui: hand terminal {} to the new holder: {error}",
+                        terminal.chan
+                    );
+                }
             }
+        }
+        for (terminal, answer) in answers {
+            // Without an answer nobody knows which segment the holder
+            // writes: no custody segment then (the next crash replays the
+            // parser's queue instead of a ring nobody can vouch for).
+            let segment = answer.wait().unwrap_or_else(|error| {
+                eprintln!("cmux-tui: holder terminal {} ring: {error}", terminal.chan);
+                None
+            });
+            terminal.keep_ring(segment);
         }
     }
 

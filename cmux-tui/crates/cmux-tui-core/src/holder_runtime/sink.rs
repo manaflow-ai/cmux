@@ -185,10 +185,16 @@ impl HolderSink {
         self.state.lock().recover_poison().received
     }
 
-    /// Offset after the last byte the parser finished parsing.
-    #[cfg(test)]
+    /// Offset after the last holder byte the parser finished parsing.
     pub(crate) fn confirmed(&self) -> u64 {
         self.state.lock().recover_poison().confirmed
+    }
+
+    /// The terminal ended or no holder streams it any more (set before
+    /// [`Self::wait_end`] returns).
+    pub(crate) fn has_ended(&self) -> bool {
+        let state = self.state.lock().recover_poison();
+        state.exit.is_some() || state.lost
     }
 
     /// The parser finished parsing every byte the reader took. The reader

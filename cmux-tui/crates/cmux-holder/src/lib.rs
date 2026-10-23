@@ -89,8 +89,9 @@ pub struct Listed {
     pub exited: bool,
     /// The custody dup of the master (`None` from the holder's own encode).
     pub master: Option<std::os::fd::OwnedFd>,
-    /// The custody dup of its output ring segment (wire version 4; `None`
-    /// from an older holder or a ring in private memory).
+    /// The custody dup of its output ring segment (`None` from a holder
+    /// older than wire version 4, on a link below `wire::RING_VERSION` to
+    /// this build's holder, or for a ring in private memory).
     pub ring: Option<std::os::fd::OwnedFd>,
 }
 

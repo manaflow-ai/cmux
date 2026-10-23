@@ -23,8 +23,18 @@ pub const MAX_PAYLOAD: usize = 1 << 20;
 /// holder that speaks it. Version 4 adds the shared output ring
 /// ([`FLAG_RING`], `crate::ring`): [`Kind::Spawned`], [`Kind::Listed`] and
 /// [`Kind::Adopt`] may carry the ring's segment as a second descriptor, so a
-/// holder crash loses no byte the holder read.
-pub const VERSION: u16 = 4;
+/// holder crash loses no byte the holder read. Version 5 adds ring layout 2
+/// (`crate::ring`), [`Kind::Adopted`] and the acknowledged offset in
+/// [`Kind::Attach`]: a holder passes ring segments only on a link of version
+/// 5 or later, and a daemon hands them only to such a holder, so a layout 2
+/// segment never reaches a holder that knows only layout 1, and the daemon
+/// always knows which segment a holder writes.
+pub const VERSION: u16 = 5;
+/// The first wire version on which ring segments pass between the peers
+/// ([`FLAG_RING`], ring layout 2, [`Kind::Adopted`]). A version 4 holder
+/// passes layout 1 segments; a daemon of this build keeps them and hands
+/// them on, but never hands one to a version 4 holder.
+pub const RING_VERSION: u16 = 5;
 /// Oldest wire version this build still serves.
 pub const MIN_VERSION: u16 = 1;
 /// Output a holder sends one terminal past the offset its daemon last
@@ -57,10 +67,16 @@ pub enum Kind {
     /// descriptor: the holder continues that ring (its offsets and the bytes
     /// a dead holder read), `base` is the offset the daemon parsed and
     /// confirmed (where the prologue's screen is), and `resume` is where its
-    /// stream continues (a fresh ring starts there if the segment is bad).
+    /// stream continues (a fresh ring starts there if the segment is bad or
+    /// ends before `resume`). A holder of version 5 answers every ADOPT
+    /// with [`Kind::Adopted`], naming the ring it writes.
     Adopt = 5,
     /// d->h: stream output from `offset u64` (a [`Kind::Gap`] first when it
-    /// rolled out); with [`FLAG_WITH_PROLOGUE`], the prologue first.
+    /// rolled out); with [`FLAG_WITH_PROLOGUE`], the prologue first. Version
+    /// 5: an optional `acked u64` follows, the offset the daemon parsed
+    /// (at or before `offset`): the credit counts from there, so output the
+    /// daemon received but has not parsed yet is part of the window. An
+    /// older holder reads only `offset` and ignores it.
     Attach = 6,
     /// h->d: `offset u64`, then output bytes.
     Data = 7,
@@ -100,6 +116,15 @@ pub enum Kind {
     /// shutdown): the link's end then is no strike against the terminal's
     /// stream (the poison-pill count).
     Detach = 20,
+    /// h->d (version 5): the answer to every [`Kind::Adopt`] on the
+    /// channel: `oldest u64, end u64` of the ring the holder writes the
+    /// terminal's output to from now on. With [`FLAG_RING`] that ring's
+    /// segment is the one descriptor: the segment the ADOPT carried when the
+    /// holder continues it, a fresh one when it could not (a bad or stale
+    /// segment). Without the flag the ring is private. The daemon keeps
+    /// exactly this segment as its custody copy, so it never hands a later
+    /// holder a segment nobody writes.
+    Adopted = 21,
 }
 
 impl Kind {
@@ -127,6 +152,7 @@ impl Kind {
             18 => Ack,
             19 => Snapshot,
             20 => Detach,
+            21 => Adopted,
             _ => return None,
         })
     }
@@ -137,10 +163,15 @@ impl Kind {
     }
 
     /// Descriptors a frame of this kind with these header flags carries:
-    /// one more with [`FLAG_RING`] (the ring's segment, after the master).
+    /// one more with [`FLAG_RING`] (the ring's segment, after the master;
+    /// an [`Kind::Adopted`] carries only the segment).
     pub fn descriptors_with(self, flags: u16) -> usize {
+        let ring = flags & FLAG_RING != 0;
+        if self == Kind::Adopted {
+            return ring as usize;
+        }
         let base = self.descriptors();
-        base + (base > 0 && flags & FLAG_RING != 0) as usize
+        base + (base > 0 && ring) as usize
     }
 }
 
@@ -161,8 +192,9 @@ pub const FLAG_WITH_PROLOGUE: u16 = 1;
 pub const FLAG_PROLOGUE: u16 = 1;
 /// [`Kind::Spawned`], [`Kind::Listed`] and [`Kind::Adopt`] flag (version
 /// 4): the frame carries the terminal's ring segment as a second descriptor,
-/// after the master. Sent only on a link whose version is at least 4, so an
-/// older peer never gets a descriptor it does not expect.
+/// after the master ([`Kind::Adopted`]: as its only one). This build sends
+/// it only on a link of at least [`RING_VERSION`], so an older peer never
+/// gets a descriptor it does not expect or a ring layout it cannot read.
 pub const FLAG_RING: u16 = 2;
 
 /// Encode a frame header and payload.
@@ -378,9 +410,27 @@ fn send_flags() -> libc::c_int {
     0
 }
 
+/// `recvmsg` flags: received descriptors arrive close-on-exec where the
+/// kernel can do that atomically.
+#[cfg(target_os = "linux")]
+const RECV_FLAGS: libc::c_int = libc::MSG_CMSG_CLOEXEC;
+#[cfg(not(target_os = "linux"))]
+const RECV_FLAGS: libc::c_int = 0;
+
 /// One `recvmsg` of at most `len` bytes into `buf`, with `control` as the
 /// control buffer; descriptors that arrive are returned owned
 /// (close-on-exec).
+///
+/// On Linux the kernel installs them close-on-exec (`MSG_CMSG_CLOEXEC`).
+/// macOS has no such flag: there each descriptor gets `FD_CLOEXEC` right
+/// after `recvmsg` returns. The holder is single-threaded, so nothing forks
+/// in between there; in the multithreaded daemon a process another thread
+/// spawns in that window inherits the descriptor (a PTY master, or a ring
+/// segment: a writable copy of a terminal's output), because the daemon's
+/// spawns do not close inherited descriptors. The window is the few
+/// instructions between the two calls, once per SPAWNED, LISTED or ADOPTED
+/// frame: the same kind of window as `crate::ring`'s `EINVAL` fallback for
+/// `shm_open`.
 ///
 /// # Safety
 ///
@@ -401,7 +451,7 @@ unsafe fn recv_with_fds(
     let n = loop {
         // SAFETY: msg points at live buffers for the call (the caller
         // vouches for `buf`).
-        let n = unsafe { libc::recvmsg(fd, &mut msg, 0) };
+        let n = unsafe { libc::recvmsg(fd, &mut msg, RECV_FLAGS) };
         if n >= 0 {
             break n as usize;
         }
@@ -421,7 +471,9 @@ unsafe fn recv_with_fds(
                 let count = ((*cmsg).cmsg_len as usize - header) / size_of::<RawFd>();
                 for index in 0..count {
                     let raw = std::ptr::read_unaligned(data.add(index));
-                    libc::fcntl(raw, libc::F_SETFD, libc::FD_CLOEXEC);
+                    if RECV_FLAGS == 0 {
+                        libc::fcntl(raw, libc::F_SETFD, libc::FD_CLOEXEC);
+                    }
                     fds.push(OwnedFd::from_raw_fd(raw));
                 }
             }

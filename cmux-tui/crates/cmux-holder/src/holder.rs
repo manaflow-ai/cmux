@@ -129,8 +129,11 @@ struct Link {
     reader: wire::Reader,
     /// The daemon acknowledges what it parsed (wire version 2).
     credit: bool,
-    /// The daemon takes ring segments (wire version 4, [`wire::FLAG_RING`]).
+    /// The daemon takes ring segments and reads ring layout 2
+    /// ([`wire::RING_VERSION`], [`wire::FLAG_RING`]).
     rings: bool,
+    /// The wire version the link settled on.
+    version: u16,
     /// The frame the socket took part of: it finishes first.
     current: Option<OutFrame>,
     /// Small frames, written before `bulk`.
@@ -578,7 +581,8 @@ impl Holder {
             stream: pending.stream,
             reader: pending.reader,
             credit: version >= 2,
-            rings: version >= 4,
+            rings: version >= wire::RING_VERSION,
+            version,
             current: None,
             urgent: VecDeque::new(),
             bulk: VecDeque::new(),
@@ -697,9 +701,11 @@ impl Holder {
     }
 
     /// WELCOME the new link with every terminal, a master dup of each and,
-    /// for a daemon of wire version 4, a dup of its ring segment.
+    /// for a daemon of [`wire::RING_VERSION`], a dup of its ring segment.
+    /// An older daemon gets no segment: it could hand a layout 2 segment to
+    /// a holder that knows only layout 1.
     fn welcome(&mut self, version: u16) {
-        let rings = version >= 4;
+        let rings = version >= wire::RING_VERSION;
         let listed: Vec<(u32, Vec<u8>, Vec<OwnedFd>)> = self
             .terminals
             .iter()
@@ -773,16 +779,34 @@ impl Holder {
         // back to a fresh ring it never heard of). Continuing a stale ring
         // would number new output below what the daemon already parsed, and
         // the daemon would drop it as received: a silent splice.
-        let ring = with_ring
+        let mut ring = with_ring
             .then(|| fds.next())
             .flatten()
             .and_then(|segment| Ring::adopt(segment).ok())
             .filter(|ring| ring.end() >= resume)
             .unwrap_or_else(|| Ring::new(resume, RING_BYTES));
+        let version = self.link.as_ref().map_or(0, |link| link.version);
+        if version >= wire::RING_VERSION {
+            // Only a holder of this version continues it from here on.
+            ring.upgrade_layout();
+        }
         let mut terminal = Terminal::with_ring(id, master, pid, false, ring);
         terminal.prologue = input.rest().to_vec();
         terminal.prologue_base = base;
+        // Tell the daemon which ring this holder writes (the one it was
+        // handed, or a fresh one), so the custody copy it hands the next
+        // holder is never one nobody writes.
+        let adopted = (version >= wire::RING_VERSION).then(|| {
+            let payload = Out::default().u64(terminal.ring.oldest()).u64(terminal.ring.end()).0;
+            let fds: Vec<OwnedFd> =
+                terminal.ring.segment().and_then(|fd| fd.try_clone().ok()).into_iter().collect();
+            (payload, fds)
+        });
         self.terminals.insert(frame.chan, terminal);
+        if let Some((payload, fds)) = adopted {
+            let flags = if fds.is_empty() { 0 } else { wire::FLAG_RING };
+            self.queue_flagged(Kind::Adopted, flags, frame.chan, &payload, fds);
+        }
         Ok(())
     }
 
@@ -790,9 +814,12 @@ impl Holder {
     /// [`wire::FLAG_WITH_PROLOGUE`] (a restarted daemon) the prologue goes
     /// first and the stream starts at its base; a terminal whose streams
     /// keep ending without DETACH skips its ring tail (the poison pill).
+    /// The credit counts from the offset the daemon says it parsed (version
+    /// 5), so bytes it received and has not parsed stay in the window.
     fn attach(&mut self, chan: u32, flags: u16, payload: &[u8]) -> Result<(), (u16, String)> {
-        let from =
-            In(payload).u64().map_err(|error| (error_code::BAD_PAYLOAD, error.to_string()))?;
+        let mut input = In(payload);
+        let from = input.u64().map_err(|error| (error_code::BAD_PAYLOAD, error.to_string()))?;
+        let parsed = input.u64().ok();
         let terminal = self.terminal(chan)?;
         let (oldest, end) = (terminal.ring.oldest(), terminal.ring.end());
         let mut start = from.clamp(oldest, end);
@@ -818,7 +845,15 @@ impl Holder {
             terminal.strikes.clear();
         }
         terminal.sent = Some(start);
-        terminal.acked = start;
+        // The `from - parsed` bytes the daemon holds unparsed count against
+        // its window (moved past a GAP with the stream): after an adoption
+        // or a resume the holder sends at most the window past what the
+        // daemon parsed, and the ring never holds more than the window plus
+        // UNSENT_HIGH_WATER past it.
+        terminal.acked = match parsed {
+            Some(parsed) => start.saturating_sub(from.saturating_sub(parsed.min(from))),
+            None => start,
+        };
         terminal.exit_sent = false;
         if let Some(link) = self.link.as_mut() {
             for frame in frames {

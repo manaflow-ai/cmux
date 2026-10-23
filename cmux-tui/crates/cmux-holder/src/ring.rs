@@ -22,10 +22,15 @@
 //! trusts only `oldest .. end`, sees only whole writes and no byte a later
 //! write overwrote, wherever the writer died. (Layout 1 had no `oldest`: a
 //! writer killed inside a write over the oldest kept bytes left newer bytes
-//! at old offsets. A layout 1 segment is still adopted, as it was.) One
-//! process at a time writes a ring: the holder that owns the terminal (the
-//! daemon gives a segment to a new holder only after the old one's link
-//! ended).
+//! at old offsets. A layout 1 segment is still adopted, as it was.) Layout
+//! 2 is wire version 5 (`crate::wire::RING_VERSION`): a holder passes
+//! segments only on a link of that version and a daemon hands them only to
+//! such a holder, so a holder that knows only layout 1 never gets one. A
+//! layout 1 segment a holder continues for an older daemon keeps its layout
+//! 1 header (its writer still publishes `oldest`), so that daemon can hand
+//! it to a holder of its own build. One process at a time writes a ring:
+//! the holder that owns the terminal (the daemon gives a segment to a new
+//! holder only after the old one's link ended).
 
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
@@ -37,7 +42,8 @@ pub const HEADER: usize = 64;
 const MAGIC: [u8; 4] = *b"CMHR";
 /// Layout version of the header this build writes.
 const LAYOUT: u32 = 2;
-/// The layout before the published `oldest` (adopted, never written).
+/// The layout before the published `oldest`: adopted, and kept for an older
+/// daemon ([`Ring::upgrade_layout`]), never made.
 const LAYOUT_NO_OLDEST: u32 = 1;
 /// The largest ring a segment may describe (a corrupt header must not make
 /// the holder map gigabytes).
@@ -56,6 +62,9 @@ pub struct Ring {
     map_len: usize,
     capacity: usize,
     base: u64,
+    /// The header's layout: [`LAYOUT`], or [`LAYOUT_NO_OLDEST`] for an
+    /// adopted layout 1 segment not upgraded ([`Self::upgrade_layout`]).
+    layout: u32,
     /// The offset of the oldest byte kept; mirrors the header's `oldest`.
     oldest: u64,
     /// The offset after the newest byte; mirrors the header's `end`.
@@ -101,6 +110,7 @@ impl Ring {
             map_len,
             capacity,
             base,
+            layout: LAYOUT,
             oldest: base,
             end: base,
             segment: None,
@@ -110,7 +120,8 @@ impl Ring {
     }
 
     /// Continue the ring in `segment` (a dead holder's, passed back by the
-    /// daemon): its offsets and kept bytes are this ring's.
+    /// daemon): its offsets and kept bytes are this ring's. The header keeps
+    /// its layout until [`Self::upgrade_layout`].
     pub fn adopt(segment: OwnedFd) -> io::Result<Self> {
         // SAFETY: zeroed stat is a valid out-buffer for fstat.
         let mut stat: libc::stat = unsafe { std::mem::zeroed() };
@@ -154,11 +165,28 @@ impl Ring {
         let capacity = capacity as usize;
         let map_len = HEADER + capacity;
         let map = map_shared(segment.as_raw_fd(), map_len)?;
-        let mut ring = Self { map, map_len, capacity, base, oldest, end, segment: Some(segment) };
-        // This build writes layout 2 from here on (a layout 1 segment's
-        // `oldest` word reads 0 until then, which an adopter clamps up).
+        let mut ring =
+            Self { map, map_len, capacity, base, layout, oldest, end, segment: Some(segment) };
+        // This build publishes `oldest` from here on, whatever the layout
+        // says (a layout 1 segment's `oldest` word read 0 until then).
         ring.write_header();
         Ok(ring)
+    }
+
+    /// Mark the segment layout 2 from now on: its readers may trust the
+    /// published `oldest`. Only for a segment no holder older than wire
+    /// version 5 will continue (the daemon on the link speaks
+    /// `crate::wire::RING_VERSION`).
+    pub fn upgrade_layout(&mut self) {
+        if self.layout != LAYOUT {
+            self.layout = LAYOUT;
+            self.write_header();
+        }
+    }
+
+    /// The header's layout version (1 or 2).
+    pub fn layout(&self) -> u32 {
+        self.layout
     }
 
     /// The shared segment, to pass to the daemon; `None` for a private ring.
@@ -290,7 +318,7 @@ impl Ring {
         unsafe {
             let header = std::slice::from_raw_parts_mut(self.map, HEADER);
             header[..4].copy_from_slice(&MAGIC);
-            header[4..8].copy_from_slice(&LAYOUT.to_le_bytes());
+            header[4..8].copy_from_slice(&self.layout.to_le_bytes());
             header[OFF_CAPACITY..OFF_CAPACITY + 8]
                 .copy_from_slice(&(self.capacity as u64).to_le_bytes());
             header[OFF_BASE..OFF_BASE + 8].copy_from_slice(&self.base.to_le_bytes());
@@ -308,9 +336,10 @@ impl Drop for Ring {
 }
 
 /// A new shared ring segment whose next byte has offset `base`: the
-/// descriptor to pass, with the header written. The daemon makes one when it
-/// hands a terminal that had none (an older holder's) to a holder of wire
-/// version 4, so the next holder crash loses no byte either.
+/// descriptor to pass, with the header written (layout 2). The daemon makes
+/// one when it hands a terminal that had none (an older holder's) to a
+/// holder of wire version 5 (`crate::wire::RING_VERSION`), so the next
+/// holder crash loses no byte either.
 pub fn create_segment(base: u64, capacity: usize) -> io::Result<OwnedFd> {
     let segment = new_segment()?;
     // Already close-on-exec where the platform opens it so; else this
@@ -539,6 +568,54 @@ mod tests {
         drop(ring);
         let adopted = Ring::adopt(segment).unwrap();
         assert_eq!(adopted.read(0, 64), (8, b"efghijkl".to_vec()));
+    }
+
+    /// A new segment is close-on-exec from the moment `shm_open` (or
+    /// `memfd_create`) returns it, before [`create_segment`] sets the flag
+    /// again: a process another daemon thread spawns meanwhile does not
+    /// inherit a writable copy of a terminal's output. Red on a macOS major
+    /// whose `shm_open` ignores `O_CLOEXEC` (or refuses it: the `EINVAL`
+    /// fallback opens without it).
+    #[test]
+    fn a_new_segment_is_close_on_exec_when_it_is_opened() {
+        let segment = new_segment().unwrap();
+        // SAFETY: F_GETFD of a descriptor this test owns.
+        let flags = unsafe { libc::fcntl(segment.as_raw_fd(), libc::F_GETFD) };
+        assert!(flags >= 0, "F_GETFD: {}", io::Error::last_os_error());
+        assert_ne!(flags & libc::FD_CLOEXEC, 0, "the segment opened without close-on-exec");
+    }
+
+    /// A layout 1 segment continued for an older daemon keeps its layout 1
+    /// header (so a holder that knows only layout 1 can continue it again)
+    /// until the holder upgrades it for a daemon of wire version 5.
+    #[test]
+    fn an_adopted_layout_1_segment_stays_layout_1_until_upgraded() {
+        let ring = Ring::new(0, 8);
+        let segment = ring.segment().expect("a shared ring").try_clone().unwrap();
+        drop(ring);
+        let header = map_shared(segment.as_raw_fd(), HEADER).unwrap();
+        // SAFETY: the header mapping is HEADER bytes; rewrite it as layout 1.
+        unsafe {
+            std::slice::from_raw_parts_mut(header.add(4), 4)
+                .copy_from_slice(&LAYOUT_NO_OLDEST.to_le_bytes());
+            libc::munmap(header.cast(), HEADER);
+        }
+        let read_layout = |segment: &OwnedFd| {
+            let header = map_shared(segment.as_raw_fd(), HEADER).unwrap();
+            // SAFETY: the header mapping is HEADER bytes.
+            unsafe {
+                let layout = u32::from_le_bytes(
+                    std::slice::from_raw_parts(header.add(4), 4).try_into().unwrap(),
+                );
+                libc::munmap(header.cast(), HEADER);
+                layout
+            }
+        };
+        let mut adopted = Ring::adopt(segment.try_clone().unwrap()).unwrap();
+        adopted.push(b"abc");
+        assert_eq!((adopted.layout(), read_layout(&segment)), (1, 1));
+        adopted.upgrade_layout();
+        assert_eq!((adopted.layout(), read_layout(&segment)), (2, 2));
     }
 
     /// A layout 1 segment (no published `oldest`) is still adopted, its

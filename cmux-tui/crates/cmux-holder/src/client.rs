@@ -44,6 +44,27 @@ pub enum Event {
     Pong {
         nonce: u64,
     },
+    /// The holder's answer to an ADOPT (wire version 5), its segment
+    /// dropped: [`HolderClient::adopted`] returns it with the segment.
+    Adopted {
+        chan: u32,
+        oldest: u64,
+        end: u64,
+        /// The answer carried the ring's segment.
+        ring: bool,
+    },
+}
+
+/// The ring a holder writes an adopted terminal's output to
+/// ([`Kind::Adopted`], wire version 5).
+#[derive(Debug)]
+pub struct Adopted {
+    /// Offset of the oldest byte the ring keeps.
+    pub oldest: u64,
+    /// Offset after its newest byte.
+    pub end: u64,
+    /// The ring's segment (`None`: the ring is private).
+    pub ring: Option<OwnedFd>,
 }
 
 /// A terminal a holder started: its pid and the custody dups.
@@ -104,6 +125,16 @@ pub struct HolderClient {
 impl HolderClient {
     /// Connect and authenticate; returns the terminals the holder runs.
     pub fn connect(socket: &Path, token: &[u8; 32]) -> io::Result<(Self, Vec<Listed>)> {
+        Self::connect_as(socket, token, wire::VERSION)
+    }
+
+    /// [`Self::connect`], offering wire version `version` in the HELLO: an
+    /// older daemon's link (a test of what an older build gets).
+    pub fn connect_as(
+        socket: &Path,
+        token: &[u8; 32],
+        version: u16,
+    ) -> io::Result<(Self, Vec<Listed>)> {
         let stream = UnixStream::connect(socket)?;
         wire::tune_socket(stream.as_raw_fd());
         let mut client = Self {
@@ -112,7 +143,7 @@ impl HolderClient {
             pending: VecDeque::new(),
             version: wire::MIN_VERSION,
         };
-        client.send(Kind::Hello, 0, &Out::default().u16(wire::VERSION).bytes(token).0, None)?;
+        client.send(Kind::Hello, 0, &Out::default().u16(version).bytes(token).0, None)?;
         let deadline = Instant::now() + Duration::from_secs(10);
         let count = loop {
             let frame = client.frame(deadline)?;
@@ -198,7 +229,8 @@ impl HolderClient {
     /// Hand a running terminal and its ring segment to this holder (wire
     /// version 4): the holder continues the dead holder's ring, with every
     /// byte it read. `base` is where `prologue`'s screen is (the offset the
-    /// daemon parsed), `resume` where a fresh ring would start.
+    /// daemon parsed), `resume` where a fresh ring would start. A holder of
+    /// wire version 5 answers with the ring it writes ([`Self::adopted`]).
     pub fn adopt_with_ring(
         &mut self,
         chan: u32,
@@ -220,6 +252,38 @@ impl HolderClient {
 
     pub fn attach(&mut self, chan: u32, from: u64) -> io::Result<()> {
         self.send(Kind::Attach, chan, &Out::default().u64(from).0, None)
+    }
+
+    /// [`Self::attach`] for a daemon that received up to `from` but parsed
+    /// only up to `parsed` (wire version 5): the credit counts from `parsed`.
+    pub fn attach_parsed(&mut self, chan: u32, from: u64, parsed: u64) -> io::Result<()> {
+        self.send(Kind::Attach, chan, &Out::default().u64(from).u64(parsed).0, None)
+    }
+
+    /// The holder's answer to an ADOPT of `chan` (wire version 5): the ring
+    /// it writes the terminal's output to. Other events wait for
+    /// [`Self::next_event`].
+    pub fn adopted(&mut self, chan: u32) -> io::Result<Adopted> {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let frame = self.frame(deadline)?;
+            match Kind::from_u16(frame.kind) {
+                Some(Kind::Adopted) if frame.chan == chan => {
+                    let mut input = In(&frame.payload);
+                    let (oldest, end) = (input.u64()?, input.u64()?);
+                    return Ok(Adopted { oldest, end, ring: frame.fds.into_iter().next() });
+                }
+                Some(Kind::Error) if frame.chan == chan => {
+                    return Err(io::Error::other(error_message(&frame.payload)));
+                }
+                _ => self.keep(frame)?,
+            }
+        }
+    }
+
+    /// Ask the holder for a [`Event::Pong`] with `nonce`.
+    pub fn ping(&mut self, nonce: u64) -> io::Result<()> {
+        self.send(Kind::Ping, 0, &Out::default().u64(nonce).0, None)
     }
 
     /// [`Self::attach`] as a restarted daemon does: the prologue first.
@@ -293,6 +357,12 @@ impl HolderClient {
                 message: String::from_utf8_lossy(input.rest()).into_owned(),
             },
             Some(Kind::Pong) => Event::Pong { nonce: input.u64()? },
+            Some(Kind::Adopted) => Event::Adopted {
+                chan,
+                oldest: input.u64()?,
+                end: input.u64()?,
+                ring: !frame.fds.is_empty(),
+            },
             _ => return Ok(()),
         };
         self.pending.push_back(event);

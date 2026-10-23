@@ -25,10 +25,12 @@ pub(crate) struct HolderTerminal {
     /// The daemon's dup of the PTY master: input, resize, and the copy that
     /// keeps the shell alive if the holder dies.
     pub(crate) custody: OwnedFd,
-    /// The daemon's dup of the terminal's ring segment (wire version 4):
-    /// the copy that keeps the output a dying holder read but never sent,
-    /// handed to the next holder. `None` while the terminal runs on an
-    /// older holder.
+    /// The daemon's dup of the terminal's ring segment: the copy that keeps
+    /// the output a dying holder read but never sent, handed to the next
+    /// holder. Always the segment the current holder writes (its SPAWNED,
+    /// LISTED or ADOPTED said so); `None` while the terminal runs on a
+    /// holder that passes none, or whose segment this daemon cannot know (a
+    /// version 4 holder that adopted it), and once the terminal ended.
     pub(super) ring: std::sync::Mutex<Option<OwnedFd>>,
     pub(crate) sink: Arc<HolderSink>,
     pub(super) service: Arc<HolderService>,
@@ -127,16 +129,18 @@ impl HolderTerminal {
     ///   yet, at the newest byte received; with `rings` a fresh segment
     ///   starts there, so the next crash loses nothing either.
     ///
-    /// `max_bytes` bounds the prologue (one ADOPT frame).
+    /// `max_bytes` bounds the prologue (one ADOPT frame). The custody
+    /// segment does not change here: the new holder's answer says which
+    /// segment it writes ([`Self::keep_ring`]).
     pub(super) fn adoption(&self, rings: bool, max_bytes: usize) -> Adoption {
         // No new output arrives meanwhile (the old link ended), so what is
         // pending now bounds what is pending at the replay's instant.
         let estimate = self.sink.pending();
         // A kept segment that ends before the newest byte received is stale
-        // (a holder that could not continue it started a fresh ring this
-        // daemon never heard of): continuing it would number new output
-        // below what was received, and the sink would drop it. Such a
-        // terminal gets a fresh segment at the newest byte instead.
+        // (with the ADOPTED answer only a segment no holder wrote since, say
+        // after an ADOPT that failed on its way): continuing it would number
+        // new output below what was received, and the sink would drop it.
+        // Such a terminal gets a fresh segment at the newest byte instead.
         let kept = self
             .ring
             .lock()
@@ -165,10 +169,26 @@ impl HolderTerminal {
         let ring = rings
             .then(|| cmux_holder::ring::create_segment(received, cmux_holder::holder::RING_BYTES))
             .and_then(Result::ok);
-        if let Some(segment) = ring.as_ref().and_then(|segment| segment.try_clone().ok()) {
-            *self.ring.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(segment);
-        }
         Adoption { base: received, resume: received, prologue: replay, ring }
+    }
+
+    /// Keep `segment` as the custody copy of the terminal's ring: the one
+    /// the new holder said it writes after an adoption (`None`: none this
+    /// daemon may hand on). A terminal that ended keeps none.
+    pub(super) fn keep_ring(&self, segment: Option<OwnedFd>) {
+        let mut ring = self.ring.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Under the ring's lock: an end that takes the segment after this
+        // takes this one, and one before it is seen here.
+        *ring = segment.filter(|_| !self.sink.has_ended());
+    }
+
+    /// The terminal ended: no holder takes it over again, so the custody
+    /// dup of its ring segment (up to a MiB of output no process maps)
+    /// goes, and the holder may forget it.
+    fn end(&self) {
+        let _ = self.service.close(self.chan, 0);
+        self.service.untrack(self.chan);
+        self.ring.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
     }
 
     pub(crate) fn is_detached(&self) -> bool {
@@ -240,12 +260,7 @@ pub(crate) fn holder_local_launch(
         wait: Box::new(move || {
             let end = waited.sink.wait_end();
             if end != SinkEnd::Detached {
-                // Ended: the holder may forget it, and no holder takes it
-                // over again, so the custody dup of its ring segment (up to
-                // a MiB of output no process maps) goes too.
-                let _ = waited.service.close(waited.chan, 0);
-                waited.service.untrack(waited.chan);
-                waited.ring.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+                waited.end();
             }
             terminal_end(end)
         }),
@@ -397,6 +412,42 @@ mod tests {
         assert!(continues_at(&segment, 100), "a segment at the received offset continues");
         assert!(continues_at(&segment, 40), "a segment past the received offset continues");
         assert!(!continues_at(&segment, 101), "a segment behind the received offset is stale");
+    }
+
+    /// An ended terminal drops the custody dup of its ring segment (no
+    /// holder takes it over again; up to a MiB of output would stay mapped
+    /// by nobody for the surface's life), and an adoption's late answer does
+    /// not bring one back.
+    #[test]
+    fn an_ended_terminal_drops_its_ring_segment_for_good() {
+        use cmux_holder::link::TerminalSink;
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.subsec_nanos());
+        let root = std::env::temp_dir()
+            .join(format!("cmux-holder-ring-drop-{}-{stamp}", std::process::id()));
+        let service = HolderService::for_root(&root).unwrap();
+        let (master, _slave) = nonblocking_pty();
+        let sink = HolderSink::new(0);
+        let segment = || cmux_holder::ring::create_segment(0, 4096).unwrap();
+        let terminal = Arc::new(HolderTerminal {
+            chan: 1,
+            id: [1; 16],
+            pid: 0,
+            custody: master,
+            ring: std::sync::Mutex::new(Some(segment())),
+            sink: sink.clone(),
+            service,
+            replay: std::sync::Mutex::new(None),
+        });
+        let launch = holder_local_launch(&terminal, Vec::new(), None).unwrap();
+        sink.exit(ExitStatus::Exited(0), 0);
+        let wait = launch.wait;
+        let _ = wait();
+        assert!(terminal.ring.lock().unwrap().is_none(), "the ended terminal kept its segment");
+        terminal.keep_ring(Some(segment()));
+        assert!(terminal.ring.lock().unwrap().is_none(), "an ended terminal took a segment back");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
