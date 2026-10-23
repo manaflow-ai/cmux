@@ -68,6 +68,8 @@ extension BrowserHibernation {
             page.close()
             return
         }
+        // The new page starts unmuted: a tab muted when it slept wakes muted.
+        if asleep.state.isAudioMuted, let muting = page as? BrowserAudioMuting { muting.setAudioMuted(true) }
         cache.swapPage(key, with: page, asleep: asleep.state)
         cache.dormantTabs.set(key, false)
         // The live page now; a later sleep takes a new picture.
