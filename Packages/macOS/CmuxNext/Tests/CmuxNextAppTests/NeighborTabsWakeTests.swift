@@ -119,6 +119,24 @@ import Testing
         #expect(rig.hibernation.awakeNeighbors.count == 2)
     }
 
+    /// Switches hide pages and move the pane's shown tab: no replan (a read of every hidden page)
+    /// runs on the switches' turn, and one runs after it (PL-switch: a workspace switch that hid N
+    /// pages and moved N panes replanned 2N times before its frame).
+    @Test func switchesReplanOnceAfterTheirTurn() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let keys = try await rig.pages(["a", "b", "c", "d", "e"])
+        rig.show(keys[1], order: keys)
+        try await rig.until("the first show's replan ran") { !rig.hibernation.replanQueued }
+        let before = rig.hibernation.replanCount
+        rig.show(keys[3], order: keys)
+        rig.show(keys[0], order: keys)
+        rig.show(keys[2], order: keys)
+        #expect(rig.hibernation.replanCount == before, "a switch replanned on its own turn")
+        #expect(rig.hibernation.awakeNeighbors == [keys[1], keys[3]], "the neighbors moved at once")
+        try await rig.until("the queued replan runs") { rig.hibernation.replanCount > before }
+    }
+
     @Test func zeroTurnsItOff() async throws {
         let rig = try Rig()
         defer { rig.close() }
