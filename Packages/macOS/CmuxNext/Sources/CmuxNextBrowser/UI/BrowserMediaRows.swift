@@ -12,12 +12,13 @@ public final class BrowserMediaRows {
         public var subtitle: String
         public var media: BrowserMediaState
         public var artwork: NSImage?
-        /// The card offers Picture in Picture for a video (`media.pictureInPicture.enabled`).
-        public var pictureInPicture: Bool
+        /// The card offers Picture in Picture for a video (`media.pictureInPicture.enabled`), read
+        /// when the card draws and when its button is pressed.
+        public var pictureInPicture: () -> Bool
         public var onCommand: (BrowserMediaCommand) -> Void
         public var onReveal: () -> Void
 
-        public init(key: String, title: String, subtitle: String, media: BrowserMediaState, artwork: NSImage?, pictureInPicture: Bool = true,
+        public init(key: String, title: String, subtitle: String, media: BrowserMediaState, artwork: NSImage?, pictureInPicture: @escaping () -> Bool = { true },
                     onCommand: @escaping (BrowserMediaCommand) -> Void, onReveal: @escaping () -> Void) {
             self.key = key
             self.title = title

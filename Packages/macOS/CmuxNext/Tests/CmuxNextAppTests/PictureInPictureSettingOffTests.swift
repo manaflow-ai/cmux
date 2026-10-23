@@ -46,15 +46,16 @@ struct PictureInPictureSettingOffTests {
             let menu = SidebarContextMenus.menu(for: .nowPlaying, model: SidebarModel(), services: services, scope: ThemeScope(level: .room))
             return all(menu?.items ?? []).first { ActionRegistry.menuRun(of: $0)?.id == id }
         }
-        /// The media hub's Picture in Picture button on the tab's card, when it shows.
-        func hubButtonShows() -> Bool {
-            let menu = BrowserMediaMenu.menu(services, rows: BrowserMediaRows())
+        /// The media hub's Picture in Picture buttons in `menu` (a new menu by default).
+        func hubButtons(_ menu: NSMenu? = nil) -> [NSButton] {
+            let menu = menu ?? BrowserMediaMenu.menu(services, rows: BrowserMediaRows())
             func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
-            let buttons = menu.items.compactMap(\.view).flatMap(views).filter {
+            return menu.items.compactMap(\.view).flatMap(views).compactMap { $0 as? NSButton }.filter {
                 $0.accessibilityLabel() == BrowserMediaStrings.pictureInPicture || $0.accessibilityLabel() == BrowserMediaStrings.exitPictureInPicture
             }
-            return buttons.contains { !$0.isHidden }
         }
+        /// The media hub's Picture in Picture button on the tab's card, when it shows.
+        func hubButtonShows() -> Bool { hubButtons().contains { !$0.isHidden } }
         func describe() -> String {
             "tab row \(tabRow() != nil), card row \(cardRow() != nil), available \(services.registry.isAvailable(id)), "
                 + "card button \(cardSource.nowPlaying?.canPictureInPicture == true), hub button \(hubButtonShows())"
@@ -66,6 +67,9 @@ struct PictureInPictureSettingOffTests {
         #expect(services.registry.action(for: id)?.isEnabled() == true, "\(describe())")
         #expect(cardSource.nowPlaying?.canPictureInPicture == true, "\(describe())")
         #expect(hubButtonShows(), "\(describe())")
+        // A hub left open while the setting turns off (its card was built with it on).
+        let openHub = BrowserMediaMenu.menu(services, rows: BrowserMediaRows())
+        let staleButton = try #require(hubButtons(openHub).first { !$0.isHidden })
 
         try await settings.set(.bool(false), at: NowPlayingSettings.pictureInPicturePath)
         try await PasswordManagerRouteTests.until({ services.settings?.snapshot.nowPlaying.pictureInPicture == false })
@@ -79,6 +83,9 @@ struct PictureInPictureSettingOffTests {
         #expect(cardSource.nowPlaying?.canPictureInPicture == false, "the card still shows its button: \(describe())")
         cardSource.perform(.pictureInPicture)
         #expect(!hubButtonShows(), "the media hub still shows its button: \(describe())")
+        staleButton.performClick(nil)
+        #expect(staleButton.isHidden, "the open hub's button still shows after a press with the setting off")
+        #expect(staleButton.accessibilityLabel() == BrowserMediaStrings.pictureInPicture, "the open hub's button flipped to Exit")
         try await Task.sleep(for: .milliseconds(200))
         #expect(!tab.commands.contains(.evaluate(BrowserMediaCommand.pictureInPictureScript)), "the page's video floated with the setting off")
 
