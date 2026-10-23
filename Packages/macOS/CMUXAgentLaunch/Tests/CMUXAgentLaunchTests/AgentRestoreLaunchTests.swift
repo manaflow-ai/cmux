@@ -233,6 +233,41 @@ import Testing
         ) == .ambiguous)
     }
 
+    @Test func capturedCodexConfigIsReadThroughASymlinkButNotFromOtherFileKinds() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-config-kinds-\(UUID().uuidString)")
+        let real = root.appendingPathComponent("real")
+        let linked = root.appendingPathComponent("linked")
+        let directory = root.appendingPathComponent("directory")
+        let oversize = root.appendingPathComponent("oversize")
+        for folder in [real, linked, directory, oversize] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+        let config = "# routed by Subrouter\nmodel_provider = \"subrouter\" # pinned\n"
+        try config.write(to: real.appendingPathComponent("config.toml"), atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(
+            at: linked.appendingPathComponent("config.toml"),
+            withDestinationURL: real.appendingPathComponent("config.toml")
+        )
+        try FileManager.default.createDirectory(
+            at: directory.appendingPathComponent("config.toml"), withIntermediateDirectories: true
+        )
+        try (config + String(repeating: "#", count: 70 * 1024)).write(
+            to: oversize.appendingPathComponent("config.toml"), atomically: true, encoding: .utf8
+        )
+        let routing = SubrouterCodexResumeRouting()
+        func evidence(_ home: URL) -> SubrouterCodexProviderEvidence {
+            routing.providerEvidenceWithCapturedConfig(
+                in: ["codex"], launcher: "codex", environment: ["CODEX_HOME": home.path]
+            )
+        }
+        #expect(evidence(real) == .provider("subrouter"))
+        #expect(evidence(linked) == .provider("subrouter"))
+        #expect(evidence(directory) == .absent)
+        #expect(evidence(oversize) == .absent)
+    }
+
     @Test func malformedOrConflictingCodexConfigDoesNotRoute() {
         let routing = SubrouterCodexResumeRouting()
         #expect(
