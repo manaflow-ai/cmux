@@ -72,6 +72,8 @@ export function DotSwitch<Option extends string>({
   const group = useRef<HTMLDivElement>(null);
   const mark = useRef<HTMLSpanElement>(null);
   const label = useRef<HTMLSpanElement>(null);
+  // A pointer pressed a dot and no key has gone down since: the next pick is the pointer's.
+  const pressed = useRef(false);
   // The mark slides only after its first placement, so the page never opens with a slide.
   const [settled, setSettled] = useState(false);
   // The dot whose name shows: the one pointed at, else the one just picked.
@@ -121,7 +123,13 @@ export function DotSwitch<Option extends string>({
         </span>
         <span ref={mark} className="nt-style-mark" aria-hidden="true" />
         {options.map((style) => (
-          <label key={style} className="nt-style-option" data-style={style} onPointerOver={() => setHovered(style)}>
+          <label
+            key={style}
+            className="nt-style-option"
+            data-style={style}
+            onPointerOver={() => setHovered(style)}
+            onPointerDown={() => (pressed.current = true)}
+          >
             <input
               className="nt-style-input"
               type="radio"
@@ -129,12 +137,16 @@ export function DotSwitch<Option extends string>({
               value={style}
               aria-label={name(style)}
               checked={style === current}
+              onKeyDown={() => (pressed.current = false)}
               onChange={(event) => {
-                // From the event, never a clock: a pointer's click counts its presses (detail 1 or
-                // more); the arrow keys' pick is a click of detail 0, or a plain change event.
-                // (By type, not instanceof: the dots may sit in another window than this code's.)
+                // From the events, never a clock: a pointer's pick follows its press on a dot (a key
+                // since clears it) or is a click that counts its presses (detail 1 or more); the
+                // arrow keys' pick is a click of detail 0, or a plain change event. (By type, not
+                // instanceof: the dots may sit in another window than this code's.)
                 const native = event.nativeEvent;
-                const fromKeys = native.type !== "click" || (native as MouseEvent).detail === 0;
+                const clicked = native.type === "click" && (native as MouseEvent).detail > 0;
+                const fromKeys = !pressed.current && !clicked;
+                pressed.current = false;
                 const input = event.currentTarget;
                 onPick(style);
                 setPicked(style);
