@@ -376,8 +376,9 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// this boundary because the page's `image.load` request is untrusted.
     private static func remoteImagePath(_ text: String) -> String? {
         guard AgentPaneReplyPaths.isImagePath(text) else { return nil }
-        if text.lowercased().hasPrefix("file://"), let url = URL(string: text), url.isFileURL,
-           let host = url.host(percentEncoded: false), host.isEmpty || host == "localhost" {
+        if text.lowercased().hasPrefix("file://"), let url = URL(string: text), url.isFileURL {
+            let host = url.host(percentEncoded: false) ?? ""
+            guard host.isEmpty || host == "localhost" else { return nil }
             return url.path(percentEncoded: false)
         }
         return text.split(maxSplits: 1, whereSeparator: { $0 == "?" || $0 == "#" }).first.map(String.init)

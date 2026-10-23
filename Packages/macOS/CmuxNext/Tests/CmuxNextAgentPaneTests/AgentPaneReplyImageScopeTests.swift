@@ -30,6 +30,8 @@ struct AgentPaneReplyImageScopeTests {
         #expect(paths.resolve(tmp.appendingPathComponent("sidebar.png").path)?.place == .outside)
         #expect(paths.resolveImage(tmp.appendingPathComponent("sidebar.png").path)?.place == .root)
         #expect(paths.resolveImage(home.appendingPathComponent("sidebar.png").path)?.place == .root)
+        #expect(AgentPaneReplyPaths.isImagePath("file://(tmp.appendingPathComponent("sidebar.png").path)"))
+        #expect(!AgentPaneReplyPaths.isImagePath("file://other-host/tmp/sidebar.png"))
         #expect(paths.resolveImage("/var/tmp/sidebar.png")?.place == .outside)
         #expect(paths.resolveImage(tmp.appendingPathComponent("sidebar.dat").path) == nil)
         #expect(paths.resolveImage(tmp.appendingPathComponent("sidebar.png#preview").path)?.place == .root)

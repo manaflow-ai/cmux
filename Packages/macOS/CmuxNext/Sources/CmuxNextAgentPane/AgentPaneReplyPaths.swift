@@ -56,8 +56,9 @@ nonisolated struct AgentPaneReplyPaths {
     /// URLs are rejected before a caller can treat their path as a local file.
     static func imagePath(_ text: String) -> String? {
         if text.lowercased().hasPrefix("file://") {
-            guard let url = URL(string: text), url.isFileURL,
-                  let host = url.host(percentEncoded: false), host.isEmpty || host == "localhost" else { return nil }
+            guard let url = URL(string: text), url.isFileURL else { return nil }
+            let host = url.host(percentEncoded: false) ?? ""
+            guard host.isEmpty || host == "localhost" else { return nil }
             return url.path(percentEncoded: false)
         }
         return text.split(maxSplits: 1, whereSeparator: { $0 == "?" || $0 == "#" }).first.map(String.init)
