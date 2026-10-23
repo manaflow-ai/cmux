@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextSettings
 
@@ -11,21 +12,17 @@ import CmuxNextSettings
 @MainActor
 enum DebugHints {
     private static var tracked: NSMenu?
-    private static var observers: [NSObjectProtocol] = []
+    private static var observers: [MainActorObservation] = []
 
     /// Starts following menu tracking (once, when the method registers).
     static func watchMenus() {
         guard observers.isEmpty else { return }
-        let center = NotificationCenter.default
         observers = [
-            center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { note in
-                // crash-allow: delivered on main (queue: .main) and only read there, so the menu never crosses actors.
-                nonisolated(unsafe) let menu = note.object as? NSMenu
-                MainActor.assumeIsolated { tracked = menu } // main-proof: observer on queue: .main
+            MainActorObservation(NSMenu.didBeginTrackingNotification, read: { TrackedMenu(menu: $0.object as? NSMenu) }) { note in
+                tracked = note.menu
             },
-            center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main) { note in
-                let menu = (note.object as AnyObject?).map(ObjectIdentifier.init)
-                MainActor.assumeIsolated { if tracked.map(ObjectIdentifier.init) == menu { tracked = nil } } // main-proof: observer on queue: .main
+            MainActorObservation(NSMenu.didEndTrackingNotification, read: { ($0.object as AnyObject?).map(ObjectIdentifier.init) }) { menu in
+                if tracked.map(ObjectIdentifier.init) == menu { tracked = nil }
             },
         ]
     }
@@ -55,5 +52,12 @@ enum DebugHints {
             }),
         ]
     }
+}
+
+/// The menu a begin-tracking notification names, carried from the notification to the main-actor
+/// handler of the same delivery.
+// crash-allow: built and read on main within one queue: .main delivery (MainActorObservation), so the menu never crosses actors.
+private nonisolated struct TrackedMenu: @unchecked Sendable {
+    let menu: NSMenu?
 }
 #endif
