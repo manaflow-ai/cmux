@@ -91,7 +91,12 @@ nonisolated extension ColumnScrollState {
     /// Returns the camera shift it applied to the value and the target (step 1).
     @discardableResult
     private mutating func sync(_ new: ColumnStrip, focused: PaneID?, source: ColumnFocusSource, reveals: Bool, anchor anchorOverride: ColumnID?) -> CGFloat {
-        let old = strip
+        // A column that only changed its id (an optimistic New Column's, or a split-tree screen's
+        // lone column, handed over to the daemon's) is the same column: the camera, the restore
+        // point and the remembered focus follow it under its new id.
+        let renames = strip.map { ColumnStrip.renames(from: $0, to: new) } ?? [:]
+        if !renames.isEmpty { rename(renames) }
+        let old = strip.map { renames.isEmpty ? $0 : $0.renamingColumns(renames) }
         let oldPane = focusedPane
         let oldColumn = focusedColumn
         strip = new
@@ -189,6 +194,19 @@ nonisolated extension ColumnScrollState {
         spring.target = ColumnViewOffset.target(column: index, pane: focused, current: spring.target,
                                                 mode: effectiveMode, previous: previous, strip: new)
         return delta
+    }
+
+    /// Moves what follows a column (focus, the restore point, the remembered panes) to its new id.
+    private mutating func rename(_ renames: [ColumnID: ColumnID]) {
+        if let column = focusedColumn, let renamed = renames[column] { focusedColumn = renamed }
+        if var point = restore {
+            if let renamed = renames[point.column] { point.column = renamed }
+            if let renamed = renames[point.opened] { point.opened = renamed }
+            restore = point
+        }
+        var moved: [ColumnID: PaneID] = [:]
+        for (column, pane) in remembered { moved[renames[column] ?? column] = pane }
+        remembered = moved
     }
 
     private mutating func moveFocusAfterScroll(to target: CGFloat, snaps: [ColumnViewOffset.Snap], forward: Bool, into effects: inout ColumnScrollEffects) {

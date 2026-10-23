@@ -90,6 +90,31 @@ public nonisolated struct ColumnStrip: Hashable, Sendable {
         return isFullyVisible(frame, at: offset)
     }
 
+    /// The columns of `old` that show in `new` under another id: a column `new` lacks whose exact
+    /// panes, in order, a column `old` lacked holds (the daemon's column replacing an optimistic
+    /// one under the same public pane ids). Old id to new id; empty when no column changed id.
+    public static func renames(from old: ColumnStrip, to new: ColumnStrip) -> [ColumnID: ColumnID] {
+        let oldIDs = Set(old.columns.map(\.id)), newIDs = Set(new.columns.map(\.id))
+        let removed = old.columns.filter { !newIDs.contains($0.id) && !$0.panes.isEmpty }
+        guard !removed.isEmpty else { return [:] }
+        var added = new.columns.filter { !oldIDs.contains($0.id) && !$0.panes.isEmpty }
+        var renames: [ColumnID: ColumnID] = [:]
+        for column in removed {
+            guard let match = added.firstIndex(where: { $0.panes == column.panes }) else { continue }
+            renames[column.id] = added.remove(at: match).id
+        }
+        return renames
+    }
+
+    /// This strip with its columns' ids changed by `renames` (``renames(from:to:)``).
+    public func renamingColumns(_ renames: [ColumnID: ColumnID]) -> ColumnStrip {
+        var strip = self
+        for index in strip.columns.indices {
+            if let renamed = renames[strip.columns[index].id] { strip.columns[index].id = renamed }
+        }
+        return strip
+    }
+
     /// Relative order of the columns present in both strips is unchanged
     /// (only insertions, removals and width changes happened).
     public func keepsOrder(of other: ColumnStrip) -> Bool {
