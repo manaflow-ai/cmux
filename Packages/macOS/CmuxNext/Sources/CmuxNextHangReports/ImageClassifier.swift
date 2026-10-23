@@ -1,4 +1,5 @@
 public import Foundation
+import MachO
 
 /// Decides what a report may say about the image of a frame (hang-reports-DESIGN.md section 3).
 ///
@@ -135,13 +136,20 @@ public nonisolated struct ImageClassifier: Sendable {
                     options: .regularExpression) != nil
     }
 
-    /// Whether `/System/Library/{Frameworks,PrivateFrameworks}/<name>.framework` or
-    /// `/usr/lib/<name>` exists (a bare name with no slash; anything else is false).
+    /// Whether `/System/Library/{Frameworks,PrivateFrameworks}/<name>.framework` exists on disk,
+    /// or `/usr/lib/<name>` or `/usr/lib/system/<name>` is in the dyld shared cache or on disk (a
+    /// bare name with no slash; anything else is false). Since macOS 11 the system dylibs exist
+    /// only in the shared cache, so a disk check alone would make `libdispatch.dylib`,
+    /// `libsystem_kernel.dylib` and `libobjc.A.dylib` frames `other` once their UUID is no
+    /// longer loaded (after an update).
     public static func systemImageOnDisk(_ name: String) -> Bool {
         guard !name.isEmpty, !name.contains("/"), !name.hasPrefix(".") else { return false }
         let manager = FileManager.default
-        return ["/System/Library/Frameworks/\(name).framework", "/System/Library/PrivateFrameworks/\(name).framework",
-                "/usr/lib/\(name)", "/usr/lib/system/\(name)"].contains { manager.fileExists(atPath: $0) }
+        if ["/System/Library/Frameworks/\(name).framework", "/System/Library/PrivateFrameworks/\(name).framework"]
+            .contains(where: { manager.fileExists(atPath: $0) }) { return true }
+        return ["/usr/lib/\(name)", "/usr/lib/system/\(name)"].contains {
+            _dyld_shared_cache_contains_path($0) || manager.fileExists(atPath: $0)
+        }
     }
 
     /// The user's short name, the words of their full name and the host name's labels: words a
