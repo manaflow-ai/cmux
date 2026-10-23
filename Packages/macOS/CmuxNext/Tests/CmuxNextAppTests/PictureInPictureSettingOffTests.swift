@@ -86,6 +86,7 @@ struct PictureInPictureSettingOffTests {
         staleButton.performClick(nil)
         #expect(staleButton.isHidden, "the open hub's button still shows after a press with the setting off")
         #expect(staleButton.accessibilityLabel() == BrowserMediaStrings.pictureInPicture, "the open hub's button flipped to Exit")
+        withExtendedLifetime(openHub) {}
         try await Task.sleep(for: .milliseconds(200))
         #expect(!tab.commands.contains(.evaluate(BrowserMediaCommand.pictureInPictureScript)), "the page's video floated with the setting off")
 
@@ -109,7 +110,9 @@ struct PictureInPictureSettingOffTests {
         try await Task.sleep(for: .milliseconds(200))
         #expect(floats() == before + 1, "the card's run never reached the page with the setting on")
         before = floats()
-        let hubButton = try #require(hubButtons(BrowserMediaMenu.menu(services, rows: BrowserMediaRows())).first { !$0.isHidden })
+        // The hub stays open (its menu holds the card) while the setting turns off.
+        let hub = BrowserMediaMenu.menu(services, rows: BrowserMediaRows())
+        let hubButton = try #require(hubButtons(hub).first { !$0.isHidden })
         #expect(services.registry.perform(id, invocation: cardRun))
         hubButton.performClick(nil)
         #expect(hubButton.accessibilityLabel() == BrowserMediaStrings.exitPictureInPicture, "the hub's press shows Exit at once")
@@ -118,6 +121,7 @@ struct PictureInPictureSettingOffTests {
         #expect(floats() == before, "a run or press queued before the setting turned off still floated the video")
         #expect(hubButton.isHidden && hubButton.accessibilityLabel() == BrowserMediaStrings.pictureInPicture,
                 "the hub's refused press still shows Exit")
+        withExtendedLifetime(hub) {}
         services.settings = settings
     }
 }
