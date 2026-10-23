@@ -31,7 +31,10 @@ enum NotificationTarget: Equatable {
                        expired: Bool) -> NotificationTarget {
         if route.kind == "chief" { return .chief }
         // A terminal notification opens its terminal, never a chat bound elsewhere.
-        if route.kind != "terminal", let destination = chat(route) { return .chat(destination) }
+        // A terminal agent's event (no acpmux session, its terminal's tab) opens its terminal too.
+        let terminalTab = route.sessionID == nil && route.workspaceID.flatMap(workspace)?.tabs
+            .contains { $0.id == route.tabID && $0.kind == .terminal } == true
+        if route.kind != "terminal", !terminalTab, let destination = chat(route) { return .chat(destination) }
         if let id = route.workspaceID, let ws = workspace(id), route.mac == nil || ws.macID == route.mac {
             let tab = route.tabID.flatMap { tab in ws.tabs.contains(where: { $0.id == tab }) ? tab : nil }
             if tab != nil || route.kind == "terminal" || route.tabID == nil { return .workspace(id: ws.id, tabID: tab) }

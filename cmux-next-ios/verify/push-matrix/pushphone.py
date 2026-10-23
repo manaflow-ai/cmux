@@ -19,6 +19,7 @@ APNs bodies the real Mac host produced (apns-from-capture.ts), screenshots and v
     python3 pushphone.py pid | udid | log SECONDS [PREDICATE] | shutdown
 """
 import json
+import shlex
 import os
 import signal
 import subprocess
@@ -38,6 +39,11 @@ BUNDLE = "dev.cmux.mobile"
 APP = os.path.join(ROOT, "dd/Build/Products/Demo-iphonesimulator/CmuxMobileApp.app")
 OUT = os.environ.get("PUSHRIG_OUT", os.path.join(ROOT, "evidence"))
 STATE = os.path.join(ROOT, "phone.json")
+
+
+# Extra app launch arguments, e.g. `-cmuxMobile.live.mac.<team> <mac device id>` to pin this
+# rig's Mac when another rig signed in to the same account is online too.
+LAUNCH_ARGS = shlex.split(os.environ.get("PUSHPHONE_LAUNCH_ARGS", ""))
 
 
 def sh(*a, check=True, timeout=120):
@@ -84,7 +90,7 @@ def main():
             j.s_sign_in()
             j.s_choose_space()
         else:
-            sim.launch(BUNDLE)
+            sim.launch(BUNDLE, args=LAUNCH_ARGS)
         sim.shot("setup")
         print(json.dumps({"udid": u}))
         return
@@ -95,7 +101,7 @@ def main():
     elif cmd == "push":
         print(sh("xcrun", "simctl", "push", u, BUNDLE, args[0]).strip())
     elif cmd == "launch":
-        sim.launch(BUNDLE, terminate=False)
+        sim.launch(BUNDLE, args=LAUNCH_ARGS, terminate=False)
     elif cmd == "terminate":
         sh("xcrun", "simctl", "terminate", u, BUNDLE, check=False)
     elif cmd == "background":
