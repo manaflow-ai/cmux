@@ -33,7 +33,10 @@ import QuartzCore
     /// The model frames change at once through the animator in a zero-length group, which also stops a
     /// move AppKit still runs on a view (a plain set does not, and AppKit would write over it). Nothing
     /// is left to run on the main thread per frame; the springs end on their own (`settlingTime`).
-    static func move<View: NSView>(_ moves: [(View, NSRect)], in host: NSView) {
+    /// `token`: the spring (`.move`, or a new row's `SidebarInsertMotion.token`). `travel`: when set, each view's edges
+    /// start at most that many points from where they end (`SidebarInsertMotion.cap`), so a new row at the top moves the
+    /// rows below it by the nudge, not a row height; 0 moves nothing (the frames land at once).
+    static func move<View: NSView>(_ moves: [(View, NSRect)], in host: NSView, _ token: MotionSpring = .move, travel: CGFloat? = nil) {
         // Out of a window nothing draws a spring (and none would end), and with movement off nothing moves: the
         // frames land at once, and a spring an earlier move left on any of these views ends with them (it would
         // keep carrying its offset over the frame, and keep the next snap from showing).
@@ -49,8 +52,9 @@ import QuartzCore
         Motion.withoutAnimation { for (view, frame) in moving { view.animator().frame = frame } }
         let now = CACurrentMediaTime()
         for ((view, _), start) in zip(moving, starts) {
-            guard let layer = view.layer, let start else { continue }
-            addDelta(to: layer, position: start.0, size: start.1, now: now, key: batchKey)
+            guard let layer = view.layer, var start else { continue }
+            if let travel { start = capped(start, of: layer, travel: travel) }
+            addDelta(to: layer, position: start.0, size: start.1, now: now, key: batchKey, token)
         }
     }
 
@@ -98,9 +102,21 @@ import QuartzCore
         return (shown.position, shown.bounds.size)
     }
 
-    /// `now`: the media time the spring starts at (one for a batch, `move(_:in:)`); `key`: the springs' key prefix.
+    /// The start `start` (a layer's position and size) with each edge within `travel` points of the layer's model
+    /// geometry, its destination (`SidebarInsertMotion.cap`).
+    private static func capped(_ start: (CGPoint, CGSize), of layer: CALayer, travel: CGFloat) -> (CGPoint, CGSize) {
+        let anchor = layer.anchorPoint
+        func rect(_ position: CGPoint, _ size: CGSize) -> CGRect {
+            CGRect(x: position.x - anchor.x * size.width, y: position.y - anchor.y * size.height, width: size.width, height: size.height)
+        }
+        let near = SidebarInsertMotion.cap(rect(start.0, start.1), toward: rect(layer.position, layer.bounds.size), travel: travel)
+        return (CGPoint(x: near.minX + anchor.x * near.width, y: near.minY + anchor.y * near.height), near.size)
+    }
+
+    /// `now`: the media time the spring starts at (one for a batch, `move(_:in:)`); `key`: the springs' key prefix;
+    /// `token`: their spring.
     private static func addDelta(to layer: CALayer, position: CGPoint, size: CGSize, now: CFTimeInterval = CACurrentMediaTime(),
-                                 key: String = "drag") {
+                                 key: String = "drag", _ token: MotionSpring = .move) {
         serial &+= 1
         // The spring starts now, when it is added, not at the start of this run-loop turn: after a long main-thread
         // update in the same turn (a drag's first move builds its hit geometry, ~30 ms at 1,000 rows) the first frame
@@ -109,13 +125,13 @@ import QuartzCore
         let dp = CGPoint(x: position.x - layer.position.x, y: position.y - layer.position.y)
         let ds = CGSize(width: size.width - layer.bounds.width, height: size.height - layer.bounds.height)
         if dp != .zero {
-            let animation = Motion.sidebar.springAnimation(.move, "position", from: NSValue(point: dp), to: NSValue(point: .zero))
+            let animation = Motion.sidebar.springAnimation(token, "position", from: NSValue(point: dp), to: NSValue(point: .zero))
             animation.isAdditive = true
             animation.beginTime = begin
             layer.add(animation, forKey: "\(key).position.\(serial)")
         }
         if ds != .zero {
-            let animation = Motion.sidebar.springAnimation(.move, "bounds.size", from: NSValue(size: ds), to: NSValue(size: .zero))
+            let animation = Motion.sidebar.springAnimation(token, "bounds.size", from: NSValue(size: ds), to: NSValue(size: .zero))
             animation.isAdditive = true
             animation.beginTime = begin
             layer.add(animation, forKey: "\(key).size.\(serial)")

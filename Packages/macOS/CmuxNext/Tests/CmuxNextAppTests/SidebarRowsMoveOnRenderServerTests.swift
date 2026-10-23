@@ -129,6 +129,37 @@ struct SidebarRowsMoveOnRenderServerTests {
         #expect(opening.alphaValue < 1, "the new row showed whole in one frame")
     }
 
+    /// Leo 2026-10-21: "when you create a workspace at the top it's a huge cascade". Under the default
+    /// `sidebar.insertMotion` (nudge) each row below a top insert travels at most the nudge, not a row height, and the
+    /// new row opens only its last nudge of height, on a spring that is at rest by 150 ms (`SidebarInsertMotionTests`).
+    @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func aTopInsertNudgesTheRowsBelowByAtMostTheNudge() throws {
+        let (model, list, _, restore) = try Self.sidebar(count: 30)
+        defer { restore() }
+        try #require(SidebarInsertMotion.tunable.value == .nudge)
+        let nudge = SidebarInsertMotion.nudgeDistance.value
+
+        model.sections = Self.sections([0] + Array(1...30))
+        list.reload(animated: true)
+
+        var springs = 0
+        for view in list.rowViews.values {
+            guard let layer = view.layer else { continue }
+            for key in layer.animationKeys() ?? [] {
+                guard let spring = layer.animation(forKey: key) as? CASpringAnimation, spring.isAdditive,
+                      let from = spring.fromValue as? NSValue else { continue }
+                springs += 1
+                let travel = spring.keyPath == "position" ? max(abs(from.pointValue.x), abs(from.pointValue.y))
+                    : max(abs(from.sizeValue.width), abs(from.sizeValue.height))
+                #expect(travel <= nudge + 0.01, "\(view.key) \(spring.keyPath ?? "") travels \(travel) pt")
+                #expect(spring.duration < 0.15, "\(view.key) moves for \(spring.duration) s")
+            }
+        }
+        #expect(springs > 3, "the insert at the top moved \(springs) springs")
+    }
+
     /// A second insert while the first one's rows still move: each row keeps the first spring and adds one
     /// from where it is now, so nothing on screen jumps back to the first move's end.
     @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
