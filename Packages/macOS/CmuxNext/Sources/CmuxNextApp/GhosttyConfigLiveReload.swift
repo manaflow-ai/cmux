@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextCompat
 import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -12,7 +13,7 @@ final class GhosttyConfigLiveReload {
     private let notifications: NotificationCenter
     private let reloadTimer = DemandTimer(owner: "GhosttyConfigLiveReload.reload")
     private var watchers: [ConfigFileWatcher] = []
-    private var observer: (any NSObjectProtocol)?
+    private var observer: MainActorObservation?
     private var started = false
 
     init(
@@ -26,20 +27,18 @@ final class GhosttyConfigLiveReload {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Runs on any thread: the timer and the watchers are Sendable, and the observation removes itself.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            reloadTimer.cancel()
-            if let observer { notifications.removeObserver(observer) }
-            watchers.forEach { $0.stop() }
-        }
+        reloadTimer.cancel()
+        watchers.forEach { $0.stop() }
     }
 
     func start() {
         guard !started else { return }
         started = true
-        observer = notifications.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.rearm() }
+        // Synchronous: the runtime posts after it replaced its config, so the files it reads are current.
+        observer = MainActorObservation(GhosttyRuntime.configDidChange, center: notifications) { [weak self] in
+            self?.rearm()
         }
         rearm()
     }
@@ -49,10 +48,7 @@ final class GhosttyConfigLiveReload {
         reloadTimer.cancel()
         watchers.forEach { $0.stop() }
         watchers.removeAll()
-        if let observer {
-            notifications.removeObserver(observer)
-            self.observer = nil
-        }
+        observer = nil
     }
 
     private func rearm() {
