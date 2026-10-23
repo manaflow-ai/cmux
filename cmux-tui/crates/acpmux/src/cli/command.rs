@@ -21,7 +21,6 @@ pub enum Command {
     /// Send a local brief to another harness on a peer (or the least-loaded
     /// allowed host with `--host auto`) and record its identity.
     Dispatch(DispatchArgs),
-    /// Inspect and update first-class dispatch briefs.
     #[command(subcommand)]
     Briefs(BriefsCmd),
     /// Create a session and optionally send a first prompt. `run` is the
@@ -503,7 +502,6 @@ pub struct DispatchArgs {
 
 #[derive(Subcommand)]
 pub enum BriefsCmd {
-    /// List brief identities and status.
     #[command(alias = "list")]
     Ls {
         #[arg(long)]
@@ -511,9 +509,7 @@ pub enum BriefsCmd {
         #[arg(long, default_value_t = 100)]
         limit: usize,
     },
-    /// Steer a running brief's session.
     Steer { brief_id: String, text: Vec<String> },
-    /// Record a report for a brief.
     Report {
         brief_id: String,
         summary: Vec<String>,
