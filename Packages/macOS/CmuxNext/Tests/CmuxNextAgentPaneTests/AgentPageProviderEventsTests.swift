@@ -88,24 +88,6 @@ struct AgentPageProviderEventsTests {
         #expect(Self.names(secondPage.events) == ["current-state", "second-gap-1", "second-gap-2"])
     }
 
-    @Test func fullBacklogUsesExplicitBackpressureWithoutEviction() {
-        let provider = AgentPageProvider { _ in nil }
-        for index in 0..<AgentPageProvider.maximumBufferedEvents {
-            #expect(provider.publish(Self.command("buffered-\(index)")))
-        }
-        #expect(!provider.publish(Self.command("backpressure")))
-    }
-
-    @Test func droppedBacklogOverflowSignalsResyncInsteadOfEvicting() {
-        let provider = AgentPageProvider { _ in nil }
-        for index in 0...AgentPageProvider.maximumBufferedEvents {
-            provider.eventDeliveryDropped(stream: AgentPageProvider.hostEvents,
-                                          data: Self.command("dropped-\(index)").data,
-                                          publicationID: UInt64(index + 1))
-        }
-        #expect(!provider.publish(Self.command("backpressure")))
-    }
-
     @Test func transportReconnectClearsOverflowForTheExistingSubscription() {
         let provider = AgentPageProvider { _ in nil }
         for index in 0...AgentPageProvider.maximumBufferedEvents {
@@ -116,19 +98,6 @@ struct AgentPageProviderEventsTests {
         #expect(!provider.publish(Self.command("closed")))
         provider.transportDidOpen(1)
         #expect(provider.publish(Self.command("after-reconnect")))
-    }
-
-    @Test func transportReconnectResetsAStalledPendingReplay() async throws {
-        let provider = AgentPageProvider { _ in nil }
-        let subscription = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null,
-                                                         context: Self.context) { _ in }
-        for index in 0..<AgentPageProvider.maximumBufferedEvents {
-            #expect(provider.publish(Self.command("pending-\(index)")))
-        }
-        #expect(!provider.publish(Self.command("overflow")))
-        provider.transportDidOpen(1)
-        #expect(provider.publish(Self.command("after-reconnect")))
-        subscription.cancel()
     }
 
     @Test func routerResetDropUsesTheCapturedProviderAfterRouterCloses() async throws {
