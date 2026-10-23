@@ -16,7 +16,6 @@ enum DebugTabSwitch {
     private static var intervals: [ObjectIdentifier: (id: OSSignpostID, state: OSSignpostIntervalState)] = [:]
     /// The timestamp of the key whose binding runs now (a synthetic key never becomes `NSApp.currentEvent`).
     private static var input: TimeInterval?
-    static var isRecording: Bool { timer.isRecording }
 
     /// Runs `body` with `input` (an `NSEvent.timestamp`) as the start of any switch it begins.
     static func handling(input timestamp: TimeInterval, _ body: () -> Void) {
@@ -35,8 +34,7 @@ enum DebugTabSwitch {
         }
         guard timer.isRecording else { return }
         // A key binding or click being handled now: its age is the input stage.
-        let event = NSApp.currentEvent
-        let click = event.flatMap { [.leftMouseDown, .leftMouseUp].contains($0.type) ? $0.timestamp : nil }
+        let click = NSApp.currentEvent.flatMap { [.leftMouseDown, .leftMouseUp].contains($0.type) ? $0.timestamp : nil }
         timer.began(key, inputTimestamp: input ?? click)
     }
 
@@ -71,7 +69,8 @@ enum DebugTabSwitch {
 extension SwitchFrameTimer {
     /// A debug socket method over this timer (`debug.tab_switch`, `debug.new_workspace`): `action`
     /// `start` or `stop` (else a read), then whether it records and its samples under `key`, each
-    /// with its content `kind` when one was set, and `confirms_ms` (the daemon's asynchronous confirms).
+    /// with its content `kind` when one was set, `confirms_ms` (the daemon's asynchronous confirms) and
+    /// `work_before_commit` (``SwitchFrameTimer/workBeforeCommit``).
     func handle(_ params: [String: JSONValue], key: String) -> JSONValue {
         if params["action"]?.stringValue == "start" { start() } else if params["action"]?.stringValue == "stop" { stop() }
         let rows = samples.enumerated().map { index, values -> JSONValue in
@@ -79,6 +78,7 @@ extension SwitchFrameTimer {
             if index < kinds.count, kinds[index] != "unknown" { row["kind"] = .string(kinds[index]) }
             return .object(row)
         }
-        return ["recording": .bool(isRecording), key: .array(rows), "confirms_ms": .array(confirms.map { .number($0) })]
+        return ["recording": .bool(isRecording), key: .array(rows), "confirms_ms": .array(confirms.map { .number($0) }),
+                "work_before_commit": .object(workBeforeCommit.mapValues { .number(Double($0)) })]
     }
 }

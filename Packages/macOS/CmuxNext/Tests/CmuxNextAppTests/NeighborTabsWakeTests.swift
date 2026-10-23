@@ -127,7 +127,7 @@ import Testing
         defer { rig.close() }
         let keys = try await rig.pages(["a", "b", "c", "d", "e"])
         rig.show(keys[1], order: keys)
-        try await rig.until("the first show's replan ran") { !rig.hibernation.replanQueued }
+        try await rig.until("the first show's replan ran") { !rig.hibernation.replanAfterTurn.isScheduled }
         let before = rig.hibernation.replanCount
         rig.show(keys[3], order: keys)
         rig.show(keys[0], order: keys)
