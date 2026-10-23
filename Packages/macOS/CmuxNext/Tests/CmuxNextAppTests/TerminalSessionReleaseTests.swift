@@ -31,10 +31,10 @@ import Testing
         // The owner drops the session mid-restore; only the in-flight event keeps it alive.
         session = nil
         gate.signal()
-        let releasedBy = ContinuousClock.now.advanced(by: .seconds(5))
-        while surfaceView != nil, ContinuousClock.now < releasedBy {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        // The session's deinit (on main) cancels its events loop, which ends the IO's stream; the
+        // deinit then releases the views before it returns, so one main-actor hop later they are gone.
+        await io.streamEnded()
+        await MainActor.run {}
         try #require(surfaceView == nil, "the session was never released")
 
         // Freed on main: the lane was closed before ghostty_surface_free, so it runs nothing more.

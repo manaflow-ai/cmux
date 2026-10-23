@@ -21,6 +21,16 @@ public nonisolated final class ScriptedTerminalIO: TerminalIO {
         self.answersTerminalQueries = answersTerminalQueries
         // concurrency-allow: scripted demo IO; finite script
         (events, continuation) = AsyncStream<TerminalIOEvent>.makeStream(bufferingPolicy: .unbounded)
+        let ended = ended
+        continuation.onTermination = { _ in ended.finish() }
+    }
+
+    private let (endedStream, ended) = AsyncStream<Never>.makeStream()
+
+    /// Returns once the event stream ended: its consumer was cancelled (the session went away) or
+    /// ``finish()`` ran. Tests await it instead of polling.
+    public func streamEnded() async {
+        for await _ in endedStream {}
     }
 
     public func send(_ event: TerminalIOEvent) {
