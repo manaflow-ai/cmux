@@ -720,13 +720,15 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
       expect(staleAnsweredAt).toBeGreaterThan(attachAnsweredAt);
       expect(pushed).toBeGreaterThan(10);
       expect({ reachedFirst, oldestSeen: seen.at(-1) }).toEqual({ reachedFirst: true, oldestSeen: "Question 1" });
-      // Every prompt once and in order, and each compaction where it happened: under its turn's prompt.
+      // Every prompt once and in order. A finished turn folds its compaction with its work under
+      // "Worked for" (turns.ts, Leo 2026-10-21: fold only the work); the turn still streaming shows
+      // its compaction where it happened, under its prompt.
       expect(seen.map((id) => (id.startsWith("compaction:") ? "compaction" : id))).toEqual(
         Array.from({ length: LONG_TURNS }, (_, index) => LONG_TURNS - index).flatMap((n) =>
-          n % COMPACT_EVERY === 0 ? ["compaction", `Question ${n}`] : [`Question ${n}`],
+          n === LONG_TURNS ? ["compaction", `Question ${n}`] : [`Question ${n}`],
         ),
       );
-      expect(new Set(seen.filter((id) => id.startsWith("compaction:"))).size).toBe(LONG_TURNS / COMPACT_EVERY);
+      expect(new Set(seen.filter((id) => id.startsWith("compaction:"))).size).toBe(1);
       // The pane read its history in bounded pages, each before the oldest record it held.
       const older = longRequests.filter(
         (request) =>

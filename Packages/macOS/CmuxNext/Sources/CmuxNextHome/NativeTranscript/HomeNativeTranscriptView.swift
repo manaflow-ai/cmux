@@ -165,6 +165,8 @@ public final class HomeNativeTranscriptView: NSView {
         firstRun.switchCard.onOpenSettings = { [weak self] in self?.onOpenKeyboardShortcutSettings() }
         transcript.onSummaryChange = { [weak self] _ in self?.updateFirstRun() }
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
+        // A long draft grows the field with no size change: refit the panel and the notice above it.
+        transcript.onFieldTopChange = { [weak self] in self?.needsLayout = true }
         followTextSize()
         followBubbleStyle()
         followHeroTunable()
@@ -218,6 +220,17 @@ public final class HomeNativeTranscriptView: NSView {
     public var debugFirstRunAgents: [HomeDebugAgentRow] { firstRun.debugAgents }
     /// Clicks the panel's agent row `index` (`HomeFirstRunView.debugClickAgent`).
     public func debugClickFirstRunAgent(_ index: Int, pointer: Bool) -> String? { firstRun.debugClickAgent(index, pointer: pointer) }
+    /// How far the first-run panel's lowest shown part sits above the field's top (negative:
+    /// it runs under the field); nil when the panel shows nothing.
+    public var debugFirstRunFieldGap: CGFloat? {
+        firstRun.debugShownBottom.map { transcript.fieldTop - (firstRun.frame.minY + $0) }
+    }
+    /// Which parts of the first-run panel show (hero, switch_card, action_rows).
+    public var debugFirstRunParts: [String: Bool] { firstRun.debugShownParts }
+    /// The field's top in this view.
+    public var debugFieldTop: CGFloat { transcript.fieldTop }
+    /// Puts `text` in the field, as typing would (`home-chief-long-draft`).
+    public func debugSetDraft(_ text: String) { transcript.setDraft(text) }
     #endif
 
     /// A click on the header's name pill (the Chief's settings popover).
@@ -355,7 +368,8 @@ public final class HomeNativeTranscriptView: NSView {
             if resized { transcript.layoutSubtreeIfNeeded() }
         }
         // Every pass: the field can grow (a multi-line draft) without a size
-        // change, and the first-run panel fits its agent rows above it, under the header.
+        // change (`onFieldTopChange` asks for this pass), and the first-run
+        // panel fits what it shows above it, under the header.
         let top = transcript.headerHeight
         let panel = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
         if firstRun.frame != panel { firstRun.frame = panel }

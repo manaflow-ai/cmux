@@ -43,6 +43,10 @@ if "--suite=app-perf" in sys.argv:
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=app-perf"])
 # `--suite=anim-perf`: every other app animation (tabs, workspace switch, sidebars, groups, Home, palette),
 # scripts/cmux-next/anim-perf-terminal.py, budgets in scripts/perf-bench/budgets.json (animations).
+# `--suite=sidebar-churn`: terminal typing idle and while the sidebar rearranges, scripts/cmux-next/sidebar-churn-typing.py.
+if "--suite=sidebar-churn" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sidebar-churn-typing.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=sidebar-churn"])
 if "--suite=anim-perf" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "anim-perf-terminal.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=anim-perf"])
