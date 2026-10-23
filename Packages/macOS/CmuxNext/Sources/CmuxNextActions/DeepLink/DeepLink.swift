@@ -46,6 +46,11 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         /// schemas/deeplinks/agent-link.json, the schema cmux.com's deeplink
         /// page writes these links by.
         case agent(harness: String, session: String)
+        /// A cloud group (plans/cmux-next/cloud-groups-DESIGN.md) by the `grp_` id cmux Cloud
+        /// minted for it, and optionally one of its workspaces (`group/<id>/workspace/<ws_>`).
+        /// The group's record lives in the team's cloud directory, so the link means the same
+        /// thing on every Mac, the iPhone and every Chief.
+        case group(String, workspace: String?)
         /// Nightly's `workspace/<uuid>`: the durable workspace key, with the
         /// `stable_workspace_id` fallback.
         case legacyWorkspace(UUID, fallback: UUID?)
@@ -118,6 +123,9 @@ public nonisolated struct DeepLink: Sendable, Hashable {
             text += "session/\(id)"
             fragment = turn.map { Self.turnFragmentPrefix + $0 }
         case .chiefSession(let home, let session): text += "chief/\(home)/session/\(session)"
+        case .group(let id, let workspace):
+            text += "group/\(id)"
+            if let workspace { text += "/workspace/\(workspace)" }
         case .agent(let harness, let session):
             text += "agent/\(harness)/\(session)"
             // The order schemas/deeplinks/agent-link.json states, so every emitter writes the
@@ -188,6 +196,8 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         case .session(let id, let turn): return Self.isToken(id) && (turn.map(Self.isToken) ?? true)
         case .chiefSession(let home, let session): return Self.isChiefHome(home) && Self.isToken(session)
         case .agent(let harness, let session): return Self.isHarness(harness) && Self.isAgentSession(session)
+        case .group(let id, let workspace):
+            return Self.isGroupID(id) && (workspace.map { Self.isResourceID($0, prefix: "ws_") } ?? true)
         case .legacyWorkspace, .legacyPane, .legacySurface: return true
         }
     }
@@ -205,6 +215,14 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         guard text.hasPrefix(prefix) else { return false }
         let hex = text.utf8.dropFirst(prefix.utf8.count)
         return hex.count == resourceHexDigits && hex.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+    }
+
+    /// A cloud group id: `grp_` and 20 lowercase letters or digits, as TeamDO mints it
+    /// (`ctx.newId("grp")`, backend packages/protocol team-group-ops.ts `GroupId`).
+    static func isGroupID(_ text: String) -> Bool {
+        guard text.hasPrefix("grp_") else { return false }
+        let rest = text.utf8.dropFirst(4)
+        return rest.count == 20 && rest.allSatisfy { (48...57).contains($0) || (97...122).contains($0) }
     }
 
     /// A Chief home id: 8 lowercase hex digits (FNV-1a 32 of the home's path).
