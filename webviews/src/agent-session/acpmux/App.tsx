@@ -7099,14 +7099,10 @@ function AcpmuxPane() {
         } catch (error) {
           if (!asks) return;
           if (folder) setProjectDraft(folder);
-          // The chat composer mounts as the page leaves, and its field may not be ready yet: the
-          // text goes as its draft, which seeds a field still starting (the same as Keep's text in
-          // `requestFolder`), and the attachments as chips.
-          if (text) setDraft(text);
-          if (attachments.length) {
-            if (composerHandle.current) composerHandle.current.restore("", attachments);
-            else heldBack.current = [...(heldBack.current ?? []), { text: "", attachments }];
-          }
+          // Back in the chat composer ahead of anything typed there while the start was out, never
+          // in its place (Composer `restore`); a composer not mounted yet gets it when it mounts.
+          if (composerHandle.current) composerHandle.current.restore(text, attachments);
+          else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
           if (isTrustRefusal(error)) {
             holdPrompt.current?.();
             trustRefused.current?.(error, () => composerHandle.current?.send());

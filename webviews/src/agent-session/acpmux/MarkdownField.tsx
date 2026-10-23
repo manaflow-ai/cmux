@@ -40,7 +40,9 @@ export type MarkdownFieldHandle = {
   /// The caret's offset in the first paragraph.
   caret(): number;
   /// Replaces the prompt as typing would: the composer hears it through `onChange`.
-  type(markdown: string): void;
+  /// False when the editor is not made yet (it mounts a moment after the field): nothing changed,
+  /// and the caller sets the field's `value` instead.
+  type(markdown: string): boolean;
   /// The prompt as plain text (blocks joined by newlines) and the selection's offsets into it,
   /// for dictation, which splices words at the cursor.
   text(): PlainPrompt;
@@ -772,7 +774,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         value: () => known.current,
         caret: () => (view.current ? caretOf(view.current) : 0),
         type: (markdown) => {
-          if (!editor.current) return;
+          if (!editor.current) return false;
           refocus.current = null;
           // Not `known`: the view plugin reports the change as the user's.
           setDocument(markdown);
@@ -781,6 +783,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
             const end = current.state.doc.content.size;
             current.dispatch(current.state.tr.setSelection(TextSelection.near(current.state.doc.resolve(end), -1)));
           }
+          return true;
         },
         text: () => {
           const current = view.current;

@@ -517,8 +517,9 @@ export function Composer({
         // What comes back goes first; what was typed or attached since stays after it.
         const typed = field.current?.value() ?? "";
         const next = typed.trim() ? `${restoredText}\n\n${typed}` : restoredText;
-        if (field.current) field.current.type(next);
-        else {
+        // A field whose editor is still starting (the chat composer that mounts as a New Tab page
+        // leaves) takes it as its value, which becomes the editor's first content.
+        if (!field.current?.type(next)) {
           setText(next);
           setCaret(next.length);
         }
