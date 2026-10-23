@@ -32,7 +32,7 @@ import Testing
     var location = { protocol: 'https:' };
     var document = {
       readyState: 'complete', documentElement: {}, activeElement: null, inputs: [], body: { innerText: '' },
-      addEventListener: function () {},
+      addEventListener: function () {}, removeEventListener: function () {},
       querySelectorAll: function (s) { return s === 'input' ? document.inputs : []; },
       querySelector: function (s) {
         if (s.indexOf('one-time-code') < 0) return null;
