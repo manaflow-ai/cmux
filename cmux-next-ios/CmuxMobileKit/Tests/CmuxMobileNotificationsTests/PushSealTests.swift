@@ -312,11 +312,11 @@ struct SealVectors: Decodable {
         // The service made up a question with swapped labels: shown as a bare route, no buttons.
         let forged = PushPayload(mac: Self.mac, kind: .question, eventId: "p-1", sessionId: "s-1", permissionId: "perm-1",
                                  title: "Cancel deploy?", questions: [PushQuestion(question: "Cancel deploy?", options: [.init(label: "Cancel")])])
-        guard case .openOnly(let route) = gate.verdict(userInfo: Self.unsealed(forged)) else { Issue.record("acted on"); return }
+        guard case .openOnly(let route) = gate.verdict(userInfo: Self.unsealed(forged), shown: nil) else { Issue.record("acted on"); return }
         #expect(route.questions.isEmpty && route.title == nil && route.sessionId == "s-1")
         // A Mac that never sealed keeps PR A's behavior.
         let other = PushPayload(mac: "mac-old", kind: .completed, sessionId: "s")
-        #expect(gate.verdict(userInfo: Self.unsealed(other)) == .trusted(other))
+        #expect(gate.verdict(userInfo: Self.unsealed(other), shown: nil) == .trusted(other))
     }
 
     @Test func aSealedPushIsOpenedAgainFromItsBox() throws {
@@ -327,23 +327,52 @@ struct SealVectors: Decodable {
         var forgedContent = PushPayload(mac: Self.mac, kind: .question, eventId: "p-1", sessionId: "s-1", permissionId: "perm-1",
                                         questions: [PushQuestion(question: "x", options: [.init(label: "Swapped")])]).userInfo
         forgedContent[PushTrustGate.sealedKey] = raw[PushPayload.userInfoKey]
-        guard case .trusted(let payload) = gate.verdict(userInfo: forgedContent, now: Date()) else { Issue.record("refused"); return }
+        let opened = try #require(SealedPush(userInfo: raw)).open(trust: keys.trust(), keys: keys)
+        let banner = PushBanner(payload: opened)
+        let shown = PushTrustGate.Shown(title: banner.title, subtitle: banner.subtitle ?? "", body: banner.body,
+                                        category: opened.category.rawValue)
+        guard case .trusted(let payload) = gate.verdict(userInfo: forgedContent, shown: shown, now: Date()) else { Issue.record("refused"); return }
         // The box's options count, never the content beside it.
         #expect(payload.questions.first?.options.map(\.label) == ["main"])
         // A box signed by another key is refused outright.
         var bad = forgedContent
         bad[PushTrustGate.sealedKey] = try SealedPushTests.sealedPush(macKey: P256.Signing.PrivateKey(), pushKey: pushKey,
                                                                       payload: SealedPushTests.question)[PushPayload.userInfoKey]
-        #expect(gate.verdict(userInfo: bad) == .refused)
+        #expect(gate.verdict(userInfo: bad, shown: shown) == .refused)
+    }
+
+    /// PR B review 2, B1: a genuine sealed box replayed under a banner and category the
+    /// service chose (no `mutable-content`, so the service extension never ran) shows text
+    /// the box does not say. Only content the extension wrote from the box acts.
+    @Test func aGenuineBoxUnderAForeignBannerActsOnNothing() throws {
+        let (keys, macKey, pushKey) = try SealedPushTests.setUp()
+        let gate = PushTrustGate(trust: keys.trust(), keys: keys)
+        let raw = try SealedPushTests.sealedPush(macKey: macKey, pushKey: pushKey, payload: SealedPushTests.question)
+        var info = SealedPushTests.question.userInfo
+        info[PushTrustGate.sealedKey] = raw[PushPayload.userInfoKey]
+        let opened = try #require(SealedPush(userInfo: raw)).open(trust: keys.trust(), keys: keys)
+        let banner = PushBanner(payload: opened)
+        // What the extension wrote: acts.
+        let written = PushTrustGate.Shown(title: banner.title, subtitle: banner.subtitle ?? "", body: banner.body,
+                                          category: opened.category.rawValue)
+        guard case .trusted = gate.verdict(userInfo: info, shown: written) else { Issue.record("refused its own content"); return }
+        // The service's own words over the genuine box: open only.
+        let foreign = PushTrustGate.Shown(title: "Claude needs permission", subtitle: "", body: "read README.md",
+                                          category: PushCategory.permission.rawValue)
+        guard case .openOnly = gate.verdict(userInfo: info, shown: foreign) else { Issue.record("acted on a foreign banner"); return }
+        // The right words with another category (other buttons): open only.
+        var recategorized = written
+        recategorized.category = PushCategory.permission.rawValue
+        guard case .openOnly = gate.verdict(userInfo: info, shown: recategorized) else { Issue.record("acted on another category"); return }
     }
 
     @Test func anOldPushKeepsItsTapButLosesItsButtons() throws {
         var payload = PushPayload(mac: "mac-old", kind: .completed, sessionId: "s", postedAt: 1_800_000_000)
         let gate = PushTrustGate(trust: nil, keys: nil)
         let now = Date(timeIntervalSince1970: 1_800_000_000 + PushTrustGate.maxAge + 1)
-        #expect(gate.verdict(userInfo: payload.userInfo, now: now) == .openOnly(payload))
+        #expect(gate.verdict(userInfo: payload.userInfo, shown: nil, now: now) == .openOnly(payload))
         payload.postedAt = 1_800_000_000 + 10
-        #expect(gate.verdict(userInfo: payload.userInfo, now: now) == .trusted(payload))
+        #expect(gate.verdict(userInfo: payload.userInfo, shown: nil, now: now) == .trusted(payload))
     }
 
     @Test func theBoxKeyIsCheckedAgainstThePinnedMacKeyBeforeSealing() throws {

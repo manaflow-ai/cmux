@@ -233,7 +233,7 @@ pub async fn reply_to_notification(
             lines.call_daemon(&policy, &json!({"id": "mailbox-identify", "cmd": "identify"})).await?;
         if has_capability(&identify, SEND_EXPECT_AGENT)
             && let Some(answer) =
-                lines.call_daemon_if_allowed(&policy, &agent_reply_line(found, text, &program)).await?
+                lines.call_daemon_if_allowed(&policy, &agent_reply_line(found, text, &program, "")).await?
         {
             return failed(&answer).map_or(Ok(()), |why| Err(refused(why)));
         }
@@ -330,9 +330,22 @@ pub fn has_capability(identify: &Value, capability: &str) -> bool {
 
 /// One `send` of a reply to an agent's notification: pasted and submitted only
 /// while the terminal's agent waits at its prompt and `program` holds the terminal.
-pub fn agent_reply_line(surface: u64, text: &str, program: &str) -> Value {
+pub fn agent_reply_line(surface: u64, text: &str, program: &str, _session: &str) -> Value {
     json!({"id": "mailbox-agent-reply", "cmd": "send", "surface": surface, "text": text, "paste": true,
            "submit": true, "expect_agent": {}, "expect_foreground": program})
+}
+
+/// What `list-agents` says runs on a terminal.
+#[derive(Debug, PartialEq, Eq)]
+pub enum AgentOnTerminal {
+    None,
+    Unknown,
+    Session(String),
+}
+
+/// The agent on `surface` in `list-agents`' answer.
+pub fn agent_session(_agents: &Value, _surface: u64) -> AgentOnTerminal {
+    AgentOnTerminal::None
 }
 
 /// The two `send` lines of a terminal reply: the text pasted, then Return.
@@ -690,14 +703,31 @@ mod tests {
             &json!({"data": {"capabilities": ["send-expect-foreground-v1"]}}),
             SEND_EXPECT_AGENT
         ));
-        let line = agent_reply_line(7, "run the tests", "/usr/local/bin/claude");
+        let line = agent_reply_line(7, "run the tests", "/usr/local/bin/claude", "0b6c3f8e");
         assert_eq!(line["submit"], true);
-        assert_eq!(line["expect_agent"], json!({}));
+        // The daemon refuses `expect_agent` without the agent's session (review 2, N1).
+        assert_eq!(line["expect_agent"], json!({"session": "0b6c3f8e"}));
         assert_eq!(line["expect_foreground"], "/usr/local/bin/claude");
         // `identify` passes this host's policy.
         let daemon = DaemonPolicy::new("phone-1");
         let identify = serde_json::to_vec(&json!({"id": "i", "cmd": "identify"})).unwrap();
         assert!(!matches!(daemon.evaluate(&identify), Verdict::Refuse(_)));
+    }
+
+    /// Review 2, N2: a reply to any notification on a terminal where an agent runs (a hook's,
+    /// or `cmux notify --reply` posted from inside the agent) goes only through
+    /// `expect_agent` with that agent's session; without the daemon capability it is
+    /// refused, never typed blind onto an approval dialog.
+    #[test]
+    fn an_agent_on_the_terminal_needs_its_session_or_nothing_is_typed() {
+        let agents = json!({"ok": true, "data": {"agents": [
+            {"surface": 7, "state": "blocked", "agent": "claude", "agent_session_id": "0b6c3f8e"},
+            {"surface": 9, "state": "idle", "agent": "codex"}]}});
+        assert_eq!(agent_session(&agents, 7), AgentOnTerminal::Session("0b6c3f8e".into()));
+        // An agent whose session is unknown: nothing to bind the write to.
+        assert_eq!(agent_session(&agents, 9), AgentOnTerminal::Unknown);
+        assert_eq!(agent_session(&agents, 3), AgentOnTerminal::None);
+        assert_eq!(agent_session(&json!({"ok": true, "data": {}}), 7), AgentOnTerminal::None);
     }
 
     #[test]

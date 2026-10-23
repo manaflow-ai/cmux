@@ -42,7 +42,11 @@ final class NotificationViewController: UIViewController, @MainActor UNNotificat
     func didReceive(_ notification: UNNotification) {
         // Opened again from its box; an unsealed one from a Mac that seals, or a
         // stale one, shows without rows, Submit or composer (PR B security review H1).
-        let verdict = PushTrustGate.current().verdict(userInfo: notification.request.content.userInfo)
+        let content = notification.request.content
+        let verdict = PushTrustGate.current().verdict(
+            userInfo: content.userInfo,
+            shown: PushTrustGate.Shown(title: content.title, subtitle: content.subtitle, body: content.body,
+                                       category: content.categoryIdentifier))
         let (payload, actionable): (PushPayload?, Bool) = switch verdict {
         case .trusted(let p): (p, true)
         case .openOnly(let p): (p, false)

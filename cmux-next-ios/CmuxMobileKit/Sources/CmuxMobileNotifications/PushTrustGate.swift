@@ -30,6 +30,24 @@ public struct PushTrustGate: Sendable {
         return PushTrustGate(trust: keys?.trust(), keys: keys)
     }
 
+    /// What iOS shows for a notification: a sealed box acts only under the banner and
+    /// category the service extension wrote from that very box (PR B review 2, B1). A push
+    /// sent without `mutable-content` skips the extension, so its banner and buttons are
+    /// whatever the sender chose.
+    public struct Shown: Equatable, Sendable {
+        public var title: String
+        public var subtitle: String
+        public var body: String
+        public var category: String
+
+        public init(title: String, subtitle: String, body: String, category: String) {
+            self.title = title
+            self.subtitle = subtitle
+            self.body = body
+            self.category = category
+        }
+    }
+
     public enum Verdict: Equatable, Sendable {
         /// Act on it: the payload to use (opened from its box when sealed).
         case trusted(PushPayload)
@@ -39,11 +57,14 @@ public struct PushTrustGate: Sendable {
         case refused
     }
 
-    /// What a notification's `userInfo` may do at `now`.
-    public func verdict(userInfo: [AnyHashable: Any], now: Date = Date()) -> Verdict {
+    /// What a notification's `userInfo`, shown as `shown`, may do at `now`. A sealed box
+    /// acts only when what is shown is what the box says (`Shown`); nil `shown` (a caller
+    /// with no delivered content) never lets a box act.
+    public func verdict(userInfo: [AnyHashable: Any], shown: Shown?, now: Date = Date()) -> Verdict {
         if let sealedObject = userInfo[Self.sealedKey] as? [String: Any],
            let sealed = SealedPush(userInfo: [PushPayload.userInfoKey: sealedObject]) {
             guard let keys, let payload = try? sealed.open(trust: trust, keys: keys) else { return .refused }
+            guard let shown, Self.matches(shown, payload) else { return .openOnly(PushPayload.routeOnly(payload)) }
             return fresh(payload, now: now) ? .trusted(payload) : .openOnly(payload)
         }
         guard let payload = PushPayload(userInfo: userInfo) else { return .refused }
@@ -52,6 +73,13 @@ public struct PushTrustGate: Sendable {
             return .openOnly(PushPayload.routeOnly(payload))
         }
         return fresh(payload, now: now) ? .trusted(payload) : .openOnly(payload)
+    }
+
+    /// Whether `shown` is what the service extension writes for `payload`.
+    static func matches(_ shown: Shown, _ payload: PushPayload) -> Bool {
+        let banner = PushBanner(payload: payload)
+        return shown.title == banner.title && shown.subtitle == (banner.subtitle ?? "") && shown.body == banner.body
+            && shown.category == payload.category.rawValue
     }
 
     /// Whether `payload` is recent enough for its buttons to act.

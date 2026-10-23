@@ -816,6 +816,17 @@ mod tests {
         assert_eq!(SpentReplies::load(path).claim("r", PHONE, "n", NOW + 600, NOW + 61), Claim::Fresh);
     }
 
+    /// Review 2, N3: a claim the store could not write is not applied (a restart would
+    /// forget it, and a kept copy could be replayed).
+    #[test]
+    fn a_claim_that_cannot_be_saved_is_not_applied() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("no-such-dir").join("mailbox-spent.json");
+        let spent = SpentReplies::load(path);
+        assert_eq!(spent.claim("r", PHONE, "n", NOW + 60, NOW), Claim::Unreadable);
+        assert_eq!(spent.claim_link_reply("r", NOW), Claim::Unreadable);
+    }
+
     #[test]
     fn an_unreadable_spent_store_applies_nothing() {
         let dir = tempfile::tempdir().unwrap();

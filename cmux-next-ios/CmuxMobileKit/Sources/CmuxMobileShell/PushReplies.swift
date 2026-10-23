@@ -144,10 +144,10 @@ public final class PushReplies {
         /// A push is read through `gate`: a sealed one is opened again from its
         /// box, an unsealed one from a Mac that seals acts on nothing.
         public init(actionIdentifier: String, text: String?, userInfo: [AnyHashable: Any], fromPush: Bool, retries: PushRetryStore?,
-                    gate: PushTrustGate = .current(), now: Date = Date()) {
+                    shown: PushTrustGate.Shown? = nil, gate: PushTrustGate = .current(), now: Date = Date()) {
             let payload: PushPayload?
             let actionable: Bool
-            switch gate.verdict(userInfo: userInfo, now: now) {
+            switch gate.verdict(userInfo: userInfo, shown: shown, now: now) {
             case .trusted(let p): (payload, actionable) = (p, true)
             case .openOnly(let p): (payload, actionable) = (p, false)
             case .refused: (payload, actionable) = (nil, false)
