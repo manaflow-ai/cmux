@@ -21,8 +21,13 @@ Related: `perf-lead.md` (the lab numbers these reports check in the field),
   (`AgentRefusal.privacy`): an agent cannot turn it on without the person's confirmation sheet.
 - Consent is per Mac (`HangReportAskPolicy`). cmux-next.json is synced between Macs and agents
   can edit it, so the setting alone never sends: this Mac also needs its consent record
-  (`cmux.next.hangReports.consentedAt` in the app's defaults), which only the person's Send Hang
-  Reports click on the card writes. A file that turns reports on without it shows the confirm
+  (`cmux.next.hangReports.consentedAt` in the app's defaults), which the app writes only on the
+  person's Send Hang Reports click on the card. It is a guard against a synced or agent-edited
+  file, not against a process of the same user (`defaults write` can set it; so can any program
+  that can already read the user's files). Each send also re-reads the managed
+  `DisableTelemetry` (a profile installed while cmux runs stops sending and drops what was
+  recorded), and a queued report from another build, or one today's leak scan refuses, is
+  dropped, never sent. A file that turns reports on without it shows the confirm
   card and sends nothing. Turning reports off (or a managed `DisableTelemetry`, read once per
   launch) removes the record, the queued reports and the install id. MetricKit payloads that
   began before the consent time are dropped (MetricKit hands over kept payloads at the first

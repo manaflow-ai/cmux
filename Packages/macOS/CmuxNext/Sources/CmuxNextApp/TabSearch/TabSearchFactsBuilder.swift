@@ -10,12 +10,8 @@ enum TabSearchFactsBuilder {
     /// theirs changed (about 10% of main while idle on cmux8s when rebuilt per publish). The
     /// trail and closing tabs stay fresh: the trail is no Observation source, and both are small.
     static func facts(_ services: AppServices, cache: ControlWorkspaceInfoCache? = nil) -> ControlTabSearchFacts {
-        let kept = cache?.memo(closedSlot, key: 0) { Self.closed(services) } ?? Self.closed(services)
-        return ControlTabSearchFacts(lastActive: lastActive(services), closing: closing(services), closed: kept)
+        ControlTabSearchFacts(lastActive: lastActive(services), closing: closing(services), closed: cache?.closedTabs { closed(services) } ?? closed(services))
     }
-
-    /// The cache slot of the kept closed tabs (``ControlWorkspaceInfoCache/memo(_:key:build:)``).
-    static let closedSlot = "tabSearch.closed"
 
     /// When the user last settled on each tab (the location trail), by tab id.
     static func lastActive(_ services: AppServices) -> [String: Date] {

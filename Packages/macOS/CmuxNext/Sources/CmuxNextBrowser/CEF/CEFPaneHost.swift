@@ -151,7 +151,7 @@ final class CEFPaneHost {
             tabSwitchMark("activate")
             _ = runtime.shim?.tabActivate(browser)
             tabSwitchMark("activated")
-            hostView.updateLayerHosting(browser: browser, shim: runtime.shim, forkAPIVersion: runtime.forkAPIVersion)
+            hostView.layerHosting.pageShown(browser: browser)
             hostView.postGeometryChange()
             // A window-wide side panel stays open across tabs: no event.
             tab.sidePanel.scheduleRefresh()
@@ -264,7 +264,7 @@ final class CEFPaneHost {
         window = .live(window: windowID)
         lastActivated = browser
         runtime.register(tab, browser: browser)
-        hostView.updateLayerHosting(browser: browser, shim: runtime.shim, forkAPIVersion: runtime.forkAPIVersion)
+        hostView.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(shim: runtime.shim, apiVersion: runtime.forkAPIVersion))
         // Tabs shown or created while the window was being built.
         for waiting in tabs where waiting !== tab && waiting.browserID == nil && waiting.isCreationPending {
             waiting.isCreationPending = false
@@ -319,6 +319,7 @@ final class CEFPaneHost {
         if !isPopupHost, tabs.count == 1, placeholder != nil { CEFSpareWindow.shared.giveBack(self, runtime: runtime) }
         if tabs.isEmpty {
             window = .none
+            hostView.layerHosting.stop()
             hostView.removeFromSuperview()
             if isPopupHost { runtime.hosts[key] = nil }
         }

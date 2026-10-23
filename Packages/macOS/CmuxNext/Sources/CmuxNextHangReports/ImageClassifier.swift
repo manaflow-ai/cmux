@@ -3,8 +3,11 @@ public import Foundation
 /// Decides what a report may say about the image of a frame (hang-reports-DESIGN.md section 3).
 ///
 /// An image is named only when it is ours (loaded from inside the running app bundle, or a name
-/// in ``ownNamePrefixes``) or Apple's (loaded from `/System/` or `/usr/lib/`, or, for a name with
-/// no loaded image, a framework or library of that exact name in those folders). The name sent is
+/// in ``ownNamePrefixes``) or Apple's (loaded from `/System/` or `/usr/lib/` on the sealed system
+/// volume or an OS cryptex, or, for a name with no loaded image, a framework or library of that
+/// exact name in those folders). `/System/Volumes/` (the firmlinked Data volume holds every user's
+/// files there), the firmlinked writable folders under `/System/Library/`, and any path with `.`,
+/// `..` or empty components are never Apple's. The name sent is
 /// the last path component, and only when it matches ``namePattern`` and holds none of
 /// ``forbiddenTerms``. Every other image is ``HangReportFrame/other``: no name, UUID or offset.
 ///
@@ -27,8 +30,20 @@ public nonisolated struct ImageClassifier: Sendable {
     public static let namePattern = #"^[A-Za-z0-9 ._+()\-]{1,64}$"#
     /// The largest offset a frame may name (the server's limit, 2^40).
     public static let maxOffset: UInt64 = 1 << 40
-    /// The folders whose images are Apple's.
+    /// The folders whose images are Apple's (minus ``notApplePathPrefixes``).
     public static let applePathPrefixes = ["/System/", "/usr/lib/"]
+    /// Folders under ``applePathPrefixes`` that are not the sealed system volume: `/System/Volumes/`
+    /// holds the Data volume (`/System/Volumes/Data/Users/<name>/...`) and other writable volumes,
+    /// and the firmlinked folders below live on the Data volume.
+    public static let notApplePathPrefixes = [
+        "/System/Volumes/", "/System/Library/Caches/", "/System/Library/Assets/", "/System/Library/AssetsV2/",
+        "/System/Library/PreinstalledAssets/", "/System/Library/PreinstalledAssetsV2/", "/System/Library/Speech/",
+        "/System/Library/CoreServices/CoreTypes.bundle/Contents/Library/",
+    ]
+    /// The OS cryptexes under `/System/Volumes/`: Apple's sealed images (macOS 13 and later).
+    public static let cryptexSystemPrefixes = [
+        "/System/Volumes/Preboot/Cryptexes/OS/System/", "/System/Volumes/Preboot/Cryptexes/App/System/",
+    ]
 
     private let appBundlePath: String?
     private let forbiddenTerms: [String]
@@ -78,9 +93,21 @@ public nonisolated struct ImageClassifier: Sendable {
 
     /// Who `path` belongs to.
     public func owner(path: String) -> Owner {
+        // `/usr/lib/../../Users/x/libhook.dylib` starts with an Apple folder but is not in one.
+        guard Self.isPlainAbsolutePath(path) else { return .other }
         if let appBundlePath, path.hasPrefix(appBundlePath) { return .ours }
+        if Self.cryptexSystemPrefixes.contains(where: { path.hasPrefix($0) }) { return .apple }
+        if Self.notApplePathPrefixes.contains(where: { path.hasPrefix($0) }) { return .other }
         if Self.applePathPrefixes.contains(where: { path.hasPrefix($0) }) { return .apple }
         return .other
+    }
+
+    /// Whether `path` is absolute with no empty, `.` or `..` component (dyld reports a path as it
+    /// was given, for example through `DYLD_INSERT_LIBRARIES`).
+    static func isPlainAbsolutePath(_ path: String) -> Bool {
+        guard path.hasPrefix("/") else { return false }
+        return !path.split(separator: "/", omittingEmptySubsequences: false).dropFirst()
+            .contains { $0.isEmpty || $0 == "." || $0 == ".." }
     }
 
     /// The last path component of `path` when it may be sent, else nil.

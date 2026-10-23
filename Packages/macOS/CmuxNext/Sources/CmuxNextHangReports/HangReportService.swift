@@ -27,17 +27,23 @@ public actor HangReportService {
         public var now: @Sendable () -> Date
         /// Makes each report's random id.
         public var makeReportID: @Sendable () -> String
+        /// Whether sending is still allowed, read before each report, delivery and send (the app
+        /// passes the managed `DisableTelemetry`, so a profile installed while cmux runs stops the
+        /// next send and drops what was recorded).
+        public var stillAllowed: @Sendable () -> Bool
 
         /// Makes the value from its parts.
         public init(app: HangReport.App, os: HangReport.OS, hardware: HardwareClass,
                     counts: @escaping @Sendable () async -> CoarseCounts, now: @escaping @Sendable () -> Date = Date.init,
-                    makeReportID: @escaping @Sendable () -> String = { UUID().uuidString.lowercased() }) {
+                    makeReportID: @escaping @Sendable () -> String = { UUID().uuidString.lowercased() },
+                    stillAllowed: @escaping @Sendable () -> Bool = { true }) {
             self.app = app
             self.os = os
             self.hardware = hardware
             self.counts = counts
             self.now = now
             self.makeReportID = makeReportID
+            self.stillAllowed = stillAllowed
         }
     }
 
@@ -110,7 +116,7 @@ public actor HangReportService {
     /// The launch: retries the outbox, and sends a watchdog-only report when the last report is
     /// over a day old.
     public func launched() async {
-        guard isEnabled else { return }
+        guard isEnabled, await allowed() else { return }
         await flushOutbox()
         let last = await store.sendLog().lastSentAt ?? .distantPast
         if environment.now().timeIntervalSince(last) >= Self.watchdogReportInterval, !collector.snapshot().isEmpty {
@@ -120,7 +126,7 @@ public actor HangReportService {
 
     /// A MetricKit delivery (metrics about daily, diagnostics usually at the next launch).
     public func receive(_ input: MetricKitInput) async {
-        guard isEnabled, !input.isEmpty else { return }
+        guard isEnabled, !input.isEmpty, await allowed() else { return }
         waiting.append(input)
         if waiting.count > 8 { waiting.removeFirst(waiting.count - 8) }
         await sendReport()
@@ -167,6 +173,7 @@ public actor HangReportService {
     }
 
     private func sendOnce() async {
+        guard await allowed() else { return }
         let started = generation
         let now = environment.now()
         let today = Self.day(now)
@@ -214,13 +221,36 @@ public actor HangReportService {
     private func flushOnce() async -> Bool {
         let started = generation
         for entry in await store.outbox(now: environment.now()) {
-            guard generation == started else { return false }
+            guard generation == started, await allowed() else { return false }
+            // The outbox outlives an update: a report another build queued (under older rules) or
+            // one the leak scan refuses now is dropped, never sent.
+            guard isSendable(entry.body) else {
+                await store.remove(entry.url)
+                continue
+            }
             switch await transport.send(entry.body) {
             case .accepted, .refused:
                 await store.remove(entry.url)
             case .retryLater:
                 return false
             }
+        }
+        return true
+    }
+
+    /// Whether this build of this report would be sent: built by this build, and clean.
+    private func isSendable(_ body: Data) -> Bool {
+        guard let report = try? JSONDecoder().decode(HangReport.self, from: body),
+              report.app == HangReportBuilder.safeApp(environment.app) else { return false }
+        return scanner.findings(in: body).isEmpty
+    }
+
+    /// ``Environment/stillAllowed``; when it says no, everything recorded and queued is dropped
+    /// (off), so nothing recorded while sending was not allowed goes out later.
+    private func allowed() async -> Bool {
+        guard environment.stillAllowed() else {
+            if isEnabled { await setEnabled(false) }
+            return false
         }
         return true
     }
