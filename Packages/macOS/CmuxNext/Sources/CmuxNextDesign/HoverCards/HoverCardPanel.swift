@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxNextDesignTokens
 
 /// Where a card sits relative to its target.
@@ -38,8 +39,9 @@ public enum HoverCardPlacement: Sendable {
 /// translates (`HoverCardPanel+Morph.swift`), instead of popping to the new size.
 @MainActor
 final class HoverCardPanel: NSPanel {
-    /// Live instances (the debug single-card check counts them).
-    nonisolated(unsafe) static var liveInstances = 0
+    /// Live instances (the debug single-card check counts them). Atomic, so a release on any
+    /// thread counts down without a hop to main.
+    nonisolated static let liveInstances = Atomic<Int>(0)
 
     /// The card's material; its `contentView` holds the body.
     let glass: OverlaySurfaceView
@@ -97,7 +99,7 @@ final class HoverCardPanel: NSPanel {
         // behind the window (the sidebar, a terminal), as its Liquid Glass refracts it.
         glass.samplesBehindWindow = true
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
-        Self.liveInstances += 1
+        Self.liveInstances.add(1, ordering: .relaxed)
         let host = adoptPopupStyle(card: glass)
         host.travelMargin = Self.travel
         host.cornerRadius = Self.cornerRadius
@@ -111,10 +113,7 @@ final class HoverCardPanel: NSPanel {
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            Self.liveInstances -= 1
-        }
+        Self.liveInstances.subtract(1, ordering: .relaxed)
     }
 
     override var canBecomeKey: Bool { false }
