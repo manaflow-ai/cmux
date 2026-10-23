@@ -5241,7 +5241,6 @@ function AcpmuxPane() {
     summaryCard,
     inspector,
     backgroundCommandList: runningCommandList,
-    processes: processRegistry.processes,
   });
   counted.current = {
     summary: snapshot.summary,
@@ -5249,7 +5248,6 @@ function AcpmuxPane() {
     runningCommands,
     runningSessions,
     backgroundCommandList: runningCommandList,
-    processes: processRegistry.processes,
     sourceRows,
     transcriptRows,
     summaryCard,
@@ -5315,7 +5313,7 @@ function AcpmuxPane() {
       openCommands: () => {
         const { runningCommands: commands, summaryCard: card, inspector: panel } = counted.current;
         if (commands.length === 1 && showToolRow(commands[0]!.toolCallId)) return;
-        if (panel.reveal) panel.reveal(backgroundSection(counted.current.processes, commands));
+        if (panel.reveal) panel.reveal(backgroundSection(commands));
         else card.show();
       },
       openSessions: () => {
@@ -5329,15 +5327,15 @@ function AcpmuxPane() {
   // A tray command opens its terminal beside the chat; where none opens (a peer's or Cloud chat, or
   // a command only the transcript knows), the Bash call that started it in the transcript; with no
   // call loaded either, the summary card, which lists it, or, while the Inspector takes the card's
-  // place, its section that lists it (Background tasks, or Servers for a dev server).
+  // place, its section that lists it (Background tasks, a dev server's included).
   const openTrayCommand = useCallback(
     (command: BackgroundCommand) => {
       const local = opensProcessTerminal(counted.current.summary);
       void openCommand(command.toolCallId, { local, showCall: showToolRow }).then((opened) => {
         if (opened !== "none") return;
-        const { processes, summaryCard: card, inspector: panel } = counted.current;
-        // The section that lists it, by the Inspector's own split (processes.ts `backgroundSection`).
-        if (panel.reveal) panel.reveal(backgroundSection(processes, [command]));
+        const { summaryCard: card, inspector: panel } = counted.current;
+        // The section that lists it (processes.ts `backgroundSection`).
+        if (panel.reveal) panel.reveal(backgroundSection([command]));
         else card.show();
       });
     },
