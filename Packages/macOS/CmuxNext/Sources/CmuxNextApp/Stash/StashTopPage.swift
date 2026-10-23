@@ -21,9 +21,9 @@ final class StashTopPage: InternalPageProvider {
     var icon: IconName? { .tabgroupSave }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        guard let stash = services?.historyPage.stash else { return NSView() }
-        return StashPageHostView(model: stash.model, draft: stash.draft(for: key))
+        guard let page = services?.historyPage.stash.page else { return NSView() }
+        return StashPageHostView(model: page, draft: page.draft(for: key))
     }
 
-    func tabClosed(_ key: String) { services?.historyPage.stash.dropDraft(key) }
+    func tabClosed(_ key: String) { services?.historyPage.stash.page.dropDraft(key) }
 }

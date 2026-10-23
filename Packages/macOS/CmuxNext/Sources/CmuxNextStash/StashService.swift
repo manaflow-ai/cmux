@@ -1,26 +1,28 @@
-import CmuxNextCompat
+public import CmuxNextCompat
 public import CmuxNextDaemon
 import CmuxNextDaemonService
-public import CmuxNextHistory
 import Foundation
 
 /// Stash (a native OneTab, `stash-v1`) on this Mac's daemon: serves the Stashed page
-/// (``StashPageSource``). The page's model is the one list every surface reads; it lists the
-/// stashes again on each stash change the daemon publishes on `session.events` (the CLI, MCP,
-/// another window).
+/// (``StashPageSource``). The page's model (CmuxNextHistory's `StashPageModel`, the one list every
+/// surface reads; the composition root makes it) lists the stashes again on each stash change the
+/// daemon publishes on `session.events` (the CLI, MCP, another window) and after each save and
+/// restore here. The service sees it only as a ``StashPageClient``.
 public final class StashService: StashPageSource {
     private weak var host: (any StashHost)?
-    public let model = StashPageModel()
-    /// Each Stashed page's own OneTab paste box, by page key.
-    private var drafts: [String: StashImportDraft] = [:]
+    /// The Stashed page's model: this service is its source and reloads it.
+    private let page: any StashPageClient
     /// Follows the daemon's stash changes (``watchChanges()``); cancelled when the service goes.
     private var watcher: Task<Void, Never>?
 
-    /// Creates the service over `host`'s daemon and starts following its stash changes.
-    /// - Parameter host: The App's side of Stash; held weakly.
-    public init(host: any StashHost) {
+    /// Creates the service over `host`'s daemon as `page`'s source and starts following its stash changes.
+    /// - Parameters:
+    ///   - host: The App's side of Stash; held weakly.
+    ///   - page: The Stashed page's model; held strongly, as its source is held weakly by it.
+    package init(host: any StashHost, page: any StashPageClient) {
         self.host = host
-        model.source = self
+        self.page = page
+        page.source = self
         watchChanges()
     }
 
@@ -39,21 +41,10 @@ public final class StashService: StashPageSource {
             for await change in changes where change != last {
                 last = change
                 guard let self else { return }
-                if change != nil { await self.model.reload() }
+                if change != nil { await self.page.reload() }
             }
         }
     }
-
-    /// The OneTab paste box of the Stashed page `key`, made on first use.
-    public func draft(for key: String) -> StashImportDraft {
-        if let draft = drafts[key] { return draft }
-        let draft = StashImportDraft()
-        drafts[key] = draft
-        return draft
-    }
-
-    /// Forgets the paste box of the Stashed page `key` once its tab closed.
-    public func dropDraft(_ key: String) { drafts[key] = nil }
 
     /// Whether `daemon` keeps stashes; without it no stash UI shows. Only this Mac's daemon.
     func serves(_ daemon: DaemonService) -> Bool { daemon.isLocal && daemon.supports(DaemonCapabilities.stash) }
@@ -74,7 +65,7 @@ public final class StashService: StashPageSource {
     public func stash(tabs: [ResourceID]) async throws -> String {
         let created: StateResourceClient.StashCreated
         do { created = try await state().stashTabs(tabs) } catch { throw Self.failure(error) }
-        await model.reload()
+        await page.reload()
         return created.stashID
     }
 
@@ -86,7 +77,7 @@ public final class StashService: StashPageSource {
             if let reason = unavailableReason(workspaces: true) { throw ActionFailure(message: reason) }
             created = try await state().stashWorkspaces(workspaces, name: name)
         } catch { throw Self.failure(error) }
-        await model.reload()
+        await page.reload()
         return created.stashID
     }
 
@@ -102,7 +93,7 @@ public final class StashService: StashPageSource {
             await host.localDaemon.store.applied(through: await connection.eventSequence())
             host.showRestored(reopened, asWorkspace: workspaces)
         }
-        await model.reload()
+        await page.reload()
     }
 
     /// This Mac's daemon's state client, when it keeps stashes.

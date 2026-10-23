@@ -1008,6 +1008,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHistory",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextIcons"
       ],
@@ -1617,8 +1618,7 @@
       "targets": [
         "CmuxNextCompat",
         "CmuxNextDaemon",
-        "CmuxNextDaemonService",
-        "CmuxNextHistory"
+        "CmuxNextDaemonService"
       ],
       "packages": []
     },
