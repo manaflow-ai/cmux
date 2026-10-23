@@ -9,11 +9,9 @@ enum SidebarStyle {
     /// How much shorter than the list's inset a row ends on the right: none. #22733 stopped the
     /// pills `Metrics.space4` short of the sidebar's edge; Leo 2026-10-21 took it back ("bring back
     /// the length, so we can have more content per sidebar row"). Pinned rows and list blocks
-    /// read it too, so every row still ends at one x.
+    /// read it too, so every row still ends at one x. (Kept when #23783's corner close was
+    /// reverted, Lawrence 2026-10-23: only the close's look went back.)
     static var rowTrailingTrim: CGFloat { 0 }
-    /// A workspace row's hover close (`SidebarDogEarButton`): the square on the row's top-right
-    /// corner its glyph is placed in; the cut in the row's fill is this or smaller (`SidebarCloseNotch`).
-    static var dogEarSide: CGFloat { controlSize + Metrics.space1 }
     static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// A listed tab's icon, sized to its caption-size title.
     static var tabIconSize: CGFloat { .iconRowSize(forLabelPointSize: subtitleFont.pointSize) }
@@ -26,11 +24,16 @@ enum SidebarStyle {
     /// A workspace row's leading glyph: the size an icon takes beside the
     /// row title (cap height and stroke matched to the text).
     static var kindGlyphSize: CGFloat { .iconRowSize(forLabelPointSize: titleFont.pointSize) }
-    /// Where a list row's title text starts when its leading icon slot begins at `leading`: one
-    /// `iconBox` slot, drawn or empty, then a Chrome-like gap after the glyph's drawing, so rows
-    /// with and without an icon line up (Lawrence 2026-10-21: "weird spacing").
-    static func titleTextX(leading: CGFloat) -> CGFloat {
-        leading + iconBox + Metrics.space3 - Swift.max(0, (iconBox - kindGlyphSize) / 2)
+    /// Where a list row's title text starts when its leading icon slot begins at `leading`.
+    ///
+    /// No icon (`iconSide` 0): at `leading`, as far left as the row allows (Lawrence 2026-10-23: "text
+    /// needs to be as left as possible (how it originally was)"; c779988d57d had kept an empty slot).
+    /// An icon: a Chrome-like 6 pt after the glyph's drawing (it draws at `kindGlyphSize`, centered in its
+    /// box). A color swatch: 6 pt after the swatch's box.
+    static func titleTextX(leading: CGFloat, iconSide: CGFloat, swatch: Bool = false) -> CGFloat {
+        guard iconSide > 0 else { return leading }
+        if swatch { return leading + iconSide + Metrics.space3 + Metrics.space1 }
+        return leading + iconSide + Metrics.space3 - Swift.max(0, (iconSide - kindGlyphSize) / 2)
     }
     /// An item's glyph on its `iconBox` well (the list look), clear of the well's edge.
     static var wellGlyphSize: CGFloat { Swift.max(.iconFloor, iconBox - Metrics.space2) }

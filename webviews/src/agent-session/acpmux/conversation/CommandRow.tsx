@@ -118,6 +118,7 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
             output={output}
             exitCode={failure?.exitCode ?? tool.exitCode}
             reveal={reveal}
+            live={running}
           />
         </div>
       )}
