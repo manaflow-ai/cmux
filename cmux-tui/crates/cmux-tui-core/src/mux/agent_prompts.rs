@@ -153,7 +153,14 @@ impl Mux {
         if texts.noted_questions.get(terminal).is_none_or(|(kept_by, _)| *kept_by != owner) {
             return None;
         }
-        let (_, question) = texts.noted_questions.remove(terminal)?;
+        let (_, mut question) = texts.noted_questions.remove(terminal)?;
+        // The same question's second hook (PermissionRequest) names no tool use: it keeps
+        // the first hook's, so the phone still matches an answer to it.
+        if let Some((_, previous)) = texts.questions.get(terminal) {
+            let mut carried = (*question).clone();
+            crate::agent_hook_question::carry_tool_use_id(&mut carried, Some(previous));
+            question = Arc::new(carried);
+        }
         texts.questions.insert(terminal.clone(), (ledger_id.to_owned(), Arc::clone(&question)));
         Some(question)
     }

@@ -110,7 +110,18 @@ pub fn agent_hook_live_question(native_event: &str, native: &Value) -> Option<St
 }
 
 /// See `the_second_hook_keeps_the_first_hooks_tool_use_id`.
-pub(crate) fn carry_tool_use_id(_question: &mut Value, _previous: Option<&Value>) {}
+pub(crate) fn carry_tool_use_id(question: &mut Value, previous: Option<&Value>) {
+    if question.get("tool_use_id").is_some() {
+        return;
+    }
+    let Some(previous) = previous else { return };
+    if previous.get("questions") != question.get("questions") {
+        return;
+    }
+    if let (Some(id), Some(object)) = (previous.get("tool_use_id"), question.as_object_mut()) {
+        object.insert("tool_use_id".into(), id.clone());
+    }
+}
 
 /// `question` as JSON text within `MAX_QUESTION_JSON_BYTES`: option descriptions go
 /// first, then the last questions; never a question cut mid-text.
