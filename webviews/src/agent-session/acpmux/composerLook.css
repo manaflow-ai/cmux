@@ -134,16 +134,17 @@
 
 /* The look dots in a chat (LookSwitch.tsx): the New Tab page's dots (newtab/screen.css .nt-style),
    centered on the composer, in one element after the box for both looks (ComposerBox.tsx), so a look
-   switch keeps the dots and their focus. With Claude's look the element is empty height after the
-   quiet row and the dots sit over the row's empty middle, out of its flow, so the row lays out as
-   without them; with Codex's it is the band under the box, the room the composer's bottom padding
-   held. They show while the pointer is over that area or a
-   dot has the keyboard, at once, and fade when it leaves (an exit, never an entry). */
+   switch keeps the dots and their focus. The element is the same band in both looks (Leo 2026-10-23:
+   "the dot switches thing, like it should just be, like in the same kind of spot"): 16 px under the composer's
+   last part, Claude's quiet row or Codex's box, the room the row's bottom margin and the composer's
+   bottom padding held. No row and no edge runs through it, and a look's pick leaves the dots where
+   they were. They show while the pointer is over the quiet row or the band, or a dot has the
+   keyboard, at once, and fade when it leaves (an exit, never an entry). */
 .acpmux-look-slot {
   position: absolute;
   left: 50%;
   width: 0;
-  height: 24px;
+  height: 16px;
 }
 .nt-style.acpmux-look-dots {
   top: 0;
@@ -165,27 +166,20 @@
   padding: 0 0 0 4px;
   transform: translateY(-50%);
 }
-/* Codex's look: the band under the box takes the composer's bottom padding. */
-.acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-under) {
+/* The band is the composer's bottom room in both looks: it takes the composer's bottom padding, and
+   the quiet row's own bottom margin (composerLocation.css .acpmux-composer-foot). */
+.acpmux-composer:has(> .acpmux-composer-under) {
   padding-bottom: 0;
+}
+.acpmux-composer:has(> .acpmux-composer-under) .acpmux-composer-foot {
+  margin-bottom: 0;
 }
 .acpmux-composer-under {
   position: relative;
   height: 16px;
 }
-.acpmux-composer-under:not([data-beside-foot]) .acpmux-look-slot {
+.acpmux-composer-under :is(.nt-style-option, .nt-style-mark) {
   height: 16px;
-}
-.acpmux-composer-under:not([data-beside-foot]) :is(.nt-style-option, .nt-style-mark) {
-  height: 16px;
-}
-/* Claude's look: no height of its own after the quiet row; the 24px dots ride up over the row's
-   middle (the row is 28px with a 10px bottom margin, composerLocation.css .acpmux-composer-foot). */
-.acpmux-composer-under[data-beside-foot] {
-  height: 0;
-}
-.acpmux-composer-under[data-beside-foot] .acpmux-look-slot {
-  bottom: 12px;
 }
 @media (prefers-reduced-motion: reduce) {
   .nt-style.acpmux-look-dots {

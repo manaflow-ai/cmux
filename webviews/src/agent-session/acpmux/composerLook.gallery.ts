@@ -58,6 +58,50 @@ const ALT_TEXT_ROW = `
 :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-access .acpmux-icon { display: none; }
 :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-model, .acpmux-effort) .acpmux-picker-button { color: var(--agent-soft); }`;
 
+/// Where the page's dots could sit (Leo 2026-10-23: "the dot switches thing, like it should just be,
+/// like in the same kind of spot"), drawn for the pick and not shipped: a still copy of the dots in
+/// the composer's row, at its right end before the model or at its left end, or the dots right
+/// under the composer wherever it sits. The shipped place is the page's foot, with the composer's
+/// room kept over the dots (newtab/screen.css): on the stage page that is right under the composer.
+type DotsPlace = "row-end" | "row-start" | "under";
+const PLACE_CSS = `
+.nt-alt-dots { position: static; display: flex; flex: none; align-items: center; transform: none; }
+.nt-alt-dots > .nt-style { position: relative; bottom: auto; left: auto; transform: none; }
+.nt-alt-dots .nt-style-option { flex: none; width: 24px; padding: 0; }
+.nt-alt-dots[data-at="row-start"] { order: -3; margin-inline-end: 6px; }
+.nt-pickers > .nt-alt-dots[data-at="row-start"] { order: 0; }
+.nt-alt-dots[data-at="row-end"] { margin-inline-end: 4px; }
+.nt-composer[data-composer-look="codex"] .nt-alt-dots[data-at="row-end"] { order: 3; margin-inline-start: auto; }
+`;
+async function placeDots(ctx: PlayContext, which: ComposerLook, place: DotsPlace) {
+  await look(ctx, which, PLACE_CSS);
+  const doc = ctx.document;
+  await ctx.waitFor(() => doc.querySelector(".nt-page-dots"));
+  const dots = doc.querySelector<HTMLElement>(".nt-page-dots")!;
+  const composer = doc.querySelector<HTMLElement>(".nt-composer")!;
+  if (place === "under") {
+    const last = (composer.querySelector(".nt-foot") ?? composer.querySelector(".nt-box"))!.getBoundingClientRect();
+    const host = (dots.offsetParent ?? doc.body).getBoundingClientRect();
+    dots.style.bottom = `${host.bottom - last.bottom - 2 - 24}px`;
+    return;
+  }
+  const row = (composer.querySelector<HTMLElement>(".acpmux-composer-foot") ?? composer.querySelector(".nt-pickers"))!;
+  const copy = dots.cloneNode(true) as HTMLElement;
+  copy.className = "nt-alt-dots";
+  copy.dataset.at = place;
+  copy.inert = true;
+  dots.style.visibility = "hidden";
+  const model = row.querySelector(".acpmux-model");
+  if (place === "row-end" && model instanceof HTMLElement) {
+    model.before(copy);
+    model.style.marginInlineStart = "0";
+  } else row.prepend(copy);
+}
+
+/// The stage page (the project card, quick actions and chats on): the composer at the page's foot,
+/// where its last row met the dots (Leo 2026-10-23).
+const stagePage = () => newTab({ template: "minimal", pageWidgets: ["greeting", "projects", "actions", "chats"] });
+
 const chatHeight = 360;
 
 export default agentPaneEntry({
@@ -79,7 +123,7 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "claude"),
     },
     "claude-chat-dots": {
-      note: "Claude's look with the pointer in the quiet row's empty middle: the two dots show there, Claude marked.",
+      note: "Claude's look with the pointer in the quiet row: the two dots show in the band under it, Claude marked, where Codex's look has them too.",
       snapshot: startedChat(),
       play: async (ctx) => {
         await look(ctx, "claude");
@@ -92,7 +136,7 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "codex"),
     },
     "codex-chat-dots": {
-      note: "Codex's look with the pointer in the band under the box (the dead space Codex leaves): the two dots show there, Codex marked.",
+      note: "Codex's look with the pointer in the band under the box (the dead space Codex leaves): the two dots show there, Codex marked, on the same line as in Claude's look.",
       snapshot: startedChat(),
       play: async (ctx) => {
         await look(ctx, "codex");
@@ -144,6 +188,62 @@ export default agentPaneEntry({
       ready: newTab({ template: "cards" }),
       snapshot: noChat(manySessions(6)),
       play: (ctx) => look(ctx, "codex"),
+    },
+    "newtab-stage-claude": {
+      note: "Shipped: Claude's look on the stage page is one row under the box, the folder, the computer and the mode, then the model and effort; nothing over the box. The dots keep their own line at the page's foot, clear of the row.",
+      height: 520,
+      ready: stagePage(),
+      snapshot: noChat(manySessions(6)),
+      play: (ctx) => look(ctx, "claude"),
+    },
+    "newtab-stage-codex": {
+      note: "Shipped: Codex's look on the same page. The dots stay on the same line, clear of the box's bottom edge, where Claude's look has them.",
+      height: 520,
+      ready: stagePage(),
+      snapshot: noChat(manySessions(6)),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "newtab-stage-claude-alt-row-end": {
+      note: "Placement A (not shipped): the dots at the right end of Claude's one row, before the model.",
+      height: 520,
+      ready: stagePage(),
+      snapshot: noChat(manySessions(6)),
+      play: (ctx) => placeDots(ctx, "claude", "row-end"),
+    },
+    "newtab-stage-codex-alt-row-end": {
+      note: "Placement A (not shipped): the dots in Codex's row inside the box, before the model. A look's pick moves them up or down a row.",
+      height: 520,
+      ready: stagePage(),
+      snapshot: noChat(manySessions(6)),
+      play: (ctx) => placeDots(ctx, "codex", "row-end"),
+    },
+    "newtab-stage-claude-alt-row-start": {
+      note: "Placement C (not shipped): the dots at the left end of Claude's one row, before the folder.",
+      height: 520,
+      ready: stagePage(),
+      snapshot: noChat(manySessions(6)),
+      play: (ctx) => placeDots(ctx, "claude", "row-start"),
+    },
+    "newtab-stage-codex-alt-row-start": {
+      note: "Placement C (not shipped): the dots at the left end of Codex's row inside the box.",
+      height: 520,
+      ready: stagePage(),
+      snapshot: noChat(manySessions(6)),
+      play: (ctx) => placeDots(ctx, "codex", "row-start"),
+    },
+    "newtab-claude-alt-under": {
+      note: "Placement B (not shipped): on the Minimal page, the dots right under the composer, mid-page.",
+      height: 520,
+      ready: newTab(),
+      snapshot: noChat(manySessions(6)),
+      play: (ctx) => placeDots(ctx, "claude", "under"),
+    },
+    "newtab-codex-alt-under": {
+      note: "Placement B (not shipped): the same with Codex's look; the composer's height differs, so a look's pick moves the dots.",
+      height: 520,
+      ready: newTab(),
+      snapshot: noChat(manySessions(6)),
+      play: (ctx) => placeDots(ctx, "codex", "under"),
     },
   },
 });

@@ -146,12 +146,12 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     const page = await context.newPage();
     await open(page, "agent-pane.composer", "quiet-chips");
     const form = ".acpmux-composer";
-    // Claude's look: the quiet row under the box holds the dots, unseen at rest.
+    // Claude's look: the band under the quiet row holds the dots, unseen at rest.
     expect(await page.$(`${form}[data-composer-look]`)).toBeNull();
-    // The dots sit over the quiet row, inside its height.
+    // The dots sit under the quiet row, on their own line (composer-one-row-dots.test.ts).
     const row = (await (await page.$(`${form} .acpmux-composer-foot`))!.boundingBox())!;
     const group = (await (await page.$(`${form} .acpmux-look-dots`))!.boundingBox())!;
-    expect(group.y >= row.y && group.y + group.height <= row.y + row.height).toBe(true);
+    expect(group.y >= row.y + row.height - 0.5).toBe(true);
     expect(await shown(page, form)).toBe(false);
     expect(await dots(page, `${form} .acpmux-look-dots`)).toEqual([
       { value: "claude", name: "Claude", checked: true },
