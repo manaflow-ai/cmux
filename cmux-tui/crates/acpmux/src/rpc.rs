@@ -220,6 +220,9 @@ pub mod method {
     /// Turn one of a chat's tools on or off (`hub/tools.rs`): `{sessionId,
     /// id, enabled}`.
     pub const MUX_SET_TOOLS: &str = "_acpmux/set_tools";
+    /// Reconnect one of a Claude Code chat's MCP servers (`hub/tools.rs`):
+    /// `{sessionId, server}`.
+    pub const MUX_MCP_RECONNECT: &str = "_acpmux/mcp/reconnect";
     pub const SESSION_UPDATE: &str = "session/update";
     pub const SESSION_REQUEST_PERMISSION: &str = "session/request_permission";
     pub const CANCEL_REQUEST: &str = "$/cancel_request";

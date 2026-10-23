@@ -178,6 +178,10 @@ pub struct SessionMeta {
     pub turn_count: u64,
     #[serde(default)]
     pub usage: Option<Value>,
+    /// Claude Code's newest /context breakdown (`claude_stdio::context_breakdown`),
+    /// sent after each turn; none from any other harness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_breakdown: Option<Value>,
     /// The agent's newest `available_commands_update` (its slash commands), so
     /// opening a chat names them without reading its log back to the start,
     /// where an agent lists them once (perf100).

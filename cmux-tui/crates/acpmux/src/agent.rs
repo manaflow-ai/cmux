@@ -10,7 +10,7 @@ use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
@@ -39,9 +39,13 @@ pub enum Inbound {
         method: String,
         params: Option<Value>,
     },
+    /// `agent` is the [`ChildAgent::generation`] it came from: the hub drops what an agent
+    /// already replaced still had in flight where it would stand for the new one (a hosted
+    /// agent has no pid of its own, so the pid cannot tell two of them apart).
     Notification {
         method: String,
         params: Option<Value>,
+        agent: u64,
     },
     /// One stderr line; `host_seq` names the agent host entry it came from.
     Stderr(String, Option<u64>),
@@ -136,6 +140,9 @@ struct Pending {
 
 const ORPHAN_ANSWERS: usize = 64;
 
+/// The next [`ChildAgent::generation`]: one per agent this daemon starts or adopts.
+static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
+
 fn key(id: &Id) -> String {
     id.to_string()
 }
@@ -148,6 +155,9 @@ pub struct ChildAgent {
     pending: Arc<Mutex<Pending>>,
     tap: Tap,
     pub pid: Option<u32>,
+    /// This agent among every one the daemon ran, never reused: what its notifications carry
+    /// (`Inbound::Notification`), so the hub knows one from an agent it already replaced.
+    pub generation: u64,
     /// Present when the child speaks Claude's stream-json instead of ACP
     /// and runs directly under acpmux (a host owns its own translator).
     pub translator: Option<Arc<crate::claude_stdio::Translator>>,
@@ -158,6 +168,9 @@ pub struct ChildAgent {
     /// Its cmux MCP server lists every tool (`agent_tools::lists_all_tools`,
     /// decided at its session/new or load), for a fork through it.
     pub all_tools: std::sync::atomic::AtomicBool,
+    /// Set once the agent is replaced or stopped (`retire`): a /context answer it still sends
+    /// is not the chat's context any more, and is neither logged nor handed to the hub.
+    retired: std::sync::atomic::AtomicBool,
     /// The question preview format its command was pinned to, for a direct
     /// start (a host's is recorded where the host starts, `hub/hosts.rs`).
     pub preview_format: Option<crate::hub::questions::PreviewFormat>,
@@ -261,6 +274,8 @@ impl ChildAgent {
             codex,
             hosted: None,
             all_tools: std::sync::atomic::AtomicBool::new(false),
+            retired: std::sync::atomic::AtomicBool::new(false),
+            generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
             preview_format,
             #[cfg(windows)]
             job,
@@ -374,6 +389,8 @@ impl ChildAgent {
                             s.push('\n');
                             let _ = agent_for_exit.stdin_tx.send(s).await;
                         }
+                        let mut translated = translated;
+                        translated.retain(|m| !agent_for_exit.stale_context(m));
                         // Translated ACP messages go through the same tap as
                         // native ACP traffic, so the log and viewers see them.
                         for m in &translated {
@@ -441,8 +458,13 @@ impl ChildAgent {
                                 let _ = inbound.send(Inbound::Request { id, method, params }).await;
                             }
                             Message::Notification { method, params } => {
-                                let _ =
-                                    inbound.send(Inbound::Notification { method, params }).await;
+                                let _ = inbound
+                                    .send(Inbound::Notification {
+                                        method,
+                                        params,
+                                        agent: agent_for_exit.generation,
+                                    })
+                                    .await;
                             }
                         }
                     }
@@ -452,7 +474,13 @@ impl ChildAgent {
                     for m in tr.end_background_shells().await {
                         tap(Direction::In, &m, None);
                         if let Message::Notification { method, params } = m {
-                            let _ = inbound.send(Inbound::Notification { method, params }).await;
+                            let _ = inbound
+                                .send(Inbound::Notification {
+                                    method,
+                                    params,
+                                    agent: agent_for_exit.generation,
+                                })
+                                .await;
                         }
                     }
                 }
@@ -494,7 +522,24 @@ impl ChildAgent {
         None
     }
 
+    /// Mark the agent replaced (a failover) or stopping: a /context breakdown it still sends,
+    /// answering a turn that ended before, is dropped (`stale_context`).
+    pub fn retire(&self) {
+        self.retired.store(true, Ordering::SeqCst);
+    }
+
+    /// A retired agent's /context breakdown update.
+    fn stale_context(&self, m: &Message) -> bool {
+        let Message::Notification { method, params } = m else { return false };
+        self.retired.load(Ordering::SeqCst)
+            && method == crate::rpc::method::SESSION_UPDATE
+            && params
+                .as_ref()
+                .is_some_and(|p| p.pointer("/update/_meta/acpmux/contextBreakdown").is_some())
+    }
+
     pub async fn kill(&self) {
+        self.retire();
         if self.hosted.is_some() {
             self.terminate(KILL_GRACE).await;
             return;
@@ -538,6 +583,7 @@ impl ChildAgent {
     /// to `grace` for it to exit, then SIGKILL the group (stragglers
     /// included). Never waits on a lock or a pipe without a deadline.
     pub async fn terminate(&self, grace: std::time::Duration) {
+        self.retire();
         if let Some(h) = &self.hosted {
             if h.exited.load(Ordering::SeqCst) || h.link().is_closed() {
                 return;
@@ -691,7 +737,10 @@ impl ChildAgent {
                     let _ = cx.inbound.send(Inbound::Request { id, method, params }).await;
                 }
                 Message::Notification { method, params } => {
-                    let _ = cx.inbound.send(Inbound::Notification { method, params }).await;
+                    let _ = cx
+                        .inbound
+                        .send(Inbound::Notification { method, params, agent: self.generation })
+                        .await;
                 }
             }
         }
@@ -724,6 +773,35 @@ impl ChildAgent {
             return Err(RpcError::internal(e.to_string()));
         }
         rx.await.unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped")))
+    }
+
+    /// [`Self::request`], given up after `limit`: the pending entry goes too, so an agent that
+    /// never answers leaves nothing waiting, and a late answer to this id (never reused: ids
+    /// only grow) finds no one and is dropped. None on timeout.
+    pub async fn request_within(
+        &self,
+        method: &str,
+        params: Value,
+        limit: std::time::Duration,
+    ) -> Option<Result<Value, RpcError>> {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let (tx, rx) = oneshot::channel();
+        self.pending.lock().await.map.insert(key(&Value::from(id)), tx);
+        let msg = Message::request(id, method, params);
+        if let Err(e) = self.write(&msg).await {
+            self.pending.lock().await.map.remove(&key(&Value::from(id)));
+            return Some(Err(RpcError::internal(e.to_string())));
+        }
+        match tokio::time::timeout(limit, rx).await {
+            Ok(answer) => Some(
+                answer
+                    .unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped"))),
+            ),
+            Err(_) => {
+                self.pending.lock().await.map.remove(&key(&Value::from(id)));
+                None
+            }
+        }
     }
 
     pub async fn notify(&self, method: &str, params: Value) -> Result<()> {
@@ -933,6 +1011,8 @@ impl ChildAgent {
                 exit: tokio::sync::Notify::new(),
             }),
             all_tools: std::sync::atomic::AtomicBool::new(false),
+            retired: std::sync::atomic::AtomicBool::new(false),
+            generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
             preview_format: None,
             #[cfg(windows)]
             job: None,
@@ -1004,6 +1084,10 @@ impl ChildAgent {
             },
             Entry::In { msg } => {
                 let Ok(m) = Message::from_value(msg) else { return true };
+                // Dropped as the direct reader drops it; the entry counts as handled.
+                if self.stale_context(&m) {
+                    return true;
+                }
                 if !(self.tap)(Direction::In, &m, Some(h)) {
                     return false;
                 }
@@ -1027,7 +1111,9 @@ impl ChildAgent {
                         let _ = inbound.send(Inbound::Request { id, method, params }).await;
                     }
                     Message::Notification { method, params } => {
-                        let _ = inbound.send(Inbound::Notification { method, params }).await;
+                        let _ = inbound
+                            .send(Inbound::Notification { method, params, agent: self.generation })
+                            .await;
                     }
                 }
                 true
