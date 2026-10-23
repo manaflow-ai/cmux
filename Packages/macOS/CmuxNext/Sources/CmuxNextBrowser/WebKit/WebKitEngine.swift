@@ -118,22 +118,14 @@ public final class WebKitEngine: BrowserEngine {
         }
     }
 
-    /// Sets `tab` to the display's full rate or near 60 fps. WebKit reads the
-    /// rate only when the page's visibility changes, so a page on screen is
-    /// re-shown under a snapshot when its rate changes there; a page off
-    /// screen takes the rate when it is next shown.
+    /// Sets `tab` to the display's full rate or near 60 fps, re-showing a
+    /// page on screen (``WebKitRenderRate/set(fullRate:on:replacing:reshowsOnScreen:displayFramesPerSecond:snapshot:clock:)``).
     private func applyRenderRate(fullRate: Bool, to tab: WebKitTab) {
-        let webView = tab.webView, preferences = webView.configuration.preferences
-        // A WebKit without the feature has no rate to change.
-        guard !tab.isClosed, let near60 = preferences.isWebKitFeatureEnabled(WebKitRenderRate.near60FPSFeature),
-              near60 == fullRate, WebKitRenderRate.apply(fullRate: fullRate, to: preferences),
-              let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return }
-        // A display at 60 Hz or less renders the same either way: no re-show.
-        let display = displayFramesPerSecond(window)
-        guard WebKitRenderRate.framesPerSecond(lowPowerMode: !fullRate, displayMaxFPS: display)
-                != WebKitRenderRate.framesPerSecond(lowPowerMode: fullRate, displayMaxFPS: display) else { return }
-        let snapshot = rateReshowSnapshot ?? { [weak webView] in try? await webView?.takeSnapshot(configuration: nil) }
-        tab.rateReshow = WebKitRenderRate.reshow(webView, replacing: tab.rateReshow, snapshot: snapshot, clock: rateReshowClock)
+        guard !tab.isClosed,
+              let reshow = WebKitRenderRate.set(fullRate: fullRate, on: tab.webView, replacing: tab.rateReshow,
+                                                displayFramesPerSecond: displayFramesPerSecond,
+                                                snapshot: rateReshowSnapshot, clock: rateReshowClock) else { return }
+        tab.rateReshow = reshow
     }
 
     private func makeConfiguration(for profile: BrowserProfileID) -> WKWebViewConfiguration {

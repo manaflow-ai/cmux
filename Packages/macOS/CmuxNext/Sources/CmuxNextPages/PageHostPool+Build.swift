@@ -34,7 +34,7 @@ extension PageHostPool {
     private func build() async {
         defer { building = false }
         guard let recipe = measure("pool.makeSpare.configure", {
-            PageWebView.pooledHostRecipe(.settings, options: options)
+            spareRecipe()
         }) else { return }
         await Self.nextTurn()
         let host = measure("pool.makeSpare.create") { PageWebView(recipe: recipe) }
@@ -56,6 +56,12 @@ extension PageHostPool {
         }
         spareReady = true
         onSpareReady?(host)
+    }
+
+    /// The configuration the pool's next spare is made from: its options and Low Power Mode.
+    /// `servedRoot` is where the spare's pages are served from (tests pass a temporary one).
+    func spareRecipe(servedRoot: @escaping (PageDescriptor) -> URL? = { PageWebView.servedRoot(for: $0) }) -> PooledHostRecipe? {
+        PageWebView.pooledHostRecipe(.settings, options: options, lowPowerMode: lowPowerMode, servedRoot: servedRoot)
     }
 
     private func measure<T>(_ name: String, _ body: () -> T) -> T {

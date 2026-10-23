@@ -25,6 +25,8 @@ public final class PageHostPool {
 
     let policy: Policy
     let options: PageEngineOptions
+    /// The Low Power Mode every spare renders by and follows.
+    let lowPowerMode: LowPowerMode
     let activity: () -> UInt64
     let isTrackingMenu: () -> Bool
     let timer: DemandTimer
@@ -48,12 +50,15 @@ public final class PageHostPool {
         init(_ view: PageWebView) { self.view = view }
     }
 
-    public init(policy: Policy = Policy(), options: PageEngineOptions = .standard,
+    /// `lowPowerMode` is the Low Power Mode every spare renders by and follows: the app passes
+    /// `LowPowerMode.system`, tests their own.
+    public init(policy: Policy = Policy(), options: PageEngineOptions = .standard, lowPowerMode: LowPowerMode,
                 clock: any Clock<Duration> = ContinuousClock(),
                 activity: @escaping () -> UInt64 = { ExpectedActivity.shared.total },
                 isTrackingMenu: @escaping () -> Bool = { RunLoop.main.currentMode == .eventTracking }) {
         self.policy = policy
         self.options = options
+        self.lowPowerMode = lowPowerMode
         self.activity = activity
         self.isTrackingMenu = isTrackingMenu
         timer = DemandTimer(owner: "PageHostPool.build", clock: clock)
