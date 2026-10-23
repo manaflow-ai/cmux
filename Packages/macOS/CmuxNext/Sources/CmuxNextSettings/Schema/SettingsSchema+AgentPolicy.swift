@@ -274,10 +274,16 @@ extension SettingsSchema {
         "browser.openTerminalLinksInCmuxBrowser": .privacy,
         // The app that opens your files from a menu: an agent must not pick what runs them.
         "files.textEditor": .userOnly,
+        // Where a terminal program's URLs open, and a command that may run for each: an agent must
+        // not pick what runs or move a sign-in page into a browser it drives.
+        "terminal.linkOpener.default": .userOnly,
+        "terminal.linkOpener.rules": .userOnly,
         // Which of the person's editor settings files cmux reads (VS Code, Zed...).
         "editor.importFrom": .userOnly,
         "browser.hostsToOpenInEmbeddedBrowser": .privacy,
         "browser.urlsToAlwaysOpenExternally": .privacy,
+        // On, the sidebar and New Tab show what other apps play: an agent must not turn on reading them.
+        "sidebar.nowPlaying.otherApps": .privacy,
         // Whether attached photos and videos send their location.
         "home.attachments.keepLocation": .privacy,
         // Where the person's direct messages and group chats go: an agent must not move them to another server.
