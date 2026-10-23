@@ -1,5 +1,6 @@
 public import CmuxNextAgentActivity
 public import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 import os
@@ -35,9 +36,9 @@ public final class AgentTurnStateFeed {
     private let source: String
     private let lanes: AgentLaneStore
     private var subscription: AgentActivityLineConnection?
-    private var directoryWatch: (any DispatchSourceFileSystemObject)?
+    private var directoryWatch: MainDirectoryWatch?
     private var watchedDirectory: String?
-    private var reconnect: Task<Void, Never>?
+    private var reconnect: OwnedTask?
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-turn-states")
 
@@ -68,22 +69,14 @@ public final class AgentTurnStateFeed {
         if subscription == nil, directoryWatch == nil, reconnect == nil { connect() }
     }
 
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            reconnect?.cancel()
-            subscription?.cancel()
-            directoryWatch?.cancel()
-        }
-    }
+    // No deinit: the reconnect task, the subscription and the directory watch each end when
+    // released (OwnedTask, AgentActivityLineConnection, MainDirectoryWatch), on any thread.
 
     // MARK: Watch
 
     private func connect() {
         reconnect = nil
         guard FileManager.default.fileExists(atPath: socket) else { return watchForSocket() }
-        directoryWatch?.cancel()
         directoryWatch = nil
         watchedDirectory = nil
         logger.info("agent turn states: watching \(self.socket, privacy: .public)")
@@ -196,14 +189,13 @@ public final class AgentTurnStateFeed {
         lanes.lanes = [:]
         lanes.live = false
         logger.info("agent turn states: watch closed")
-        reconnect?.cancel()
-        reconnect = Task { [weak self] in
+        reconnect = OwnedTask(Task { [weak self] in
             guard var backoff = self?.backoff else { return }
             // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
             do { try await backoff.wait(owner: "agent-turn-states.reconnect") } catch { return }
             self?.backoff = backoff
             self?.connect()
-        }
+        })
     }
 
     /// Waits for the socket to appear: watches the nearest directory on its
@@ -216,17 +208,10 @@ public final class AgentTurnStateFeed {
         }
         guard directory != watchedDirectory else { return }
         logger.info("agent turn states: waiting for the socket in \(directory, privacy: .public)")
-        directoryWatch?.cancel()
         directoryWatch = nil
-        let fd = open(directory, O_EVTONLY)
-        guard fd >= 0 else { return }
-        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
-        source.setEventHandler { [weak self] in
-            Task { @MainActor in self?.connect() }
-        }
-        source.setCancelHandler { close(fd) }
-        directoryWatch = source
+        // The connect runs as its own main-actor job after the event (unchanged).
+        guard let watch = MainDirectoryWatch(directory, { [weak self] in Task { @MainActor in self?.connect() } }) else { return }
+        directoryWatch = watch
         watchedDirectory = directory
-        source.resume()
     }
 }
