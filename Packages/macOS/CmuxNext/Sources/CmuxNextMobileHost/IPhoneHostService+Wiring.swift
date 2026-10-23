@@ -1,5 +1,6 @@
 public import CmuxNextAgentPane
 public import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextDaemon
 public import CmuxNextDaemonService
 import CmuxNextMobile
@@ -120,5 +121,49 @@ extension IPhoneHostService {
             userID: user.id, teamID: MobileHostLaunch.teamID(selected: team, userID: user.id),
             teamName: team.flatMap { id in auth.teams.first { $0.id == id }?.displayName },
             email: user.primaryEmail)
+    }
+
+    /// Hands acpmux the folders of this Mac's workspaces while iPhone connections are allowed
+    /// for a signed-in account (none otherwise), so a phone's agent chat starts there.
+    func followWorkspaceFolders() {
+        followingFolders?.cancel()
+        // task-owner: lives as long as the app; re-reads the folders on each daemon tree change
+        followingFolders = Task { [weak self] in
+            for await folders in ObservationStream({ [weak self] in
+                guard let self, allowed, account != nil else { return [String]() }
+                return dependencies?.workspaceFolders() ?? []
+            }) {
+                guard let self else { return }
+                if approverSync == nil, !folders.isEmpty, let environment = dependencies?.acpmuxEnvironment {
+                    approverSync = MobileHostApproverSync(environment: environment)
+                }
+                approverSync?.updateWorkspaceRoots(folders)
+            }
+        }
+    }
+
+    /// Hands acpmux the agent and model this Mac's New Tab page picked last while iPhone
+    /// connections are allowed for a signed-in account, so a phone's New Agent Chat starts
+    /// where this Mac's does (the Mac keeps them locally: `newTab.lastAgent`, `newTab.lastPicks`).
+    func followNewChatPicks() {
+        followingPicks?.cancel()
+        // task-owner: lives as long as the app; re-reads the picks on each remembered pick
+        followingPicks = Task { [weak self] in
+            for await picks in ObservationStream({ [weak self] () -> NewChatPicks? in
+                guard let self, allowed, account != nil else { return nil }
+                return dependencies?.newChatPicks()
+            }) {
+                guard let self else { return }
+                guard let picks, !picks.isEmpty else {
+                    // Off, signed out or nothing picked: acpmux forgets what it holds.
+                    approverSync?.updateNewChatPicks(nil)
+                    continue
+                }
+                if approverSync == nil, let environment = dependencies?.acpmuxEnvironment {
+                    approverSync = MobileHostApproverSync(environment: environment)
+                }
+                approverSync?.updateNewChatPicks(picks.params)
+            }
+        }
     }
 }

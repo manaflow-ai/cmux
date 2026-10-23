@@ -29,6 +29,21 @@ struct PhoneAccessGateTests {
         #expect(error["code"] as? String == "forbidden")
     }
 
+    /// Fails closed: until the app wires `phone.newDevices` into it, the gate admits no phone, and
+    /// once wired it admits exactly whom the decision admits.
+    @Test func anUnwiredGateAdmitsNobody() async {
+        let gate = PhoneAccessGate()
+        let phone = MobileHostPairRequest(phoneDeviceID: "ab", name: "iPhone", identityKey: "ab", approvalKey: "", transport: .iroh)
+        #expect(!(await gate.admits(phone)))
+        gate.setAdmission({ $0.phoneDeviceID == "ab" })
+        #expect(await gate.admits(phone))
+        var other = phone
+        other.phoneDeviceID = "cd"
+        #expect(!(await gate.admits(other)))
+        gate.setAdmission(nil)
+        #expect(!(await gate.admits(phone)))
+    }
+
     @Test func compatStillListsWhileOff() async throws {
         let session = MobileCompatSession(backend: FakeCompatBackend(tree: DaemonTree()), host: Self.host,
                                           emit: { _ in }, access: PhoneAccessGate(allowsStartingSessions: false))

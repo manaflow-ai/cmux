@@ -98,16 +98,19 @@ public final class IPhoneHostService {
     }
 
     /// `mobile.allowIPhoneConnections`, as the settings file has it.
-    private(set) var allowed = false
+    internal(set) var allowed = false
     private(set) var account: Account?
     private(set) var state = MobileHostState()
     /// The account's phones on the mobile service (Settings > Mobile's list with Remove).
-    private(set) var knownPhones: [MobileHostKnownPhone] = []
+    internal(set) var knownPhones: [MobileHostKnownPhone] = []
     /// Why the last list read or removal failed, shown under the list; nil when it worked.
     private(set) var phonesError: String?
-    /// The phones the signed-in user allowed on this Mac (cmux-next-ios verify/phone-approvals.md).
-    /// Settings > Mobile marks them; Remove (or ``revokePhone(id:)``) forgets one.
+    /// The phones the signed-in user allowed on this Mac (cmux-next-ios verify/phone-approvals.md),
+    /// hostd's and the Iroh link's, as ``pairedStore`` has them. Settings > Mobile lists them;
+    /// Remove (or ``revokePhone(id:)``) forgets one.
     internal(set) var paired: MobileHostPairedDevices?
+    /// The one allowed-phones list, which the Iroh link (``MobileHostService``) checks and adds to too.
+    public let pairedStore = MobileHostPairedStore()
     /// The owner removed this Mac from the account's devices (from a phone or the API).
     /// hostd stays stopped until the person allows iPhone connections again: Allow Again,
     /// the setting off and on, or signing in again. Then it registers as a new device.
@@ -129,8 +132,8 @@ public final class IPhoneHostService {
     /// Observers that show a waiting prompt once a cmux window is on screen.
     @ObservationIgnored var pairWindowWatch: [any NSObjectProtocol] = []
     @ObservationIgnored var approverSync: MobileHostApproverSync?
-    @ObservationIgnored private var followingFolders: Task<Void, Never>?
-    @ObservationIgnored private var followingPicks: Task<Void, Never>?
+    @ObservationIgnored var followingFolders: Task<Void, Never>?
+    @ObservationIgnored var followingPicks: Task<Void, Never>?
     @ObservationIgnored private var pairingWatch: Task<Void, Never>?
     /// The one reconcile in flight; each waits for the previous one.
     @ObservationIgnored private var applying: Task<Void, Never>?
@@ -143,6 +146,10 @@ public final class IPhoneHostService {
 
     /// A host that runs nothing until it is wired and an account with the setting on arrives.
     public init() {
+        pairedStore.observe { [weak self] _ in
+            // task-owner: one main-actor hop per change of the shared list; ends at once
+            Task { @MainActor in self?.syncPaired() }
+        }
         let states = supervisor.states
         // task-owner: lives as long as the app; follows the supervisor's state stream
         watching = Task { [weak self] in
@@ -193,6 +200,8 @@ public final class IPhoneHostService {
     /// hostd, and re-reads the list. A phone still signed in to the account registers again
     /// when it next connects.
     public func removePhone(id: String) async {
+        // An Iroh entry (cmux next) is only on this Mac's list: forgetting it closes its sessions.
+        if pairedStore.contains(id, transport: .iroh) { return revokePhone(id: id) }
         guard let dependencies, let phone = knownPhones.first(where: { $0.id == id }) else { return }
         do {
             try await MobileHostDeviceDirectory(baseURL: dependencies.baseURL).remove(phone, token: dependencies.accessToken(false))
@@ -211,7 +220,8 @@ public final class IPhoneHostService {
     /// The account changed (sign-in, sign-out, team switch).
     public func accountChanged(_ account: Account?) {
         guard account != self.account else { return }
-        let signedOut = account == nil && self.account != nil
+        let previous = self.account?.userID
+        let signedOut = account == nil ? previous : nil
         // Signing out after a removal and signing in again allows connections again. (A
         // relaunch restores the session without a sign-out, so the removal holds.)
         if removed, account == nil { signedOutSinceRemoval = true }
@@ -220,7 +230,9 @@ public final class IPhoneHostService {
             clearRemoval()
         }
         self.account = account
-        loadPaired(signedOut: signedOut)
+        // The Iroh link may load the shared list first, so the previous account (not the list) says who changed.
+        if previous != account?.userID { resetPrompts() }
+        loadPaired(forgetting: signedOut)
         reconcile()
         refreshPhones()
     }
@@ -233,50 +245,6 @@ public final class IPhoneHostService {
         following = Task { [weak self] in
             for await value in ObservationStream(read) {
                 self?.setAllowed(value)
-            }
-        }
-    }
-
-    /// Hands acpmux the folders of this Mac's workspaces while iPhone connections are allowed
-    /// for a signed-in account (none otherwise), so a phone's agent chat starts there.
-    func followWorkspaceFolders() {
-        followingFolders?.cancel()
-        // task-owner: lives as long as the app; re-reads the folders on each daemon tree change
-        followingFolders = Task { [weak self] in
-            for await folders in ObservationStream({ [weak self] in
-                guard let self, allowed, account != nil else { return [String]() }
-                return dependencies?.workspaceFolders() ?? []
-            }) {
-                guard let self else { return }
-                if approverSync == nil, !folders.isEmpty, let environment = dependencies?.acpmuxEnvironment {
-                    approverSync = MobileHostApproverSync(environment: environment)
-                }
-                approverSync?.updateWorkspaceRoots(folders)
-            }
-        }
-    }
-
-    /// Hands acpmux the agent and model this Mac's New Tab page picked last while iPhone
-    /// connections are allowed for a signed-in account, so a phone's New Agent Chat starts
-    /// where this Mac's does (the Mac keeps them locally: `newTab.lastAgent`, `newTab.lastPicks`).
-    func followNewChatPicks() {
-        followingPicks?.cancel()
-        // task-owner: lives as long as the app; re-reads the picks on each remembered pick
-        followingPicks = Task { [weak self] in
-            for await picks in ObservationStream({ [weak self] () -> NewChatPicks? in
-                guard let self, allowed, account != nil else { return nil }
-                return dependencies?.newChatPicks()
-            }) {
-                guard let self else { return }
-                guard let picks, !picks.isEmpty else {
-                    // Off, signed out or nothing picked: acpmux forgets what it holds.
-                    approverSync?.updateNewChatPicks(nil)
-                    continue
-                }
-                if approverSync == nil, let environment = dependencies?.acpmuxEnvironment {
-                    approverSync = MobileHostApproverSync(environment: environment)
-                }
-                approverSync?.updateNewChatPicks(picks.params)
             }
         }
     }
