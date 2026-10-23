@@ -76,4 +76,13 @@ import Testing
         let posted = pages.posts { pages.requestPageUpdate() }
         #expect(posted == 2, "both pages moved on screen: \(posted) posts")
     }
+
+    @Test func aHiddenPagePostsOnceNotOnEveryRequest() {
+        let pages = TwoPages()
+        pages.forkReads()
+        // The fork hides the page window and reads nothing from a hidden host.
+        pages.left.isHidden = true
+        #expect(pages.posts { pages.requestPageUpdate() } == 1, "the hide reaches the fork")
+        #expect(pages.posts { pages.requestPageUpdate() } == 0, "a page still hidden has nothing new")
+    }
 }
