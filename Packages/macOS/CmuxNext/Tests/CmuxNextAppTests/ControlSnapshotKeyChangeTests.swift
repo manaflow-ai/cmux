@@ -46,6 +46,7 @@ import Testing
     }
 
     @Test func aKeyOrActivationChangeMapsNoWorkspaceAgain() {
+        _ = NSApplication.shared  // harness: AppServices.keyWindowSource reads NSApp (as ad146cfa6b3 does)
         let services = AppServices(environment: AppEnvironment.current([:]))
         let identity = ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
                                        processID: getpid())
