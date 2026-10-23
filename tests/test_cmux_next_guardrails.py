@@ -54,6 +54,9 @@ OWNERS = """# owners
 | Kit sidebar | `Packages/macOS/CmuxNext/Sources/CmuxNextKit/Sidebar/` | a590 | [sidebar-owner.md](sidebar-owner.md) |
 """
 BENCHES = '{"paths": {"key-dispatch": {"bench": "scripts/cmux-next/bench-typing.py", "owner": "PL-typing"}}}'
+LAYERS = ('{"order": ["core", "service", "domain", "ui", "app"], "targets": {'
+          '"CmuxNextCompat": {"layer": "core"}, "CmuxNextKit": {"layer": "service"}, '
+          '"CmuxNextHistory": {"layer": "ui"}, "CmuxNextApp": {"layer": "app"}}}')
 ROW = """import SwiftUI
 struct WorkspaceRow: View {
     let title: String
@@ -81,6 +84,8 @@ CASES = {
                       "import Observation\n@Observable final class Model {\n    var x = 0\n}\n"),
     "generic-class-deinit": ("@MainActor final class Once<T> {\n    var value: T?\n}\n",
                              "@MainActor final class Once<T> {\n    var value: T?\n    nonisolated deinit {}\n}\n"),
+    "layer-import": ("public import CmuxNextHistory\nfinal class StashService {}\n",
+                     "public import CmuxNextCompat\nfinal class StashService {}\n"),
     "row-store": ("import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n"
                   "    @Environment(SidebarStore.self) private var store\n    var body: some View { Text(title) }\n}\n",
                   "import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n    let onSelect: () -> Void\n"
@@ -111,6 +116,7 @@ class Fixture(unittest.TestCase):
         self.write(f"{KIT}/Old.swift", "final class Old {\n    static let shared = Old()\n}\n")  # base debt
         self.write("plans/cmux-next/OWNERS.md", OWNERS)
         self.write("scripts/cmux-next/perf-hot-benches.json", BENCHES)
+        self.write("plans/cmux-next/architecture-layers.json", LAYERS)
         self.commit("base")
         self.base = self.git("rev-parse", "HEAD").stdout.strip()
 
@@ -408,6 +414,34 @@ class RuleTests(Fixture):
                    "package final class Old {\n    package static let shared = Old()\n}\n")
         self.commit("git mv into another package; access internal -> package")
         self.assertEqual(self.refused(), [])
+
+    def test_a_lower_target_importing_a_ui_target_is_refused_and_higher_targets_pass(self):
+        # The hard layer edges arch-layers.py counts (Stash -> History, DaemonService -> Layout, ...).
+        sources = "Packages/macOS/CmuxNext/Sources"
+        self.write(f"{KIT}/Stash.swift", "import Foundation\n@testable import CmuxNextHistory\nimport struct CmuxNextHistory.Entry\n")
+        self.write(f"{KIT}/Allowed.swift", "// layer-allow: 2026-10-23 until the History model moves (cx-1)\n"
+                   "import CmuxNextHistory\n")
+        self.write(f"{sources}/CmuxNextHistory/Page.swift", "import CmuxNextKit\nimport CmuxNextHistory\n")
+        self.write(f"{APP}/Wiring.swift", "import CmuxNextHistory\nimport CmuxNextKit\n")
+        self.write(f"{sources}/CmuxNextUnplaced/Thing.swift", "import CmuxNextHistory\n")
+        self.commit("imports across layers")
+        self.assertEqual(self.refused(), [("layer-import", [
+            "Stash.swift: @testable import CmuxNextHistory", "Stash.swift: import struct CmuxNextHistory.Entry"])])
+
+    def test_layer_import_counts_only_new_edges_and_fails_open_without_the_layers_file(self):
+        self.write(f"{KIT}/Stash.swift", "import CmuxNextHistory\nfinal class StashService {}\n")
+        self.commit("an edge already on the base")
+        base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.write(f"{KIT}/Stash.swift", "import CmuxNextHistory\nfinal class StashService {\n    var count = 0\n}\n")
+        self.commit("an edit next to the old edge")
+        self.assertEqual(self.refused(None, base, "HEAD"), [])
+
+        self.write(f"{KIT}/New.swift", "import CmuxNextHistory\n")
+        self.write("plans/cmux-next/architecture-layers.json", "{")
+        self.commit("a new edge with a broken layers file")
+        refusals, warnings = self.check(None, base, "HEAD")
+        self.assertEqual(refusals, [])
+        self.assertIn("layer-import did not run", " ".join(w for _, w in warnings))
 
     def test_the_bench_configuration_is_refused_in_shipped_build_settings(self):
         self.write(".github/workflows/nightly.yml", "jobs:\n  build:\n    steps:\n      - run: ./scripts/reload.sh --config bench\n")

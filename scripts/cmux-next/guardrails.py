@@ -55,6 +55,7 @@ APP = SOURCES + "CmuxNextApp/"
 UPSTREAM = "origin/feat-cmux-next"
 OWNERS = "plans/cmux-next/OWNERS.md"
 BENCHES = "scripts/cmux-next/perf-hot-benches.json"
+LAYERS = "plans/cmux-next/architecture-layers.json"  # each target's layer (arch-layers.py reads it too)
 SKIP_ENV = "CMUX_GUARDRAILS_SKIP_REASON"
 NEW_APP_FILE_MAX = 400  # check-no-godfiles.sh's per-file budget, refused here for new App files at push time
 COMMENT_LINE = re.compile(r"^\s*(//|\*|/\*)")
@@ -145,6 +146,7 @@ class FileChange:
     base_lines: list[str] = field(default_factory=list)
     is_new: bool = False
     has_perf_hot: bool = False
+    layers: dict = field(default_factory=dict)  # target -> layer rank (LAYERS at head), shared by every change
 
     @property
     def head(self) -> Version:
@@ -423,6 +425,47 @@ def big_new_app_file(changes: list[FileChange], moved: collections.Counter) -> l
     return hits
 
 
+# An import of a ui or app target from a core, service or domain target: the hard layer edge
+# scripts/cmux-next/arch-layers.py counts from Package.swift, caught where the code takes it.
+IMPORT = re.compile(r"^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:public|package|internal|private|fileprivate)\s+)?import\s+"
+                    r"(?:(?:struct|class|enum|protocol|typealias|func|var|let|actor)\s+)?(?P<module>\w+)")
+LAYER_ALLOW = re.compile(r"//\s*layer-allow:\s*\S")
+UPWARD = ("ui", "app")
+
+
+def layer_ranks(text: str | None) -> dict:
+    """{target: (rank, layer)} from architecture-layers.json text; {} when it is missing or broken (fail open)."""
+    try:
+        spec = json.loads(text or "")
+        order = {name: index for index, name in enumerate(spec["order"])}
+        return {name: (order[entry["layer"]], entry["layer"]) for name, entry in spec["targets"].items()}
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return {}
+
+
+def upward_imports(version: Version, lines: list[Added], ranks: dict) -> list[Added]:
+    """LINES of VERSION that import a ui/app target from a lower target (no `layer-allow:` escape)."""
+    target = version.path[len(SOURCES):].split("/", 1)[0] if version.path.startswith(SOURCES) else ""
+    if target not in ranks:
+        return []
+    rank = ranks[target][0]
+    out = []
+    for line in lines:
+        match = IMPORT.match(code_of(line.text))
+        dep = ranks.get(match.group("module")) if match else None
+        if dep is None or dep[0] <= rank or dep[1] not in UPWARD:
+            continue
+        if line.number - 1 < len(version.lines) and escaped(version.lines, line.number - 1, LAYER_ALLOW):
+            continue
+        out.append(line)
+    return out
+
+
+def upward_import(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    return resolve([(upward_imports(c.head, c.added, c.layers), upward_imports(c.base, c.removed, c.layers))
+                    for c in changes])
+
+
 # A generic class whose deinit is implicit. In a main-actor target (the default of every UI and test
 # target, `.defaultIsolation(MainActor.self)`) that deinit is isolated, and swift-frontend 6.3.3 (Xcode 26.6)
 # crashes on it in -O: signal 11 in EarlyPerfInliner, isCallerAndCalleeLayoutConstraintsCompatible, on the
@@ -530,6 +573,14 @@ RULES = (
          None,
          line_rule(r"CMUX_BENCH_HOOKS|--config[= ]bench\b", None),
          scope=SHIPPED_BUILD + (".xcconfig", "project.pbxproj")),
+    Rule("layer-import", "An import of a ui or app target from a core, service or domain target",
+         "a lower layer that imports a view package couples to it (a hard layer violation, arch-layers.py; "
+         "plans/cmux-next/architecture-refactor-DESIGN.md): every view change rebuilds it and the DAG can cycle",
+         "move the type the import is for down (a model or value into its domain or core target, a process "
+         "host into a service), or invert it with a protocol the lower target declares and the higher one "
+         "implements; layers are in plans/cmux-next/architecture-layers.json",
+         "// layer-allow: <the written, dated exception>",
+         upward_import),
     Rule("app-big-file", f"New CmuxNextApp file over {NEW_APP_FILE_MAX} lines",
          "the App target re-emits its whole module on every edit (check-app-size.sh) and CI refuses god files",
          "put the feature in its own target under Packages/macOS/CmuxNext/Sources, one type per file",
@@ -750,13 +801,17 @@ def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added
                          "Performance Lead (PL-guardrails) with the output of: git diff -U0 " + f"{base} {head} | head"))
     paths = sorted(changes)
     texts = blobs(repo, [(head, p) for p in paths] + [(base, p) for p in paths]
-                  + [(head, BENCHES), (head, OWNERS)])
+                  + [(head, BENCHES), (head, OWNERS), (head, LAYERS)])
+    ranks = layer_ranks(texts.get((head, LAYERS)))
+    if (head, LAYERS) in texts and not ranks:
+        warnings.append(("guardrails", f"could not read {LAYERS}, so layer-import did not run (fail open)"))
     for path in paths:
         change = changes[path]
         text = texts.get((head, path), "")
         change.head_lines = text.split("\n")
         change.base_lines = texts.get((base, path), "").split("\n")
         change.has_perf_hot = "perf-hot:" in text
+        change.layers = ranks
     files = [changes[p] for p in paths]
     moved = collections.Counter(r.text.strip() for c in files for r in c.removed if r.text.strip())
     refusals = []
