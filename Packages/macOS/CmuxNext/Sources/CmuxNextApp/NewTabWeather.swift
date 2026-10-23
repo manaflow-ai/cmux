@@ -6,9 +6,8 @@ import Foundation
 /// (in memory and in UserDefaults, so an offline launch still shows it, dimmed) and refreshes it from
 /// Open-Meteo once it is older than ``AgentPaneNewTabWeather/maximumAge``. Nothing is fetched until
 /// the widget is on. The place is `tabs.newTabWidgets.weatherCity`, else this Mac's time zone city.
+/// One per app (``AppServices/newTabWeather``).
 @MainActor final class NewTabWeather {
-    static let shared = NewTabWeather()
-
     private struct Stored: Codable {
         /// The place asked for and the unit: a reading for another city or unit is not shown.
         var key: String
@@ -100,9 +99,9 @@ extension NewTabWeather {
     /// an old one, does not wait for the next New Tab to show it. Runs only when a refresh
     /// finishes, and a refresh starts only while the widget is on.
     static func wire(_ tabs: AgentTabStore, services: AppServices) {
-        shared.onReading = { [weak tabs, weak services] in
-            guard let tabs, let widgets = services?.settings?.snapshot.newTabWidgets else { return }
-            let reading = shared.lastReading(widgets)
+        services.newTabWeather.onReading = { [weak tabs, weak services] in
+            guard let tabs, let services, let widgets = services.settings?.snapshot.newTabWidgets else { return }
+            let reading = services.newTabWeather.lastReading(widgets)
             for key in tabs.newTabPages.keys { tabs.views[key]?.refreshNewTabWeather(reading) }
         }
     }
@@ -113,7 +112,7 @@ extension AgentPaneNewTab {
     @MainActor func withWeather(_ services: AppServices) -> AgentPaneNewTab {
         guard let widgets = services.settings?.snapshot.newTabWidgets else { return self }
         var page = self
-        page.weather = NewTabWeather.shared.reading(widgets)
+        page.weather = services.newTabWeather.reading(widgets)
         return page
     }
 }
