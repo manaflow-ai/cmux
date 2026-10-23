@@ -11,6 +11,8 @@ per round, in a fresh terminal workspace, runs `debug.new_tab {action: bench_bro
   third_pane   Cmd-D, then Cmd-Shift-L in the new pane
   url_warm     openBrowser with a file:// page in a pane with a Chromium window (a link opened in a tab)
   url_cold     Cmd-D, then openBrowser with a file:// page in the new pane
+  webkit_new   New WebKit Tab (openBrowser.webkit) in that pane
+  webkit_url   New WebKit Tab with a file:// page
 
 The app reports per run `key_ms` (the input's synchronous main-thread time), `visible_ms` (the
 first display frame at which the pane shows the new tab, selected, with its browser view in the
@@ -18,11 +20,14 @@ pane), `page_ms` (the first frame after the page's first contentful paint or loa
 main-thread spans (cef.create_window, cef.tab_add, ...) and the frame intervals with the display's
 refresh period. The summary gives p50/p95/max per case and the refresh rate: judge in frames.
 
-`--session stress` first builds a loaded session: scripts/cmux-next/perf-stress-session.py when the
-checkout has it (STRESS, PL-motion-core), else the fallback here (`--stress-workspaces` workspaces,
-each a terminal and a Chromium page, and terminals printing output) and says which it used.
+`--sessions light,stress`: after the light rounds, builds STRESS (scripts/cmux-next/perf-stress-session.py:
+60 workspaces, the measured one 14 panes x 6 tabs, 10 others with Chromium pages, 10 printing
+terminals) and runs the cases that need no split in the measured workspace's focused pane.
 
 Not a CI gate (Lawrence 2026-10-23): run it yourself on a fleet GUI host, before and after a change:
+  nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA -- \\
+    python3 scripts/cmux-next/cef-tab-bench.py --tag "$NX_APP_TAG" --app "$NX_APP" --out "$NX_ARTIFACTS" --sessions light,stress
+or, building the app in the step:
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/cef-tab.sh --ref SHA \\
     --artifact artifacts/cef-tab.json [--arg=--rounds=6] [--arg=--sessions=light,stress]
 Local, on a built app (never on a laptop in use):
@@ -34,10 +39,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", required=True)
 parser.add_argument("--rounds", type=int, default=6)
-parser.add_argument("--cases", default="cold_pane,warm_pane,second_pane,third_pane,url_warm,url_cold")
+parser.add_argument("--cases", default="cold_pane,warm_pane,second_pane,third_pane,url_warm,url_cold,webkit_new,webkit_url")
 parser.add_argument("--sessions", default="light", help="light, stress, or both (comma list, in that order)")
-parser.add_argument("--stress-workspaces", type=int, default=20)
-parser.add_argument("--stress-printers", type=int, default=10)
 parser.add_argument("--budget-ms", type=float, default=10.0, help="visible p95 target (reported, not enforced)")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
@@ -160,7 +163,11 @@ def bench_case(case, window, session, rnd):
             return {"case": case, "error": "split failed"}
     params = {"action": "bench_browser"}
     if case.startswith("url_"):
-        params.update({"via": "url", "url": "file://" + PAGE})
+        params.update({"via": "action", "url": "file://" + PAGE})
+    elif case == "webkit_new":
+        params.update({"via": "action", "id": "openBrowser.webkit"})
+    elif case == "webkit_url":
+        params.update({"via": "action", "id": "openBrowser.webkit", "url": "file://" + PAGE})
     result = rpc("debug.new_tab", params, timeout=30) or {}
     result.update({"case": case, "session": session, "round": rnd})
     result["visible_frame"] = frame_of(result, "visible_ms")
@@ -187,21 +194,32 @@ def bench_session(session, window):
     return rows
 
 
-def build_stress(window):
-    builder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-stress-session.py")
-    if os.path.exists(builder):
-        print("stress: perf-stress-session.py (STRESS)", flush=True)
-        proc = subprocess.run([sys.executable, builder, "--tag", TAG, "--app", APP, "--attach"], timeout=900)
-        return "perf-stress-session.py" if proc.returncode == 0 else f"perf-stress-session.py exit {proc.returncode}"
-    print(f"stress: fallback, {opts.stress_workspaces} workspaces each a terminal + a Chromium page, "
-          f"{opts.stress_printers} printing terminals", flush=True)
-    for index in range(opts.stress_workspaces):
-        terminal_workspace(f"stress-{index}")
-        action("openBrowser.chromium", {"url": "file://" + PAGE}, timeout=60)
-        if index < opts.stress_printers:
-            subprocess.run([CLI, "send", "while :; do date; sleep 0.05; done\n"], env=CLI_ENV, capture_output=True, timeout=30)
-        time.sleep(0.5)  # test harness: the page loads
-    return f"fallback {opts.stress_workspaces} ws + {opts.stress_printers} printers"
+def build_stress():
+    """STRESS (scripts/cmux-next/perf-stress-session.py): 60 workspaces, the measured one 4x3 panes
+    (14 with nested splits) of 6 tabs each, 10 others with Chromium pages, 10 printing terminals."""
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-stress-session.py")
+    spec = importlib.util.spec_from_file_location("perf_stress_session", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    summary = module.Stress(rpc).build()
+    print("STRESS-SESSION " + json.dumps(summary), flush=True)
+    return summary
+
+
+def bench_stress(window):
+    """In the STRESS measured workspace's focused pane (a terminal): every case that needs no split,
+    the new tab closed again (Cmd-W) after each run so the pane stays as built."""
+    rows = []
+    cases = [c for c in CASES if c not in ("second_pane", "third_pane", "url_cold")]
+    for rnd in range(opts.rounds):
+        for case in cases:
+            row = bench_case(case, window, "stress", rnd)
+            rows.append(row)
+            if row.get("visible_ms") is not None:
+                key("w", ["command"], window)
+                time.sleep(0.6)  # test harness: the closed tab's page goes before the next run
+    return rows
 
 
 def summary(rows):
@@ -275,8 +293,10 @@ def main():
     rows, stress = [], None
     for session in [s for s in opts.sessions.split(",") if s]:
         if session == "stress":
-            stress = build_stress(window)
-        rows += bench_session(session, window)
+            stress = build_stress()
+            rows += bench_stress(window)
+        else:
+            rows += bench_session(session, window)
     cef = rpc("debug.cef") or {}
     result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "stress_session": stress,
               "budget_visible_ms": opts.budget_ms, "summary": summary(rows), "runs": rows,

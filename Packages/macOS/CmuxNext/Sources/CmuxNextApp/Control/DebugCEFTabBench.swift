@@ -9,7 +9,8 @@ import CmuxNextSettings
 /// (perf-lead issue 1, PL-cef-tab; `scripts/cmux-next/cef-tab-bench.py`).
 ///
 /// `via`: `key` (default) sends Cmd-Shift-L, New Browser Tab, through the real key path
-/// (`debug.key`); `url` runs `openBrowser` with `url`, as a link opened in a new tab does.
+/// (`debug.key`); `action` runs action `id` (default `openBrowser`) as a person's run, with `url`
+/// when given (a link opened in a new tab; `openBrowser.webkit` for a WebKit tab).
 ///
 /// Per run, in ms after the input:
 /// - `key_ms`: the input's synchronous main-thread time;
@@ -34,9 +35,10 @@ enum DebugCEFTabBench {
         CEFBenchMarks.shared.arm { name, milliseconds in BenchSpans.record(name, milliseconds: milliseconds) }
         defer { CEFBenchMarks.shared.arm(nil) }
         let start = ContinuousClock.now
-        if params["via"]?.stringValue == "url" {
-            let url = params["url"]?.stringValue ?? "about:blank"
-            _ = services.registry.perform("openBrowser", invocation: ActionInvocation(arguments: ["url": .string(url)]))
+        if params["via"]?.stringValue == "action" {
+            // A person's action run (a link in a new tab, the palette's New WebKit Tab).
+            let arguments = params["url"]?.stringValue.map { ["url": ActionValue.string($0)] } ?? [:]
+            _ = services.registry.perform(ActionID(rawValue: params["id"]?.stringValue ?? "openBrowser"), invocation: ActionInvocation(arguments: arguments))
         } else {
             _ = DebugKey.send(["key": .string("l"), "modifiers": .array([.string("command"), .string("shift")]),
                                "window": .string(controller.state.id)], services: services)
@@ -61,6 +63,7 @@ enum DebugCEFTabBench {
         let stats = frames.stop()
         return .object([
             "via": .string(params["via"]?.stringValue ?? "key"),
+            "id": params["id"] ?? .null,
             "engine": .string(pane.currentContent.flatMap { content in
                 if case .browser(let entry) = content { return entry.tab.engineKind == .cef ? "cef" : "webkit" }
                 return nil
