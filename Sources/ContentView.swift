@@ -3178,9 +3178,13 @@ struct ContentView: View {
             openAgentInbox()
         })
 
-        // Every path that replaces the overlay closes find-window here, not at each call site.
+        // Every path that changes the overlay lands here: find-window closes when another
+        // overlay replaces it, and the window's palette-visible flag follows the state. That
+        // flag guards the overlay's field from terminal focus, so it is set while find-window
+        // shows and must drop when it closes, whichever path closed it.
         view = AnyView(view.onChange(of: commandPaletteOverlayState) { _, state in
             remoteTmuxFindWindow.overlayDidChange(to: state)
+            syncCommandPaletteDebugStateForObservedWindow()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .findTmuxWindowRequested)) { notification in
