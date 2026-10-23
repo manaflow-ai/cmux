@@ -243,6 +243,15 @@ fn chunk(params: &Value) -> Result<Value, RpcError> {
         .map_err(|e| RpcError::invalid_params(format!("data is not base64: {e}")))?;
     let path =
         part_path(session, upload).ok_or_else(|| RpcError::invalid_params("invalid uploadId"))?;
+    let meta = meta_path(session, upload).ok_or_else(|| RpcError::invalid_params("invalid uploadId"))?;
+    let metadata = crate::config::private_state_file(&meta)
+        .map_err(|e| RpcError::invalid_params(format!("unknown upload: {e}")))?;
+    let declared: Value = serde_json::from_reader(metadata)
+        .map_err(|e| RpcError::invalid_params(format!("invalid upload metadata: {e}")))?;
+    let declared_size = declared
+        .get("size")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| RpcError::invalid_params("invalid upload size"))?;
     let mut file = crate::config::private_state_rw(&path)
         .map_err(|e| RpcError::invalid_params(format!("unknown upload: {e}")))?;
     let current = file.metadata().map_err(|e| RpcError::internal(e.to_string()))?.len();
@@ -250,7 +259,7 @@ fn chunk(params: &Value) -> Result<Value, RpcError> {
         return Err(RpcError::invalid_params(format!("upload offset is {current}, got {offset}")));
     }
     let next = current.saturating_add(bytes.len() as u64);
-    if next > MAX_BYTES as u64 {
+    if next > declared_size || next > MAX_BYTES as u64 {
         return Err(too_large());
     }
     file.seek(SeekFrom::End(0)).map_err(|e| RpcError::internal(e.to_string()))?;
