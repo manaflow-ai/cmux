@@ -6990,9 +6990,11 @@ jobs:
             fi
             previous+=("$file")
           done <<< "$builds"
-          # A feed outage narrows the wider page; say so instead of passing it as 10 nightlies.
+          # A feed outage would narrow the wider page and could pass a duplicate across nightlies, so
+          # it fails the check (and holds the notes) like a bad index does; a rerun checks again.
           if [ "${#missing[@]}" -gt 0 ]; then
-            echo "::warning title=Release notes::$NIGHTLY_BUILD: the wider page lacks ${#missing[@]} nightlies the feed did not serve: ${missing[*]}"
+            echo "::error title=Release notes::$NIGHTLY_BUILD: the feed did not serve ${#missing[@]} of the nightlies the check compares with: ${missing[*]}"
+            exit 1
           fi
           bun scripts/cmux-next/check-release-notes.ts "notes/$NIGHTLY_BUILD.json" "${previous[@]}"
 
