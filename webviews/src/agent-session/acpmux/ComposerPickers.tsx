@@ -35,6 +35,7 @@ import {
 } from "./heldOptions";
 import { type KeptStartMode, useStartMode } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
+import { catalogProfiles } from "./pickerProfiles";
 import { useModelCatalogState } from "./modelCatalogHost";
 import { focusWithRing } from "../../ui/focusWithRing";
 import { AnchoredCard } from "../../ui/Tooltip";
@@ -157,6 +158,9 @@ type Props = {
   /// combo's effort and Fast, held under their kind's id (heldOptions.ts); the switch applies them
   /// to the new session before its first prompt.
   onHarness?(harness: string, model?: string, options?: Readonly<Record<string, string>>): void;
+  /// Forks a started chat into a new chat on another harness (see ModelPickerProps.fork): with it,
+  /// a started chat's model menu keeps the whole harness rail, each other harness a Fork to row.
+  fork?: { to(harness: string): void; ready: boolean };
   /// The folder a pick is remembered for (lastPick.ts), when the chat has none yet (a New Tab's).
   folder?: string;
   /// The pointer or keyboard rests on a harness row (undefined: it left them), for a prewarm hint.
@@ -204,6 +208,7 @@ export function ComposerPickers({
   onMode,
   onEffort,
   onHarness,
+  fork,
   onHarnessHint,
   onHarnessEnable,
   onAddAgent,
@@ -232,8 +237,10 @@ export function ComposerPickers({
   // Once a chat has a message its harness is fixed (Leo 2026-10-13): the picker lists that
   // harness's models only, with no harness rail and no Add harness… (Leo 2026-10-19: a rail of one
   // harness, then Add harness…, read as an offer to switch), and another harness is Continue In…,
-  // never a pick. Debug Settings' "Allow switching harness in a started chat" (`harnessSwitch`)
-  // keeps the whole rail and its switch.
+  // never a pick. Where the chat can fork (`fork`), the compact menu keeps the whole rail again
+  // (Leo 2026-10-22: "why did you guys even remove the fucking harness model picker"), its other
+  // harnesses Fork to rows. Debug Settings' "Allow switching harness in a started chat"
+  // (`harnessSwitch`) keeps the whole rail and its switch.
   const locked = !harnessSwitch && !!summary?.harness && ((summary.turnCount ?? 0) > 0 || snapshot.rows.length > 0);
   const allEntries: ModelPickerProps["catalog"] = pickerCatalog
     ? [
@@ -255,9 +262,12 @@ export function ComposerPickers({
       ]
     : snapshot.catalog;
   // A harness acpmux has not listed yet (the first open after launch) keeps the whole list rather
-  // than an empty picker.
-  const ownEntries = locked ? allEntries.filter((entry) => entry.id === summary?.harness) : [];
+  // than an empty picker. A chat that can fork keeps every harness: the picker offers the others as
+  // Fork to, never as a switch in place (Leo 2026-10-22: "can expose as fork").
+  const ownEntries = locked && !fork ? allEntries.filter((entry) => entry.id === summary?.harness) : [];
   const pickerEntries = ownEntries.length > 0 ? ownEntries : allEntries;
+  // The profiles each catalog harness folded into its one entry: its accounts in the model menu.
+  const profiles = pickerCatalog ? catalogProfiles(snapshot.catalog, pickerCatalog.harnesses) : undefined;
   const switchHarness = locked ? undefined : onHarness;
   // An agent's own default remains an internal sentinel. The picker omits it
   // instead of exposing a separate "Default" row.
@@ -850,6 +860,8 @@ export function ComposerPickers({
             if (effort) onEffort(effort.id, value);
           }}
           onHarness={switchHarness}
+          {...(locked && fork ? { fork } : {})}
+          {...(profiles ? { profiles } : {})}
           onCombo={combo}
           onHarnessHint={onHarnessHint}
           onHarnessEnable={onHarnessEnable}

@@ -1,19 +1,19 @@
-import Foundation
+package import Foundation
 
 /// What Return does with the TextBox's text: send it as typed (text entry), or start an agent
 /// with it as the prompt (a command template whose `{{prompt}}` takes the text, shell-quoted).
-nonisolated struct TextBoxSubmitAction: Equatable, Identifiable, Sendable {
-    let id: String
-    let title: String
+package nonisolated struct TextBoxSubmitAction: Equatable, Identifiable, Sendable {
+    package let id: String
+    package let title: String
     /// SF Symbol shown on the action button.
-    let symbol: String
+    package let symbol: String
     /// The command line with `{{prompt}}`; nil sends the text itself.
-    let template: String?
+    package let template: String?
 
-    static let textEntry = TextBoxSubmitAction(id: "text-entry", title: TextBoxStrings.textEntry, symbol: "arrow.up", template: nil)
+    package static let textEntry = TextBoxSubmitAction(id: "text-entry", title: TextBoxStrings.textEntry, symbol: "arrow.up", template: nil)
 
     /// Text entry first, then the agents of the shipping cmux, in its order (Shift-Tab cycles).
-    static let catalog: [TextBoxSubmitAction] = [
+    package static let catalog: [TextBoxSubmitAction] = [
         textEntry,
         TextBoxSubmitAction(id: "claude", title: "Claude", symbol: "sparkle", template: "claude --dangerously-skip-permissions -- {{prompt}}"),
         TextBoxSubmitAction(id: "codex", title: "Codex", symbol: "sparkles", template: "codex --yolo -- {{prompt}}"),
@@ -22,13 +22,13 @@ nonisolated struct TextBoxSubmitAction: Equatable, Identifiable, Sendable {
     ]
 
     /// What goes to the terminal for `prompt`: the text, or the command with the trimmed text quoted.
-    func input(for prompt: String) -> String {
+    package func input(for prompt: String) -> String {
         guard let template else { return prompt }
         return template.replacingOccurrences(of: "{{prompt}}", with: Self.quoted(prompt.trimmingCharacters(in: .whitespacesAndNewlines)))
     }
 
     /// `text` in single quotes for a POSIX shell (a quote inside becomes `'\''`).
-    static func quoted(_ text: String) -> String {
+    package static func quoted(_ text: String) -> String {
         "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }

@@ -1,13 +1,12 @@
-import AppKit
-import CmuxNextActions
-import CmuxNextTerminal
+package import AppKit
+package import CmuxNextActions
 
 /// One terminal's TextBox: its model and view, installed under the terminal
 /// (``TerminalHostView/bottomAccessory``) the first time it shows. A submit sends the draft
 /// through its sink (a paste, then Return); Escape gives the keyboard back to the terminal.
 /// Shift-Tab and the buttons run the registry's TextBox actions, the path every entrypoint takes.
-final class TextBoxController {
-    let model = TextBoxModel()
+package final class TextBoxController {
+    package let model = TextBoxModel()
     private weak var session: TerminalSession?
     private let sink: any TextBoxSink
     private var installed: TextBoxView?
@@ -16,7 +15,7 @@ final class TextBoxController {
     ///   - session: The terminal the box sits under.
     ///   - sink: Where a submit goes; nil sends it into `session`'s input.
     ///   - perform: Runs a registry action (`cycleTextBoxSubmitAction`, `attachTextBoxFile`).
-    init(session: TerminalSession, sink: (any TextBoxSink)? = nil, perform: @escaping @MainActor (ActionID) -> Void) {
+    package init(session: TerminalSession, sink: (any TextBoxSink)? = nil, perform: @escaping @MainActor (ActionID) -> Void) {
         self.session = session
         self.sink = sink ?? TerminalSessionTextBoxSink(session: session)
         self.perform = perform
@@ -25,7 +24,7 @@ final class TextBoxController {
     private let perform: @MainActor (ActionID) -> Void
 
     /// The strip under the terminal, made the first time it is asked for.
-    var view: TextBoxView {
+    package var view: TextBoxView {
         if let installed { return installed }
         let view = TextBoxView(model: model)
         view.perform = perform
@@ -37,16 +36,16 @@ final class TextBoxController {
         return view
     }
 
-    var textView: TextBoxTextView { view.textView }
+    package var textView: TextBoxTextView { view.textView }
 
     /// The box's editor has the keyboard.
-    var hasKeyboard: Bool {
+    package var hasKeyboard: Bool {
         guard let installed, let window = installed.window else { return false }
         return window.firstResponder === installed.textView
     }
 
     /// Shows the box; with `focus` its editor takes the keyboard.
-    func show(focus: Bool) {
+    package func show(focus: Bool) {
         let view = self.view
         model.isVisible = true
         view.isHidden = false
@@ -56,7 +55,7 @@ final class TextBoxController {
     }
 
     /// Hides the box (the draft stays); the terminal takes the keyboard back when the box had it.
-    func hide() {
+    package func hide() {
         let hadKeyboard = hasKeyboard
         model.isVisible = false
         installed?.isHidden = true
@@ -65,16 +64,16 @@ final class TextBoxController {
     }
 
     /// Shows a hidden box (taking the keyboard with `focus`), hides a shown one.
-    func toggle(focus: Bool) {
+    package func toggle(focus: Bool) {
         if model.isVisible { hide() } else { show(focus: focus) }
     }
 
     /// The keyboard to the terminal.
-    func focusTerminal() { session?.focus() }
+    package func focusTerminal() { session?.focus() }
 
     /// Sends the draft through the submit action: a paste of its input, then Return. False for a blank draft.
     @discardableResult
-    func submit() -> Bool {
+    package func submit() -> Bool {
         installed?.commitText()
         guard let input = model.takeInput() else { return false }
         if installed?.textView.string.isEmpty == false { installed?.textView.string = "" }
@@ -84,7 +83,7 @@ final class TextBoxController {
     }
 
     /// Adds `paths` to the draft, shell-quoted.
-    func insert(paths: [String]) {
+    package func insert(paths: [String]) {
         installed?.commitText()
         model.insert(paths: paths)
         if let installed, installed.textView.string != model.text {

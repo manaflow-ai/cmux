@@ -236,12 +236,12 @@ Ordered by perf impact, then risk, then collisions (unowned areas first).
 
 | # | Slice | Perf | Risk | Collides with | Status |
 |---|---|---|---|---|---|
-| A1 | This doc, `architecture-layers.json`, `arch-layers.py` | - | none | - | landing |
-| A2 | `CmuxNextSignposts` + `CommitBoundary` + `action.perform` in ActionRegistry + `perf-signposts.py`; existing signposters onto the catalog | high: Release numbers for every action | low | none (Actions unowned); hooks for owners by message | next |
-| A3 | `MainActorObservation` (Compat) and migration of unowned observer sites | medium (code health, -assumeIsolated) | low | skip owned files | |
+| A1 | This doc, `architecture-layers.json`, `arch-layers.py` | - | none | - | landed 415ee799b49 |
+| A2 | `CmuxNextSignposts` + `CommitBoundary` + `action.perform` in ActionRegistry + `perf-signposts.py`; existing signposters onto the catalog | high: Release numbers for every action | low | none (Actions unowned); hooks for owners by message | action.perform/commit landed; owner hooks and old signposters open |
+| A3 | `MainActorObservation` (Compat) and migration of unowned observer sites | medium (code health, -assumeIsolated) | low | skip owned files | 24 files done; rest open |
 | A4 | `WindowEvents` per-window fan-out; migrate unowned class-B sites (StatusIndicatorView, Design, Pages, AgentPane); hand TerminalSurfaceView and Sidebar sites to PL-ghostty and a590 | medium (row 8 Cmd-Tab O(views)) | medium | Terminal, Sidebar by message | |
 | A5 | Class C: reduceMotion / accessibility / speed / inactive-dim as Appearance observables, hidden views off the path | medium (F3/F8 hidden cost) | medium | none for Design/Pages/AgentPane leaf files | |
-| B1 | CmuxNextApp leaf directories (zero-outside rows of section 4) | - (lines) | low | none | |
+| B1 | CmuxNextApp leaf directories (zero-outside rows of section 4) | - (lines) | low | none | TextBox, Router, Refusals, Process done (SleepyMode stays: its raw font sizes are baselined at the App path) |
 | B2 | `CmuxNextDesignTokens` split of Design (re-exported) | - (unblocks 4 hard edges) | medium (43 importers, but re-export keeps sources) | WindowOverlayHost stays in Design | |
 | B3 | `CmuxNextAppearance` with injected DesignSettings/ThemeStore (singletons 2 of 148, 210 reads) | low | medium | theme paths: run perf gate theme scenario | |
 | B4 | Host protocols + moves for the AppServices-only rows, then Quit, Cloud, Server, Remote, History, Feed, Bookmarks, Notifications | - | medium | check owners per directory | |

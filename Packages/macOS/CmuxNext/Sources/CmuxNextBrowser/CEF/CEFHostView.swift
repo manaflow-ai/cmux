@@ -34,6 +34,9 @@ final class CEFHostView: NSView {
     var liveResizeWillStart: (() -> Void)?
     /// Hands files dragged in from another app to the shown page (`CEFFileDragRelay`).
     let fileDrag = CEFFileDragRelay()
+    /// The page's pixels in this window's layer tree while layer hosting is on
+    /// (`setLayerHosting`, fork API 26); nil while the page draws in its own window.
+    private(set) var hostedPage: CEFHostedPageView?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -181,6 +184,36 @@ final class CEFHostView: NSView {
             MainActor.assumeIsolated { self?.postGeometryChange() } // main-proof: observer on queue: .main
         }
     }
+
+    /// Turns layer hosting (fork API 26) on or off for `browser`, the page
+    /// window over this view, following `BrowserResizeTunables.layerHosting`.
+    /// Idempotent: the fork returns the same context id while it hosts.
+    func updateLayerHosting(browser: Int32, shim: CEFShimLibrary?, forkAPIVersion: Int32) {
+        let wanted = BrowserResizeTunables.layerHosting.value && forkAPIVersion >= Self.layerHostingForkAPI
+        guard let shim, wanted || hostedPage != nil else { return }
+        let id = shim.browserSetLayerHosting(browser, wanted ? 1 : 0)
+        if id == 0 {
+            if wanted { Self.trackerStats.hostingRefused += 1 }
+            if let hostedPage {
+                hostedPage.removeFromSuperview()
+                self.hostedPage = nil
+                Self.trackerStats.hostedPages -= 1
+            }
+            return
+        }
+        let view = hostedPage ?? {
+            let view = CEFHostedPageView(frame: bounds)
+            // Below the tracker's probe and every other subview.
+            addSubview(view, positioned: .below, relativeTo: nil)
+            hostedPage = view
+            Self.trackerStats.hostedPages += 1
+            return view
+        }()
+        view.host(contextID: id)
+    }
+
+    /// The first fork API with `cmux_browser_set_layer_hosting`.
+    static let layerHostingForkAPI: Int32 = 26
 
     /// Tells the tracker about moves AppKit does not report (layer
     /// transforms, manual frame animation in an ancestor).

@@ -47,6 +47,15 @@ if "--suite=app-perf" in sys.argv:
 if "--suite=sidebar-churn" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sidebar-churn-typing.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=sidebar-churn"])
+# `--suite=pane-bench`: the layout's own pane motion benches, no app window (PaneMotionBench: frame time of
+# split/close/New Column/zoom at 2, 8 and 30 panes; PaneMotionWorkTests: panes touched per frame). Run
+# yourself (perf lead, not a CI gate); --config=release|debug picks the build (default release).
+if "--suite=pane-bench" in sys.argv:
+    root = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip() or "."
+    config = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--config=")), "release")
+    env = dict(os.environ, CMUX_PANE_BENCH="1", CMUX_SWIFT_SUITE_CONFIGURATION=config)
+    sys.exit(subprocess.run([os.path.join(root, "scripts/ci/package-test-lane.sh"), "suite", "Packages/macOS/CmuxNext",
+                             "PaneMotionWorkTests,PaneMotionBench"], cwd=root, env=env).returncode)
 if "--suite=anim-perf" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "anim-perf-terminal.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=anim-perf"])

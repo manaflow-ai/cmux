@@ -342,7 +342,7 @@ import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferC
 import { Notice, NoticeSlot } from "./NoticeSlot";
 import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
-import { type ChatAccounts, ChatAccountsContext, readChatAccounts } from "./chatAccounts";
+import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
@@ -383,6 +383,7 @@ import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
 import { continueTargets, mergedCommands, resolveHarnessTarget, type CmuxCommand } from "./cmuxCommands";
+import { canContinueIn, reviewingHandoff } from "./handoff/continueIn";
 import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
 import { PermissionPanel } from "./permissions/Panel";
@@ -3717,6 +3718,11 @@ export function NewTabComposerChips({ snapshot, cwd }: { snapshot: AcpmuxSnapsho
   return <DefaultComposerChips snapshot={snapshot} cwd={cwd} startsChat />;
 }
 
+/// The chat's own composer chips, as the pane draws them under a chat (tests drive them directly).
+export function ChatComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
+  return <DefaultComposerChips snapshot={snapshot} />;
+}
+
 /// The host closes a New Tab page (`AgentPaneView.discardUnsentChat`).
 const NEW_TAB_CLOSE_EVENT = "acpmux-newtab-close";
 
@@ -3792,6 +3798,18 @@ function DefaultComposerChips({
           ...inFolder,
         })
       }
+      // A started chat forks to another harness through Continue In… (Leo 2026-10-22: "need to be
+      // able to switch to different harnesses, can expose as fork"): the chat menu's own path, its
+      // review in this tab, then the new chat in a tab of its own. Not while a turn or queue runs.
+      {...(!startsChat && snapshot.canHandoff
+        ? {
+            fork: {
+              to: (harness: string) => void callNative("chat.handoff.prepare", { harness }).catch(() => undefined),
+              // Continue In…'s own check: no fork while a review is open or no harness can take it.
+              ready: canContinueIn(snapshot),
+            },
+          }
+        : {})}
       {...(cwd ? { folder: cwd } : {})}
       // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
       onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
@@ -4234,11 +4252,7 @@ function AcpmuxPane() {
   const loginCommand = chatLoginCommand(catalog, snapshot.summary?.harness, harnessHealth);
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
-  const reviewing =
-    !!handoff &&
-    handoff.target.sessionId === snapshot.sessionId &&
-    ["draft", "starting"].includes(handoff.state) &&
-    !snapshot.handoff?.receipt;
+  const reviewing = reviewingHandoff(snapshot);
   // Until the chat's handoff is read the pane draws no review (reviews are rare): the composer and
   // a new chat's hero stay, and a review that arrives takes their place (Leo 2026-10-19: the
   // composer left for the read on every open, switch and reconnect).
@@ -4251,14 +4265,8 @@ function AcpmuxPane() {
   startFolderRef.current = startFolder;
   /// The folder question, while the chat it was asked for is still the one shown.
   const pendingFolder = folderAsk && folderAsk.sessionId === snapshot.sessionId ? folderAsk : undefined;
-  const continueAvailable =
-    !!snapshot.canHandoff &&
-    !!snapshot.handoff?.ready &&
-    !snapshot.isWorking &&
-    !snapshot.queue.length &&
-    !snapshot.handoff?.busy &&
-    !reviewing &&
-    continueTargets(catalog, snapshot.summary?.harness).length > 0;
+  // `snapshot.catalog` is `catalog` (the snapshot above carries the fetched one).
+  const continueAvailable = canContinueIn(snapshot);
   /// Takes acpmux's trust refusal of a prompt (useFolderTrustAsk.ts): the question shows for the
   /// folder it named, and `again` sends the held prompt after Trust.
   const trustRefused = useRef<((error: unknown, again?: () => void) => boolean) | undefined>(undefined);
@@ -4989,8 +4997,12 @@ function AcpmuxPane() {
         name: catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.name,
       },
       switchModel: () => void openPicker(translate(PICKER_LABELS.model)),
+      // A failure's cmux CodeRouter action: only this Mac's acpmux lists and binds a chat's routes.
+      ...(chatAccounts && snapshot.sessionId ? { ownRoute: ownRouteOf(chatAccounts, snapshot.sessionId) } : {}),
     }),
     [
+      chatAccounts,
+      snapshot.sessionId,
       stableBranches,
       forkable,
       forkSeq,
@@ -6908,14 +6920,7 @@ function AcpmuxPane() {
     />
   );
   const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness);
-  const canContinue =
-    !!snapshot.canHandoff &&
-    !!snapshot.handoff?.ready &&
-    !snapshot.isWorking &&
-    !snapshot.queue.length &&
-    !snapshot.handoff?.busy &&
-    !reviewing &&
-    handoffTargets.length > 0;
+  const canContinue = continueAvailable;
   const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
   // The header's tools and "..." menu run app actions on this chat's tab.
   // A quick action names its mode; the App toggles the split it opened (header/quickActions.ts).
