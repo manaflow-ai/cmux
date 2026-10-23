@@ -87,6 +87,9 @@ public final class AgentPageProvider: PageProvider {
     /// returns false so the transport closes and the page performs a full resync; no event is
     /// silently evicted.
     private var deliveryOverflowed = false
+    private var nextDeliveryID: UInt64 = 1
+    private var activeDeliveryID: UInt64?
+    private var droppedPublicationIDs: Set<UInt64> = []
     /// True when the provider's own gap queue, rather than a subscriber handoff, overflowed. A
     /// replacement socket may discard only this queue after its explicit resync signal.
     private var bufferedQueueOverflowed = false
@@ -136,11 +139,14 @@ public final class AgentPageProvider: PageProvider {
         self.prepare = prepare
     }
 
+    public var eventDeliveryID: UInt64? { activeDeliveryID }
+
     /// Marks a newly opened acpmux socket. The page keeps this subscription across socket
     /// reconnects, so the overflow latch cannot wait for a WebView resubscribe to clear.
     public func transportDidOpen(_ connection: Int) {
         guard transportConnection != connection else { return }
         transportConnection = connection
+        droppedPublicationIDs.removeAll(keepingCapacity: true)
         // Preserve partial gap queues across socket reconnects: they also contain commands and
         // chrome updates that transport cannot recreate. A full gap queue was already explicit
         // backpressure, so the replacement socket's authoritative resync may discard that queue.
@@ -157,9 +163,15 @@ public final class AgentPageProvider: PageProvider {
 
     public var eventsAfterSubscribeReply: Bool { true }
 
-    public func eventDeliveryDropped(stream: String, data: JSONValue) {
+    public func eventDeliveryDropped(stream: String, data: JSONValue, publicationID: UInt64? = nil) {
         guard stream == Self.hostEvents,
               case .string(let kind)? = data["kind"] else { return }
+        if let publicationID {
+            guard droppedPublicationIDs.insert(publicationID).inserted else { return }
+            if droppedPublicationIDs.count > Self.maximumBufferedEvents {
+                droppedPublicationIDs.removeAll(keepingCapacity: true)
+            }
+        }
         let value = data["value"] ?? .null
         guard bufferedEvents.count < Self.maximumBufferedEvents else {
             bufferedQueueOverflowed = true
@@ -172,6 +184,11 @@ public final class AgentPageProvider: PageProvider {
     /// Sends `event` to every subscribed page.
     @discardableResult
     public func publish(_ event: AgentPageEvent) -> Bool {
+        let publicationID = event.deliveryID ?? nextDeliveryID
+        if event.deliveryID == nil { nextDeliveryID &+= 1 }
+        let event = event.deliveryID == nil
+            ? AgentPageEvent(kind: event.kind, value: event.value, deliveryID: publicationID)
+            : event
         // A saturated bridge still must receive the terminal transport close that causes its
         // JavaScript socket to reconnect. It is a control envelope, not another replay payload;
         // deliver it directly to current listeners and keep the overflow latch for all data.
@@ -191,6 +208,8 @@ public final class AgentPageProvider: PageProvider {
         }
         var accepted = true
         for id in listeners.keys.sorted() {
+            let previousDeliveryID = activeDeliveryID
+            activeDeliveryID = event.deliveryID
             if let pending = pendingEvents[id] {
                 guard pending.events.count - pending.next < Self.maximumBufferedEvents else {
                     deliveryOverflowed = true
@@ -202,6 +221,7 @@ public final class AgentPageProvider: PageProvider {
             } else {
                 listeners[id]?(event.data)
             }
+            activeDeliveryID = previousDeliveryID
         }
         return accepted
     }
@@ -211,6 +231,7 @@ public final class AgentPageProvider: PageProvider {
     public func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                           onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard stream == Self.hostEvents else { throw PageError.unknownOp(stream) }
+        if listeners.isEmpty { droppedPublicationIDs.removeAll(keepingCapacity: true) }
         if deliveryOverflowed, listeners.isEmpty {
             // The transport already reported backpressure; its reconnect performs the authoritative
             // acpmux resync, while this page stream starts from current replay state.
@@ -254,7 +275,10 @@ public final class AgentPageProvider: PageProvider {
             }
             let event = pending.events[pending.next]
             pending.next += 1
+            let previousDeliveryID = activeDeliveryID
+            activeDeliveryID = event.deliveryID
             listener(event.data)
+            activeDeliveryID = previousDeliveryID
         }
         pending.compactDelivered()
         if pending.next < pending.events.count {

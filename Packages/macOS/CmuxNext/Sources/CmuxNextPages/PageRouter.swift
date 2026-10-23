@@ -188,7 +188,7 @@ public final class PageRouter {
         do {
             subscription = try await provider.subscribe(stream, filter: filter, context: PageCallContext(page: descriptor.id)) { [weak self] data in
                 if !provider.eventsAfterSubscribeReply, early.hold(data) { return }
-                self?.deliver(sub: sub, data)
+                self?.deliver(sub: sub, data, publicationID: provider.eventDeliveryID)
             }
         } catch {
             activeStreams.remove(sub)
@@ -212,7 +212,7 @@ public final class PageRouter {
         }
         // task-owner: one flush after the reply; ends with the router
         Task { @MainActor [weak self] in
-            for data in early.release() { self?.deliver(sub: sub, data) }
+            for data in early.release() { self?.deliver(sub: sub, data, publicationID: provider.eventDeliveryID) }
         }
         return sub
     }
@@ -229,7 +229,7 @@ public final class PageRouter {
         return (route.provider, params)
     }
 
-    private func deliver(sub: UInt64, _ data: JSONValue) {
+    private func deliver(sub: UInt64, _ data: JSONValue, publicationID: UInt64? = nil) {
         guard subscriptions[sub] != nil || builtIn[sub] != nil || activeStreams.contains(sub) else { return }
         let seq = (sequences[sub] ?? 0) + 1
         sequences[sub] = seq
@@ -237,7 +237,7 @@ public final class PageRouter {
         let stream = streamProviders[sub]
         let dropped = { @MainActor in
             guard let stream else { return }
-            stream.provider.eventDeliveryDropped(stream: stream.name, data: data)
+            stream.provider.eventDeliveryDropped(stream: stream.name, data: data, publicationID: publicationID)
         }
         if let sendWithDrop { sendWithDrop(envelope, dropped) } else { send?(envelope) }
     }

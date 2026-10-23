@@ -36,6 +36,27 @@ struct AgentPageProviderEventsTests {
         var value: PageSubscription?
     }
 
+    private final class CountWaiter {
+        private let target: Int
+        private var count = 0
+        private var continuation: CheckedContinuation<Void, Never>?
+
+        init(_ target: Int) { self.target = target }
+
+        func add() {
+            count += 1
+            if count >= target, let continuation {
+                self.continuation = nil
+                continuation.resume()
+            }
+        }
+
+        func wait() async {
+            guard count < target else { return }
+            await withCheckedContinuation { continuation = $0 }
+        }
+    }
+
     private static func command(_ name: String) -> AgentPageEvent {
         .command(name)
     }
@@ -247,5 +268,34 @@ struct AgentPageProviderEventsTests {
         defer { next.cancel() }
         await nextPage.waitFor(3)
         #expect(Self.names(nextPage.events) == ["reset-prefix", "pending-prefix", "pending-suffix"])
+    }
+
+    @Test func resetOfMultipleSubscribersRequeuesOnePublication() async throws {
+        let provider = AgentPageProvider { _ in nil }
+        provider.replay = { [Self.command("initial")] }
+        let router = PageRouter(descriptor: .agent,
+                                routes: [PageRoute(prefix: AgentPageOps.namespace, provider: provider)])
+        var dropped: [@MainActor () -> Void] = []
+        let replayed = CountWaiter(2)
+        router.sendWithDrop = { _, onDrop in
+            dropped.append(onDrop)
+            replayed.add()
+        }
+        _ = await router.handle(["t": .string("sub"), "id": .number(1), "stream": .string(AgentPageProvider.hostEvents)])
+        _ = await router.handle(["t": .string("sub"), "id": .number(2), "stream": .string(AgentPageProvider.hostEvents)])
+        await replayed.wait()
+        dropped.removeAll()
+
+        #expect(provider.publish(Self.command("same")))
+        #expect(dropped.count == 2)
+        router.close()
+        dropped.forEach { $0() }
+
+        let nextPage = Received()
+        let next = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null,
+                                                context: Self.context) { event in nextPage.append(event) }
+        defer { next.cancel() }
+        await nextPage.waitFor(2)
+        #expect(Self.names(nextPage.events) == ["initial", "same"])
     }
 }

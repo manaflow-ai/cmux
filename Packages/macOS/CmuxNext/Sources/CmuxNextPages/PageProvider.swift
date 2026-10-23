@@ -17,7 +17,9 @@ public protocol PageProvider: AnyObject {
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription
 
     /// Called when the host reset drops a queued event envelope before the page evaluated it.
-    func eventDeliveryDropped(stream: String, data: JSONValue)
+    func eventDeliveryDropped(stream: String, data: JSONValue, publicationID: UInt64?)
+    /// The publication identity currently being delivered to a subscriber.
+    var eventDeliveryID: UInt64? { get }
 }
 
 public extension PageProvider {
@@ -28,5 +30,7 @@ public extension PageProvider {
         throw PageError.unknownOp(stream)
     }
 
+    var eventDeliveryID: UInt64? { nil }
     func eventDeliveryDropped(stream: String, data: JSONValue) {}
+    func eventDeliveryDropped(stream: String, data: JSONValue, publicationID: UInt64?) {}
 }
