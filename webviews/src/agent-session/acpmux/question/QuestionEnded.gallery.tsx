@@ -37,7 +37,7 @@ export default componentEntry({
   height: 200,
   widths: { narrow: 420, normal: 640, wide: 820 },
   anchors: [{ selector: ".acpmux-question-cancelled" }],
-  covers: ["agent-session/acpmux/question/record.ts#decidedQuestion"],
+  covers: ["agent-session/acpmux/question/QuestionCard.tsx#QuestionCard"],
   styles: () => Promise.all([import("../styles.css"), import("./QuestionEnded.gallery.css")]),
   load: async () => EndedInPane,
   variants: {

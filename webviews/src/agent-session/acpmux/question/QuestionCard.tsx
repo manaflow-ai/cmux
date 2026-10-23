@@ -640,7 +640,7 @@ function CancelledQuestion({ question }: { question: AgentQuestion }) {
       className="acpmux-question-cancelled"
       data-reason={question.state.kind === "cancelled" ? question.state.reason : undefined}
     >
-      {t(cancelledKey(question), { prompt: questionSummary(question) })}
+      {t(cancelledKey(question), { prompt: plainText(questionSummary(question)) })}
     </div>
   );
 }
