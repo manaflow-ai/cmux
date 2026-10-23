@@ -46,7 +46,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.togglePointerInspector",
-                title: String(localized: "action.agentPane.togglePointerInspector", defaultValue: "Point at cmux UI", bundle: .module),
+                title: "Point at cmux UI",
                 keywords: ["agent", "ui", "pointer", "inspect", "pick", "element", "debug"],
                 defaultShortcut: Shortcut("p", modifiers: [.control, .option, .command]),
                 category: .agents, symbol: "scope", surfaces: [.palette, .keyboard, .contextMenu],
