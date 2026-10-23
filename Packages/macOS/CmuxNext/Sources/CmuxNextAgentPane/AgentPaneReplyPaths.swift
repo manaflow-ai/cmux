@@ -48,10 +48,19 @@ nonisolated struct AgentPaneReplyPaths {
     static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp"]
 
     static func isImagePath(_ text: String) -> Bool {
-        let path = text.lowercased().hasPrefix("file://")
-            ? URL(string: text)?.path(percentEncoded: false) ?? text
-            : text.split(maxSplits: 1, whereSeparator: { $0 == "?" || $0 == "#" }).first.map(String.init) ?? text
+        guard let path = imagePath(text) else { return false }
         return imageExtensions.contains(URL(fileURLWithPath: path).pathExtension.lowercased())
+    }
+
+    /// The local path spelling of an image token, with URL decoration removed. Non-local file
+    /// URLs are rejected before a caller can treat their path as a local file.
+    static func imagePath(_ text: String) -> String? {
+        if text.lowercased().hasPrefix("file://") {
+            guard let url = URL(string: text), url.isFileURL,
+                  let host = url.host(percentEncoded: false), host.isEmpty || host == "localhost" else { return nil }
+            return url.path(percentEncoded: false)
+        }
+        return text.split(maxSplits: 1, whereSeparator: { $0 == "?" || $0 == "#" }).first.map(String.init)
     }
 
     /// Folders under the home folder that hold credentials, and file names that are secrets. A

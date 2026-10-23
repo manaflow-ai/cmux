@@ -188,6 +188,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         Task { await client.close() }
     }
 
+    public func loadRemoteImage(_ path: String) async throws -> Data {
+        guard let client = state.withLock({ $0.client }) else {
+            throw AgentSessionRemoteError(code: Self.unsupported, message: "the remote chat has no session")
+        }
+        return try await client.media(path: path)
+    }
+
     // MARK: Start
 
     /// A new chat's `session/new` (its first send): starts the chat on that machine once and

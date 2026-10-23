@@ -59,6 +59,8 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     let choices = AgentPaneBrowserChoices()
     /// The home folder for `~/` and the deny list (tests replace it).
     var home = NSHomeDirectory()
+    /// The current remote chat's media reader, supplied by its ACP wire; nil for local chats.
+    var remoteImageLoader: (@Sendable (String) async throws -> Data)?
 
     public init() {}
 
@@ -125,7 +127,9 @@ extension AgentPaneModel {
             let resolver = replyPaths()
             var places: [String: Any] = [:]
             for path in paths {
-                let resolved = AgentPaneReplyPaths.isImagePath(path) ? resolver.resolveImage(path) : resolver.resolve(path)
+                let resolved = remoteChat && AgentPaneReplyPaths.isImagePath(path)
+                    ? AgentPaneReplyPaths.Resolved(place: .root, path: path, isFolder: false)
+                    : (AgentPaneReplyPaths.isImagePath(path) ? resolver.resolveImage(path) : resolver.resolve(path))
                 guard let resolved else { continue }
                 places[path] = ["place": resolved.place.rawValue, "folder": resolved.isFolder]
             }
@@ -231,6 +235,15 @@ extension AgentPaneModel {
             switch fetched {
             case .success(let data): return Self.replyImage(await AgentPaneReplyImages.remote(data))
             case .failure(let error): return Self.replyFailure(error)
+            }
+        }
+        if remoteChat {
+            guard let path = AgentPaneReplyPaths.imagePath(src), AgentPaneReplyPaths.isImagePath(src),
+                  let remoteImageLoader else { return Self.replyFailure(.imageRefused) }
+            do {
+                return Self.replyImage(await AgentPaneReplyImages.remote(try await remoteImageLoader(path)))
+            } catch {
+                return Self.replyFailure(.imageFailed)
             }
         }
         let paths = replyPaths()
