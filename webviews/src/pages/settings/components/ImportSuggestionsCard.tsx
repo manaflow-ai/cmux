@@ -12,11 +12,7 @@ export function ImportSuggestionsCard() {
   if (!list) return null;
   return (
     <section className="group" data-card="importSuggestions">
-      <ImportCards
-        list={list}
-        layout="list"
-        onAction={(id, action) => void store.runAction("import.card", { id, action })}
-      />
+      <ImportCards list={list} onAction={(id, action) => void store.runAction("import.card", { id, action })} />
     </section>
   );
 }
