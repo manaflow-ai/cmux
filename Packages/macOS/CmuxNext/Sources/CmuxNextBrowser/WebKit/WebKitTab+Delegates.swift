@@ -2,6 +2,7 @@ import AppKit
 public import Foundation
 public import WebKit
 import CmuxNextCompat
+import CmuxNextDesign
 
 // MARK: - Navigation
 
@@ -290,19 +291,15 @@ extension WebKitTab: WKUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping @MainActor ([URL]?) -> Void
     ) {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
-        panel.canChooseDirectories = parameters.allowsDirectories
-        panel.canChooseFiles = true
-        panel.resolvesAliases = true
-        let finish: (NSApplication.ModalResponse) -> Void = { response in
-            completionHandler(response == .OK ? panel.urls : nil)
+        // The one file-input path (WebFileInputAnswering) every web view shares: in the app the made-ahead panel.
+        // A tab whose engine is gone ends the input as a cancel.
+        guard let engine else {
+            completionHandler(nil)
+            return
         }
-        if let window = webView.window {
-            panel.beginSheetModal(for: window, completionHandler: finish)
-        } else {
-            panel.begin(completionHandler: finish)
-        }
+        engine.fileInput.answerFileInput(allowsMultipleSelection: parameters.allowsMultipleSelection,
+                                         allowsDirectories: parameters.allowsDirectories,
+                                         window: webView.window, completion: completionHandler)
     }
 
     static func displayOrigin(_ origin: WKSecurityOrigin) -> String {
