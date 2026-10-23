@@ -118,10 +118,7 @@ test("images use a 1568 px preview and retain the session path of the original",
 
 test("a small image is reencoded too, so metadata is never passed through", async () => {
   const drawn = imageEngine(320, 240);
-  const result = await readAttachment(
-    new File(["EXIF GPS"], "small.jpg", { type: "image/jpeg" }),
-    true,
-  );
+  const result = await readAttachment(new File(["EXIF GPS"], "small.jpg", { type: "image/jpeg" }), true);
   expect(drawn).toEqual([{ width: 320, height: 240 }]);
   expect(result).toMatchObject({ kind: "image", data: btoa("clean pixels") });
 });
