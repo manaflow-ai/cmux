@@ -27,7 +27,8 @@ struct HangReportServiceTests {
     }
 
     private let directory = FileManager().temporaryDirectory.appending(path: "hang-reports-\(UUID().uuidString)")
-    private let defaults = UserDefaults(suiteName: "hang-reports-\(UUID().uuidString)")!
+    private let suite = "hang-reports-\(UUID().uuidString)"
+    private var defaults: UserDefaults { UserDefaults(suiteName: suite) ?? .standard }
     private let clock = TestClock()
 
     private func service(_ transport: RecordingTransport) -> HangReportService {
@@ -36,7 +37,7 @@ struct HangReportServiceTests {
         return HangReportService(
             store: HangReportStore(directory: directory), transport: transport, builder: HangReportFixtures.builder(),
             scanner: PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms),
-            identity: InstallIdentity(defaults: defaults, now: { clock.now }), collector: collector,
+            identity: InstallIdentity(suiteName: suite, now: { clock.now }), collector: collector,
             environment: HangReportService.Environment(
                 app: HangReport.App(version: "0.70.0", build: "70123", channel: "nightly"), os: HangReport.OS(version: "15.7.4"),
                 hardware: HardwareClass(arch: "arm64", chip: "Apple M4 Pro", cores: 14, memoryGB: 48),
@@ -146,7 +147,7 @@ struct HangReportServiceTests {
     }
 
     @Test func theInstallIDRotatesAfterThirtyDays() {
-        let identity = InstallIdentity(defaults: defaults, now: { [clock] in clock.now })
+        let identity = InstallIdentity(suiteName: suite, now: { [clock] in clock.now })
         let first = identity.current()
         #expect(identity.current() == first)
         clock.advance(29 * 24 * 60 * 60)

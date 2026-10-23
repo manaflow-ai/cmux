@@ -7,7 +7,7 @@ import os
 ///
 /// ```swift
 /// let service = HangReportService(store: HangReportStore(directory: folder), transport: URLSessionHangReportTransport(),
-///                                 builder: builder, scanner: scanner, identity: InstallIdentity(defaults: defaults),
+///                                 builder: builder, scanner: scanner, identity: InstallIdentity(),
 ///                                 collector: collector, environment: environment)
 /// await service.setEnabled(settings.hangReports)
 /// await service.launched()

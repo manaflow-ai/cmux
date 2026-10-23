@@ -36,9 +36,10 @@ public nonisolated struct PrivacyLeakScanner: Sendable {
     private let forbiddenTerms: [String]
 
     /// - Parameter forbiddenTerms: Words no string may hold (``ImageClassifier/personalTerms()``);
-    ///   terms under 3 letters, and terms that are part of our own product names, are ignored.
+    ///   terms under 4 letters, and words of the report's own vocabulary, are ignored.
     public init(forbiddenTerms: [String]) {
-        self.forbiddenTerms = forbiddenTerms.map { $0.lowercased() }.filter { $0.count >= 3 && !ImageClassifier.isOwnWord($0) }
+        self.forbiddenTerms = forbiddenTerms.map { $0.lowercased() }
+            .filter { $0.count >= ImageClassifier.minimumTermLength && !ImageClassifier.isOwnWord($0) }
     }
 
     /// Every finding in `json` (empty: safe to send).
@@ -55,8 +56,10 @@ public nonisolated struct PrivacyLeakScanner: Sendable {
         switch value {
         case let object as [String: Any]:
             for (key, child) in object {
-                if let kind = kind(of: key) { found.append(Finding(path: path + ".<key>", kind: kind)) }
-                walk(child, path: path + "." + (kind(of: key) == nil ? key : "<key>"), into: &found)
+                // Keys are the schema's names: checked for shape, not for personal terms.
+                let keyKind = kind(of: key, personal: false)
+                if let keyKind { found.append(Finding(path: path + ".<key>", kind: keyKind)) }
+                walk(child, path: path + "." + (keyKind == nil ? key : "<key>"), into: &found)
             }
         case let array as [Any]:
             for (index, child) in array.enumerated() { walk(child, path: "\(path)[\(index)]", into: &found) }
@@ -68,13 +71,13 @@ public nonisolated struct PrivacyLeakScanner: Sendable {
     }
 
     /// What is wrong with `text`, nil when it may be sent.
-    func kind(of text: String) -> Kind? {
+    func kind(of text: String, personal: Bool = true) -> Kind? {
         if text.count > Self.maxStringLength { return .tooLong }
         if text.unicodeScalars.contains(where: { !Self.safeCharacters.contains($0) }) { return .unsafeCharacter }
         if ImageClassifier.isUUID(text) { return nil }
         if Self.hasTokenRun(text) { return .token }
         let lowered = text.lowercased()
-        if forbiddenTerms.contains(where: { lowered.contains($0) }) { return .personalTerm }
+        if personal, forbiddenTerms.contains(where: { lowered.contains($0) }) { return .personalTerm }
         return nil
     }
 

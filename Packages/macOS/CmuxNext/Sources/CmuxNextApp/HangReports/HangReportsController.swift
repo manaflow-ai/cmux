@@ -57,7 +57,7 @@ final class HangReportsController {
         let os = ProcessInfo.processInfo.operatingSystemVersion
         let service = HangReportService(
             store: HangReportStore(directory: folder), transport: URLSessionHangReportTransport(endpoint: endpoint),
-            builder: builder, scanner: PrivacyLeakScanner(forbiddenTerms: terms), identity: InstallIdentity(defaults: .standard),
+            builder: builder, scanner: PrivacyLeakScanner(forbiddenTerms: terms), identity: InstallIdentity(),
             collector: collector,
             environment: HangReportService.Environment(
                 app: HangReport.App(version: info["CFBundleShortVersionString"] as? String ?? "0",

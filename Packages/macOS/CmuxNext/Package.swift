@@ -1190,7 +1190,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextHangReportsTests",
-            dependencies: ["CmuxNextHangReports"],
+            dependencies: ["CmuxNextCompat", "CmuxNextHangReports"],
             swiftSettings: daemonSwiftSettings
         ),
         // Crash and exception reports to Sentry (cx-urd.58): consent, channel

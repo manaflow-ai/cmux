@@ -70,7 +70,7 @@ public nonisolated struct HangReportBuilder: Sendable {
         var loaded: [String: LoadedImage?] = [:]
         return reader.stack(callStackTree).map { raw in
             let uuid = raw.binaryUUID?.uppercased()
-            let image = uuid.flatMap { uuid in
+            let image = uuid.flatMap { uuid -> LoadedImage? in
                 if let known = loaded[uuid] { return known }
                 let found = resolver.image(uuid: uuid)
                 loaded[uuid] = found
