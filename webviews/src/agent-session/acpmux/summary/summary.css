@@ -6,13 +6,17 @@
 .acpmux-summary-card[data-placement=popover]{position:absolute;z-index:var(--layer-sticky);top:48px;right:10px;width:min(288px,calc(100% - 20px));max-height:calc(100% - 60px);border-radius:var(--ui-popup-radius)}
 /* The popover is the liquid glass (.ui-glass, ui/glass/glass.css), as the chat's other menus and
    popovers are, never the solid popup card (Leo 2026-10-21: "i dont like the non glassness here";
-   summary-glass.test.ts): the glass's tint, blur and rim over the popup elevation. Reduce
-   Transparency makes it the solid popup surface (glass.css holds --glass-opaque there). The inline
-   column is not an overlay: it keeps the page's own background. */
+   summary-glass.test.ts): the glass's tint, blur and rim over the popup elevation. Its tokens are
+   a menu's (.ui-popup, ui/popupSurface.css): the drop alone as the elevation and the popup's
+   hairline as the rim's edge, so the rim is its one inset line (--ui-popup-shadow carries a hairline
+   of its own and would draw a second). Reduce Transparency makes it the solid popup surface
+   (glass.css holds --glass-opaque there). The inline column is not an overlay: it keeps the page's
+   own background. */
 .acpmux-summary-card.ui-glass[data-placement=popover]{
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
   --glass-opaque:var(--surface-popup);
-  --glass-elevation:var(--acpmux-popup-elevation);
+  --glass-elevation:var(--ui-popup-drop);
+  --glass-edge:var(--ui-popup-edge, color-mix(in srgb, currentColor 12%, transparent));
   background:var(--glass-tint);
   -webkit-backdrop-filter:var(--glass-backdrop);
   backdrop-filter:var(--glass-backdrop);

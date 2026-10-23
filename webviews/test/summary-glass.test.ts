@@ -10,6 +10,8 @@
 //   white). Under Lens the lens (ui/glass/lens.ts) draws its frost behind the glass, which this
 //   harness does not, so there the check is the menus' glass and the theme's page.
 // Reduce Transparency, from the host's attribute or the system setting, is the one case it is solid.
+// Its shadow is a menu's: the popup drop and one inset rim, never a second hairline from
+// --ui-popup-shadow under the glass's own rim.
 // The inline column (a wide pane) is not an overlay and keeps the page background.
 //
 // Before: `.acpmux-summary-card[data-placement=popover]` painted `--surface-popup` (alpha 1) with no
@@ -20,6 +22,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import type { AgentSessionTheme } from "../src/agent-session/shared/types";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -80,10 +83,31 @@ await requireBrowserLane("summary-glass.test.ts", async () => {
   });
 
   // The harness's base layer (shared/styles.css) is a dark page until a theme arrives, so each run
-  // applies a theme the way the host does (applyAgentTheme).
-  const themes = {
-    light: { isDark: false, pageBackground: "transparent", text: "rgb(20, 20, 20)" },
-    dark: { isDark: true, pageBackground: "transparent", text: "rgb(236, 236, 236)" },
+  // applies a whole theme the way the host does (applyAgentTheme, AgentPaneTheme.swift), typed as
+  // the real AgentSessionTheme. The muted, soft and border inks are the text at the stylesheet's own
+  // mixes (shared/styles.css), so the popover's ink is the pane's.
+  function hostTheme(isDark: boolean, ink: string, surface: string, accent: string, danger: string): AgentSessionTheme {
+    const text = (percent: number) => `color-mix(in srgb, ${ink} ${percent}%, transparent)`;
+    return {
+      isDark,
+      pageBackground: "transparent",
+      surfaceBackground: surface,
+      surfaceElevatedBackground: surface,
+      inputBackground: text(6),
+      border: text(12),
+      borderStrong: text(22),
+      text: ink,
+      mutedText: text(58),
+      softText: text(78),
+      accent,
+      accentSoft: `color-mix(in srgb, ${accent} 20%, transparent)`,
+      danger,
+      shadow: "rgba(0, 0, 0, 0.2)",
+    };
+  }
+  const themes: Record<"light" | "dark", AgentSessionTheme> = {
+    light: hostTheme(false, "rgb(20, 20, 20)", "rgb(255, 255, 255)", "rgb(0, 122, 255)", "rgb(215, 0, 21)"),
+    dark: hostTheme(true, "rgb(236, 236, 236)", "rgb(30, 30, 30)", "rgb(10, 132, 255)", "rgb(255, 141, 126)"),
   };
 
   async function open(
@@ -107,8 +131,12 @@ await requireBrowserLane("summary-glass.test.ts", async () => {
     await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
     await page.evaluate(
       async ([attributes, theme]) => {
+        // Loaded in the page from the vite server; typed as the module itself, so the call is
+        // checked against applyAgentTheme's own signature.
         const themeModule = "/src/agent-session/shared/theme.ts";
-        const { applyAgentTheme } = await import(/* @vite-ignore */ themeModule);
+        const { applyAgentTheme }: typeof import("../src/agent-session/shared/theme") = await import(
+          /* @vite-ignore */ themeModule
+        );
         applyAgentTheme(theme);
         for (const [name, value] of Object.entries(attributes)) document.documentElement.setAttribute(name, value);
       },
@@ -116,6 +144,28 @@ await requireBrowserLane("summary-glass.test.ts", async () => {
     );
     return page;
   }
+
+  /** A computed box-shadow's layers (commas inside a color's parentheses are not separators). */
+  function shadowLayers(shadow: string): string[] {
+    if (shadow === "none") return [];
+    const layers: string[] = [];
+    let depth = 0;
+    let start = 0;
+    for (let index = 0; index < shadow.length; index++) {
+      const char = shadow[index];
+      if (char === "(") depth++;
+      else if (char === ")") depth--;
+      else if (char === "," && depth === 0) {
+        layers.push(shadow.slice(start, index).trim());
+        start = index + 1;
+      }
+    }
+    layers.push(shadow.slice(start).trim());
+    return layers;
+  }
+  /** The inset layers that ring the whole edge (no offset, no blur, a spread): the rim's hairline. */
+  const rings = (layers: string[]) =>
+    layers.filter((layer) => layer.includes("inset") && /\b0px 0px 0px (?!0px)[\d.]+px\b/.test(layer));
 
   const muted = ["counts", "section-title", "row-meta", "close"] as const;
   async function popover(page: Page) {
@@ -127,6 +177,8 @@ await requireBrowserLane("summary-glass.test.ts", async () => {
         backdrop: style("popover").backdropFilter,
         menuFill: style("menu").backgroundColor,
         menuBackdrop: style("menu").backdropFilter,
+        shadow: style("popover").boxShadow,
+        menuShadow: style("menu").boxShadow,
         title: style("title").color,
         text: style("row-text").color,
         muted: muted.map((id) => style(id).color),
@@ -170,6 +222,19 @@ await requireBrowserLane("summary-glass.test.ts", async () => {
         expect(backdrop, "the popover blurs what is under it").toContain("blur(");
         expect(look.fill, "the popover's fill is a chat menu's").toEqual(look.menuFill);
         expect(backdrop, "the popover blurs as a chat menu does").toBe(look.menuBackdrop);
+        // One rim: the glass's own, over the menus' drop; no second hairline from --ui-popup-shadow.
+        const layers = shadowLayers(look.shadow);
+        expect(rings(layers), `one hairline ring in ${look.shadow}`).toHaveLength(1);
+        if (!window.lens)
+          expect(
+            layers.filter((layer) => layer.includes("inset")),
+            `one inset layer in ${look.shadow}`,
+          ).toHaveLength(1);
+        expect(
+          layers.filter((layer) => !layer.includes("inset")),
+          "the popup's one drop",
+        ).toHaveLength(1);
+        expect(look.shadow, "the popover's shadow is a chat menu's").toBe(look.menuShadow);
         const own = over(fill, ownPage[colorScheme]);
         for (const [index, ink] of look.muted.entries())
           expect(
@@ -197,10 +262,14 @@ await requireBrowserLane("summary-glass.test.ts", async () => {
           { "data-cmux-see-through": "", "data-glass": "plain", ...(media ? {} : { "data-reduce-transparency": "" }) },
           media,
         );
-        const { reduceMedia, fill, backdrop } = await popover(page);
+        const { reduceMedia, fill, backdrop, shadow } = await popover(page);
         expect(reduceMedia, `${colorScheme}: the system setting is emulated`).toBe(media);
         expect(fill[3], `${colorScheme} fill under Reduce Transparency`).toBe(1);
         expect(backdrop, `${colorScheme} blur under Reduce Transparency`).toBe("none");
+        expect(
+          shadowLayers(shadow).filter((layer) => layer.includes("inset")),
+          `${colorScheme}: one inset layer under Reduce Transparency in ${shadow}`,
+        ).toHaveLength(1);
         await page.close();
       }
     });
