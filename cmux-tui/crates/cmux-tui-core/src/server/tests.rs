@@ -555,6 +555,7 @@ mod resource_waits;
 mod session_streams;
 mod sizing;
 mod socket_and_render;
+mod stream_lane_isolation;
 mod view_leases;
 mod wire_commands;
 mod workspace_checklist_capability;
