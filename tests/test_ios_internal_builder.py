@@ -196,6 +196,130 @@ class AdmitTests(unittest.TestCase):
         self.assertIn("GiB", reason)
 
 
+class PruneTests(unittest.TestCase):
+    """cmux23 fell to 39.9 GiB free on 2026-10-22 (run 39731717858) and refused every archive job."""
+
+    def setUp(self):
+        import tempfile
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(__import__("shutil").rmtree, self.tmp, True)
+        self.root = self.tmp / "cmux-mobile-builds"
+        self.legacy = self.tmp / "cnx-ios-builds"
+        for name, value in (("BUILDS_ROOT", self.root), ("LEGACY_ROOTS", (self.legacy,)),
+                            ("RUNNER_DIR", self.tmp / "runner")):
+            patcher = mock.patch.object(ib, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def make(self, rel, age_s=0, now=1_000_000.0):
+        path = self.root / rel
+        path.mkdir(parents=True, exist_ok=True)
+        os.utime(path, (now - age_s, now - age_s))
+        return path
+
+    def test_keeps_only_the_newest_build_folders(self):
+        for i in range(ib.KEEP_OUTPUTS + 2):
+            self.make(f"2026102{i}-abc-testflight", age_s=3600 * (10 - i))
+        cache = self.make(".cache/spm")
+        ib._prune(1_000_000.0)
+        left = sorted(p.name for p in self.root.iterdir() if not p.name.startswith("."))
+        self.assertEqual(len(left), ib.KEEP_OUTPUTS)
+        self.assertNotIn("20261020-abc-testflight", left)
+        self.assertTrue(cache.is_dir())
+
+    def test_pressure_trim_removes_legacy_root_work_old_xcframeworks_and_cargo_target(self):
+        (self.legacy / ".cache").mkdir(parents=True)
+        self.make(".work/20261021-dead-testflight/dd")
+        for i in range(ib.KEEP_XCFRAMEWORKS + 2):
+            self.make(f".cache/xcframework/key{i}", age_s=100 * (10 - i))
+        self.make(".cache/cmux-mobile-rust-target/release")
+        spm = self.make(".cache/spm/checkouts")
+        output = self.make("20261022-abc-testflight")
+        ib.prune_caches()
+        self.assertFalse(self.legacy.exists())
+        self.assertEqual(list((self.root / ".work").iterdir()), [])
+        keys = sorted(p.name for p in (self.root / ".cache/xcframework").iterdir())
+        self.assertEqual(keys, [f"key{i}" for i in range(2, ib.KEEP_XCFRAMEWORKS + 2)])
+        self.assertFalse((self.root / ".cache/cmux-mobile-rust-target").exists())
+        self.assertTrue(spm.is_dir())
+        self.assertTrue(output.is_dir())
+
+    def test_tick_trims_caches_only_when_low_and_idle(self):
+        usage = lambda free: mock.Mock(free=free)
+        with mock.patch.object(ib, "STATE_DIR", self.tmp / "state"), \
+                mock.patch.object(ib, "LOG_PATH", self.tmp / "log"), \
+                mock.patch.object(ib, "_public_runs", return_value=[]), \
+                mock.patch.object(ib.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")), \
+                mock.patch.object(ib, "prune_caches", return_value=0) as trim:
+            for free, busy, expect in ((100 * 1024 ** 3, False, 0), (39 * 1024 ** 3, True, 0),
+                                       (39 * 1024 ** 3, False, 1)):
+                trim.reset_mock()
+                with mock.patch.object(ib.shutil, "disk_usage", return_value=usage(free)), \
+                        mock.patch.object(ib, "job_running", return_value=busy):
+                    ib.tick()
+                self.assertEqual(trim.call_count, expect, (free, busy))
+
+    def test_admit_trims_and_rechecks_when_only_disk_refuses(self):
+        env = AdmitTests.env(None)
+        frees = iter([39 * 1024 ** 3, 80 * 1024 ** 3])
+        with mock.patch.dict(os.environ, env, clear=True), \
+                mock.patch.object(ib, "LOG_PATH", self.tmp / "log"), \
+                mock.patch.object(ib.shutil, "disk_usage", side_effect=lambda _p: mock.Mock(free=next(frees))), \
+                mock.patch.object(ib, "prune_caches", return_value=3) as trim:
+            self.assertEqual(ib.main(["admit"]), 0)
+        trim.assert_called_once()
+
+    def test_admit_does_not_trim_for_a_refused_job(self):
+        env = AdmitTests.env(None, GITHUB_JOB="upload")
+        with mock.patch.dict(os.environ, env, clear=True), \
+                mock.patch.object(ib, "LOG_PATH", self.tmp / "log"), \
+                mock.patch.object(ib.shutil, "disk_usage", return_value=mock.Mock(free=10 * 1024 ** 3)), \
+                mock.patch.object(ib, "prune_caches") as trim:
+            self.assertEqual(ib.main(["admit"]), 1)
+        trim.assert_not_called()
+
+
+    def test_newest_cap_counts_only_testflight_folders(self):
+        other = self.make("20261001-abc-prod", age_s=3600)
+        for i in range(ib.KEEP_OUTPUTS + 1):
+            self.make(f"2026102{i}-abc-testflight", age_s=60 * (10 - i))
+        ib._prune(1_000_000.0)
+        self.assertTrue(other.is_dir())
+        self.assertFalse((self.root / "20261020-abc-testflight").exists())
+
+    def test_pressure_trim_leaves_a_symlinked_cargo_target_and_empties_trash(self):
+        real = self.tmp / "elsewhere"
+        real.mkdir()
+        (self.root / ".cache").mkdir(parents=True)
+        (self.root / ".cache/cmux-mobile-rust-target").symlink_to(real)
+        ib.prune_caches()
+        self.assertTrue(real.is_dir())
+        self.make(".trash/leftover")
+        ib._prune(1_000_000.0)
+        self.assertEqual(list((self.root / ".trash").iterdir()), [])
+
+    def test_job_running_matches_a_worker_from_any_runner_bin(self):
+        seen = []
+
+        def pgrep(argv, **_kw):
+            seen.append(argv[-1])
+            return subprocess.CompletedProcess(argv, 0 if argv[-1] == "Runner.Worker" else 1, "", "")
+        with mock.patch.object(ib.subprocess, "run", side_effect=pgrep):
+            self.assertTrue(ib.job_running())
+        self.assertEqual(seen, ["Runner.Worker"])
+        with mock.patch.object(ib.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, "", "")):
+            self.assertFalse(ib.job_running())
+
+    def test_admit_refuses_cleanly_when_the_trim_fails_or_frees_too_little(self):
+        env = AdmitTests.env(None)
+        for effect in (PermissionError("denied"), None):
+            with mock.patch.dict(os.environ, env, clear=True), \
+                    mock.patch.object(ib, "LOG_PATH", self.tmp / "log"), \
+                    mock.patch.object(ib.shutil, "disk_usage", return_value=mock.Mock(free=39 * 1024 ** 3)), \
+                    mock.patch.object(ib, "prune_caches", side_effect=effect):
+                self.assertEqual(ib.main(["admit"]), 1)
+
+
 class FakeGh:
     """Stands in for subprocess.run(["gh", "api", ...]): answers from a script of (returncode, stdout, stderr)."""
 

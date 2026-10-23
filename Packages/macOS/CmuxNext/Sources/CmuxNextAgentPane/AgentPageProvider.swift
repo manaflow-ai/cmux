@@ -40,6 +40,7 @@ public nonisolated struct AgentPageOps {
             "git.diff", "git.status", "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo", "git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk", "git.pullRequest", "project.instructions", "project.addFiles", "composer.capture",
             "dictation.toggle", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings", "dictation.audio",
             "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",
+            "chat.missing",
         ].map { ($0, $0) })
         for method in AgentPaneReplyRequest.methods.union(AgentPaneEnvironmentRequest.methods) { methods[method] = method }
         methods["handshake"] = "ready"
@@ -127,7 +128,7 @@ public final class AgentPageProvider: PageProvider {
 
     /// The value of an ``AgentPaneReply``, or its failure as a ``PageError``. The model's code and
     /// message are kept; its `origin` and `details` travel in the error's details.
-    nonisolated static func value(of reply: [String: Any]) throws -> JSONValue {
+    public nonisolated static func value(of reply: [String: Any]) throws -> JSONValue {
         if reply["ok"] as? Bool == true {
             guard let value = reply["value"] else { return .null }
             guard let json = JSONValue(foundation: value) else {
