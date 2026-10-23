@@ -33,6 +33,8 @@ Fleet (an owned mini with a console; the step builds the app):
     [--arg=--gate-p95-ms=8]
 """
 import argparse, csv, glob, json, os, re, socket, statistics, subprocess, sys, tempfile, threading, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import BenchApp, LaunchError  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -50,7 +52,7 @@ parser.add_argument("--stress", action="store_true",
                          "6 tabs per pane, 10 workspaces with Chromium pages, 10 printing terminals); every phase runs in it. "
                          "Uses scripts/cmux-next/perf-stress-session.py when present, else the builder here")
 parser.add_argument("--sessions", help="comma list of light,stress: one app launch each (default: light, or stress with --stress)")
-parser.add_argument("--agent-mock", action="store_true", help="CMUX_NEXT_AGENT_PANE_MOCK=1 (the light session's streaming chats)")
+parser.add_argument("--rounds", type=int, default=3, help="every phase this many times per launch (the noise shows)")
 parser.add_argument("--sample", action="store_true", help="/usr/bin/sample the app over each load phase")
 parser.add_argument("--gate-p95-ms", type=float)
 opts = parser.parse_args()
@@ -62,12 +64,12 @@ SCRATCH = tempfile.mkdtemp(prefix=f"typing-{TAG}-")
 CONFIG = os.path.join(SCRATCH, "cmux.json")
 PROBE = os.path.join(OUT, "typing.csv")
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
-BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
 WINDOW = (40, 40, 1400, 900)
 BUSY = "while :; do printf '%s busy line %s %s\\n' $RANDOM $RANDOM $RANDOM; done"
 results = {"tag": TAG, "host": os.uname().nodename, "opts": vars(opts), "log": [], "runs": []}
 app = None
 SESSION = "light"
+ROUND = 0
 
 
 def note(text):
@@ -178,7 +180,7 @@ def make_load(surface_ws):
     if LOAD["made"]:
         return
     LOAD["made"] = True
-    if opts.stress:
+    if SESSION == "stress":
         # STRESS has its printing terminals and agent chats already: stream up to --chats of its chats.
         listed = rpc("debug.agent_pane", {"action": "engine", "pane": "none"}) or {}
         LOAD["chat_panes"] = (listed.get("agent_panes") or [])[: opts.chats]
@@ -199,11 +201,13 @@ def make_load(surface_ws):
             action("splitDown", settle=0.4)
             action("terminal.sendText", {"text": BUSY + "\r"})
     for _ in range(opts.chats):
-        reply = action("palette.newAgentChat", settle=3.0)
+        reply = action("palette.newAgentChat", settle=1.0)
+        # The action answers after ~2 s while the chat still opens: wait for its page, then its composer.
+        ready = wait(lambda: (lambda r: r if r.get("document_ready") else None)(
+            rpc("debug.agent_pane", {"action": "readiness"}, timeout=5) or {}), 30, step=0.5)
         engine = rpc("debug.agent_pane", {"action": "engine"}) or {}
-        rpc("debug.agent_pane", {"action": "select_session", "session": "mock-session"})
         LOAD["chat_panes"].append(engine.get("pane"))
-        note(f"load: agent chat {engine.get('pane')} ({engine.get('engine')}) {json.dumps(reply)[:120]}")
+        note(f"load: agent chat {engine.get('pane')} ({engine.get('engine')}) ready={bool(ready)} {json.dumps(reply)[:120]}")
     if surface_ws:
         cli("workspace", surface_ws, "focus")
     note(f"load: {opts.busy} busy terminals ({visible} visible), {len(LOAD['chat_panes'])} agent chats")
@@ -214,9 +218,13 @@ def chat_streams():
     if not panes:
         return None
 
+    replies = LOAD.setdefault("stream_replies", [])
+
     def step(_):
         for pane in panes:
-            rpc("debug.agent_pane", {"action": "stream", "pane": pane, "rows": 40, "seconds": 3, "chunk_ms": 30}, timeout=10)
+            reply = rpc("debug.agent_pane", {"action": "stream", "pane": pane, "rows": 40, "seconds": 3, "chunk_ms": 30}, timeout=10)
+            if len(replies) < 4 or (isinstance(reply, dict) and reply.get("error")):
+                replies.append(json.dumps(reply)[:200])
     return Streamer(step, 3.0)
 
 
@@ -284,8 +292,59 @@ def type_keys(count, params, column):
     return rows, trips
 
 
+GENERIC = ("start", "main", "NSApplicationMain", "_DPSNextEvent", "_DPSBlockUntilNextEventMatchingListInMode", "ReceiveNextEventCommon",
+           "_BlockUntilNextEventMatchingListInMode", "RunCurrentEventLoopInMode", "__CFRunLoopRun", "_CFRunLoopRunSpecificWithOptions",
+           "CFRunLoopRunSpecific", "__CFRunLoopDoObservers", "__CFRunLoopDoSources0", "__CFRunLoopDoSource1", "__CFRUNLOOP_IS_CALLING_OUT",
+           "_dispatch_main_queue_drain", "_dispatch_main_queue_callback_4CF", "__CFRUNLOOP_IS_SERVICING_THE_MAIN_DISPATCH_QUEUE__",
+           "_dispatch_client_callout", "-[NSApplication run]", "withExtendedLifetime", "__debug_main_executable_dylib_entry_point",
+           "CmuxNextApp.main()", "partial apply for closure #1 in CmuxNextApp.main()", "closure #1 in CmuxNextApp.main()",
+           "-[NSApplication(NSEventRouting) nextEventMatchingMask", "-[NSApplication(NSEventRouting) _nextEventMatchingEventMask")
+
+
+def digest_sample(text):
+    """The main thread of a `sample` report: busy share, and the heaviest frames inclusive (each counted once per
+    path), all and ours (the cmux dylib), and leaves. Percent of all main-thread samples (idle included)."""
+    graph = text.split("Call graph:", 1)[-1].splitlines()
+    lines, started = [], False
+    for line in graph:
+        if "com.apple.main-thread" in line:
+            started = True
+            continue
+        if started and re.match(r"^\s{4}\d+ Thread_", line):
+            break
+        if started:
+            lines.append(line)
+    inclusive, ours, leaf, stack = {}, {}, {}, []
+    total = idle = 0
+    for i, line in enumerate(lines):
+        m = re.match(r"^([\s+!:|]*)(\d+)\s+(.+?)\s+\(in ([^)]+)\)", line)
+        if not m:
+            continue
+        depth, count, name, image = len(m.group(1)), int(m.group(2)), m.group(3), m.group(4)
+        while stack and stack[-1][0] >= depth:
+            stack.pop()
+        total = max(total, count)
+        if name not in {n for _, n in stack}:
+            inclusive[name] = inclusive.get(name, 0) + count
+            if "cmux DEV" in image and not name.startswith(("closure", "thunk", "partial apply", "reabstraction")):
+                ours[name] = ours.get(name, 0) + count
+        stack.append((depth, name))
+        nxt = lines[i + 1] if i + 1 < len(lines) else ""
+        nm = re.match(r"^([\s+!:|]*)\d+\s", nxt)
+        if not nm or len(nm.group(1)) <= depth:
+            leaf[name] = leaf.get(name, 0) + count
+            if name in ("mach_msg2_trap", "__workq_kernreturn"):
+                idle += count
+    pct_of = lambda c: round(100.0 * c / total, 1) if total else 0
+    top = lambda d, n: [{"frame": k[:200], "pct": pct_of(v)} for k, v in sorted(d.items(), key=lambda kv: -kv[1])
+                        if not k.startswith(GENERIC)][:n]
+    return {"samples": total, "busy_pct": pct_of(total - idle), "top": top(inclusive, 60), "ours": top(ours, 40), "leaves": top(leaf, 25)}
+
+
 def measure(surface, phase, params, column, pid, streams=()):
     rpc("debug.hangs", {"clear": True})
+    rpc("debug.timings", {"clear": True})
+    rows_before = len(probe_rows())
     rpc("debug.frames", {"action": "start"})
     for s in streams:
         s.start()
@@ -297,10 +356,17 @@ def measure(surface, phase, params, column, pid, streams=()):
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), path)
     if streams:
         time.sleep(1.0)  # the streams run before the first key
+    rpc("debug.view_churn", {"action": "start"})
     rows, trips = type_keys(opts.samples, params, column)
+    churn = rpc("debug.view_churn", {"action": "stop", "limit": 15}, timeout=20)
     for s in streams:
         s.stop()
     frames = rpc("debug.frames", {"action": "stop"}, timeout=20)
+    timings = rpc("debug.timings", timeout=20) or {}
+    publishes = [p.get("ms") for p in (timings.get("control_publishes") or []) if isinstance(p, dict)]
+    every = probe_rows()[rows_before:]
+    marks = ["dispatch_start_ms", "dispatch_end_ms", "io_write_ms", "socket_submit_ms", "output_decoded_ms",
+             "output_main_ms", "output_parsed_ms", "contents_ms", "commit_ms"]
     hangs = rpc("debug.hangs", {"limit": 12}, timeout=20)
     f = lambda key: [float(r[key]) for r in rows if r.get(key)]
     entry = {
@@ -314,7 +380,12 @@ def measure(surface, phase, params, column, pid, streams=()):
         "hangs": {k: hangs.get(k) for k in ("count", "max_ms", "total_ms", "frames_over_8_3ms", "max_gap_ms")}
         if isinstance(hangs, dict) else hangs,
         "hang_records": (hangs or {}).get("records") if isinstance(hangs, dict) else None,
-        "frames": frames, "streams": [s.calls for s in streams],
+        "frames": frames, "streams": [s.calls for s in streams], "round": ROUND, "focus": LOAD.get("focus"),
+        "view_churn": churn, "control_publishes": {"count": len(publishes), "ms": pct(publishes),
+                                                   "total_ms": round(sum(publishes), 1)},
+        "probe_rows": {"all": len(every), "complete": sum(r.get("complete") == "1" for r in every),
+                       "marks": {m: sum(bool(r.get(m)) for r in every) for m in marks}},
+        "stream_replies": LOAD.get("stream_replies", [])[:4],
     }
     if sampler:
         try:
@@ -323,10 +394,8 @@ def measure(surface, phase, params, column, pid, streams=()):
             sampler[0].terminate()
         entry["sample"] = os.path.basename(sampler[1])
         try:
-            # The report is the fleet step's one artifact: keep the sample's call graph in it.
-            text = open(sampler[1], errors="replace").read()
-            start = text.find("Call graph:")
-            entry["sample_text"] = text[start:start + 80000] if start >= 0 else text[:80000]
+            # The report is the fleet step's one artifact: keep the main thread's digest in it.
+            entry["main_profile"] = digest_sample(open(sampler[1], errors="replace").read())
         except OSError:
             pass
     k = entry["key_to_frame_ms"] or {}
@@ -338,39 +407,64 @@ def measure(surface, phase, params, column, pid, streams=()):
     return entry
 
 
+def named_workspace(name):
+    """The id of the workspace named `name`, and its panes (snapshot.get)."""
+    for w in workspaces():
+        if (w.get("name") or w.get("title")) == name:
+            panes = [p for sc in w.get("screens") or [] for p in sc.get("panes") or [] if not p.get("dock")]
+            return w.get("id"), panes
+    return None, []
+
+
+def focus_terminal():
+    """Shows the typed terminal's workspace and gives its pane the keyboard; returns what has it (debug.focus)."""
+    ws, pane = LOAD["terminal_ws"], LOAD.get("stress_pane") or LOAD.get("terminal_pane")
+    rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": ws}, "focus": True, "origin": "script"})
+    if pane:
+        rpc("action.run", {"action": "pane.focus", "target": f"pane:{pane}", "focus": True, "origin": "script"})
+    time.sleep(0.5)  # focus settles
+    return focus_report()
+
+
+def focus_report():
+    report = rpc("debug.focus") or {}
+    windows = [w for w in report.get("windows") or [] if isinstance(w, dict)]
+    return {"resolved": report.get("resolved") or report.get("focus"),
+            "first_responders": [(w.get("appkit") or {}).get("first_responder") for w in windows][:3]}
+
+
 def surface_terminal(phase, pid):
-    ws = LOAD.get("terminal_ws")
-    if not ws:
-        ws = cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec /bin/zsh -f").stdout.strip()
-        LOAD["terminal_ws"] = ws
+    if not LOAD.get("terminal_ws"):
+        cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec /bin/zsh -f")
+        ws, panes = wait(lambda: (lambda r: r if r[0] else None)(named_workspace("typing")), 20) or (None, [])
+        LOAD["terminal_ws"], LOAD["terminal_pane"] = ws, (panes[0].get("id") if panes else None)
         time.sleep(2)  # the prompt draws
-    cli("workspace", ws, "focus")
-    if LOAD.get("stress_pane"):
-        rpc("action.run", {"action": "pane.focus", "target": f"pane:{LOAD['stress_pane']}", "focus": True, "origin": "script"})
-    else:
-        action("focusLeft", settle=0.3)
     streams = []
     if phase == "load":
-        make_load(ws)
-        cli("workspace", ws, "focus")
-        if LOAD.get("stress_pane"):
-            rpc("action.run", {"action": "pane.focus", "target": f"pane:{LOAD['stress_pane']}", "focus": True, "origin": "script"})
-        else:
-            for _ in range(4):
-                action("focusLeft", settle=0.15)
+        make_load(LOAD["terminal_ws"])
         s = chat_streams()
         streams = [s] if s else []
+    LOAD["focus"] = focus_terminal()
     entry = measure("terminal", phase, {}, "contents_ms", pid, streams)
     action("terminal.sendText", {"text": "\x15"})  # clears the typed line (Ctrl-U)
     return entry
 
 
 def surface_home(phase, pid):
-    if not LOAD.get("home_open"):
+    # The Home fixture in a workspace of its own (a whole content area, in the light session and in STRESS).
+    if not LOAD.get("home_ws"):
+        cli("workspace", "create", "--name", "home typing", "--focus")
+        ws, _ = wait(lambda: (lambda r: r if r[0] else None)(named_workspace("home typing")), 20) or (None, [])
+        LOAD["home_ws"] = ws
+        rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": ws}, "focus": True, "origin": "script"})
+        time.sleep(1)  # the workspace shows
         opened = rpc("debug.home_native_fixture.open", {"new": True})
-        note(f"home fixture: {json.dumps(opened)[:160]}")
-        LOAD["home_open"] = True
+        note(f"home fixture in {ws}: {json.dumps(opened)[:160]}")
         time.sleep(2)  # the transcript lays out
+    rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": LOAD["home_ws"]}, "focus": True, "origin": "script"})
+    time.sleep(0.5)  # the workspace shows
+    if phase == "load":
+        make_load(None)
     focused = rpc("debug.home.drive", {"action": "focus"})
     if not (isinstance(focused, dict) and focused.get("ok")):
         note(f"home: no composer to focus ({json.dumps(focused)[:160]})")
@@ -380,6 +474,7 @@ def surface_home(phase, pid):
         s = chat_streams()
         if s:
             streams.append(s)
+    LOAD["focus"] = focus_report()
     entry = measure("home", phase, {"probe": "commit"}, "commit_ms", pid, streams)
     rpc("debug.home.drive", {"action": "stream", "text": "done", "done": True})
     return entry
@@ -397,6 +492,8 @@ def surface_dock(phase, pid):
 
 
 def surface_omnibar(phase, pid):
+    if phase == "load":
+        make_load(None)
     if not LOAD.get("omnibar_open"):
         reply = action("openBrowser.chromium", {"url": "about:blank"}, settle=4.0, timeout=120)
         note(f"omnibar: chromium tab {json.dumps(reply)[:120]}")
@@ -409,6 +506,7 @@ def surface_omnibar(phase, pid):
     if phase == "load":
         s = chat_streams()
         streams = [s] if s else []
+    LOAD["focus"] = focus_report()
     entry = measure("omnibar", phase, {"probe": "commit"}, "commit_ms", pid, streams)
     rpc("debug.key", {"key": "escape"})
     return entry
@@ -418,95 +516,43 @@ SURFACES = {"terminal": surface_terminal, "home": surface_home, "dock": surface_
 
 
 def run_session(session):
-    """One launch of the app: the light session, or STRESS (built first); every surface and phase in it."""
-    global app, SESSION
+    """One launch of the app (scripts/cmux-next/bench_launch.py): the light session, or STRESS (built first); every
+    surface and phase in it, --rounds times."""
+    global app, SESSION, SOCKET, CONFIG
     SESSION = session
     LOAD.clear()
     LOAD.update({"made": False, "workspaces": [], "chat_panes": []})
-    global SOCKET
-    # The launch environment of sidebar-churn-typing.py, which comes up on the fleet minis (an explicit
-    # CMUX_NEXT_SOCKET_PATH, CMUX_DEV_BACKEND_MODE or the agent mock left the app idle without its socket on
-    # aws-m4pro-4/6/7). The socket is the tag's, in /tmp or the state directory.
-    for path in (f"/tmp/cmux-debug-{TAG}.sock", os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{TAG}.sock")):
-        if os.path.exists(path):
-            os.unlink(path)
-    SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
-    scratch = tempfile.mkdtemp(prefix=f"typing-{TAG}-{session}-")
-    env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-           "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-           "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"),
-           "CMUX_NEXT_CHIEF_ISOLATED": "1", "CMUX_NEXT_CHIEF_HOME": os.path.join(scratch, "chief"),
-           "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(map(str, WINDOW)), "CMUX_NEXT_TYPING_PROBE": PROBE,
-           "CMUX_NEXT_HANG_THRESHOLD_MS": "8"}
-    if opts.agent_mock:
-        env["CMUX_NEXT_AGENT_PANE_MOCK"] = "1"
-    log_path = os.path.join(OUT, f"app-{session}.log")
-    log = open(log_path, "a")
-    app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    note(f"{session}: launched pid {app.pid}")
+    bench = BenchApp(APP, out=OUT, config={"browser": {"defaultEngine": "chromium"}}, window=WINDOW,
+                     log_name=f"app-{session}.log",
+                     env={"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"})
     try:
-        def up():
-            global SOCKET
-            for path in (f"/tmp/cmux-debug-{TAG}.sock", os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{TAG}.sock")):
-                if os.path.exists(path):
-                    SOCKET = path
-                    if (rpc("debug.windows") or {}).get("windows"):
-                        return True
-            return False
-        if not wait(up, 180):
-            log.flush()
-            note(f"{session}: socket {SOCKET} exists={os.path.exists(SOCKET)} debug.windows={json.dumps(rpc('debug.windows'))[:300]}")
-            if app.poll() is None:
-                stuck = os.path.join(OUT, f"sample-launch-{session}.txt")
-                subprocess.run(["/usr/bin/sample", str(app.pid), "3", "-file", stuck], capture_output=True, timeout=60)
-                try:
-                    text = open(stuck, errors="replace").read()
-                    graph = text.split("Call graph:", 1)[-1].splitlines()
-                    # The main thread's heaviest path: its first block of the call graph, deepest frames kept.
-                    main, started = [], False
-                    for line in graph:
-                        if "com.apple.main-thread" in line:
-                            started = True
-                        elif started and line.strip() and not line.lstrip().startswith(("+", "|", "!", ":")) and "Thread_" in line:
-                            break
-                        if started:
-                            main.append(line.rstrip())
-                    deep = [l for l in main if l.strip()][:400]
-                    note("main thread while the app does not answer:\n" + "\n".join(l[-200:] for l in deep[:160]))
-                    top = text.split("Sort by top of stack", 1)[-1].splitlines()[:25]
-                    note("top of stack:\n" + "\n".join(l[:200] for l in top))
-                except OSError:
-                    pass
-            note(f"{session}: the tagged app did not come up (exit={app.poll()}); log tail: "
-                 f"{open(log_path, errors='replace').read()[-3000:]}")
+        try:
+            bench.launch(timeout=180, settle=5.0)
+        except LaunchError as error:
+            note(f"{session}: the app did not come up: {error.reason}")
+            results.setdefault("launch_failures", []).append({"session": session, "reason": error.reason,
+                                                              "detail": error.report.get("detail")})
             return
-        time.sleep(5)  # launch work settles
+        app, SOCKET, CONFIG = bench.process, bench.socket, os.path.join(bench.scratch, "cmux.json")
         if session == "stress":
             LOAD["terminal_ws"] = build_stress()
             time.sleep(5)  # the grid settles
         surfaces = opts.surfaces.split(",")
-        for phase in opts.phases.split(","):
-            for surface in surfaces:
-                if surface == "dock" and phase != "idle":
-                    continue
-                try:
-                    SURFACES[surface](phase, app.pid)
-                except Exception as error:  # one surface failing must not hide the others
-                    note(f"{session} {surface}.{phase}: failed: {error!r}")
+        global ROUND
+        for ROUND in range(opts.rounds):
+            for phase in opts.phases.split(","):
+                for surface in surfaces:
+                    if surface == "dock" and phase != "idle":
+                        continue
+                    try:
+                        SURFACES[surface](phase, app.pid)
+                    except Exception as error:  # one surface failing must not hide the others
+                        note(f"{session} {surface}.{phase}: failed: {error!r}")
     finally:
-        rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
-        try:
-            app.wait(timeout=25)
-        except subprocess.TimeoutExpired:
-            app.kill()
-        subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
-                       env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
+        bench.stop()
 
 
 def main():
-    with open(CONFIG, "w") as f:
-        json.dump({"browser": {"defaultEngine": "chromium"}}, f)
-    open(os.path.join(SCRATCH, "ghostty"), "w").close()
     results["refresh_hz"] = refresh_hz()
     results["macos"] = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
     sessions = opts.sessions.split(",") if opts.sessions else (["stress"] if opts.stress else ["light"])
@@ -514,13 +560,15 @@ def main():
         for session in sessions:
             run_session(session)
     finally:
-        summary = {f"{r['session']}.{r['surface']}.{r['phase']}": (r["key_to_frame_ms"] or {}).get("p95") for r in results["runs"]}
+        summary = {}
+        for r in results["runs"]:
+            summary.setdefault(f"{r['session']}.{r['surface']}.{r['phase']}", []).append((r["key_to_frame_ms"] or {}).get("p95"))
         results["summary_p95_ms"] = summary
         note(f"summary p95 ms: {json.dumps(summary)} refresh {results.get('refresh_hz')}")
         if opts.json:
             json.dump(results, open(opts.json, "w"), indent=1)
     if opts.gate_p95_ms is not None:
-        over = {k: v for k, v in results["summary_p95_ms"].items() if v is not None and v > opts.gate_p95_ms}
+        over = {k: v for k, v in results["summary_p95_ms"].items() if any(x is not None and x > opts.gate_p95_ms for x in v)}
         if over or not results["summary_p95_ms"]:
             print(f"FAIL key-to-frame p95 over {opts.gate_p95_ms} ms: {over or 'nothing measured'}", flush=True)
             sys.exit(1)
