@@ -121,4 +121,28 @@ struct SidebarPriorityDragTests {
         #expect(harness.panel.draggingID == nil)
         #expect(harness.panel.panel.entries.map(\.id) == ["a", "b", "c"])
     }
+
+    /// Codex review of #24177: a release that goes to another window (or a new press, after a menu
+    /// took the release) never reaches the row; the drag ends with no place instead of staying raised.
+    @Test func aReleaseElsewhereOrANewPressEndsTheDrag() async throws {
+        let harness = Harness()
+        let row = try #require(harness.panel.rows["c"])
+        let height = row.frame.height
+        row.mouseDown(with: try harness.event(.leftMouseDown, on: "c"))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "c", dy: -2 * height))
+        #expect(harness.panel.draggingID == "c")
+        harness.panel.pointerEventSeen(.leftMouseUp, in: nil)
+        await Task.yield()
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        #expect(harness.panel.draggingID == nil)
+        row.mouseUp(with: try harness.event(.leftMouseUp, on: "c", dy: -2 * height))
+        #expect(harness.actions.isEmpty)
+
+        row.mouseDown(with: try harness.event(.leftMouseDown, on: "c"))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "c", dy: -2 * height))
+        #expect(harness.panel.draggingID == "c")
+        harness.panel.pointerEventSeen(.leftMouseDown, in: harness.window)
+        #expect(harness.panel.draggingID == nil)
+        #expect(harness.panel.panel.entries.map(\.id) == ["a", "b", "c"])
+    }
 }
