@@ -25,7 +25,12 @@ const missingVm = () => Object.assign(new Error("vm not found"), { status: 404, 
 function layerFailing(cause: unknown) {
   const fail = (operation: string) => () => Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation, cause }));
   const repo = { findUserVm: () => Effect.succeed(row()) } as unknown as VmRepositoryShape;
-  const provider = { statFile: fail("statFile"), readFile: fail("readFile"), listFiles: fail("listFiles") } as unknown as VmProviderGatewayShape;
+  const provider = {
+    getStats: () => Effect.succeed({ cpus: 4, memoryTotalMb: 8192, diskTotalMb: 32768 }),
+    statFile: fail("statFile"),
+    readFile: fail("readFile"),
+    listFiles: fail("listFiles"),
+  } as unknown as VmProviderGatewayShape;
   return Layer.mergeAll(Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, provider));
 }
 

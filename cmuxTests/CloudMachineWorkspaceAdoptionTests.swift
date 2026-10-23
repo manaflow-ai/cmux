@@ -19,8 +19,6 @@ struct CloudMachineWorkspaceAdoptionTests {
             let previousManager = controller.activeTabManagerForCallerNotification()
             let betaKey = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
             let previousBeta = UserDefaults.standard.object(forKey: betaKey)
-            let flag = CmuxFeatureFlags.cloudMachinesFlag
-            let previousFlag = CmuxFeatureFlags.shared.overrideValue(for: flag)
             let other = TabManager(autoWelcomeIfNeeded: false)
             let otherWindow = app.appDelegate.registerMainWindowContextForTesting(tabManager: other)
             defer {
@@ -29,10 +27,8 @@ struct CloudMachineWorkspaceAdoptionTests {
                 app.tearDown()
                 controller.setActiveTabManager(previousManager)
                 UserDefaults.standard.set(previousBeta, forKey: betaKey)
-                CmuxFeatureFlags.shared.setOverride(previousFlag, for: flag)
             }
             UserDefaults.standard.set(true, forKey: betaKey)
-            CmuxFeatureFlags.shared.setOverride(true, for: flag)
             controller.setActiveTabManager(other)
             let ref = try #require(controller.v2Ref(kind: .workspace, uuid: app.workspace.id) as? String)
             for target in [ref, app.workspace.id.uuidString.lowercased()] {
@@ -93,6 +89,30 @@ struct CloudMachineWorkspaceAdoptionTests {
             #expect(app.manager.tabs.contains { $0.id == pending.id })
             #expect(pending.panels[command.id] === command)
             #expect(command.surface.initialCommand?.contains("first-command") == true)
+        }
+    }
+
+    @Test("Reserved creation targets its loading card after the user focuses another pane")
+    func reservedCreationDoesNotCloseFocusedUserPane() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            defer { for workspace in app.manager.tabs { workspace.teardownAllPanels() }; app.tearDown() }
+            let pending = app.manager.addWorkspace(initialSurface: .cloudVMLoading, select: false,
+                autoWelcomeIfNeeded: false)
+            let loadingPanels = pending.panels.values.compactMap { $0 as? CloudVMLoadingPanel }
+            let loading = try #require(loadingPanels.count == 1 ? loadingPanels[0] : nil)
+            let pane = try #require(pending.paneId(forPanelId: loading.id))
+            let command = try #require(pending.newTerminalSurface(inPane: pane, focus: true,
+                initialCommand: "echo user-content", autoRefreshMetadata: false))
+            #expect(pending.focusedPanelId == command.id)
+
+            let host = CloudWorkspaceCreationHost(manager: app.manager, reservedWorkspaceID: pending.id)
+            let reservation = try host.reserve(title: "Cloud VM", machine: .cloud("reserved-machine"), focus: false)
+
+            #expect(reservation.panelID != command.id)
+            #expect(pending.panels[command.id] === command)
+            #expect(pending.panels[loading.id] == nil)
+            #expect(pending.panels[reservation.panelID] is TerminalPanel)
         }
     }
 

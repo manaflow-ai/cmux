@@ -37,17 +37,23 @@ struct CloudPrivateRouteSelectionTests {
         )
     }
 
-    private func refreshableHub(state: RefreshState, routesAfterRefresh: [String]) -> CloudWireGuardHub {
+    private func refreshableHub(
+        state: RefreshState,
+        routesAfterRefresh: [String],
+        socketPath: String = "/tmp/private-route-hub-\(UUID().uuidString).sock",
+        refreshDelay: Duration = .zero
+    ) -> CloudWireGuardHub {
         let spawner = CloudWireGuardHubTests.FakeSpawner()
         return CloudWireGuardHub(configuration: .init(
             enroll: { .init(configPath: "/tmp/private-route.conf", routes: state.routes) },
             refreshEnrollment: {
+                if refreshDelay > .zero { try await Task.sleep(for: refreshDelay) }
                 state.refreshes += 1
                 state.routes = routesAfterRefresh
                 return .init(configPath: "/tmp/private-route.conf", routes: state.routes)
             },
             clientURL: URL(fileURLWithPath: "/usr/bin/true"),
-            socketURL: URL(fileURLWithPath: "/tmp/private-route-hub-\(UUID().uuidString).sock"),
+            socketURL: URL(fileURLWithPath: socketPath),
             spawner: spawner,
             waitUntilReady: { _ in },
             sleep: { try await Task.sleep(for: $0) },
@@ -165,6 +171,58 @@ struct CloudPrivateRouteSelectionTests {
         hub.refusedHosts = ["10.16.0.2"]
         #expect(try await manager.resolvedPrivateRoute(machineID: "vm-test", through: ready)
                 == "ws://[fd00::2]:1337/v1/link")
+    }
+
+    @Test("Address selection uses the caller's connect budget, not a separate shorter deadline")
+    func selectionHonorsTheCallersConnectBudget() async throws {
+        let path = "/tmp/cmux-route-\(UUID().uuidString).sock"
+        let hub = try CloudLoopbackPortForwardTests.FakeSocksHub(unixSocketPath: path)
+        try await hub.start()
+        defer { hub.stop() }
+        hub.silent = true
+        let manager = manager()
+        await manager.setPrivateAddresses(["10.16.0.2", "fd00::2"], for: "vm-test")
+        let ready = CloudWireGuardHub.Ready(socketPath: path, routes: ["10.16.0.0/24", "fd00::/8"])
+        let started = ContinuousClock.now
+
+        await #expect(throws: (any Error).self) {
+            try await manager.resolvedPrivateRoute(machineID: "vm-test", through: ready, timeout: .milliseconds(400))
+        }
+        // The link passes its remaining budget here; selection must end on it,
+        // not on the connector's own 15 s default.
+        #expect(ContinuousClock.now - started < .seconds(3))
+    }
+
+    @Test("A hub route refresh spends the caller's connect budget instead of restarting it")
+    func routeRefreshSpendsTheCallersConnectBudget() async throws {
+        let path = "/tmp/cmux-route-\(UUID().uuidString).sock"
+        let socks = try CloudLoopbackPortForwardTests.FakeSocksHub(unixSocketPath: path)
+        try await socks.start()
+        defer { socks.stop() }
+        socks.silent = true
+        let state = RefreshState()
+        let hub = refreshableHub(
+            state: state,
+            routesAfterRefresh: ["10.20.0.0/24", "fd00::/8"],
+            socketPath: path,
+            refreshDelay: .seconds(3)
+        )
+        let started = ContinuousClock.now
+
+        await #expect(throws: (any Error).self) {
+            try await manager(hub: hub).resolvedPrivateRoute(
+                machineID: "vm-team",
+                through: .init(socketPath: "/unused", routes: ["192.0.2.0/24"]),
+                addresses: ["10.20.0.2", "fd00::2"],
+                timeout: .seconds(3.5)
+            )
+        }
+        // The 3 s refresh leaves only the remainder of the 3.5 s budget for
+        // the connect. Restarting the budget after the refresh would take
+        // roughly 6.5 s and overrun the caller's deadline.
+        #expect(state.refreshes == 1)
+        #expect(ContinuousClock.now - started < .seconds(5.5))
+        await hub.stop()
     }
 
     @Test("A legacy route outside the enrolled network is rejected by the shared resolver")

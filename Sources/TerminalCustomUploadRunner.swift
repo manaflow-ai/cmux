@@ -1,6 +1,5 @@
 import CmuxCloud
 import CmuxFoundation
-import CmuxRemoteSession
 import CmuxSettings
 import Darwin
 import Foundation
@@ -79,7 +78,6 @@ struct TerminalCustomUploadRunner {
         fileURLs: [URL],
         endpoint: Endpoint,
         command: String,
-        remotePastePolicy: RemotePasteFileTransferPolicy = RemotePasteFileTransferPolicy(),
         operation: TerminalImageTransferOperation,
         timeout: TimeInterval = 120,
         completion: @escaping (Result<String, Error>) -> Void
@@ -92,7 +90,6 @@ struct TerminalCustomUploadRunner {
                 fileURLs: fileURLs,
                 endpoint: endpoint,
                 command: command,
-                remotePastePolicy: remotePastePolicy,
                 operation: operation,
                 timeout: timeout
             ))
@@ -103,7 +100,6 @@ struct TerminalCustomUploadRunner {
         fileURLs: [URL],
         endpoint: Endpoint,
         command: String,
-        remotePastePolicy: RemotePasteFileTransferPolicy = RemotePasteFileTransferPolicy(),
         operation: TerminalImageTransferOperation,
         timeout: TimeInterval = 120
     ) -> Result<String, Error> {
@@ -116,7 +112,7 @@ struct TerminalCustomUploadRunner {
                 guard normalizedLocalURL.isFileURL else {
                     throw Self.uploadError("Dropped item is not a local file.")
                 }
-                let remotePath = remotePastePolicy.remotePath(for: normalizedLocalURL)
+                let remotePath = TerminalUploadCommand.customRemotePath(for: normalizedLocalURL)
                 let env = TerminalUploadCommand.environment(
                     localPath: normalizedLocalURL.path,
                     remotePath: remotePath,
@@ -190,7 +186,6 @@ struct TerminalCustomUploadRunner {
             fileURLs: fileURLs,
             endpoint: endpoint,
             command: command,
-            remotePastePolicy: session.remotePastePolicy,
             operation: operation
         ) { result in
             cleanup(fileURLs)

@@ -14,6 +14,24 @@ import Testing
 @MainActor
 @Suite("closePanel unmapped fallback", .serialized)
 struct WorkspaceClosePanelFallbackTests {
+    @Test func mappedCloseUsesRequestedPanelWhenAnotherTabIsSelected() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        let otherPanel = try #require(workspace.newTerminalSurface(inPane: paneId, focus: true))
+        let otherTabId = try #require(workspace.surfaceIdFromPanelId(otherPanel.id))
+        workspace.bonsplitController.selectTab(otherTabId)
+
+        // Closing a background surface must use its own tab mapping, even when
+        // Bonsplit's selected tab belongs to another surface.
+        #expect(workspace.closePanel(firstPanelId, force: true))
+        #expect(workspace.surfaceIdFromPanelId(firstPanelId) == nil)
+        #expect(workspace.surfaceIdFromPanelId(otherPanel.id) == otherTabId)
+        #expect(workspace.panels[firstPanelId] == nil)
+        #expect(workspace.panels[otherPanel.id] != nil)
+    }
+
     @Test func fallbackRefusesToCloseSelectedTabOwnedByAnotherPanel() throws {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }

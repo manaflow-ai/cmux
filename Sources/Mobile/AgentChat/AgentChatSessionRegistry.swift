@@ -267,6 +267,22 @@ final class AgentChatSessionRegistry {
         return nil
     }
 
+    /// Returns the in-memory live binding without rechecking the process table.
+    ///
+    /// Global Search uses this lightweight snapshot before doing transcript
+    /// resolution off the main actor. Liveness watchers keep the binding
+    /// current; callers that need an authoritative process check should use
+    /// ``liveSession(surfaceID:)`` instead.
+    func liveSessionSnapshot(surfaceID: String) -> AgentChatSessionRecord? {
+        guard let sessionID = liveSessionIDBySurfaceID[surfaceID],
+              let record = records[sessionID],
+              record.surfaceID == surfaceID,
+              record.state != .ended else {
+            return nil
+        }
+        return record
+    }
+
     /// The live session for a surface, or its most recently active historical session.
     ///
     /// - Parameter surfaceID: Terminal surface UUID string.
@@ -331,6 +347,31 @@ final class AgentChatSessionRegistry {
         }
         #endif
         storeRecord(record, replacing: previous)
+    }
+
+    /// Optimistically marks sessions on a terminal as working when the user
+    /// supplies input to a needs-input prompt. The next hook remains
+    /// authoritative and can move the session back to needs-input or idle.
+    ///
+    /// - Parameters:
+    ///   - surfaceID: The terminal surface receiving the input.
+    ///   - at: The input timestamp used for the working-state clock.
+    /// - Returns: The number of sessions advanced from needs-input.
+    @discardableResult
+    func noteUserInput(surfaceID: String, at: Date = Date()) -> Int {
+        let sessionIDs = indexedRecords(surfaceID: surfaceID)
+            .filter { record in
+                if case .needsInput = record.state { return true }
+                return false
+            }
+            .map(\.sessionID)
+        for sessionID in sessionIDs {
+            update(sessionID: sessionID) { record in
+                record.state = record.state.afterExplicitInput(at: at)
+                record.lastActivityAt = at
+            }
+        }
+        return sessionIDs.count
     }
 
     #if DEBUG

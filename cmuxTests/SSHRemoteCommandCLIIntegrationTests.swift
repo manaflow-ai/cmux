@@ -1,5 +1,7 @@
 import Darwin
+import CmuxFoundation
 import Foundation
+import CmuxCloud
 import Testing
 
 #if canImport(cmux_DEV)
@@ -13,6 +15,32 @@ struct SSHRemoteCommandCLIIntegrationTests {
     private typealias Harness = SSHStartupManualReconnectTests
 
     private final class RemoteCommandBundleToken {}
+
+    @Test
+    func cmuxGeneratedControlPathIsRecomputedByTheAppForTUI() throws {
+        let sharingOptions = SSHConnectionSharingOptions()
+        let generatedPath = try #require(sharingOptions.defaultControlPath)
+        let options = [
+            "ControlMaster=auto",
+            "ControlPersist=600",
+            "ControlPath=\(generatedPath)",
+        ]
+
+        #expect(sharingOptions.optionsForTUIHandoff(options) == ["ControlMaster=auto", "ControlPersist=600"])
+        let routeIdentifier = String(repeating: "c", count: 64)
+        #expect(sharingOptions.optionsForTUIHandoff(options, routeIdentifier: routeIdentifier)
+            == ["ControlMaster=auto", "ControlPersist=600"])
+        let routeSpecificPath = generatedPath.replacingOccurrences(of: "%C", with: String(repeating: "a", count: 40))
+        let routeSpecificOptions = [
+            "ControlMaster=auto",
+            "ControlPersist=600",
+            "ControlPath=\(routeSpecificPath)",
+        ]
+        #expect(sharingOptions.optionsForTUIHandoff(routeSpecificOptions, routeIdentifier: routeIdentifier)
+            == ["ControlMaster=auto", "ControlPersist=600", "__cmux_route_sensitive=\(routeIdentifier)"])
+        let callerOwnedOptions = ["ControlMaster=auto", "ControlPath=/tmp/caller-owned"]
+        #expect(sharingOptions.optionsForTUIHandoff(callerOwnedOptions) == callerOwnedOptions)
+    }
 
     private struct RemoteCommandMockedSSHRun {
         let requests: [[String: Any]]
@@ -79,6 +107,68 @@ struct SSHRemoteCommandCLIIntegrationTests {
         #expect(scpArguments.contains("RequestTTY=no"))
         #expect(!scpArguments.contains("RequestTTY=force"))
         #expect(scpArguments.contains("ProxyJump=bastion"))
+    }
+
+    @Test
+    func testSCPDoesNotPassCmuxRouteMarkerToOpenSSH() {
+        let routeMarker = "__cmux_route_sensitive=" + String(repeating: "a1", count: 32)
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "user@example.com",
+            port: nil,
+            identityFile: nil,
+            sshOptions: ["ControlMaster=auto", "ControlPersist=600", routeMarker],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+        let session = DetectedSSHSession(configuration: configuration)
+
+        let scpArguments = session.scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop-123.png"
+        )
+
+        #expect(!scpArguments.contains { $0.contains("__cmux_route_sensitive") })
+        // A one-off upload rides the carrier's master and never becomes one.
+        #expect(scpArguments.contains("ControlMaster=no"))
+        #expect(!scpArguments.contains { $0.hasPrefix("ControlPersist=") })
+        #expect(!scpArguments.contains("ControlMaster=auto"))
+        // The route identity is kept beside the options for connection sharing.
+        #expect(configuration.routeSensitiveIdentifier == String(repeating: "a1", count: 32))
+    }
+
+    /// A password-only host accepts the drop's batch-mode `scp` only through
+    /// the `cmux ssh` carrier's authenticated master.
+    @Test
+    func testCmuxSSHDropUploadReusesTheCarrierMaster() throws {
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "user@example.com",
+            port: nil,
+            identityFile: nil,
+            sshOptions: ["__cmux_route_sensitive=" + String(repeating: "a1", count: 32)],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+        #expect(configuration.routesThroughSSHTui)
+        let carrierPath = try #require(
+            SSHTuiConnection(configuration: configuration).preflightArguments.first { $0.hasPrefix("ControlPath=") }
+        )
+
+        let scpArguments = DetectedSSHSession(configuration: configuration).scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop-123.png"
+        )
+
+        #expect(scpArguments.contains(carrierPath))
+        #expect(scpArguments.contains("ControlMaster=no"))
+        #expect(!scpArguments.contains { $0.contains("__cmux_route_sensitive") })
     }
 
     @Test

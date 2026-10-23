@@ -114,14 +114,18 @@ struct CloudWorkspaceCoordinatorTests {
         let selection = state.lastCloudSelection
         let revision = state.revision
         var target: String?
+        var capturedRevision: UInt64?
         let coordinator = CloudWorkspaceCoordinator(
             machinePinStore: CloudMachinePinStore(defaults: defaults, scopeProvider: { "scope" }),
             allowsOperation: { true },
             loadMachines: { state.select(workspaceID: UUID(), machineID: "b"); return ["b", "a"] },
-            createWorkspace: { target = $0.machineID; return UUID() }
+            createWorkspace: { target = $0.machineID; capturedRevision = $0.selectionRevision; return UUID() }
         )
-        _ = try await coordinator.createOnResolvedMachine(selection: selection, windowID: UUID(), scopeID: "scope")
+        _ = try await coordinator.createOnResolvedMachine(
+            selection: selection, windowID: UUID(), scopeID: "scope", selectionRevision: revision
+        )
         #expect(target == "a")
+        #expect(capturedRevision == revision)
         #expect(state.lastCloudSelection?.machineID == "b")
         #expect(state.revision != revision)
     }

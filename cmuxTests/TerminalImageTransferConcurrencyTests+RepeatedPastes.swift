@@ -43,7 +43,13 @@ extension TerminalImageTransferConcurrencyTests {
             #expect(pasteboard.setString("<img src='clipboard.png'>", forType: .html))
         }
         let generation = pasteboard.changeCount
-        let service = makeLivePreparationService()
+        // Payload fidelity, not deadlines: four jobs share one FIFO whose
+        // queued deadline starts at admission, so a slow runner expired the
+        // fourth. Here a deadline ends only when the service cancels it.
+        let service = makeLivePreparationService(deadlineSleep: { _ in
+            for await _ in AsyncStream<Never> { _ in } {}
+            throw CancellationError()
+        })
         let request = TerminalPasteboardReadRequest(pasteboard: pasteboard)
         let results = await withTaskGroup(of: TerminalImageTransferPreparedContent.self) { group in
             for _ in 0..<4 {

@@ -91,6 +91,56 @@ class ManualDispatchGuard(unittest.TestCase):
         self.assertTrue(run["full_suite"])
         self.assertEqual(run["coverage_fingerprint"], FP)
 
+    def test_changes_marker_requires_completed_successful_changes_job(self):
+        api = module.GitHub("test", "manaflow-ai/cmux")
+        jobs = [{
+            "name": "changes",
+            "status": "completed",
+            "conclusion": "success",
+            "steps": [{
+                "name": "Mark full-suite coverage",
+                "status": "completed",
+                "conclusion": "success",
+            }],
+        }]
+        with patch.object(api, "_request", side_effect=[{"workflow_runs": [{"id": 7, "display_title": FP}]}, {"jobs": jobs}]):
+            run = api.normal_ci_runs("6611c69")[0]
+        self.assertTrue(run["full_suite"])
+        self.assertEqual(run["coverage_fingerprint"], FP)
+
+    def test_changes_marker_does_not_cover_before_changes_succeeds(self):
+        for status, conclusion in (("in_progress", None), ("completed", "failure"), ("completed", "cancelled")):
+            api = module.GitHub("test", "manaflow-ai/cmux")
+            jobs = [{
+                "name": "changes",
+                "status": status,
+                "conclusion": conclusion,
+                "steps": [{
+                    "name": "Mark full-suite coverage",
+                    "status": "completed",
+                    "conclusion": "success",
+                }],
+            }]
+            with patch.object(api, "_request", side_effect=[{"workflow_runs": [{"id": 7, "display_title": FP}]}, {"jobs": jobs}]):
+                run = api.normal_ci_runs("6611c69")[0]
+            self.assertFalse(run["full_suite"], (status, conclusion))
+
+    def test_failed_changes_marker_step_does_not_cover(self):
+        api = module.GitHub("test", "manaflow-ai/cmux")
+        jobs = [{
+            "name": "changes",
+            "status": "completed",
+            "conclusion": "success",
+            "steps": [{
+                "name": "Mark full-suite coverage",
+                "status": "completed",
+                "conclusion": "failure",
+            }],
+        }]
+        with patch.object(api, "_request", side_effect=[{"workflow_runs": [{"id": 7, "display_title": FP}]}, {"jobs": jobs}]):
+            run = api.normal_ci_runs("6611c69")[0]
+        self.assertFalse(run["full_suite"])
+
     def test_other_sha_or_event_does_not_cover_head(self):
         self.assertFalse(module.has_covering_ci_run([{"event": "workflow_dispatch", "head_sha": "6611c69", "status": "in_progress"}], "6611c69", FP))
 

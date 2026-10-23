@@ -33,7 +33,15 @@ final class MachineDeleteCoordinator {
     ///   - didRestore: Lets creates keep the machine once its failed delete lists it again.
     init(
         notificationCenter: NotificationCenter = .default,
-        destroyMachine: @escaping @MainActor (String) async throws -> Void = { try await VMClient.shared.destroy(id: $0) },
+        destroyMachine: @escaping @MainActor (String) async throws -> Void = {
+            // A machine of a team other than the selected one is found only
+            // under its owning team; the selected team would answer 404, which
+            // reads as already deleted while the machine keeps running.
+            try await VMClient.shared.destroy(
+                id: $0,
+                teamID: CmuxTuiSurfaceProviderRegistry.shared.ownerTeamID(forMachineID: $0)
+            )
+        },
         didHide: @escaping @MainActor (String) -> Void = { MachineDeleteCoordinator.detachLocalPresentations(of: $0) },
         didRetire: @escaping @MainActor (String) -> Void = { MachineDeleteCoordinator.retireLocalPresentations(of: $0) },
         didRestore: @escaping @MainActor (String) -> Void = { MachineCreateCoordinator.shared.machineDeletionFailed($0) }

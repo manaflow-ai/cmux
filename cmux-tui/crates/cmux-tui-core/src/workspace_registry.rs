@@ -128,6 +128,7 @@ const RESOURCE_EFFECT_PEPPER_LOCK_FILE: &str = "resource-effect-pepper.lock";
 const RESOURCE_EFFECT_PEPPER_META_KEY: &str = "resource_effect_pepper_id";
 const RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY: &str = "resource_effect_pepper_cleanup_pending";
 const JOURNAL_PLUGIN_GENERATION_META_KEY: &str = "journal_plugin_generation";
+const JOURNAL_AUTO_VACUUM_META_KEY: &str = "journal_auto_vacuum_migrated";
 const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id.v1";
 const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
 const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
@@ -2365,6 +2366,14 @@ impl WorkspaceRegistry {
         database_path: Option<PathBuf>,
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
+        let fresh_database = connection.query_row(
+            "SELECT COUNT(*) = 0 FROM sqlite_master WHERE type = 'table'",
+            [],
+            |row| row.get::<_, bool>(0),
+        )?;
+        if fresh_database {
+            connection.execute_batch("PRAGMA auto_vacuum=INCREMENTAL;")?;
+        }
         connection.execute_batch(
             "PRAGMA foreign_keys=ON;
              PRAGMA journal_mode=WAL;
@@ -2678,6 +2687,14 @@ impl WorkspaceRegistry {
             )?;
             tx.commit()?;
         }
+        // Existing registries are migrated by the background journal
+        // maintenance worker. VACUUM can rewrite a large cloud registry, so
+        // startup only stamps fresh databases that already use incremental
+        // auto-vacuum and leaves legacy conversion for availability work after
+        // the mux is serving.
+        if fresh_database {
+            mark_journal_auto_vacuum_migrated(&connection)?;
+        }
         {
             let tx = connection.unchecked_transaction()?;
             create_session_journal_schema(&tx)?;
@@ -2698,11 +2715,7 @@ impl WorkspaceRegistry {
         let registry_id = required_meta(&connection, "registry_id")?;
         validate_identifier("registry id", &registry_id)?;
         let session_id = SessionPublicId::parse(required_meta(&connection, "session_public_id")?)?;
-        let quick_check: String =
-            connection.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
-        if quick_check != "ok" {
-            anyhow::bail!("workspace registry integrity check failed: {quick_check}");
-        }
+        check_registry_integrity(&connection)?;
         {
             let tx = connection.unchecked_transaction()?;
             initialize_compatibility_active_workspace(&tx)?;
@@ -3788,6 +3801,31 @@ impl WorkspaceRegistry {
     }
 }
 
+fn mark_journal_auto_vacuum_migrated(connection: &Connection) -> anyhow::Result<()> {
+    connection.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, '1')
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [JOURNAL_AUTO_VACUUM_META_KEY],
+    )?;
+    Ok(())
+}
+
+/// Convert registries created before journal maintenance to incremental
+/// auto-vacuum once. SQLite applies the auto-vacuum mode change during VACUUM;
+/// the marker keeps reopening an existing registry from repeating that work.
+fn migrate_journal_auto_vacuum(connection: &Connection) -> anyhow::Result<bool> {
+    if meta_value(connection, JOURNAL_AUTO_VACUUM_META_KEY)?.is_some() {
+        return Ok(false);
+    }
+    let auto_vacuum = connection.query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))?;
+    if auto_vacuum != 2 {
+        eprintln!("cmux-tui: migrating session journal to incremental auto-vacuum");
+        connection.execute_batch("PRAGMA auto_vacuum=INCREMENTAL; VACUUM;")?;
+    }
+    mark_journal_auto_vacuum_migrated(connection)?;
+    Ok(auto_vacuum != 2)
+}
+
 fn require_resource_effect_pepper_id(
     transaction: &Transaction<'_>,
     expected: &str,
@@ -3914,6 +3952,57 @@ fn migrate_resource_api_frontend_projection_envelopes(
                 subject_key,
             ],
         )?;
+    }
+    Ok(())
+}
+
+/// Tables that hold journal history rather than registry state. They grow
+/// with every terminal output chunk (millions of rows, gigabytes on a
+/// long-lived machine) and are append-only or sealed archives whose records
+/// are validated when they are read, so the open-time check skips them.
+const JOURNAL_HISTORY_TABLES: [&str; 7] = [
+    "session_journal",
+    "journal_subject_index",
+    "journal_event_index",
+    "journal_segments",
+    "journal_checkpoints",
+    "journal_content_blobs",
+    "journal_segment_kinds",
+];
+
+/// Structural check of the registry state on open. An unscoped quick_check
+/// reads every page of the file, so its cost tracked total journal history;
+/// checking each state table and its indexes keeps startup proportional to
+/// the registry, not to how much output its terminals ever printed.
+fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
+    let tables = {
+        let mut statement = connection.prepare(
+            "SELECT name FROM sqlite_master
+             WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
+             ORDER BY name",
+        )?;
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
+    };
+    for table in tables.iter().filter(|table| !JOURNAL_HISTORY_TABLES.contains(&table.as_str())) {
+        let pragma = format!("PRAGMA quick_check('{}')", table.replace('\'', "''"));
+        let result: String = connection.query_row(&pragma, [], |row| row.get(0))?;
+        if result != "ok" {
+            anyhow::bail!("workspace registry integrity check failed: {result}");
+        }
+    }
+    // History is validated incrementally when replayed. Touch only each
+    // table's newest indexed row during open so a corrupt tail page is caught
+    // without turning startup back into a full-journal scan.
+    for (table, order) in [
+        ("session_journal", "sequence"),
+        ("journal_subject_index", "sequence"),
+        ("journal_event_index", "sequence"),
+        ("journal_segments", "end_sequence"),
+        ("journal_checkpoints", "source_sequence"),
+        ("journal_content_blobs", "created_at_ms"),
+    ] {
+        let query = format!("SELECT 1 FROM {table} ORDER BY {order} DESC LIMIT 1");
+        let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
     }
     Ok(())
 }

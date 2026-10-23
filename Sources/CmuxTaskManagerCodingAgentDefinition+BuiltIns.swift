@@ -59,6 +59,16 @@ extension CmuxTaskManagerCodingAgentDefinition {
             argumentNeedles: ["kimi-cli", "kimi-code"]
         ),
         .init(
+            id: "muse",
+            displayName: String(localized: "agent.muse.displayName", defaultValue: "Muse Code"),
+            assetName: nil,
+            launchKinds: ["muse"],
+            // The `muse` launcher execs a versioned `muse-bin-<version>` binary;
+            // candidate basenames map that binary back to "muse".
+            directBasenames: ["muse"],
+            argumentNeedles: []
+        ),
+        .init(
             id: "ollama",
             displayName: String(localized: "agent.ollama.displayName", defaultValue: "Ollama"),
             assetName: "AgentIcons/Ollama",

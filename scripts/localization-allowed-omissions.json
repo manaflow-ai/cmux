@@ -1,4 +1,8 @@
 {
+  "cloud.welcome.title.eyebrow": {
+    "class": "brand",
+    "source": "cmux cloud"
+  },
   "actions.discovery.menuTitle": {
     "source": "Actions · cmux.json…",
     "identityLocales": {
@@ -114,6 +118,30 @@
   },
   "agent.kimi.displayName": {
     "source": "Kimi Code",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
+  },
+  "agent.muse.displayName": {
+    "source": "Muse Code",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
       "bs": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -737,6 +765,13 @@
     "source": "Status",
     "identityLocales": {
       "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "sidebar.cloud.button": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Cloud is the established German UI noun for the product area; an explicit translated entry remains required.",
+      "fr": "Cloud is the established French UI noun for the product area; an explicit translated entry remains required."
     }
   },
   "command.cloudVM.subtitle": {
@@ -3149,6 +3184,10 @@
     "class": "technical",
     "source": "SSH"
   },
+  "sidebar.workspace.titleWithHost": {
+    "class": "format",
+    "source": "%1$@ · %2$@"
+  },
   "simulator.action.siri": {
     "class": "brand",
     "source": "Siri"
@@ -4316,7 +4355,10 @@
     "identityLocales": {
       "de": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
       "fr": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
-      "es": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale."
+      "es": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
+      "ar": "vCPU is an invariant resource unit symbol; the placeholder is identical in this locale.",
+      "ja": "vCPU is an invariant resource unit symbol; the placeholder is identical in this locale.",
+      "ko": "vCPU is an invariant resource unit symbol; the placeholder is identical in this locale."
     }
   },
   "terminalSharing.device.mac": {
@@ -4741,6 +4783,515 @@
           "Loading your Cloud machine plan…"
         ]
       }
+    }
+  },
+  "surfaceTabBar.compact.menu.terminal": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "surfaceTabBar.compact.menu.browser": {
+    "source": "Browser",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "cloudTree.group.coderouter": {
+    "class": "brand",
+    "source": "Coderouter"
+  },
+  "coderouter.guide.title": {
+    "class": "brand",
+    "source": "coderouter"
+  },
+  "cli.help.agents.inbox": {
+    "source": "agent inbox [--surface <target>] [--state <state>] [--mark-read]",
+    "identityLocales": {
+      "ar": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "de": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "es": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "fr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ja": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ko": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
+    }
+  },
+  "cli.help.agents.message": {
+    "source": "agent message <target> [--from <name>] <text|->",
+    "identityLocales": {
+      "ar": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "de": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "es": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "fr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ja": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ko": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
+    }
+  },
+  "cli.help.agents.reply": {
+    "source": "agent message --reply-to <id> [--from <name>] <text|->",
+    "identityLocales": {
+      "ar": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "de": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "es": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "fr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ja": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ko": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
+    }
+  },
+  "cloudTree.device.build.dev": {
+    "source": "DEV",
+    "identityLocales": {
+      "ar": "DEV is the invariant cmux build channel name.",
+      "de": "DEV is the invariant cmux build channel name.",
+      "es": "DEV is the invariant cmux build channel name.",
+      "fr": "DEV is the invariant cmux build channel name.",
+      "ja": "DEV is the invariant cmux build channel name.",
+      "ko": "DEV is the invariant cmux build channel name.",
+      "zh-Hans": "DEV is the invariant cmux build channel name.",
+      "zh-Hant": "DEV is the invariant cmux build channel name."
+    }
+  },
+  "cloudTree.device.build.nightly": {
+    "source": "Nightly",
+    "identityLocales": {
+      "ar": "Nightly is the invariant cmux build channel name.",
+      "de": "Nightly is the invariant cmux build channel name.",
+      "es": "Nightly is the invariant cmux build channel name.",
+      "fr": "Nightly is the invariant cmux build channel name.",
+      "ja": "Nightly is the invariant cmux build channel name.",
+      "ko": "Nightly is the invariant cmux build channel name.",
+      "zh-Hans": "Nightly is the invariant cmux build channel name.",
+      "zh-Hant": "Nightly is the invariant cmux build channel name."
+    }
+  },
+  "cloudTree.device.build.rc": {
+    "source": "RC",
+    "identityLocales": {
+      "ar": "RC is the invariant cmux build channel name.",
+      "de": "RC is the invariant cmux build channel name.",
+      "es": "RC is the invariant cmux build channel name.",
+      "fr": "RC is the invariant cmux build channel name.",
+      "ja": "RC is the invariant cmux build channel name.",
+      "ko": "RC is the invariant cmux build channel name.",
+      "zh-Hans": "RC is the invariant cmux build channel name.",
+      "zh-Hant": "RC is the invariant cmux build channel name."
+    }
+  },
+  "cloudTree.device.build.staging": {
+    "source": "Staging",
+    "identityLocales": {
+      "ar": "Staging is the invariant cmux build channel name.",
+      "de": "Staging is the invariant cmux build channel name.",
+      "es": "Staging is the invariant cmux build channel name.",
+      "fr": "Staging is the invariant cmux build channel name.",
+      "ja": "Staging is the invariant cmux build channel name.",
+      "ko": "Staging is the invariant cmux build channel name.",
+      "zh-Hans": "Staging is the invariant cmux build channel name.",
+      "zh-Hant": "Staging is the invariant cmux build channel name."
+    }
+  },
+  "cloudTree.device.build.tagged": {
+    "source": "%1$@ · %2$@",
+    "identityLocales": {
+      "ar": "Format-only string; the placeholders and separator are invariant.",
+      "de": "Format-only string; the placeholders and separator are invariant.",
+      "es": "Format-only string; the placeholders and separator are invariant.",
+      "fr": "Format-only string; the placeholders and separator are invariant.",
+      "ja": "Format-only string; the placeholders and separator are invariant.",
+      "ko": "Format-only string; the placeholders and separator are invariant.",
+      "zh-Hans": "Format-only string; the placeholders and separator are invariant.",
+      "zh-Hant": "Format-only string; the placeholders and separator are invariant."
+    }
+  },
+  "mobile.agentFeed.filter": {
+    "source": "Filter",
+    "identityLocales": {
+      "de": "Filter has the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "mobile.agentFeed.title": {
+    "source": "Feed",
+    "identityLocales": {
+      "de": "Feed is the established product term in this locale; a translated entry is still required.",
+      "es": "Feed is the established product term in this locale; a translated entry is still required."
+    }
+  },
+  "mobile.tabs.feed": {
+    "source": "Feed",
+    "identityLocales": {
+      "de": "Feed is the established product term in this locale; a translated entry is still required.",
+      "es": "Feed is the established product term in this locale; a translated entry is still required."
+    }
+  },
+  "cloud.network.domains.label": {
+    "source": "Domains (HTTPS)",
+    "identityLocales": {
+      "de": "Domains and HTTPS are the established technical terms in this locale; a translated entry is still required."
+    }
+  },
+  "cloud.network.ranges.port": {
+    "source": "Port",
+    "identityLocales": {
+      "de": "Port is the established networking term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Port is the established networking term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "cloudTree.device.status.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Offline has the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "cloudTree.device.status.online": {
+    "source": "Online",
+    "identityLocales": {
+      "de": "Online has the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "machines.new.row.agents.short": {
+    "source": "Agents",
+    "identityLocales": {
+      "de": "Agents has the same spelling in this locale; a translated entry is still required.",
+      "fr": "Agents has the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "sidebar.account.settingsLabel": {
+    "source": "%1$@, %2$@",
+    "identityLocales": {
+      "de": "Format-only string; the placeholders and separator are invariant.",
+      "es": "Format-only string; the placeholders and separator are invariant.",
+      "fr": "Format-only string; the placeholders and separator are invariant.",
+      "ko": "Format-only string; the placeholders and separator are invariant."
+    }
+  },
+  "mobile.agentFeed.question.pageLabel": {
+    "source": "Question %lld",
+    "identityLocales": {
+      "fr": "Question has the same spelling in this locale; the placeholder is invariant."
+    }
+  },
+  "globalSearch.agent.claude": {
+    "class": "brand",
+    "source": "Claude"
+  },
+  "settings.account.max.title": {
+    "source": "cmux Max",
+    "identityLocales": {
+      "de": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "fr": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "ar": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "es": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "ko": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "ja": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      }
+    }
+  },
+  "sidebar.account.teamWithMaxPlan": {
+    "source": "%1$@ · Max",
+    "identityLocales": {
+      "de": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "fr": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "ar": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "es": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "ko": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "ja": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      }
+    }
+  },
+  "sidebar.account.teamWithGoPlan": {
+    "source": "%1$@ · Go",
+    "identityLocales": {
+      "de": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "fr": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "ar": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "es": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "ko": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "ja": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      }
+    }
+  },
+  "menu.view.chief": {
+    "source": "Chief",
+    "identityLocales": {
+      "de": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "fr": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ar": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "es": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hant": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hans": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ko": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ja": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required."
+    }
+  },
+  "command.openChief.subtitle": {
+    "source": "Chief",
+    "identityLocales": {
+      "de": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "fr": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ar": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "es": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hant": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hans": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ko": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ja": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required."
+    }
+  },
+  "settings.automation.chief": {
+    "source": "Chief",
+    "identityLocales": {
+      "de": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "fr": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ar": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "es": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hant": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hans": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ko": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ja": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required."
+    }
+  },
+  "settings.automation.chief.harness.claude": {
+    "source": "Claude Code",
+    "identityLocales": {
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required."
+    }
+  },
+  "settings.automation.chief.harness.codex": {
+    "source": "Codex",
+    "identityLocales": {
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required."
+    }
+  },
+  "attachment.kind.document": {
+    "source": "Document",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "attachment.kind.image": {
+    "source": "Image",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "attachment.kind.video": {
+    "source": "Video",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "ax.attachment.video": {
+    "source": "Video, %@",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "ax.compose": {
+    "source": "Message",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "compose.placeholder": {
+    "source": "Message",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "ax.message.role": {
+    "source": "message",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "ax.messages": {
+    "source": "Messages",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "compose.emoji": {
+    "source": "Emoji",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "preview.photo": {
+    "source": "Photo",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "preview.video": {
+    "source": "Video",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "ax.attachment.file": {
+    "class": "format",
+    "source": "%1$@, %2$@, %3$@"
+  },
+  "ax.message.format": {
+    "class": "format",
+    "source": "%1$@, %2$@, %3$@"
+  },
+  "ax.attachment.photo": {
+    "source": "Photo, %@",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "chief.firstRun.suggestions": {
+    "source": "Suggestions",
+    "identityLocales": {
+      "fr": "Suggestions is the standard French noun for this label and shares the English spelling."
     }
   }
 }

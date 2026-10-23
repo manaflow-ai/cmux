@@ -30,6 +30,39 @@
       "message": "Diese Maschine wurde vor einem Cloud-Update erstellt und kann nicht verbunden werden.",
       "action": "Erstelle eine neue Maschine, kopiere deine Dateien mit cmux vm pull und cmux vm push hinüber und lösche dann diese."
     },
+    "guestUnresponsive": {
+      "title": "Maschine antwortet nicht",
+      "message": "Diese Maschine hat nicht rechtzeitig geantwortet, daher konnte die Anfrage nicht abgeschlossen werden.",
+      "action": "Wenden Sie sich mit der Trace-ID an den Support, bevor Sie eine neue Maschine erstellen."
+    },
+    "inProgress": {
+      "title": "Noch in Bearbeitung",
+      "message": "Der Cloud-Anbieter hat diese Änderung noch nicht abgeschlossen. Sie kann noch abgeschlossen werden.",
+      "action": "Prüfe den Status der Maschine mit cmux vm ls oder in der Maschinenliste, bevor du es erneut versuchst."
+    },
+    "providerTimeout": {
+      "title": "Cloud-Anbieter antwortet langsam",
+      "message": "Der Cloud-Anbieter hat nicht rechtzeitig geantwortet.",
+      "action": "Versuche es gleich noch einmal."
+    },
+    "providerCapacity": {
+      "title": "Gerade keine Cloud-Kapazität",
+      "message": "Der Cloud-Dienst hat im Moment keinen Platz für diese Maschine. Es wurde nichts geändert.",
+      "action": "Versuche es in einer Minute erneut."
+    },
+    "stateConflict": {
+      "title": "Maschine ist beschäftigt",
+      "message": "Diese Maschine startet, pausiert oder läuft nicht und kann das gerade nicht ausführen.",
+      "action": "Warte kurz und versuche es erneut. Prüfe den Status der Maschine mit cmux vm ls und setze sie zuerst fort, falls sie pausiert ist."
+    },
+    "networkRuleCapacity": {
+      "title": "Netzwerkregeln ausgeschöpft",
+      "message": "Ihre Netzwerkrichtlinie wurde gespeichert, aber nicht angewendet: cmux Cloud hat seine Kapazität für Netzwerkregeln erreicht.",
+      "action": "Das cmux-Team wurde benachrichtigt. Entfernen Sie Domains, die diese Maschine nicht mehr benötigt, oder wenden Sie sich an den Support. Bis dahin entspricht der Netzwerkzugriff dieser Maschine möglicherweise nicht der gespeicherten Richtlinie."
+    },
+    "networkPolicyStatus": {
+      "applyFailed": "Die Netzwerkrichtlinie wurde gespeichert, aber nicht angewendet. Speichern Sie sie erneut, um es noch einmal zu versuchen."
+    },
     "unsupported": {
       "title": "Cloud-VM-Vorgang nicht verfügbar",
       "reason": "Dieser Maschinentyp stellt diesen Vorgang nicht bereit.",
@@ -81,12 +114,27 @@
       "shapeMessage": "Go unterstützt 2 vCPU, 4 GiB RAM und 16 GiB Speicherplatz.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
+    "planBudget": {
+      "computeTitle": "{plan}-Rechenkontingent aufgebraucht",
+      "computeMessage": "Dein {plan}-Plan hat seine {included} Rechenstunden für diesen Abrechnungszeitraum aufgebraucht. Eine Rechenstunde entspricht 1 vCPU mit 2 GB Arbeitsspeicher für eine Stunde. Deine Maschinen können ab dem {resetDate} wieder starten.",
+      "computeAction": "Pausierte Maschinen behalten ihre Dateien. Wende dich an den Support, wenn du vor dem {resetDate} mehr Rechenleistung brauchst.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "{plan}-Speicherkontingent aufgebraucht",
+      "storageMessage": "Dein {plan}-Plan umfasst insgesamt {included} GB Speicher für alle gespeicherten Maschinen. Gespeicherte Maschinen belegen {used} GB, und diese Anfrage benötigt {requested} GB.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+    },
     "resourcePool": {
       "title": "Nicht genug Cloud-VM-Ressourcen",
       "memoryMessage": "Ihre VMs nutzen bereits {used} von {pool} GB RAM. Diese VM benötigt {requested} GB.",
       "vcpuMessage": "Ihre VMs nutzen bereits {used} von {pool} vCPUs. Diese VM benötigt {requested} vCPUs.",
       "upgradeAction": "Pausieren oder löschen Sie eine VM, oder wechseln Sie zu Max.",
       "action": "Pausieren oder löschen Sie eine VM."
+    },
+    "activeLimit": {
+      "counted": "Derzeit gezählt: {machines}. Pausierte Maschinen zählen nicht.",
+      "provisioning": "{name} (wird bereitgestellt)",
+      "separator": ", "
     }
   },
   "billingRecovery": {
@@ -180,6 +228,7 @@
     "copyright": "© {year} Manaflow",
     "language": "Sprache",
     "assets": "Assets",
+    "art": "Kunst",
     "openSource": "Open Source",
     "guides": "Anleitungen",
     "compare": "Vergleichen"
@@ -475,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Setze deinen Plan fort, um ihn zu ändern.",
           "granted": "Von cmux gewährt. Es gibt nichts zu ändern.",
+          "grantedNoCancel": "Von cmux gewährt, daher gibt es nichts zu kündigen.",
+          "paymentFailed": "Aktualisiere deine Zahlungsmethode, bevor du den Plan wechselst.",
+          "foundersLifetime": "Founder's Edition enthält Pro auf Lebenszeit.",
           "adminOnly": "Nur Team-Admins können den Plan ändern."
         },
         "names": {
@@ -497,11 +549,11 @@
           ],
           "pro": [
             "Cloud-Agenten auf Cloud VMs",
-            "Bis zu 5 Cloud VMs, die sich 20 vCPUs und 40 GB RAM teilen",
+            "Bis zu 5 Cloud VMs, die sich 20 vCPUs und 40 GB RAM teilen. Eine VM kann bis zu 16 GB RAM / 8 vCPU nutzen. Für 24 GB / 12 vCPU und 32 GB / 16 vCPU ist Max erforderlich.",
             "Die cmux iOS-App"
           ],
           "max": [
-            "Bis zu 5 Cloud VMs, die sich 80 vCPUs und 160 GB RAM teilen",
+            "Bis zu 5 Cloud VMs, die sich 80 vCPUs und 160 GB RAM teilen. Max schaltet 24 GB / 12 vCPU, 32 GB / 16 vCPU und bis zu 64 GB / 32 vCPU frei.",
             "Größere Maschinengrößen",
             "Alles aus Pro"
           ],
@@ -517,6 +569,7 @@
       "change": {
         "title": "Zu {plan} wechseln?",
         "upgradeBody": "{plan} beginnt sofort. Du zahlst heute {amount} für den Rest dieses Abrechnungszeitraums. Ab dem {date} zahlst du {price} pro Monat.",
+        "upgradeBodyYearly": "{plan} beginnt sofort. Du zahlst heute {amount} für den Rest dieses Abrechnungszeitraums. Ab dem {date} zahlst du {price} pro Jahr.",
         "downgradeBody": "{plan} beginnt sofort. Der ungenutzte Teil deines aktuellen Plans, {credit}, wird deinen nächsten Rechnungen gutgeschrieben. Deine nächste Rechnung am {date} beträgt {amount}.",
         "confirm": "Zu {plan} wechseln",
         "keep": "Aktuellen Plan behalten",
@@ -529,6 +582,8 @@
         "title": "{plan} kündigen?",
         "body": "Du behältst {plan} bis zum {date}. Danach verlierst du:",
         "bodyNoDate": "Du behältst {plan} bis zum Ende dieses Abrechnungszeitraums. Danach verlierst du:",
+        "foundersBody": "Dein {plan}-Abonnement endet am {date}. Danach hast du Pro, das Founder's Edition auf Lebenszeit enthält.",
+        "foundersBodyNoDate": "Dein {plan}-Abonnement endet zum Ende dieses Abrechnungszeitraums. Danach hast du Pro, das Founder's Edition auf Lebenszeit enthält.",
         "reasonLabel": "Warum kündigst du? (optional)",
         "otherPlaceholder": "Erzähl uns mehr (optional)",
         "confirm": "Plan kündigen",
@@ -1114,7 +1169,7 @@
       "transferUnavailableError": "Übertragungen sind vorübergehend nicht verfügbar, oder das Konto wird gerade aktualisiert. Versuche es gleich noch einmal.",
       "shareWithTeam": "Mit Team teilen",
       "makePrivate": "Privat machen",
-      "privateImportHint": "Neue Konten sind privat. Teilen Sie ein Konto, um es den Cloud-VMs dieses Teams verfügbar zu machen.",
+      "privateImportHint": "In einer Organisation werden neue Konten mit dem Team und seinen Cloud-VMs geteilt. In deinem persönlichen Team bleiben sie privat. Mit „Privat machen“ oder „Mit Team teilen“ änderst du ein Konto.",
       "description": "Geteilte Konten stehen den Cloud-VMs dieses Teams zur Verfügung. Private Konten bleiben der Person vorbehalten, die sie hinzugefügt hat.",
       "cancelAction": "Abbrechen",
       "apiKeysTitle": "API-Schlüssel",
@@ -2157,6 +2212,7 @@
           "defaultSearchEngine": "Standardsuchmaschine für Nicht-URL-Eingaben in der Browser-Adressleiste. Verwenden Sie custom mit customSearchEngineURLTemplate für beliebige Anbieter.",
           "customSearchEngineName": "Anzeigename, der verwendet wird, wenn defaultSearchEngine custom ist.",
           "customSearchEngineURLTemplate": "Such-URL, die verwendet wird, wenn defaultSearchEngine custom ist. Verwenden Sie den Abfrageplatzhalter oder %s für den kodierten Suchbegriff. Ohne Platzhalter fügt cmux q= zur URL hinzu.",
+          "showLinkHoverURL": "Zeigt das Ziel eines Links unten links im Browserbereich an, solange sich der Zeiger über dem Link befindet oder der Link den Tastaturfokus hat.",
           "urlAllowlist": "Host- oder URL-Muster, die die Navigation im eingebetteten Browser einschränken. Die Einstellungen schlagen lokale Entwicklungsursprünge vor; durch Speichern einer Liste wird die optionale Einschränkung aktiviert. Entfernen Sie Einträge, um sie zu blockieren, oder lassen Sie den Benutzerwert ohne verwaltete Richtlinie leer, um die Einschränkung zu deaktivieren."
         },
         "workspaceGroups": {
@@ -2176,6 +2232,7 @@
           "notificationMessageLineLimit": "Maximale Anzahl der Zeilen, die für die neueste Benachrichtigung unter jedem Workspace-Titel angezeigt werden.",
           "rightMaxWidth": "Maximale Breite der rechten Seitenleiste in Punkten. Wenn weggelassen, gilt die integrierte dynamische Obergrenze.",
           "showAgentUsage": "Ergänzt den Statuseintrag von Claude Code oder Codex um die Nutzung des Coding-Agenten: Modell und verbrauchtes Kontextfenster sowie bei Claude Code die geschätzten API-Kosten (Hauptthread und Subagenten) zu den veröffentlichten Anthropic-Listenpreisen. Die Kosten sind eine Schätzung und nicht Ihre Abonnementrechnung; Batch- und Priority-Stufen, Partnerpreise, Fast Mode und Gebühren für Server-Tools sind nicht berücksichtigt.",
+          "showCloudDeviceIcons": "Cloud-Maschinen- und Gerätesymbole neben Titeln entfernter Arbeitsbereiche unabhängig von Git-Branch- und Verzeichnisdetails anzeigen.",
           "beta": {
             "conversations": {
               "enabled": "Die zusammengefasste Konversationsansicht in der Seitenleistenauswahl anzeigen."
@@ -2200,6 +2257,21 @@
           "indentGuides": "Markiert jede Einrückungsebene im integrierten Dateieditor mit einer dünnen senkrechten Linie.",
           "currentLineHighlight": "Hebt die Zeile mit dem Textcursor farbig hervor, solange nichts ausgewählt ist.",
           "tabWidth": "Wie viele Spalten ein Tabstopp umfasst. Die Einrückungshilfslinien verwenden denselben Abstand."
+        },
+        "actions": "Wiederverwendbare Aktionen für die Befehlspalette, Tastenkürzel, Schaltflächen der Tableiste und das Menü der Plus-Schaltfläche. Unterstützt builtin, command, agent, workspaceCommand, workspace, setting, settingPreset und text. Textaktionen fügen Text im fokussierten Terminal ein und erhalten Zeilenumbrüche; submit: true drückt Enter. Einstellungsaktionen erfordern eine globale Konfiguration.",
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "Wenn ein Remote-tmux-Arbeitsbereich ausgewählt ist, startet „Neuer Arbeitsbereich“ eine tmux-Sitzung auf dem Host dieses Arbeitsbereichs."
+            }
+          }
+        },
+        "chief": {
+          "description": "Chief, der Home-Agent: ob er angezeigt wird und welches Harness, Modell und welchen Aufwand er verwendet.",
+          "enabled": "Zeigt die Home-Zeile und die Chief-Einstiegspunkte. Bei false werden die Home-Zeile, der Kurzbefehl „Chief öffnen“, der Menüeintrag und die Befehlspaletten-Einträge ausgeblendet.",
+          "harness": "Agent-Harness, auf dem Chief läuft: claude (Claude Code) oder codex (Codex).",
+          "model": "An das Harness übergebenes Modell. Leer lassen, um den Standard des Harness zu verwenden.",
+          "effort": "An das Harness übergebener Denkaufwand, z. B. low, medium oder high. Leer lassen, um den Standard des Harness zu verwenden."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -2270,7 +2342,7 @@
       "plusButtonScreenshotAlt": "Rechtsklickmenü des Plus-Buttons mit Worktree Agents, New Terminal und New Browser",
       "plusButtonScreenshotCaption": "Das Rechtsklickmenü folgt der Reihenfolge aus ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Benutzerdefinierte Aktionen für den Plus-Button",
-      "newWorkspaceButtonDesc": "Verwende <action>ui.newWorkspace.action</action>, um zu überschreiben, was der Plus-Button ausführt. Verwende <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (oder den Alias <rightClick>rightClick</rightClick>), um das geordnete Rechtsklickmenü zu definieren. Menüeinträge können Aktions-IDs, Aktionsobjekte oder <separator>{ \"type\": \"separator\" }</separator> sein. Wenn nicht festgelegt, listet das Menü cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), jeweils mit dem aktuellen Tastenkürzel. Cloud-Einträge erscheinen nur, wenn Cloud Machines aktiviert ist. New Cloud Workspace verwendet die Maschine des zuletzt ausgewählten Cloud-Arbeitsbereichs und danach die erste Maschine in der rechten Seitenleiste; New Cloud Machine erstellt bewusst eine neue Maschine.",
+      "newWorkspaceButtonDesc": "Verwende <action>ui.newWorkspace.action</action>, um zu überschreiben, was der Plus-Button ausführt. Verwende <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (oder den Alias <rightClick>rightClick</rightClick>), um das geordnete Rechtsklickmenü zu definieren. Menüeinträge können Aktions-IDs, Aktionsobjekte oder <separator>{ \"type\": \"separator\" }</separator> sein. Wenn nicht festgelegt, listet das Menü cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), jeweils mit dem aktuellen Tastenkürzel. Cloud-Einträge erscheinen nur, wenn Cloud Machines aktiviert ist. New Cloud Workspace verwendet die Maschine des zuletzt ausgewählten Cloud-Arbeitsbereichs und danach die erste Maschine in der rechten Seitenleiste; wenn keine nutzbare Maschine vorhanden ist, wird New Cloud Machine geöffnet.",
       "newWorkspaceWorktreeNote": "Dieses Beispiel lässt den normalen Plus-Klick die Aktion <action>worktree-agents</action> ausführen. Der Workspace-Befehl aus <commands>commands</commands> nutzt ein sichtbares Setup-Terminal, um zuerst den Git-<worktree>worktree</worktree> zu erstellen. Codex und Claude starten gleichzeitig, warten auf die workspace-spezifische Statusdatei und wechseln dann vor exec in das erstellte Verzeichnis.",
       "simpleCommands": "Shell-Befehle",
       "simpleCommandsDesc": "Der kleinste Eintrag besteht aus einem Namen und einem command-String. Wenn Sie ihn in der Command Palette auswählen, wird dieser String in das Terminal mit dem Fokus eingetippt und ausgeführt.",
@@ -2876,7 +2948,7 @@
       "metaTitle": "cmux Cloud",
       "metaDescription": "Betreibe dauerhafte Linux-Cloud-Maschinen aus cmux heraus, damit deine Coding-Agenten weiterarbeiten, auch wenn du deinen Mac zuklappst.",
       "intro": "cmux Cloud gibt dir dauerhafte Linux-Maschinen in der Cloud, die sich als normale cmux-Workspaces öffnen. Terminals laufen weiter, wenn du ein Pane schließt, die Netzwerkverbindung verlierst oder deinen Laptop zuklappst. So arbeiten Coding-Agenten weiter, und du kannst dich von jedem angemeldeten Mac aus wieder verbinden.",
-      "betaNote": "cmux Cloud ist im Early Access und wird schrittweise für Macs aktiviert. Um Cloud zu nutzen, muss dein Mac Teil des Rollouts sein, und du musst Settings › Beta Features › Cloud Machines aktivieren. Ist dein Mac noch nicht Teil des Rollouts, zeigen Cloud-Befehle „Cloud Machines sind vorübergehend nicht verfügbar“ an.",
+      "betaNote": "cmux Cloud ist im Early Access und verfügbar, sofern deine Organisation es nicht deaktiviert. Aktiviere zur Nutzung Settings › Beta Features › Cloud Machines.",
       "whatTitle": "Was eine Maschine ist",
       "whatDesc": "Eine Maschine ist ein dauerhafter Cloud-Computer, der dir oder deinem Team gehört. Sie behält ihre Dateien, installierten Tools und laufenden Terminals. Behandle sie wie ein Haustier, nicht wie Herdenvieh: Du installierst einmal, was du brauchst, und kommst später darauf zurück.",
       "whatDaemon": "Auf jeder Maschine läuft der cmux-TUI-Daemon. Der Daemon hält die Workspaces und Terminals der Maschine. Ein cmux-Pane auf deinem Mac zeigt nur ein Terminal an, das auf der Maschine lebt. Wenn du das Pane schließt, wird der Prozess daher nie beendet.",
@@ -2885,18 +2957,18 @@
       "requirementsTitle": "Was Sie brauchen",
       "reqMac": "Die cmux-App für macOS, gestartet und angemeldet. Die cmux-CLI kommuniziert mit der App, und die App verwaltet deine Anmeldedaten.",
       "reqPlan": "Ein kostenpflichtiger cmux-Plan. Kostenlose Konten können keine Maschinen erstellen. Die aktuellen Pläne findest du auf der Preisseite.",
-      "reqBeta": "Ein Mac, der Teil des Cloud-Early-Access-Rollouts ist, mit aktiviertem Cloud Machines unter Settings › Beta Features.",
+      "reqBeta": "Cloud Machines ist unter Settings › Beta Features aktiviert und Cloud wird nicht durch eine Organisationsrichtlinie deaktiviert.",
       "reqNoVpn": "Keine Einrichtung von VPN, SSH-Schlüsseln oder Portweiterleitung. cmux verbindet sich über ein privates Netzwerk, das automatisch startet, mit deinen Maschinen.",
       "quickstartTitle": "Schnellstart",
       "stepSignIn": "Melde dich an. Nutze den Cloud-Tab in der rechten Seitenleiste oder führe den Login-Befehl in einem Terminal aus.",
-      "stepCreate": "Erstelle eine Maschine mit File › New Cloud Machine oder ⌘Y. Wähle eine Größe und optional ein Label. Die Erstellung läuft im Hintergrund weiter, und cmux zeigt eine Benachrichtigung, sobald die Maschine bereit ist.",
-      "stepWorkspace": "Öffne mit ⇧⌘Y (New Cloud Workspace) einen Workspace auf der Maschine. Innerhalb eines Cloud-Workspace erstellt ⌘N einen weiteren Workspace auf derselben Maschine.",
+      "stepCreate": "Erstelle eine Maschine mit File › New Cloud Machine oder ⇧⌘Y. Wähle eine Größe und optional ein Label. Die Erstellung läuft im Hintergrund weiter, und cmux zeigt eine Benachrichtigung, sobald die Maschine bereit ist.",
+      "stepWorkspace": "Öffne mit ⌘Y (New Cloud Workspace) einen Workspace auf der Maschine. Innerhalb eines Cloud-Workspace erstellt ⌘N immer einen lokalen Workspace auf diesem Mac.",
       "stepAgent": "Starte einen Agenten. Claude Code, Codex, OpenCode und Pi sind auf der Maschine bereits installiert.",
       "stepCli": "Dasselbe geht auch über die CLI:",
       "appTitle": "Cloud in der App",
       "appSidebar": "Der Cloud-Tab in der rechten Seitenleiste listet deine Maschinen auf. Unter jeder Maschine siehst du ihre Workspaces, weitergeleiteten Ports, VNC-Displays und Terminals. Klicke auf einen Eintrag, um ihn zu öffnen. Über die Befehlspalette kannst du den Cloud-Baum mit Open Cloud as Pane auch als Pane öffnen.",
       "appMenu": "Klicke mit der rechten Maustaste auf eine Maschine, um eine Shell zu öffnen, einen Workspace zu erstellen, ihren Desktop zu öffnen, den vollständigen cmux-TUI-Client zu öffnen, sie zu vergrößern, umzubenennen, ihre IP-Adresse zu kopieren, ihren Status anzuzeigen, einen Checkpoint zu erstellen, sie zu forken oder sie zu löschen. Du kannst Maschinen auch anheften und ihre Reihenfolge ändern.",
-      "appShortcuts": "New Cloud Machine (⌘Y) und New Cloud Workspace (⇧⌘Y) findest du im File-Menü, im Menü der Plus-Schaltfläche und in der Befehlspalette. Beide Tastaturkürzel kannst du in den Einstellungen oder in cmux.json mit den Schlüsseln newCloudMachine und newCloudWorkspace ändern.",
+      "appShortcuts": "New Cloud Machine (⇧⌘Y) und New Cloud Workspace (⌘Y) findest du im File-Menü, im Menü der Plus-Schaltfläche und in der Befehlspalette. Beide Tastaturkürzel kannst du in den Einstellungen oder in cmux.json mit den Schlüsseln newCloudMachine und newCloudWorkspace ändern.",
       "cliIntroTitle": "Cloud über die CLI",
       "cliIntroDesc": "cmux vm und cmux cloud sind derselbe Befehl. Führe cmux vm ohne Verb aus, um deine Maschinen aufzulisten. Jedes Verb hat eine --help-Seite, die ohne die App funktioniert, und cmux vm guide gibt eine vollständige Markdown-Anleitung aus. Füge --json zu einem beliebigen Verb hinzu, um maschinenlesbare Ausgabe zu erhalten.",
       "baseTitle": "Deine Basismaschine",
@@ -2914,11 +2986,11 @@
       "metaDescription": "Erstelle cmux Cloud-Maschinen, wähle ihre Größe, vergrößere, pausiere, sichere, forke und lösche sie. Mit Größen, Planlimits und Checkpoints.",
       "intro": "Diese Seite erklärt den Lebenszyklus einer cmux Cloud-Maschine: wie du sie erstellst, welche Größen du wählen kannst, welche Planlimits gelten und wie du sie pausierst, sicherst, forkst und löschst.",
       "createTitle": "Maschine erstellen",
-      "createApp": "Nutze in der App File › New Cloud Machine (⌘Y), das Menü der Plus-Schaltfläche, die Befehlspalette oder die Plus-Schaltfläche in der Cloud-Seitenleiste. Der Dialog fragt nach einer Größe und optional einem Label.",
+      "createApp": "Nutze in der App File › New Cloud Machine (⇧⌘Y), das Menü der Plus-Schaltfläche, die Befehlspalette oder die Plus-Schaltfläche in der Cloud-Seitenleiste. Der Dialog fragt nach einer Größe und optional einem Label.",
       "createCli": "In der CLI erstellt cmux vm new eine Maschine und öffnet einen Workspace darauf. Mit --detach erstellst du sie, ohne etwas zu öffnen. Wird eine Erstellungsanfrage wiederholt, verwendet cmux dieselbe Anfrage erneut, damit du nicht zwei Maschinen erhältst.",
       "createFailed": "Schlägt die Erstellung fehl, kannst du sie über die Benachrichtigung erneut versuchen, den Fehler anzeigen oder ihn für eine Supportanfrage kopieren.",
       "sizesTitle": "Größen",
-      "sizesDesc": "Jede Größe legt Arbeitsspeicher, vCPU und Festplatte gemeinsam fest. Wähle eine Größe im Erstellungsdialog oder mit --size.",
+      "sizesDesc": "Jede Größe legt Arbeitsspeicher, vCPU und Festplatte gemeinsam fest. Wähle eine Größe im Erstellungsdialog oder mit --size. Pro und Team unterstützen 4g, 8g und 16g (2, 4 und 8 vCPU). Max schaltet zusätzlich 24g und 32g (12 und 16 vCPU) sowie 64g (32 vCPU) frei.",
       "sizeColumn": "Größe",
       "memoryColumn": "Arbeitsspeicher",
       "cpuColumn": "vCPU",
@@ -2932,7 +3004,7 @@
       "limitsFree": "Kostenlose Konten können keine Maschinen erstellen.",
       "limitsPaid": "Pro- und Founder's-Edition-Konten können bis zu 5 aktive Maschinen haben, die sich 20 vCPUs und 40 GB Arbeitsspeicher teilen. Eine Maschine ist aktiv, solange sie läuft oder startet.",
       "limitsTeam": "Team-Konten können pro bezahltem Platz bis zu 5 aktive Maschinen haben. Jeder bezahlte Platz fügt dem Pool des Teams 20 vCPUs und 40 GB Arbeitsspeicher hinzu.",
-      "limitsMax": "Max-Konten können bis zu 5 aktive Maschinen haben, die sich 80 vCPUs und 160 GB Arbeitsspeicher teilen. Eine einzelne Maschine kann bei Pro und Team bis zu 32 GB und 16 vCPUs haben, bei Max bis zu 64 GB und 32 vCPUs.",
+      "limitsMax": "Max-Konten können bis zu 5 aktive Maschinen haben, die sich 80 vCPUs und 160 GB Arbeitsspeicher teilen. Eine Max-Maschine kann bis zu 64 GB und 32 vCPUs nutzen, einschließlich der Größen 24 GB / 12 vCPU und 32 GB / 16 vCPU; Pro und Team enden bei 16 GB und 8 vCPUs.",
       "limitsPoolFull": "Würde eine neue, fortgesetzte, vergrößerte oder geforkte Maschine den Pool überschreiten, lehnt cmux die Anfrage ab und zeigt, wie viel vom Pool belegt ist. Pausiere oder lösche eine Maschine, um Ressourcen freizugeben, oder führe ein Upgrade auf Max durch.",
       "limitsPricing": "Aktuelle Preise findest du auf der Preisseite. Es gibt keine nutzungsbasierte Abrechnung und keine Überschreitungsgebühren.",
       "agentUpdatesTitle": "Coding-Agents aktuell halten",
@@ -2942,7 +3014,7 @@
       "agentUpdatesToggle": "Im Dialog Neue Maschine ist diese Einstellung standardmäßig aktiv. Um sie für eine bestehende Maschine zu ändern, klicke mit der rechten Maustaste auf die Maschine und wähle Agents aktuell halten, oder führe cmux vm agent-updates aus. cmux vm new behält die Versionen des Images, außer du übergibst --agent-updates latest. Wenn du Updates ausschaltest, bleiben die installierten Versionen erhalten.",
       "agentUpdatesNetwork": "Updates nutzen nur github.com, api.github.com, objects.githubusercontent.com und release-assets.githubusercontent.com. cmux erlaubt diese Hosts in jedem Netzwerkmodus, auch bei Zulassungsliste und Kein Internet, daher blockiert eine Netzwerkrichtlinie Updates nie.",
       "resizeTitle": "Größe ändern",
-      "resizeDesc": "Du kannst eine Maschine ohne Datenverlust vergrößern. Klicke mit der rechten Maustaste auf die Maschine und wähle Resize machine, oder nutze cmux vm resize. Eine Maschine lässt sich nur vergrößern. Die Festplatte wächst in 4-GB-Schritten bis 256 GB. Arbeitsspeicher und CPU wachsen bei Pro und Team bis 32 GB und 16 vCPU, bei Max bis 64 GB und 32 vCPU. Eine größere Maschine belegt mehr von deinem Pool. Das tatsächliche Maximum legt dein Plan fest.",
+      "resizeDesc": "Du kannst eine Maschine ohne Datenverlust vergrößern. Klicke mit der rechten Maustaste auf die Maschine und wähle Resize machine, oder nutze cmux vm resize. Eine Maschine lässt sich nur vergrößern. Die Festplatte wächst in 4-GB-Schritten bis 128 GB bei Pro und Team oder 256 GB bei Max (Go ist auf 16 GB begrenzt). Arbeitsspeicher und CPU wachsen bei Pro und Team bis 16 GB und 8 vCPU, bei Max bis 64 GB und 32 vCPU. Eine größere Maschine belegt mehr von deinem Pool. Das tatsächliche Maximum legt dein Plan fest.",
       "pauseTitle": "Pausieren und fortsetzen",
       "pauseDesc": "cmux vm pause stoppt die Rechenleistung der Maschine. Festplatte, Workspaces und Terminalverlauf bleiben erhalten. Laufende Prozesse werden beendet. cmux vm resume startet die Maschine wieder. Auch das Öffnen einer pausierten Maschine oder das Ausführen eines Befehls darauf startet sie.",
       "pauseIdle": "Maschinen pausieren nicht von selbst, wenn sie im Leerlauf sind. Eine Maschine läuft weiter, bis du sie pausierst oder löschst.",
@@ -3085,15 +3157,15 @@
       "symptomColumn": "Problem",
       "fixColumn": "Lösung",
       "errNotSeen": "Kein Cloud-Tab oder Befehl New Cloud Machine",
-      "fixNotSeen": "Aktiviere Settings › Beta Features › Cloud Machines. Wird Cloud danach immer noch nicht angezeigt, ist dein Mac noch nicht Teil des Rollouts. Steht dort, dass Cloud Machines von deinem Administrator deaktiviert wurden, wende dich an deinen Administrator.",
-      "errUnavailable": "Cloud Machines sind vorübergehend nicht verfügbar",
-      "fixUnavailable": "Dein Mac ist noch nicht Teil des Cloud-Rollouts, oder Cloud ist vorübergehend deaktiviert. Der Schalter in den Settings allein aktiviert Cloud nicht. Versuche es später erneut.",
+      "fixNotSeen": "Aktiviere Settings › Beta Features › Cloud Machines. Wird Cloud danach immer noch nicht angezeigt, prüfe, ob dein Administrator Cloud Machines deaktiviert hat.",
+      "errUnavailable": "Cloud Machines sind deaktiviert oder nicht verfügbar",
+      "fixUnavailable": "Cloud Machines sind deaktiviert, weil der lokale Schalter in den Settings ausgeschaltet ist oder dein Administrator Cloud deaktiviert hat. Aktiviere den Schalter oder bitte deinen Administrator, Cloud zu erlauben.",
       "errSignIn": "Für den Zugriff auf Cloud-VMs ist eine Anmeldung erforderlich",
       "fixSignIn": "Führe cmux auth login aus und versuche es erneut. Wurde deine Sitzung abgelehnt, führe zuerst cmux auth logout aus.",
       "errPlan": "Cloud-VMs erfordern einen kostenpflichtigen Plan",
       "fixPlan": "Kostenlose Konten können keine Maschinen erstellen. Führe auf der Preisseite ein Upgrade durch.",
       "errSize": "Eine Größe erfordert einen höheren Plan",
-      "fixSize": "Maschinen mit mehr als 32 GB benötigen cmux Max. Wähle eine kleinere Größe oder führe ein Upgrade durch.",
+      "fixSize": "Maschinen mit mehr als 16 GB benötigen cmux Max. Wähle eine kleinere Größe oder führe ein Upgrade durch.",
       "errLimit": "Limit für aktive Maschinen erreicht",
       "fixLimit": "Pausiere oder lösche eine Maschine und versuche es erneut.",
       "errPool": "Nicht genug Cloud-VM-Ressourcen",
@@ -3185,8 +3257,8 @@
       "cloudLink": "Wie Agenten auf Cloud-Maschinen konfiguriert sind",
       "teamsTitle": "Teams und Teilen",
       "teamsScope": "Konten gehören zu dem Team, bei dem du angemeldet bist. cr org list zeigt deine Teams, und cr org switch ändert das Team, das cr verwendet. cmux coderouter-Befehle akzeptieren --team '<id>'.",
-      "teamsPrivate": "Ein neues Konto ist privat für die Person, die es hinzugefügt hat. Im Dashboard macht „Mit Team teilen“ es für jedes Mitglied und die Cloud-Maschinen des Teams verfügbar. „Privat machen“ macht das rückgängig.",
-      "teamsPersonal": "In deinem persönlichen Team bedienen deine privaten Konten auch deine eigenen Cloud-Maschinen. Die Cloud-Maschinen einer Organisation nutzen nur geteilte Konten. Teile ein Konto also, bevor eine Maschine es nutzen soll.",
+      "teamsPrivate": "Ein Konto, das einer Organisation hinzugefügt wird, ist mit dem Team geteilt, sodass alle Mitglieder und die Cloud-Maschinen des Teams es nutzen können. Im Dashboard beschränkt „Privat machen“ es auf die Person, die es hinzugefügt hat, und „Mit Team teilen“ macht das rückgängig.",
+      "teamsPersonal": "In deinem persönlichen Team sind neue Konten privat, und deine privaten Konten bedienen auch deine eigenen Cloud-Maschinen. Die Cloud-Maschinen einer Organisation nutzen nur geteilte Konten, daher muss ein privates Konto geteilt werden, bevor eine Maschine es nutzen kann.",
       "teamsManage": "Jedes Teammitglied kann die geteilten Konten des Teams hinzufügen, umbenennen, deaktivieren, übertragen und entfernen. cr transfer verschiebt ein Konto nach deiner Bestätigung in ein anderes Team.",
       "usageTitle": "Nutzung und Limits",
       "usageLimits": "Jeder Anbieter rechnet das Konto ab, das eine Anfrage bedient hat, nach dem Tarif und den Limits dieses Kontos. CodeRouter verteilt die Arbeit auf mehrere Konten, erhöht aber nicht das Limit eines einzelnen Kontos.",
@@ -3226,12 +3298,13 @@
       "apiKeyScope": "Der API-Schlüssel einer Organisation nutzt nur die geteilten Konten des Teams. Ein Schlüssel in deinem persönlichen Team kann auch deine privaten Konten nutzen. CodeRouter bedient die OpenAI Responses API, nicht Chat Completions.",
       "apiKeyLogin": "Auf einer Maschine ohne Browser meldet cr login --api-key cr mit einem Schlüssel an, und CODEROUTER_API_KEY liefert einen Schlüssel für einen einzelnen Befehl. Widerrufe einen Schlüssel im Dashboard oder führe cr logout auf der Maschine aus, die ihn nutzt.",
       "cloudTitle": "Auf cmux Cloud-Maschinen",
-      "cloudDesc": "Cloud-Maschinen brauchen keine Einrichtung. Die Umgebung der Maschine richtet OPENAI_BASE_URL und ANTHROPIC_BASE_URL auf eine private CodeRouter-Adresse aus, und cmux schreibt die Konfiguration jedes Agenten, sobald zum ersten Mal eine Shell oder der Agent startet:",
-      "cloudClaude": "Claude Code liest ANTHROPIC_BASE_URL und einen Platzhalter-ANTHROPIC_API_KEY aus der Umgebung. Die Fragen beim ersten Start sind bereits beantwortet.",
+      "cloudDesc": "Cloud-Maschinen brauchen keine Einrichtung. Jeder Agent nutzt die CodeRouter-Konten deines Teams über eine private CodeRouter-Adresse, und cmux schreibt seine Konfiguration, sobald zum ersten Mal eine Shell oder der Agent startet:",
+      "cloudClaude": "Claude Code erhält ANTHROPIC_BASE_URL und einen Platzhalter-ANTHROPIC_API_KEY bei jedem Start, nicht aus jeder Shell, sodass sie nie Vorrang vor deiner eigenen Anmeldung haben. Die Fragen beim ersten Start sind bereits beantwortet.",
       "cloudCodex": "Codex erhält einen cmux-Modellanbieter in ~/.codex/config.toml.",
       "cloudPi": "Pi erhält eine Anbieter-Überschreibung in ~/.pi/agent/models.json.",
-      "cloudOpencode": "OpenCode lädt beim ersten Start seine Anbieterliste von CodeRouter herunter und speichert sie in ~/.config/opencode/opencode.json.",
+      "cloudOpencode": "OpenCode lädt beim ersten Start seine Anbieterliste von CodeRouter herunter, speichert sie in ~/.config/cmux/opencode-team.json und fügt sie bei jedem Start deiner eigenen Konfiguration hinzu.",
       "cloudYours": "cmux schreibt jede Datei nur, wenn sie fehlt. Deine Änderungen bleiben also erhalten. Eine Codex-Konfiguration, die bereits einen anderen Modellanbieter nennt, bleibt unverändert.",
+      "cloudOwnLogin": "Um stattdessen dein eigenes Konto zu nutzen, führe cr use own auf der Maschine aus und melde dich dann so an, wie es der Agent normalerweise vorsieht: /login in Claude Code, codex login oder opencode auth login. cr use team wechselt zurück, cr use own codex ändert einen einzelnen Agenten, und cr use zeigt, wie sich jeder Agent anmeldet. Ohne Auswahl nutzt ein Agent, bei dem du dich auf der Maschine angemeldet hast, dein eigenes Konto, und ein Agent, für den dein Team kein Konto hat, zeigt seine normale Anmeldung. Eine Änderung gilt beim nächsten Start des Agenten.",
       "cloudRun": "Starte Agenten wie gewohnt. cmux coderouter agent macht aus einem einfachen Prompt die Einmal-Form des Agenten. Innerhalb einer Maschine läuft er im aktuellen Terminal, und auf deinem Mac startet er den Agenten auf der Maschine, die du angibst, wie cmux vm agent.",
       "cloudAccounts": "Cloud-Maschinen nutzen die Konten des Teams, dem sie gehören. Meldet ein Agent, dass kein Konto verfügbar ist, füge ein Konto hinzu oder teile ein vorhandenes mit diesem Team.",
       "modelsTitle": "Modelle",
@@ -3306,6 +3379,23 @@
     "title": "Wall of Love",
     "description": "Was andere über cmux sagen."
   },
+  "art": {
+    "metaTitle": "Kunst für cmux-Hintergründe",
+    "metaDescription": "Entdecke die gemeinfreien Gemälde, die cmux als Fensterhintergründe anbietet: Van Gogh, Friedrich, Goya, Doré und mehr, mit Quellen und Lizenzen.",
+    "title": "Kunst",
+    "description": "Berühmte gemeinfreie Gemälde und Drucke, die du hinter deine Terminals legen kannst. Alle Künstler sind seit über 70 Jahren tot, und jedes Werk wurde vor 1931 veröffentlicht.",
+    "howToUse": "Bald in cmux: Lege eines dieser Werke als Hintergrund hinter deine Terminals.",
+    "loading": "Sammlung wird geladen…",
+    "unavailable": "Die Sammlung konnte nicht geladen werden. Versuche es in ein paar Minuten erneut.",
+    "collectionsLabel": "Sammlungen",
+    "source": "Gemeinfrei · Quelle",
+    "collections": {
+      "darkArt": "Dunkle Kunst",
+      "museumIcons": "Museumsikonen",
+      "calm": "Ruhig",
+      "dore": "Doré"
+    }
+  },
   "testimonials": {
     "mitchellh": "Und wieder ein libghostty-basiertes Projekt, diesmal ein macOS-Terminal mit vertikalen Tabs, besserer Organisation/Benachrichtigungen, eingebettetem/skriptfähigem Browser, speziell für Leute, die viele terminalbasierte Agenten-Workflows nutzen.",
     "steipete": "Ich bin spät dran, aber cmux ist großartig. Aktuelle Aufteilung: Codex-Mac-App für Wissensarbeit, Lernen und Lesen; cmux + Codex CLI fürs Coding.",
@@ -3361,6 +3451,7 @@
     "unsupportedParams": "Dieser Link enthält nicht unterstützte Parameter, die cmux ablehnt: {params}",
     "conflictingParams": "Dieser Link enthält Parameter, die nicht zusammen verwendet werden können: {params}",
     "invalidParams": "Dieser Link enthält ungültige Parameterwerte: {params}",
+    "ignoredParams": "cmux ignoriert Parameter, die es nicht verwendet: {params}. Die Sitzung wird dennoch geöffnet.",
     "fixParams": "Korrigieren Sie die URL-Parameter und laden Sie dann diese Seite neu.",
     "examplePrefix": "Siehe eine",
     "exampleLink": "Beispiellink",
@@ -3384,6 +3475,16 @@
       "title": "Öffnen Sie Regeln in cmux",
       "intro": "Auf dieser Seite werden Regeln im aktuellen cmux-Arbeitsbereich geöffnet.",
       "fallback": "cmux zeigt die Regeln zuerst an und fragt nach, bevor sie in den aktuellen Arbeitsbereich eingefügt werden. Wenn cmux nicht geöffnet wird, installieren Sie cmux und klicken Sie erneut auf „In cmux öffnen“."
+    },
+    "agent": {
+      "metaTitle": "Agent-Sitzung in cmux öffnen",
+      "metaDescription": "Öffne einen cmux-Deeplink zu einer Agent-Sitzung im Web, mit Installationshinweis, falls cmux nicht verfügbar ist.",
+      "title": "Agent-Sitzung öffnen",
+      "intro": "Dieser Link öffnet die Sitzung des Agents in cmux, sofern dieser Mac sie bereits erreichen kann. Der Link selbst gewährt keinen Zugriff.",
+      "fallback": "Wenn cmux nicht geöffnet wird, installiere cmux und klicke erneut auf In cmux öffnen. cmux öffnet die Sitzung nur, wenn dieser Mac sie bereits erreichen kann.",
+      "nameLabel": "Name: {value}",
+      "hostLabel": "Host: {value}",
+      "harnessLabel": "Harness: {value}"
     }
   },
   "download": {
@@ -3417,7 +3518,10 @@
     "title": "Bei cmux angemeldet",
     "body": "Wenn cmux nicht automatisch geöffnet wurde, verwende die Schaltfläche unten.",
     "button": "Zurück zu cmux",
-    "switchAccountButton": "Anderes Konto verwenden"
+    "switchAccountButton": "Anderes Konto verwenden",
+    "rateLimitedTitle": "Anmeldung ist ausgelastet",
+    "rateLimitedBody": "Unser Anmeldedienst verarbeitet zu viele Anfragen. Warte ein paar Sekunden und fahre dann fort. Du musst dich nicht erneut anmelden.",
+    "retryButton": "Anmeldung fortsetzen"
   },
   "landing": {
     "bestTerminal": {
@@ -5343,7 +5447,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro ist aktiv",
     "title": "Willkommen bei cmux Pro",
-    "body": "Die Pro-Funktionen werden noch entwickelt. Der Cloud-Zugang kommt bald, mit Nutzungsguthaben für jeden Monat Ihres Abonnements. Derzeit umfasst Pro den TestFlight-Zugang zu cmux für iOS.",
+    "body": "Pro umfasst bis zu 5 Cloud-VMs mit gemeinsam genutzten 20 vCPUs und 40 GB RAM sowie Zugang zu cmux iOS über TestFlight. Eine VM kann bis zu 16 GB RAM / 8 vCPU nutzen. Für 24 GB / 12 vCPU und 32 GB / 16 vCPU ist Max erforderlich.",
     "done": "Zum Dashboard",
     "steps": {
       "iosApp": {
@@ -5419,6 +5523,8 @@
     "errorInvalidCode": "Dieser Code ist ungültig. Prüfe deine E-Mails und versuche es erneut.",
     "errorInvalidTotp": "Dieser Zwei-Faktor-Code ist ungültig.",
     "errorSignUpNotAllowed": "Neue Konten können derzeit nicht erstellt werden.",
+    "errorEmailUnverified": "Für diese E-Mail-Adresse gibt es bereits ein Konto, aber die Adresse ist noch nicht bestätigt. Melde dich so an, wie du dich registriert hast, und bestätige dann deine E-Mail-Adresse, um Anmeldecodes zu nutzen.",
+    "useEmailPasswordInstead": "Mit E-Mail und Passwort anmelden",
     "errorPasskey": "Die Passkey-Anmeldung wurde nicht abgeschlossen. Versuche es erneut oder nutze eine andere Methode.",
     "errorGeneric": "Etwas ist schiefgelaufen. Versuche es erneut."
   },
@@ -5452,6 +5558,9 @@
     "switchFailed": "Abmeldung fehlgeschlagen. Versuche es erneut.",
     "invalidTitle": "Diese Einladung ist nicht mehr gültig",
     "invalidBody": "Sie ist abgelaufen, wurde widerrufen oder bereits verwendet. Bitte einen Team-Admin um eine neue.",
-    "goToTeams": "Zu deinen Teams"
+    "goToTeams": "Zu deinen Teams",
+    "unavailableTitle": "Anmeldung konnte nicht bestätigt werden",
+    "unavailableBody": "Unser Anmeldedienst ist ausgelastet. Warte ein paar Sekunden und öffne die Einladung erneut. Du musst dich nicht erneut anmelden.",
+    "retry": "Erneut versuchen"
   }
 }

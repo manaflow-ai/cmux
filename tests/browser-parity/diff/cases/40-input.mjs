@@ -76,6 +76,10 @@ return { value: await $P.locator("#keys").evaluate((e) => e.value), combos: (awa
     compare: ["value"],
     expect: { value: "x" },
   },
+  // `at`: the first click's offsetX/offsetY near the 20,20 aimed at. The
+  // offsets count from the canvas's padding edge, inside its 1px border, so
+  // x is 19 while the canvas sits on whole pixels (lab.html places it so);
+  // x allows 1.5, y 2.
   {
     id: "mouse.members",
     members: ["reference-a:Mouse.click", "reference-a:Mouse.dblclick", "reference-a:Mouse.down", "reference-a:Mouse.up", "reference-a:Mouse.move", "reference-a:Mouse.wheel", "reference-b:CUAAPI.click", "reference-b:CUAAPI.double_click", "reference-b:CUAAPI.move", "reference-b:CUAAPI.scroll"],

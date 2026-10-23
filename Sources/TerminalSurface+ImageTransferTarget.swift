@@ -22,6 +22,13 @@ extension TerminalSurface {
         if workspace.isRemoteTerminalSurface(id) {
             return .remote(.workspaceRemote)
         }
+        // A restored `cmux ssh` pane keeps its remote PTY binding while it
+        // waits for the remote to report the session connected. That stored
+        // binding, not the `ssh` running on its TTY, makes it remote.
+        if workspace.remoteConfiguration?.transport == .ssh,
+           workspace.remotePTYSessionIDsByPanelId[id] != nil {
+            return .remote(.workspaceRemote)
+        }
         // Manual tmux mirrors have no local TTY for the SSH process detector.
         if let target = AppDelegate.shared?.remoteTmuxController.remoteUploadTarget(forSurfaceId: id) {
             return .remote(target)
@@ -58,6 +65,11 @@ extension TerminalSurface {
     /// The TTY to check for a user-started SSH session, or nil when the
     /// transfer is local without any process lookup.
     ///
+    /// Only a pane in a workspace without a `cmux ssh` remote configuration
+    /// is checked: plain `ssh` typed into a local workspace's terminal. In a
+    /// `cmux ssh` workspace the stored configuration and pane ownership
+    /// decided the target in ``resolvedImageTransferTarget(mode:in:)``.
+    ///
     /// Every drop and paste calls this on the main actor, and a nil result
     /// inserts the path in the same turn, as upstream Ghostty does. Keep the
     /// work here bounded by the foreground job: the PTY names its foreground
@@ -72,6 +84,11 @@ extension TerminalSurface {
     ) -> String? {
         let workspace = workspace ?? owningWorkspace()
         guard resolvedImageTransferTarget(mode: mode, in: workspace) == .local,
+              // A workspace `cmux ssh` created routes from its stored remote
+              // configuration and pane ownership alone, never from the
+              // processes on its TTYs. A local workspace has none, so this is
+              // one in-memory read before its existing detection.
+              workspace?.remoteConfiguration?.transport != .ssh,
               let ttyName = workspace?.surfaceTTYNames[id],
               !ttyName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil

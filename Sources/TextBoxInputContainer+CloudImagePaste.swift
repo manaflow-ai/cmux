@@ -4,13 +4,79 @@ import CmuxCloudImagePaste
 
 extension TextBoxInputContainer {
     /// A composer must never submit a Mac path or send an attachment before Submit.
-    func refuseCloudComposerImage() {
+    func refuseCloudComposerImage(_ error: CloudImagePasteError = .useTerminal) {
         let alert = NSAlert()
         alert.messageText = String(localized: "cloud.imagePaste.failed", defaultValue: "Image could not be pasted")
-        alert.informativeText = CloudImagePasteError.useTerminal.localizedMessage
+        alert.informativeText = error.localizedMessage
         if let window = surface.hostedView.window { alert.beginSheetModal(for: window) }
         else { NSSound.beep() }
     }
+
+    /// Why Cloud cannot send these image files from a composer, or `nil` when
+    /// every one can be uploaded at submit. Checking type and size when an image
+    /// is attached refuses it then, instead of failing the whole submit later.
+    static func cloudComposerImageRefusal(for fileURLs: [URL]) -> CloudImagePasteError? {
+        guard !fileURLs.isEmpty else { return .unsupportedType }
+        for fileURL in fileURLs {
+            do {
+                try CloudClipboardImage.validateFile(at: fileURL)
+            } catch let error as CloudImagePasteError {
+                return error
+            } catch {
+                return .storage
+            }
+        }
+        return nil
+    }
+
+    /// Inserts Cloud image attachments into the composer without sending them
+    /// to the terminal until the user submits the prompt.
+    @discardableResult
+    func insertCloudComposerImages(
+        _ fileURLs: [URL],
+        into textView: TextBoxInputTextView
+    ) -> Bool {
+        let attachments = fileURLs.map {
+            TextBoxAttachment(
+                localURL: $0.standardizedFileURL,
+                submissionText: TextBoxAttachment.submissionText(forLocalFileURL: $0),
+                cleanupLocalURLWhenDisposed: TextBoxAttachment.shouldCleanupLocalURLWhenDisposed($0)
+            )
+        }
+        guard Self.cloudComposerImageRefusal(for: attachments.compactMap(\.localURL)) == nil,
+              attachments.allSatisfy(\.isImage) else { return false }
+        textView.insertAttachments(attachments)
+        self.attachments = textView.inlineAttachments()
+        text = textView.plainText()
+        return true
+    }
+
+    /// Inserts prepared Cloud image attachments without reopening their source
+    /// files on the main actor.
+    @discardableResult
+    func insertPreparedCloudComposerImages(
+        _ preparedAttachments: [TextBoxPreparedAttachment],
+        into textView: TextBoxInputTextView,
+        replacingPlaceholderID placeholderID: UUID
+    ) -> Bool {
+        let attachments = preparedAttachments.map {
+            TextBoxAttachment(
+                preparedAttachment: $0,
+                submissionText: TextBoxAttachment.submissionText(forLocalFileURL: $0.fileURL),
+                cleanupLocalURLWhenDisposed: TextBoxAttachment.shouldCleanupLocalURLWhenDisposed($0.fileURL)
+            )
+        }
+        guard Self.cloudComposerImageRefusal(for: attachments.compactMap(\.localURL)) == nil,
+              attachments.allSatisfy(\.isImage) else { return false }
+        guard textView.replacePendingAttachmentUploadPlaceholder(
+            id: placeholderID,
+            with: attachments
+        ) else { return false }
+        self.attachments = textView.inlineAttachments()
+        text = textView.plainText()
+        return true
+    }
+
     func attachFileURLs(_ fileURLs: [URL], into textView: TextBoxInputTextView) -> Bool {
         let standardizedURLs = fileURLs
             .filter(\.isFileURL)
@@ -63,8 +129,11 @@ extension TextBoxInputContainer {
             uploadFileAttachments(uploadURLs, remoteTarget: remoteTarget, focusing: textView)
             return true
         case .pasteCloudImages:
-            refuseCloudComposerImage()
-            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+            guard insertCloudComposerImages(fileURLs, into: textView) else {
+                refuseCloudComposerImage(Self.cloudComposerImageRefusal(for: fileURLs) ?? .useTerminal)
+                GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                return true
+            }
             return true
         case .reject:
             return false

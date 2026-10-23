@@ -50,11 +50,38 @@ extension CMUXCLI {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return key == "approval_policy" || key == "sandbox_mode"
     }
+
+    /// Whether an OMP hook has no launch candidate to publish or invalidate.
+    ///
+    /// PID-only diagnostics describe the hook's dispatch context, not a
+    /// replacement executable. Preserve an existing binding in that case, but
+    /// never synthesize a bare `omp` command from the missing capture.
+    func ompLaunchCaptureIsUnavailable(
+        _ launchCommand: AgentHookLaunchCommandRecord?
+    ) -> Bool {
+        guard let launchCommand,
+              launchCommand.arguments.isEmpty,
+              normalizedHookValue(launchCommand.executablePath) == nil else {
+            return false
+        }
+        switch launchCommand.rejectionReason {
+        case .some(.argvUnavailable),
+             .some(.nativeProcessDoesNotDescribeKind),
+             .some(.argvLooksLikeShellWrapper):
+            return true
+        default:
+            return false
+        }
+    }
+
     func agentHookSessionHasDurableResumeEvidence(
         kind: String,
         launchCommand: AgentHookLaunchCommandRecord?
     ) -> Bool {
         guard launchCommand?.isRejectedCapture != true else { return false }
+        if kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "omp" {
+            return AgentLaunchCaptureTrust.ompLaunchHasDurableResumeEvidence(launchCommand)
+        }
         guard kind == "codex" else { return true }
         guard let launchCommand else { return true }
         if normalizedHookValue(launchCommand.environment?["CODEX_HOME"]) != nil {
@@ -108,7 +135,9 @@ extension CMUXCLI {
         transcriptPath: String?,
         currentPID: Int?
     ) -> AgentHookLaunchCommandRecord? {
-        if current?.isRejectedCapture == true {
+        let ompCaptureUnavailable = kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "omp"
+            && ompLaunchCaptureIsUnavailable(current)
+        if current?.isRejectedCapture == true || ompCaptureUnavailable {
             if let preserved = mappedLaunchAfterRejectedCapture(kind: kind, current: current, mapped: mapped) {
                 return kind == "codex"
                     ? repairedCodexLaunchCommand(preserved, transcriptPath: transcriptPath)
@@ -169,7 +198,9 @@ extension CMUXCLI {
         guard ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] != "1" else {
             return nil
         }
-        if current?.isRejectedCapture == true {
+        let ompCaptureUnavailable = kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "omp"
+            && ompLaunchCaptureIsUnavailable(current)
+        if current?.isRejectedCapture == true || ompCaptureUnavailable {
             if mappedLaunchAfterRejectedCapture(kind: kind, current: current, mapped: mapped) != nil {
                 return mapped?.cwd ?? currentCwd
             }
@@ -212,6 +243,7 @@ extension CMUXCLI {
         rejectionReason == .launcherDoesNotDescribeKind
             || rejectionReason == .nativeProcessDoesNotDescribeKind
             || rejectionReason == .argvLooksLikeShellWrapper
+            || rejectionReason == .argvUnavailable
             || rejectionReason == .argvDecodeFailed
     }
 

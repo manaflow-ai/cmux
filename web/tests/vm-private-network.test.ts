@@ -229,6 +229,9 @@ function testRepo(options: {
   lockRenewed?: boolean;
 } = {}): VmRepositoryShape {
   const calls = options.calls;
+  // Like the table: the live row for this device is the last one written, and
+  // a revoked row is no longer found.
+  let currentTunnel: CloudVmTunnelRow | null = options.tunnel ?? null;
   const base: Partial<VmRepositoryShape> = {
     findNetwork: () => Effect.succeed(options.network ?? null),
     upsertNetwork: (input) =>
@@ -250,30 +253,34 @@ function testRepo(options: {
     listAccessGrantTunnels: () => Effect.succeed(options.tunnel ? [options.tunnel] : []),
     claimAccessGrantMutation: () => Effect.succeed(true),
     releaseAccessGrantMutation: () => Effect.void,
-    revokeAccessGrant: () => Effect.succeed(true),
-    findTunnel: () => Effect.succeed(options.tunnel ?? null),
+    revokeAccessGrant: () => Effect.succeed({ revoked: true, stackSessionIds: ["session-1"] }),
+    findTunnel: () => Effect.sync(() => currentTunnel),
     listUserTunnels: () => Effect.succeed(options.tunnel ? [options.tunnel] : []),
     insertTunnel: (input) =>
       Effect.sync(() => {
         if (calls) calls.inserts += 1;
-        return tunnelRow({
+        currentTunnel = tunnelRow({
           providerTunnelId: input.providerTunnelId,
           accessGrantId: input.accessGrantId,
           deviceFingerprint: input.deviceFingerprint,
           tunnelPurpose: input.tunnelPurpose,
           clientPublicKey: input.clientPublicKey,
         });
+        return currentTunnel;
       }),
     updateTunnel: (input) =>
       Effect.sync(() => {
         if (calls) calls.updates += 1;
-        return tunnelRow({
+        currentTunnel = tunnelRow({
+          ...(currentTunnel ? { id: currentTunnel.id } : {}),
           ...(input.clientPublicKey ? { clientPublicKey: input.clientPublicKey } : {}),
         });
+        return currentTunnel;
       }),
     revokeTunnel: (id) =>
       Effect.sync(() => {
         calls?.revoked.push(id);
+        if (currentTunnel?.id === id) currentTunnel = null;
         return true;
       }),
     acquireTunnelEnrollmentLock: () => Effect.sync(() => {
@@ -448,7 +455,7 @@ describe("resolveOwnerNetwork", () => {
     expect(calls.ensureNetwork).toBe(0);
   });
 
-  test("a removed member does not reuse an existing team network and the provider is not asked", async () => {
+  test("a removed member does not reuse an existing team network", async () => {
     const calls = newGatewayCalls();
     const result = await Effect.runPromise(resolveOwnerNetwork({
       userId: "user-1",
@@ -459,7 +466,78 @@ describe("resolveOwnerNetwork", () => {
     expect(result.scope).toBe("user");
     expect(result.memberIngress).toBe(false);
     expect(result.providerNetworkId).toBe(NETWORK.id);
-    expect(calls.getNetwork).toBe(0);
+    expect(calls.ensureNetwork).toBe(0);
+  });
+
+  test("a provider lookup failure does not fail a removed member's placement", async () => {
+    const result = await Effect.runPromise(resolveOwnerNetwork({
+      userId: "user-1",
+      provider: "freestyle",
+      billingTeamId: "team-1",
+      teamDirectory: { listMemberIds: async () => ["user-2", "user-3"] },
+    }).pipe(Effect.provide(layerFor(testRepo({ network: networkRow() }), testGateway({ getNetworkFailure: (slug) => slug === networkSlugForTeam("team-1") })))));
+    expect(result).toMatchObject({ scope: "user", providerNetworkId: NETWORK.id });
+  });
+
+  test("a removed member's fallback does not wait for a hung provider read", async () => {
+    const gateway = testGateway();
+    const result = await Effect.runPromise(resolveOwnerNetwork({
+      userId: "user-1",
+      provider: "freestyle",
+      billingTeamId: "team-1",
+      teamDirectory: { listMemberIds: async () => ["user-2", "user-3"] },
+    }).pipe(
+      Effect.provide(layerFor(testRepo({ network: networkRow() }), { ...gateway, getNetwork: () => Effect.never })),
+      Effect.timeout(1000),
+    ));
+    expect(result).toMatchObject({ scope: "user", providerNetworkId: NETWORK.id });
+  });
+
+  test("the team directory lookup and the provider read overlap instead of running in sequence", async () => {
+    let providerReadStarted!: () => void;
+    const providerRead = new Promise<void>((resolve) => { providerReadStarted = resolve; });
+    const gateway = testGateway({ teamNetworks: [TEAM_NETWORK] });
+    const getNetwork = gateway.getNetwork!;
+    const result = await Effect.runPromise(resolveOwnerNetwork({
+      userId: "user-1",
+      provider: "freestyle",
+      billingTeamId: "team-1",
+      directoryTimeoutMs: 1000,
+      // Answers only once the provider read has begun: a sequential lookup
+      // times out here and falls back to the personal network.
+      teamDirectory: { listMemberIds: async () => { await providerRead; return ["user-1"]; } },
+    }).pipe(Effect.provide(layerFor(testRepo({ network: networkRow() }), {
+      ...gateway,
+      getNetwork: (provider, slug) => Effect.sync(providerReadStarted).pipe(Effect.zipRight(getNetwork(provider, slug))),
+    }))));
+    expect(result).toMatchObject({ scope: "team", providerNetworkId: TEAM_NETWORK.id });
+  });
+
+  test("the personal network row is read alongside the team lookup", async () => {
+    let rowReadStarted!: () => void;
+    const rowRead = new Promise<void>((resolve) => { rowReadStarted = resolve; });
+    const repo = testRepo({ network: networkRow() });
+    const findNetwork = repo.findNetwork!;
+    let directoryAnsweredInTime = false;
+    const result = await Effect.runPromise(resolveOwnerNetwork({
+      userId: "user-1",
+      provider: "freestyle",
+      billingTeamId: "team-1",
+      directoryTimeoutMs: 1000,
+      // Answers only once the row read has begun; a sequential lookup times out.
+      teamDirectory: {
+        listMemberIds: async (_teamId, options) => {
+          await rowRead;
+          directoryAnsweredInTime = options?.signal?.aborted === false;
+          return ["user-2"];
+        },
+      },
+    }).pipe(Effect.provide(layerFor({
+      ...repo,
+      findNetwork: (userId, provider) => Effect.sync(rowReadStarted).pipe(Effect.zipRight(findNetwork(userId, provider))),
+    }, testGateway()))));
+    expect(result).toMatchObject({ scope: "user", providerNetworkId: NETWORK.id });
+    expect(directoryAnsweredInTime).toBe(true);
   });
 
   test("directory failure with an existing team network falls back to the personal network", async () => {
@@ -835,6 +913,51 @@ describe("team tunnel reconciliation", () => {
     }).pipe(Effect.provide(layerFor(repo, gateway))));
   }
 
+  test("never returns a tunnel that a revoke deleted while team networks reconciled", async () => {
+    // Reconciliation runs outside the lease, so a grant revoke can delete the
+    // tunnel meanwhile. Returning its config would hand the client a dead peer.
+    const repo = testRepo({ network: networkRow() });
+    let revokeDuringAttach: (() => void) | null = null;
+    const gateway = testGateway({
+      teamNetworks: [TEAM_NETWORK],
+      attachTunnelNetwork: (networkId) => Effect.sync(() => {
+        revokeDuringAttach?.();
+        return { networkId, addressV4: "10.50.0.2", addressV6: "fd50::2" };
+      }),
+    });
+    revokeDuringAttach = () => {
+      Effect.runSync(repo.findTunnel!({ userId: "user-1", deviceFingerprint: "device-1", tunnelPurpose: "browser" })
+        .pipe(Effect.flatMap((row) => row ? repo.revokeTunnel!(row.id) : Effect.succeed(false))));
+    };
+    await expect(enroll(["team-1"], repo, gateway)).rejects.toThrow();
+  });
+
+  test("releases the Mac mutation lease before attaching team networks", async () => {
+    // Every build and tunnel role on one Mac shares this lease. Holding it
+    // across per-team provider calls answered them all 409 vm_access_grant_busy.
+    const events: string[] = [];
+    const repo = {
+      ...testRepo({ network: networkRow() }),
+      claimAccessGrantMutation: () => Effect.sync(() => {
+        events.push("claim");
+        return true;
+      }),
+      releaseAccessGrantMutation: () => Effect.sync(() => {
+        events.push("release");
+      }),
+    } as VmRepositoryShape;
+    const gateway = testGateway({
+      teamNetworks: [TEAM_NETWORK],
+      attachTunnelNetwork: (networkId) => Effect.sync(() => {
+        events.push(`attach:${networkId}`);
+        return { networkId, addressV4: "10.50.0.2", addressV6: "fd50::2" };
+      }),
+    });
+    const result = await enroll(["team-1"], repo, gateway);
+    expect(events).toEqual(["claim", "release", `attach:${TEAM_NETWORK.id}`]);
+    expect(result.networks.map((network) => network.id)).toEqual([NETWORK.id, TEAM_NETWORK.id]);
+  });
+
   test("a new tunnel is attached to the caller's team network and lists it after the home network", async () => {
     const calls = newGatewayCalls();
     const result = await enroll(["team-1"], testRepo({ network: networkRow() }), testGateway({ calls, teamNetworks: [TEAM_NETWORK] }));
@@ -1106,7 +1229,7 @@ describe("Cloud VM access grant revocation", () => {
       }),
       revokeAccessGrant: () => Effect.sync(() => {
         events.push("grant-revoke");
-        return true;
+        return { revoked: true, stackSessionIds: [] };
       }),
     } as VmRepositoryShape;
     const gateway = {
@@ -1174,7 +1297,7 @@ describe("Cloud VM access grant revocation", () => {
         revoked.push(id);
         return true;
       }),
-      revokeAccessGrant: () => Effect.succeed(true),
+      revokeAccessGrant: () => Effect.succeed({ revoked: true, stackSessionIds: ["session-stable", "session-nightly"] }),
     } as VmRepositoryShape;
     const gateway = {
       ...testGateway(),

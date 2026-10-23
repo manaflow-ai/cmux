@@ -82,10 +82,12 @@ function fakeProviders(input: {
   readonly onCreate?: () => Effect.Effect<void>;
   readonly fail?: boolean;
   readonly execs?: string[];
+  readonly execOptions?: Array<{ readonly asRoot?: boolean } | undefined>;
 }): VmProviderGatewayShape {
   return {
-    exec: (_provider: string, _vmId: string, command: string) => Effect.sync(() => {
+    exec: (_provider: string, _vmId: string, command: string, options?: { readonly asRoot?: boolean }) => Effect.sync(() => {
       input.execs?.push(command);
+      input.execOptions?.push(options);
       return { exitCode: 0, stdout: "", stderr: "" };
     }),
     create: () =>
@@ -167,10 +169,11 @@ describe("createVm critical path", () => {
 
   test("the prompt name is pushed into the guest only after the response", async () => {
     const execs: string[] = [];
+    const execOptions: Array<{ readonly asRoot?: boolean } | undefined> = [];
     const deferred: Effect.Effect<void>[] = [];
     await Effect.runPromise(
       createVm({ ...createInput, deferAfterResponse: (work) => deferred.push(work) }).pipe(
-        Effect.provide(layer(fakeRepo({ events: [] }), fakeProviders({ execs }))),
+        Effect.provide(layer(fakeRepo({ events: [] }), fakeProviders({ execs, execOptions }))),
       ),
     );
     // Nothing runs in the guest before create returns.
@@ -178,6 +181,9 @@ describe("createVm critical path", () => {
     for (const work of deferred) await Effect.runPromise(work);
     expect(execs).toHaveLength(1);
     expect(execs[0]).toContain("vm-name");
+    // /etc/cmux is root-owned; the push ran as root until public exec moved
+    // to the work user (#16769), and must keep doing so.
+    expect(execOptions[0]?.asRoot).toBe(true);
   });
 
   test("a provider failure records its failure row after the requested row", async () => {

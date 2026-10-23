@@ -1,6 +1,7 @@
 import {
   appleAccountTokenResponse,
   requestedAppleBundleId,
+  requestedBillingPeriods,
   requestedStoreKitEnvironment,
 } from "../../../../../services/billing/apple/accountToken";
 import { authenticateAppleBillingRequest } from "../../../../../services/billing/apple/routeAuth";
@@ -23,6 +24,7 @@ export async function POST(request: Request): Promise<Response> {
     const body = await appleAccountTokenResponse(auth.user, {
       bundleId: requestedAppleBundleId(request.headers.get("x-cmux-bundle-id")),
       storeKitEnvironment: requestedStoreKitEnvironment(request.headers.get("x-cmux-storekit-environment")),
+      billingPeriods: requestedBillingPeriods(request.headers.get("x-cmux-billing-periods")),
     });
     return jsonResponse(body, 200, { "cache-control": "no-store" });
   } catch (error) {

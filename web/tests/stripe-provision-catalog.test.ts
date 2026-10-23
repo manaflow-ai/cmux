@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test as bunTest } from "bun:test";
 
-// Every run shells out once per catalog Price (nine, including the
+// Every run shells out once per catalog Price (ten, including the
 // grandfathered ones) through a mock curl, so the 5s default is too tight
 // on a loaded machine.
 const PROVISION_TEST_TIMEOUT_MS = 30_000;
@@ -47,14 +47,14 @@ afterEach(() => {
 });
 
 describe("Stripe catalog provisioning", () => {
-  test("offers only monthly prices in the plan-switch portal", async () => {
+  test("offers current monthly and yearly prices in the plan-switch portal", async () => {
     const result = await runProvision("test", "portal-switch-exists");
     expect(result.exitCode).toBe(0);
     const update = result.calls.find((call) => call.args.includes("POST") && call.args.includes("https://api.stripe.com/v1/billing_portal/configurations/bpc_switch"));
     expect(update).toBeDefined();
-    expect(update!.args.join("\n")).not.toContain("price_pro_year_480");
     expect(update!.args.join("\n")).toContain("price_pro_month_50");
     expect(update!.args.join("\n")).toContain("price_max_month_200");
+    expect(update!.args.join("\n")).toContain("price_max_year_1920");
   });
 
   test("sends credentials through stdin instead of process arguments", async () => {
@@ -115,7 +115,7 @@ describe("Stripe catalog provisioning", () => {
     expect(description("prod_team")).toBe("description=Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support.");
   });
 
-  test("provisions the monthly-only Max price and the Pro/Max plan switch portal", async () => {
+  test("provisions monthly and yearly Max prices and the Pro/Max plan switch portal", async () => {
     const result = await runProvision("test", "valid");
 
     expect(result.exitCode).toBe(0);
@@ -126,9 +126,7 @@ describe("Stripe catalog provisioning", () => {
     );
     expect(maxPriceLookups.length).toBeGreaterThan(0);
     expect(result.calls.some((call) => call.args.includes("lookup_keys[]=cmux-go-monthly-10"))).toBe(true);
-    expect(
-      result.calls.some((call) => call.args.some((argument) => argument.includes("cmux-max-yearly"))),
-    ).toBe(false);
+    expect(result.calls.some((call) => call.args.some((argument) => argument.includes("lookup_keys[]=cmux-max-yearly-1920")))).toBe(true);
     const portalCreate = result.calls.find(
       (call) =>
         call.args.includes("https://api.stripe.com/v1/billing_portal/configurations") &&
@@ -143,7 +141,56 @@ describe("Stripe catalog provisioning", () => {
     expect(portalArgs).toContain("features[subscription_update][products][0][prices][]=price_pro_month_50");
     expect(portalArgs).toContain("features[subscription_update][products][1][product]=prod_max");
     expect(portalArgs).toContain("features[subscription_update][products][1][prices][]=price_max_month_200");
+    expect(portalArgs).toContain("features[subscription_update][products][1][prices][]=price_max_year_1920");
     expect(portalArgs).toContain("business_profile[headline]=cmux");
+  });
+
+  // Every listed price is also a choice for any subscriber in the portal.
+  // Yearly subscribers switch in the dashboard (which keeps their interval),
+  // so Pro yearly would only let a monthly subscriber, Max included, move onto
+  // it. The release-gated Go plan and grandfathered prices stay out too.
+  test("never lists Pro yearly, Go or a grandfathered price in the plan-switch portal", async () => {
+    const result = await runProvision("test", "valid");
+
+    expect(result.exitCode).toBe(0);
+    const portalCreate = result.calls.find(
+      (call) =>
+        call.args.includes("https://api.stripe.com/v1/billing_portal/configurations") &&
+        call.args.includes("POST"),
+    );
+    const portalArgs = portalCreate!.args.join("\n");
+    expect(portalArgs).not.toContain("price_pro_year_480");
+    expect(portalArgs).not.toContain("prod_go");
+    expect(portalArgs).not.toContain("price_go_month_10");
+    // Every listed price is also a choice in the portal; a grandfathered
+    // price must never be offered as a switch target.
+    expect(portalArgs).not.toContain("=price_pro_month\n");
+    expect(portalArgs).not.toContain("price_pro_year_legacy");
+    expect(portalArgs).not.toMatch(/=price_pro_year(\n|$)/);
+  });
+
+  test("keeps the code's portal-switchable price list in sync with the script", async () => {
+    const { PORTAL_SWITCHABLE_LOOKUP_KEYS } = await import("../services/billing/plans");
+    const script = readFileSync(provisionScript, "utf8");
+    const portalStep = script.slice(script.indexOf("ensure_personal_plan_switch_portal() {"));
+    const listed = [...portalStep.matchAll(/price_id_for_lookup_key "([^"]+)"/g)].map((match) => match[1]).sort();
+    expect(listed).toEqual([...PORTAL_SWITCHABLE_LOOKUP_KEYS].sort());
+  });
+
+  test("provisions the plan-switch portal without copied profile fields", async () => {
+    const result = await runProvision("test", "empty-profile");
+
+    expect(result.exitCode).toBe(0);
+    const portalCreate = result.calls.find(
+      (call) =>
+        call.args.includes("https://api.stripe.com/v1/billing_portal/configurations") &&
+        call.args.includes("POST"),
+    );
+    expect(portalCreate).toBeDefined();
+    const portalArgs = portalCreate!.args.join("\n");
+    expect(portalArgs).not.toContain("business_profile[headline]");
+    expect(portalArgs).not.toContain("business_profile[privacy_policy_url]");
+    expect(portalArgs).not.toContain("business_profile[terms_of_service_url]");
   });
 
   test("updates an existing plan switch portal configuration instead of creating a second", async () => {
@@ -404,6 +451,12 @@ const prices = {
     interval: "month",
     product: "max",
   },
+  "cmux-max-yearly-1920": {
+    id: "price_max_year_1920",
+    unit_amount: 192000,
+    interval: "year",
+    product: "max",
+  },
   "cmux-team-monthly-60": {
     id: "price_team_month_60",
     unit_amount: 6000,
@@ -532,7 +585,9 @@ if (url.endsWith("/prices") && !isPost) {
       data: [{
         id: "bpc_default",
         is_default: true,
-        business_profile: { headline: "cmux", privacy_policy_url: "https://cmux.com/privacy" },
+        business_profile: scenario === "empty-profile"
+          ? {}
+          : { headline: "cmux", privacy_policy_url: "https://cmux.com/privacy" },
       }],
       has_more: false,
     });

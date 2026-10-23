@@ -1,3 +1,4 @@
+import AppKit
 import CmuxBrowser
 import Foundation
 import Testing
@@ -87,6 +88,45 @@ private func withMemoryPressureHiddenWebViewDiscardPolicyEnabled(_ body: (UserDe
 @MainActor
 @Suite(.serialized)
 struct BrowserHiddenWebViewDiscardMemoryPressureTests {
+    @Test func sleepNotificationBlocksDiscardBeforeActorWorkDrains() {
+        withMemoryPressureHiddenWebViewDiscardPolicyEnabled { defaults in
+            let now = Date()
+            let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
+            let delegate = MemoryPressureHiddenWebViewDiscardTestDelegate(
+                snapshot: makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot(),
+                hiddenAt: now.addingTimeInterval(-7_200)
+            )
+            let center = NotificationCenter()
+            manager.delegate = delegate
+            manager.installSystemSleepObservers(center: center)
+
+            center.post(name: NSWorkspace.willSleepNotification, object: nil)
+
+            #expect(!manager.requestImmediateDiscardIfSafe(reason: "system_memory_pressure", now: now))
+            #expect(delegate.discardRequestCount == 0)
+        }
+    }
+
+    @Test func wakeNotificationDefersDiscardBeforeActorWorkDrains() {
+        withMemoryPressureHiddenWebViewDiscardPolicyEnabled { defaults in
+            let now = Date()
+            let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
+            let delegate = MemoryPressureHiddenWebViewDiscardTestDelegate(
+                snapshot: makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot(),
+                hiddenAt: now.addingTimeInterval(-7_200)
+            )
+            let center = NotificationCenter()
+            manager.delegate = delegate
+            manager.installSystemSleepObservers(center: center)
+            defer { manager.cancel() }
+
+            center.post(name: NSWorkspace.didWakeNotification, object: nil)
+
+            #expect(!manager.requestImmediateDiscardIfSafe(reason: "system_memory_pressure", now: now))
+            #expect(delegate.discardRequestCount == 0)
+        }
+    }
+
     @Test func activeDesignModeBlocksHiddenWebViewDiscard() {
         withMemoryPressureHiddenWebViewDiscardPolicyEnabled { defaults in
             let snapshot = makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot(isDesignModeActive: true)

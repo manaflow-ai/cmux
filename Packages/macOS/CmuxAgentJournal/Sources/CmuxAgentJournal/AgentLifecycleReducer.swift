@@ -46,6 +46,50 @@ public struct AgentLifecycleReducer: Sendable {
         }
         let agentKey = event.agentKey
         let sessionKey = AgentLifecycleReducerState.sessionKey(for: event.draft)
+        if let boundary = state.sessionBoundary(surfaceId: surfaceId, agentKey: agentKey),
+           boundary.sessionKey != sessionKey {
+            if event.draft.kind != .sessionStarted || event.sequence <= boundary.sequence {
+                return false
+            }
+        }
+        if let retiredAt = state.retiredAt(surfaceId: surfaceId, agentKey: agentKey, sessionKey: sessionKey),
+           event.sequence <= retiredAt {
+            return false
+        }
+        if event.draft.kind == .sessionStarted,
+           state.isRetired(surfaceId: surfaceId, agentKey: agentKey, sessionKey: sessionKey) {
+            // A newer owner already retired this session at this surface. A
+            // late start cannot reopen the old projection or its StopFailure.
+            // A projection on another surface is the deliberate move-back
+            // case, so it may establish ownership here again. A projection
+            // that was itself retired by a later move remains recoverable;
+            // an ended projection or one superseded by a different session
+            // does not.
+            let hasRecoverableProjectionElsewhere = state.sessionLocations(
+                agentKey: agentKey,
+                sessionKey: sessionKey
+            ).contains { location in
+                guard location.surfaceId != surfaceId else { return false }
+                guard location.state.ended else { return true }
+                guard state.retiredAt(
+                    surfaceId: location.surfaceId,
+                    agentKey: agentKey,
+                    sessionKey: sessionKey
+                ) != nil else {
+                    return false
+                }
+                let boundary = state.sessionBoundary(
+                    surfaceId: location.surfaceId,
+                    agentKey: agentKey
+                )
+                return boundary == nil || boundary?.sessionKey == sessionKey
+            }
+            if !hasRecoverableProjectionElsewhere { return false }
+        }
+        if event.draft.kind != .sessionStarted,
+           state.isRetired(surfaceId: surfaceId, agentKey: agentKey, sessionKey: sessionKey) {
+            return false
+        }
         let previous = state.session(
             surfaceId: surfaceId,
             agentKey: agentKey,
@@ -73,6 +117,47 @@ public struct AgentLifecycleReducer: Sendable {
             // phase by journal order, so clock skew between the producer and
             // the app cannot strand a session behind a skewed timestamp.
             return false
+        }
+        if event.draft.kind == .sessionStarted {
+            if event.draft.sessionStartOwnsSurface {
+                // A new authoritative session owns the pane. Retire every
+                // older session there so a StopFailure cannot outlive a
+                // restart.
+                for existingSessionKey in state.sessionKeys(surfaceId: surfaceId, agentKey: agentKey)
+                    where existingSessionKey != sessionKey {
+                    state.retire(
+                        surfaceId: surfaceId,
+                        agentKey: agentKey,
+                        sessionKey: existingSessionKey,
+                        at: event.sequence
+                    )
+                }
+                state.recordSessionBoundary(
+                    surfaceId: surfaceId,
+                    agentKey: agentKey,
+                    sessionKey: sessionKey,
+                    sequence: event.sequence
+                )
+            }
+            // Any accepted SessionStart reclaims this session's retired
+            // projection. Non-Claude adapters can have multiple live sessions
+            // on one pane, but a moved session must still be able to move back
+            // and receive later lifecycle events.
+            state.unretire(surfaceId: surfaceId, agentKey: agentKey, sessionKey: sessionKey)
+        }
+        // A session may be rebound to another pane. Retire its old projection
+        // as soon as the new pane reports activity.
+        for location in state.sessionLocations(agentKey: agentKey, sessionKey: sessionKey)
+            where location.surfaceId != surfaceId
+                && !location.state.ended
+                && event.sequence > location.state.lastSequence
+                && event.draft.occurredAtMs >= location.state.lastOccurredAtMs {
+            state.retire(
+                surfaceId: location.surfaceId,
+                agentKey: agentKey,
+                sessionKey: sessionKey,
+                at: event.sequence
+            )
         }
         let next = AgentSessionLifecycleState(
             phase: transition.phase,
@@ -121,5 +206,18 @@ public struct AgentLifecycleReducer: Sendable {
         case .childSpawned, .childCompleted, .childFailed, .messagePublished:
             return nil
         }
+    }
+}
+
+extension AgentJournalEventDraft {
+    /// Whether a SessionStart from this adapter makes its session the sole
+    /// owner of the pane for its agent key, retiring sibling sessions there.
+    ///
+    /// Claude Code runs one root session per pane, so a new SessionStart is a
+    /// recovery boundary. Other adapters (Antigravity, Grok, …) can keep
+    /// several live sessions on one pane, so their starts must not retire or
+    /// stale-gate the siblings.
+    var sessionStartOwnsSurface: Bool {
+        source == "claude"
     }
 }

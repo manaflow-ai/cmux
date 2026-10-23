@@ -11,6 +11,52 @@ import Testing
 @Suite
 struct MainWindowVisibilityLifecycleTests {
     @Test
+    func hiddenApplicationHotkeyRestoresMiniaturizedWindowsWhenNothingWasCaptured() {
+        let miniaturizedWindow = makeWindow()
+        defer { miniaturizedWindow.orderOut(nil) }
+
+        var miniaturizedIds: Set<ObjectIdentifier> = [ObjectIdentifier(miniaturizedWindow)]
+        var isAppHidden = true
+        var unhideCount = 0
+        var deminiaturizedWindows: [NSWindow] = []
+        var madeKeyWindows: [NSWindow] = []
+        var activationCount = 0
+
+        let controller = MainWindowVisibilityController(
+            dependencies: .init(
+                isActivationSuppressed: { false },
+                setActiveMainWindow: { _ in },
+                isApplicationActive: { false },
+                isApplicationHidden: { isAppHidden },
+                unhideApplication: {
+                    unhideCount += 1
+                    isAppHidden = false
+                },
+                activateRunningApplication: { _ in activationCount += 1 },
+                windowOperations: makeWindowOperations(
+                    isVisible: { _ in false },
+                    isMiniaturized: { miniaturizedIds.contains(ObjectIdentifier($0)) },
+                    deminiaturize: { window in
+                        miniaturizedIds.remove(ObjectIdentifier(window))
+                        deminiaturizedWindows.append(window)
+                    },
+                    makeKey: { madeKeyWindows.append($0) }
+                )
+            )
+        )
+
+        controller.toggleApplicationVisibility(
+            windows: [miniaturizedWindow],
+            reason: .globalHotkey
+        )
+
+        #expect(unhideCount == 1)
+        #expect(activationCount == 1)
+        #expect(deminiaturizedWindows.contains { $0 === miniaturizedWindow })
+        #expect(madeKeyWindows.contains { $0 === miniaturizedWindow })
+    }
+
+    @Test
     func discardClosedWindowRemovesHiddenRestoreTarget() {
         let window = makeWindow()
         defer { window.orderOut(nil) }
@@ -159,6 +205,97 @@ struct MainWindowVisibilityLifecycleTests {
         #expect(softShownWindows.isEmpty)
         #expect(orderedWindows.isEmpty)
         #expect(activationCount == 0)
+    }
+
+    @Test
+    func backgroundHotkeyLeavesMiniaturizedWindowsInTheDock() {
+        let visibleWindow = makeWindow()
+        let miniaturizedWindow = makeWindow()
+        defer {
+            visibleWindow.orderOut(nil)
+            miniaturizedWindow.orderOut(nil)
+        }
+
+        let visibleIds: Set<ObjectIdentifier> = [ObjectIdentifier(visibleWindow)]
+        var miniaturizedIds: Set<ObjectIdentifier> = [ObjectIdentifier(miniaturizedWindow)]
+        var deminiaturizedWindows: [NSWindow] = []
+        var madeKeyWindows: [NSWindow] = []
+        var activationCount = 0
+
+        let controller = MainWindowVisibilityController(
+            dependencies: .init(
+                isActivationSuppressed: { false },
+                setActiveMainWindow: { _ in },
+                isApplicationActive: { false },
+                isApplicationHidden: { false },
+                activateRunningApplication: { _ in activationCount += 1 },
+                windowOperations: makeWindowOperations(
+                    isVisible: { visibleIds.contains(ObjectIdentifier($0)) },
+                    isMiniaturized: { miniaturizedIds.contains(ObjectIdentifier($0)) },
+                    deminiaturize: { window in
+                        miniaturizedIds.remove(ObjectIdentifier(window))
+                        deminiaturizedWindows.append(window)
+                    },
+                    makeKey: { madeKeyWindows.append($0) }
+                )
+            )
+        )
+
+        controller.toggleApplicationVisibility(
+            windows: [visibleWindow, miniaturizedWindow],
+            reason: .globalHotkey
+        )
+
+        #expect(activationCount == 1)
+        #expect(madeKeyWindows.contains { $0 === visibleWindow })
+        #expect(!deminiaturizedWindows.contains { $0 === miniaturizedWindow })
+    }
+
+    @Test
+    func backgroundHotkeyRestoresMiniaturizedWindowsWhenNothingElseCanBeShown() {
+        let firstWindow = makeWindow()
+        let secondWindow = makeWindow()
+        defer {
+            firstWindow.orderOut(nil)
+            secondWindow.orderOut(nil)
+        }
+
+        var miniaturizedIds: Set<ObjectIdentifier> = [
+            ObjectIdentifier(firstWindow),
+            ObjectIdentifier(secondWindow),
+        ]
+        var deminiaturizedWindows: [NSWindow] = []
+        var madeKeyWindows: [NSWindow] = []
+        var activationCount = 0
+
+        let controller = MainWindowVisibilityController(
+            dependencies: .init(
+                isActivationSuppressed: { false },
+                setActiveMainWindow: { _ in },
+                isApplicationActive: { false },
+                isApplicationHidden: { false },
+                activateRunningApplication: { _ in activationCount += 1 },
+                windowOperations: makeWindowOperations(
+                    isVisible: { _ in false },
+                    isMiniaturized: { miniaturizedIds.contains(ObjectIdentifier($0)) },
+                    deminiaturize: { window in
+                        miniaturizedIds.remove(ObjectIdentifier(window))
+                        deminiaturizedWindows.append(window)
+                    },
+                    makeKey: { madeKeyWindows.append($0) }
+                )
+            )
+        )
+
+        controller.toggleApplicationVisibility(
+            windows: [firstWindow, secondWindow],
+            reason: .globalHotkey
+        )
+
+        #expect(activationCount == 1)
+        #expect(deminiaturizedWindows.contains { $0 === firstWindow })
+        #expect(deminiaturizedWindows.contains { $0 === secondWindow })
+        #expect(madeKeyWindows.contains { $0 === firstWindow })
     }
 
     private func makeWindow() -> NSWindow {

@@ -43,6 +43,7 @@ def build_report(
             report.append({
                 "key": flag.get("key") or "<missing key>",
                 "source": flag.get("source") or "<missing source>",
+                "owner": flag.get("owner") or "",
                 "reviewBy": review,
                 "daysRemaining": days_remaining,
             })

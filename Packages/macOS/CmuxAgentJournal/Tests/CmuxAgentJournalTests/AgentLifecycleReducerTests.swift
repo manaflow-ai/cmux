@@ -12,6 +12,7 @@ struct AgentLifecycleReducerTests {
         _ kind: AgentJournalEventKind,
         session: String = "s1",
         agentKey: String = "claude_code",
+        source: String = "claude",
         surfaceId: String? = nil,
         pendingWork: Bool = false,
         isSubagent: Bool = false,
@@ -24,7 +25,7 @@ struct AgentLifecycleReducerTests {
             eventId: "event-\(sequence)",
             kind: kind,
             occurredAtMs: occurredAtMs ?? 1_000 + sequence,
-            source: "claude",
+            source: source,
             agentKey: agentKey,
             sessionId: session,
             workspaceId: attributed ? workspace : nil,
@@ -187,6 +188,80 @@ struct AgentLifecycleReducerTests {
             event(4, .turnCompleted, session: "new"),
         ])
         #expect(cleaned.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .idle)
+    }
+
+    @Test func sessionBoundaryRetiresARecoveredOlderError() {
+        let state = fold([
+            event(1, .errorReported, session: "old"),
+            event(2, .sessionStarted, session: "new"),
+            event(3, .turnCompleted, session: "new"),
+        ])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .idle)
+    }
+
+    @Test func movedSessionRetiresTheOldPaneProjection() {
+        let movedSurface = "5E7A11AA-0000-4000-8000-000000000002"
+        let state = fold([
+            event(1, .errorReported, surfaceId: surface),
+            event(2, .sessionStarted, surfaceId: movedSurface),
+            event(3, .turnCompleted, surfaceId: movedSurface),
+        ])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == nil)
+        #expect(state.combinedPhase(surfaceId: movedSurface, agentKey: "claude_code") == .idle)
+    }
+
+    @Test func outOfOrderPaneMoveDoesNotRetireNewerOldProjection() {
+        let movedSurface = "5E7A11AA-0000-4000-8000-000000000002"
+        let state = fold([
+            event(3, .errorReported, surfaceId: surface),
+            event(2, .sessionStarted, surfaceId: movedSurface),
+        ])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .error)
+        #expect(state.combinedPhase(surfaceId: movedSurface, agentKey: "claude_code") == .unknown)
+    }
+
+    @Test func lateSupersededSessionEventsCannotResurrectError() {
+        let oldError = event(1, .errorReported, session: "old")
+        let replacement = event(2, .sessionStarted, session: "new")
+        let lateOldStart = event(1, .sessionStarted, session: "old")
+        let lateOldError = event(3, .errorReported, session: "old")
+        let state = fold([replacement, oldError, lateOldStart, lateOldError])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .unknown)
+    }
+
+    @Test func paneMoveWithOlderTimestampKeepsTheNewerOriginProjection() {
+        let movedSurface = "5E7A11AA-0000-4000-8000-000000000002"
+        let state = fold([
+            event(1, .errorReported, surfaceId: surface, occurredAtMs: 100),
+            event(2, .sessionStarted, surfaceId: movedSurface, occurredAtMs: 50),
+        ])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .error)
+        #expect(state.combinedPhase(surfaceId: movedSurface, agentKey: "claude_code") == .unknown)
+    }
+
+    @Test func movedSessionCanReturnToItsRetiredOriginSurface() {
+        let movedSurface = "5E7A11AA-0000-4000-8000-000000000002"
+        let state = fold([
+            event(1, .turnStarted, surfaceId: surface),
+            event(2, .sessionStarted, surfaceId: movedSurface),
+            event(3, .sessionStarted, surfaceId: surface),
+            event(4, .turnStarted, surfaceId: surface),
+        ])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .running)
+        #expect(state.combinedPhase(surfaceId: movedSurface, agentKey: "claude_code") == nil)
+    }
+
+    @Test(arguments: ["codex", "grok", "gemini", "antigravity"])
+    func nonClaudeMovedSessionCanReturnToItsRetiredOriginSurface(agentKey: String) {
+        let movedSurface = "5E7A11AA-0000-4000-8000-000000000002"
+        let state = fold([
+            event(1, .turnStarted, session: "agent-session", agentKey: agentKey, source: agentKey, surfaceId: surface),
+            event(2, .sessionStarted, session: "agent-session", agentKey: agentKey, source: agentKey, surfaceId: movedSurface),
+            event(3, .sessionStarted, session: "agent-session", agentKey: agentKey, source: agentKey, surfaceId: surface),
+            event(4, .turnStarted, session: "agent-session", agentKey: agentKey, source: agentKey, surfaceId: surface),
+        ])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: agentKey) == .running)
+        #expect(state.combinedPhase(surfaceId: movedSurface, agentKey: agentKey) == nil)
     }
 
     @Test func subagentEventsNeverDriveSurfaceLifecycle() {

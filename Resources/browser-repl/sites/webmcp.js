@@ -11,20 +11,48 @@
   const S = root.CmuxBrowserRepl && root.CmuxBrowserRepl.sites;
   if (!S) return;
 
-  // Runs in the page world. arg: { op: "list" } or { op: "call", name, input }.
-  async function webmcp(arg) {
+  // Runs in the page world through an element handle of the document's
+  // root (handles live in cmux's agent world and resolve only in the
+  // document that issued them; a new document fails them as stale before
+  // this runs). arg: { op: "list" } or { op: "call", name, input,
+  // descriptor, url }. Each listed tool carries `descriptor`, its name,
+  // title, description, input schema and annotations as JSON with sorted
+  // keys; a call with a descriptor runs only a tool whose descriptor is
+  // that one, checked right before it runs. A list returns the URL it found
+  // before listing; a call runs only while the tab's URL is that one and
+  // the root is still in this document, checked first and again right
+  // before the tool runs.
+  async function webmcp(els, arg) {
+    const root = els[0];
+    const here = () => {
+      try {
+        return location.href;
+      } catch (e) {
+        return null;
+      }
+    };
+    const moved = () => !root || root.ownerDocument !== document || !root.isConnected || here() !== arg.url;
+    let listedAt = null;
+    if (arg.op === "list") listedAt = here();
+    else if (moved()) return { supported: true, moved: here() };
     const mc = (navigator && navigator.modelContext) || document.modelContext || null;
     if (!mc) return { supported: false };
-    const norm = (t) => ({ name: t.name, title: t.title || null, description: t.description || "", inputSchema: typeof t.inputSchema === "string" ? JSON.parse(t.inputSchema) : t.inputSchema || null, annotations: t.annotations || {} });
+    const canon = (v) => (v === null || typeof v !== "object" ? JSON.stringify(v === undefined ? null : v) : Array.isArray(v) ? "[" + v.map(canon).join(",") + "]" : "{" + Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + canon(v[k])).join(",") + "}");
+    const norm = (t) => {
+      const d = { name: t.name, title: t.title || null, description: t.description || "", inputSchema: typeof t.inputSchema === "string" ? JSON.parse(t.inputSchema) : t.inputSchema || null, annotations: t.annotations || {} };
+      return { ...d, descriptor: canon(d) };
+    };
     let tools = null;
     if (typeof mc.listTools === "function") tools = await mc.listTools();
     else if (typeof mc.codexGetTools === "function") tools = await mc.codexGetTools();
     else if (mc.tools) tools = mc.tools instanceof Map ? [...mc.tools.values()] : Array.isArray(mc.tools) ? mc.tools : Object.values(mc.tools);
     if (!tools) return { supported: true, listable: false };
     tools = (Array.isArray(tools) ? tools : tools.tools || []).map(norm);
-    if (arg.op === "list") return { supported: true, listable: true, tools };
+    if (arg.op === "list") return { supported: true, listable: true, tools, url: listedAt };
     const tool = tools.find((t) => t.name === arg.name);
     if (!tool) return { supported: true, listable: true, missing: true, tools: tools.map((t) => t.name) };
+    if (typeof arg.descriptor === "string" && tool.descriptor !== arg.descriptor) return { supported: true, listable: true, changed: true };
+    if (moved()) return { supported: true, moved: here() };
     let result;
     if (typeof mc.executeTool === "function") result = await mc.executeTool(arg.name, arg.input);
     else if (typeof mc.callTool === "function") result = await mc.callTool({ name: arg.name, arguments: arg.input });
@@ -41,16 +69,42 @@
     "webmcp",
     (t) => {
       const UNSUPPORTED = "webmcp: this page declares no WebMCP tools (no navigator.modelContext). WebKit has no built-in WebMCP; only pages that ship their own implementation expose tools.";
-      async function list(page) {
-        const r = await (page || t.currentPage()).evaluate(webmcp, { op: "list" });
+      // 64-bit FNV-1a of a descriptor, shown in a draft's preview. The
+      // confirmation compares the whole descriptor, not this hash.
+      const hash = t.hash;
+      // The tab's document root as an element handle: evaluations through
+      // it run only in the document it was taken from.
+      async function rootOf(page) {
+        const root = await page.$("html");
+        if (!root) throw new S.SiteError("page_changed", "webmcp: the tab's document has no root element");
+        return root;
+      }
+      const evalIn = (root, arg) =>
+        root.evaluateAll(webmcp, arg).catch((e) => {
+          // The driver's own refusal to resolve the root in another document.
+          if (e && e.code === "stale" && /^(Error: )?(Element handle is from a previous document|Element is not attached)/.test(String(e.message))) return { supported: true, moved: null };
+          throw e;
+        });
+      // Tools with their descriptors (internal), and the document (root
+      // handle) and URL they were listed in (`at`).
+      async function listRaw(page) {
+        const root = await rootOf(page || t.currentPage());
+        const r = await evalIn(root, { op: "list" });
+        if (r.moved !== undefined) throw new S.SiteError("page_changed", "webmcp: the tab loaded a new document while its tools were listed; list them again");
         if (!r.supported) return { supported: false, tools: [], note: UNSUPPORTED };
         if (!r.listable) return { supported: true, tools: [], note: "webmcp: the page has navigator.modelContext but its implementation offers no way to list tools" };
-        return { supported: true, tools: r.tools };
+        return { supported: true, tools: r.tools, at: { root, url: r.url } };
       }
-      async function run(page, name, input) {
-        const r = await page.evaluate(webmcp, { op: "call", name, input: input === undefined ? {} : input });
+      async function list(page) {
+        const { at, ...r } = await listRaw(page);
+        return r.tools.length ? { ...r, tools: r.tools.map(({ descriptor, ...tool }) => tool) } : r;
+      }
+      async function run(page, name, input, descriptor, at) {
+        const r = await evalIn(at.root, { op: "call", name, input: input === undefined ? {} : input, descriptor, url: at.url });
+        if (r.moved !== undefined) throw new S.SiteError("page_changed", `webmcp.call: the tab shows a new document or another URL (${r.moved || "unknown"}) since tool ${JSON.stringify(name)} was listed at ${at.url}; nothing was called`);
         if (!r.supported) throw new S.SiteError("unsupported", UNSUPPORTED);
         if (r.missing) throw new S.SiteError("not_found", `webmcp.call: the page has no tool ${JSON.stringify(name)}; tools: ${r.tools.join(", ")}`);
+        if (r.changed) throw new S.SiteError("tool_changed", `webmcp.call: the page's tool ${JSON.stringify(name)} changed since the preview (its description, schema or annotations differ); nothing was called. Make a new draft and show it to the user again`);
         if (r.notCallable) throw new S.SiteError("unsupported", `webmcp.call: tool ${JSON.stringify(name)} cannot be called from outside the page`);
         return r.result;
       }
@@ -64,24 +118,44 @@
         async call(name, input, options = {}) {
           if (typeof name === "string" && /^draft-\d+-[0-9a-f]+$/.test(name)) return t.write("webmcp", "call", name, input);
           const page = options.page || t.currentPage();
-          const { tools } = await list(page);
+          const { tools, at } = await listRaw(page);
           const tool = tools.find((x) => x.name === name);
           if (!tool) throw new S.SiteError("not_found", `webmcp.call: the page has no tool ${JSON.stringify(name)}; tools: ${tools.map((x) => x.name).join(", ") || "none"}`);
-          if (options.trustReadOnlyHint === true && tool.annotations && tool.annotations.readOnlyHint === true) return run(page, name, input);
+          // The tool runs only while it is the one just listed: its
+          // readOnlyHint, or the draft's preview, describes that tool.
+          const descriptor = tool.descriptor;
+          // Both run only in the document and at the URL the tool was listed in.
+          if (options.trustReadOnlyHint === true && tool.annotations && tool.annotations.readOnlyHint === true) return run(page, name, input, descriptor, at);
           const url = page.url();
+          const shape = (x) => ({ tool: x.name, description: x.description, inputSchema: x.inputSchema, annotations: x.annotations, toolHash: hash(x.descriptor) });
           return t.write("webmcp", "call", { name, input }, undefined, () => ({
             category: "[9]/[14] a page tool that may change or send data",
             summary: `Call WebMCP tool "${name}" on ${url.split("?")[0]}`,
-            preview: { page: url, tool: name, description: tool.description, input: input === undefined ? {} : input },
-            // The confirmed call sends the previewed (frozen) input.
-            run: async (preview) => {
-              if (page.url() !== url) throw new S.SiteError("page_changed", `webmcp.call: the tab navigated away from ${url}; nothing was called`);
-              return run(page, preview.tool, preview.input);
-            },
+            // The principal is the page document that runs the tool.
+            account: { page: url },
+            target: shape(tool),
+            content: { input: input === undefined ? {} : input },
+            sent: ["input"],
+            // The confirmed call sends the previewed (frozen) input to the
+            // previewed tool: the tab's URL and the tool are read back, and
+            // the call itself runs only in the document the tool was listed
+            // in and only while its descriptor is the previewed one.
+            commit: (c) =>
+              c.write(
+                async () => {
+                  const now = await listRaw(page);
+                  const found = (now.tools || []).find((x) => x.name === name);
+                  return { page: page.url(), ...(found ? shape(found) : { tool: null }) };
+                },
+                (press) => press.input(() => run(page, c.intent.tool, c.intent.input, descriptor, at)),
+                // The principal is the document: its URL again, last, right
+                // before the call (which itself runs only in that document).
+                { account: () => ({ page: page.url() }) },
+              ),
           }));
         },
       };
     },
-    { summary: "List and call tools a page declares through WebMCP (calls are confirmed drafts)" },
+    { summary: "List and call tools a page declares through WebMCP (calls are confirmed drafts)", writes: ["call"] },
   );
 })(typeof globalThis !== "undefined" ? globalThis : this);

@@ -1,3 +1,4 @@
+import CmuxCloudResizeCore
 import Foundation
 
 /// Active cloud machines against the plan's ceiling, as the Cloud Machines

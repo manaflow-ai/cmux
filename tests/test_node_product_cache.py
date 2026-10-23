@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the node-local immutable compiled-product cache without network."""
 
+import contextlib
 import errno
 import hashlib
 import importlib.util
@@ -488,6 +489,138 @@ class NodeProductCacheTests(unittest.TestCase):
         result = cache.reclaim(self.store, 0)
         self.assertEqual(result["evicted_objects"], 1)
         self.assertFalse(self.store.entry(self.identity.key()).exists())
+
+    def test_reclaim_preserves_the_seed_key(self):
+        self.publish()
+        result = cache.reclaim(self.store, 0, protected_key=self.identity.key())
+        self.assertEqual(result["evicted_objects"], 0)
+        self.assertEqual(result["protected_objects"], 1)
+        self.assertTrue(self.store.entry(self.identity.key()).exists())
+
+    def test_reclaim_skips_a_contended_owner_lock(self):
+        self.publish()
+        real_lock = cache.Store.lock
+
+        def contended(store, key, *, exclusive=True, blocking=True):
+            if key == self.identity.key() and not blocking:
+                raise BlockingIOError()
+            return real_lock(store, key, exclusive=exclusive, blocking=blocking)
+
+        with mock.patch.object(cache.Store, "lock", contended):
+            result = cache.reclaim(self.store, 0)
+        self.assertEqual(result["evicted_objects"], 0)
+        self.assertEqual(result["locked_objects"], 1)
+        self.assertTrue(self.store.entry(self.identity.key()).exists())
+
+    def test_reclaim_preserves_entries_with_unknown_nested_state(self):
+        self.publish()
+        extra = self.store.entry(self.identity.key()) / ".git"
+        self.store.entry(self.identity.key()).chmod(0o755)
+        extra.mkdir()
+        (extra / "HEAD").write_text("keep")
+        result = cache.reclaim(self.store, 0, strict_state=True)
+        self.assertEqual(result["evicted_objects"], 0)
+        self.assertTrue(extra.exists())
+        self.assertTrue(self.store.entry(self.identity.key()).exists())
+
+    def test_strict_reclaim_fails_closed_on_malformed_lease_and_lock(self):
+        self.publish()
+        lease = self.store.lease(self.identity.key(), "b" * 32)
+        lease.write_text("not-json")
+        result = cache.reclaim(self.store, 0, strict_state=True)
+        self.assertEqual(result["invalid_state"], 1)
+        self.assertTrue(self.store.entry(self.identity.key()).exists())
+        lease.unlink()
+        lock = self.store.lock_path(self.identity.key())
+        target = Path(self.temp.name) / "lock-target"
+        target.write_text("preserve")
+        lock.unlink()
+        lock.symlink_to(target)
+        result = cache.reclaim(self.store, 0, dry_run=True, strict_state=True)
+        self.assertEqual(result["invalid_state"], 1)
+        self.assertTrue(self.store.entry(self.identity.key()).exists())
+        self.assertEqual(target.read_text(), "preserve")
+
+    def test_plan_is_read_only_and_preserves_unknown_store_state(self):
+        self.publish()
+        unknown = self.store.root / "operator-note.txt"
+        unknown.write_text("keep")
+        staging = self.store.root / "staging" / f"{self.identity.key()}.leftover"
+        staging.mkdir()
+        (staging / cache.OBJECT_NAME).write_bytes(b"leftover")
+        (staging / ".git").mkdir()
+        (staging / ".git" / "HEAD").write_text("keep")
+        lease = self.store.lease(self.identity.key(), "a" * 32)
+        lease.write_text(json.dumps({"deadline_epoch": time.time() - 1}))
+        before_locks = set((self.store.root / "locks").iterdir())
+        result = cache.reclaim(self.store, 0, dry_run=True)
+        self.assertTrue(result["dry_run"])
+        self.assertEqual(result["evicted_objects"], 1)
+        self.assertTrue(staging.exists())
+        self.assertTrue((staging / ".git" / "HEAD").exists())
+        self.assertTrue(lease.exists())
+        self.assertEqual(set((self.store.root / "locks").iterdir()), before_locks)
+        self.assertEqual(unknown.read_text(), "keep")
+        self.assertEqual(json.loads((self.store.root / "state" / "stats.json").read_text())["evictions"], 0)
+
+    def test_strict_apply_never_reclaims_staging(self):
+        self.publish()
+        staging = self.store.root / "staging" / f"{self.identity.key()}.leftover"
+        staging.mkdir()
+        (staging / cache.OBJECT_NAME).write_bytes(b"leftover")
+        result = cache.reclaim(self.store, 10**9, strict_state=True)
+        self.assertEqual(result["staging_reclaims"], 0)
+        self.assertEqual(result["staging_pending"], 1)
+        self.assertTrue(staging.exists())
+
+    def test_open_existing_does_not_create_a_missing_store(self):
+        missing = Path(self.temp.name) / "not-created"
+        with self.assertRaises(ValueError):
+            cache.Store.open_existing(missing)
+        self.assertFalse(missing.exists())
+
+    def test_reclaim_cli_defaults_to_read_only_plan(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "CMUX_NODE_PRODUCT_CACHE_ROOT": str(self.root),
+                "RUNNER_NAME": "cmux12s-mac-mini-glaeda",
+            },
+            clear=False,
+        ), mock.patch.object(sys, "argv", ["node-product-cache.py", "reclaim", "--budget", "0"]):
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                cache.main()
+        self.assertIn('"status": "planned"', output.getvalue())
+
+    def test_pressure_need_only_lowers_the_hook_budget(self):
+        self.publish()
+        with mock.patch.object(cache.shutil, "disk_usage", return_value=mock.Mock(free=0)):
+            self.assertEqual(
+                cache._pressure_budget(
+                    self.store,
+                    10**9,
+                    {"CMUX_NODE_PRODUCT_CACHE_RECLAIM_NEED_BYTES": "1GiB"},
+                ),
+                0,
+            )
+        self.assertEqual(
+            cache._pressure_budget(
+                self.store,
+                10**9,
+                {"CMUX_NODE_PRODUCT_CACHE_RECLAIM_NEED_BYTES": "bad"},
+            ),
+            10**9,
+        )
+        with mock.patch.object(cache.shutil, "disk_usage", return_value=mock.Mock(free=0)):
+            self.assertEqual(
+                cache._pressure_budget(
+                    self.store,
+                    10**9,
+                    {"RUNNER_NAME": "cmux12s-mac-mini-glaeda"},
+                ),
+                0,
+            )
 
     def test_consumer_crash_lease_expires_before_reclamation(self):
         self.publish()

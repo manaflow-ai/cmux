@@ -384,6 +384,48 @@ struct TitlebarControlsSizingPolicyTests {
         checkEqual(TitlebarShortcutHintMetrics.verticalGap, -3, accuracy: 0.001)
     }
 
+    @Test(arguments: TitlebarControlsStyle.allCases)
+    func testShortcutHintsAlignWithButtonCenters(style: TitlebarControlsStyle) throws {
+        let config = style.config
+        let slots: [(TitlebarShortcutHintActionSlot, MinimalModeSidebarControlActionSlot)] = [
+            (.toggleSidebar, .toggleSidebar),
+            (.showNotifications, .showNotifications),
+            // The hint belongs to the primary plus segment, not the whole split button.
+            (.newTab, .newTab),
+            (.focusHistoryBack, .focusHistoryBack),
+            (.focusHistoryForward, .focusHistoryForward),
+        ]
+
+        for (hintSlot, controlSlot) in slots {
+            let buttonRange = try requireValue(
+                TitlebarControlsHitRegions.buttonXRange(for: controlSlot, config: config)
+            )
+            let buttonCenter = (buttonRange.lowerBound + buttonRange.upperBound) / 2
+            for width: CGFloat in [24, 40, 80] {
+                for xOffset: CGFloat in [-6, 0, 6] {
+                    let interval = TitlebarControlsLayoutMetrics.hintInterval(
+                        for: hintSlot,
+                        width: width,
+                        config: config,
+                        xOffset: xOffset
+                    )
+                    // The overlay sits inside controlsGroup; the outer leading inset
+                    // then places both the group and its hints in the accessory.
+                    let hintCenterInAccessory = TitlebarControlsLayoutMetrics.hintLeadingPadding
+                        + (interval.lowerBound + interval.upperBound) / 2
+                    let context = "style=\(style), slot=\(hintSlot), width=\(width), xOffset=\(xOffset)"
+                    checkEqual(
+                        hintCenterInAccessory,
+                        buttonCenter + xOffset,
+                        accuracy: 0.001,
+                        context
+                    )
+                    checkEqual(interval.upperBound - interval.lowerBound, width, accuracy: 0.001, context)
+                }
+            }
+        }
+    }
+
     @Test
     func testTitlebarControlsUseNeutralVisualLift() {
         checkEqual(
@@ -823,35 +865,6 @@ struct NotificationsPopoverAnchorPolicyTests {
         bellAnchor.isHidden = true
         checkTrue(
             NotificationsAnchorRegistry.shared.closestAnchor(in: window, to: pointNearBell) === plusAnchor
-        )
-    }
-
-    @Test
-    func testNotificationAnchorRegistryDoesNotReturnHiddenAnchor() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 260, height: 100),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            Issue.record("Expected content view")
-            return
-        }
-
-        let anchor = NSView(frame: NSRect(x: 90, y: 60, width: 20, height: 20))
-        contentView.addSubview(anchor)
-        NotificationsAnchorRegistry.shared.register(anchor)
-        anchor.isHidden = true
-
-        let selectedAnchor = NotificationsAnchorRegistry.shared.closestAnchor(
-            in: window,
-            to: NSPoint(x: anchor.frame.midX, y: anchor.frame.midY)
-        )
-        #expect(
-            selectedAnchor == nil,
-            "A hidden titlebar accessory anchor must not be selected for keyboard-opened notifications."
         )
     }
 }

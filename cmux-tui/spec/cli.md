@@ -95,7 +95,9 @@ filesystem error text.
 
 Authenticated network operations use `remote connect|ssh|forward|rpc`,
 `remote enroll`, and `remote known-daemons`; they cannot accept local server
-targeting. `remote connect --carrier` dials a `ws`/`wss` route with carrier
+targeting. `remote doctor HOST` is a read-only reachability probe that needs no
+server or enrollment. `remote trust` edits this machine's per-peer trust
+records in the remote state root and needs no server. `remote connect --carrier` dials a `ws`/`wss` route with carrier
 authentication and no enrollment; only a daemon started with
 `--remote-ws-trusted-carrier` (or `CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER=1`), whose
 listener is reachable solely from a private network of authorized members,

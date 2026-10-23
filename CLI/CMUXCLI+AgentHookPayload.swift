@@ -1,6 +1,60 @@
 import Foundation
 
 extension CMUXCLI {
+    /// Identifies Codex workers that share a process with a visible session but
+    /// do not own a user-resumable conversation.
+    func codexHookIsInternalSession(
+        input: ClaudeHookParsedInput,
+        cwd: String?,
+        environment: [String: String]
+    ) -> Bool {
+        if let raw = input.rawObject {
+            if firstString(in: raw, keys: ["thread_source", "threadSource"])?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased() == "subagent" {
+                return true
+            }
+            if let source = raw["source"] as? [String: Any],
+               source["subagent"] != nil || source["subAgent"] != nil {
+                return true
+            }
+        }
+
+        // Internal memory consolidation workers have no rollout transcript and
+        // run from Codex's shared memory workspace. A normal ephemeral session
+        // may also omit a transcript, so the cwd boundary is required.
+        guard input.transcriptPath == nil,
+              let rawCWD = normalizedHookValue(cwd) else {
+            return false
+        }
+        let rawHome: String
+        if let home = normalizedHookValue(environment["HOME"]) {
+            rawHome = home
+        } else {
+            let home = NSHomeDirectory()
+            guard !home.isEmpty else { return false }
+            rawHome = home
+        }
+        let codexHome = normalizedHookValue(environment["CODEX_HOME"])
+            ?? URL(fileURLWithPath: rawHome, isDirectory: true)
+                .appendingPathComponent(".codex", isDirectory: true)
+                .path
+        let memoryRoot = URL(
+            fileURLWithPath: NSString(string: codexHome).expandingTildeInPath,
+            isDirectory: true
+        )
+        .appendingPathComponent("memories", isDirectory: true)
+        .standardizedFileURL
+        .path
+        let cwd = URL(
+            fileURLWithPath: NSString(string: rawCWD).expandingTildeInPath,
+            isDirectory: true
+        )
+        .standardizedFileURL
+        .path
+        return cwd == memoryRoot || cwd.hasPrefix(memoryRoot + "/")
+    }
+
     /// Returns the hook event explicitly reported by an agent payload.
     ///
     /// Claude's hook command is selected by the installed settings, but the

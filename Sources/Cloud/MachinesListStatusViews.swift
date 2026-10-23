@@ -188,7 +188,7 @@ struct MachinesListStatusEmptyState: View {
             button
         } else {
             button
-                .buttonStyle(.borderedProminent)
+                .cloudProminentButtonStyle()
                 .controlSize(.small)
         }
     }

@@ -462,3 +462,58 @@ struct AgentRestoreLiveOwnerAdmissionTests {
     }
 
 }
+
+extension AgentRestoreLiveOwnerAdmissionTests {
+    @Test("A live Claude owner restores an attach command through its launcher")
+    func liveClaudeOwnerGetsAttachInput() {
+        let input = AgentRestoreAttachCommand.startupInput(
+            kind: "claude",
+            sessionID: "session-123",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "sr",
+                arguments: ["sr", "claude", "--bg"]
+            ),
+            tmuxStartCommand: nil,
+            workingDirectory: "/tmp/work"
+        )
+        #expect(input == "cd -- '/tmp/work' 2>/dev/null || [ ! -d '/tmp/work' ] && 'sr' 'claude' 'attach' 'session-123'\n")
+    }
+
+    @Test("A live tmux owner keeps its attach command")
+    func liveTmuxOwnerGetsAttachInput() {
+        let input = AgentRestoreAttachCommand.startupInput(
+            kind: "terminal",
+            sessionID: "unused",
+            launchCommand: nil,
+            tmuxStartCommand: "tmux attach-session -t 'work session'",
+            workingDirectory: nil
+        )
+        #expect(input == "tmux attach-session -t 'work session'\n")
+    }
+
+    @Test("A canonical local-tmux restore command remains attachable")
+    func canonicalLocalTmuxOwnerGetsAttachInput() {
+        let command = "/usr/bin/env TMUX= CMUX_LOCAL_TMUX=1 '/opt/homebrew/bin/tmux' -S '/tmp/cmux/server.sock' if-shell -F '#{==:#{@cmux_local_server_id},01234567-89ab-cdef-0123-456789abcdef}' 'attach-session -t $1' 'run-shell false'"
+        let input = AgentRestoreAttachCommand.startupInput(
+            kind: "terminal",
+            sessionID: "unused",
+            launchCommand: nil,
+            tmuxStartCommand: command,
+            workingDirectory: nil
+        )
+        #expect(input == "\(command)\n")
+    }
+
+    @Test("Unknown live owners keep the placeholder path")
+    func unknownLiveOwnerHasNoUnsafeAttachCommand() {
+        #expect(
+            AgentRestoreAttachCommand.startupInput(
+                kind: "codex",
+                sessionID: "session-123",
+                launchCommand: AgentLaunchCommandSnapshot(arguments: ["codex"]),
+                tmuxStartCommand: nil,
+                workingDirectory: nil
+            ) == nil
+        )
+    }
+}

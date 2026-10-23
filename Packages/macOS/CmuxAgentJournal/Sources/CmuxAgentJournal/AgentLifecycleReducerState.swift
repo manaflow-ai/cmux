@@ -5,12 +5,20 @@
 /// identity happens in the projection layer, not here, so the fold stays a
 /// pure function of the event stream.
 public struct AgentLifecycleReducerState: Sendable, Equatable {
+    struct SessionBoundary: Sendable, Equatable {
+        let sessionKey: String
+        let sequence: Int64
+    }
     /// `surfaceId → agentKey → sessionKey → state`.
     public private(set) var sessions: [String: [String: [String: AgentSessionLifecycleState]]]
     /// Unattributed diagnostic events seen by the fold (bounded).
     public private(set) var unattributedEvents: [AgentJournalEvent]
     /// Highest sequence this state has folded.
     public private(set) var headSequence: Int64
+    /// Session identities retired by a newer session boundary. Late events
+    /// from these sessions cannot resurrect an old error after recovery.
+    public private(set) var retiredSessions: [String: [String: [String: Int64]]]
+    var sessionBoundaries: [String: [String: SessionBoundary]]
 
     /// Bound on retained unattributed diagnostics.
     public static let maximumRetainedUnattributedEvents = 256
@@ -20,6 +28,8 @@ public struct AgentLifecycleReducerState: Sendable, Equatable {
         self.sessions = [:]
         self.unattributedEvents = []
         self.headSequence = 0
+        self.retiredSessions = [:]
+        self.sessionBoundaries = [:]
     }
 
     /// The session key an event folds into: the native session id when the
@@ -95,5 +105,55 @@ public struct AgentLifecycleReducerState: Sendable, Equatable {
         sessionKey: String
     ) -> AgentSessionLifecycleState? {
         sessions[surfaceId]?[agentKey]?[sessionKey]
+    }
+
+    func isRetired(surfaceId: String, agentKey: String, sessionKey: String) -> Bool {
+        retiredSessions[surfaceId]?[agentKey]?[sessionKey] != nil
+    }
+
+    func retiredAt(surfaceId: String, agentKey: String, sessionKey: String) -> Int64? {
+        retiredSessions[surfaceId]?[agentKey]?[sessionKey]
+    }
+
+    mutating func retire(surfaceId: String, agentKey: String, sessionKey: String, at sequence: Int64) {
+        let previous = retiredSessions[surfaceId]?[agentKey]?[sessionKey] ?? 0
+        retiredSessions[surfaceId, default: [:]][agentKey, default: [:]][sessionKey] = max(previous, sequence)
+        if var session = sessions[surfaceId]?[agentKey]?[sessionKey] {
+            session.ended = true
+            session.lastSequence = max(session.lastSequence, sequence)
+            sessions[surfaceId]?[agentKey]?[sessionKey] = session
+        }
+    }
+
+    mutating func unretire(surfaceId: String, agentKey: String, sessionKey: String) {
+        retiredSessions[surfaceId]?[agentKey]?.removeValue(forKey: sessionKey)
+    }
+
+    func sessionLocations(agentKey: String, sessionKey: String) -> [(surfaceId: String, state: AgentSessionLifecycleState)] {
+        sessions.compactMap { surfaceId, byAgent in
+            guard let state = byAgent[agentKey]?[sessionKey] else { return nil }
+            return (surfaceId, state)
+        }
+    }
+
+    func sessionKeys(surfaceId: String, agentKey: String) -> [String] {
+        sessions[surfaceId]?[agentKey].map { Array($0.keys) } ?? []
+    }
+
+    func sessionBoundary(surfaceId: String, agentKey: String) -> SessionBoundary? {
+        sessionBoundaries[surfaceId]?[agentKey]
+    }
+
+    mutating func recordSessionBoundary(
+        surfaceId: String,
+        agentKey: String,
+        sessionKey: String,
+        sequence: Int64
+    ) {
+        guard sessionBoundaries[surfaceId]?[agentKey].map({ sequence >= $0.sequence }) ?? true else { return }
+        sessionBoundaries[surfaceId, default: [:]][agentKey] = SessionBoundary(
+            sessionKey: sessionKey,
+            sequence: sequence
+        )
     }
 }

@@ -352,4 +352,57 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertNil(panelSnapshot.terminal?.tmuxStartCommand)
         XCTAssertNil(Workspace.restorableTmuxStartCommand(genericCommand))
     }
+
+    func testControlCreatedSurfaceDoesNotReplaySourceStartupCommand() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let source = try XCTUnwrap(workspace.newTerminalSurface(
+            inPane: paneId,
+            focus: true,
+            initialCommand: "sleep 30"
+        ))
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView)
+        source.hostedView.frame = contentView.bounds
+        source.hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(source.hostedView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+
+        let deadline = Date().addingTimeInterval(2)
+        while source.surface.surface == nil, Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertNotNil(source.surface.surface, "Expected the source command surface to be live")
+
+        let created = try XCTUnwrap(workspace.newTerminalSurface(
+            inPane: paneId,
+            focus: false,
+            inheritStartupWork: false
+        ))
+
+        XCTAssertFalse(
+            created.surface.hasDeferredStartupWorkForBackgroundStart(),
+            "A control-created tab must not replay the source command before its first send"
+        )
+
+        let split = try XCTUnwrap(workspace.newTerminalSplit(
+            from: source.id,
+            orientation: .horizontal,
+            focus: false,
+            inheritStartupWork: false
+        ))
+        XCTAssertFalse(
+            split.surface.hasDeferredStartupWorkForBackgroundStart(),
+            "A control-created split must not replay the source command before its first send"
+        )
+    }
 }

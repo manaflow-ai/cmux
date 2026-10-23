@@ -110,6 +110,36 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
     }
 
+    @Test func cloudDomainsTeamAccessUsesTheOnlyAvailableTeamByDefault() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-domains-team-default-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [
+                try cloudDomainsV2Response(result: [
+                    "teams": [["id": "team-only", "display_name": "Only team"]],
+                    "selected_team_id": NSNull(),
+                ]),
+                try cloudDomainsV2Response(result: ["publication": cloudDomainPublicationFixture()]),
+            ]
+        )
+        defer { responder.stop() }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["cloud", "domains", "publish", "vm-alpha", "3000", "--access", "team", "--json"],
+            environment: cloudDomainsEnvironment(socketPath: socketPath),
+            timeout: 5
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.diagnostics))
+        let requests = try responder.receivedRequests.map(cloudDomainsRequest(from:))
+        #expect(requests.map { $0["method"] as? String } == ["auth.team.list", "vm.publication_create"])
+        let params = try #require(requests.last?["params"] as? [String: Any])
+        #expect(params["accessMode"] as? String == "team")
+        #expect(params["teamId"] as? String == "team-only")
+    }
+
     @Test func cloudDomainMutationCommandsAddressDomainsByName() throws {
         let cliPath = try bundledCLIPath()
         let specs: [(

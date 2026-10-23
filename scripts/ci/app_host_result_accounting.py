@@ -33,6 +33,10 @@ OUTER_TIMEOUT_RE = re.compile(r"xcodebuild unit-test batch .* timeout after")
 IDLE_TIMEOUT_RE = re.compile(r"Idle timed out after .*no test progress", re.IGNORECASE)
 
 
+def _result_priority(result: str) -> int:
+    return RESULT_PRIORITY.get(result, RESULT_PRIORITY["unknown"])
+
+
 def canonical_identifier(value: str) -> str:
     """Normalize Xcode/Test Case identifiers into the receipt namespace."""
     value = value.strip()
@@ -137,7 +141,7 @@ def parse_xcresult_tests(data: Any) -> dict[str, str]:
         if not identifier:
             return
         previous = results.get(identifier)
-        if previous is None or RESULT_PRIORITY.get(result, 0) > RESULT_PRIORITY.get(previous, 0):
+        if previous is None or _result_priority(result) > _result_priority(previous):
             results[identifier] = result
 
     def walk(node: Any) -> None:
@@ -293,7 +297,7 @@ def merge_result_files(paths: Iterable[Path]) -> dict[str, str]:
         parsed = parse_xcresult_tests(load_json(path))
         for identifier, result in parsed.items():
             previous = merged.get(identifier)
-            if previous is None or RESULT_PRIORITY.get(result, 0) > RESULT_PRIORITY.get(previous, 0):
+            if previous is None or _result_priority(result) > _result_priority(previous):
                 merged[identifier] = result
     return merged
 

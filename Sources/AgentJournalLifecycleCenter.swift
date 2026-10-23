@@ -118,6 +118,11 @@ final class AgentJournalLifecycleCenter: Sendable {
                     Self.notificationDiagnostic(canonical.draft, reason: decision.disposition.rawValue)
                     return false
                 }
+                if let completion = decision.remindedCompletion,
+                   await MainActor.run(body: { Self.reminderRepeatsAcknowledgedCompletion(completion) }) {
+                    Self.notificationDiagnostic(canonical.draft, reason: "completion-acknowledged", identity: identity)
+                    return false
+                }
                 guard !Task.isCancelled,
                       let delivery = await MainActor.run(body: { Self.notificationAdmission(notificationEvent.draft) }) else { return false }
                 guard Self.claimNotification(notificationEvent, decision: decision, store: store) else { return false }

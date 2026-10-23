@@ -152,10 +152,11 @@ def side_lane_reason(label: str) -> str | None:
     runners a pool keeps beside its root runners. Anything else is held to the
     workflow policy like every other runner variable.
     """
-    if label.startswith(SIDE_LANE_PREFIX) and _owned_pattern().fullmatch(
-        "glaeda-" + label[len(SIDE_LANE_PREFIX):]
-    ):
-        return None
+    for prefix in (SIDE_LANE_PREFIX, "glaeda-aws-side-"):
+        if label.startswith(prefix):
+            candidate = "glaeda-" + label[len(prefix):]
+            if _owned_pattern().fullmatch(candidate):
+                return None
     return forbidden_reason(label)
 
 
@@ -247,9 +248,9 @@ def drifted_runner_variables(
             reason = pool_order_reason(value.strip())
         elif name in SIDE_LANE_VARIABLES:
             reason = side_lane_reason(value.strip())
-        elif name == TRUSTED_POOL_VARIABLE:
+        elif name in (TRUSTED_POOL_VARIABLE, "CI_NIGHTLY_NEXT_TRUSTED_POOL"):
             reason = trusted_pool_reason(value.strip())
-        elif name == NIGHTLY_RUNNER_VARIABLE:
+        elif name in (NIGHTLY_RUNNER_VARIABLE, "CI_NIGHTLY_NEXT_TRUSTED_RUNNER"):
             reason = nightly_runner_reason(value.strip())
         elif "RUNNER" not in name:
             continue

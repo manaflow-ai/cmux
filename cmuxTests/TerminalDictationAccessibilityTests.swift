@@ -204,10 +204,13 @@ private final class DictationTerminalFixture {
             tty.setraw(0)
             os.write(1, b'\\x1b[?2004h\(Self.readyMarker)\\r\\n')
             data = b''
+            paste_end = b'\\x1b[201~'
             deadline = time.monotonic() + 8
-            while b'\\x1b[201~' not in data and time.monotonic() < deadline:
+            while paste_end not in data and time.monotonic() < deadline:
                 if select.select([0], [], [], 0.1)[0]:
                     data += os.read(0, 65536)
+            if paste_end in data:
+                data = data[:data.index(paste_end) + len(paste_end)]
             with open(sys.argv[1] + '.tmp', 'w') as receipt:
                 receipt.write(data.hex())
             os.rename(sys.argv[1] + '.tmp', sys.argv[1])

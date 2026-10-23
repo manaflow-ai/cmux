@@ -417,6 +417,8 @@ extension AgentLaunchSanitizer {
             "--conversation",
             "--log-file",
             "--print-timeout",
+            "--prompt-interactive",
+            "-i",
             "--prompt",
             "-p",
             "--sandbox",
@@ -437,6 +439,8 @@ extension AgentLaunchSanitizer {
             "--continue",
             "-c",
             "--conversation",
+            "--prompt-interactive",
+            "-i",
         ],
         droppedOptionPrefixes: [
             "--conversation=",
@@ -444,8 +448,6 @@ extension AgentLaunchSanitizer {
         rejectOptions: [
             "--prompt",
             "-p",
-            "--prompt-interactive",
-            "-i",
             "--print",
         ]
     )

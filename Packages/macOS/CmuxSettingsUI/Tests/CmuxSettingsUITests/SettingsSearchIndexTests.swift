@@ -281,6 +281,7 @@ struct SettingsSearchIndexTests {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let anchor = index.anchorID(forSettingsPath: "sidebar.showBranchDirectory")
         #expect(anchor == "setting:sidebarAppearance:show-branch-directory")
+        #expect(index.anchorID(forSettingsPath: "sidebar.showCloudDeviceIcons") == "setting:sidebarAppearance:show-cloud-device-icons")
     }
 
     @Test func conditionalAutoNamingAgentSearchUsesVisibleWorkspaceAutoNamingRow() throws {

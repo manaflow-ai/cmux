@@ -38,6 +38,16 @@ extension CmuxTuiSurfaceProviderRegistry {
         return route
     }
 
+    /// The daemon session shared with native links: a retained create receipt's
+    /// session when available, otherwise the Cloud daemon default. External CLI
+    /// opens reuse this value after the one-shot attach receipt is consumed.
+    func createdTrustedCarrierSession(machineID: String) async -> String? {
+        guard !isRetired, !ManagedDevicePolicy().isEnforced(.disableCloud), isCloudEnabled(), !Task.isCancelled else {
+            return nil
+        }
+        return await links.session(for: machineID)
+    }
+
     func resolvedPrivateRoute(machineID: String, through hub: CloudWireGuardHub.Ready, fallbackRoute: String, addresses: [String]) async throws -> String {
         guard !isRetired, !ManagedDevicePolicy().isEnforced(.disableCloud), isCloudEnabled(), !Task.isCancelled else {
             throw CloudMachineLinkManager.ManagerError.retryLater(String(

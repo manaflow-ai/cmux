@@ -687,7 +687,12 @@ function transcriptTitle(source: TranscriptSource): string {
 function ensureTranscriptSession(source: TranscriptSource): Session {
   const id = transcriptSessionId(source);
   const existing = sessions.get(id);
-  if (existing?.transcript?.path === source.path) return existing;
+  if (existing?.transcript?.path === source.path) {
+    // A resumed agent can keep its transcript in another surface; focus,
+    // sends and queued-message reads must follow it.
+    existing.internal.transcriptTarget = { agentSessionId: source.sessionId, surfaceId: source.surfaceId };
+    return existing;
+  }
   if (existing?.transcript) {
     // The agent's transcript moved (for example a resolved fallback path):
     // re-point the same session so open pages stay subscribed.

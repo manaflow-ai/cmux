@@ -40,6 +40,8 @@ public struct ControlSystemTreeSurfaceNode: Sendable, Equatable {
     public let renderHealthRawValue: String?
     /// The Dock container scope for Dock-hosted surfaces, else `nil`.
     public let dockScopeRawValue: String?
+    /// The file shown by a Markdown or file preview surface, else `nil`.
+    public let filePath: String?
 
     /// Creates a surface node.
     ///
@@ -57,6 +59,7 @@ public struct ControlSystemTreeSurfaceNode: Sendable, Equatable {
     ///   - isBrowser: Whether this is a browser surface.
     ///   - url: For browsers, the current URL string.
     ///   - dockScopeRawValue: The Dock scope for a Dock-hosted surface.
+    ///   - filePath: The file shown by a Markdown or file preview surface.
     public init(
         surfaceID: UUID,
         index: Int,
@@ -71,7 +74,8 @@ public struct ControlSystemTreeSurfaceNode: Sendable, Equatable {
         isBrowser: Bool,
         url: String?,
         renderHealthRawValue: String? = nil,
-        dockScopeRawValue: String? = nil
+        dockScopeRawValue: String? = nil,
+        filePath: String? = nil
     ) {
         self.surfaceID = surfaceID
         self.index = index
@@ -87,5 +91,6 @@ public struct ControlSystemTreeSurfaceNode: Sendable, Equatable {
         self.url = url
         self.renderHealthRawValue = renderHealthRawValue
         self.dockScopeRawValue = dockScopeRawValue
+        self.filePath = filePath
     }
 }

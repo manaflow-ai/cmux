@@ -85,6 +85,11 @@ export interface SyncSnapshotFrame<P = unknown> {
   records: SyncRecord<P>[];
   /** false ⇒ more pages follow; the client commits only on the complete page. */
   complete: boolean;
+  /** `vms` only: whether a full list has ever landed in this DO. false means
+   * the snapshot holds only rows written since the collection shipped, so
+   * the client applies it upsert-only (no reconciliation drops). Absent on
+   * every other collection. */
+  backfilled?: boolean;
 }
 
 /** Server → client: incremental change(s). `rev` is the head this frame brings

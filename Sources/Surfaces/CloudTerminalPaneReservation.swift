@@ -225,7 +225,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
                 } catch let error as CloudMachineLink.LinkError {
                     let requeueInput: Bool
                     switch error {
-                    case .clientMissing, .spawnFailed, .inputTooLarge, .timedOut, .exited, .failureMessage:
+                    case .clientMissing, .spawnFailed, .inputTooLarge, .timedOut, .requestTimedOut, .exited, .exitedBeforeSocket, .failureMessage:
                         requeueInput = false
                     }
                     if case .clientMissing = error {
@@ -483,6 +483,9 @@ final class CloudTerminalPaneReservation {
     var retry: (@MainActor () -> Void)?
     /// Cancels the local request; a remote terminal already created stays alive.
     var cancel: (@MainActor () -> Void)?
+    /// The attach stream registered while the machine creates the terminal.
+    /// The first attachment adopts it; every other ending closes it.
+    private(set) var attachHandshake: CloudTuiManualMirrorHandshake?
 
     init(
         workspaceID: UUID,
@@ -510,6 +513,23 @@ final class CloudTerminalPaneReservation {
 
     var machine: SurfaceMachineID { sourcePlacement.machine }
 
+    /// Starts registering the attach stream beside the remote create.
+    func beginAttachHandshake(_ handshake: CloudTuiManualMirrorHandshake) {
+        attachHandshake?.close()
+        attachHandshake = handshake
+    }
+
+    /// Hands the handshake to the attaching session, at most once.
+    func takeAttachHandshake() -> CloudTuiManualMirrorHandshake? {
+        defer { attachHandshake = nil }
+        return attachHandshake
+    }
+
+    /// Closes a handshake no session adopted.
+    func closeAttachHandshake() {
+        takeAttachHandshake()?.close()
+    }
+
     /// Records the create receipt before layout reconciliation adopts the pane.
     func bind(sourcePlacement: CloudTerminalSourcePlacement) {
         self.sourcePlacement = sourcePlacement
@@ -532,25 +552,29 @@ final class CloudTerminalPaneReservation {
     }
 
     /// Rechecks a saved view after attachment awaits and before any queued input is forwarded.
+    /// Restored panes may replace a deleted tab, but only within the saved workspace.
     func validatedAttachmentPlacement(
         resourceID: SurfaceResourceID,
         remoteTabID: String?,
         materializedPlacement: SurfaceRemotePlacement? = nil,
-        catalog: SurfaceCatalog
+        catalog: SurfaceCatalog,
+        allowPlacementRepair: Bool = false
     ) throws -> SurfaceRemotePlacement? {
         guard let expected = attachmentPlacement else { return materializedPlacement }
-        guard resourceID == expected.resource, resourceID.machine == machine,
-              remoteTabID == nil || expected.remoteTabID == nil || remoteTabID == expected.remoteTabID else {
-            throw CloudDiagnosticFailure.placement
-        }
-        guard expected.remoteWorkspaceID != nil || expected.remoteTabID != nil else { return materializedPlacement }
-        guard let view = try? catalog.remoteView(
+        guard expected.resource.machine == machine else { throw CloudDiagnosticFailure.placement }
+        let catalogPlacement = (try? catalog.remoteView(
             for: resourceID, tabID: expected.remoteTabID, workspaceID: expected.remoteWorkspaceID
-        ) else { throw CloudDiagnosticFailure.placement }
-        if let materializedPlacement,
-           materializedPlacement.workspaceID != view.workspace.id || materializedPlacement.tabID != view.tabID {
-            throw CloudDiagnosticFailure.placement
-        }
-        return materializedPlacement ?? SurfaceRemotePlacement(workspaceID: view.workspace.id, tabID: view.tabID)
+        )).map { SurfaceRemotePlacement(workspaceID: $0.workspace.id, tabID: $0.tabID) }
+        return try CloudTerminalAttachmentPlacementPolicy(
+            expectedResource: expected.resource,
+            expectedWorkspaceID: expected.remoteWorkspaceID,
+            expectedTabID: expected.remoteTabID,
+            allowsRepair: allowPlacementRepair
+        ).validate(
+            resourceID: resourceID,
+            remoteTabID: remoteTabID,
+            catalogPlacement: catalogPlacement,
+            materializedPlacement: materializedPlacement
+        )
     }
 }

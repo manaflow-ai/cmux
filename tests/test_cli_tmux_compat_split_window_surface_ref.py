@@ -26,6 +26,10 @@ class FakeCmuxState:
     def __init__(self) -> None:
         self.split_created = False
 
+    def close_teammate_without_cli(self) -> None:
+        """Model a tab close, which bypasses tmux-compat cleanup."""
+        self.split_created = False
+
     def handle(self, method: str, params: dict[str, object]) -> dict[str, object]:
         if method == "workspace.list":
             return {
@@ -172,12 +176,17 @@ def assert_successful_split(
     socket_path: Path,
     fake_home: Path,
     label: str,
+    target: str | None = None,
 ) -> None:
+    split_args = ["__tmux-compat", "split-window"]
+    if target is not None:
+        split_args.extend(["-t", target])
+    split_args.extend(["-h", "-P", "-F", "#{pane_id}"])
     proc = run_cli(
         cli_path,
         socket_path,
         fake_home,
-        ["__tmux-compat", "split-window", "-h", "-P", "-F", "#{pane_id}"],
+        split_args,
     )
     if proc.returncode != 0:
         raise AssertionError(
@@ -195,23 +204,21 @@ def assert_resplit_after_close(
     cli_path: str,
     socket_path: Path,
     fake_home: Path,
+    state: FakeCmuxState,
 ) -> None:
     assert_successful_split(cli_path, socket_path, fake_home, "initial split-window")
 
-    closed = run_cli(
+    # A tab x closes the surface without going through the tmux shim. The
+    # persisted column anchor is therefore stale when the next spawn arrives.
+    state.close_teammate_without_cli()
+
+    assert_successful_split(
         cli_path,
         socket_path,
         fake_home,
-        ["close-surface", "--workspace", "workspace:1", "--surface", "surface:2"],
+        "second split-window",
+        target="surface:2",
     )
-    if closed.returncode != 0:
-        raise AssertionError(
-            "close-surface returned non-zero\n"
-            f"stdout={closed.stdout.strip()}\n"
-            f"stderr={closed.stderr.strip()}"
-        )
-
-    assert_successful_split(cli_path, socket_path, fake_home, "second split-window")
 
 
 def main() -> int:
@@ -233,7 +240,7 @@ def main() -> int:
             fake_home.mkdir(parents=True, exist_ok=True)
 
             try:
-                assert_resplit_after_close(cli_path, socket_path, fake_home)
+                assert_resplit_after_close(cli_path, socket_path, fake_home, state)
             finally:
                 server.shutdown()
                 server.server_close()

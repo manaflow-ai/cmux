@@ -17,8 +17,7 @@ public struct GhosttyConfigDiagnostic: Equatable, Hashable, Sendable {
     public let filePath: String?
     /// The 1-based line in ``filePath``, when present.
     public let line: Int?
-    /// The config key the diagnostic is about, when it has a file location
-    /// and a key.
+    /// The config key the diagnostic is about, when Ghostty included one.
     public let key: String?
 
     /// Parses a Ghostty diagnostic message.
@@ -30,7 +29,7 @@ public struct GhosttyConfigDiagnostic: Equatable, Hashable, Sendable {
         let location = Self.parseFileLocation(trimmed)
         self.filePath = location.path
         self.line = location.line
-        self.key = location.key
+        self.key = location.key ?? Self.parsePathlessCmuxOwnedKey(trimmed)
     }
 
     /// Whether the diagnostic comes from a cmux-generated inline fragment
@@ -74,6 +73,21 @@ public struct GhosttyConfigDiagnostic: Equatable, Hashable, Sendable {
         let key = rest[..<colon]
         guard !key.isEmpty, !key.contains(where: \.isWhitespace) else { return nil }
         return String(key)
+    }
+
+    /// The embedded Ghostty config API can omit the source location for a
+    /// diagnostic emitted while loading a file. In that form, only recognize
+    /// an exact cmux-owned key so a malformed or unrelated user diagnostic
+    /// cannot be hidden by the ownership filter.
+    private static func parsePathlessCmuxOwnedKey(_ message: String) -> String? {
+        guard let colon = message.firstIndex(of: ":") else { return nil }
+        let candidate = message[..<colon]
+        guard !candidate.isEmpty,
+              !candidate.contains(where: \.isWhitespace),
+              GhosttyConfig.cmuxOwnedKeys.contains(String(candidate)) else {
+            return nil
+        }
+        return String(candidate)
     }
 }
 

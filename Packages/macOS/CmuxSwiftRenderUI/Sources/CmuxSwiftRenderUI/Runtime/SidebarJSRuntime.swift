@@ -14,7 +14,8 @@ import Observation
 ///
 /// Containment: the context gets no filesystem, network, or timer capability;
 /// the only injected host functions are the scene-op sink, the action sink,
-/// and a log. A watchdog (`JSContextGroupSetExecutionTimeLimit`) terminates
+/// a log, and a write-only clipboard that works only during a user gesture
+/// (see ``clipboardWriteByteLimit``). A watchdog (`JSContextGroupSetExecutionTimeLimit`) terminates
 /// any single evaluation that runs longer than ``executionTimeLimit`` seconds,
 /// so a hostile or buggy program degrades to an error state instead of
 /// hanging the process.
@@ -29,7 +30,19 @@ public final class SidebarJSRuntime {
     @ObservationIgnored public var dispatch: SidebarActionDispatch = .noop
 
     @ObservationIgnored private var context: JSContext?
+    /// Nesting depth of user-gesture dispatches currently on the stack.
+    /// `clipboard.write` succeeds only while this is above zero, so load,
+    /// data updates, and callbacks deferred past the gesture cannot write.
+    @ObservationIgnored private var userActivationDepth = 0
     nonisolated static let executionTimeLimit = 0.25
+    /// Largest `clipboard.write` payload accepted, in UTF-8 bytes.
+    nonisolated static let clipboardWriteByteLimit = 64 * 1024
+    /// Events that count as a user gesture: clicks (including context-menu
+    /// items, which dispatch as taps) and double-clicks. Text-field `submit`
+    /// does not: it also fires on focus loss, and an autofocused field can
+    /// receive a Return the user meant for the terminal. Drag feedback,
+    /// reorder moves, and per-keystroke edits do not count either.
+    nonisolated static let userActivationEvents: Set<String> = ["tap", "doubletap"]
 
     public init() {}
 
@@ -68,13 +81,17 @@ public final class SidebarJSRuntime {
             }
         }
         let log: @convention(block) (String) -> Void = { message in
-            #if DEBUG
-            FileHandle.standardError.write(Data("sidebar-js: \(message)\n".utf8))
-            #endif
+            Self.debugLog(message)
+        }
+        let clipboardWrite: @convention(block) (String) -> Bool = { [weak self] text in
+            MainActor.assumeIsolated {
+                self?.writeClipboard(text) ?? false
+            }
         }
         context.setObject(applyOps, forKeyedSubscript: "__host_applyOps" as NSString)
         context.setObject(action, forKeyedSubscript: "__host_action" as NSString)
         context.setObject(log, forKeyedSubscript: "__host_log" as NSString)
+        context.setObject(clipboardWrite, forKeyedSubscript: "__host_clipboardWrite" as NSString)
 
         guard let preludeURL = Bundle.module.url(forResource: "SidebarRuntime", withExtension: "js"),
               let prelude = try? String(contentsOf: preludeURL, encoding: .utf8) else {
@@ -101,12 +118,59 @@ public final class SidebarJSRuntime {
     }
 
     /// Delivers a UI event (tap, move) to the node's JS handler.
+    ///
+    /// For ``userActivationEvents`` the handler runs inside a user-activation
+    /// scope that lasts exactly as long as this synchronous call, which is the
+    /// only time `clipboard.write` is honored.
     public func dispatchEvent(nodeId: String, event: String, payload: [String: Any] = [:]) {
         guard let context else { return }
         let json = (try? JSONSerialization.data(withJSONObject: payload))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        let activates = Self.userActivationEvents.contains(event)
+        if activates { userActivationDepth += 1 }
+        defer { if activates { userActivationDepth -= 1 } }
         context.objectForKeyedSubscript("__dispatch")?
             .call(withArguments: [nodeId, event, json])
+    }
+
+    // MARK: - Clipboard
+
+    /// Backs `clipboard.write(text)`: writes plain text through the host's
+    /// clipboard writer when a user gesture is being dispatched, the text fits
+    /// ``clipboardWriteByteLimit``, and the host offers a clipboard.
+    ///
+    /// Otherwise nothing is written; the reason goes to the `log` channel and
+    /// the JS call returns `false`. There is deliberately no read counterpart.
+    private func writeClipboard(_ text: String) -> Bool {
+        guard userActivationDepth > 0 else {
+            return rejectClipboardWrite(
+                "only allowed while handling a click or menu action, not during load, data updates, text-field submits, or deferred callbacks"
+            )
+        }
+        let byteCount = text.utf8.count
+        guard byteCount <= Self.clipboardWriteByteLimit else {
+            return rejectClipboardWrite(
+                "text is \(byteCount) bytes; the limit is \(Self.clipboardWriteByteLimit) bytes"
+            )
+        }
+        guard let writer = dispatch.writeClipboard else {
+            return rejectClipboardWrite("this sidebar host has no clipboard access")
+        }
+        writer(text)
+        return true
+    }
+
+    private func rejectClipboardWrite(_ reason: String) -> Bool {
+        let message = "clipboard.write rejected: \(reason)"
+        Self.debugLog(message)
+        enqueue(ButtonAction(commands: [.log(message)]))
+        return false
+    }
+
+    nonisolated private static func debugLog(_ message: String) {
+        #if DEBUG
+        FileHandle.standardError.write(Data("sidebar-js: \(message)\n".utf8))
+        #endif
     }
 
     // MARK: - Actions
@@ -131,6 +195,10 @@ public final class SidebarJSRuntime {
         default:
             return
         }
+        enqueue(action)
+    }
+
+    private func enqueue(_ action: ButtonAction) {
         // Deferred one runloop turn ON PURPOSE: the JS handler applies its
         // optimistic scene updates synchronously before calling cmux(...),
         // and a heavy host command (workspace.select swaps terminals) running
@@ -174,9 +242,13 @@ public final class SidebarJSRuntime {
             if json.contains("\"op\":\"root\"") { box.sawRoot = true }
         }
         let noop: @convention(block) (String) -> Void = { _ in }
+        // Validation dispatches no gestures, so every clipboard write is
+        // rejected, exactly as it would be during a real load.
+        let rejectClipboard: @convention(block) (String) -> Bool = { _ in false }
         context.setObject(applyOps, forKeyedSubscript: "__host_applyOps" as NSString)
         context.setObject(noop, forKeyedSubscript: "__host_action" as NSString)
         context.setObject(noop, forKeyedSubscript: "__host_log" as NSString)
+        context.setObject(rejectClipboard, forKeyedSubscript: "__host_clipboardWrite" as NSString)
 
         guard let preludeURL = Bundle.module.url(forResource: "SidebarRuntime", withExtension: "js"),
               let prelude = try? String(contentsOf: preludeURL, encoding: .utf8) else {

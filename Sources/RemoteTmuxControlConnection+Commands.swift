@@ -89,8 +89,13 @@ extension RemoteTmuxControlConnection {
         var pairs = mirrorEnvironment
         pairs[Self.mirrorMarkerEnvironmentKey] = "1"
         let commands = Self.mirrorEnvironmentCommands(target: target, pairs: pairs)
-        guard !commands.isEmpty else { return }
-        _ = sendBatchInternal(commands, kinds: commands.map { _ in .other })
+        if !commands.isEmpty {
+            _ = sendBatchInternal(commands, kinds: commands.map { _ in .other })
+        }
+        let installTarget = sessionId.map { "$\($0)" } ?? sessionName
+        if let command = RemoteTmuxAgentHookInstaller.installCommand(sessionTarget: installTarget) {
+            send(command)
+        }
     }
 
     /// Builds the `set-environment -t <target> KEY VALUE` command lines for a

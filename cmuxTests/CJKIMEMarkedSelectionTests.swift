@@ -17,6 +17,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         let surfaceView: GhosttyNSView
     }
 
+    /// Creates an attached terminal with a live native surface and reconciled geometry for IME input.
     private func makeHostedTerminalWindow() async throws -> HostedTerminalWindow {
         _ = NSApplication.shared
 
@@ -45,8 +46,10 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         hostedView.setVisibleInUI(true)
         hostedView.setActive(true)
+        surface.requestInputDemandSurfaceStartIfNeeded()
         _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) { surface.surface != nil }
         _ = try XCTUnwrap(surface.surface, "Expected native surface before dispatching composed input")
+        hostedView.reconcileGeometryNow()
 
         let surfaceView = try XCTUnwrap(findGhosttyNSView(in: hostedView))
         return HostedTerminalWindow(

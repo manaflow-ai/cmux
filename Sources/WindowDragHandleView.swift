@@ -1130,6 +1130,19 @@ func windowDragHandleShouldCaptureHit(
     if let dragHandleWindow,
        eventType == .leftMouseDown {
         let windowPoint = dragHandleView.convert(point, to: nil)
+        // In minimal mode the pane tab bar is the titlebar surface. Let its
+        // own AppKit background view own the complete strip, including empty
+        // chrome, so a tab-item registry update cannot turn a visible tab
+        // press into a window drag during a sidebar/inset relayout.
+        if WorkspacePresentationModeSettings.isMinimal(),
+           BonsplitTabBarHitRegionRegistry.containsWindowPoint(windowPoint, in: dragHandleWindow) {
+#if DEBUG
+            cmuxDebugLog(
+                "titlebar.dragHandle.hitTest capture=false reason=bonsplitTabBar point=\(windowDragHandleFormatPoint(point))"
+            )
+#endif
+            return false
+        }
         if BonsplitTabItemHitRegionRegistry.containsWindowPoint(windowPoint, in: dragHandleWindow) {
             #if DEBUG
             cmuxDebugLog(

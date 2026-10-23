@@ -286,7 +286,13 @@ extension SurfaceCatalog {
         let current = try currentCloudWorkspace(group)
         let group = current?.group ?? group
         let title = current?.group.title ?? title
-        let layout = current.map { $0.layout } ?? layout
+        // A Cloud VM's installed graph owns its geometry, even when it has none.
+        // Another Mac installs no geometry: the layout its caller fetched from
+        // that Mac stays authoritative, and DeviceWorkspaceLayoutCoordinator
+        // reconciles it afterwards.
+        let layout = group.placements.first?.resource.machine.isDevice == true
+            ? layout
+            : (current.map { $0.layout } ?? layout)
         let ids = group.resources
         guard !ids.isEmpty else { throw SurfaceCatalogError.destinationNotFound("empty group") }
         let created = try host.create(title, focus)

@@ -363,6 +363,8 @@ struct FeedEventClassifier {
     /// Feed telemetry classification, but none can create a blocking request.
     private static let telemetryOnlyFeedEventSemantics: [String: FeedEventSemantic] = [
         "PreToolUse": .toolStart,
+        // Copilot CLI's spelling of the same event.
+        "preToolUse": .toolStart,
         "beforeShellExecution": .toolStart,
         "PermissionRequest": .toolStart,
         "PostToolUse": .toolEnd,

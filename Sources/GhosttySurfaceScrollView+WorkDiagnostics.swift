@@ -3,11 +3,12 @@ import Foundation
 
 extension GhosttySurfaceScrollView {
     /// Returns whether revealing a portal needs the fallback synchronous refresh.
-    /// A renderer that already presented a frame is already paintable; asking
-    /// Ghostty to refresh it again during workspace selection can block the main
-    /// thread while a remote surface drains its current frame.
-    static func shouldScheduleVisibilityRevealRefresh(hasPresentedFrame: Bool) -> Bool {
-        !hasPresentedFrame
+    /// A frame may have been presented before the pane was hidden, while the
+    /// renderer is no longer presented when the workspace becomes visible again.
+    /// Use current renderer health so that stale warm-frame state cannot suppress
+    /// the recovery redraw.
+    static func shouldScheduleVisibilityRevealRefresh(rendererPresented: Bool) -> Bool {
+        !rendererPresented
     }
 
     /// Request an immediate terminal redraw after geometry updates so stale IOSurface
@@ -26,7 +27,7 @@ extension GhosttySurfaceScrollView {
             let transition = self.pendingVisibilityRefreshTransition
             self.pendingVisibilityRefreshTransition = .unknown
             guard self.isVisibleInUI else { return }
-            guard self.surfaceView.terminalSurface?.hasPresentedFrame != true else { return }
+            guard self.surfaceView.terminalSurface?.isRendererPresented != true else { return }
             self.refreshSurfaceNow(reason: "setVisibleInUI.deferred", transition: transition)
         }
     }

@@ -555,9 +555,12 @@ def warm_lane(index: str = "") -> str:
     names its first label, the root label.
     """
     placed = "needs.admission-placement.outputs.runner"
+    # An overflow run's compile may take the free 12vcpu slot the picker names, on attempt 1 only.
+    borrowed = ("(github.run_attempt == 1 && !contains(inputs.pr_owned_jobs, ' admission ') && "
+                f"inputs.pr_admission_runner && fromJSON(inputs.pr_admission_runner){index} || inputs.pr_retry_runner)")
     return root_lane("' admission '").replace(
         "&& inputs.pr_retry_runner || inputs.pr_root_runner",
-        f"&& inputs.pr_retry_runner || needs.admission-placement.outputs.attempt == github.run_attempt && {placed} "
+        f"&& {borrowed} || needs.admission-placement.outputs.attempt == github.run_attempt && {placed} "
         f"&& fromJSON({placed}){index} || github.run_attempt == 1 && inputs.pr_admission_runner "
         f"&& fromJSON(inputs.pr_admission_runner){index} || inputs.pr_root_runner")
 
@@ -643,6 +646,26 @@ BOTH_TOKENS = "${{ steps.route-token.outputs.token || steps.route-token-repo.out
 
 class OwnedPools(unittest.TestCase):
     """Owned Macs first when switched on, Blacksmith as overflow, never a queue."""
+
+    def test_root_demand_is_scoped_to_each_pool_gui_capacity(self):
+        aws = "glaeda-aws-std-xcode-26.6"
+        aws_root = pool.root_label(aws)
+        snap = backlog(small=0, large=0, old=0)
+        for label in (aws, aws_root, MINI, ROOT_MINI):
+            snap["pools"][label] = {"queued": 0, "running": 0}
+        limits = pool.Settings(order=(aws, MINI))
+        choice = pool.decide(
+            snap,
+            limits,
+            now=NOW,
+            xcode_pins=OWNED_PINS,
+            owned_slots={aws: 5, aws_root: 2, MINI: 5, ROOT_MINI: 5},
+            jobs=3,
+            # The office pool has a GUI runner, but AWS does not. AWS must
+            # account for all three root jobs rather than borrowing that fact.
+            root_jobs={aws: 3, MINI: 2},
+        )
+        self.assertEqual(choice.runner, MINI)
 
     def test_idle_runners_are_the_live_owned_capacity(self):
         def runner(labels, status="online", busy=False):
@@ -873,6 +896,28 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(pool.owned_pools(""), ())
         self.assertEqual(pool.owned_pools("/Applications/Xcode.app"), ())
 
+    def test_namespaced_pool_is_opt_in_through_the_explicit_order(self):
+        aws = "glaeda-aws-std-xcode-26.6"
+        self.assertEqual(pool.owned_pools(PR_XCODE), (MINI, LIGHT))
+        self.assertEqual(pool.owned_pools(PR_XCODE, aws), (MINI, LIGHT, aws))
+        self.assertEqual(pool.owned_pools(PR_XCODE, f"{aws},glaeda-aws-light-xcode-26.3"),
+                         (MINI, LIGHT, aws))
+
+    def test_namespaced_pool_order_is_accepted_and_default_stays_office_only(self):
+        aws = "glaeda-aws-std-xcode-26.6"
+        self.assertEqual(pool.settings("", aws, "", "1", PR_XCODE).order,
+                         (aws,))
+        self.assertEqual(pool.settings("", "", "", "1", PR_XCODE).order,
+                         (MINI, LIGHT, pool.LARGE_RUNNER, pool.DEFAULT_RUNNER, pool.MACOS_15_RUNNER))
+
+    def test_explicit_aws_pool_can_be_selected_with_its_own_capacity(self):
+        aws = "glaeda-aws-std-xcode-26.6"
+        snap = backlog(small=0, large=0, old=0)
+        snap["pools"][aws] = {"queued": 0, "running": 0}
+        choice = choose(snap, pins=OWNED_PINS, owned="1", order=f"{aws},{MINI}", jobs=1,
+                        owned_slots=json.dumps({aws: 5, pool.root_label(aws): 2}))
+        self.assertEqual(choice.runner, aws)
+
     def test_persistent_means_a_glaeda_pool_label(self):
         self.assertTrue(pool.persistent(MINI))
         self.assertTrue(pool.persistent("glaeda-light-xcode-26.6"))
@@ -916,22 +961,24 @@ class OwnedPools(unittest.TestCase):
                         claude_wrapper="false", cli="false", remote_daemon="false")
             return pool.run_jobs(**{**base, **flags})
         self.assertEqual(jobs(), 1)
-        self.assertEqual(jobs(cli="true", remote_daemon="true"), 2)
+        self.assertEqual(jobs(cli="true", remote_daemon="true"), 5)
         self.assertEqual(jobs(unit_suite="true"), 1)
-        # A CLI change adds cli-product-tests after admission, on its machine;
-        # admission itself runs the CLI smoke checks.
-        self.assertEqual(jobs(unit_suite="true", unit_in_admission="true", cli="true"), 1)
-        self.assertEqual(jobs(unit_suite="true", cli="true"), 2)
-        # Full suite: seven shards, tests-build-and-lag and cli-product-tests after
-        # admission, beside the two side lanes; the package lane joins them only
-        # when the suite builds no Release helper, and MAX_RUN_JOBS counts it.
-        self.assertEqual(jobs(full_suite="true", cli="true", remote_daemon="true"), 11)
+        # A CLI change adds cli-product-tests and the three cli-regressions
+        # shards after admission, the first on its machine; admission itself
+        # runs the CLI smoke checks.
+        self.assertEqual(jobs(unit_suite="true", unit_in_admission="true", cli="true"), 4)
+        self.assertEqual(jobs(unit_suite="true", cli="true"), 5)
+        # Full suite: seven shards, tests-build-and-lag, cli-product-tests and
+        # the regression shards after admission, beside the two side lanes; the
+        # package lane joins them only when the suite builds no Release helper,
+        # and MAX_RUN_JOBS counts it.
+        self.assertEqual(jobs(full_suite="true", cli="true", remote_daemon="true"), 14)
         self.assertEqual(jobs(full_suite="true", cli="true", remote_daemon="true", swift_packages="true",
                               release_build="false"), pool.MAX_RUN_JOBS)
-        self.assertEqual(pool.MAX_RUN_JOBS, 12)
+        self.assertEqual(pool.MAX_RUN_JOBS, 15)
         # A CLI-only run still compiles, then tests the bundled CLI.
-        self.assertEqual(jobs(macos="false", cli="true"), 1)
-        self.assertEqual(jobs(macos="false", claude_wrapper="true", cli="true"), 2)
+        self.assertEqual(jobs(macos="false", cli="true"), 4)
+        self.assertEqual(jobs(macos="false", claude_wrapper="true", cli="true"), 5)
         self.assertEqual(jobs(macos="false"), 0)
 
     def test_committed_peaks_count_jobs_not_created_yet(self):
@@ -1073,6 +1120,23 @@ class OwnedPools(unittest.TestCase):
         self.assertIn("not JSON", pool.slot_problems("nope")[0])
         self.assertIn("not a JSON object", pool.slot_problems("[1]")[0])
 
+    def test_namespaced_aws_pool_labels_are_valid_and_keep_role_family(self):
+        aws = "glaeda-aws-std-xcode-26.3"
+        root = "glaeda-aws-root-std-xcode-26.3"
+        side = "glaeda-aws-side-std-xcode-26.3"
+        self.assertEqual(pool.slot_problems(json.dumps({aws: 25, root: 10})), [])
+        self.assertEqual(pool.root_label(aws), root)
+        self.assertEqual(pool.side_label(aws), side)
+        self.assertEqual(pool.pool_label(root), aws)
+
+    def test_namespaced_role_labels_are_not_pools_or_pool_inputs(self):
+        aws = "glaeda-aws-std-xcode-26.3"
+        root = "glaeda-aws-root-std-xcode-26.3"
+        side = "glaeda-aws-side-std-xcode-26.3"
+        gui = "glaeda-aws-gui-std-xcode-26.3"
+        self.assertEqual((pool.root_label(root), pool.side_label(side), pool.gui_label(gui)), ("", "", ""))
+        self.assertIn("names side runners", pool.slot_problems(json.dumps({aws: 8, side: 2}))[0])
+
     def test_main_flags_bad_slots_only_on_same_repo_prs_while_owned_pools_are_on(self):
         cases = (("1", "pull_request", "manaflow-ai/cmux", True), ("", "pull_request", "manaflow-ai/cmux", False),
                  ("1", "push", "", False), ("1", "pull_request", "someone/cmux", False))
@@ -1197,18 +1261,35 @@ class PerJobPlacement(unittest.TestCase):
     def test_the_plan_names_each_job(self):
         plan = routing(**FULL)
         self.assertTrue(plan.admission)
-        self.assertEqual(plan.after, (*(f"shard-{index}" for index in range(1, 8)), "lag", "cli-product"))
+        self.assertEqual(plan.after, (*(f"shard-{index}" for index in range(1, 8)), "lag", "cli-product",
+                                      "cli-regressions-1", "cli-regressions-2", "cli-regressions-3"))
         self.assertEqual(plan.side, ("claude-wrapper", "remote-daemon"))
-        self.assertEqual(plan.peak, 11)
+        self.assertEqual(plan.peak, 14)
         # With no Release helper the package lane is a third side lane: the most any run holds.
         self.assertEqual(routing(**FULL, release_build="false").peak, pool.MAX_RUN_JOBS)
         # The unit-ci label runs all seven shards; selected suites one worker, shard 8.
         self.assertEqual(routing(unit_suite="true").after, tuple(f"shard-{index}" for index in range(1, 8)))
         self.assertEqual(routing(unit_suite="true", unit_selectors="Suite").after, ("shard-8",))
         self.assertEqual(routing(unit_suite="true", unit_in_admission="true", unit_selectors="Suite").after, ())
-        # A CLI-only run compiles, then runs cli-product-tests; nothing beside it.
+        # A CLI-only run compiles, then runs cli-product-tests and the three
+        # cli-regressions shards; nothing beside it.
         cli_only = routing(macos="false", cli="true")
-        self.assertEqual((cli_only.admission, cli_only.after, cli_only.side), (True, ("cli-product",), ()))
+        self.assertEqual((cli_only.admission, cli_only.after, cli_only.side),
+                         (True, ("cli-product", "cli-regressions-1", "cli-regressions-2", "cli-regressions-3"), ()))
+        self.assertEqual(cli_only.peak, 4)
+
+    def test_the_cli_regression_shards_are_root_jobs_without_the_gui_token(self):
+        shards = ("cli-regressions-1", "cli-regressions-2", "cli-regressions-3")
+        # They run no XCTest, so they take the root label, not the one gui runner per mini.
+        self.assertFalse(any(pool.gui_token_job(key) for key in shards))
+        self.assertTrue(pool.gui_token_job("cli-product"))
+        # Owned priority: right after cli-product, in shard order.
+        ranked = sorted(("remote-daemon", *reversed(shards), "cli-product"), key=pool.priority)
+        self.assertEqual(ranked, ["cli-product", *shards, "remote-daemon"])
+        # Each shard holds a root runner while it runs; cli-product holds the gui runner.
+        plan = routing(macos="false", cli="true")
+        keys = ("admission", "cli-product", *shards)
+        self.assertEqual(pool.root_held(plan, keys, gui_runners=True), 3)
 
     def test_the_package_lane_is_a_side_lane_only_without_the_release_helper(self):
         # A package change under the compile-only policy: no helper build.
@@ -1248,19 +1329,20 @@ class PerJobPlacement(unittest.TestCase):
         self.assertEqual(pool.place(plan, 1), (("admission", "shard-1"), 1))
         self.assertEqual(pool.place(plan, 3), (("admission", "shard-1", "shard-2", "shard-3"), 3))
         self.assertEqual(pool.place(plan, 9), (("admission", *shards, "lag", "cli-product"), 9))
-        self.assertEqual(pool.place(plan, 11), (("admission", *shards, "lag", "cli-product",
-                                                 "remote-daemon", "claude-wrapper"), 11))
-        self.assertEqual(pool.owned_peak(plan), 11)
+        self.assertEqual(pool.place(plan, 12), (("admission", *shards, "lag", *pool.CLI_JOBS), 12))
+        self.assertEqual(pool.place(plan, 14), (("admission", *shards, "lag", *pool.CLI_JOBS,
+                                                 "remote-daemon", "claude-wrapper"), 14))
+        self.assertEqual(pool.owned_peak(plan), 14)
         self.assertEqual(pool.place(routing(unit_suite="true", unit_selectors="Suite"), 1),
                          (("admission", "shard-8"), 1))
 
     def test_gui_jobs_stay_off_when_switched_off(self):
         plan = routing(**FULL)
         self.assertEqual(pool.place(plan, 1, gui=False), (("admission", "cli-product"), 1))
-        self.assertEqual(pool.place(plan, 2, gui=False), (("admission", "cli-product", "remote-daemon"), 2))
-        everything = ("admission", "cli-product", "remote-daemon", "claude-wrapper")
-        self.assertEqual(pool.place(plan, 12, gui=False), (everything, 3))
-        self.assertEqual(pool.owned_peak(plan, gui=False), 3)
+        self.assertEqual(pool.place(plan, 2, gui=False), (("admission", "cli-product", "cli-regressions-1"), 2))
+        everything = ("admission", *pool.CLI_JOBS, "remote-daemon", "claude-wrapper")
+        self.assertEqual(pool.place(plan, 12, gui=False), (everything, 6))
+        self.assertEqual(pool.owned_peak(plan, gui=False), 6)
         # A run without admission places its side lanes alone.
         self.assertEqual(pool.place(routing(macos="false", remote_daemon="true"), 1), (("remote-daemon",), 1))
 
@@ -1342,19 +1424,20 @@ class PerJobPlacement(unittest.TestCase):
         self.assertEqual(partial["owned_jobs"], " admission shard-1 shard-2 shard-3 ")
         # The marker (and so the janitor) counts the owned machines placed.
         self.assertEqual(partial["jobs"], "3")
-        # 10 free machines for an 11-machine run: the last light job overflows.
+        # 10 free machines for a 14-machine run: the last light jobs overflow.
         most = self.output(busy=1, **full)
-        self.assertEqual(most["owned_jobs"].split()[-3:], ["lag", "cli-product", "remote-daemon"])
+        self.assertEqual(most["owned_jobs"].split()[-3:], ["lag", "cli-product", "cli-regressions-1"])
         self.assertEqual(most["jobs"], "10")
         # GUI jobs off: only admission and the light jobs.
         light = self.output(busy=9, gui="0", **full)
-        self.assertEqual((light["owned_jobs"], light["jobs"]), (" admission cli-product remote-daemon ", "2"))
+        self.assertEqual((light["owned_jobs"], light["jobs"]), (" admission cli-product cli-regressions-1 ", "2"))
         # Selected suites a compile admission would run itself move to shard 8.
         suites = self.output(busy=0, RUN_UNIT_SUITE="true", RUN_UNIT_IN_ADMISSION="true",
                              RUN_UNIT_SELECTORS="cmuxTests/SomeSuite")
         self.assertEqual(suites["owned_jobs"], " admission shard-8 ")
         # Split off: the whole-run rule over the owned-eligible jobs only.
-        self.assertEqual(self.output(busy=8, split="", gui="0", **full)["runner"], MINI)
+        # (admission, cli-product and the three cli-regressions shards beside the side lane: 6).
+        self.assertEqual(self.output(busy=5, split="", gui="0", **full)["runner"], MINI)
         off = self.output(busy=9, split="", gui="0", **full)
         self.assertEqual((off["runner"], off["owned_jobs"]), (LARGE, ""))
 
@@ -1748,7 +1831,7 @@ class RootRunners(unittest.TestCase):
     def test_place_holds_root_jobs_within_the_root_budget(self):
         plan = routing(**FULL)
         # Admission then shards hold root runners; the side lanes do not.
-        self.assertEqual(pool.root_peak(plan), 9)
+        self.assertEqual(pool.root_peak(plan), 12)
         self.assertEqual(pool.place(plan, 12, root_budget=3),
                          (("admission", "shard-1", "shard-2", "shard-3", "remote-daemon",
                            "claude-wrapper"), 5))
@@ -1801,6 +1884,9 @@ class RootRunners(unittest.TestCase):
         self.assertEqual((pool.side_label(ROOT_MINI), pool.side_label(SIDE_MINI), pool.side_label(SMALL)), ("", "", ""))
         rooted = pool.Choice(MINI, PR_XCODE, "", LARGE, 5, root_runner=ROOT_MINI, root_budget=3)
         self.assertEqual(pool.side_runner(rooted, {MINI: 36, ROOT_MINI: 16}), SIDE_MINI)
+        # A live listing records a missing side label as zero, so side lanes
+        # fall back to the pool label rather than queueing on an absent label.
+        self.assertEqual(pool.side_runner(rooted, {MINI: 36, ROOT_MINI: 16, SIDE_MINI: 0}), MINI)
         self.assertEqual(pool.side_runner(pool.Choice(LIGHT, PR_XCODE, "", LARGE, 2,
                                                       root_runner=pool.root_label(LIGHT), root_budget=1),
                                           {LIGHT: 4, pool.root_label(LIGHT): 2}), pool.side_label(LIGHT))
@@ -1809,6 +1895,14 @@ class RootRunners(unittest.TestCase):
         # No root count (root routing off) or a Blacksmith pick: the pool label as before.
         self.assertEqual(pool.side_runner(pool.Choice(MINI, PR_XCODE, "", LARGE, 5), {MINI: 36}), "")
         self.assertEqual(pool.side_runner(pool.Choice(LARGE, "", ""), {MINI: 36, ROOT_MINI: 16}), "")
+
+    def test_live_routing_records_missing_side_label(self):
+        runners = [{"status": "online", "busy": False,
+                     "labels": [{"name": MINI}, {"name": ROOT_MINI}]}]
+        routed = pool.routing_slots("{}", PR_XCODE, runners)
+        self.assertEqual(routed[MINI], 1)
+        self.assertEqual(routed[ROOT_MINI], 1)
+        self.assertEqual(routed[SIDE_MINI], 0)
 
     def test_gui_jobs_take_the_gui_label_beside_a_root_and_gui_count(self):
         gui = "glaeda-gui-std-xcode-26.6"
@@ -1842,8 +1936,8 @@ class RootRunners(unittest.TestCase):
                              claude_wrapper=None, cli="true", remote_daemon=None)
         keys = ("admission", *plan.after)
         self.assertEqual(pool.root_held(plan, keys), len(plan.after))
-        self.assertEqual(pool.root_held(plan, keys, gui_runners=True), 1,
-                         "every job after admission, cli-product too, takes a gui runner")
+        self.assertEqual(pool.root_held(plan, keys, gui_runners=True), 3,
+                         "every job after admission but the cli-regressions shards takes a gui runner")
         self.assertEqual(pool.root_held(plan, ("admission", "cli-product"), gui_runners=True), 1)
         self.assertEqual(pool.root_held(plan, ("cli-product",), gui_runners=True), 0)
         # Three root runners free: on the root label three shards fit (admission hands its runner on); with gui runners every job does.
@@ -2135,6 +2229,17 @@ class WarmAffinity(unittest.TestCase):
         # A retry attempt keeps its own route.
         self.assertEqual(self.outputs(std + idle, slots=slots, attempt="2", extra=lanes)["light_side_jobs"], "")
 
+    def test_explicit_aws_order_uses_aws_light_side_runners(self):
+        aws_light = "glaeda-aws-light-xcode-26.6"
+        aws_side = pool.side_label(aws_light)
+        office_side = pool.side_label(LIGHT)
+        runners = [live_runner(1, LIGHT, office_side), live_runner(2, aws_light, aws_side)]
+        self.assertEqual(
+            pool.light_side_lanes(pool.RunJobs(False, (), ("claude-wrapper",)), runners,
+                                  {aws_light: 1, aws_side: 1}, PR_XCODE, aws_light),
+            (aws_side, ("claude-wrapper",)),
+        )
+
     def test_release_build_stays_with_the_picked_pool(self):
         # The universal Release compile never takes the light side runners ahead of the pick; the lanes
         # before it still do, and it takes the picked pool's side label.
@@ -2398,14 +2503,33 @@ class LiveCapacity(unittest.TestCase):
                    mini_runner("mini-b", 0, MINI, ROOT_MINI, status="offline"), mini_runner("mini-c", 0, LIGHT)]
         self.assertEqual(pool.live_online(runners, (MINI, ROOT_MINI, LIGHT)), {MINI: 2, ROOT_MINI: 1, LIGHT: 1})
 
+    def test_aws_namespace_does_not_count_as_office_pool_capacity(self):
+        aws = mini_runner("aws-m4pro-9", 0, MINI, ROOT_MINI,
+                          "glaeda-aws-std-xcode-26.6", "glaeda-aws-root-std-xcode-26.6")
+        office = mini_runner("cmux7s", 0, MINI, ROOT_MINI)
+        self.assertEqual(pool.live_online([aws, office], (MINI, ROOT_MINI)),
+                         {MINI: 1, ROOT_MINI: 1})
+        self.assertEqual(pool.live_owned_free([aws, office], (MINI, ROOT_MINI)),
+                         {MINI: 1, ROOT_MINI: 1})
+
+    def test_explicit_aws_order_exposes_only_its_namespace_labels(self):
+        aws = "glaeda-aws-std-xcode-26.6"
+        aws_root = "glaeda-aws-root-std-xcode-26.6"
+        runners = [mini_runner("aws-m4pro-9", 0, aws, aws_root)]
+        slots = pool.routing_slots("", PR_XCODE, runners, aws)
+        self.assertEqual((slots.get(aws), slots.get(aws_root), slots.get(pool.side_label(aws))), (1, 1, 0))
+        self.assertNotIn(MINI, slots)
+
     def test_routing_labels_come_from_the_online_runners_and_the_variable_only_without_them(self):
         gui = pool.gui_label(MINI)
         runners = [mini_runner("mini-a", 0, MINI, ROOT_MINI), mini_runner("mini-a", 1, gui),
                    mini_runner("mini-b", 0, MINI, ROOT_MINI, status="offline"), mini_runner("mini-c", 0, MINI)]
         # Live: a label routes while an online runner carries it; the variable's counts and omissions do not count.
-        self.assertEqual(pool.routing_slots('{"std": 40}', PR_XCODE, runners), {MINI: 2, ROOT_MINI: 1, gui: 1})
+        self.assertEqual(pool.routing_slots('{"std": 40}', PR_XCODE, runners),
+                         {MINI: 2, ROOT_MINI: 1, gui: 1, SIDE_MINI: 0, pool.side_label(LIGHT): 0})
         self.assertEqual(pool.routing_slots('{"std": 40, "root-std": 19, "gui-std": 10}', PR_XCODE,
-                                            [mini_runner("mini-c", 0, MINI)]), {MINI: 1})
+                                            [mini_runner("mini-c", 0, MINI)]),
+                         {MINI: 1, SIDE_MINI: 0, pool.side_label(LIGHT): 0})
         # Unreadable runners: the variable, as before.
         self.assertEqual(pool.routing_slots('{"std": 40, "root-std": 19}', PR_XCODE, None),
                          {MINI: 40, ROOT_MINI: 19})
@@ -2621,9 +2745,10 @@ class Wiring(unittest.TestCase):
                       "needs.admission-placement.outputs.runner && fromJSON(needs.admission-placement.outputs.runner) "
                       "|| github.run_attempt == 1 && inputs.pr_admission_runner && "
                       "fromJSON(inputs.pr_admission_runner) ||", admission["runs-on"])
-        # Only admission reads it; its consumers follow its root label.
+        # Only admission reads it (warm pin and overflow borrow, in runs-on and
+        # CMUX_PRODUCT_RUNNER); its consumers follow its root label.
         text = (WORKFLOWS / "ci-macos.yml").read_text()
-        self.assertEqual(text.count("fromJSON(inputs.pr_admission_runner)"), 2)
+        self.assertEqual(text.count("fromJSON(inputs.pr_admission_runner)"), 4)
         self.assertEqual(text.count("fromJSON(needs.admission-placement.outputs.runner)"), 2)
 
     def test_admission_uploads_its_warm_keys(self):
@@ -2807,19 +2932,19 @@ class MainFullSuite(unittest.TestCase):
         ref = kwargs.pop("ref", pool.MAIN_REF)
         return choose(snap, **kwargs, ref=ref)
 
-    def test_its_run_holds_nine_machines_and_nine_root_runners(self):
-        self.assertEqual((pool.owned_peak(self.PLAN), pool.root_peak(self.PLAN)), (9, 9))
+    def test_its_run_holds_twelve_machines_and_twelve_root_runners(self):
+        self.assertEqual((pool.owned_peak(self.PLAN), pool.root_peak(self.PLAN)), (12, 12))
 
     def test_an_idle_fleet_takes_the_whole_run(self):
         choice = self.main_choice(self.snap())
         self.assertEqual((choice.runner, choice.root_runner), (MINI, ROOT_MINI))
         self.assertIn("main's full-suite dispatch", choice.reason)
         self.assertEqual(pool.place(self.PLAN, choice.owned_budget, root_budget=choice.root_budget)[0],
-                         ("admission", *(f"shard-{index}" for index in range(1, 8)), "lag", "cli-product"))
+                         ("admission", *(f"shard-{index}" for index in range(1, 8)), "lag", *pool.CLI_JOBS))
 
     def test_a_split_run_queues_whole_on_the_owned_pool(self):
         # Every root runner busy and 22 jobs queued there: 6 queue places, the
-        # run needs 9. A pull request would put the rest on the retry runner;
+        # run needs 12. A pull request would put the rest on the retry runner;
         # main queues them on the minis instead, so they do not wait behind
         # every overflowed pull request on Blacksmith (run 36402943637).
         snap = self.snap(roots_busy=14)
@@ -2827,7 +2952,7 @@ class MainFullSuite(unittest.TestCase):
         choice = self.main_choice(snap, split="1", queue_rounds="2")
         self.assertEqual((choice.runner, choice.root_runner), (MINI, ROOT_MINI))
         self.assertEqual(pool.place(self.PLAN, choice.owned_budget, root_budget=choice.root_budget)[0],
-                         ("admission", *(f"shard-{index}" for index in range(1, 8)), "lag", "cli-product"))
+                         ("admission", *(f"shard-{index}" for index in range(1, 8)), "lag", *pool.CLI_JOBS))
         self.assertIn("0 of 14 root runners free and 6 queue places", choice.reason)
         self.assertIn("the whole run queues there", choice.reason)
         self.assertNotIn("the rest on the retry runner", choice.reason)
@@ -2879,11 +3004,12 @@ class MainFullSuite(unittest.TestCase):
             with unittest.mock.patch("sys.stdout", io.StringIO()):
                 self.assertEqual(pool.main(["--snapshot", str(snapshot)], env), 0)
             values = dict(line.split("=", 1) for line in out.read_text().splitlines())
-            # The nine root jobs at their peak, plus the Claude wrapper and the remote daemon beside them.
+            # The twelve root jobs at their peak, plus the Claude wrapper and the remote daemon beside them.
             self.assertEqual((values["runner"], values["persistent"], values["root_runner"], values["jobs"]),
-                             (MINI, "true", ROOT_MINI, "11"))
+                             (MINI, "true", ROOT_MINI, "14"))
             self.assertEqual(values["owned_jobs"], " admission " + " ".join(f"shard-{index}" for index in range(1, 8))
-                             + " lag cli-product remote-daemon claude-wrapper ")
+                             + " lag cli-product cli-regressions-1 cli-regressions-2 cli-regressions-3"
+                             + " remote-daemon claude-wrapper ")
             self.assertTrue(values["retry_runner"].startswith("blacksmith-"))
             # A dispatch on another branch writes the default route.
             env.update(GITHUB_REF="refs/heads/topic")

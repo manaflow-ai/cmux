@@ -1,4 +1,6 @@
 import CmuxCloud
+import CmuxCloudResizeCore
+import CmuxProductAnalytics
 import CmuxSurfaceCatalogModel
 import Foundation
 import Observation
@@ -76,6 +78,37 @@ struct MachineSizeOption: Equatable, Sendable {
 @MainActor
 @Observable
 final class NewMachineModel {
+    enum BaseImage: Hashable {
+        case defaultImage
+        case machine(VMSummary)
+
+        var label: String {
+            switch self {
+            case .defaultImage:
+                return String(localized: "machines.new.baseImage.default", defaultValue: "Default image")
+            case .machine(let machine):
+                return machine.displayName ?? machine.slug ?? machine.id
+            }
+        }
+
+        static func == (lhs: BaseImage, rhs: BaseImage) -> Bool {
+            switch (lhs, rhs) {
+            case (.defaultImage, .defaultImage): return true
+            case (.machine(let left), .machine(let right)): return left.id == right.id
+            default: return false
+            }
+        }
+
+        func hash(into hasher: inout Hasher) {
+            switch self {
+            case .defaultImage:
+                hasher.combine(0)
+            case .machine(let machine):
+                hasher.combine(1)
+                hasher.combine(machine.id)
+            }
+        }
+    }
     /// Which create flow the sheet fronts.
     enum Mode: Equatable {
         /// `cmux vm new`: a fresh Freestyle machine with an ephemeral home.
@@ -100,7 +133,8 @@ final class NewMachineModel {
 
     /// The base-image sizes the backend exposes, in ascending memory order.
     /// Each row is a validated Freestyle snapshot: 4/16, 8/32, 16/64,
-    /// 24/96, 32/128, or 64/128 GB of memory/disk; the 64 GB row is Max only.
+    /// 24/96, 32/128, or 64/128 GB of memory/disk; the rows above 16 GB are
+    /// Max only.
     /// The server's list trims this set for plan limits. Every machine draws
     /// its vCPUs and memory from the plan's shared pool. The 128 MiB BusyBox
     /// image is intentionally not a coding-machine option because it has no
@@ -115,13 +149,13 @@ final class NewMachineModel {
     /// (`MEMORY_UPGRADE_PLAN_ID` on the server).
     nonisolated static let maxPlanId = "max"
     /// The largest machine Pro, Team, and Founder's Edition may start
-    /// (32 GB / 16 vCPU, the `xl` row).
-    nonisolated static let standardPlanMaxMemoryMb = 32768
+    /// (16 GB / 8 vCPU, the `lg` row).
+    nonisolated static let standardPlanMaxMemoryMb = 16384
     /// The largest machine a free or unknown plan may start, where an operator
     /// opens free provisioning (`PLAN_MAX_MEMORY_MB` on the server).
     nonisolated static let freePlanMaxMemoryMb = 8192
     /// Mirrors `maxMemoryMbForPlan` without its env overrides: Max gets the
-    /// whole ladder (64 GB), Pro, Team, and Founder's Edition stop at 32 GB,
+    /// whole ladder (64 GB), Pro, Team, and Founder's Edition stop at 16 GB,
     /// Go at 4 GB, and a free or unknown plan at 8 GB.
     /// The server's `limits.lockedMemoryOptionsMb` wins whenever it is sent;
     /// this mirror only covers a control plane that predates that field.
@@ -163,6 +197,8 @@ final class NewMachineModel {
 
     let mode: Mode
     private(set) var plan: MachinePlanSnapshot?
+    private(set) var sourceMachines: [VMSummary]
+    var baseImage: BaseImage
     /// Sizes the plan may start, in ascending order: the server's
     /// `memoryOptionsMb` minus anything it (or the mirror) locks.
     private(set) var availableMemoryOptionsMb: [Int]
@@ -279,7 +315,7 @@ final class NewMachineModel {
     }
 
     func applyPage(_ page: VMListPage) {
-        applyPlan(activeCount: page.vms.count, limits: page.limits)
+        applyPlan(activeCount: page.activeMachineCount, limits: page.limits)
     }
 
     /// Replaces the plan in place (a background refresh of the cached plan).
@@ -294,10 +330,13 @@ final class NewMachineModel {
             memoryUpgradePlanId: limits.memoryUpgradePlanId,
             memoryUpgradePlansByMb: limits.memoryUpgradePlansByMb,
             vcpusByMemoryMb: limits.vcpusByMemoryMb,
+            sourceMachines: sourceMachines,
+            baseImage: baseImage,
             selectionWindowID: selectionWindowID,
             defaults: defaults,
             submit: submit
         )
+        guard planRefreshWouldChange(to: updated, storedMemoryMb: storedMemoryMb) else { return }
         plan = updated.plan
         availableMemoryOptionsMb = updated.availableMemoryOptionsMb
         lockedMemoryOptionsMb = updated.lockedMemoryOptionsMb
@@ -315,7 +354,6 @@ final class NewMachineModel {
         planIsLoading = false
         planLoadError = message
     }
-
     /// Starts another authoritative plan read while keeping the sheet visible.
     func setPlanLoading() {
         planIsLoading = true
@@ -335,6 +373,8 @@ final class NewMachineModel {
         memoryUpgradePlanId: String? = nil,
         memoryUpgradePlansByMb: [String: String]? = nil,
         vcpusByMemoryMb: [String: Int]? = nil,
+        sourceMachines: [VMSummary] = [],
+        baseImage: BaseImage = .defaultImage,
         selectionWindowID: UUID? = nil,
         defaults: UserDefaults = .standard,
         planIsLoading: Bool = false,
@@ -345,6 +385,8 @@ final class NewMachineModel {
         self.memoryUpgradePlansByMb = memoryUpgradePlansByMb
         self.vcpusByMemoryMb = vcpusByMemoryMb
         self.mode = mode
+        self.sourceMachines = sourceMachines.filter { !$0.id.isEmpty && $0.status != "destroyed" }
+        self.baseImage = baseImage
         self.plan = plan
         self.planIsLoading = planIsLoading
         self.planLoadError = nil
@@ -413,7 +455,38 @@ final class NewMachineModel {
     }
 
     /// Base is sized by the backend; only `vm new` takes `--size`.
-    var supportsSize: Bool { mode == .newMachine && !availableMemoryOptionsMb.isEmpty }
+    var supportsSize: Bool { mode == .newMachine && (planIsLoading || !availableMemoryOptionsMb.isEmpty) }
+    var supportsBaseImage: Bool { mode == .newMachine }
+    var isFork: Bool {
+        if case .machine = baseImage { return true }
+        return false
+    }
+
+    /// A cache refresh lands while the sheet is opening; reassigning an
+    /// unchanged list would rebuild the Base pop-up mid-animation.
+    func applySourceMachines(_ machines: [VMSummary]) {
+        var seenIDs = Set<String>()
+        let filtered = machines.filter { machine in
+            !machine.id.isEmpty && machine.status != "destroyed" && seenIDs.insert(machine.id).inserted
+        }
+        let pickerRows: ([VMSummary]) -> [[String]] = { list in
+            list.map { [$0.id, BaseImage.machine($0).label, $0.agentUpdates?.rawValue ?? ""] }
+        }
+        if pickerRows(filtered) != pickerRows(sourceMachines) {
+            sourceMachines = filtered
+        }
+        if case .machine(let selected) = baseImage,
+           !sourceMachines.contains(where: { $0.id == selected.id }) {
+            baseImage = .defaultImage
+        }
+    }
+
+    func selectBaseImage(_ image: BaseImage) {
+        baseImage = image
+        if case .machine(let machine) = image, let updates = machine.agentUpdates {
+            keepsAgentsUpdated = updates == .latest
+        }
+    }
     /// Sizes the plan may start, ascending.
     var memoryOptions: [Int] { availableMemoryOptionsMb }
     /// Sizes the plan cannot start, ascending; the sheet lists them disabled.
@@ -456,7 +529,7 @@ final class NewMachineModel {
         return String(format: format, size.menuTitle, memoryUpgradePlanName)
     }
 
-    /// "16 GB, 24 GB, and 32 GB machines need cmux Max."; nil when nothing is locked
+    /// "24 GB, 32 GB, and 64 GB machines need cmux Max."; nil when nothing is locked
     /// or no plan sells the locked sizes.
     var lockedSizesNoteText: String? {
         guard supportsSize, !lockedMemoryOptions.isEmpty, let memoryUpgradePlanNames = lockedMemoryUpgradePlanNames else { return nil }
@@ -541,12 +614,20 @@ final class NewMachineModel {
         var arguments: [String]
         switch mode {
         case .newMachine:
-            arguments = ["vm", "new", Self.machineKind.cliFlag]
+            if case .machine(let machine) = baseImage {
+                arguments = ["vm", "fork", machine.id]
+            } else {
+                arguments = ["vm", "new", Self.machineKind.cliFlag]
+            }
+            if isFork {
+                arguments += ["--focus", "false"]
+            } else {
             if supportsSize { arguments += ["--size", String(memoryMb)] }
             if let policy = requestedNetworkPolicy { arguments += ["--network-policy", policy.jsonString] }
             // Off sends nothing, so a server without the setting sees the old request.
             if keepsAgentsUpdated { arguments += ["--agent-updates", CloudAgentUpdates.latest.rawValue] }
             arguments += ["--focus", "false"]
+            }
         case .base(let workspaceID):
             arguments = [
                 "vm", "base", "open",
@@ -563,7 +644,15 @@ final class NewMachineModel {
 
     /// The request the coordinator tracks for this sheet's choices.
     var createRequest: MachineCreateRequest {
-        MachineCreateRequest(
+        if case .newMachine = mode, case .machine(let machine) = baseImage {
+            return .fork(
+                sourceMachineID: machine.id,
+                sourceName: baseImage.label,
+                kind: Self.machineKind,
+                selectionWindowID: selectionWindowID
+            )
+        }
+        return MachineCreateRequest(
             mode: mode,
             kind: Self.machineKind,
             name: nil,
@@ -585,6 +674,9 @@ final class NewMachineModel {
             return
         }
         if supportsAgentUpdates { defaults.set(keepsAgentsUpdated, forKey: Self.keepsAgentsUpdatedDefaultsKey) }
+        // Base and forks send no size (the backend or the source decides it).
+        let sentSize = mode == .newMachine && !isFork && supportsSize
+        ProductAnalytics.app.track(.cloudMachineCreateStarted(memoryGB: sentSize ? memoryMb / 1_024 : nil))
         finish(.submitted)
     }
 

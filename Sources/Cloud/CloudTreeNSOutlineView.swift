@@ -75,7 +75,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         var next: CloudTreeCellView?
         if let pinnedID = machineLift.sourceNodeID ?? menuPinnedNodeID {
             next = visibleCell(forNodeID: pinnedID)
-        } else if let point, visibleRect.contains(point) {
+        } else if let point, visibleRect.contains(point), pointerHitTargetBelongsToOutline(at: point) {
             // The whole row line counts, so the chevron and the indent before
             // the cell hover the row too.
             let row = row(at: point)
@@ -96,14 +96,23 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         if let next { hoveredNodeID = next.nodeID } else if !keepingNode { hoveredNodeID = nil }
     }
 
+    /// Coordinates alone are insufficient when a SwiftUI sibling is laid out
+    /// over the outline (for example, the New Cloud Machine action above it).
+    /// Use AppKit's resolved hit target so a sibling owns the pointer and the
+    /// last Cloud row cannot retain its hover state underneath that sibling.
+    private func pointerHitTargetBelongsToOutline(at point: NSPoint) -> Bool {
+        guard let window, let contentView = window.contentView else { return false }
+        let windowPoint = convert(point, to: nil)
+        guard let hit = contentView.cmuxHitTest(windowPoint: windowPoint) else { return false }
+        return hit === self || hit.isDescendant(of: self)
+    }
+
     private func refreshHover() {
         guard let window, window.isKeyWindow, !isHiddenOrHasHiddenAncestor else {
             updateHover(at: nil)
             return
         }
-        let pointerInWindow = window.convertFromScreen(
-            NSRect(origin: window.mouseLocationOutsideOfEventStream, size: .zero)
-        ).origin
+        let pointerInWindow = window.mouseLocationOutsideOfEventStream
         updateHover(at: convert(pointerInWindow, from: nil))
     }
 
@@ -272,7 +281,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
                 return !controls.isHiddenOrHasHiddenAncestor
             }
             if let actionHost = candidate as? CloudTreePassthroughHostingView,
-               !actionHost.passesThrough {
+               actionHost.acceptsClick(event) {
                 return !actionHost.isHiddenOrHasHiddenAncestor
             }
             view = candidate.superview
@@ -412,9 +421,13 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         disclosureScope.perform(item: item, recursive: expandChildren) {
             NSAnimationContext.beginGrouping()
             NSAnimationContext.current.duration = 0
+            NSAnimationContext.current.allowsImplicitAnimation = false
             super.expandItem(item, expandChildren: expandChildren)
             expandOpenTabRows(under: item)
             NSAnimationContext.endGrouping()
+            // The outline's row map is updated synchronously. Let the host
+            // resize its scroll document on the next layout pass instead of
+            // doing a full container layout inside the pointer event.
             onDocumentContentChanged?()
         }
     }
@@ -432,6 +445,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         disclosureScope.perform(item: item, recursive: collapseChildren) {
             NSAnimationContext.beginGrouping()
             NSAnimationContext.current.duration = 0
+            NSAnimationContext.current.allowsImplicitAnimation = false
             super.collapseItem(item, collapseChildren: collapseChildren)
             NSAnimationContext.endGrouping()
             onDocumentContentChanged?()
@@ -454,12 +468,11 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         onDocumentContentChanged?()
     }
 
-    private func disclosureLeading(atRow row: Int) -> CGFloat {
+    func disclosureLeading(atRow row: Int) -> CGFloat {
         GlobalFontMagnification.scaledSize(
             Self.leadingMargin + CGFloat(max(0, level(forRow: row))) * treeStyle.indentPerLevel
         )
     }
-
     override func frameOfOutlineCell(atRow row: Int) -> NSRect {
         // A machine's tab row opens and closes through its tabs, not a disclosure.
         if let node = item(atRow: row) as? CloudTreeNode, case .machineDetailTabs = node.kind { return .zero }
@@ -496,6 +509,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         }
         let trailing = frame.maxX
         frame.origin.x = panelContentLeading(atRow: row)
+            ?? connectingLeading(atRow: row)
             ?? CloudTreeLayoutMetrics().contentLeading(level: level(forRow: row), style: treeStyle)
         frame.size.width = max(0, trailing - frame.minX)
         return frame
