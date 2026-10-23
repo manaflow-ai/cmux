@@ -254,12 +254,16 @@ extension SidebarListViewComponents {
         let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) } : nil
         decorations.frame = bounds
         decorations.setGap(gapFrame, animated: animate || adopting)
-        chatHistory.place(layout, state: SidebarChatHistory.shared.state, metrics: model.minimal ? metrics.minimal : metrics, in: self,
-                          animated: animate || adopting)
+        let history = chatHistory.place(layout, state: SidebarChatHistory.shared.state, metrics: model.minimal ? metrics.minimal : metrics,
+                                        in: self, animated: animate || adopting)
         let lines = groupLineViews.update(groupLines(layout), from: animate || adopting ? groupLines(layout, current: true) : [], in: self, above: decorations,
                                           animated: animate || adopting)
-        if adopting { return adoptRows(targets: targets, leaving: leaving, lines: lines) }
-        RowMotion(targets: targets, appearing: appearing, leaving: leaving, lines: lines).run(in: self, from: old, to: layout, animated: animate)
+        if adopting {
+            SidebarDragSpring.move(history + lines.springs, in: self)
+            return adoptRows(targets: targets, leaving: leaving, lines: lines)
+        }
+        RowMotion(targets: targets, appearing: appearing, leaving: leaving, lines: lines, companions: history)
+            .run(in: self, from: old, to: layout, animated: animate)
     }
     func configure(_ view: SidebarRowView, row: SidebarRow, animated: Bool) {
         SidebarPerfCounters.add(.rowConfigures)
@@ -328,8 +332,9 @@ extension SidebarListViewComponents {
         let widthChanged = newSize.width != frame.width
         super.setFrameSize(newSize)
         guard widthChanged else { return }
-        for row in displayed.rows {
-            guard let view = rowViews[row.key] else { continue }
+        // Only the realized rows have views: visit those, never every row (a live resize runs this each frame).
+        for (key, view) in rowViews {
+            guard let row = displayed.row(for: key) else { continue }
             let target = frame(for: row)
             view.targetSize = target.size
             view.frame = target
