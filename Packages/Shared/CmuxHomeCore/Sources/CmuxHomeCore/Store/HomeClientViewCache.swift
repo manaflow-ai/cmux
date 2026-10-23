@@ -4,6 +4,11 @@ import Foundation
 /// anchors: never synced, never sent) and the coalesced writes of the
 /// `HomeCache` snapshot. HomeStore owns one; the owner state that goes into
 /// each snapshot (mirror, intent log, me) comes from `ownerSnapshot`.
+///
+/// A write happens only when the snapshot differs from the one last written
+/// (or restored): owner events that change nothing the cache holds (typing,
+/// a connection change, an owner recovery) write nothing, so disk writes
+/// follow new information (speed-of-sound-DESIGN.md 3.5).
 @MainActor
 final class HomeClientViewCache {
     /// The client's durable copy, nil for none.
@@ -19,6 +24,8 @@ final class HomeClientViewCache {
     private(set) var scrollAnchors: [ConversationID: HomeScrollAnchor] = [:]
     private var pendingWrite: Task<Void, Never>?
     private var writesSuppressed = false
+    /// What the file holds now, as far as this cache knows: the last snapshot written or restored.
+    private var written: HomeCacheSnapshot?
 
     init(cache: HomeCache?, writeDelay: Duration, clock: any Clock<Duration>) {
         self.cache = cache
@@ -54,6 +61,7 @@ final class HomeClientViewCache {
     func restore(_ snapshot: HomeCacheSnapshot, _ body: () -> Void) {
         writesSuppressed = true
         defer { writesSuppressed = false }
+        written = snapshot
         drafts = snapshot.drafts
         draftAttachments = snapshot.draftAttachments ?? [:]
         scrollAnchors = snapshot.scroll
@@ -88,6 +96,12 @@ final class HomeClientViewCache {
         snapshot.drafts = drafts
         snapshot.draftAttachments = draftAttachments.isEmpty ? nil : draftAttachments
         snapshot.scroll = scrollAnchors
-        try? cache.save(snapshot)
+        guard snapshot != written else { return }
+        do {
+            try cache.save(snapshot)
+            written = snapshot
+        } catch {
+            // The next change writes again.
+        }
     }
 }
