@@ -31,17 +31,26 @@ final class WorkspaceRowView: SidebarRowView {
     /// color, small, before the title; hidden while the sidebar lists one machine.
     let machineMark = DecorativeImageView() // the row's label names the machine
     internal(set) var machine: SidebarMachineMark?
+    /// The side `machineMark`'s image was drawn at.
+    private var machineMarkSize: CGFloat = 0
     /// The workspace's tabs play sound (or are muted): a small speaker in the
     /// trailing cluster, always shown while they do, crossed out while they
     /// are muted. A click mutes or unmutes them (`onToggleAudio`).
     let audioButton = SidebarIconButton(icon: .browserTabAudio, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.muteTabs)
     internal(set) var audio: SidebarWorkspaceAudio?
-    let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.closeButton)
-    /// The row's menu (cx-a9h6, ChatGPT project style): the right-click menu,
-    /// under the button. Shows on hover only, over the end of the title
-    /// behind a fade (Lawrence 2026-10-11: no layout shift).
-    let moreButton = OverflowButton(label: Strings.workspaceMenu)
-    /// An expanded row's Pin or Unpin (cx-13w3), on hover beside the menu button.
+    /// The hover close: on the row's top-right corner (Leo 2026-10-21), in the cut its fill leaves
+    /// out there (Leo 2026-10-22), taking nothing from the text.
+    let closeButton = SidebarDogEarButton(icon: .actionClose, label: Strings.closeButton)
+    /// The row's menu (cx-a9h6, ChatGPT project style): the right-click menu, opened under the
+    /// corner. On hover, the dog-ear of a row that cannot close (Home); a closable row's dog-ear
+    /// is its close, and its menu stays on right-click and VoiceOver's custom action.
+    let moreButton = SidebarDogEarButton(icon: OverflowButton.glyph, label: Strings.workspaceMenu)
+    /// The corner cut out of the row's fill while the close or the menu shows there; nil otherwise.
+    var closeNotch: SidebarCloseNotch?
+    /// `sidebar.closeNotch` as of the last configure (`SidebarTunablesWatch` reconfigures the shown
+    /// rows when it changes); a change lays the row out again.
+    var closeNotchLook = SidebarCloseNotch.tunable.defaultValue { didSet { if closeNotchLook != oldValue { needsLayout = true } } }
+    /// An expanded row's Pin or Unpin (cx-13w3), on hover at the end of the name's line.
     let pinButton = SidebarIconButton(icon: .actionPin, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.pinWorkspace)
     /// `sidebar.showWorkspaceTabs`: hides or lists the workspace's tabs. Always drawn
     /// while the setting is on (never on hover), so rows never shift.
@@ -55,7 +64,12 @@ final class WorkspaceRowView: SidebarRowView {
     /// The session tree (`sidebar.sessionTree`, WorkspaceRowView+SessionTree): a started workspace's
     /// guide line, the pull request badge and the keycap.
     let treeLine = NSView(), pullRequests = SidebarPullRequestBadgeView(), keycap = SidebarKeycapView()
+    /// A tree parent's chevron (folds its subtree) and a folded parent's roll-up chips.
+    let treeFoldButton = SidebarIconButton(icon: .disclosureExpanded, pointSize: { Metrics.smallIconSize - Metrics.space2 },
+                                           label: Strings.collapseSessions), rollUp = SidebarTreeRollUpView()
     var treeDepth = 0
+    var treeFold: SidebarTreeFold?
+    var onToggleTree: (() -> Void)?
     internal(set) var disclosure: SidebarTabDisclosure?
     internal(set) var count: Int?
 
@@ -70,7 +84,6 @@ final class WorkspaceRowView: SidebarRowView {
     var hasSubtitle = false, isExpanded = false, timeText: String?
     /// An idle workspace nobody named: its name reads in the secondary ink (`SidebarTunables.quietUnnamedRows`).
     var isQuiet = false
-    var grouped = false
     var iconKind: WorkspaceIcon?
     /// Selected but not active (the active row paints the selection fill).
     var isSecondarySelected = false {
@@ -128,7 +141,7 @@ final class WorkspaceRowView: SidebarRowView {
         machineMark.imageScaling = .scaleProportionallyDown
         machineMark.isHidden = true
         [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, machineMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock,
-         treeLine, pullRequests, keycap].forEach(addSubview)
+         treeLine, pullRequests, keycap, treeFoldButton, rollUp].forEach(addSubview)
         setUpSessionTree()
         disclosureButton.isHidden = true
         tabCount.isHidden = true
@@ -150,9 +163,13 @@ final class WorkspaceRowView: SidebarRowView {
         pinButton.onPress = { [weak self] in self?.onPin?() }
         disclosureButton.onPress = { [weak self] in self?.onToggleTabs?() }
         audioButton.onPress = { [weak self] in self?.onToggleAudio?() }
+        raiseControlsOverDogEar()
     }
 
-    override var interactiveSubviews: [NSView] { [closeButton, moreButton, pinButton, disclosureButton, audioButton] }
+    /// In hit-test order: the dog-ear comes last, so a control that shows under its corner (the
+    /// tabs chevron, the session tree's fold, the audio button at the row's end) keeps its clicks,
+    /// and it draws over the fold (`raiseControlsOverDogEar`).
+    override var interactiveSubviews: [NSView] { [pinButton, disclosureButton, treeFoldButton, audioButton, closeButton, moreButton] }
     override var debugIcon: String? {
         switch iconKind {
         case nil: !agentMark.isHidden && agentMarkVariant == .besideTitle ? "agentMark" : nil
@@ -180,11 +197,13 @@ final class WorkspaceRowView: SidebarRowView {
         isSecondarySelected = false
         isOnScreen = false
         isDropTarget = false
+        closeNotch = nil
         onClose = nil
         onMore = nil
         (onPin, isPinned) = (nil, nil)
         onSelect = nil
         onToggleTabs = nil
+        onToggleTree = nil
         onToggleAudio = nil
         title.stopMarquee()
         title.layer?.removeAnimation(forKey: "workspace-title-motion")
@@ -211,6 +230,7 @@ final class WorkspaceRowView: SidebarRowView {
     func configure(_ ws: SidebarWorkspace, row: SidebarRow, badgeStyle: SidebarRowBadgeStyle? = nil) {
         lastConfiguration = (ws, row, badgeStyle)
         let tunables = observedTunables()
+        closeNotchLook = tunables.closeNotch
         let content = Content(
             ws: ws, group: row.group,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize,
@@ -218,7 +238,6 @@ final class WorkspaceRowView: SidebarRowView {
             disclosure: row.tabDisclosure, row: row.content
         )
         guard needsConfigure(content) else { return }
-        grouped = row.group != nil
         // A placeholder with a title (a connecting SSH machine, cx-gaq9) draws its text, not the bar.
         isShowingPlaceholder = ws.rowState == .placeholder && ws.title.isEmpty
         isPlaceholderRow = ws.rowState.isPending
@@ -282,11 +301,16 @@ final class WorkspaceRowView: SidebarRowView {
         // The bell-slash alone does not say what is muted: notifications, not the tabs' sound
         // (the row's accessibility label says it too).
         mutedMark.themedToolTip = mutedMark.isHidden ? nil : Strings.notificationsMuted
+        let previousMachine = machine
         machine = isShowingPlaceholder ? nil : shown.machine
+        // A new image only when the mark or its size changes: every patch and every row scrolled in configures the row.
         let machineSize = CGFloat.iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)
-        machineMark.image = machine.map { mark in
-            if let emoji = mark.emoji { return SidebarItemRowView.emojiImage(emoji, side: machineSize) }
-            return mark.symbol.map { NSImage.icon(symbol: $0, size: machineSize) } ?? NSImage.icon(mark.kindIcon, size: machineSize)
+        if machine != previousMachine || machineSize != machineMarkSize || (machine != nil && machineMark.image == nil) {
+            machineMarkSize = machineSize
+            machineMark.image = machine.map { mark in
+                if let emoji = mark.emoji { return SidebarItemRowView.emojiImage(emoji, side: machineSize) }
+                return mark.symbol.map { NSImage.icon(symbol: $0, size: machineSize) } ?? NSImage.icon(mark.kindIcon, size: machineSize)
+            }
         }
         machineMark.isHidden = machineMark.image == nil
         audio = isShowingPlaceholder ? nil : ws.audio

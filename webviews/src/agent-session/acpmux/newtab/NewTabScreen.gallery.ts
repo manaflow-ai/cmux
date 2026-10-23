@@ -299,13 +299,16 @@ export default agentPaneEntry({
     // and the composer, with chats on this Mac it does not list. `minimal-default` is a host that
     // sends no template (the app's unset key); `minimal-widgets` turns the stage's widgets on.
     "minimal-default": {
-      note: "Minimal, New Tab's default layout: a quiet greeting over the composer, which keeps its folder and machine, model, effort, mic and Send. No project card, quick actions, chats or template dots: those are widgets, off by default.",
+      note: "Minimal, New Tab's default layout: a quiet greeting over the composer, which keeps its folder and machine, model, effort, mic and Send, and under the page the two composer look dots (Claude, Codex). No project card, quick actions, chats or other template dots: those are widgets, off by default.",
       ready: newTab({ template: undefined }),
       snapshot: noChat(manySessions(12)),
       play: async (ctx: PlayContext) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-greeting") !== null);
-        const extra = ctx.document.querySelector(".nt-stage, .nt-cards, .nt-create, .nt-style");
+        const extra = ctx.document.querySelector(".nt-stage, .nt-cards, .nt-create");
         if (extra) throw new Error(`the minimal page shows ${extra.className}`);
+        // The two look dots only (newtab/PageDots.tsx, Leo 2026-10-22), not the other styles.
+        const dots = ctx.document.querySelectorAll(".nt-style input[type=radio]").length;
+        if (dots !== 2) throw new Error(`the minimal page shows ${dots} dots, not the two looks`);
       },
     },
     "minimal-widgets": {
@@ -318,6 +321,18 @@ export default agentPaneEntry({
       play: async (ctx: PlayContext) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
         await ctx.waitFor(() => ctx.document.querySelector(".nt-style") !== null);
+      },
+    },
+    "minimal-stage-foot": {
+      note: "Minimal with the project card, quick actions and recent chats on, the template dots off: the composer at the page's foot, its quiet row a few px over the page's bottom edge, as Claude Code's (Leo 2026-10-21).",
+      ready: newTab({
+        template: "minimal",
+        pageWidgets: ["greeting", "projects", "actions", "chats"],
+      }),
+      snapshot: noChat(manySessions(12)),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-foot .acpmux-composer-foot") !== null);
       },
     },
     // Minimal's widgets in the user's order (`tabs.newTabWidgets.order`) and its edit mode

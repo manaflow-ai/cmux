@@ -378,15 +378,12 @@ async fn a_message_that_went_in_with_others_takes_a_reply_in_place() {
     let init = json!({"protocolVersion": 1, "clientInfo": {"name": "test"}});
     app.request(method::INITIALIZE, init).await.unwrap();
     app.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
-    let hidden = json!({"sessionId": sender, "limit": 0, "visible": false});
-    app.request(method::MUX_ATTACH, hidden).await.unwrap();
-    // A reply to the second, which joined the first's turn.
-    let reply = json!({"kind": "agent_message", "from": format!("acp:{id}"), "to": format!("acp:{sender}"),
-                       "msgId": "m-reply", "threadId": "thread-1", "replyTo": "msg-1"});
-    let params = json!({"sessionId": sender, "prompt": [{"type": "text", "text": "Got it."}],
-                        "_meta": {"acpmux": {"promptId": "p-reply", "provenance": reply}}});
-    let answered = app.request(method::SESSION_PROMPT, params).await;
-    assert!(answered.is_ok(), "{answered:?}");
+    // A reply to the second, which joined the first's turn (`server/app_reply.rs`).
+    let params = json!({"sessionId": id, "to": sender, "replyTo": "msg-1", "threadId": "thread-1",
+                        "text": "Got it.", "replyId": "m-reply"});
+    let answered = app.request(method::MUX_APP_REPLY, params).await;
+    let reply_to = answered.as_ref().ok().map(|a| a["reply"]["replyTo"].clone());
+    assert_eq!(reply_to, Some(json!("msg-1")), "{answered:?}");
 }
 
 /// An agent's slash command (`/compact`) runs only as a turn's first words: it goes in alone,

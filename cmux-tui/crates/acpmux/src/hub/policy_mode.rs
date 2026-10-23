@@ -97,8 +97,12 @@ pub(crate) fn policy_mode(
     if family == "opencode" {
         return None;
     }
-    if policy == PermissionPolicy::DenyAll && available.iter().any(|m| m == "read-only") {
-        return Some("read-only".to_owned());
+    // Codex names its read-only mode `read-only`, Muse Code (muse-acp) `readOnly`: either
+    // refuses every write and shell command, so deny-all holds there.
+    if policy == PermissionPolicy::DenyAll
+        && let Some(mode) = available.iter().find(|m| *m == "read-only" || *m == "readOnly")
+    {
+        return Some(mode.clone());
     }
     super::start_mode::asking_mode(family, available)
 }
@@ -386,6 +390,19 @@ mod tests {
         ] {
             assert_eq!(policy_mode(policy, "codex", &codex).as_deref(), Some(mode), "{policy}");
         }
+    }
+
+    /// Muse Code through muse-acp offers `default`, `readOnly` and `plan`, and asks through its
+    /// approval option, not a mode: deny-all holds in `readOnly`; the asking policies have no
+    /// mode that keeps them.
+    #[test]
+    fn muse_deny_all_runs_read_only() {
+        let muse = ids(&["default", "readOnly", "plan"]);
+        assert_eq!(
+            policy_mode(PermissionPolicy::DenyAll, "muse", &muse).as_deref(),
+            Some("readOnly")
+        );
+        assert_eq!(policy_mode(PermissionPolicy::Ask, "muse", &muse), None);
     }
 
     #[test]

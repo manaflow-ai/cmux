@@ -13,7 +13,7 @@
 // cannot launch them (requireBrowserLane). Locally:
 // CMUX_BROWSER_TESTS=1 bun test test/chat-inspector-overlay-toggle.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { chromium, webkit, type Browser, type BrowserType, type Locator, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
 
@@ -63,8 +63,9 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
   ];
 
   /// The chat with the Inspector on (Debug Settings `agent.inspector`, pushed with the header
-  /// state) and the tab row offered, open over the chat and done entering.
-  const openInspector = async (page: Page, tabRow: number) => {
+  /// state) and the tab row offered, open in `placement` (over the chat by default: a 1600px pane's
+  /// gutter has room for it; a 700px pane's has none, so it pushes) and done entering.
+  const openInspector = async (page: Page, tabRow: number, placement: "overlay" | "push" = "overlay") => {
     await page.evaluate((height) => {
       const bridge = (
         window as unknown as {
@@ -78,7 +79,7 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
     const toggle = page.locator("button.acpmux-chat-inspector-toggle");
     await toggle.waitFor({ timeout: 10_000 });
     if ((await panel.count()) === 0) await toggle.click({ force: true });
-    await page.locator('aside.acpmux-chat-inspector[data-placement="overlay"][data-presence="shown"]').waitFor({
+    await page.locator(`aside.acpmux-chat-inspector[data-placement="${placement}"][data-presence="shown"]`).waitFor({
       timeout: 10_000,
     });
     return { panel, toggle };
@@ -88,7 +89,8 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
     for (const { name: row, tabRow } of rows)
       test(`${name}, ${row}: the toggle is above the open overlay and a click on it closes the Inspector`, async () => {
         current = browsers.get(name)!;
-        const page = await pane!.open({ width: 900, height: 520 });
+        // Wide enough that the panel floats in the gutter beside the transcript (ChatInspector.tsx pushes).
+        const page = await pane!.open({ width: 1600, height: 520 });
         try {
           const { panel, toggle } = await openInspector(page, tabRow);
           expect(await toggle.getAttribute("aria-pressed")).toBe("true");
@@ -163,7 +165,7 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
             scrolls: body.scrollHeight > body.clientHeight + 1,
           };
         });
-      const tall = await pane!.open({ width: 900, height: 1400 });
+      const tall = await pane!.open({ width: 1600, height: 1400 });
       try {
         await openInspector(tall, 0);
         const { empty, bottom, pane: height } = await measure(tall);
@@ -172,13 +174,190 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
         await tall.close();
       }
       // The harness's sections are about 160px tall: a 160px pane leaves them about 110.
-      const short = await pane!.open({ width: 900, height: 160 });
+      const short = await pane!.open({ width: 1600, height: 160 });
       try {
         await openInspector(short, 0);
         const { bottom, pane: height, scrolls } = await measure(short);
         expect({ inside: bottom <= height - 8 + 0.5, scrolls }).toEqual({ inside: true, scrolls: true });
       } finally {
         await short.close();
+      }
+    });
+
+  // claude-sr2, 2026-10-22 (relaying Leo): over the in-pane diff the Inspector was "again a full-height
+  // column". It was the same card, but a busy chat's sections (Tasks 175, Subagents +94) are taller
+  // than any pane, so the card always reached the pane's foot. However tall its sections, the card
+  // stops at a ceiling (at most 560px, and never more than 80% of the room under the header) and
+  // its body scrolls: it never reads as a column, over the chat or over a diff. Pushing the chat
+  // aside (a 700px pane), it is the same card: its column below the card is the chat's page.
+  for (const name of browsers.keys())
+    test(`${name}: floating or pushing, the Inspector never runs the pane's height, however tall its sections`, async () => {
+      current = browsers.get(name)!;
+      for (const [width, placement] of [
+        [1600, "overlay"],
+        [700, "push"],
+      ] as const)
+        for (const height of [1400, 800, 420]) {
+          const page = await pane!.open({ width, height });
+          try {
+            const { panel } = await openInspector(page, 0, placement);
+            // A busy chat: every section taller than the pane.
+            await page.addStyleTag({ content: "aside.acpmux-chat-inspector [data-section] { min-height: 1600px; }" });
+            const { top, bottom, scrolls } = await panel.evaluate((node) => {
+              const box = node.getBoundingClientRect();
+              const body = node.querySelector(".acpmux-chat-inspector__body")!;
+              return { top: box.top, bottom: box.bottom, scrolls: body.scrollHeight > body.clientHeight + 1 };
+            });
+            const room = height - top;
+            expect({ width, height, short: bottom - top <= Math.min(560, room * 0.8) + 0.5, scrolls }).toEqual({
+              width,
+              height,
+              short: true,
+              scrolls: true,
+            });
+          } finally {
+            await page.close();
+          }
+        }
+    });
+
+  // Leo, 2026-10-22: "the card should just end when there's no more content to show". The ceiling
+  // (560px, 80% of the room under the header) is only a maximum: below it the card's height is its
+  // content's, the same in a tall pane as in a short one, floating or pushing, with nothing under its
+  // last section but the body's own padding, and its body does not scroll. Folding a section shrinks
+  // the card with it, so no fixed or minimum height holds it open either.
+  /// The card's height, the room under its last section (the sections themselves, not the
+  /// `data-section` blocks inside them) and the body's bottom padding.
+  const fit = (panel: Locator) =>
+    panel.evaluate((node) => {
+      const box = node.getBoundingClientRect();
+      const body = node.querySelector(".acpmux-chat-inspector__body")!;
+      const sections = [...body.querySelectorAll(":scope > section[data-section]")];
+      const last = sections[sections.length - 1]!.getBoundingClientRect();
+      return {
+        top: box.top,
+        card: box.height,
+        endsAtContent: Math.abs(box.bottom - last.bottom - parseFloat(getComputedStyle(body).paddingBottom)) < 0.5,
+        scrolls: body.scrollHeight > body.clientHeight + 1,
+      };
+    });
+  for (const name of browsers.keys())
+    test(`${name}: floating or pushing, a card with little to show ends right after its last section, in any pane`, async () => {
+      current = browsers.get(name)!;
+      for (const [width, placement] of [
+        [1600, "overlay"],
+        [700, "push"],
+      ] as const) {
+        const cards: ({ height: number } & Awaited<ReturnType<typeof fit>>)[] = [];
+        let folded: { shrank: boolean; endsAtContent: boolean; scrolls: boolean } | undefined;
+        for (const height of [1400, 800, 520]) {
+          const page = await pane!.open({ width, height });
+          try {
+            const { panel } = await openInspector(page, 0, placement);
+            const open = await fit(panel);
+            cards.push({ height, ...open });
+            if (height !== 520) continue;
+            // Fold Environment: the card ends at its sections again, shorter by just its rows.
+            const environment = panel.locator('section[data-section="environment"]');
+            const rows = environment.locator(".ui-disclosure-panel");
+            const fold = await rows.evaluate((node) => node.getBoundingClientRect().height);
+            await environment.locator(".ui-disclosure-trigger").click();
+            await rows.waitFor({ state: "detached", timeout: 5_000 });
+            await page.evaluate(
+              () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
+            );
+            const after = await fit(panel);
+            folded = {
+              shrank: fold > 0 && Math.abs(open.card - after.card - fold) < 0.5,
+              endsAtContent: after.endsAtContent,
+              scrolls: after.scrolls,
+            };
+          } finally {
+            await page.close();
+          }
+        }
+        // The harness's sections are about 200px tall: well under the ceiling in every one of these panes.
+        const [first] = cards;
+        expect({
+          cards: cards.map(({ height, top, card, endsAtContent, scrolls }) => ({
+            placement,
+            height,
+            belowCeiling: card < Math.min(560, (height - top) * 0.8),
+            sameAsTallestPane: Math.abs(card - first!.card) < 0.5,
+            endsAtContent,
+            scrolls,
+          })),
+          folded,
+        }).toEqual({
+          cards: cards.map(({ height }) => ({
+            placement,
+            height,
+            belowCeiling: true,
+            sameAsTallestPane: true,
+            endsAtContent: true,
+            scrolls: false,
+          })),
+          folded: { shrank: true, endsAtContent: true, scrolls: false },
+        });
+      }
+    });
+
+  // Leo, 2026-10-22: "WHY DOES IT STAY ON IN THESE RANDOM SITUATIONS WITHOUT BEING CLOSABLE!?" Over a
+  // diff in place the chat header (with the toggle) is hidden, so the panel carries its own close
+  // button, and Esc closes it from anywhere but a text field (the composer keeps its own Esc).
+  /// Two painted frames: an Esc that closes the panel has drawn by then.
+  const frames = (page: Page) =>
+    page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+  for (const name of browsers.keys())
+    test(`${name}: the Inspector's own close button and Esc close it; Esc in the composer or on a popover leaves it open`, async () => {
+      current = browsers.get(name)!;
+      const page = await pane!.open({ width: 1600, height: 620 });
+      try {
+        const { panel, toggle } = await openInspector(page, 0);
+        // As over a diff in place: the header, and the toggle with it, out of reach.
+        await page.addStyleTag({ content: "header.acpmux-header { visibility: hidden; }" });
+        const close = page.locator("aside.acpmux-chat-inspector button.acpmux-chat-inspector__close");
+        await close.click({ timeout: 5_000 });
+        const byButton = await panel.waitFor({ state: "detached", timeout: 5_000 }).then(
+          () => true,
+          () => false,
+        );
+        // The header is hidden: the toggle opens it again through the DOM.
+        await toggle.evaluate((button: HTMLElement) => button.click());
+        await panel.waitFor({ timeout: 5_000 });
+        await page.locator("textarea, [contenteditable=true]").first().focus();
+        await page.keyboard.press("Escape");
+        await frames(page);
+        // Still open, not leaving (a leaving panel stays drawn while it slides out).
+        const keptInComposer = (await toggle.getAttribute("aria-pressed")) === "true";
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        // An open popover takes Esc first: the Inspector stays.
+        await page.evaluate(() => {
+          const popover = document.createElement("dialog");
+          popover.open = true;
+          popover.className = "ui-popup";
+          popover.innerHTML = "<button>Item</button>";
+          document.body.append(popover);
+          popover.querySelector("button")!.focus();
+        });
+        await page.keyboard.press("Escape");
+        await frames(page);
+        // Still open, not leaving (a leaving panel stays drawn while it slides out).
+        const keptUnderPopover = (await toggle.getAttribute("aria-pressed")) === "true";
+        await page.evaluate(() => document.querySelector("dialog.ui-popup")!.remove());
+        await page.keyboard.press("Escape");
+        const byEscape = await panel.waitFor({ state: "detached", timeout: 5_000 }).then(
+          () => true,
+          () => false,
+        );
+        expect({ byButton, keptInComposer, keptUnderPopover, byEscape }).toEqual({
+          byButton: true,
+          keptInComposer: true,
+          keptUnderPopover: true,
+          byEscape: true,
+        });
+      } finally {
+        await page.close();
       }
     });
 });

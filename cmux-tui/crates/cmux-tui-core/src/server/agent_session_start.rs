@@ -39,6 +39,7 @@
 //! as `cmux acp` does) and connects again; otherwise
 //! `agent_session.acpmux_unavailable`.
 
+use crate::panic_free::JsonFields;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -408,12 +409,12 @@ fn start_and_bind(
     }
     let mut meta = json!({"policy": "ask"});
     if let Some(harness) = &params.harness {
-        meta["harness"] = json!(harness);
+        meta.insert("harness", json!(harness));
     }
     // The workspace of the tab, read here and never taken from the client:
     // acpmux gives the session that workspace's display (none without it).
     if let Some(workspace) = mux.surface_workspace_key(params.surface) {
-        meta["workspaceId"] = json!(workspace);
+        meta.insert("workspaceId", json!(workspace));
     }
     // The folder acpmux checked (its canonical path), so a symlink changed
     // after the trust answer cannot move the agent elsewhere.
@@ -555,7 +556,7 @@ pub(super) fn read_mode(link: &AcpmuxLink, session: &str) -> Result<Value, Refus
 /// `AcpmuxSessionCensus.isChief`), from a `_acpmux/sessions` summary.
 pub(in crate::server) fn is_chief(summary: &Value) -> bool {
     let text = |key: &str| summary[key].as_str().unwrap_or_default();
-    summary["tags"].get("cmux.chief").is_some()
+    summary.field("tags").get("cmux.chief").is_some()
         || text("name").starts_with("optchat-")
         || text("harness").starts_with("optchat-compact-")
 }

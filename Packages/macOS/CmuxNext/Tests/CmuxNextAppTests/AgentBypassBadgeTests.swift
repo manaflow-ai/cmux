@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+@testable import CmuxNextApp
 @testable import CmuxNextBridge
 @testable import CmuxNextDaemon
 @testable import CmuxNextDaemonService
@@ -102,9 +103,9 @@ struct AgentBypassBadgeTests {
                 .group(SidebarGroup(id: GroupID("grp-hb"), name: "lanes", workspaces: [SidebarWorkspace(id: WorkspaceID("ws-hb"), machineID: remote, title: "hb")])),
             ]),
         ]
-        #expect(SidebarEdits.group(named: "lanes", accepting: [lane], in: sections) == GroupID("grp-hb"))
-        #expect(SidebarEdits.group(named: "other", accepting: [lane], in: sections) == nil)
-        #expect(SidebarEdits.group(named: "lanes", accepting: [WorkspaceID("ws-mac")], in: sections) == GroupID("grp-mac"))
+        #expect(AgentSessionWorkspace.group(named: "lanes", accepting: lane, in: sections) == GroupID("grp-hb"))
+        #expect(AgentSessionWorkspace.group(named: "other", accepting: lane, in: sections) == nil)
+        #expect(AgentSessionWorkspace.group(named: "lanes", accepting: WorkspaceID("ws-mac"), in: sections) == GroupID("grp-mac"))
     }
 
     /// The refusals only an adopt gives say what happened, not "refused to start".

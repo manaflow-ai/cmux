@@ -53,7 +53,7 @@
 .acpmux-summary-text{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .acpmux-summary-meta{flex:none;color:var(--agent-muted);font-size:var(--text-detail);font-variant-numeric:tabular-nums}
 .acpmux-summary-link,.acpmux-summary-more{transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
-.acpmux-summary-link:hover,.acpmux-summary-more:hover{background:var(--acpmux-menu-hover)}
+.acpmux-summary-link:hover:not(:disabled),.acpmux-summary-more:hover{background:var(--acpmux-menu-hover)}
 .acpmux-summary-link:active,.acpmux-summary-more:active{background:color-mix(in srgb,var(--agent-text) 18%,var(--acpmux-base))}
 .acpmux-summary-link:focus-visible,.acpmux-summary-more:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 .acpmux-summary-link:disabled{color:var(--agent-muted)}
@@ -176,3 +176,9 @@
 .acpmux-summary-empty{margin:0;padding:10px 8px 6px;color:var(--agent-muted);font-size:var(--text-detail);line-height:16px}
 .acpmux-summary-attach{margin-top:2px;color:var(--agent-muted)}
 .acpmux-summary-attach:hover{color:var(--agent-text)}
+/* Sources' Use tools (SourcesAddMenu.tsx): a check row per tool, its name then its source muted; a change's note (when it applies, or why not) takes the source's place, the warning colour for a refusal. */
+.acpmux-tools-row>.ui-menu-check{flex:none}
+.acpmux-tools-name{flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.acpmux-tools-source,.acpmux-tools-note{flex:0 1 auto;min-width:0;margin-inline-start:auto;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--agent-muted);font-size:var(--text-detail)}
+.acpmux-tools-note[data-kind=error]{color:var(--acpmux-warning)}
+.acpmux-tools-empty{padding:4px var(--ui-row-padding-inline);color:var(--agent-muted)}

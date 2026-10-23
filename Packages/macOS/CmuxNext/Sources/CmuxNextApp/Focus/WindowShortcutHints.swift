@@ -63,7 +63,11 @@ final class WindowShortcutHints {
         // One source of truth: the digit Cmd-digit selects (SidebarItemOrder.pick's inverse), for every
         // sidebar destination drawn (Home, the App Store, collapsed groups, workspace rows).
         let order = controller.sidebar.model.itemOrder, navigation = SidebarNavigation.settings(controller.services)
-        for (item, rect) in sidebar.shortcutHintItemFrames.sorted(by: { $0.value.minY < $1.value.minY }) {
+        // The thin rail (`sidebar.style` = rail) draws each chip beside its tick.
+        let container = controller.sidebar.container, rail = container.railView
+        let frames: [SidebarItem: CGRect] = container.isRailShown
+            ? rail.shortcutHintItemFrames.mapValues { sidebar.convert($0, from: rail) } : sidebar.shortcutHintItemFrames
+        for (item, rect) in frames.sorted(by: { $0.value.minY < $1.value.minY }) {
             guard let digit = order.number(for: item, navigation), let text = label("selectWorkspaceByNumber", digit: digit) else { continue }
             hints.append(.init(text: text, rect: root.convert(rect, from: sidebar), target: Self.target(item)))
         }
@@ -74,7 +78,9 @@ final class WindowShortcutHints {
         }
         if let pane = controller.content?.panes.values.first(where: { $0.paneKey == controller.focus.state.pane }) {
             let strip = pane.view.stripView
-            let order = strip.presentedTabIDs
+            // Select Tab 1…9 counts the tabs the strip shows: a collapsed group's members take no number.
+            let visible = Set(pane.stripModel.visibleOrderedTabs.map(\.id))
+            let order = strip.presentedTabIDs.filter(visible.contains)
             for (id, rect) in TabShortcutHintGeometry().frames(in: strip) {
                 guard let index = order.firstIndex(of: id) else { continue }
                 guard index < 8 || index == order.count - 1 else { continue }
@@ -88,7 +94,7 @@ final class WindowShortcutHints {
         if let content = controller.content,
            let focused = content.panes.values.first(where: { $0.paneKey == controller.focus.state.pane }),
            let screen = content.layoutModel.screen(containing: focused.layoutPaneID) {
-            let plan = PaneNavigationHintPlan(order: screen.layout.panes, focused: focused.layoutPaneID) { move in
+            let plan = PaneNavigationHintPlan(order: screen.layout.visualPanes, focused: focused.layoutPaneID) { move in
                 let direction: LayoutDirection? = switch move {
                 case .left: .left
                 case .right: .right

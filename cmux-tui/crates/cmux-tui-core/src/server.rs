@@ -257,6 +257,7 @@ use split_respawn::{
 };
 mod terminal_create;
 mod terminal_history;
+mod terminal_ports;
 mod terminal_resources;
 mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
@@ -387,6 +388,10 @@ pub const MACHINE_USAGE_CAPABILITY: &str = "machine-usage-v1";
 /// client. Cloud clients use this over the private cmux-tui link, so routine
 /// port inventory never needs a provider or web control-plane call.
 pub const MACHINE_LISTENING_TCP_CAPABILITY: &str = "machine-listening-tcp-v1";
+/// The daemon answers `terminal-ports`: loopback ports the terminal's text
+/// names (also from tmux panes) that accept a connect
+/// (workspace-proxy-DESIGN.md section 6). No process scanning.
+pub const TERMINAL_PORTS_CAPABILITY: &str = "terminal-ports-v1";
 /// Advertises `set-terminal-idle-policy` and the owner-side reaper that
 /// closes a terminal once it has had no attached view for its policy.
 pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
@@ -1482,6 +1487,11 @@ enum Command {
     ProcessInfo {
         surface: SurfaceId,
     },
+    /// Dev-server ports the terminal shows that accept a loopback connect
+    /// (`terminal-ports-v1`), read when the request arrives.
+    TerminalPorts {
+        surface: SurfaceId,
+    },
     /// CPU time and memory of terminal process trees, read on request.
     /// Omitted `surfaces` means every PTY surface.
     TerminalResources {
@@ -2235,6 +2245,7 @@ impl Command {
             | Self::BrowserReload { surface }
             | Self::BrowserActivate { surface }
             | Self::ProcessInfo { surface }
+            | Self::TerminalPorts { surface }
             | Self::MoveTab { surface, .. }
             | Self::MoveTabToWorkspace { surface, .. }
             | Self::CloseSurface { surface }

@@ -177,6 +177,10 @@ final class GroupHeaderRowView: SidebarRowView {
     override var debugDisclosure: (icon: String, frame: CGRect, shown: Bool)? { (chevronIcon.rawValue, chevron.frame, !chevron.isHidden) }
 
     override var titleFrame: NSRect { name.frame }
+    /// The unread state the header's badge shows (nested-groups tests: a folded parent's roll-up).
+    var debugBadge: UnreadState { badge.state }
+    /// Whether the header shows a loading or activity mark.
+    var debugActivityVisible: Bool { activity.state.isVisible }
     /// The member count a collapsed header shows, nil when it shows none.
     var countText: String? { count.isHidden || count.stringValue.isEmpty ? nil : count.stringValue }
     /// The count's label, laid out (`SidebarGroupChromeLookTests`).
@@ -311,7 +315,8 @@ final class GroupHeaderRowView: SidebarRowView {
         // radius, padding, type and glyphs scale with the row height
         // (the sidebar density: compact 24, comfortable 32 pt).
         // The bar fills the row (as tall as a workspace row); the type and glyphs keep their scale.
-        let barHeight = SidebarStyle.groupHeaderContentHeight(rowHeight: b.height)
+        // Type and glyphs follow a one-line row: an Expanded header is two lines tall, its name is not bigger.
+        let barHeight = SidebarStyle.groupHeaderContentHeight(rowHeight: min(b.height, SidebarLayoutMetrics.standard.rowHeight))
         let pad = (barHeight * 0.62).rounded()
         // The name starts where ungrouped rows start (`SidebarStyle.horizontalInset`): an icon
         // on their icon column with the name on their text column, or the name alone on it.
@@ -395,7 +400,8 @@ final class GroupHeaderRowView: SidebarRowView {
         // The cx-rcby chip: one full-width rounded bar, the row's full height like a workspace row's fill.
         pill.frame = NSRect(x: 0, y: 0, width: b.width, height: b.height)
         pill.cornerRadius = SidebarStyle.rowCornerRadius // one radius with the pinned and workspace rows
-        // The dot is centred on the group line's x, where the line starts (SidebarListView+GroupLines).
+        // The quiet styles' dot sits in the header's leading corner; the members' line runs just
+        // left of the rows (SidebarStyle.groupLineX), as the rows keep the ungrouped rows' left edge.
         let dotSide = SidebarStyle.groupDotSize
         dot.frame = CGRect(x: SidebarStyle.groupBarX + SidebarStyle.groupBarWidth / 2 - dotSide / 2, y: (b.height - dotSide) / 2,
                            width: dotSide, height: dotSide)

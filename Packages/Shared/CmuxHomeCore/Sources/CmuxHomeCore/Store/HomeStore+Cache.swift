@@ -12,6 +12,18 @@ extension HomeStore {
         viewCache.setDraft(text, for: id)
     }
 
+    /// The attachments left in a conversation's compose field, in order;
+    /// one whose bytes left the blob cache is skipped.
+    public func draftAttachments(for id: ConversationID) -> [LocalAttachment] {
+        (viewCache.draftAttachments[id] ?? []).compactMap(\.local)
+    }
+
+    /// Keeps the compose field's attachments (their files stay in the blob
+    /// cache); none clears them.
+    public func setDraftAttachments(_ attachments: [LocalAttachment], for id: ConversationID) {
+        viewCache.setDraftAttachments(attachments.map(HomeCachedDraftAttachment.init), for: id)
+    }
+
     public func scrollAnchor(for id: ConversationID) -> HomeScrollAnchor? { viewCache.scrollAnchors[id] }
 
     /// Where the reader is; nil when at the bottom.
@@ -19,18 +31,35 @@ extension HomeStore {
         viewCache.setScrollAnchor(anchor, for: id)
     }
 
+    /// The cache's conversations and sends in `rows` now, before `start()` connects: a view built
+    /// before the store starts (the Home list at launch) draws its first frame complete. Idempotent.
+    public func primeFromCache() {
+        guard !stopped else { return }
+        restoreCache()
+    }
+
     /// Writes the coalesced cache batch now (app quit), without stopping.
     public func flushCache() {
         viewCache.flush()
     }
 
-    /// Shows what the cache holds before the owner answers.
+    /// Shows what the cache holds before the owner answers. Once per store: the Home list calls it
+    /// before its first frame (``primeFromCache()``), `start()` again.
     func restoreCache() {
+        guard !cacheRestored else { return }
+        cacheRestored = true
         guard let snapshot = cache?.load() else { return }
         viewCache.restore(snapshot) {
             mirror.seed(snapshot)
             seeded = Set(mirror.conversations.keys)
             me = mirror.me
+            // A draft's files are this client's own, like a prepare's: the prune keeps them, and
+            // they count as used now for a store on the same directory that does not hold them.
+            for cached in viewCache.draftAttachments.values.joined() {
+                guard let attachment = cached.local else { continue }
+                localFiles[attachment.ref.hash] = attachment.files
+                for url in cached.urls { AttachmentMedia.touch(url.deletingLastPathComponent()) }
+            }
             for send in snapshot.sends { log.restore(send.intent, failed: send.failed) }
             rebuildRows()
             for id in Set(snapshot.windows.keys).union(snapshot.sends.map(\.conversation)) { bumpTranscript(id) }

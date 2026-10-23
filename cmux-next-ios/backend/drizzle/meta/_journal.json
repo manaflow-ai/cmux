@@ -15,6 +15,20 @@
       "when": 1791949241025,
       "tag": "0001_push_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792636132059,
+      "tag": "0002_team_prefs_transparent",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792641637765,
+      "tag": "0003_device_machine_id",
+      "breakpoints": true
     }
   ]
 }
