@@ -5,7 +5,7 @@
 //! message, while a changed payload is rejected. Delivery state is scoped to
 //! the recipient so one agent cannot acknowledge another agent's message.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

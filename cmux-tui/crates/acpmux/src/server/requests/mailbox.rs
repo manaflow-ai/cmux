@@ -7,7 +7,7 @@
 
 use super::*;
 use crate::mailbox::{MailboxError, SendInput};
-use crate::session_identity::{SessionReceipt, LOCAL_HOST_ID};
+use crate::session_identity::{LOCAL_HOST_ID, SessionReceipt};
 use serde_json::Value;
 use std::collections::BTreeMap;
 

@@ -298,7 +298,8 @@ fn every_routed_scope_prints_its_own_help() {
 #[test]
 fn cmux_route_is_gone() {
     let names = Names::new("route-gone");
-    for args in [&["route", "--help"][..], &["route", "add", "--help"], &["acp", "route", "--help"]] {
+    for args in [&["route", "--help"][..], &["route", "add", "--help"], &["acp", "route", "--help"]]
+    {
         let output = names.run("cmux", args);
         let all = format!("{}{}", text(&output.stdout), text(&output.stderr));
         assert!(!all.contains("route file"), "{args:?} still describes routes:\n{all}");
