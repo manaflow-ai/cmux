@@ -79,6 +79,7 @@ struct AgentPageHibernationTests {
     }
 
     @MainActor final class Asked { var count = 0 }
+    @MainActor final class AskedPages { var count: [ObjectIdentifier: Int] = [:] }
 
     @Test func aChatHiddenPastTheThresholdLetsItsPageGoAndShowsTheSameChatAgain() async throws {
         let rig = Rig()
@@ -296,7 +297,60 @@ struct AgentPageHibernationTests {
         #expect(Set(rig.displaced) == Set(keys.prefix(perPass)), "the chats left longest ago did not go first")
         rig.hibernation.replan()
         #expect(rig.hibernation.releasingCount == perPass, "the next pass did not start")
+        // A release counts as in flight until it ends, its frame's hold included: it used to stop
+        // counting before that hold, so the pace undercounted and this test ended while a release
+        // still ran, which then read the freed Rig's clock and fronts.
         await rig.settle { rig.hibernation.releasingCount == 0 }
+        #expect(rig.hibernation.releasedCount == 2 * perPass, "a release still ran after it stopped counting as in flight")
+    }
+
+    /// The chats check (16 chats in one pane, budget 13): 15 or 16 chat pages stayed live and one
+    /// went. A connected page that does not say what it holds in time stays (its chips), but it
+    /// stayed first in the budget order, so every pass asked it again and the chats past the
+    /// budget behind it never went. A kept chat now steps out of the budget for
+    /// `HibernationPlanner.keptHold`, as a browser page the probe kept: the next chat past the
+    /// budget goes, and the kept one is asked again after its hold.
+    @Test func aChatThatDoesNotSayWhatItHoldsDoesNotHoldUpTheOthers() async throws {
+        let rig = Rig()
+        let asked = AskedPages()
+        rig.hibernation.wakeState = { view in
+            asked.count[ObjectIdentifier(view), default: 0] += 1
+            return nil
+        }
+        rig.hibernation.warmPages = { 1 }
+        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
+        var quiet: [AgentPaneView] = []
+        for key in ["tab_quiet_a", "tab_quiet_b", "tab_next", "tab_recent"] {
+            let page = try rig.hiddenChat(key, session: "s-\(key)")
+            if key.hasPrefix("tab_quiet") {
+                // Connected: a page that does not answer keeps what it holds.
+                _ = await page.model.respond(to: AgentPaneRequest(body: ["method": "ready", "params": ["reconnect": true]]))
+                try #require(page.model.hasHandshake, "the reconnect handshake did not run")
+                quiet.append(page)
+            }
+            rig.elapsed += .seconds(1)
+        }
+        let asks = { quiet.map { asked.count[ObjectIdentifier($0), default: 0] } }
+
+        // The first pass asks the two chats left longest ago; both stay.
+        rig.advance(minutes: 1.5)
+        await rig.settle { rig.hibernation.releasingCount == 0 }
+        #expect(asks() == [1, 1], "the first pass did not ask the two chats left longest ago")
+        #expect(rig.tabs.existingView("tab_quiet_a") === quiet[0] && rig.tabs.existingView("tab_quiet_b") === quiet[1],
+                "a connected chat that did not say what it holds let its page go")
+
+        // The next pass (`Pace.interval` later) takes the chat past the budget behind them.
+        rig.hibernation.replan()
+        await rig.settle { rig.hibernation.releasingCount == 0 && rig.tabs.existingView("tab_next") == nil }
+        #expect(rig.tabs.existingView("tab_next") == nil, "the kept chats held up the chat past the budget behind them")
+        #expect(asks() == [1, 1], "the kept chats were asked again before their hold ended")
+        #expect(rig.tabs.existingView("tab_recent") != nil, "the chat inside the budget let its page go")
+
+        // After the hold they are asked again.
+        rig.advance(minutes: HibernationPlanner.keptHold(times: 1) / 60 + 0.1)
+        await rig.settle { rig.hibernation.releasingCount == 0 && asks() == [2, 2] }
+        #expect(asks() == [2, 2], "the kept chats were not asked again after their hold")
+        #expect(rig.tabs.existingView("tab_recent") != nil)
     }
 
     /// A chat hidden ten minutes in front of the workspace left last (warm, out of the budget)
