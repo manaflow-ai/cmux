@@ -19,10 +19,16 @@ import os
 /// entry as soon as an event finds one it can open (someone else's link or file
 /// put at the path, a link restored by another path). On each event it runs
 /// one `lstat` on `queue` and calls `onMissing` only when nothing is at the
-/// path; a path that exists is left alone, whoever owns it. A directory watch
-/// on a shared directory (/tmp: a socket-path override there, or another
-/// socket holding the link's path) wakes on every write there by any process;
-/// it is logged once so idle measurements can see it.
+/// path; a path that exists is left alone, whoever owns it.
+///
+/// A directory watch on a shared directory (/tmp) wakes on every write there by
+/// any process. It is kept only where it is the point: this app's own socket at
+/// a socket-path override in /tmp (the hq#1870 cleaner case), logged once so
+/// idle measurements can see it. A watch made with `yieldsToHeldPath` (the /tmp
+/// compatibility link) watches nothing while an entry it cannot follow holds
+/// the path in a shared directory (another app's live socket, such as a classic
+/// cmux build of the same channel or tag): the link cannot be made while that
+/// entry is there, so the link is dropped for this run and logged once.
 ///
 /// Every watch is made and swapped on `queue`, the queue its events run on, so
 /// an event never sees a half-installed watch and no older watch replaces a
@@ -41,12 +47,20 @@ final class ControlSocketPathWatch: Sendable {
     let path: String
     private let queue: DispatchQueue
     private let onMissing: @Sendable () -> Bool
+    /// Watch nothing while a foreign entry holds the path in a shared directory.
+    private let yieldsToHeldPath: Bool
+    // Lock carve-out: stop() runs off `queue` and must cancel the installed watch synchronously
+    // (deinit); held only to swap one reference.
     private let source = Mutex<(any DispatchSourceFileSystemObject)?>(nil)
+    // Lock carve-out: read and written synchronously by checkPath on `queue` and by the retry
+    // timer's handler; a tiny struct, never held across a call out.
     private let failures = Mutex(Failures())
     /// The retry after ``maxFailedRestores`` failures in a row.
     private let retry = DemandTimer(owner: "ControlSocketPathWatch.retry")
+    #if DEBUG
     /// Path checks run so far: each is one wakeup of `queue` (tests count them).
     let checks = Atomic<Int>(0)
+    #endif
 
     struct Failures {
         var inARow = 0
@@ -54,11 +68,10 @@ final class ControlSocketPathWatch: Sendable {
         var backoff = Backoff(initial: .seconds(1), maximum: .seconds(60))
     }
 
-    /// `yieldsToHeldPath`: watch nothing while a foreign entry holds the path in a shared
-    /// directory (not yet honored).
     init(path: String, queue: DispatchQueue, yieldsToHeldPath: Bool = false, onMissing: @escaping @Sendable () -> Bool) {
         self.path = path
         self.queue = queue
+        self.yieldsToHeldPath = yieldsToHeldPath
         self.onMissing = onMissing
     }
 
@@ -67,7 +80,7 @@ final class ControlSocketPathWatch: Sendable {
     }
 
     func start() {
-        stopped.withLock { $0 = false }
+        stopped.store(false, ordering: .sequentiallyConsistent)
         queue.async { [weak self] in
             guard let self else { return }
             self.watch()
@@ -79,7 +92,8 @@ final class ControlSocketPathWatch: Sendable {
 
     func stop() {
         retry.cancel()
-        stopped.withLock { $0 = true }
+        // Set before the swap below: a watch() that takes the source lock after it sees it.
+        stopped.store(true, ordering: .sequentiallyConsistent)
         source.withLock { watch in
             watch?.cancel()
             watch = nil
@@ -87,10 +101,10 @@ final class ControlSocketPathWatch: Sendable {
     }
 
     /// Set by ``stop()``: a check in flight on `queue` then watches nothing again.
-    private let stopped = Mutex(true)
+    private let stopped = Atomic<Bool>(true)
 
-    /// The directory watch is on a shared directory; logged once per watch.
-    private let loggedSharedDirectory = Mutex(false)
+    /// The directory watch is on a shared directory, or the path is held there; logged once per watch.
+    private let loggedSharedDirectory = Atomic<Bool>(false)
 
     /// On `queue`: watches the entry at the path, or its directory when the entry cannot be
     /// opened (a socket file, nothing there); replaces the watch in place. `entryOnly`: keep
@@ -105,6 +119,14 @@ final class ControlSocketPathWatch: Sendable {
             descriptor = entry
         } else {
             let parent = (path as NSString).deletingLastPathComponent
+            let shared = Self.isShared(parent.isEmpty ? "." : parent)
+            if shared, yieldsToHeldPath, Self.exists(path) {
+                // Another entry (a live socket) holds the path: nothing can be made there while it
+                // does, and watching /tmp would wake on every write by any process.
+                dropWatch()
+                noteOnce("socket path watch off for \(self.path): another entry holds the path in \(parent); the link is not made this run")
+                return
+            }
             descriptor = open(parent.isEmpty ? "." : parent, O_EVTONLY)
             guard descriptor >= 0 else {
                 // Without the watch a deleted socket stays gone until relaunch; say so once.
@@ -112,7 +134,7 @@ final class ControlSocketPathWatch: Sendable {
                 pathWatchLog.error("socket path watch off: cannot open \(parent, privacy: .public): \(error, privacy: .public)")
                 return
             }
-            noteSharedDirectory(parent)
+            if shared { noteOnce("socket path watch on shared directory \(parent) for \(self.path): wakes on every write there") }
         }
         let mask: DispatchSource.FileSystemEvent = followsEntry ? [.delete, .rename, .revoke] : [.write, .rename, .delete]
         let watch = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: mask, queue: queue)
@@ -122,15 +144,21 @@ final class ControlSocketPathWatch: Sendable {
         // Resumed before it is published (an inactive source must never be cancelled or
         // released); its events run on `queue`, after this install.
         watch.resume()
-        let installed = stopped.withLock { stopped -> Bool in
-            guard !stopped else { return false }
-            source.withLock { current in
-                current?.cancel()
-                current = watch
-            }
+        let installed = source.withLock { current -> Bool in
+            guard !stopped.load(ordering: .sequentiallyConsistent) else { return false }
+            current?.cancel()
+            current = watch
             return true
         }
         if !installed { watch.cancel() }
+    }
+
+    /// On `queue`: cancels the current watch and watches nothing.
+    private func dropWatch() {
+        source.withLock { current in
+            current?.cancel()
+            current = nil
+        }
     }
 
     /// An event on `queue`. The entry a watch follows was deleted, renamed or revoked: whatever
@@ -140,29 +168,40 @@ final class ControlSocketPathWatch: Sendable {
         let restored = checkPath()
         if followingEntry || restored {
             watch()
-        } else if !stopped.withLock({ $0 }) {
-            var info = stat()
-            if lstat(path, &info) == 0 { watch(entryOnly: true) }
+        } else if !stopped.load(ordering: .sequentiallyConsistent), Self.exists(path) {
+            // An entry it cannot follow is there now: a yielding watch lets go of the directory.
+            watch(entryOnly: !yieldsToHeldPath)
         }
     }
 
-    /// Logs once that the watch wakes on every write in a directory other processes share.
-    private func noteSharedDirectory(_ directory: String) {
+    /// Something (a file, a socket, a link) is at `path`.
+    private static func exists(_ path: String) -> Bool {
         var info = stat()
-        guard stat(directory, &info) == 0, info.st_mode & S_ISVTX != 0, info.st_mode & S_IWOTH != 0 else { return }
-        guard loggedSharedDirectory.withLock({ logged in defer { logged = true }; return !logged }) else { return }
-        pathWatchLog.notice(
-            "socket path watch on shared directory \(directory, privacy: .public) for \(self.path, privacy: .public): wakes on every write there")
+        return lstat(path, &info) == 0
+    }
+
+    /// A sticky, world-writable directory (/tmp): every process on the Mac writes there.
+    private static func isShared(_ directory: String) -> Bool {
+        var info = stat()
+        return stat(directory, &info) == 0 && info.st_mode & S_ISVTX != 0 && info.st_mode & S_IWOTH != 0
+    }
+
+    /// Logs `message` once per watch, so idle measurements can see it.
+    private func noteOnce(_ message: String) {
+        guard !loggedSharedDirectory.exchange(true, ordering: .relaxed) else { return }
+        pathWatchLog.notice("\(message, privacy: .public)")
     }
 
     /// Runs on `queue`, so a restore never overlaps the server's accept handler. True when it
     /// put the path back.
     @discardableResult
     private func checkPath(retrying: Bool = false) -> Bool {
+        #if DEBUG
         checks.add(1, ordering: .relaxed)
+        #endif
         if !retrying, failures.withLock({ $0.waiting }) { return false }  // backing off
         var info = stat()
-        guard lstat(path, &info) != 0, errno == ENOENT, !stopped.withLock({ $0 }) else {
+        guard lstat(path, &info) != 0, errno == ENOENT, !stopped.load(ordering: .sequentiallyConsistent) else {
             failures.withLock { $0 = Failures() }
             return false
         }
