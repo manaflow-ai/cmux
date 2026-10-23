@@ -267,11 +267,12 @@ test("when acpmux sets no mode a new chat names none, whatever the last chat sho
 test("a folder acpmux has not answered for never names another folder's mode, nor its warning", async () => {
   const { rememberStartMode } = await import("../src/agent-session/acpmux/startMode");
   // Another folder's chats start in full access; this folder's profile pins its own mode, so
-  // acpmux sets none here (it answers none). Until it answers, the chip holds its place unnamed.
+  // acpmux sets none here (it answers none). Until it answers, the chip holds its place unnamed,
+  // still a menu that checks no mode.
   rememberStartMode("claude", "/elsewhere", { modeId: "bypassPermissions", name: "Bypass permissions" });
   const answer = await acpmux(undefined);
   await fresh("/here");
-  expect(host.querySelector(".acpmux-chip-pending.acpmux-mode")).not.toBeNull();
+  expect(host.querySelector("button.acpmux-access-trigger")).not.toBeNull();
   const first = access()!;
   expect(first.label).not.toBe("Bypass permissions");
   expect(first.label).not.toBe("bypassPermissions");

@@ -60,6 +60,7 @@ import {
   type ModeIconName,
   RECOMMENDED_BADGE,
   type ShownMode,
+  harnessFamilyMenu,
   harnessModeMenu,
   highestMode,
   shownModes,
@@ -742,26 +743,40 @@ export function ComposerPickers({
           ?.name ??
         startMode.modeId)
       : undefined;
-  // Until the chat reports its modes, the start mode acpmux answered is a live menu (not an inert
-  // chip) where a pick is held (`holdsModePick`): the harness's last mode catalog for the rows,
-  // checked at the start mode, never at the mode its last chat showed, and named as acpmux named
-  // it. A start in Plan keeps the inert chip: Plan is never an access row.
+  // The start mode the chip names: none for the "Mode" placeholder or another folder's answer.
+  const namedStart = startMode && !startMode.borrowed ? startMode : undefined;
+  // Until the chat reports its modes, the access chip is a live menu (not an inert chip) where a
+  // pick is held (`holdsModePick`): the harness's last mode catalog for the rows (else its family's
+  // own menu), checked at the start mode acpmux answered, never at the mode its last chat showed,
+  // and named as acpmux named it. With no start mode to name (acpmux sets none, has not answered
+  // for this folder) it checks none and says "Mode", still a pick (Lucas 2026-10-24: a New Tab's
+  // "Mode" chip had a chevron but no menu). A start in Plan keeps the inert chip: Plan is never an
+  // access row.
   const pendingAccessModes: ModeChoice[] = (() => {
-    if (!holdsModePick || !startMode || startMode.borrowed || isPlan(startMode.modeId)) return [];
+    if (!holdsModePick || !startMode || (namedStart && isPlan(namedStart.modeId))) return [];
+    const menu =
+      pendingMenu ??
+      harnessFamilyMenu(
+        summary?.family ?? snapshot.catalog.find((entry) => entry.id === chipHarness)?.family,
+        chipHarness,
+      );
+    const profileModes = harnessProfiles.get(chipHarness)?.modes?.availableModes ?? [];
+    const rows: readonly { id: string; name?: string; description?: string }[] =
+      profileModes.length > 0 ? profileModes : (menu?.rows ?? []);
     const known = shownModes(
-      pendingMenu,
-      (harnessProfiles.get(chipHarness)?.modes?.availableModes ?? [])
+      menu,
+      rows
         .filter((choice) => !isPlan(choice.id))
         .map((choice) => ({
           id: choice.id,
-          name: (choice.id === startMode.modeId ? startMode.name : undefined) || choice.name || choice.id,
+          name: (choice.id === namedStart?.modeId ? namedStart.name : undefined) || choice.name || choice.id,
           ...(choice.description ? { description: choice.description } : {}),
         })),
-      startMode.modeId,
+      namedStart?.modeId,
     );
-    if (known.some((choice) => choice.id === startMode.modeId)) return known;
-    const description = unrestricted(startMode.modeId) ? t(PICKER_LABELS.fullAccessWarning) : undefined;
-    return [{ id: startMode.modeId, name: startModeName ?? startMode.modeId, description }, ...known];
+    if (!namedStart || known.some((choice) => choice.id === namedStart.modeId)) return known;
+    const description = unrestricted(namedStart.modeId) ? t(PICKER_LABELS.fullAccessWarning) : undefined;
+    return [{ id: namedStart.modeId, name: startModeName ?? namedStart.modeId, description }, ...known];
   })();
   useEffect(() => {
     if (!awaiting && chipHarness && summary?.sessionId && effortShown)
@@ -952,7 +967,7 @@ export function ComposerPickers({
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
           modes={modes.length > 0 ? modes : pendingAccessModes}
-          current={mode?.id ?? (pendingAccessModes.length > 0 ? startMode?.modeId : undefined)}
+          current={mode?.id ?? (pendingAccessModes.length > 0 ? namedStart?.modeId : undefined)}
           sessionId={summary?.sessionId}
           warning={t(PICKER_LABELS.fullAccessWarning)}
           help={t(PICKER_LABELS.modeHelp)}
