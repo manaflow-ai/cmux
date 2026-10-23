@@ -148,6 +148,22 @@ def error_of(reply):
     return None
 
 
+DESTRUCTIVE = set()  # ids action.list marks destructive: a socket caller passes confirm (ControlRouter+ActionRun)
+
+
+def act(ident, target=None, args=None, timeout=30, **params):
+    """action.run of `ident`; a destructive action gets the script caller's confirm."""
+    args = dict(args or {})
+    if ident in DESTRUCTIVE:
+        args["confirm"] = True
+    call = {"action": ident, **params}
+    if args:
+        call["args"] = args
+    if target:
+        call["target"] = target
+    return rpc("action.run", call, timeout=timeout)
+
+
 def wait(predicate, seconds, step=0.05):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:  # bounded poll of the app's socket state in a test script
@@ -415,7 +431,7 @@ class Sweep:
         # A session starts from one workspace: anything a restore brought back is closed first.
         leftover = [w["id"] for w in topology().get("workspaces") or [] if w.get("id")][1:]
         for workspace in leftover:
-            rpc("action.run", {"action": "closeWorkspace", "target": f"workspace:{workspace}", "origin": "script"}, timeout=30)
+            act("closeWorkspace", f"workspace:{workspace}", origin="script")
         if leftover:
             note(f"every-action: {self.session}: closed {len(leftover)} restored workspaces; "
                  f"{len(topology().get('workspaces') or [])} left")
@@ -507,11 +523,11 @@ class Sweep:
         drift = []
         for window in after["windows"]:
             if window not in before["windows"]:
-                rpc("action.run", {"action": "closeWindow", "target": f"window:{window}"})
+                act("closeWindow", f"window:{window}", origin="script")
                 drift.append("window+")
         for workspace in list(after["workspaces"]):
             if workspace not in before["workspaces"]:
-                rpc("action.run", {"action": "closeWorkspace", "target": f"workspace:{workspace}"})
+                act("closeWorkspace", f"workspace:{workspace}", origin="script")
                 drift.append("workspace+")
         for workspace, panes in after["workspaces"].items():
             old = before["workspaces"].get(workspace)
@@ -519,12 +535,12 @@ class Sweep:
                 continue
             for pane, tabs in panes.items():
                 if pane not in old:
-                    rpc("action.run", {"action": "closePane", "target": f"pane:{pane}"})
+                    act("closePane", f"pane:{pane}", origin="script")
                     drift.append("pane+")
                     continue
                 for tab in tabs:
                     if tab not in old[pane]:
-                        rpc("action.run", {"action": "closeTab", "target": f"tab:{tab}"})
+                        act("closeTab", f"tab:{tab}", origin="script")
                         drift.append("tab+")
         lost = self.lost(before, shape(topology()))
         if lost:
@@ -582,7 +598,7 @@ class Sweep:
             for kind in ["chromium", "chromium", "webkit", "chat", "terminal"]:
                 self.builder.add_tab(workspace, panes[0], kind)
             if base_ws in shape(topology())["workspaces"]:
-                rpc("action.run", {"action": "closeWorkspace", "target": f"workspace:{base_ws}"})
+                act("closeWorkspace", f"workspace:{base_ws}", origin="script")
         time.sleep(2)  # test script: rebuilt pages load
         self.snapshot_base(workspace)
 
@@ -696,17 +712,14 @@ class Sweep:
                     if not self.show(plan["context"]):
                         break
                     before = shape(topology())
-                    retry = self.measure(lambda t: rpc("action.run", {"action": ident, "focus": True}, timeout=30), ident)
+                    retry = self.measure(lambda t: act(ident, focus=True), ident)
                     retry["key_routed"] = False
                     retry["key_reply"] = sample["key_reply"]
                     retry["key_ran"] = key_runs
                     sample = retry
                     entry = "action"
             else:
-                params = {"action": ident, "focus": True}
-                if plan["args"]:
-                    params["args"] = plan["args"]
-                sample = self.measure(lambda t: rpc("action.run", params, timeout=30), ident)
+                sample = self.measure(lambda t: act(ident, args=plan["args"], focus=True), ident)
             sample["entry"] = entry
             err = error_of(sample["reply"])
             if isinstance(sample["reply"], dict) and sample["reply"].get("refused_action"):
@@ -1045,15 +1058,20 @@ class Sweep:
             if re.match(WINDOW_CLOSERS, action["id"]) and self.session == "light":
                 later.append(action)
                 continue
-            row = self.run_action(action)
+            try:
+                row = self.run_action(action)
+            except Exception as error:  # a harness failure is this action's row; the session goes on
+                row = {"session": self.session, "kind": "action", "id": action["id"], "errors": [f"harness: {error!r}"[:240]],
+                       "frames": {"missed": None}, "check": "n/a"}
             self.rows.append(row)
             note(f"every-action: {self.session} {index + 1}/{len(actions)} {action['id']}: "
                  + (f"skipped ({row['skipped']})" if row.get("skipped") else
                     f"commit {(row.get('commit_ms') or {}).get('p95')} turn {(row.get('turn_ms') or {}).get('p95')} "
                     f"missed {row['frames']['missed']} errors {row['errors'][:2]} check {row['check']}"))
-            if (rpc("system.ping", timeout=10) or {}).get("pong") is not True:
+            if (rpc("system.ping", timeout=10) or {}).get("pong") is not True or any(e.startswith("harness:") for e in row.get("errors") or []):
                 note(f"every-action: the app stopped answering after {action['id']}; relaunching")
-                self.rows[-1]["errors"] = sorted(set(self.rows[-1].get("errors") or []) | {"the app stopped answering"})
+                if not any(e.startswith("harness:") for e in row.get("errors") or []):
+                    self.rows[-1]["errors"] = sorted(set(self.rows[-1].get("errors") or []) | {"the app stopped answering"})
                 self.app.relaunch()
                 self.build()
         if not opts.no_interactions and (not opts.shard or opts.shard.startswith("1/")):
@@ -1317,6 +1335,7 @@ def main():
     note(f"every-action: env {json.dumps(env)}")
     listed = rpc("action.list") or {}
     actions = sorted(listed.get("actions") or [], key=lambda a: a["id"])
+    DESTRUCTIVE.update(a["id"] for a in actions if a.get("destructive"))
     only = {a for a in opts.only.split(",") if a}
     if only:
         actions = [a for a in actions if a["id"] in only]
