@@ -59,6 +59,8 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     let choices = AgentPaneBrowserChoices()
     /// The home folder for `~/` and the deny list (tests replace it).
     var home = NSHomeDirectory()
+    /// The current remote chat's media reader, supplied by its ACP wire; nil for local chats.
+    var remoteImageLoader: (@Sendable (String) async throws -> Data)?
 
     public init() {}
 
@@ -105,9 +107,17 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
 
 extension AgentPaneModel {
     /// The folders a reply's paths may name for an open: the pane's roots and the folders the
-    /// user added (the same as `file.open`).
+    /// user added (the same as `file.open`). Images also have a read-only scope on this Mac: the
+    /// chat's cwd, `/tmp` and home. Keeping it separate means a text path in those folders stays
+    /// behind the ordinary outside-root gate. A remote chat never reads this Mac's image roots;
+    /// its `image.load` request is handled by the remote wire.
     func replyPaths() -> AgentPaneReplyPaths {
-        AgentPaneReplyPaths(roots: fileOpenRoots(), home: replyLinks.home, base: sessionRoots().first ?? primaryRoot())
+        let base = sessionRoots().first ?? primaryRoot()
+        let local = !remoteChat
+        let imageRoots = local ? [base, "/tmp", replyLinks.home].compactMap { $0 } : []
+        // A remote chat's path spelling belongs to its host. Never retain this Mac's workspace
+        // roots as a fallback: a same-named local file must not be read or opened here.
+        return AgentPaneReplyPaths(roots: local ? fileOpenRoots() : [], imageRoots: imageRoots, home: replyLinks.home, base: local ? base : nil)
     }
 
     /// The reply for one reply link request.
@@ -117,7 +127,10 @@ extension AgentPaneModel {
             let resolver = replyPaths()
             var places: [String: Any] = [:]
             for path in paths {
-                guard let resolved = resolver.resolve(path) else { continue }
+                let resolved = remoteChat && AgentPaneReplyPaths.isImagePath(path)
+                    ? AgentPaneReplyPaths.Resolved(place: .root, path: path, isFolder: false)
+                    : (AgentPaneReplyPaths.isImagePath(path) ? resolver.resolveImage(path) : resolver.resolve(path))
+                guard let resolved else { continue }
                 places[path] = ["place": resolved.place.rawValue, "folder": resolved.isFolder]
             }
             let parsed = urls.compactMap { text in AgentPaneReplyRequest.webURL(text).map { (text, $0) } }
@@ -157,7 +170,9 @@ extension AgentPaneModel {
     /// Opens a path chip (D4): the deny list first, then a gesture; inside a root it opens in
     /// cmux's file pages (a folder in Finder); outside, `agentPane.links.outsideRoots` decides.
     func openReplyPath(_ text: String) async -> Result<Void, AgentPaneReplyError> {
-        guard let resolved = replyPaths().resolve(text) else { return .failure(.pathInvalid) }
+        let paths = replyPaths()
+        let resolved = AgentPaneReplyPaths.isImagePath(text) ? paths.resolveImage(text) : paths.resolve(text)
+        guard let resolved else { return .failure(.pathInvalid) }
         switch resolved.place {
         case .denied: return .failure(.pathDenied)
         case .missing: return .failure(.pathInvalid)
@@ -222,7 +237,17 @@ extension AgentPaneModel {
             case .failure(let error): return Self.replyFailure(error)
             }
         }
-        guard let resolved = replyPaths().resolve(src) else { return Self.replyFailure(.pathInvalid) }
+        if remoteChat {
+            guard let path = AgentPaneReplyPaths.imagePath(src), AgentPaneReplyPaths.isImagePath(src),
+                  let remoteImageLoader else { return Self.replyFailure(.imageRefused) }
+            do {
+                return Self.replyImage(await AgentPaneReplyImages.remote(try await remoteImageLoader(path)))
+            } catch {
+                return Self.replyFailure(.imageFailed)
+            }
+        }
+        let paths = replyPaths()
+        guard let resolved = paths.resolveImage(src) else { return Self.replyFailure(.pathInvalid) }
         switch resolved.place {
         case .root: return Self.replyImage(await AgentPaneReplyImages.local(resolved.path))
         case .denied: return Self.replyFailure(.pathDenied)

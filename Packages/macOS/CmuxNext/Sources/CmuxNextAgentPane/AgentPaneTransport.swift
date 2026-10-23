@@ -71,6 +71,8 @@ import CmuxNextCompat
     /// that machine's, so this Mac's folder rule does not read them (that machine's acpmux checks
     /// its own folder trust, cx-k21v).
     private(set) var remoteWire = false
+    /// The current remote chat's host reader, installed from the same wire that carries its ACP.
+    var remoteImageLoader: (@Sendable (String) async throws -> Data)?
     /// A `session/new` took the person's send gesture: the first `session/prompt` on that
     /// connection goes with it within ``startCreditLifetime``. On another machine the start needs
     /// that gesture; on this Mac it needs none but carries one it finds.
@@ -204,6 +206,8 @@ import CmuxNextCompat
         socketPath = connection.socketPath
         remoteApprovals = connection.remote?.approvals
         remoteWire = connection.remote != nil
+        let wire = connection.remote?.makeWire()
+        remoteImageLoader = wire.map { wire in { path in try await wire.loadRemoteImage(path) } }
         if !remoteWire { remoteHomeChosen = [] }
         startCredit.clear()
         pickCredit.clear()
@@ -212,7 +216,7 @@ import CmuxNextCompat
         promptRelay = AgentPanePromptRelay(connection, journal: promptJournal)
         let ids = AcpmuxRequestIds(promptAccepted: promptRelay?.forget)
         requestIds = ids
-        let socket = AcpmuxPaneSocket(request: connection.request, wire: connection.remote?.makeWire(), limits: limits,
+        let socket = AcpmuxPaneSocket(request: connection.request, wire: wire, limits: limits,
                                       options: permissionOptions, sessions: sessions, decisions: decisions, ids: ids,
                                       agentReplies: connection.remote == nil ? currentAgentReply : nil) { [weak self] in
             // task-owner: one wake for the pacer; arrived(_:) ignores a stale connection

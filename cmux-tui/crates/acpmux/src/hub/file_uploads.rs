@@ -34,7 +34,7 @@ fn root() -> PathBuf {
 }
 
 /// The folder of session `id`'s uploads; none for an id that is not a plain name.
-fn session_dir(id: &str) -> Option<PathBuf> {
+pub(crate) fn session_dir(id: &str) -> Option<PathBuf> {
     let plain =
         !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
     plain.then(|| root().join(id))
