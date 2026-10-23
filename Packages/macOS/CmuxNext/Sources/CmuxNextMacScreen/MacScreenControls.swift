@@ -57,6 +57,12 @@ final class MacScreenText: NSTextField, MacScreenInked {
         guard wraps, bounds.width > 0, abs(preferredMaxLayoutWidth - bounds.width) > 0.5 else { return }
         preferredMaxLayoutWidth = bounds.width
         invalidateIntrinsicContentSize()
+        // Its height changed: the views that size from it (a page framed by hand) lay out again.
+        var ancestor = superview
+        while let view = ancestor {
+            view.needsLayout = true
+            ancestor = view.superview
+        }
     }
 }
 

@@ -38,7 +38,7 @@ enum MacScreenHomeParts {
     static func switchRow(title: String, detail: String, isOn: Bool, enabled: Bool = true, id: String,
                           change: @escaping (Bool) -> Void) -> NSView {
         let labels = MacScreenStack.make(.vertical, spacing: 2, alignment: .leading)
-        labels.addArrangedSubview(MacScreenText(title, font: MacScreenType.body))
+        MacScreenStack.addFullWidth(MacScreenText(title, font: MacScreenType.body, wraps: true), to: labels)
         MacScreenStack.addFullWidth(MacScreenText(detail, font: MacScreenType.caption, ink: \.secondary, wraps: true), to: labels)
         let toggle = MacScreenSwitch(id: id, label: title)
         toggle.isOn = isOn
@@ -56,7 +56,7 @@ enum MacScreenHomeParts {
         let glyph = MacScreenGlyph(granted ? "checkmark.circle.fill" : "exclamationmark.circle.fill", font: MacScreenType.body,
                                    ink: granted ? \.success : \.attention)
         let labels = MacScreenStack.make(.vertical, spacing: 2, alignment: .leading)
-        labels.addArrangedSubview(MacScreenText(title, font: MacScreenType.emphasized))
+        MacScreenStack.addFullWidth(MacScreenText(title, font: MacScreenType.emphasized, wraps: true), to: labels)
         MacScreenStack.addFullWidth(MacScreenText(detail, font: MacScreenType.caption, ink: \.secondary, wraps: true), to: labels)
         labels.setContentHuggingPriority(.init(1), for: .horizontal)
         labels.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)

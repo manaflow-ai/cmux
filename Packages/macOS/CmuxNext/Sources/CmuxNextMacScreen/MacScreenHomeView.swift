@@ -38,6 +38,8 @@ final class MacScreenHomeView: MacScreenThemedView {
     private var permissionsRead: Task<Void, Never>?
     private var readFor: [String] = []
     private var builtWithBorders = true
+    /// `.frame(maxWidth: 620).padding(.horizontal, 32)`: the column's width for the page's.
+    private lazy var columnWidth = column.widthAnchor.constraint(equalToConstant: 620)
 
     init(host: MacScreenShareHost, actions: MacScreenHomeActions, systemShortcuts: MacScreenSystemShortcuts? = nil,
          devices: MacScreenHomeDevices? = nil) {
@@ -53,23 +55,14 @@ final class MacScreenHomeView: MacScreenThemedView {
         scroll.borderType = .noBorder
         scroll.autoresizingMask = [.width, .height]
         SystemScrollers.follow(scroll)
-        document.translatesAutoresizingMaskIntoConstraints = false
+        // The document is framed by `layout()` (the scroll view's width, the column's height); the
+        // column inside it is Auto Layout at a width set from that frame.
         scroll.documentView = document
         document.addSubview(column)
-        let width = column.widthAnchor.constraint(equalTo: document.widthAnchor, constant: -64)
-        width.priority = .defaultHigh
-        let margin = column.leadingAnchor.constraint(greaterThanOrEqualTo: document.leadingAnchor, constant: 32)
-        margin.priority = .init(999)
         NSLayoutConstraint.activate([
-            document.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
-            document.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor),
-            document.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
             column.topAnchor.constraint(equalTo: document.topAnchor, constant: 36),
-            column.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -36),
             column.centerXAnchor.constraint(equalTo: document.centerXAnchor),
-            column.widthAnchor.constraint(lessThanOrEqualToConstant: 620),
-            margin,
-            width,
+            columnWidth,
         ])
         scroll.frame = bounds
         addSubview(scroll)
@@ -77,6 +70,17 @@ final class MacScreenHomeView: MacScreenThemedView {
     }
 
     override var isFlipped: Bool { true }
+
+    override func layout() {
+        super.layout()
+        let width = scroll.contentSize.width
+        let target = max(0, min(620, width - 64))
+        if abs(columnWidth.constant - target) > 0.5 { columnWidth.constant = target }
+        column.layoutSubtreeIfNeeded()
+        let height = max(scroll.contentSize.height, ceil(column.fittingSize.height) + 72)
+        let size = NSSize(width: width, height: height)
+        if document.frame.size != size { document.setFrameSize(size) }
+    }
 
     override func colorsChanged() {
         wantsLayer = true
@@ -140,6 +144,7 @@ final class MacScreenHomeView: MacScreenThemedView {
     private func build(_ snapshot: MacScreenHomeSnapshot) {
         column.arrangedSubviews.forEach { $0.removeFromSuperview() }
         builtWithBorders = colors.borders
+        needsLayout = true
         MacScreenStack.addFullWidth(header(), to: column)
         if let list = snapshot.devices { MacScreenStack.addFullWidth(yourDevices(list), to: column) }
         if let sharing = snapshot.sharing { MacScreenStack.addFullWidth(sharingSection(sharing), to: column) }

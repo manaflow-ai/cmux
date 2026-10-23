@@ -244,9 +244,9 @@ final class MacScreenToolbarView: MacScreenThemedView {
         let controlsWidth = controlSizes.isEmpty ? 0 : controlSizes.reduce(0) { $0 + $1.width } + gap * CGFloat(controlSizes.count - 1)
         let badgeSize = badge.isHidden ? .zero : badge.fittingSize
         let hintSize = hint.fittingSize
-        let statsWidth = ceil(stats.intrinsicContentSize.width)
+        let statsWidth = Self.textWidth(stats)
         let iconWidth = ceil(icon.intrinsicContentSize.width)
-        let nameWidth = ceil(name.intrinsicContentSize.width)
+        let nameWidth = Self.textWidth(name)
         // The row: dot, name group, [stats], spacer, [badge], [hint], [controls].
         let slots = 3 + (statsSlot ? 1 : 0) + (badge.isHidden ? 0 : 1) + (hintSlot ? 1 : 0) + (controls.isEmpty ? 0 : 1)
         let available = bounds.width - Self.padding * 2
@@ -280,6 +280,14 @@ final class MacScreenToolbarView: MacScreenThemedView {
         hint.isHidden = !showsHint
         if showsHint { place(hint, width: hintSize.width, height: hintSize.height) } else if hintSlot { x += gap }
         for (view, size) in zip(controls, controlSizes) { place(view, width: size.width, height: size.height) }
+    }
+}
+
+extension MacScreenToolbarView {
+    /// A one-line label's whole width (its cell's, so the text never truncates when it fits).
+    static func textWidth(_ label: NSTextField) -> CGFloat {
+        let cell = label.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude, height: 1000)).width
+        return ceil(max(cell ?? 0, label.attributedStringValue.size().width + 4))
     }
 }
 
