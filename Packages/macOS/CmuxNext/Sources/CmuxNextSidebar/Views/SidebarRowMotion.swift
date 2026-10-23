@@ -15,6 +15,9 @@ struct RowMotion {
     var lines: SidebarGroupLineViews.LineMotion
     /// The chat history blocks with their frames (`SidebarChatHistoryViews.place`): they move with the rows.
     var companions: [(NSView, NSRect)] = []
+    /// How the rows make room for a new workspace row (`sidebar.insertMotion`); nil for any other change, which
+    /// moves on `.move` over the whole distance.
+    var insert: SidebarInsertMotion?
 
     func run(in list: SidebarListView, from old: SidebarLayout, to layout: SidebarLayout, animated: Bool) {
         let moves = {
@@ -70,7 +73,8 @@ struct RowMotion {
             list.pruneOffscreen()
         }
         Self.animate(frames: targets + appearing + leaving, companions: lines.springs + companions,
-                     fades: Self.fades(targets: targets, appearing: appearing, leaving: leaving), lines: lines.changes, in: list, ended: ended)
+                     fades: Self.fades(targets: targets, appearing: appearing, leaving: leaving), lines: lines.changes, in: list, ended: ended,
+                     insert: insert)
     }
 
     /// The views whose opacity this move changes and to what: an opening row and a target still fading in to 1,
@@ -92,8 +96,13 @@ struct RowMotion {
     /// fades (`lines`). `ended` runs once both have ended, or at once when the display sleeps (`settleAtSleep`).
     /// `companions`: the group lines and chat history blocks, on the same springs in the same transaction, so the
     /// springs' leg (and the display's sleep) waits for them too, even when no row moves (a line growing offscreen).
+    /// `insert`: a new workspace row's motion (`SidebarInsertMotion`): its spring for the frames and the fades, and how far
+    /// the rows travel. Snap first takes off the springs an earlier move left, so nothing slides at all.
     private static func animate(frames: [(SidebarRowView, NSRect)], companions: [(NSView, NSRect)], fades: [(NSView, CGFloat)],
-                                lines: () -> Void, in list: SidebarListView, ended: RowMotionEnd) {
+                                lines: () -> Void, in list: SidebarListView, ended: RowMotionEnd, insert: SidebarInsertMotion? = nil) {
+        let token = insert?.token ?? .move
+        let travel = insert?.travel(nudge: SidebarInsertMotion.nudgeDistance.value)
+        if travel == 0 { SidebarDragSpring.stop(frames.map { $0.0 as NSView } + companions.map(\.0)) }
         let settle = Self.settle(list)
         // Nothing draws while the display sleeps: the rows, group lines and history blocks show their places now, the
         // springs gone with the move. Both legs carry it, and it runs once: the opacity leg alone ends at once when
@@ -108,12 +117,12 @@ struct RowMotion {
             settle()
             ended.finish()
         }
-        let springsEnded = Motion.sidebar.trackMove(.move, settleAtSleep: settleAtSleep, completion: { ended.arrive() })
+        let springsEnded = Motion.sidebar.trackMove(token, settleAtSleep: settleAtSleep, completion: { ended.arrive() })
         CATransaction.begin()
         // Runs once every spring added in this transaction has ended or was removed (a reused view, a snap).
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { springsEnded() } } // main-proof: CATransaction.h: the completion block is called on the main thread
-        SidebarDragSpring.move(frames.map { ($0.0 as NSView, $0.1) } + companions, in: list)
-        Motion.sidebar.animate(.move, in: list, {
+        SidebarDragSpring.move(frames.map { ($0.0 as NSView, $0.1) } + companions, in: list, token, travel: travel)
+        Motion.sidebar.animate(token, in: list, {
             for (view, alpha) in fades { view.animator().alphaValue = alpha }
             lines()
         }, settleAtSleep: settleAtSleep, completion: { ended.arrive() })
