@@ -10,6 +10,8 @@ import Foundation
 extension Workspace {
     /// Replace the terminal process behind an existing surface while preserving its pane and tab identity.
     /// Passing `nil` for `command` starts the same default shell as a newly created terminal.
+    /// For a local process, `environmentOverrides` win over the surface's and the workspace's env,
+    /// keep empty values and persist across later respawns; `initialInput` is typed once the shell is ready.
     @discardableResult
     func respawnTerminalSurface(
         panelId: UUID,
@@ -21,7 +23,9 @@ extension Workspace {
         replayScrollback: String? = nil,
         replayFileURL: URL? = nil,
         allowTextBoxFocusDefault: Bool = true,
-        nativeReservation: CloudTerminalPaneReservation? = nil
+        nativeReservation: CloudTerminalPaneReservation? = nil,
+        environmentOverrides: [String: String] = [:],
+        initialInput: String? = nil
     ) -> TerminalPanel? {
         // Native ownership routes through its provider before any local process configuration.
         if machineOwningSurface(panelId)?.isSSH == true, nativeReservation == nil {
@@ -67,8 +71,11 @@ extension Workspace {
         // workspace.
         let oldSeededWorkspaceEnvironment = oldPanel.seededWorkspaceEnvironment
         // The welcome banner key is one-shot: a respawned shell must not reprint it.
+        // Caller overrides ride this channel, not additionalEnvironment, because the
+        // spawn merge drops empty additional values and an empty value must survive.
         let initialEnvironmentOverrides = oldPanel.surface.respawnInitialEnvironmentOverrides
             .filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value && $0.key != WelcomeBannerDelivery.environmentKey }
+            .merging(environmentOverrides) { _, override in override }
         var additionalEnvironment = startupEnvironmentMergingWorkspaceEnvironment(
             oldPanel.surface.respawnAdditionalEnvironment.filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value }
         )
@@ -119,6 +126,7 @@ extension Workspace {
                 portOrdinal: portOrdinal,
                 initialCommand: trimmedCommand,
                 tmuxStartCommand: replacementTmuxStartCommand,
+                initialInput: initialInput,
                 initialEnvironmentOverrides: initialEnvironmentOverrides,
                 additionalEnvironment: additionalEnvironment,
                 stableSurfaceId: oldPanel.stableSurfaceId,
