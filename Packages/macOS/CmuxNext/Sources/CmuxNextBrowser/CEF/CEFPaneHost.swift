@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import os
+import CmuxNextWakeups
 
 /// One Chromium `Browser` (tabbed window) per cmux pane and profile
 /// (browser.md, Decision 1). The first CEF tab shown in the pane creates the
@@ -208,6 +209,9 @@ final class CEFPaneHost {
             // The first frame takes this pane's theme scope (room,
             // workspace), which may differ from the app theme.
             shim.setBackgroundColor(PageBackground.themeARGB(in: hostView))
+            #if DEBUG
+            ChatOpenTrace.shared.mark(.cefWindowCreate, chromiumPane: key.pane.rawValue)
+            #endif
             let initialURL = tab.takeInitialURLString()
             let started = CEFStartSteps.shared.createWindow {
                 shim.createWindow(request, Unmanaged.passUnretained(hostView).toOpaque(),
@@ -246,6 +250,9 @@ final class CEFPaneHost {
     func windowCreated(browser: Int32, request: Int32) {
         CEFStartSteps.shared.firstWindowEnded()
         guard case .creating(let expected) = window, expected == request, let tab = windowTab else { return }
+        #if DEBUG
+        ChatOpenTrace.shared.mark(.cefWindowCreated, chromiumPane: key.pane.rawValue)
+        #endif
         let windowID = runtime.shim?.tabWindowID(browser) ?? 0
         window = .live(window: windowID)
         lastActivated = browser
