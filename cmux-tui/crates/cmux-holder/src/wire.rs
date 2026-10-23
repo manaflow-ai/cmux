@@ -32,9 +32,12 @@ pub enum Kind {
     Spawn = 3,
     /// h->d: `pid i32`, plus one descriptor: the daemon's custody dup of the master.
     Spawned = 4,
-    /// d->h: take over a running terminal: `pid i32, base u64, id [u8; 16]`, plus its master.
+    /// d->h: take over a running terminal: `pid i32, base u64, id [u8; 16]`,
+    /// then its prologue (a VT replay of its screen at `base`, may be
+    /// empty), plus its master.
     Adopt = 5,
-    /// d->h: stream output from `offset u64` (a [`Kind::Gap`] first when it rolled out).
+    /// d->h: stream output from `offset u64` (a [`Kind::Gap`] first when it
+    /// rolled out); with [`FLAG_WITH_PROLOGUE`], the prologue first.
     Attach = 6,
     /// h->d: `offset u64`, then output bytes.
     Data = 7,
@@ -103,12 +106,23 @@ pub struct Frame {
     pub fds: Vec<OwnedFd>,
 }
 
+/// [`Kind::Attach`] flag: send the terminal's prologue first.
+pub const FLAG_WITH_PROLOGUE: u16 = 1;
+/// [`Kind::Data`] flag: these bytes are the prologue (a VT replay of the
+/// screen when this holder adopted the terminal), not ring output.
+pub const FLAG_PROLOGUE: u16 = 1;
+
 /// Encode a frame header and payload.
 pub fn encode(kind: Kind, chan: u32, payload: &[u8]) -> Vec<u8> {
+    encode_flagged(kind, 0, chan, payload)
+}
+
+/// [`encode`] with header flags.
+pub fn encode_flagged(kind: Kind, flags: u16, chan: u32, payload: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(HEADER + payload.len());
     out.extend_from_slice(&MAGIC);
     out.extend_from_slice(&(kind as u16).to_le_bytes());
-    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&flags.to_le_bytes());
     out.extend_from_slice(&chan.to_le_bytes());
     out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
     out.extend_from_slice(payload);
