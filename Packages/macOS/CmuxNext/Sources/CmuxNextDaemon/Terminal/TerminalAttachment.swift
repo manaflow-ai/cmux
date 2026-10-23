@@ -107,7 +107,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         device: TerminalSizingDevice? = nil
     ) async throws -> TerminalAttachment {
         DaemonLaunchTimings.shared.mark("terminal.attach_start")
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachStart, surface: target.surface.rawValue) }
         #endif
         let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
@@ -200,7 +200,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         )
         // The reply carries the replay (up to 32 MiB): a longer, still bounded deadline.
         let response = try await DaemonConnection.perform(request, on: transport, timeout: .seconds(10))
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachReplied, surface: target.surface.rawValue) }
         #endif
         control.value.withLock { control in
@@ -224,7 +224,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         }
         queue.arm()
         DaemonLaunchTimings.shared.mark("terminal.attach_end")
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachEnd, surface: target.surface.rawValue) }
         #endif
     }
