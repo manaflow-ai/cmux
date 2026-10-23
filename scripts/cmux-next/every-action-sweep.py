@@ -1058,15 +1058,20 @@ class Sweep:
             if re.match(WINDOW_CLOSERS, action["id"]) and self.session == "light":
                 later.append(action)
                 continue
-            row = self.run_action(action)
+            try:
+                row = self.run_action(action)
+            except Exception as error:  # a harness failure is this action's row; the session goes on
+                row = {"session": self.session, "kind": "action", "id": action["id"], "errors": [f"harness: {error!r}"[:240]],
+                       "frames": {"missed": None}, "check": "n/a"}
             self.rows.append(row)
             note(f"every-action: {self.session} {index + 1}/{len(actions)} {action['id']}: "
                  + (f"skipped ({row['skipped']})" if row.get("skipped") else
                     f"commit {(row.get('commit_ms') or {}).get('p95')} turn {(row.get('turn_ms') or {}).get('p95')} "
                     f"missed {row['frames']['missed']} errors {row['errors'][:2]} check {row['check']}"))
-            if (rpc("system.ping", timeout=10) or {}).get("pong") is not True:
+            if (rpc("system.ping", timeout=10) or {}).get("pong") is not True or any(e.startswith("harness:") for e in row.get("errors") or []):
                 note(f"every-action: the app stopped answering after {action['id']}; relaunching")
-                self.rows[-1]["errors"] = sorted(set(self.rows[-1].get("errors") or []) | {"the app stopped answering"})
+                if not any(e.startswith("harness:") for e in row.get("errors") or []):
+                    self.rows[-1]["errors"] = sorted(set(self.rows[-1].get("errors") or []) | {"the app stopped answering"})
                 self.app.relaunch()
                 self.build()
         if not opts.no_interactions and (not opts.shard or opts.shard.startswith("1/")):
