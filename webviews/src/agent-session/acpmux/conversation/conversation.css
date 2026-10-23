@@ -1885,7 +1885,7 @@ pre.cv-math-source {
   overflow-wrap: anywhere;
 }
 .cv-shell__body[data-preview="cut"] {
-  max-height: calc(8 * 18px + 8px);
+  max-height: calc(var(--cv-preview-rows, 8) * 18px + 8px);
 }
 .cv-shell__exit {
   margin-top: 6px;
@@ -2402,7 +2402,7 @@ a.cv-sha:focus-visible {
   box-shadow: none;
 }
 .cv-tool-output__box > .cv-tool-output[data-preview="cut"] {
-  max-height: calc(8 * 18px);
+  max-height: calc(var(--cv-preview-rows, 8) * 18px);
 }
 /* Wrap lines (and the hover-actions experiment's Copy) in its corner, on hover or focus. */
 .cv-tool-output__actions {
@@ -2479,6 +2479,37 @@ a.cv-sha:focus-visible {
   outline: 2px solid var(--agent-accent-soft);
   outline-offset: 1px;
   border-radius: 4px;
+}
+/* The tool-output-collapse experiment's other looks (toolOutputCollapse.experiment.ts) on a call's
+   output and a Shell block; the shipped arm, fade-link, is the rules above. Its rows come in as
+   --cv-preview-rows. six-bar: a full-width quiet bar along the foot. ten-chip: a hard cut and a
+   small chip in the bottom-right corner. */
+[data-collapse="six-bar"] > .cv-output-more {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 4px 0 0;
+  padding: 3px 0;
+  border-radius: 8px;
+  text-align: center;
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+}
+[data-collapse="ten-chip"] {
+  position: relative;
+}
+[data-collapse="ten-chip"] :is(.cv-shell__body, .cv-tool-output)[data-preview="cut"] {
+  --cv-fade-bottom: 0px;
+}
+[data-collapse="ten-chip"] > .cv-output-more {
+  position: absolute;
+  z-index: var(--layer-raised);
+  right: 8px;
+  bottom: 8px;
+  margin: 0;
+  padding: 1px 9px;
+  border-radius: 999px;
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
 }
 
 /* The answer's action row; its height is reserved. One quiet line under the answer, where its text

@@ -8,8 +8,6 @@
 // layout, so its height here is its text's rows at `columns` characters a row, and its
 // ResizeObserver fires when the test narrows or widens it.
 import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -112,8 +110,8 @@ const resize = (to: number) =>
 beforeAll(() => {
   scope.ResizeObserver = window.ResizeObserver = class {
     #fire: () => void;
-    constructor(fire: () => void) {
-      this.#fire = () => fire();
+    constructor(fire: (entries: unknown[], observer: unknown) => void) {
+      this.#fire = () => fire([], this);
     }
     observe() {
       observers.add(this.#fire);
@@ -158,11 +156,15 @@ async function openRow(kind: string, output: string, command?: string) {
   await click(host.querySelector("button.cv-tool"));
 }
 
-/// A one-line JSON result of 1,200 characters: 15 rows at 80 a row.
-const ONE_LINE = JSON.stringify({ items: Array.from({ length: 60 }, (_, index) => `item-${index + 1}`), ok: true });
+/// A one-line JSON result of about 1,400 characters: 18 rows at 80 a row.
+const ONE_LINE = JSON.stringify({
+  items: Array.from({ length: 60 }, (_, index) => `item-${index + 1}-of-the-feed`),
+  ok: true,
+});
 
 test("a call's one-line output that wraps past eight rows is cut under a fade with Show more", async () => {
   expect(ONE_LINE.includes("\n")).toBe(false);
+  expect(ONE_LINE.length).toBeGreaterThan(9 * 80);
   await openRow("fetch", ONE_LINE);
   const card = host.querySelector(".cv-tool-output-card")!;
   const body = card.querySelector(".cv-tool-output")!;
@@ -243,4 +245,33 @@ test("a block opened whole for a permission ask is never cut", async () => {
   const { ShellBlock } = await import("../src/agent-session/acpmux/conversation/ShellBlock");
   await render(<ShellBlock command="curl -s https://example.test/items" output={ONE_LINE} whole />);
   expect(host.querySelector(".cv-shell__body")?.hasAttribute("data-preview")).toBe(false);
+});
+
+test("the tool-output-collapse experiment's arm sets the rows a block shows before it cuts", async () => {
+  const twelve = Array.from({ length: 12 }, (_, index) => `line ${index + 1}`).join("\n");
+  try {
+    // Fifteen rows: twelve lines show whole.
+    globalThis.cmuxExperiments = { "tool-output-collapse": "fifteen-link" };
+    await openRow("fetch", twelve);
+    const card = host.querySelector(".cv-tool-output-card")!;
+    expect(card.getAttribute("data-collapse")).toBe("fifteen-link");
+    expect((card as HTMLElement).style.getPropertyValue("--cv-preview-rows")).toBe("15");
+    expect(card.querySelector(".cv-tool-output")?.hasAttribute("data-preview")).toBe(false);
+    act(() => root?.unmount());
+    // Six rows: the same twelve lines are cut.
+    globalThis.cmuxExperiments = { "tool-output-collapse": "six-bar" };
+    await openRow("fetch", twelve);
+    expect(host.querySelector(".cv-tool-output")?.getAttribute("data-preview")).toBe("cut");
+    expect(Boolean(byText("Show all 12 lines"))).toBe(true);
+  } finally {
+    globalThis.cmuxExperiments = undefined;
+  }
+});
+
+test("the shipped arm cuts at eight rows, as before", async () => {
+  await openRow("fetch", Array.from({ length: 9 }, (_, index) => `line ${index + 1}`).join("\n"));
+  const card = host.querySelector(".cv-tool-output-card")!;
+  expect(card.getAttribute("data-collapse")).toBe("fade-link");
+  expect(card.querySelector(".cv-tool-output")?.getAttribute("data-preview")).toBe("cut");
+  expect(Boolean(byText("Show all 9 lines", card))).toBe(true);
 });

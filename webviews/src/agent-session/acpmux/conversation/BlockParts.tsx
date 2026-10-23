@@ -28,22 +28,22 @@ export function WrapButton({ kind, className = "cv-codeblock__action" }: { kind:
   );
 }
 
-/// A block's preview: whether it is long enough to cut (more than `PREVIEW_LINES` lines, or fewer
-/// that `wraps` past as many rows: `useWrapsPast`), and whether the reader opened it. `data-preview`
+/// A block's preview: whether it is long enough to cut (more than `rows` lines, or fewer that
+/// `wraps` past as many rows: `useWrapsPast`), and whether the reader opened it. `data-preview`
 /// on its body is "cut" or "all", absent when it fits. Each new `reveal` (Find in Chat revealed the
 /// block, and a match may be past the cut) opens it.
-export function usePreview(lines: number, reveal = 0, wraps = false) {
+export function usePreview(lines: number, reveal = 0, wraps = false, rows = PREVIEW_LINES) {
   const [all, setAll] = useState(reveal > 0);
   const [revealed, setRevealed] = useState(reveal);
   if (reveal !== revealed) {
     setRevealed(reveal);
     if (reveal > 0) setAll(true);
   }
-  const long = lines > PREVIEW_LINES || wraps;
+  const long = lines > rows || wraps;
   return {
     long,
     /** Cut for its wrapped rows alone: too few lines to count in "Show all N lines". */
-    wrapped: long && lines <= PREVIEW_LINES,
+    wrapped: long && lines <= rows,
     cut: long && !all,
     all,
     lines,
@@ -80,7 +80,7 @@ export function PreviewMore({ preview }: { preview: ReturnType<typeof usePreview
 const WIDE_LINE = /[^\n]{24}/;
 
 /// Whether `ref`'s body, wrapping a text of `lines` lines (no more than the preview shows), still
-/// runs past `PREVIEW_LINES` rows: one long line (a minified log, a one-line JSON result) wraps to
+/// runs past `rows` rows: one long line (a minified log, a one-line JSON result) wraps to
 /// many. Its rows are read from the body's own height and line height, never per frame: once each
 /// time its text, wrap or line count changes, and as its width changes (a ResizeObserver on this
 /// body alone, disconnected when the text changes, it stops wrapping or fits by line count, or it
@@ -90,20 +90,21 @@ export function useWrapsPast(
   text: string | undefined,
   wrap: boolean,
   lines: number,
+  rows = PREVIEW_LINES,
 ) {
-  const watch = wrap && lines <= PREVIEW_LINES && Boolean(text && WIDE_LINE.test(text));
+  const watch = wrap && lines <= rows && Boolean(text && WIDE_LINE.test(text));
   const [past, setPast] = useState(false);
   useLayoutEffect(() => {
     const node = ref.current;
     if (!watch || !node) return;
-    const measure = () => setPast(wrappedRows(node) > PREVIEW_LINES + 0.5);
+    const measure = () => setPast(wrappedRows(node) > rows + 0.5);
     measure();
     const Observer = node.ownerDocument.defaultView?.ResizeObserver;
     if (!Observer) return;
     const observer = new Observer(measure);
     observer.observe(node);
     return () => observer.disconnect();
-  }, [ref, watch, text, lines]);
+  }, [ref, watch, text, lines, rows]);
   return watch && past;
 }
 

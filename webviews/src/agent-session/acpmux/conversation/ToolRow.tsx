@@ -23,6 +23,7 @@ import { toolDuration } from "./toolGroups";
 import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
 import { useBlockWrap } from "./blockWrap";
 import { Lines, lineCount, PreviewMore, usePreview, useSidewaysRef, useWrapsPast, WrapButton } from "./BlockParts";
+import { collapseLook } from "./toolOutputCollapse.experiment";
 import { cleanText } from "./mcpCalls";
 import { useFold } from "./fold";
 import { WriteLabel, writeCall } from "./WriteLabel";
@@ -192,11 +193,12 @@ function ToolOutput({ id, output, reveal }: { id: string; output: string; reveal
   // All the output's lines, though a long one draws only its end until opened; a few lines that
   // wrap past the preview's rows (a one-line result) are cut too.
   const lines = lineCount(raw.text);
-  const wraps = useWrapsPast(body, raw.text, wrap, lines);
-  const preview = usePreview(lines, reveal, wraps);
+  const look = collapseLook();
+  const wraps = useWrapsPast(body, raw.text, wrap, lines, look.rows);
+  const preview = usePreview(lines, reveal, wraps, look.rows);
   const shown = previewedOutput(raw, preview);
   return (
-    <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: shown.text })}>
+    <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: shown.text })} {...look.card}>
       <div className="cv-tool-output__box">
         <span className="cv-tool-output__actions">
           <WrapButton kind="output" />
