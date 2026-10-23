@@ -13,6 +13,11 @@ Per open: init_ms (getting the panel), begin_ms (beginSheetModal / begin), sync_
 main-thread time), visible_ms (the first display frame with the panel on screen) and the longest display
 frame interval from the click until 300 ms after it showed (frames.max_ms) with the refresh rate.
 
+The first open of each session (right after the launch, right after the STRESS build) may still run during launch or
+build work: no app-side signal says that work has ended. It is marked `first_open`, printed on its own OPEN-PANEL-FIRST
+row and kept in `first_opens`, and left out of the session's percentiles; each OPEN-PANEL row says how many opens it
+summarizes (`n`). Later opens can still overlap launch work that lasts longer than one open.
+
 Usage: open-panel-bench.py --app APP --out DIR [--json PATH] [--sessions light,stress] [--rounds 5]
 Fleet: scripts/measure/split-spring.sh --suite=open-panel [--sessions=...] [--rounds=N]
 """
@@ -55,7 +60,11 @@ def summary(runs, key):
     return {"p50": pct(values, 0.5), "p95": pct(values, 0.95), "max": pct(values, 1.0)}
 
 
+TIMES = ("init_ms", "begin_ms", "sync_ms", "visible_ms", "frame_max_ms")
+
+
 def measure(app, session, report, opts):
+    first_open = True  # the session's first open: right after the launch or the STRESS build
     for mode in opts.modes.split(","):
         runs = []
         for index in range(opts.rounds):
@@ -64,13 +73,19 @@ def measure(app, session, report, opts):
             run = {k: reply.get(k) for k in ("mode", "made_ahead_before", "init_ms", "begin_ms", "sync_ms", "visible_ms", "error")}
             run.update(frame_max_ms=frames.get("max_ms"), missed=frames.get("missed"), refresh_ms=frames.get("refresh_ms"),
                        intervals_ms=frames.get("intervals_ms"), prompt_nil=reply.get("prompt_nil"),
-                       session=session, round=index)
+                       session=session, round=index, first_open=first_open)
+            if first_open:
+                first_open = False
+                first = {"session": session, "mode": mode, **{k: run[k] for k in TIMES}, "refresh_ms": run["refresh_ms"]}
+                report.setdefault("first_opens", []).append(first)
+                print("OPEN-PANEL-FIRST " + json.dumps(first), flush=True)
             runs.append(run)
             print(f"  {session:<6} {mode:<6} #{index}: init {run['init_ms']} begin {run['begin_ms']} sync {run['sync_ms']} "
                   f"visible {run['visible_ms']} ms, longest frame {run['frame_max_ms']} ms (refresh {run['refresh_ms']} ms) "
                   f"made_before {run['made_ahead_before']} {run['error'] or ''}", flush=True)
         report["runs"].extend(runs)
-        row = {"session": session, "mode": mode, **{k: summary(runs, k) for k in ("init_ms", "begin_ms", "sync_ms", "visible_ms", "frame_max_ms")}}
+        later = [run for run in runs if not run["first_open"]]
+        row = {"session": session, "mode": mode, "n": len(later), **{k: summary(later, k) for k in TIMES}}
         report["summary"].append(row)
         print("OPEN-PANEL " + json.dumps(row), flush=True)
 
@@ -78,11 +93,11 @@ def measure(app, session, report, opts):
 def main(argv=None):
     opts = parse(argv)
     os.makedirs(opts.out, exist_ok=True)
-    report = {"runs": [], "summary": []}
+    report = {"runs": [], "summary": [], "first_opens": []}
     app = BenchApp(opts.app, out=opts.out, window=(40, 40, 1600, 1000))
     try:
-        # No settle sleep (it hid launch work behind a fixed 3 s). The first `made` open waits in the app until the
-        # warm-up made its panel; launch work still running then shows in round 0, which is reported on its own.
+        # No settle sleep (it hid launch work behind a fixed 3 s): the first open of each session is reported on its
+        # own row and left out of the percentiles (measure).
         app.launch(timeout=180)
         for session in opts.sessions.split(","):
             if session == "stress":
