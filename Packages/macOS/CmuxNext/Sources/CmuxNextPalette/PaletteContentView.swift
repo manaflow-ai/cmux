@@ -161,6 +161,7 @@ final class PaletteContentView: NSView {
         let resultsVersion = model.resultsVersion
         let sections = model.sections
         let selection = model.selectedRowID
+        let hover = model.hoveredRowID
         let scroll = model.scrollRequest
         let pageToken = model.pageToken
         let menuState = model.actionsMenu
@@ -172,6 +173,7 @@ final class PaletteContentView: NSView {
             list.setSections(sections)
         }
         list.setSelection(selection)
+        list.setHover(hover)
         if scroll != appliedScroll {
             appliedScroll = scroll
             list.scrollToSelection()
