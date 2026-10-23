@@ -63,8 +63,10 @@ impl Daemon {
 fn agent_session_adopt_binds_a_chat_of_this_machine_and_names_its_bypass_mode() {
     let daemon = Daemon::start_with("adopt", None, None);
     listing_acpmux(daemon.dir.join("acpmux/acpmux.sock"));
+    // Not advertised until the mode reads land with it (the app sends
+    // `mode_events` and `agent-session-mode` to a daemon that advertises it).
     let identity = daemon.rpc(json!({"id": 1, "cmd": "identify"}));
-    assert!(identity["data"]["capabilities"].to_string().contains("agent-session-adopt-v1"));
+    assert!(!identity["data"]["capabilities"].to_string().contains("agent-session-adopt-v1"));
     let surface = daemon.own_agent_tab();
     for session in ["peer-1", "chief-1", "nope-1"] {
         let refused = daemon.adopt(surface, session);
