@@ -292,6 +292,41 @@ mod tests {
         assert!(state.pending.contains_key(&other), "another prompt stays");
     }
 
+    /// A withdrawal that comes before its prompt is recorded (the request's
+    /// task is spawned, the cancel is not) cancels that prompt when it comes:
+    /// no card waits on a form that is gone.
+    #[tokio::test]
+    async fn a_cancel_request_before_its_prompt_cancels_the_prompt() {
+        let (hub, session, _conn) = hub_with_session().await;
+        hub.withdraw_permission(&session, &json!(1_000_009));
+        let request = json!({
+            "toolCall": {"toolCallId": "elicitation-e1", "kind": "other", "status": "pending",
+                "_meta": {"acpmux": {"question": {"harness": "claude", "items": [
+                    {"id": "q0", "prompt": "Which?", "options": [], "multiSelect": false, "allowsOther": true}
+                ]}}}},
+            "options": [{"optionId": "allow_once", "name": "Submit", "kind": "allow_once"}],
+        });
+        let epoch = session.permission_epoch.load(Ordering::SeqCst);
+        let turn = session.turn().map(|t| t.turn_id);
+        let outcome = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            hub.handle_permission_for(
+                &session,
+                request,
+                epoch,
+                turn,
+                Some(&json!(1_000_009)),
+                None,
+            ),
+        )
+        .await
+        .expect("answered at once, not left pending");
+        assert_eq!(outcome, json!({"outcome": {"outcome": "cancelled"}}));
+        let state = session.permissions.lock().unwrap();
+        assert!(state.pending.is_empty(), "no card");
+        assert!(state.withdrawn.is_empty(), "the withdrawal is spent");
+    }
+
     /// The rule under the prompt's lock, without the request check before it:
     /// an ancestor's answer counts only on a prompt recorded as a question.
     #[tokio::test]

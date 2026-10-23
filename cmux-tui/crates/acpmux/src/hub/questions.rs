@@ -322,8 +322,12 @@ pub(super) fn check_answers(request: &Value, answers: &Value) -> Result<(), RpcE
         let Some(answer) = item["prompt"].as_str().and_then(|k| answers.get(k)?.as_str()) else {
             continue;
         };
-        let labels: Vec<&str> =
-            item["options"].as_array().into_iter().flatten().filter_map(|o| o["label"].as_str()).collect();
+        let labels: Vec<&str> = item["options"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|o| o["label"].as_str())
+            .collect();
         let picked: Vec<&str> = if item["multiSelect"] == true {
             answer.split(", ").map(str::trim).collect()
         } else {
