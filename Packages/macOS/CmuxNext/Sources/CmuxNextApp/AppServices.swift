@@ -36,8 +36,11 @@ import CmuxNextTabs
 /// Process-wide services the window controllers share. Model state is not
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
-    /// The app's theme store (the one ``ThemeScope/app`` roots on), handed to the App's theme owners.
-    let themeStore = ThemeScope.app.store
+    /// The app's root theme scope (the Ghostty config theme), handed in by the composition root:
+    /// UI that belongs to no room (the permission card, the update sheet, onboarding) adopts it.
+    let themeRoot: ThemeScope
+    /// The app's theme store (``themeRoot``'s), handed to the App's theme owners.
+    var themeStore: ThemeStore { themeRoot.store }
     /// The recovery-draft backstop of unsaved documents (R96).
     let recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory)
     /// The quit hook's unsaved-document participants; drafts go to ``recoveryDrafts``.
@@ -105,7 +108,7 @@ final class AppServices {
     /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md).
     private(set) lazy var serverUpdates = ServerUpdatePresenter(daemon: daemon, defaults: .standard,
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
-    private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read in init (no IUO)
+    private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }), theme: themeStore)  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
     var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); cloud.hostReplica.follow(settings, local: machines.local, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil }) } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
@@ -374,9 +377,15 @@ final class AppServices {
     private(set) lazy var remoteTerminals: RemoteTerminalService = RemoteTerminalService(services: self)  // first read in init (no IUO)
     /// Cross-build session discovery and acknowledge-then-close handoff.
     private(set) lazy var sessionTransfer = SessionTransferService(services: self)
+    /// - Parameter themeRoot: The app's root theme scope. AppDelegate passes the one it started
+    ///   `ThemeBridge` on; tests take the ambient root (``ThemeScope/app``, the Palette fallback
+    ///   until Palette takes an explicit theme context).
     /// - Parameter launchReveal: The launch load-in the windows' sidebars
     ///   hold for; the app-wide one by default.
-    init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil) {
+    // theme-root-allow: the tests' default; AppDelegate passes the root it started ThemeBridge on
+    init(environment: AppEnvironment, themeRoot: ThemeScope = .app, launchReveal: LaunchReveal = .shared,
+         agentPaneEnvironment: [String: String]? = nil) {
+        self.themeRoot = themeRoot
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)

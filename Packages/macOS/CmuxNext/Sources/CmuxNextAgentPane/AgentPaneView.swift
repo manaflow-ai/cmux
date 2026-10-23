@@ -452,6 +452,7 @@ public final class AgentPaneView: NSView {
 
     private func applyThemeInScope(force: Bool) {
         themeFollower.rebind()
+        AgentPaneTunables.followCodexToolRuns(store: themeScope.store)
         let tokens = themeTokens
         let surface = surfaceKind
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
@@ -460,13 +461,13 @@ public final class AgentPaneView: NSView {
         themeLoadingState(tokens)
         page?.themeSurface = surface
         if let pageEvents {
-            guard let event = AgentPageEvent.theme(tokens, surface: surface), force || event != deliveredThemeEvent else { return }
+            guard let event = AgentPageEvent.theme(tokens, surface: surface, store: themeScope.store), force || event != deliveredThemeEvent else { return }
             deliveredThemeEvent = event
             if !pageEvents.publish(event), let connection = model.transport.connection {
                 model.transport.close(connection: connection)
             }
         } else {
-            if let script = AgentPaneTheme.script(tokens, surface: surface), force || script != deliveredThemeScript {
+            if let script = AgentPaneTheme.script(tokens, surface: surface, store: themeScope.store), force || script != deliveredThemeScript {
                 deliveredThemeScript = script
                 evaluateScript(script)
             }

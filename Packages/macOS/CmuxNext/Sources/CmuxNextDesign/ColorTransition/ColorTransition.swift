@@ -225,9 +225,19 @@ extension ColorTransition {
     /// Instant until the Ghostty config first reached the windows, so a launch shows its first
     /// colors at once. `ui.animationSpeed: normal` does not lengthen it: the duration is the
     /// user's own number.
+    /// - Parameter store: The theme store of the scope that changes colors (`themeScope.store`);
+    ///   nil (no tree, a test's value) is instant.
     @MainActor
-    public static var current: ColorTransition {
-        guard ThemeScope.app.store.hasAppliedConfig else { return ColorTransition(enabled: false) }
+    public static func current(for store: ThemeStore?) -> ColorTransition {
+        guard store?.hasAppliedConfig == true else { return ColorTransition(enabled: false) }
         return DesignSettings.shared.colorTransition.resolved(speedOff: !Motion.feedback.isEnabled, systemReduceMotion: Motion.reduceMotion)
     }
+
+    /// The app tree's transition (``ThemeScope/app``'s store), for a caller with no scope at hand.
+    ///
+    /// Interim: only `TerminalSurfaceView.applyColorTransition` (GhosttyRuntime+DefaultTheme.swift,
+    /// PL-ghostty's file) still reads it; it moves to ``current(for:)`` with `themeScope.store`,
+    /// then this goes with the Palette fallback.
+    @MainActor
+    public static var current: ColorTransition { current(for: ThemeScope.app.store) }
 }
