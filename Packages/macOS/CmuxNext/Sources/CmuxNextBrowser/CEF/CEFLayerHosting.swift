@@ -18,12 +18,17 @@ import CmuxNextCompat
 /// tracker (``trackerDidRead()``, proof that the tracker is attached) retries
 /// once; another refusal waits for the next show.
 ///
-/// While hosted (fork API 27), a resize of the page window may hold this
-/// window's commit for Chromium's frame at the new size, up to
+/// While hosted (fork API 27), a resize of the page window may hold the
+/// process's commit for Chromium's frame at the new size, up to
 /// ``CEFResizeSyncDeadline``: the `browserResize.syncDeadline` tunable capped at
-/// half a frame of the window's display. A change of either (a tunable edit, the
-/// window on another display) reaches the fork at the next show or screen
-/// change, and only when the deadline changed.
+/// half the shortest frame of all displays. During the window's live resize
+/// every page over the view, hosted or not, gets `browserResize.liveResizeDeadline`
+/// under the same cap. A change (a tunable edit, a display added or changed)
+/// reaches the fork at the next show or display change, only when the deadline
+/// changed, and counts as applied only when the fork took it.
+///
+/// `browser` must name a live browser of the page window: a show records the
+/// shown one, and ``windowBrowsersChanged(_:)`` moves it off a closed one.
 ///
 /// Tests drive it through ``Fork`` and the `schedule` seam, without Chromium.
 final class CEFLayerHosting {
@@ -34,13 +39,14 @@ final class CEFLayerHosting {
         /// id (> 0) for `enabled`, 0 when off or refused.
         let setLayerHosting: (_ browser: Int32, _ enabled: Bool) -> UInt32
         /// `cmux_shim_browser_set_resize_sync` (fork API 27): how long a
-        /// resize of the page window may hold this window's commit for
-        /// Chromium's frame at the new size, in ms; 0 never holds it. Nil
-        /// below API 27, where Chromium holds it up to 500 ms on every resize.
-        let setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Void)?
+        /// resize of the page window may hold the commit for Chromium's frame
+        /// at the new size, in ms; 0 never holds it. True when the fork took it
+        /// (false for a closed browser's id). Nil below API 27, where Chromium
+        /// holds it up to 500 ms on every resize.
+        let setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)?
 
         init(setLayerHosting: @escaping (_ browser: Int32, _ enabled: Bool) -> UInt32,
-             setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Void)? = nil) {
+             setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)? = nil) {
             self.setLayerHosting = setLayerHosting
             self.setResizeSync = setResizeSync
         }
@@ -51,7 +57,7 @@ final class CEFLayerHosting {
             guard let shim, apiVersion >= CEFLayerHosting.forkAPI else { return nil }
             setLayerHosting = { browser, enabled in shim.browserSetLayerHosting(browser, enabled ? 1 : 0) }
             setResizeSync = apiVersion >= CEFLayerHosting.resizeSyncForkAPI
-                ? { browser, timeout in _ = shim.browserSetResizeSync(browser, timeout) } : nil
+                ? { browser, timeout in shim.browserSetResizeSync(browser, timeout) == 1 } : nil
         }
     }
 
@@ -87,11 +93,11 @@ final class CEFLayerHosting {
     private let makePage: (CGRect) -> CEFHostedPageView
     private let resizeDeadlineMs: () -> Int32
     private let liveResizeDeadlineMs: () -> Int32
-    private let refreshInterval: (NSWindow?) -> Double?
+    private let refreshIntervals: () -> [Double]
     /// The resize deadline the fork has for this page window: 0, the fork's default, until
     /// ``syncDeadline()`` gives another.
     private var appliedDeadlineMs: Int32 = 0
-    /// Re-applies the deadline when the view's window moves to another display.
+    /// Re-applies the deadline when a display is added, removed or changes its rate.
     private var screenObservation: MainActorObservation?
     /// The window is in a live resize (``windowLiveResize(active:)``).
     private var inLiveResize = false
@@ -104,20 +110,26 @@ final class CEFLayerHosting {
     ///   - schedule: runs a block at the end of this run-loop turn; tests run it when they choose.
     ///   - makePage: the hosted view for a frame; tests pass one whose layer host fails.
     ///   - resizeDeadlineMs: the upper bound of a hosted page's resize wait; the tunable by default.
-    ///   - refreshInterval: the shortest frame interval of a window's display, which caps the wait
-    ///     (``CEFResizeSyncDeadline``); tests pass a fixed rate.
+    ///   - refreshIntervals: the shortest frame interval of each display, which cap the wait
+    ///     (``CEFResizeSyncDeadline``); tests pass fixed rates.
+    ///   - center: where display changes are posted (`NSApplication.didChangeScreenParametersNotification`);
+    ///     tests post on their own.
     init(isEnabled: @escaping () -> Bool = { BrowserResizeTunables.layerHosting.value },
          schedule: @escaping Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
          makePage: @escaping (CGRect) -> CEFHostedPageView = { CEFHostedPageView(frame: $0) },
          resizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.syncDeadline.value * 1_000).rounded()) },
          liveResizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.liveResizeDeadline.value * 1_000).rounded()) },
-         refreshInterval: @escaping (NSWindow?) -> Double? = { $0?.screen?.minimumRefreshInterval }) {
+         refreshIntervals: @escaping () -> [Double] = { NSScreen.screens.map(\.minimumRefreshInterval) },
+         center: NotificationCenter = .default) {
         self.isEnabled = isEnabled
         self.resizeDeadlineMs = resizeDeadlineMs
         self.liveResizeDeadlineMs = liveResizeDeadlineMs
-        self.refreshInterval = refreshInterval
+        self.refreshIntervals = refreshIntervals
         self.schedule = schedule
         self.makePage = makePage
+        screenObservation = MainActorObservation(NSApplication.didChangeScreenParametersNotification, center: center) { [weak self] in
+            self?.syncDeadline()
+        }
     }
 
     /// Whether a refused request waits for the tracker's next read.
@@ -163,17 +175,21 @@ final class CEFLayerHosting {
         }
     }
 
-    /// The host view moved to another window (or out of one,
-    /// `CEFHostView.viewDidMoveToWindow`): the display that caps the resize
-    /// wait may differ, and the window's later screen changes re-apply it.
+    /// The host view moved to another window (`CEFHostView.viewDidMoveToWindow`):
+    /// a tunable edit made while it was out of every window applies now. Leaving
+    /// a window changes nothing: the cap is every display's, not the window's.
     func windowDidChange() {
-        screenObservation = nil
-        if let window = view?.window {
-            screenObservation = MainActorObservation(NSWindow.didChangeScreenNotification, object: window) { [weak self] in
-                self?.syncDeadline()
-            }
-        }
+        guard view?.window != nil else { return }
         syncDeadline()
+    }
+
+    /// The page window's tabs changed (`CEFPaneHost.removed`): when the recorded
+    /// browser is not one of `browsers` any more (a popup host's placeholder, the
+    /// last shown tab closed), a live one names the window from now on, so a
+    /// later deadline reaches the fork.
+    func windowBrowsersChanged(_ browsers: [Int32]) {
+        guard let browser, !browsers.contains(browser) else { return }
+        self.browser = browsers.first
     }
 
     /// The window starts or ends a live resize (`CEFHostView.viewWillStartLiveResize`). Fork API 27 never lets a page
@@ -247,11 +263,10 @@ final class CEFLayerHosting {
     private func syncDeadline() {
         guard let browser, let setResizeSync = fork?.setResizeSync else { return }
         let tunable = inLiveResize ? liveResizeDeadlineMs() : (page != nil ? resizeDeadlineMs() : 0)
-        let deadline = CEFResizeSyncDeadline(tunableMilliseconds: tunable,
-                                             refreshInterval: refreshInterval(view?.window)).milliseconds
+        let deadline = CEFResizeSyncDeadline(tunableMilliseconds: tunable, refreshIntervals: refreshIntervals()).milliseconds
         guard deadline != appliedDeadlineMs else { return }
-        appliedDeadlineMs = deadline
-        setResizeSync(browser, deadline)
+        // Recorded only when the fork took it, so a refused value is tried again at the next sync.
+        if setResizeSync(browser, deadline) { appliedDeadlineMs = deadline }
     }
 
     private func refused() {
