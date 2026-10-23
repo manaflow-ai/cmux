@@ -6,7 +6,6 @@ import type { ConnectKind, OffloadKind } from "./environments";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {
-  MAX_ATTACHMENTS,
   type AttachmentError,
   type ComposerAttachment,
   type DroppedKind,
@@ -128,7 +127,6 @@ export const COMPOSER_LABELS = {
   tooLarge: "composer.tooLarge",
   unsupported: "composer.unsupported",
   imagesUnsupported: "composer.imagesUnsupported",
-  tooMany: "composer.tooMany",
   cut: "composer.menu.cut",
   copy: "composer.menu.copy",
   paste: "composer.menu.paste",
@@ -497,7 +495,7 @@ export function Composer({
         void keptAttachments
           .read(chat)
           .catch(() => [])
-          .then((kept) => keptAttachments.write(chat, appendAttachments(kept, chips).slice(0, MAX_ATTACHMENTS)))
+          .then((kept) => keptAttachments.write(chat, appendAttachments(kept, chips)))
           .catch(() => {});
       },
       carries: () => carryPrompt.current || Boolean(switching),
@@ -563,15 +561,11 @@ export function Composer({
         // A pick past the most the composer holds says so, as a dropped file does.
         const held = attachmentsRef.current;
         const next = appendAttachments(held, [attachment]);
-        if (next.length > MAX_ATTACHMENTS) {
-          setAttachError(attachmentErrorText({ name: attachment.name, reason: "tooMany" }, tRef.current));
-          return;
-        }
         // Ahead of the render, so each of several picks attached at once counts the ones before it.
         attachmentsRef.current = next;
         setAttachments((current) => {
           const next = appendAttachments(current, [attachment]);
-          return next.length > MAX_ATTACHMENTS ? current : next;
+          return next;
         });
       },
       detach(ids) {
@@ -598,7 +592,7 @@ export function Composer({
         const back = state.attachments ?? [];
         if (back.length)
           setAttachments((current) =>
-            [...back, ...current.filter((chip) => !back.some((kept) => kept.id === chip.id))].slice(0, MAX_ATTACHMENTS),
+            [...back, ...current.filter((chip) => !back.some((kept) => kept.id === chip.id))],
           );
         if (state.shell) {
           setShell(true);
