@@ -27,18 +27,15 @@ extension ScreenContentView {
     /// front to back. Overlaps happen only mid-motion (an unzoom's pane
     /// springing back over the panes it uncovers, a zoom's growing over the
     /// others) and under docked columns; their headers are see-through, so
-    /// what is under them is masked out. Computed once per presentation
-    /// pass, not once per host (which walked every subview per host).
-    func panesAbove() -> [ObjectIdentifier: [CGRect]] {
-        var covers: [ObjectIdentifier: [CGRect]] = [:]
-        var front: [CGRect] = []
-        for case let host as PaneHostView in subviews.reversed() {
-            let overlapping = front.filter { $0.intersection(host.frame).width > 0.5 && $0.intersection(host.frame).height > 0.5 }
-            if !overlapping.isEmpty { covers[ObjectIdentifier(host)] = overlapping.reversed() }
-            guard !host.isHidden && host.alphaValue > 0.99 else { continue }
-            front.append(host.frame)
-        }
-        return covers
+    /// what is under them is masked out. The pairwise walk runs only when a
+    /// host's frame, visibility or order changed since the last one
+    /// (``PanesAboveMemo``): the presentation pass and the overlay sync of
+    /// one frame share it, and a frame where nothing moved costs one compare.
+    func panesAbove() -> [ObjectIdentifier: [CGRect]] { // perf-hot: 4ms motion-frame
+        var hosts: [PaneHostView] = []
+        hosts.reserveCapacity(subviews.count)
+        for case let host as PaneHostView in subviews.reversed() { hosts.append(host) }
+        return panesAboveMemo.covers(frontToBack: hosts)
     }
 
     /// What hides `host`'s ring and dim (local coordinates): the docked columns over a strip pane,
