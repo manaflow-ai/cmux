@@ -12,6 +12,10 @@ What runs, per area touched by the change:
   its package.json (the exact step CI runs: Oxfmt, Oxlint with the type check,
   and webviews' source checks such as check:browser-lanes). The `&&` pieces of
   that script run at once, so the hook costs the slowest piece, not the sum.
+* cmux-tui/frontends/web/ imports `cmux` from cmux-tui/bindings/typescript, whose exports
+  point at a tsc-built dist/. That package is installed and built first, as CI does (npm ci,
+  npm run build; bun when npm is missing), and only when its inputs changed since the last
+  build. Without it the check printed a TS2307 "cannot find module" for every import.
 * web/: ESLint, errors only, on the changed files, with a cache. web/ as a whole
   is not lint-clean, so only the files a change touches are held to it.
 
@@ -20,6 +24,11 @@ that commit (another branch is checked out, or it has uncommitted or untracked
 files), the checks run in a temporary worktree of it, reusing the checkout's
 node_modules where the commit's bun.lock is the same. Linting the working tree
 let a commit with an error through when its fix sat uncommitted (0b115ab).
+
+--new-only (the fast gates, on a pull request merged with its base): a package
+check that fails runs again on BASE, and only findings BASE does not have fail,
+per error (scripts/ci/fast_gate_webviews_checks.py compares them); the rest
+are the base's red and print as warnings. A red base hid #23763's TS2339.
 
 Usage:
     scripts/web-lint.sh                 # lint what differs from origin/feat-cmux-next
@@ -35,6 +44,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import contextlib
+import hashlib
 import json
 import os
 import shutil
@@ -53,6 +63,18 @@ MIN_SKIP_REASON = 20
 
 
 @dataclass(frozen=True)
+class LocalBuild:
+    """A file: dependency whose exports point at build output, built before the packages that import it."""
+
+    directory: str
+    # The name the importing packages install it under (node_modules/<name>).
+    name: str
+    # Files and folders, relative to `directory`, whose content decides the build.
+    inputs: tuple[str, ...]
+    output: str = "dist"
+
+
+@dataclass(frozen=True)
 class ScriptPackage:
     """A package whose package.json `check` script is the lint CI runs."""
 
@@ -63,6 +85,8 @@ class ScriptPackage:
     # A push that changes one is not linted by the hook: the hook would run code
     # from the pushed branch, so CI's sandboxed run is the check for it.
     executed: tuple[str, ...]
+    # Local packages built before this package installs and checks.
+    builds: tuple[LocalBuild, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -73,6 +97,17 @@ class EslintPackage:
     executed: tuple[str, ...]
 
 
+TUI_BINDINGS = LocalBuild(
+    directory="cmux-tui/bindings/typescript",
+    name="cmux",
+    # bun.lock / bun.lockb: the bun fallback installs from one when it is there.
+    inputs=("package.json", "package-lock.json", "bun.lock", "bun.lockb", "tsconfig.json", "src/", "test/", "e2e/"),
+)
+BUILD_STAMP = ".web-lint-build"
+# In a dependent package: node_modules/<INSTALLED_STAMPS>/<build name> holds the digest of the build its
+# node_modules copy came from, written only after that install succeeded. Not inside the copy: bun copies
+# the build's own stamp along with dist/, even on an install that then fails.
+INSTALLED_STAMPS = ".web-lint-builds"
 SCRIPT_PACKAGES = (
     ScriptPackage(
         directory="webviews",
@@ -81,8 +116,12 @@ SCRIPT_PACKAGES = (
     ),
     ScriptPackage(
         directory="cmux-tui/frontends/web",
-        triggers=("cmux-tui/frontends/web/", "config/vite-plus/"),
-        executed=("cmux-tui/frontends/web/", "config/vite-plus/"),
+        triggers=("cmux-tui/frontends/web/", "config/vite-plus/", f"{TUI_BINDINGS.directory}/"),
+        # Every file input of the bindings build (manifest, lockfiles, tsconfig) picks code the build runs;
+        # its source folders are only compiled.
+        executed=("cmux-tui/frontends/web/", "config/vite-plus/",
+                  *(f"{TUI_BINDINGS.directory}/{name}" for name in TUI_BINDINGS.inputs if not name.endswith("/"))),
+        builds=(TUI_BINDINGS,),
     ),
 )
 ESLINT_PACKAGES = (
@@ -229,22 +268,123 @@ def package_env(repo: Path, directory: str) -> dict[str, str]:
     return env
 
 
-def ensure_deps(repo: Path, directory: str) -> Result | None:
+def run_leaving_no_lockfile(command: list[str], cwd: Path, env: dict[str, str] | None = None):
+    """Run `command`; remove a bun.lock it wrote where there was none (bun writes one when it migrates a
+    package-lock.json, even with --no-save), so a lint leaves the checkout as it found it."""
+    lock = cwd / "bun.lock"
+    had_lock = lock.exists()
+    try:
+        return subprocess.run(command, cwd=cwd, env=env, text=True, capture_output=True)
+    finally:
+        if not had_lock:
+            lock.unlink(missing_ok=True)
+
+
+def ensure_deps(repo: Path, directory: str, force: bool = False) -> Result | None:
     """Install the package's pinned dependencies (fast when they are current). A package with no lockfile
-    keeps the node_modules it has, else gets a plain install."""
+    keeps the node_modules it has (unless `force`), else gets a plain install."""
     locked = (repo / directory / "bun.lock").is_file()
-    if not locked and (repo / directory / "node_modules").is_dir():
+    if not locked and not force and (repo / directory / "node_modules").is_dir():
         return None
     bun = shutil.which("bun")
     if bun is None:
         return Result(directory, "bun install", 127, "bun is not on PATH; install bun 1.4 to run the web lint.", 0)
     started = time.monotonic()
-    command = ["install", "--frozen-lockfile", "--silent"] if locked else ["install", "--silent"]
-    result = subprocess.run([bun, *command], cwd=repo / directory, text=True, capture_output=True)
+    command = ["install", "--frozen-lockfile", "--silent"] if locked else ["install", "--silent", "--no-save"]
+    result = run_leaving_no_lockfile([bun, *command], repo / directory)
     if result.returncode == 0:
         return None
-    return Result(directory, f"bun {' '.join(command[:-1])}", result.returncode,
+    return Result(directory, f"bun {' '.join(c for c in command if c != '--silent')}", result.returncode,
                   result.stdout + result.stderr, time.monotonic() - started)
+
+
+def build_digest(repo: Path, build: LocalBuild) -> str:
+    """A hash of the build's inputs: their paths and contents."""
+    root = repo / build.directory
+    digest = hashlib.sha256()
+    for item in build.inputs:
+        path = root / item
+        files = sorted(p for p in path.rglob("*") if p.is_file()) if path.is_dir() else [path] * path.is_file()
+        for file in files:
+            digest.update(file.relative_to(root).as_posix().encode() + b"\0" + file.read_bytes() + b"\0")
+    return digest.hexdigest()
+
+
+def read_stamp(path: Path) -> str | None:
+    return path.read_text(encoding="utf-8").strip() if path.is_file() else None
+
+
+def installed_stamp(repo: Path, directory: str, build: LocalBuild) -> Path:
+    return repo / directory / "node_modules" / INSTALLED_STAMPS / build.name
+
+
+def ensure_build(repo: Path, build: LocalBuild, dependents: list[str]) -> tuple[str | None, Result | None]:
+    """Install and build `build` unless its output was built from the same inputs; returns (the digest of
+    its inputs, failure). A failure is one Result that names the build and the checks it holds back."""
+    root = repo / build.directory
+    stamp = root / build.output / BUILD_STAMP
+    digest = build_digest(repo, build)
+    if read_stamp(stamp) == digest:
+        return digest, None
+    held = f"Not checked until this builds: {', '.join(dependents)} (it imports {build.name} from this build)."
+    npm, bun = shutil.which("npm"), shutil.which("bun")
+    if npm:  # what CI runs (cmux-tui.yml, "Build TypeScript SDK")
+        steps = [[npm, "ci", "--no-audit", "--no-fund"], [npm, "run", "build"]]
+    elif bun:  # tsc's node shebang runs on bun
+        steps = [[bun, "install", "--silent", "--no-save"], [bun, "run", "--bun", "build"]]
+    else:
+        return None, Result(build.directory, "npm ci && npm run build", 127,
+                             f"neither npm nor bun is on PATH, so {build.directory} can't be built.\n{held}", 0)
+    stamp.unlink(missing_ok=True)
+    started = time.monotonic()
+    env = package_env(repo, build.directory)
+    for step in steps:
+        result = run_leaving_no_lockfile(step, root, env)
+        if result.returncode != 0:
+            shown = " ".join([Path(step[0]).name, *(c for c in step[1:] if c != "--silent")])
+            return None, Result(build.directory, f"{shown} (the {build.name} bindings)", result.returncode,
+                                 f"{result.stdout}{result.stderr}\n{held}", time.monotonic() - started)
+    stamp.parent.mkdir(parents=True, exist_ok=True)
+    stamp.write_text(digest + "\n", encoding="utf-8")
+    return digest, None
+
+
+def prepare_builds(repo: Path, packages: list[ScriptPackage]) -> tuple[dict[str, dict[LocalBuild, str]], list[Result]]:
+    """Build each local package the planned packages import; returns, per package to reinstall, the builds
+    whose node_modules copy did not come from the current build (with that build's digest), and the failures."""
+    builds: dict[LocalBuild, list[str]] = {}
+    for package in packages:
+        for build in package.builds:
+            builds.setdefault(build, []).append(package.directory)
+    digests, failures = {}, []
+    for build, dependents in builds.items():
+        digest, failure = ensure_build(repo, build, dependents)
+        if failure:
+            failures.append(failure)
+        else:
+            digests[build] = digest
+    # bun copies a file: dependency into node_modules at install time, so a new build needs a new install;
+    # a copy is current only when an install from this exact build succeeded.
+    stale: dict[str, dict[LocalBuild, str]] = {}
+    for package in packages:
+        for build in package.builds:
+            if build in digests and read_stamp(installed_stamp(repo, package.directory, build)) != digests[build]:
+                stale.setdefault(package.directory, {})[build] = digests[build]
+    return stale, failures
+
+
+def install(repo: Path, directory: str, stale: dict[LocalBuild, str] | None) -> Result | None:
+    """ensure_deps, forced when the package's copy of a local build is stale; that copy's stamp is
+    cleared first and written back only once the install succeeds."""
+    for build in stale or {}:
+        installed_stamp(repo, directory, build).unlink(missing_ok=True)
+    failure = ensure_deps(repo, directory, force=bool(stale))
+    if failure is None:
+        for build, digest in (stale or {}).items():
+            path = installed_stamp(repo, directory, build)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(digest + "\n", encoding="utf-8")
+    return failure
 
 
 def run(label: str, command: list[str] | str, cwd: Path, env: dict[str, str]) -> Result:
@@ -266,9 +406,12 @@ def eslint_command(repo: Path, directory: str, files: list[str], fix: bool, cach
 
 
 def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True) -> list[Result]:
+    stale, failures = prepare_builds(repo, plan.script_packages)
+    if failures:
+        return failures
     directories = [p.directory for p in plan.script_packages] + list(plan.eslint_files)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(directories))) as pool:
-        installs = [r for r in pool.map(lambda d: ensure_deps(repo, d), directories) if r]
+        installs = [r for r in pool.map(lambda d: install(repo, d, stale.get(d)), directories) if r]
     if installs:
         return installs
     if fix:
@@ -341,6 +484,45 @@ def shares_deps(repo: Path, sha: str, directory: str) -> bool:
     return True
 
 
+def load_compare():
+    import importlib.util  # noqa: PLC0415  (only --new-only needs it; the hook's trusted copy never does)
+    path = Path(__file__).resolve().parent / "ci" / "fast_gate_webviews_checks.py"
+    spec = importlib.util.spec_from_file_location("fast_gate_webviews_checks", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def charge_new_only(repo: Path, base: str, plan: Plan, tree: Path, results: list[Result]) -> None:
+    """--new-only: each failed package check runs again on BASE. A red whose every finding BASE has too passes
+    with a warning; otherwise the result keeps only the findings it adds."""
+    packages = {p.directory: p for p in plan.script_packages}
+    failed = [r for r in results if r.returncode != 0 and r.label in packages]
+    if not failed:
+        return
+    compare = load_compare()
+    with tree_of(repo, base, sorted({r.label for r in failed})) as base_tree:
+        for result in failed:
+            if ensure_deps(base_tree, result.label):
+                continue  # no base to compare with: the red stays this change's
+            compare.generate_strings(base_tree / result.label)
+            again = run(result.label, result.command, base_tree / result.label, package_env(base_tree, result.label))
+            if again.returncode == 0:
+                continue
+            new, old = compare.compare(result.output, again.output, str(tree), str(base_tree))
+            if old:
+                print(f"::warning title=web lint (base)::{result.label}: {result.command}: {len(old)} finding(s) "
+                      f"the base {base[:12]} has too", file=sys.stderr)
+            if not new and not old:  # both red with no finding to compare: unexplained, so the change's
+                new = [f"{result.command} failed (exit {result.returncode}) and printed no finding to compare "
+                       "with the base"]
+            if not new:
+                result.returncode = 0
+                continue
+            result.output = f"{len(new)} finding(s) this change adds over the base {base[:12]}:\n" + "\n".join(
+                f"  {line}" for line in new)
+
+
 def report(results: list[Result], seconds: float, mode: str, timings: bool = False) -> int:
     failed = [r for r in results if r.returncode != 0]
     if timings:
@@ -375,6 +557,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--timings", action="store_true", help="print each check's time")
     parser.add_argument("--all", action="store_true",
                         help="run every package check, whatever changed (CI, when the push base is unknown)")
+    parser.add_argument("--new-only", action="store_true",
+                        help="fail only on findings --base does not have (a pull request merged with its base)")
     args = parser.parse_args(argv)
 
     mode = "pre-push" if args.pre_push else "web-lint"
@@ -389,6 +573,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
     repo = (args.repo or Path(git(Path.cwd(), "rev-parse", "--show-toplevel").strip())).resolve()
+    if args.new_only and (not args.base or args.pre_push or args.fix):
+        parser.error("--new-only needs --base and no --pre-push or --fix")
     if args.pre_push:
         ranges = pushed_ranges(repo, sys.stdin.read().splitlines())
     else:
@@ -418,13 +604,20 @@ def main(argv: list[str] | None = None) -> int:
             continue
         if args.dry_run:
             for package in plan.script_packages:
+                for build in package.builds:
+                    print(f"{build.directory}: install and build, unless current (for {package.directory})")
                 print(f"{package.directory}: {' && '.join(check_pieces(repo, package, 'check', read))}")
             for directory, targets in plan.eslint_files.items():
                 print(f"{directory}: eslint {' '.join(targets)}")
             continue
-        directories = [p.directory for p in plan.script_packages] + list(plan.eslint_files)
+        # A package that imports a local build gets its own install in a lint tree: bun copies the build
+        # into node_modules, so the checkout's copy holds the checkout's build, not this commit's.
+        directories = [p.directory for p in plan.script_packages if not p.builds] + list(plan.eslint_files)
         with tree_of(repo, head, directories) as tree:
-            results += run_plan(tree, plan, args.fix, cache=tree == repo)
+            found = run_plan(tree, plan, args.fix, cache=tree == repo)
+            if args.new_only:
+                charge_new_only(repo, args.base, plan, tree, found)
+            results += found
     if not results:
         return 0
     return report(results, time.monotonic() - started, mode, args.timings)
