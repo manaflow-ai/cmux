@@ -303,6 +303,9 @@ fn startup_value_option(value: &str) -> bool {
             | "--term"
             | "--owner-host-fg"
             | "--owner-host-bg"
+            | "--owner-ready-fd"
+            | "--owner-install-key-fd"
+            | "--machine-provider-command"
     )
 }
 
