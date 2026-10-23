@@ -61,18 +61,20 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
 
     /// Whether a form field's value differs from what its markup gives it, as a JS function. A
     /// one-line `<select>` with no default option shows its first enabled option (HTML's
-    /// selectedness setting), so that option is its default; comparing each option's `selected`
-    /// with `defaultSelected` called every such menu edited (the 2026-10-23 light bench: a
-    /// Chromium page whose recorder attached late kept its page as form input). Shared by
-    /// ``fieldProbeScript`` and ``recorderScript``.
+    /// selectedness setting; an option in a disabled `<optgroup>` is not enabled, which the
+    /// option's own `disabled` does not show), so that option is its default; comparing each
+    /// option's `selected` with `defaultSelected` called every such menu edited (the 2026-10-23
+    /// light bench: a Chromium page whose recorder attached late kept its page as form input).
+    /// Shared by ``fieldProbeScript`` and ``recorderScript``.
     static let differsFromDefault = """
     (e) => {
       if (e.tagName === 'SELECT') {
         const options = Array.from(e.options);
         if (e.multiple || e.size > 1) return options.some((o) => o.selected !== o.defaultSelected);
+        const enabled = (o) => !o.disabled && !(o.parentElement?.tagName === 'OPTGROUP' && o.parentElement.disabled);
         let shown = -1;
         options.forEach((o, i) => { if (o.defaultSelected) shown = i; });
-        if (shown < 0) shown = options.findIndex((o) => !o.disabled);
+        if (shown < 0) shown = options.findIndex(enabled);
         return e.selectedIndex !== shown;
       }
       if (e.type === 'checkbox' || e.type === 'radio') return e.checked !== e.defaultChecked;

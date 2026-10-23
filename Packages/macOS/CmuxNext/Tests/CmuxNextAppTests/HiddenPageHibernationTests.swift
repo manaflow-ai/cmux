@@ -144,6 +144,7 @@ import Testing
             <select id="size"><option>s</option><option>m</option><option>l</option></select>
             <select id="pick"><option disabled>Pick one</option><option>a</option><option>b</option></select>
             <select id="many" multiple><option>x</option><option>y</option></select>
+            <select id="grouped"><optgroup label="gone" disabled><option>p</option></optgroup><option>q</option></select>
             """)
         func edited() async throws -> Bool? {
             guard case .string(let json) = try await page.evaluate(BrowserPageBusy.fieldProbeScript, world: .isolated),
@@ -155,6 +156,12 @@ import Testing
 
         _ = try await page.evaluate("document.getElementById('pick').selectedIndex = 2; true", world: .page)
         #expect(try await edited() == true, "the field probe missed a menu moved off its first enabled option")
+        _ = try await page.evaluate("document.getElementById('pick').selectedIndex = 1; true", world: .page)
+        #expect(try await edited() == false, "a menu moved back to its first enabled option still counted as edited")
+
+        // An option in a disabled group is not enabled: the menu shows the option after the group.
+        _ = try await page.evaluate("document.getElementById('grouped').selectedIndex = 0; true", world: .page)
+        #expect(try await edited() == true, "the field probe missed a menu moved onto an option in a disabled group")
     }
 
     /// #20866 second review: a composer the person typed in and then sent (a chat app clears it)
