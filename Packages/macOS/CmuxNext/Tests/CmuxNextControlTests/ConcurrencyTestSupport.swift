@@ -80,7 +80,7 @@ final class SoonFrameSource: ControlFrameSource {
     }
 
     func scheduleSoon(_ work: @escaping @MainActor @Sendable () -> Void) {
-        MainRunLoopHop().perform(work)
+        MainRunLoopBlock.perform(work)
     }
 
     @MainActor
