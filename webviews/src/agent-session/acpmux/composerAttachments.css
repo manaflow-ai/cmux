@@ -184,6 +184,71 @@
   color: var(--agent-muted);
   font-size: var(--text-caption);
 }
+/* Movie links reuse the checked reply player, constrained to one composer tile. The name remains
+   in the lower line and the player's Open/Expand actions stay reachable on hover or focus. */
+.acpmux-attachment-media {
+  width: min(160px, 70vw);
+  height: var(--acpmux-attach-height);
+  overflow: hidden;
+}
+.acpmux-attachment-media .cv-media {
+  width: 100%;
+  height: 100%;
+  gap: 0;
+}
+.acpmux-attachment-media .cv-media__frame {
+  width: 100%;
+  height: calc(var(--acpmux-attach-height) - 16px);
+  flex: none;
+}
+.acpmux-attachment-media .cv-media video {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: cover;
+  border-radius: var(--acpmux-attach-radius) var(--acpmux-attach-radius) 0 0;
+}
+.acpmux-attachment-media .cv-media__name {
+  box-sizing: border-box;
+  height: 16px;
+  padding: 1px 24px 1px 6px;
+  color: var(--agent-text);
+  font-size: var(--text-caption);
+  line-height: 14px;
+}
+.acpmux-attachment-media .cv-media__play {
+  width: 32px;
+  height: 32px;
+}
+.acpmux-attachment-media .cv-media__duration {
+  right: 4px;
+  bottom: 4px;
+  font-size: var(--text-caption);
+}
+.acpmux-attachment-media .cv-media__actions {
+  top: 4px;
+  right: 4px;
+}
+.acpmux-attachment-media-fallback {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+  padding: 0 32px 0 10px;
+  box-sizing: border-box;
+}
+.acpmux-attachment-media-fallback .acpmux-attachment-link-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-attachment-media-fallback .acpmux-attachment-link-note {
+  flex: none;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+}
 .acpmux-attachment-document {
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr);

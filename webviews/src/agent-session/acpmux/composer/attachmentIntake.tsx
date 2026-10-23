@@ -23,6 +23,7 @@ import { Close, FileDoc, ImageIcon } from "../conversation/icons";
 import { type StringKey, type Translate, usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { pasteLines, pasteName } from "../conversation/promptCollapse";
+import { mediaKind, ReplyMedia } from "../chips/ReplyMedia";
 import { intakeFiles } from "./intakeFiles";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
 import { FADE_BAND_PX } from "../MarkdownField";
@@ -509,7 +510,27 @@ function AttachmentChip({
   }
   // A file that goes as its path (a saved copy, or a file or folder the panel chose) says so, with
   // the path on hover: the agent reads it there instead of getting its bytes.
-  if (attachment.kind === "link")
+  if (attachment.kind === "link") {
+    const movie = Boolean(attachment.path && mediaKind(attachment.path) === "video");
+    const fallback = (
+      <span className="acpmux-attachment-media-fallback">
+        <span className="acpmux-attachment-link-name">{attachment.name}</span>
+        {attachment.saved && <span className="acpmux-attachment-link-note">{t(ATTACHMENT_LABELS.sentAsPath)}</span>}
+      </span>
+    );
+    if (movie)
+      return menu(
+        undefined,
+        <div
+          className="acpmux-attachment acpmux-attachment-media"
+          data-saved={attachment.saved || undefined}
+          /* tooltip-allow: the media player exposes the file name to assistive technology */
+          title={attachment.path}
+        >
+          <ReplyMedia path={attachment.path!} alt={attachment.name} fallback={fallback} previewOnHover={false} />
+          {remove}
+        </div>,
+      );
     return menu(
       undefined,
       <div
@@ -517,11 +538,11 @@ function AttachmentChip({
         data-saved={attachment.saved || undefined}
         /* tooltip-allow: the chip shows a file's name; its path is where the agent reads it */ title={attachment.path}
       >
-        <span className="acpmux-attachment-link-name">{attachment.name}</span>
-        {attachment.saved && <span className="acpmux-attachment-link-note">{t(ATTACHMENT_LABELS.sentAsPath)}</span>}
+        {fallback}
         {remove}
       </div>,
     );
+  }
   return menu(
     undefined,
     <div className="acpmux-attachment acpmux-attachment-file">

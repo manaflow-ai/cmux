@@ -103,16 +103,40 @@ function useMediaLoad(source: string, auto: boolean) {
 
 /// `path` is a local file (absolute or from the session's folder); `fallback` is how it draws when
 /// the pane will not play it.
-export function ReplyMedia({ path, alt, fallback }: { path: string; alt: string; fallback?: ReactNode }) {
+export function ReplyMedia({
+  path,
+  alt,
+  fallback,
+  previewOnHover = true,
+}: {
+  path: string;
+  alt: string;
+  fallback?: ReactNode;
+  /** Composer attachments stay still until the person presses Play; replies keep their hover preview. */
+  previewOnHover?: boolean;
+}) {
   const kind = mediaKind(path) ?? "video";
   const { info, answered } = usePathInfo(path);
   const place = info?.place;
-  const loadable = answered && !isDeniedPath(path) && place !== "denied" && place !== "outside" && place !== "missing";
+  // Only a host-confirmed session-root path may request bytes. Unknown, denied, outside and missing
+  // paths remain the named fallback; the host is the authority for any later open action.
+  const loadable = answered && place === "root" && !isDeniedPath(path);
   const [frame, setFrame] = useState<HTMLSpanElement | null>(null);
   const near = useNearViewport(frame);
   const { src, state, fail } = useMediaLoad(path, near && loadable);
   const name = alt || pathName(path);
-  if (src) return <MediaPlayer src={src} source={path} kind={kind} name={name} path={path} onError={fail} />;
+  if (src)
+    return (
+      <MediaPlayer
+        src={src}
+        source={path}
+        kind={kind}
+        name={name}
+        path={path}
+        onError={fail}
+        previewOnHover={previewOnHover}
+      />
+    );
   if (state === "failed" && fallback) return <>{fallback}</>;
   return (
     <span ref={setFrame} className={`cv-media is-${kind}`}>
@@ -153,6 +177,7 @@ export function MediaPlayer({
   name,
   path,
   onError,
+  previewOnHover = true,
 }: {
   src: string;
   /** The path or link the reply named, for Open in tab (never the granted `src`). */
@@ -162,6 +187,7 @@ export function MediaPlayer({
   /// The file it plays: its right-click menu's Copy, Save As… and Reveal in Finder act on it.
   path?: string;
   onError(): void;
+  previewOnHover?: boolean;
 }) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
@@ -180,7 +206,7 @@ export function MediaPlayer({
   const open = mediaOpenRequest(source);
   return (
     <span className="cv-media is-video" data-path={path}>
-      <VideoThumbnail src={src} name={name} onError={onError} />
+      <VideoThumbnail src={src} name={name} onError={onError} previewOnHover={previewOnHover} />
       <span className="cv-media__actions">
         {open && (
           <button
@@ -229,7 +255,7 @@ export function MediaPlayer({
             </div>
             <div className="cv-media-stage">
               {/* Opens paused, like the thumbnail: only Play starts it with sound (never autoplay). */}
-              <VideoThumbnail src={src} name={name} onError={onError} />
+              <VideoThumbnail src={src} name={name} onError={onError} previewOnHover={previewOnHover} />
             </div>
           </div>
         </Dialog>
@@ -242,7 +268,17 @@ export function MediaPlayer({
 /// metadata), a glass play button in its middle and its length in a corner. The pointer resting on
 /// it previews it muted, as before; a click plays it from the start with sound and the player's
 /// controls. Every part a click lands on shows the pointing hand.
-export function VideoThumbnail({ src, name, onError }: { src: string; name: string; onError(): void }) {
+export function VideoThumbnail({
+  src,
+  name,
+  onError,
+  previewOnHover = true,
+}: {
+  src: string;
+  name: string;
+  onError(): void;
+  previewOnHover?: boolean;
+}) {
   const t = useT();
   const video = useRef<HTMLVideoElement>(null);
   const [started, setStarted] = useState(false);
@@ -281,14 +317,22 @@ export function VideoThumbnail({ src, name, onError }: { src: string; name: stri
           className="cv-media__poster"
           aria-label={duration ? t("media.playLength", { length: duration }) : t("media.play")}
           onClick={play}
-          onMouseEnter={() => {
-            const element = video.current;
-            if (element?.paused) void element.play()?.catch(() => {});
-          }}
-          onMouseLeave={() => {
-            const element = video.current;
-            if (element?.muted) element.pause();
-          }}
+          onMouseEnter={
+            previewOnHover
+              ? () => {
+                  const element = video.current;
+                  if (element?.paused) void element.play()?.catch(() => {});
+                }
+              : undefined
+          }
+          onMouseLeave={
+            previewOnHover
+              ? () => {
+                  const element = video.current;
+                  if (element?.muted) element.pause();
+                }
+              : undefined
+          }
         >
           <span className="ui-glass cv-media__play" aria-hidden="true">
             <PlayTriangle size={18} style={{ color: "inherit" }} />

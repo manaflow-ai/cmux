@@ -149,7 +149,7 @@ afterEach(async () => {
 describe("the inline player", () => {
   const SOURCE = "/Users/you/src/atlas-web/out/login-tests.mp4";
 
-  async function mount() {
+  async function mount(previewOnHover = true) {
     const container = installDom();
     const calls: Array<[string, Record<string, unknown>]> = [];
     setChipHost(async (method, params) => {
@@ -165,6 +165,7 @@ describe("the inline player", () => {
           kind="video"
           name="login-tests.mp4"
           onError={() => {}}
+          previewOnHover={previewOnHover}
         />,
       );
     });
@@ -197,6 +198,17 @@ describe("the inline player", () => {
     expect(video.controls).toBe(true);
     expect(video.muted).toBe(false);
     expect(video.dataset.played).toBe("sound");
+  });
+
+  test("composer mode keeps the poster still on hover", async () => {
+    const { container, video } = await mount(false);
+    await act(async () => {
+      container
+        .querySelector("button.cv-media__poster")!
+        .dispatchEvent(new dom!.window.MouseEvent("mouseover", { bubbles: true }));
+    });
+    expect(video.dataset.played).toBeUndefined();
+    expect(video.paused).toBe(true);
   });
 
   test("Open in tab asks the host to open the file, never the granted URL", async () => {
