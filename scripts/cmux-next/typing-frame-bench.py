@@ -50,6 +50,7 @@ parser.add_argument("--stress", action="store_true",
                          "6 tabs per pane, 10 workspaces with Chromium pages, 10 printing terminals); every phase runs in it. "
                          "Uses scripts/cmux-next/perf-stress-session.py when present, else the builder here")
 parser.add_argument("--sessions", help="comma list of light,stress: one app launch each (default: light, or stress with --stress)")
+parser.add_argument("--agent-mock", action="store_true", help="CMUX_NEXT_AGENT_PANE_MOCK=1 (the light session's streaming chats)")
 parser.add_argument("--sample", action="store_true", help="/usr/bin/sample the app over each load phase")
 parser.add_argument("--gate-p95-ms", type=float)
 opts = parser.parse_args()
@@ -423,25 +424,36 @@ def run_session(session):
     LOAD.clear()
     LOAD.update({"made": False, "workspaces": [], "chat_panes": []})
     global SOCKET
-    # An explicit socket (CMUX_NEXT_SOCKET_PATH): the tag convention's path differs between a fleet step's HOME and
-    # a person's, and a stale /tmp link from an earlier step points nowhere.
-    SOCKET = os.path.join(tempfile.gettempdir(), f"cmux-typing-{os.getpid()}-{session}.sock")
-    if os.path.exists(SOCKET):
-        os.unlink(SOCKET)
+    # The launch environment of sidebar-churn-typing.py, which comes up on the fleet minis (an explicit
+    # CMUX_NEXT_SOCKET_PATH, CMUX_DEV_BACKEND_MODE or the agent mock left the app idle without its socket on
+    # aws-m4pro-4/6/7). The socket is the tag's, in /tmp or the state directory.
+    for path in (f"/tmp/cmux-debug-{TAG}.sock", os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{TAG}.sock")):
+        if os.path.exists(path):
+            os.unlink(path)
+    SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
     scratch = tempfile.mkdtemp(prefix=f"typing-{TAG}-{session}-")
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-           "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/zsh", "CMUX_NEXT_NO_ACTIVATE": "1",
-           "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_DEV_BACKEND_MODE": "local", "CMUX_NEXT_AGENT_PANE_MOCK": "1",
+           "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"),
            "CMUX_NEXT_CHIEF_ISOLATED": "1", "CMUX_NEXT_CHIEF_HOME": os.path.join(scratch, "chief"),
            "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(map(str, WINDOW)), "CMUX_NEXT_TYPING_PROBE": PROBE,
-           "CMUX_NEXT_HANG_THRESHOLD_MS": "8", "CMUX_NEXT_SOCKET_PATH": SOCKET}
+           "CMUX_NEXT_HANG_THRESHOLD_MS": "8"}
+    if opts.agent_mock:
+        env["CMUX_NEXT_AGENT_PANE_MOCK"] = "1"
     log_path = os.path.join(OUT, f"app-{session}.log")
     log = open(log_path, "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     note(f"{session}: launched pid {app.pid}")
     try:
-        if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 180):
+        def up():
+            global SOCKET
+            for path in (f"/tmp/cmux-debug-{TAG}.sock", os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{TAG}.sock")):
+                if os.path.exists(path):
+                    SOCKET = path
+                    if (rpc("debug.windows") or {}).get("windows"):
+                        return True
+            return False
+        if not wait(up, 180):
             log.flush()
             note(f"{session}: socket {SOCKET} exists={os.path.exists(SOCKET)} debug.windows={json.dumps(rpc('debug.windows'))[:300]}")
             if app.poll() is None:
