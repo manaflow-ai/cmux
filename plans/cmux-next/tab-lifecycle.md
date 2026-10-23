@@ -198,10 +198,15 @@ Chromium tabs held 1.1 GB for half an hour, and the floor is a 50 KB record
 Now hidden live pages share the one warm-set budget with the hidden terminal
 surfaces (`WarmSetBudget.pageCapacity`: 1/64 of memory at 56 MB a page,
 4 to 16; warning 2; critical 0). `HibernationPlanner.plan(warmPages:)`
-counts every eligible hidden page except each pane's shown tab (`fronts`:
-also a parked workspace's or an off-screen column's, what a switch shows
-again), its neighbors and hovered tabs, the probe's recent keeps and the
-exemptions; past the budget the least valuable (the same ranking) are due
+counts every eligible hidden page except the neighbors and hovered tabs, the
+probe's recent keeps and the exemptions. Each pane's shown tab (`fronts`: also
+a parked workspace's or an off-screen column's, what a switch shows again)
+counts but ranks after every other page, so past the budget the workspaces
+left longest ago let theirs go and the most recently left keep a live page
+(before, fronts were out of the budget and every parked workspace held a
+renderer for the whole timeout: O(workspaces), the STRESS session's 10
+Chromium workspaces ~550 MB). Past the budget the least valuable (the same
+ranking) are due
 once hidden `overBudgetMinimumHidden` (60 s, the planner's "the person just
 left it"), at the normal pace, through the same probe (form input, media,
 capture stay). The timeout and memory pressure rules are unchanged; "off"
@@ -212,8 +217,8 @@ Agent chat pages (one web content process each, about 75 MB) had no budget
 either and waited for the whole timeout: a STRESS pane's five hidden chats held
 ~375 MB. `AgentPageHibernation` now applies the same `pageCapacity` to the
 hidden chat pages it may release: all but the most recently left go once
-hidden `overBudgetMinimumHidden`; each pane's shown chat (`fronts`) stays out,
-and a busy turn, pinned, New Tab and shell chats still stay. A released chat
+hidden `overBudgetMinimumHidden`; each pane's shown chat (`fronts`) counts
+but goes last, and a busy turn, pinned, New Tab and shell chats still stay. A released chat
 keeps its session, wake state and last frame, as before. Tests:
 `AgentPageHibernationTests.hiddenChatsPastTheWarmBudgetLetGoAfterAMinute`.
 

@@ -5,7 +5,7 @@ import CmuxNextBridge
 // beside it stay awake and a nearby switch shows a live page.
 extension PaneController {
     /// Reports this pane's tab order, shown tab and presence (off screen: its shown tab wakes no
-    /// neighbors, and stays out of the page warm budget).
+    /// neighbors, and goes last for the page warm budget).
     func noteNeighbors() {
         guard let hibernation = services.cache.hibernation else { return }
         hibernation.paneDidChange(ObjectIdentifier(self), order: orderedIDs.map(\.rawValue), selected: currentTabKey, visible: isVisible)

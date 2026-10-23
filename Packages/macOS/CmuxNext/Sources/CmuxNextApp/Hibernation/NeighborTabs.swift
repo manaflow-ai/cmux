@@ -16,7 +16,7 @@ struct NeighborTabs {
     }
 
     /// The tab each pane shows, on screen or not: what a workspace or column switch shows again,
-    /// so the page warm budget leaves it alone (`HibernationPlanner.Candidate.isFront`).
+    /// so it goes last for the page warm budget (`HibernationPlanner.Candidate.isFront`).
     var fronts: Set<String> { Set(panes.values.compactMap(\.selected)) }
 
     mutating func remove(_ pane: ObjectIdentifier) {

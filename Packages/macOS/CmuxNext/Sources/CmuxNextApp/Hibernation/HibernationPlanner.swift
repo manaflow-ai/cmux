@@ -32,7 +32,8 @@ struct HibernationPlanner {
         /// a reason, so it neither goes for the warm budget nor holds a place in it.
         var recentlyKept = false
         /// The tab its pane shows, in a parked workspace or an off-screen column too: what a
-        /// switch shows again. The warm budget leaves it alone (the timeout and pressure do not).
+        /// switch shows again. It counts in the warm budget but ranks after every other page, so
+        /// past the budget the workspaces left longest ago let theirs go first.
         var isFront = false
     }
 
@@ -161,8 +162,8 @@ struct HibernationPlanner {
     /// A page is due once its idleness reaches the timeout (`browser.hibernation`; 10 minutes at
     /// most under pressure). Under memory pressure, when no page is due, the least valuable page
     /// hidden at least `Pace.minimumHidden` goes anyway, to relieve it. Past the warm budget
-    /// (`warmPages`, `WarmSetBudget.pageCapacity`: hidden live pages kept beyond each pane's shown
-    /// tab and the probe's keeps) the least valuable pages are due once hidden
+    /// (`warmPages`, `WarmSetBudget.pageCapacity`: hidden live pages kept beyond the probe's
+    /// keeps, each pane's shown tab ranked last) the least valuable pages are due once hidden
     /// `overBudgetMinimumHidden`, so hidden pages cost a bounded amount, not 55 MB each for half
     /// an hour. Each pass takes at most `Pace.perPass` pages and looks again after `Pace.interval`
     /// while more are waiting.
@@ -174,21 +175,24 @@ struct HibernationPlanner {
             return plan
         }
         let pace = Pace.at(pressure)
-        var ranked: [(key: String, idleness: Double, hiddenFor: Double, kept: Bool, budgeted: Bool)] = []
+        var ranked: [(key: String, idleness: Double, hiddenFor: Double, kept: Bool, budgeted: Bool, front: Bool)] = []
         for candidate in candidates {
             if let exemption = exemption(candidate, setting: setting) {
                 plan.exemptions[candidate.key] = exemption
                 continue
             }
             ranked.append((candidate.key, idleness(candidate, pressure: pressure, timeout: threshold), candidate.hiddenFor,
-                           pressure != .normal && candidate.recentlyKept, !candidate.isFront && !candidate.recentlyKept))
+                           pressure != .normal && candidate.recentlyKept, !candidate.recentlyKept, candidate.isFront))
         }
         ranked.sort {
             if $0.kept != $1.kept { return !$0.kept }
             return $0.idleness != $1.idleness ? $0.idleness > $1.idleness : $0.key < $1.key
         }
-        // Past the budget: every page it counts but the `warmPages` most valuable (ranked last).
-        let budgeted = ranked.filter(\.budgeted)
+        // Past the budget: every page it counts but the `warmPages` most valuable. Each pane's
+        // shown tab (a parked workspace's too) is worth more than any tab nobody shows, so it goes
+        // only after them, the workspace left longest ago first: hidden-page memory is bounded by
+        // the budget, not by the number of workspaces.
+        let budgeted = ranked.filter { $0.budgeted && !$0.front } + ranked.filter { $0.budgeted && $0.front }
         let over = budgeted.prefix(max(0, budgeted.count - (warmPages ?? budgeted.count)))
         let overBudget = Set(over.map(\.key))
         let overMinimum = max(pace.minimumHidden, overBudgetMinimumHidden)
@@ -200,8 +204,10 @@ struct HibernationPlanner {
         if due.isEmpty, pressure != .normal { due = fresh }
         if due.isEmpty { due = oldEnough.filter { $0.idleness >= threshold } }
         if due.isEmpty, pressure != .normal { due = oldEnough }
-        let dueKeys = Set(due.map(\.key)).union(over.filter { $0.hiddenFor >= overMinimum }.map(\.key))
-        due = ranked.filter { dueKeys.contains($0.key) }
+        // The timed ones first (least valuable first), then the ones past the budget in budget order.
+        let timedKeys = Set(due.map(\.key))
+        due += over.filter { $0.hiddenFor >= overMinimum && !timedKeys.contains($0.key) }
+        let dueKeys = Set(due.map(\.key))
         plan.due = due.prefix(pace.perPass).map(\.key)
         if due.count > plan.due.count || (pressure != .normal && !plan.due.isEmpty) {
             plan.nextCheck = pace.interval
