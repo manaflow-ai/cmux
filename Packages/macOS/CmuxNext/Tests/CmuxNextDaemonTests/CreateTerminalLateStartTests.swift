@@ -79,7 +79,9 @@ struct CreateTerminalLateStartTests {
         #expect(terminals[0] != nil && terminals[0] == terminals[1], "both requests name one terminal: \(terminals)")
         #expect(recorded["terminals"]?.doubleValue == 1, "asking again makes no second terminal")
         #expect(created.terminalID.rawValue == terminals[0], "the create answers the terminal the first request started")
-        #expect(created.replayed == false, "the answer is the first request's, not the replay's")
+        // The first request's reply lands after its deadline and is dropped; the answer is the
+        // second request's, which cmux-tui serves as a replay of the start that landed late.
+        #expect(created.replayed == true, "the answer is the replay of the late start, not a new terminal")
     }
 
     @Test func aRefusedCreateIsNotAskedAgain() async throws {
