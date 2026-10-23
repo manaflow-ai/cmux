@@ -280,4 +280,43 @@ import Testing
         hosting.windowLiveResize(active: true)
         #expect(fake.syncs.isEmpty)
     }
+
+    /// Review 3: AppKit sends `viewWillStartLiveResize` and `viewDidEndLiveResize` only to the views in the window at
+    /// that time. A host view that left the window during its live resize (a pane parked, a workspace switched) kept
+    /// the live-resize wait after it, so a page that is not hosted held the commit on every later resize; one that
+    /// joined a window during its live resize never got the wait.
+    @Test func aViewThatChangesWindowsDuringALiveResizeFollowsItsNewWindow() {
+        let hosting = makeHosting(enabled: false)
+        hosting.pageWindowCreated(browser: 4, fork: fake.fork)
+        hosting.windowLiveResize(active: true)
+        // The view leaves the resizing window (CEFHostView.viewDidMoveToWindow) and shows later in one that is not resizing.
+        hosting.windowDidChange()
+        let still = LiveResizeWindow.make(live: false)
+        still.contentView?.addSubview(view)
+        hosting.windowDidChange()
+        #expect(fake.syncs.map(\.timeoutMs) == [50, 0])
+        // It joins a window in its live resize: it gets that resize's wait, and the window's end takes it back.
+        view.removeFromSuperview()
+        hosting.windowDidChange()
+        let resizing = LiveResizeWindow.make(live: true)
+        resizing.contentView?.addSubview(view)
+        hosting.windowDidChange()
+        #expect(fake.syncs.map(\.timeoutMs) == [50, 0, 50])
+        hosting.windowLiveResize(active: false)
+        #expect(fake.syncs.map(\.timeoutMs) == [50, 0, 50, 0])
+    }
+}
+
+/// A window whose live resize the test sets (`NSWindow.inLiveResize` is true only while the user drags an edge).
+private final class LiveResizeWindow: NSWindow {
+    var isLive = false
+    override var inLiveResize: Bool { isLive }
+
+    static func make(live: Bool) -> LiveResizeWindow {
+        let window = LiveResizeWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless,
+                                      backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.isLive = live
+        return window
+    }
 }
