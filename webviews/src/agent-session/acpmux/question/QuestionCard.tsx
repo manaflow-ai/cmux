@@ -23,6 +23,7 @@ import {
   type CardInput,
   type CardState,
 } from "./cardState";
+import { HtmlPreview } from "./HtmlPreview";
 import {
   declineReply,
   hasPreviews,
@@ -496,11 +497,20 @@ export function previewText(text: string): string {
 /// it opens under that option's row.
 function OptionPreview({ id, t, option, inline }: { id: string; t: Translate; option: Option; inline: boolean }) {
   return (
-    <section className="acpmux-question-preview" data-inline={inline || undefined} aria-labelledby={id}>
+    <section
+      className="acpmux-question-preview"
+      data-inline={inline || undefined}
+      data-format={option.preview?.format}
+      aria-labelledby={id}
+    >
       <span id={id} className="acpmux-question-preview-label">
         {t("question.preview", { option: option.label })}
       </span>
-      <pre>{previewText(option.preview?.text ?? "")}</pre>
+      {option.preview?.format === "html" ? (
+        <HtmlPreview html={option.preview.text} title={t("question.preview", { option: option.label })} />
+      ) : (
+        <pre>{previewText(option.preview?.text ?? "")}</pre>
+      )}
     </section>
   );
 }
