@@ -76,11 +76,12 @@ import Testing
         #expect(wide.pan(toShowColumn: 30, from: 100) == 100)
     }
 
-    @Test func fewerRowsAreLetterboxedBelowTheGrid() {
+    @Test func fewerRowsAreLetterboxedBelowTheGrid() throws {
         let short = layout(host: (50, 20), rows: 40)
-        let box = try? #require(short.letterbox)
-        #expect(box?.top == 20 * 16)
-        #expect(box?.height == 20 * 16)
+        let box = try #require(short.letterbox)
+        let twentyRows: CGFloat = 20 * 16
+        #expect(box.top == twentyRows)
+        #expect(box.height == twentyRows)
         #expect(short.note(owner: "Aziz's Mac") == "50×20 · set by Aziz's Mac")
         #expect(short.note(owner: nil) == "50×20 · set by another device")
     }
