@@ -1,3 +1,4 @@
+import AppKit
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextActions
@@ -132,7 +133,28 @@ import Testing
         await #expect(throws: SettingNotInSchema.self) { try await settings.showNewTabWidget("weather") }
         await #expect(throws: SettingNotInSchema.self) { try await settings.showNewTabWidget("weatherCity") }
         #expect(settings.fileRoot == before)
-        #expect(settings.snapshot.newTabWidgets.ids == ["greeting"])
+        // Still Settings' defaults: no widget on (the headline is off by default, Leo 2026-10-22).
+        #expect(settings.snapshot.newTabWidgets.ids == [])
+    }
+
+    /// The spare page a new tab adopts (NewTabPage.sparePage) says `headlineOff` only for a greeting
+    /// set to false in cmux.json, so Minimal keeps no room for the headline for those who had turned
+    /// the greeting off; the default and a saved true keep the room.
+    @Test func theSparePageSaysHeadlineOffOnlyForAGreetingSetToFalse() async throws {
+        _ = NSApplication.shared
+        for (json, headlineOff, ids) in [
+            ("{}", nil, [String]()),
+            (#"{"tabs":{"newTabWidgets":{"greeting":true}}}"#, nil, ["greeting"]),
+            (#"{"tabs":{"newTabWidgets":{"greeting":false}}}"#, true, [String]()),
+        ] as [(String, Bool?, [String])] {
+            let (settings, directory) = try await Self.settings(json)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let services = AppServices(environment: AppEnvironment.current([:]))
+            services.settings = settings
+            let page = NewTabPage.sparePage(services)
+            #expect(page.headlineOff == headlineOff, "\(json)")
+            #expect(page.pageWidgets == ids, "\(json)")
+        }
     }
 
     /// The page's + opens Settings on the widget rows: the anchor exists.
