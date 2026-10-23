@@ -43,8 +43,7 @@ extension UpdateCard {
                                               progress: transfer.fraction, dismissible: false)
             }
         case .installing:
-            return UpdateCardPresentation(symbol: "arrow.clockwise.circle", title: UpdaterStrings.installingUpdate,
-                                          detail: UpdaterStrings.relaunchingDetail, showsProgress: true, dismissible: false)
+            return Self.installing(install)
         case .available(let found):
             return UpdateCardPresentation(symbol: "arrow.down.circle", title: UpdaterStrings.noticeAvailable,
                                           detail: found.map(UpdaterStrings.foundVersion) ?? UpdaterStrings.youHave(current),
@@ -67,6 +66,32 @@ extension UpdateCard {
                                           detail: reason.isEmpty ? nil : reason,
                                           actions: kept == nil ? [.waitForFix] : [.waitForFix, .rollBack],
                                           lines: [kept.map(UpdaterStrings.pulledKept) ?? UpdaterStrings.pulledNothingKept])
+        }
+    }
+
+    /// The installing card for `status` (``UpdateInstallStatus``): the short text first, then
+    /// the step and its seconds, what a held relaunch waits for (with Relaunch), or that the
+    /// install never relaunched (with Details).
+    nonisolated static func installing(_ status: UpdateInstallStatus?) -> UpdateCardPresentation {
+        let symbol = "arrow.clockwise.circle"
+        guard let status else {
+            return UpdateCardPresentation(symbol: symbol, title: UpdaterStrings.installingUpdate,
+                                          detail: UpdaterStrings.relaunchingDetail, showsProgress: true, dismissible: false)
+        }
+        switch status.stage {
+        case .waiting(let agents, let commands):
+            return UpdateCardPresentation(symbol: "hourglass", title: UpdaterStrings.waitingToRelaunch,
+                                          detail: UpdaterStrings.waitingDetail(agents: agents, commands: commands),
+                                          showsProgress: true, actions: [.relaunchNow], dismissible: false)
+        case .stalled:
+            return UpdateCardPresentation(symbol: "exclamationmark.triangle", title: UpdaterStrings.installStalled,
+                                          detail: UpdaterStrings.installStalledDetail(minutes: max(1, status.seconds / 60)),
+                                          actions: [.details])
+        case .preparing:
+            return UpdateCardPresentation(symbol: symbol, title: UpdaterStrings.installingUpdate,
+                                          detail: status.isSlow ? UpdaterStrings.checkingNewVersion(seconds: status.seconds)
+                                                                : UpdaterStrings.relaunchingDetail,
+                                          showsProgress: true, dismissible: false)
         }
     }
 

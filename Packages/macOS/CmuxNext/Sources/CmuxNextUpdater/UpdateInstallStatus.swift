@@ -34,6 +34,16 @@ nonisolated public struct UpdateInstallStatus: Equatable, Sendable {
     ///   - blockers: what the relaunch gate waits for, or nil when it holds nothing.
     public init(elapsed: Duration, blockers: UpdateRelaunchBlockers?) {
         seconds = Int(elapsed.components.seconds)
-        stage = .preparing
+        if let blockers, blockers.busyAgentCount > 0 || blockers.runningCommandCount > 0 {
+            // The gate's Relaunch (Install Now) ends this wait, so it never gives up on its own.
+            stage = .waiting(agents: blockers.busyAgentCount, commands: blockers.runningCommandCount)
+        } else if elapsed >= Self.giveUpAfter {
+            stage = .stalled
+        } else {
+            stage = .preparing
+        }
     }
+
+    /// Past ``slowAfter``: the card names the step and the seconds.
+    public var isSlow: Bool { Duration.seconds(seconds) >= Self.slowAfter }
 }

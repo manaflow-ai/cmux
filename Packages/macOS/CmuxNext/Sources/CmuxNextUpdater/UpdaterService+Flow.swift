@@ -14,6 +14,7 @@ extension UpdaterService {
     /// hidden; a check they ask for clears that first (``checkForUpdates()``).
     public var card: UpdateCard? {
         guard let card = flow.card(downloadsAutomatically: downloadSetting.enabled) else { return pulledWatch.card }
+        if card == .installing, installCardDismissed { return pulledWatch.card }
         if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return pulledWatch.card }
         return card
     }
@@ -104,6 +105,7 @@ extension UpdaterService {
         let wasReady = if case .ready = flow.phase { true } else { false }
         let clickedInstall = flow.installRequested
         send(.sparkle(phase))
+        followInstall(phase)
         followStagedUpdate(phase)
         stagedRefresh.follow(phase, updater: self)
         switch phase {
