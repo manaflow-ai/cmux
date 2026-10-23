@@ -228,17 +228,19 @@ with open(config, "w") as f:
 ghostty = os.path.join(scratch, "ghostty")
 open(ghostty, "w").close()
 env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-       "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-       "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config,
-       "CMUX_NEXT_GHOSTTY_CONFIG": ghostty, "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1600,1000"}
+       "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": config,
+       "CMUX_NEXT_GHOSTTY_CONFIG": ghostty, "CMUX_NEXT_TEST_WINDOW_FRAME": "80,80,1600,1000"}
+# The measure entry (split-spring.sh) runs on an exclusive worker: same environment as its own bench.
 teardown = TagTeardown(APP)
 teardown.install()
 log = open(os.path.join(opts.out, "app.log"), "a")
 app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
 report = {"pid": app.pid, "app": APP, "layouts": []}
 try:
-    if not wait(lambda: os.path.exists(SOCKET) and "error" not in (rpc("debug.focus") or {"error": 1}), 120):
-        sys.exit("app did not come up")
+    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
+        log.flush()
+        tail = open(os.path.join(opts.out, "app.log"), errors="replace").read()[-3000:]
+        sys.exit(f"app did not come up: socket {SOCKET} exists={os.path.exists(SOCKET)}; app log tail:\n{tail}")
     for name in [n for n in opts.layouts.split(",") if n]:
         result = {"idle-cursor": idle_cursor, "light": light, "stress": stress}[name]()
         report["layouts"].append(result)
