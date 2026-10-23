@@ -19461,6 +19461,15 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "proxy": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
      }
     },
     "additional_properties": false
