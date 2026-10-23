@@ -19,7 +19,7 @@ final class PaletteContentView: NSView {
     private let body = FlippedView()
     private let topRule = NSView()
     private let bottomRule = NSView()
-    private let list = PaletteListView()
+    let list = PaletteListView()
     /// Hosts the results and fades them out at the top or bottom while more
     /// are hidden there.
     private lazy var listHost = ScrollEdgeFadeView(scrollView: list)
@@ -37,6 +37,8 @@ final class PaletteContentView: NSView {
         set { recorderView.onChoose = newValue }
     }
 
+    /// How many times the whole palette re-rendered from the model (tests).
+    private(set) var renderCount = 0
     private var appliedResults = -1
     private var appliedScroll = -1
     private var appliedPage = -1
@@ -120,6 +122,7 @@ final class PaletteContentView: NSView {
     }
 
     private func render() {
+        renderCount += 1
         // Read every tracked input up front so tracking sees all of them.
         let resultsVersion = model.resultsVersion
         let sections = model.sections
