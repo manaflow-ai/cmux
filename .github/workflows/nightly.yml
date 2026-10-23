@@ -931,14 +931,17 @@ jobs:
     timeout-minutes: 5
     permissions: {}
     concurrency:
+      # A release-surface acknowledgement may wait, but it must never cancel
+      # an older promotion that has already started. The starvation guard
+      # coalesces newer tips after the running promotion finishes.
       group: nightly-next-promote-ack${{ needs.promote-nightly-next.outputs.scan_failed == 'true' && format('-wait-{0}', github.run_id) || '' }}
-      cancel-in-progress: true
+      cancel-in-progress: false
     steps:
       - name: Record the decision
         env:
           ACTION: ${{ needs.promote-nightly-next.outputs.action }}
           SHA: ${{ needs.promote-nightly-next.outputs.sha }}
-        run: echo "nightly-next promotion $ACTION for $SHA; older requests in this group are cancelled"
+        run: echo "nightly-next promotion $ACTION for $SHA; newer requests wait for this promotion"
 
   # Moves nightly-next after the approval. With `@require_non_lander_approver
   # on` in the surface file, the guard refuses an approver who landed any
