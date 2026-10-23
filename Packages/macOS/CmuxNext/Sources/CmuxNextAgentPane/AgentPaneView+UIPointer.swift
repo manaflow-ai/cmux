@@ -33,8 +33,10 @@ extension AgentPaneView {
       const bounded = (value, limit) => String(value || "").slice(0, limit);
       const selector = (element) => {
         if (element.id) return `#${CSS.escape(element.id)}`;
-        const name = element.getAttribute("data-testid") || element.getAttribute("aria-label");
-        if (name) return `${element.localName}[data-testid="${CSS.escape(name)}"]`;
+        const testid = element.getAttribute("data-testid");
+        if (testid) return `${element.localName}[data-testid="${CSS.escape(testid)}"]`;
+        const aria = element.getAttribute("aria-label");
+        if (aria) return `${element.localName}[aria-label="${CSS.escape(aria)}"]`;
         return element.localName || "element";
       };
       const inspect = (element) => {
