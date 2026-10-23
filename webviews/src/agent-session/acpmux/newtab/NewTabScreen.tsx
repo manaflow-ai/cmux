@@ -1272,8 +1272,10 @@ export function NewTabScreen(props: Props) {
           </>
         ) : (
           <>
-            {/* The headline over the composer (a widget, off by default). */}
-            {headline}
+            {/* The headline over the composer (a widget, off by default). On Minimal it sits in a
+                slot the old greeting's height, on or off, so the composer keeps the place it had
+                under the greeting (screen.css .nt-headline-slot). */}
+            {minimal ? <div className="nt-headline-slot">{headline}</div> : headline}
             {composerCard}
             {props.notice}
             {environmentPanel}

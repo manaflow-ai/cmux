@@ -819,6 +819,17 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-screen[data-minimal] {
   padding-top: max(32px, calc(50vh - 150px));
 }
+/* Minimal's headline slot (NewTabScreen.tsx): the old greeting's box (its heading line and 6px
+   under it), there with the headline on or off, so the composer sits where it sat under the greeting
+   and turning the headline on never moves it. The headline sits on the slot's floor and a taller
+   one (Hero, or Choose project under the question) grows up into the page's top padding. */
+.nt-headline-slot {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: calc(var(--text-heading--line-height) + 6px);
+}
 /* The headline (NewTabHeadline.tsx; off by default): "What should we work on in <project>?", the
    project an inline picker. Hero (the shipped look) is a new chat's hero question; Quiet is where the
    old greeting sat; Chip draws the project as the composer's folder chip (headline.experiment.ts). */
@@ -834,8 +845,9 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-headline-text {
   margin: 0;
   max-width: 560px;
-  font-size: var(--text-title);
-  line-height: var(--text-title--line-height);
+  /* A new chat's hero question (.acpmux-empty-title, styles.css): the same size and line. */
+  font-size: 20px;
+  line-height: 28px;
   font-weight: 400;
   color: var(--agent-text);
   overflow-wrap: anywhere;

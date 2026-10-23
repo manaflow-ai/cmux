@@ -12,7 +12,7 @@ export const newTabHeadline = defineExperiment({
   arms: {
     hero: {
       label: "Hero",
-      description: "The new chat's hero: title size in the text colour, the project underlined with a chevron.",
+      description: "The new chat's hero: its question's size (20px) in the text colour, the project underlined with a chevron.",
     },
     quiet: {
       label: "Quiet",
@@ -20,7 +20,7 @@ export const newTabHeadline = defineExperiment({
     },
     chip: {
       label: "Chip",
-      description: "Title size, the project as the composer's folder chip (icon, name, chevron) inside the question.",
+      description: "The hero's size, the project as the composer's folder chip (icon, name, chevron) inside the question.",
     },
   },
   defaultArm: "hero",

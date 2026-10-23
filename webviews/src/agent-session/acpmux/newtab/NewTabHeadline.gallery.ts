@@ -1,8 +1,10 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 // New Tab's optional headline (NewTabHeadline.tsx; Leo 2026-10-22: "new tab page let's have no
 // greeting text by default... maybe as toggle but as useful toggle"): off, the page is the composer
-// alone; on (`tabs.newTabWidgets.greeting`), "What should we work on in <project ▾>?" with the
-// project an inline picker. Its three looks are the `new-tab-headline` experiment (view Compare arms).
+// alone (agent-pane.new-tab, minimal-default); on (`tabs.newTabWidgets.greeting`), "What should we
+// work on in <project ▾>?" with the project an inline picker. Its three looks are the
+// `new-tab-headline` experiment (view Compare arms). Every variant here draws the headline: Compare
+// arms starts from the first variant and the experiment matrix runs every one, so each has a picker.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { CWD, manySessions, noChat } from "../../../gallery/fixtures/acpmux";
@@ -31,6 +33,16 @@ const pick = async (ctx: PlayContext, name: string) => {
   await ctx.click({ role: "option", name: new RegExp(`^${name},`) });
   await ctx.waitFor(() => ctx.document.querySelector(".nt-headline-text")?.textContent?.includes(name) ?? false);
 };
+/// The compare view's start, from any variant's played state: the menu closed and cmux picked. A
+/// variant that already picked cmux (or left its menu open) is brought there without a second pick.
+const start = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(button) !== null);
+  if (ctx.document.querySelector(".acpmux-project-menu")) {
+    await ctx.press("Escape");
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-project-menu") === null);
+  }
+  if (!ctx.document.querySelector(".nt-headline-text")?.textContent?.includes("cmux")) await pick(ctx, "cmux");
+};
 
 export default agentPaneEntry({
   id: "agent-pane.new-tab-headline",
@@ -40,7 +52,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/newtab/NewTabHeadline.tsx#NewTabHeadline"],
   experiment: {
     definition: newTabHeadline,
-    setup: (ctx) => pick(ctx, "cmux"),
+    setup: start,
     script: [
       {
         name: "open the picker",
@@ -52,16 +64,6 @@ export default agentPaneEntry({
     ],
   },
   variants: {
-    off: {
-      note: "The default: no greeting and no headline, only the composer with its project strip, model, mic and Send.",
-      ready: page([]),
-      snapshot: noChat(manySessions(12)),
-      play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
-        const extra = ctx.document.querySelector(".nt-headline, .nt-greeting");
-        if (extra) throw new Error(`the default page shows ${extra.className}`);
-      },
-    },
     on: {
       note: 'Ask What to Work On turned on, before a pick: "What should we work on?" over the composer, Choose project under it.',
       ready: page(["greeting"]),
