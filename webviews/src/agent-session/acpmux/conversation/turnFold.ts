@@ -11,6 +11,11 @@
 // line, so it plays on top of that hold and a reader who scrolls meanwhile scrolls every row alike.
 // Reduce Motion, the host's animation switches (`data-agent-motion="off"`, a 0 ms token) and a page
 // with no Web Animations open and close at once: nothing here runs.
+//
+// A pass runs only when the rows below the line are placed again (watchTurnFold): a row element
+// mounts or unmounts, or a row's placement (`style`, its index) changes. A token streamed into a row
+// changes neither, so streaming never runs one. The watcher stops when the fold ends: its timer, the
+// next toggle, another chat, or the transcript unmounting.
 import { foldMotion, foldMs } from "./fold";
 import { FOLD_SETTLE_MS } from "./foldAnchor";
 
@@ -61,6 +66,8 @@ export type TurnFold = {
   copies: Map<string, HTMLElement>;
   /// The animations this fold started, so another toggle can settle them first.
   animations: Set<Animation>;
+  /// Stops the watcher (watchTurnFold) and tells the transcript the fold is over; once, at its end.
+  stop?: () => void;
 };
 
 /// The fold each thread plays now: a fold's own timer ends only that fold, not a later one.
@@ -158,6 +165,9 @@ export function startTurnFold(
 /// close hid drop themselves when theirs end.
 export function endTurnFold(thread: HTMLElement | null, fold: TurnFold | undefined): void {
   if (!fold) return;
+  const stop = fold.stop;
+  fold.stop = undefined;
+  stop?.();
   fold.until = 0;
   fold.moving.clear();
   fold.animations.clear();
@@ -287,4 +297,50 @@ export function playTurnFold(
     setTimeout(drop, Math.max(0, fold.until - now));
   }
   return true;
+}
+
+/// What a row's placement changes on its element: its offset (`style`) and its index.
+const PLACED: MutationObserverInit = { attributes: true, attributeFilter: ["style", "aria-posinset"] };
+const isRow = (node: Node): node is HTMLElement =>
+  node.nodeType === 1 &&
+  (node as Element).classList.contains("acpmux-row") &&
+  (node as Element).hasAttribute("data-row-id");
+
+/// Plays `fold` each time the rows below its line are placed again: the thread's row elements
+/// mount or unmount, or a mounted row's placement changes. `read` gives the rows as placed now.
+/// `done` runs once when the fold ends (its timer, a settle, or another chat); the observer stops then.
+export function watchTurnFold(
+  fold: TurnFold,
+  thread: HTMLElement,
+  read: () => { placed: PlacedRows; sessionId: string | undefined },
+  ghosts: Set<HTMLElement>,
+  done: () => void,
+): void {
+  const Observer = thread.ownerDocument.defaultView?.MutationObserver;
+  if (!Observer) {
+    fold.stop = done;
+    return;
+  }
+  const observer = new Observer((records) => {
+    let moved = false;
+    for (const record of records) {
+      // Rows are the only nodes watched for attributes.
+      if (record.type === "attributes") moved = true;
+      for (const node of record.addedNodes)
+        if (isRow(node)) {
+          observer.observe(node, PLACED);
+          moved = true;
+        }
+      for (const node of record.removedNodes) if (isRow(node)) moved = true;
+    }
+    if (!moved) return;
+    const now = read();
+    if (!playTurnFold(fold, thread, now.placed, now.sessionId, ghosts)) settleTurnFold(thread, fold, ghosts);
+  });
+  observer.observe(thread, { childList: true });
+  for (const node of thread.children) if (isRow(node)) observer.observe(node, PLACED);
+  fold.stop = () => {
+    observer.disconnect();
+    done();
+  };
 }

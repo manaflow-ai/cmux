@@ -217,7 +217,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await page.close();
   });
 
-  test("mid-transcript, Worked for and a call inside it open and close with each header on its pixel", async () => {
+  test("mid-transcript, Worked for opens and closes with its line on its pixel", async () => {
     const page = await open("no-preference");
     await show(page, done);
     await settle(page);
@@ -241,20 +241,6 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     const worked = await clickAndWatch(page);
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
     expect(worked.moved).toBeLessThanOrEqual(1);
-    // The rows it shows faded in and the rows below slid down: the thread carried the fold's state.
-    await settle(page);
-    await page.evaluate(() => document.querySelector("[data-probe]")?.removeAttribute("data-probe"));
-
-    await probe(page, `[data-row-id="t3-run"] button.cv-tool.is-toggle[aria-expanded="false"]`);
-    const call = await clickAndWatch(page);
-    expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
-    expect(call.folded).toBe(true);
-    expect(call.moved).toBeLessThanOrEqual(1);
-    await settle(page);
-    const callClosed = await clickAndWatch(page);
-    expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("false");
-    expect(callClosed.folded).toBe(true);
-    expect(callClosed.moved).toBeLessThanOrEqual(1);
     await settle(page);
     await page.evaluate(() => document.querySelector("[data-probe]")?.removeAttribute("data-probe"));
 

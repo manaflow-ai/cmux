@@ -208,7 +208,7 @@ import { PromptActions, ReceivedActions } from "./conversation/MessageActions";
 import { AgentNamesContext, agentNames } from "./conversation/agentNames";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { ANCHORED_COLLAPSE_EVENT, foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
-import { playTurnFold, settleTurnFold, startTurnFold, type TurnFold } from "./conversation/turnFold";
+import { settleTurnFold, startTurnFold, watchTurnFold, type TurnFold } from "./conversation/turnFold";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { loadHighlightedCode } from "./conversation/CodeBlock";
 import { loadEditDiffHunks } from "./conversation/EditDiff";
@@ -2826,18 +2826,13 @@ export function VirtualTranscript({
     minimapPlaced.current?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height, width, dockSpace, room, lift, sessionId, seekExpired, canLoadOlder]);
-  // A toggled "Worked for" plays on each placement pass while it lasts, after the pass above has
-  // held the clicked line in place (turnFold.ts). With no fold playing it returns at once; during one
-  // (the fold token plus FOLD_SETTLE_MS) a pass reads only the mounted rows.
+  // A toggled "Worked for" plays when its rows are placed again (watchTurnFold, started at the
+  // toggle), not on every render. A render only checks, in O(1), whether the fold is over or another
+  // chat shows, so nothing of it is left drawn over the new rows.
   useLayoutEffect(() => {
     const fold = turnFold.current;
-    const node = ref.current;
-    const host = thread.current;
-    if (!fold || !node || !host) return;
-    const placed = { count: rows.length, idAt: (index: number) => rows[index]?.id, tops: layout.tops };
-    if (playTurnFold(fold, host, placed, sessionId, foldGhosts.current)) return;
-    // Over, or another chat shows: nothing of it is left drawn over the new rows.
-    settleTurnFold(host, fold, foldGhosts.current);
+    if (!fold || (performance.now() <= fold.until && fold.sessionId === sessionId)) return;
+    settleTurnFold(thread.current, fold, foldGhosts.current);
     turnFold.current = undefined;
   });
   // Unmounted: the playing fold stops and lets go of its rows, and its copies go.
@@ -2859,16 +2854,31 @@ export function VirtualTranscript({
     (id: string) => {
       const node = ref.current;
       const shown = rowsRef.current;
-      settleTurnFold(thread.current, turnFold.current, foldGhosts.current);
-      turnFold.current = node
+      const host = thread.current;
+      settleTurnFold(host, turnFold.current, foldGhosts.current);
+      const fold = node
         ? startTurnFold(
-            thread.current,
+            host,
             id,
             !foldInputs.current.expanded.has(id),
             { count: shown.length, idAt: (index) => shown[index]?.id, tops: foldInputs.current.layout.tops },
             foldInputs.current.sessionId,
           )
         : undefined;
+      turnFold.current = fold;
+      // The rows as placed by the latest render, read when a pass runs.
+      const read = () => {
+        const placed = rowsRef.current;
+        const { layout, sessionId } = foldInputs.current;
+        return {
+          placed: { count: placed.length, idAt: (index: number) => placed[index]?.id, tops: layout.tops },
+          sessionId,
+        };
+      };
+      if (fold && host)
+        watchTurnFold(fold, host, read, foldGhosts.current, () => {
+          if (turnFold.current === fold) turnFold.current = undefined;
+        });
       onToggleActivity(id);
     },
     [onToggleActivity],
