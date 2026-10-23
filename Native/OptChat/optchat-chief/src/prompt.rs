@@ -562,13 +562,34 @@ pub fn subagent_blocks(view: &str, task: &str) -> Vec<Value> {
     // An empty chat has no view to give: only the task itself, with no
     // "Your task:" label (it would label nothing; cx-qqs1). With a view, the
     // label separates the task from the view (the pane's envelope marker).
+    let view = without_stop_lines(view);
     let lines = view
         .lines()
         .filter(|l| !matches!(l.trim(), "" | "<chat>" | "</chat>"));
     if lines.count() == 0 {
         return vec![json!({"type": "text", "text": task})];
     }
-    turn_blocks(view, &[format!("Your task:\n\n{task}")])
+    turn_blocks(&view, &[format!("Your task:\n\n{task}")])
+}
+
+/// `view` without its one-message lines that only say the Chief stopped its
+/// turn (a `stop` call or its echo): they tell a subagent nothing. The fold
+/// logs neither for new turns (`fold::unlogged`); older logs still hold them.
+fn without_stop_lines(view: &str) -> String {
+    let noise = |line: &str| {
+        line.split_once('|').is_some_and(|(head, text)| {
+            head.ends_with("+1")
+                && (text.starts_with("tool: mcp__optchat__stop ")
+                    || text.starts_with("echo: outcome: done. the turn ends now"))
+        })
+    };
+    let mut out = String::with_capacity(view.len());
+    for line in view.split_inclusive('\n') {
+        if !noise(line) {
+            out.push_str(line);
+        }
+    }
+    out
 }
 
 /// Tool descriptions of section 9's `spawn` and `tell`.
