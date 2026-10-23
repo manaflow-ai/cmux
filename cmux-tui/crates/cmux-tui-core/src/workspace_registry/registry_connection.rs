@@ -228,7 +228,7 @@ impl RegistryConnection {
             return;
         }
         let pragma =
-            if deferred { "PRAGMA synchronous=NORMAL;" } else { "PRAGMA synchronous=FULL;" };
+            "PRAGMA synchronous=NORMAL;";
         match connection.execute_batch(pragma) {
             Ok(()) => self.sync_normal.store(deferred, Ordering::Release),
             Err(error) => {

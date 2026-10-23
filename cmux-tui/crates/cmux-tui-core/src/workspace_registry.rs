@@ -2527,7 +2527,7 @@ impl WorkspaceRegistry {
         connection.execute_batch(
             "PRAGMA foreign_keys=ON;
              PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=FULL;
+             PRAGMA synchronous=NORMAL;
              PRAGMA wal_autocheckpoint=1000;
              PRAGMA secure_delete=ON;
              CREATE TABLE IF NOT EXISTS meta (
