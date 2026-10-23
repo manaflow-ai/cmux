@@ -108,12 +108,7 @@ final class TopHomePageView: NSView {
         }
         let home = services.home
         let registry = services.registry
-        // The Chief's row dragged out of the list sideways goes on as a drag into a window's sidebar, where its drop
-        // adds the Chief item (Leo 2026-10-21: drag in a Chief, like a special workspace).
-        list.onDragOut = { [weak services] id, point in
-            guard let services, id.rawValue == Self.chief(services.home) else { return false }
-            return services.chiefDrags.begin(screenPoint: point)
-        }
+        wireChiefDrag(services: services)
         // Mark as Read: the user's unread mark goes, and the read cursor moves to the newest message.
         list.onMarkRead = { id in
             sidebar.setMarkedUnread(false, id)
@@ -273,11 +268,6 @@ final class TopHomePageView: NSView {
     private func defaultConversation(rows: [InboxRow], home: HomeService) -> ConversationID? {
         if let chief = Self.chief(home) { return ConversationID(chief) }
         return rows.homeLines.lazy.compactMap(\.conversation).first
-    }
-
-    static func chief(_ home: HomeService) -> String? {
-        let local = HomeChiefName.select(from: home.conversations)
-        return home.tabChiefs.chiefTab(local: local?.id, localHasHistory: (local?.lastSeq ?? 0) > 0, choice: home.hostedChief.choice)
     }
 
     /// The shown conversation is one the owner's own inbox does not have:

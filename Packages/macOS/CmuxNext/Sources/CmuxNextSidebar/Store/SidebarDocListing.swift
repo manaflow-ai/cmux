@@ -181,12 +181,6 @@ extension SidebarModel {
         return nil
     }
 
-    /// Whether the list draws a document item showing `ref` as a row (in a group or a machine list), which
-    /// the bands' `layout` does not hold.
-    public func listsItem(with ref: LayoutItemRef) -> Bool {
-        sections.contains { $0.nodes.contains { $0.listedItems.contains { $0.ref == ref } } }
-    }
-
     /// The built-ins the list draws as rows (in a group or a machine list), as layout items the App
     /// describes with their band look (`itemInfo`).
     public var listedBuiltIns: [LayoutItem] {
@@ -199,6 +193,12 @@ extension SidebarDocStore {
     /// The document's item `id` at any depth (in a group or a machine section too), as a layout item.
     public func placedItem(_ id: LayoutItemID) -> LayoutItem? {
         records.items[id.rawValue].map { LayoutItem(id: id, ref: SidebarDocProjection.ref($0.body, id: $0.id)) }
+    }
+
+    /// Whether the loaded document holds an item showing `ref` at any depth (a band, a group, a machine list).
+    /// Every window draws from this one document, whatever its own membership leaves out. Observable.
+    public func placesItem(with ref: LayoutItemRef) -> Bool {
+        isActive && records.items.values.contains { SidebarDocProjection.ref($0.body, id: $0.id) == ref }
     }
 
     /// The first document item (by id) showing `ref` at any depth, as a layout item.

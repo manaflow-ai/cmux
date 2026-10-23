@@ -15,7 +15,9 @@ import CmuxNextSidebar
 /// or the app going inactive ends it with nothing added.
 @MainActor
 final class ChiefDragSession {
-    /// The app's services (they own this session and outlive it).
+    /// The drag in flight, which keeps its session until it ends (`finish`): one at a time.
+    private static var active: ChiefDragSession?
+    /// The app's services (they outlive the drag).
     private weak var services: AppServices?
     private var drag: Drag?
 
@@ -28,16 +30,21 @@ final class ChiefDragSession {
         init(ghost: LinkDragGhost) { self.ghost = ghost }
     }
 
-    init(services: AppServices) {
+    private init(services: AppServices) {
         self.services = services
     }
 
-    var isDragging: Bool { drag != nil }
-
     /// Starts dragging the Chief from `screenPoint`; false (nothing starts) while another drag runs, so
     /// Home's own drag goes on.
-    func begin(screenPoint: CGPoint) -> Bool {
-        guard let services, drag == nil, !services.dragSession.isDragging, !services.linkDrags.isDragging else { return false }
+    static func begin(services: AppServices, screenPoint: CGPoint) -> Bool {
+        guard active == nil, !services.dragSession.isDragging, !services.linkDrags.isDragging else { return false }
+        let session = ChiefDragSession(services: services)
+        active = session
+        session.start(at: screenPoint)
+        return true
+    }
+
+    private func start(at screenPoint: CGPoint) {
         let drag = Drag(ghost: LinkDragGhost(title: SidebarItemInfo.fallback(for: .builtIn(.chief)).title))
         drag.monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp, .leftMouseDown, .keyDown]) { [weak self] event in
             self?.handle(event) ?? event
@@ -49,7 +56,6 @@ final class ChiefDragSession {
         self.drag = drag
         drag.ghost.show(at: screenPoint)
         update(screenPoint)
-        return true
     }
 
     private func handle(_ event: NSEvent) -> NSEvent? {
@@ -96,6 +102,7 @@ final class ChiefDragSession {
     private func finish(commit: Bool) {
         guard let drag else { return }
         self.drag = nil
+        if Self.active === self { Self.active = nil }
         if let monitor = drag.monitor { NSEvent.removeMonitor(monitor) }
         if let resign = drag.resign { NotificationCenter.default.removeObserver(resign) }
         drag.ghost.close()

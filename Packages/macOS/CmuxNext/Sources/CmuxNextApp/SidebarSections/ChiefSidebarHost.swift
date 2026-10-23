@@ -12,11 +12,11 @@ extension ChiefSidebar.Host {
               unread: { unread(chief: TopHomePageView.chief(services.home), in: services.home.groupMuting) })
     }
 
-    /// Whether Home's list shows the Chief's conversation `chief` unread, as `home` (the source behind
-    /// ``HomeService/unreadConversations``) maps it. Read in the item's status observation.
+    /// Whether Home's list dots the Chief's conversation `chief`: one of Home's unread conversations, as `home`
+    /// (the source behind ``HomeService/unreadConversations``) maps them: unread messages or Mark as Unread,
+    /// never a muted one. Read in the item's status observation, so a message, a read or a mark re-yields.
     static func unread(chief: String?, in home: HomeSidebarSource) -> Bool {
         guard let chief else { return false }
-        let model = home.model()
-        return (model.pinned + model.rows).contains { $0.id.rawValue == chief && $0.unreadCount > 0 }
+        return home.unreadConversations.contains(ConversationID(chief))
     }
 }

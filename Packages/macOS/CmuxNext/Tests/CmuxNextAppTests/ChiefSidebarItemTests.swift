@@ -94,18 +94,16 @@ struct ChiefSidebarItemTests {
     }
 
     /// Leo 2026-10-21: the Chief dragged into a group or a machine list is still the Chief there: the list
-    /// draws its picture, status and badge (no band holds it), its menu's Remove finds it, and it counts as
-    /// placed.
-    @Test func aChiefListedInAGroupKeepsItsLookAndCountsAsPlaced() {
+    /// draws its picture, status and badge (no band holds it). Whether it counts as placed is the document's
+    /// (`ChiefSidebarSharedStateTests`).
+    @Test func aChiefListedInAGroupKeepsItsLook() {
         let shown = ChiefSidebar.shared.status
         defer { ChiefSidebar.shared.status = shown }
         ChiefSidebar.shared.status = ChiefSidebar.Status(activity: .waiting, badge: 2)
         let model = SidebarModel()
-        #expect(!model.listsItem(with: .builtIn(.chief)))
         let listed = SidebarListItem(id: "itm_chief", ref: .builtIn(.chief), title: SidebarBuiltIn.chief.title)
         let link = SidebarListItem(id: "itm_link", ref: .url("https://cmux.dev"), title: "cmux")
         model.sections = [SidebarSection(kind: .custom(SidebarCustomSection(id: "sec_pinned")), nodes: [.item(listed), .item(link)])]
-        #expect(model.listsItem(with: .builtIn(.chief)))
         #expect(model.listedBuiltIns.map(\.id) == [Self.chiefItem.id])
         let info = SidebarBridge.itemInfo(for: SidebarLayoutDocument(sections: []), registered: { _ in true },
                                           chiefMascot: "fox", listed: model.listedBuiltIns)[Self.chiefItem.id]

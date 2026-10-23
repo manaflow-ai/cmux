@@ -21,9 +21,6 @@ public final class HomeSidebarView: NSView {
     /// A drag put a conversation at an index of the pinned grid (a new place, or a row pinned
     /// there); call `update` before returning so the tiles land smoothly.
     public var onPlacePinned: (ConversationID, Int) -> Void = { _, _ in }
-    /// A row or tile drag left the list sideways (the pointer on screen): true takes it over (the Chief
-    /// dragged into the app's sidebar, `ChiefDragSession`); the list puts its drag back.
-    public var onDragOut: (ConversationID, CGPoint) -> Bool = { _, _ in false }
     /// Mark as Read (the menu offers it while the conversation is unread or marked unread).
     public var onMarkRead: (ConversationID) -> Void = { _ in }
     /// Mark as Unread (the menu offers it while the conversation is read).
@@ -117,10 +114,6 @@ public final class HomeSidebarView: NSView {
         list.onPlacePinned = { [weak self] id, index in
             guard let self, teammate(for: id) == nil else { return }
             onPlacePinned(ConversationID(id), index)
-        }
-        list.onDragOut = { [weak self] id, point in
-            guard let self, teammate(for: id) == nil else { return false }
-            return onDragOut(ConversationID(id), point)
         }
         list.onSetRead = { [weak self] read, id in
             guard let self, teammate(for: id) == nil else { return }

@@ -350,7 +350,7 @@ final class SidebarRegionView: NSView {
         // A client-only item (What's New) only opens: no drag, no menu.
         guard !id.isTransient else { return view }
         view.onDragged = { [weak self] start, event in self?.dragMoved(.item(id), from: start, event) ?? false }
-        view.onDragEnded = { [weak self] in self?.finishDrag() }
+        view.onDragEnded = { [weak self] point in self?.finishDrag(at: point) }
         view.onRemove = { [weak self] in self?.onRemoveItem?(id) }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }

@@ -11,16 +11,18 @@ import Observation
 extension SidebarModel {
     /// Keeps `transientTopItems` current until cancelled. `document`: the sidebar document every window draws from.
     public func followTopItems(chief: ChiefSidebar = .shared,
-                               document: @escaping @MainActor () -> SidebarDocStore? = { SidebarDocStore.current }) -> Task<Void, Never> {
+                               document: @escaping @MainActor @Sendable () -> SidebarDocStore? = { SidebarDocStore.current }) -> Task<Void, Never> {
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         Task { [weak self] in
             for await (items, placed) in ObservationStream({ [weak self] in
-                // Placed in a band, or listed in a group or a machine list (a Chief dragged there).
-                (Self.topItems(chief: chief), self.map { $0.layout.firstItem(with: .builtIn(.chief)) != nil || $0.listsItem(with: .builtIn(.chief)) } ?? false)
+                // Placed in a band, or anywhere in the sidebar document (a group or a machine list): never this window's
+                // rows, which its workspace membership filters, so every window's feed tells the same.
+                (Self.topItems(chief: chief), self.map { $0.layout.firstItem(with: .builtIn(.chief)) != nil } == true
+                    || document()?.placesItem(with: .builtIn(.chief)) == true)
             }) {
                 guard let self else { return }
                 if transientTopItems != items { transientTopItems = items }
-                if chief.isPlaced != placed { chief.isPlaced = placed } // the layout is every window's, so any window's feed tells
+                if chief.isPlaced != placed { chief.isPlaced = placed }
             }
         }
     }
