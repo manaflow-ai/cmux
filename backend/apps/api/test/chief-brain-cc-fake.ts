@@ -217,7 +217,7 @@ export const fakeCloud = (answer: (prompt: string, n: number) => string, during?
       if (start) {
         const s: Started = { vm, run: start[1]!, input: JSON.parse(stdin) }
         started.push(s)
-        // The turn machine: the stream, then the result, posted to the Worker as run.mjs does.
+        // The turn machine: the stream, then the result, posted to the Worker as chief-turn-runner does.
         const n = started.length
         setTimeout(() => void (during ?? (async () => undefined))(s, n).then(() => machine(s, answer(s.input.prompt, n))), 20)
         return Response.json({ statusCode: 0, stdout: "started\n" })

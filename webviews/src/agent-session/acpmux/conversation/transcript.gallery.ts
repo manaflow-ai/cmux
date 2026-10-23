@@ -352,6 +352,58 @@ const shellDisclosureChecks = {
   },
 };
 
+/// One long finished turn, shaped like the ones Lawrence and Leo pasted (synthetic text): runs of
+/// commands, short narration, a compaction and a subagent ending, two answers to the person, a
+/// command after the second and a closing line. Only the work folds, each stretch under its own
+/// line between the answers (turns.ts `foldSegments`).
+const takeawayTurnRows = [
+  user("Why is the agent pane slow, and what should we fix first?", 12, { id: "gallery-takeaway-user" }),
+  activity(
+    [
+      tool("rg -n useLayoutEffect src", "execute", "completed", { command: "rg -n useLayoutEffect src", exitCode: 0 }),
+      tool("bun run bench:transcript", "execute", "completed", { command: "bun run bench:transcript", exitCode: 0 }),
+    ],
+    11.8,
+    { id: "gallery-takeaway-run-1" },
+  ),
+  assistant("Both audits are still running.", 11.5, { id: "gallery-takeaway-narration" }),
+  row("compaction", 11.2, {
+    id: "gallery-takeaway-compaction",
+    compaction: { state: "completed", preTokens: 123_000, postTokens: 13_000 },
+  }),
+  activity(
+    [
+      tool("Read src/transcript/VirtualList.tsx", "read", "completed"),
+      tool("bun test src/transcript", "execute", "completed", { command: "bun test src/transcript", exitCode: 0 }),
+    ],
+    10.4,
+    { id: "gallery-takeaway-run-2" },
+  ),
+  assistant(
+    "The first audit is done. Most of the time goes to measuring rows twice:\n\n1. Every new token re-measures the whole visible list.\n2. Opening a fold re-lays out the rows above it.\n\nShould I start with the first one?",
+    9,
+    { id: "gallery-takeaway-first" },
+  ),
+  activity(
+    [
+      tool("git diff --stat", "execute", "completed", { command: "git diff --stat", exitCode: 0 }),
+      tool("bun run typecheck", "execute", "completed", { command: "bun run typecheck", exitCode: 0 }),
+    ],
+    6,
+    { id: "gallery-takeaway-run-3" },
+  ),
+  assistant(
+    "Why it is slow, and the fixes:\n\n- Measure only the row that changed, not the visible list.\n- Keep the fold's header in place and grow its content downward.\n- Cache each row's height by its version.\n\nThe first fix is on the branch; the other two follow.",
+    4.6,
+    { id: "gallery-takeaway-second" },
+  ),
+  activity([tool("git push", "execute", "completed", { command: "git push", exitCode: 0 })], 4.4, {
+    id: "gallery-takeaway-push",
+  }),
+  assistant("Pushed.", 4.3, { id: "gallery-takeaway-pushed" }),
+  summary(4.3, { id: "gallery-takeaway-summary", status: "completed", durationMs: 456_000, toolCount: 7 }),
+];
+
 const longChatRows = Array.from({ length: 24 }, (_, index) => {
   const at = 3000 - index * 120;
   return [
@@ -750,6 +802,56 @@ const shellTool = (command: string) =>
     endedAt: minutesAgo(2.79),
   });
 
+/// A running turn with a run of mixed work between two messages, then the run it works in now: the
+/// first run collapses to one line (Leo 2026-10-22: "this is pretty good ui: … the collapsing i
+/// mean"). `extra` joins that run's calls (a failed one).
+const collapsedRunChat = (extra: AcpmuxActivity[] = []) =>
+  chat(
+    [
+      user("Retries for the net client, then run its tests.", 4),
+      assistant("I'll add a retry helper around fetchJson and wire it into the client.", 3.9),
+      activity(
+        [
+          tool("Edit retry.ts", "edit", "completed", {
+            locations: [{ path: "src/net/retry.ts" }],
+            diffs: [{ path: "src/net/retry.ts", oldText: "", newText: "export async function withRetry() {}\n" }],
+          }),
+          tool("Read client.ts", "read", "completed", { locations: [{ path: "src/net/client.ts" }] }),
+          tool("Edit client.ts", "edit", "completed", {
+            locations: [{ path: "src/net/client.ts" }],
+            diffs: [
+              {
+                path: "src/net/client.ts",
+                oldText: "  return request(url);\n",
+                newText: "  return withRetry(() => request(url));\n",
+              },
+            ],
+          }),
+          tool("Read errors.ts", "read", "completed", { locations: [{ path: "src/net/errors.ts" }] }),
+          shellTool("bun test src/net"),
+          shellTool("git diff --stat"),
+          ...extra,
+        ],
+        3.5,
+      ),
+      assistant(
+        "The helper is in and the client uses it. Next I check that nothing else in src/net already retries, so a failing request never backs off twice.",
+        3,
+      ),
+      activity(
+        [
+          shellTool("rg -n retry src/net"),
+          tool("bun run typecheck", "execute", "in_progress", {
+            command: "bun run typecheck",
+            startedAt: minutesAgo(0.2),
+          }),
+        ],
+        0.3,
+      ),
+    ],
+    { isWorking: true },
+  );
+
 const MCP_THREAD = "01a14822-c01a-76a1-9fc5-1268687464d4";
 /// Codex's MCP call shape: `<server>.<tool> call`, arguments nested under `arguments`.
 const mcpTool = (name: string, args: unknown, output: string) =>
@@ -779,6 +881,67 @@ const MCP_READ = mcpTool(
     ],
   }),
 );
+
+/// Results a harness passes on as JSON text (toolResult.ts): a one-line JSON object, an MCP
+/// content list whose text is Markdown, a `{result, error}` envelope, Codex's `{output, metadata}`,
+/// and a JSON file a tool read, which stays JSON as printed.
+const ENVELOPE_TOOLS = [
+  tool("TaskStop", "other", "completed", {
+    output: JSON.stringify({
+      message: "Successfully stopped task: b5muqfh92 (bun test src/net --watch)",
+      task_id: "b5muqfh92",
+      task_type: "local_bash",
+      command: "bun test src/net --watch",
+    }),
+  }),
+  tool("Search open issues", "search", "completed", {
+    output: JSON.stringify([
+      {
+        type: "text",
+        text: "## Open issues\n\n- **#12** Crash on launch when the cache is empty\n- **#14** Slow scroll in long chats\n- **#19** Retry button stays disabled",
+      },
+    ]),
+  }),
+  tool("Review gate", "other", "failed", {
+    output: JSON.stringify({
+      error: null,
+      result: {
+        _meta: null,
+        content: [{ type: "text", text: "Tool call rejected by review. Continue without it." }],
+        structuredContent: null,
+      },
+    }),
+  }),
+  tool("Run focused tests", "other", "completed", {
+    output: JSON.stringify({
+      output: "3 pass\n0 fail\nRan 3 tests across 1 file. [118.00ms]\n",
+      metadata: { exit_code: 0, duration_seconds: 0.4 },
+    }),
+  }),
+  // An MCP result whose text repeats its structured content: the sentence, then the payload once.
+  tool("Look up the forecast", "fetch", "completed", {
+    output: JSON.stringify({
+      content: [
+        { type: "text", text: "Sunny in Lisbon, 21 °C, wind 12 km/h from the north." },
+        { type: "text", text: JSON.stringify({ city: "Lisbon", tempC: 21, sky: "sunny", windKmh: 12 }) },
+      ],
+      structuredContent: { city: "Lisbon", tempC: 21, sky: "sunny", windKmh: 12 },
+      isError: false,
+    }),
+  }),
+  // A JSON-RPC error: its message, then its data.
+  tool("Create issue", "other", "failed", {
+    output: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 7,
+      error: { code: -32602, message: "Invalid params: a title is required.", data: { field: "title", got: "" } },
+    }),
+  }),
+  tool("Read package.json", "read", "completed", {
+    output:
+      '{\n  "name": "@cmux/webviews",\n  "private": true,\n  "type": "module",\n  "scripts": {\n    "test": "bun test"\n  }\n}\n',
+  }),
+];
 
 /// A render call (renderCall.ts); one with `update` redraws the card it names and draws nothing itself.
 function renderTool(page: string, update?: string) {
@@ -1346,6 +1509,15 @@ export default agentPaneEntry({
           throw new Error(`the current match is not in the thought's text: ${at?.className ?? "none"}`);
       },
     },
+    "takeaways-stay-open": {
+      note: 'A long finished turn (synthetic text): every answer to the person stays in sight, and only the work folds, each stretch under its own Worked for line between the answers. The closing "Pushed." stays too.',
+      snapshot: chat(takeawayTurnRows),
+    },
+    "takeaways-fold-open": {
+      note: "The same turn with its first Worked for opened: the commands, the short narration and the compaction, in order, then the first answer.",
+      snapshot: chat(takeawayTurnRows),
+      play: (ctx) => ctx.click({ selector: ".cv-worked" }),
+    },
     "working-tools": {
       note: "Tool calls running in a live turn; the status line names the call in flight.",
       snapshot: chat(
@@ -1601,6 +1773,36 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+    },
+    "collapsed-run": {
+      note: 'A run of mixed work between two messages collapses to one quiet line naming its work in the order it came, "Edited 2 files, read 2 files, ran 2 commands", under the glyph of its main kind (the pencil when it edited). The run the agent works in now keeps its call in flight out, on the live line (Leo 2026-10-22: "this is pretty good ui: … the collapsing i mean").',
+      snapshot: collapsedRunChat(),
+    },
+    "collapsed-run-open": {
+      note: "The same line opened: the rows it holds, drawn as they are on their own.",
+      snapshot: collapsedRunChat(),
+      play: openFoldedRun,
+    },
+    "collapsed-run-failed": {
+      note: "A failed call in the collapsed run is counted on its line.",
+      snapshot: collapsedRunChat([
+        tool("bun run lint", "execute", "completed", { command: "bun run lint", exitCode: 1, output: "1 error\n" }),
+      ]),
+    },
+    "collapsed-run-pencil": {
+      note: "Gallery version: the pencil on every collapsed run, as the Codex app draws it (theme toolRunLook pencil).",
+      snapshot: collapsedRunChat(),
+      theme: { toolRunLook: "pencil" },
+    },
+    "collapsed-run-quiet": {
+      note: "Gallery version: the line's words in the quiet rows' colour (theme toolRunLook quiet).",
+      snapshot: collapsedRunChat(),
+      theme: { toolRunLook: "quiet" },
+    },
+    "collapsed-run-quiet-pencil": {
+      note: "Gallery version: quiet words and the pencil, closest to the Codex app (theme toolRunLook quiet-pencil).",
+      snapshot: collapsedRunChat(),
+      theme: { toolRunLook: "quiet-pencil" },
     },
     "agent-messages": {
       note: "Messages to other agents say how far they got in one word at the line's end (Sent, Queued, Delivered, or why not) without the receipt's id; a shell call reads without its leading cd and, opened, names its folder beside Shell.",
@@ -1925,6 +2127,26 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+    },
+    "tool-result-envelopes": {
+      note: "Opened tool results read as their content, not the JSON a harness wrapped them in: one-line JSON pretty-printed, an MCP text list as Markdown, a result envelope and Codex's output as their text, a JSON file kept as printed.",
+      height: 1100,
+      snapshot: chat(
+        [user("Stop the watcher, check the issues and run the tests.", 1), activity(ENVELOPE_TOOLS, 0.8)],
+        { isWorking: true },
+      ),
+      play: async (ctx) => {
+        // A settled run folds to its line; opened, it lists the calls, each opened in turn.
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-tool.is-toggle")));
+        if (ctx.document.querySelector(".cv-tools > .cv-tool.is-toggle")) await openFoldedRun(ctx);
+        const closed = '.cv-tool.is-toggle[aria-expanded="false"]';
+        await ctx.waitFor(() => ctx.document.querySelectorAll(closed).length === ENVELOPE_TOOLS.length);
+        for (let opened = 0; opened < ENVELOPE_TOOLS.length; opened++) await ctx.click({ selector: closed });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-tool-output-card").length === ENVELOPE_TOOLS.length);
+        if (!ctx.document.querySelector(".cv-tool-output__markdown h2"))
+          throw new Error("the MCP text list did not render as Markdown");
+        if (ctx.document.body.textContent?.includes('"type":"text"')) throw new Error("an envelope shows raw");
+      },
     },
     "tool-calls": {
       note: "An ended turn: its work folds under Worked for.",
