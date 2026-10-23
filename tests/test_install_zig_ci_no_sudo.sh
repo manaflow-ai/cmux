@@ -32,17 +32,6 @@ canonical_install_root() {
   printf '%s/%s\n' "$(cd "$(dirname "$root")" && pwd -P)" "$(basename "$root")"
 }
 
-read_zig_lib_dir_from_stdin() {
-  python3 -c 'import json, re, sys
-text = sys.stdin.read()
-try:
-    print(json.loads(text).get("lib_dir", ""))
-except Exception:
-    match = re.search(r"(?m)^\s*\.lib_dir\s*=\s*\"([^\"]*)\"", text)
-    print(match.group(1) if match else "")
-'
-}
-
 archive_sha256() {
   local archive="$1"
   if command -v shasum >/dev/null 2>&1; then
