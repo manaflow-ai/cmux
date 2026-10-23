@@ -1,0 +1,22 @@
+{
+  "title": "The update card staged in the sidebar footer",
+  "settings": null,
+  "launch_args": [],
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "Stage a nightly: the compact Update Ready card",
+      "cmux": [
+        "app",
+        "call",
+        "debug.updater",
+        "{\"action\": \"stage\", \"version\": \"1.0.0-nightly.3932981759301\", \"changes\": 3}"
+      ],
+      "wait": 2.5,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Updates.swift:81 -> Control/DebugUpdater.swift:35"
+    }
+  ]
+}
