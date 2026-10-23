@@ -28,7 +28,8 @@ public nonisolated enum AgentPaneReplyError: String, Error, Equatable, Sendable 
 }
 
 /// Reply images as the page may draw them (decision D5): a `data:` URL, because the page's CSP
-/// loads no other image. A local file must be inside the session's folders and at most
+/// loads no other image. A local file must be inside the session's folders or the chat's read-only
+/// image roots and at most
 /// ``maximumBytes``; a raster image is decoded first, so bytes that only claim to be an image
 /// never reach the page; an SVG is rebuilt without script, event handlers, foreign content or
 /// links out (``AgentPaneSVGSanitizer``). A web image is always decoded and re-encoded as PNG. A PDF
@@ -72,7 +73,10 @@ nonisolated struct AgentPaneReplyImages {
             guard let clean = AgentPaneSVGSanitizer.sanitize(data) else { return .failure(.imageFailed) }
             return .success("data:image/svg+xml;base64," + clean.base64EncodedString())
         }
-        return raster(data, reencode: false)
+        // PNGs may carry a wide-gamut profile and transparent pixels. Normalize them through a
+        // bounded sRGB thumbnail before the page or its image viewer sees the bytes; CEF's
+        // file:// ImageDocument otherwise paints some large RGBA files as a solid black page.
+        return raster(data, reencode: url.pathExtension.lowercased() == "png")
     }
 
     /// The first page of the PDF at `url` on white, at most ``thumbnailSide`` on its longest side,
@@ -115,7 +119,7 @@ nonisolated struct AgentPaneReplyImages {
     }
 
     /// `data` as a raster data URL: kept as it is when the page draws its type and `reencode` is
-    /// false, else decoded (at most ``maximumSide``) and written again as PNG.
+    /// false, else decoded (at most ``maximumSide``), converted to sRGB and written again as PNG.
     static func raster(_ data: Data, reencode: Bool) -> Result<String, AgentPaneReplyError> {
         guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
               let type = CGImageSourceGetType(source) as String?, CGImageSourceGetCount(source) > 0,
@@ -137,11 +141,23 @@ nonisolated struct AgentPaneReplyImages {
             kCGImageSourceShouldCacheImmediately: true,
         ]
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return .failure(.imageFailed) }
+        // Draw into an explicit sRGB bitmap so Display-P3/extended profiles and unusual source
+        // bitmap layouts cannot turn the browser's image surface black. Preserve alpha; the
+        // WebKit file preview supplies the page background when a PNG has transparent pixels.
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8,
+                                      bytesPerRow: 0, space: colorSpace,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            return .failure(.imageFailed)
+        }
+        context.clear(CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        guard let normalized = context.makeImage() else { return .failure(.imageFailed) }
         let output = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(output, UTType.png.identifier as CFString, 1, nil) else {
             return .failure(.imageFailed)
         }
-        CGImageDestinationAddImage(destination, image, nil)
+        CGImageDestinationAddImage(destination, normalized, nil)
         guard CGImageDestinationFinalize(destination) else { return .failure(.imageFailed) }
         return .success("data:image/png;base64," + (output as Data).base64EncodedString())
     }
