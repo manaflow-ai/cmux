@@ -243,7 +243,6 @@ struct HangEpisodeTrackerTests {
         #expect(recorder.entries.first?.ongoing == true)
         recorder.update(beat: 1, duration: .seconds(3), ongoing: false)
         recorder.drain()
-        // Then symbolicated and ended (in either order): one element each.
         // drain waited for both changes; the ones not taken yet fold into one pending element.
         let ended = await changes.next() != nil
         #expect(ended)
