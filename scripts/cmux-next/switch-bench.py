@@ -240,14 +240,18 @@ def main_tree(text, minimum=3, limit=700):
         return ["(no main thread)"]
     node = re.compile(r"^([ +!:|]*)(\d+) (.*)$")
     base = len(node.match(lines[start]).group(1))
-    out = []
+    out, skip = [], None
     for line in lines[start + 1:]:
         m = node.match(line)
         if not m:
             continue
-        if len(m.group(1)) <= base:
+        depth = len(m.group(1))
+        if depth <= base:
             break
-        if int(m.group(2)) < minimum or "__CFRunLoopServiceMachPort" in m.group(3):
+        if skip is not None and depth > skip:
+            continue  # inside an idle run-loop wait
+        skip = depth if "__CFRunLoopServiceMachPort" in m.group(3) else None
+        if skip is not None or int(m.group(2)) < minimum:
             continue
         out.append(line.rstrip()[:220])
         if len(out) >= limit:
