@@ -41,8 +41,13 @@ public final class HibernatedBrowserTab: BrowserTab {
     @ObservationIgnored public var onWake: ((Wake) -> Void)?
     @ObservationIgnored public let contentView: NSView
 
+    /// - Parameters:
+    ///   - snapshot: The last page pixels from the host's bounded store (decoded off the main thread when shown).
+    ///   - preview: A small decoded copy of them, shown in the turn the page enters a window until
+    ///     `snapshot` is decoded (nil: the pane waits for the decode).
     public init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, state: BrowserTabState,
-                favicon: NSImage?, restoreState: BrowserRestoreState, snapshot: @escaping @MainActor () -> CGImage?) {
+                favicon: NSImage?, restoreState: BrowserRestoreState, snapshot: @escaping @MainActor () -> CGImage?,
+                preview: @escaping @MainActor () -> CGImage? = { nil }) {
         self.id = id
         self.engineKind = engine
         self.profileID = profile
@@ -59,7 +64,7 @@ public final class HibernatedBrowserTab: BrowserTab {
         self.favicon = favicon
         self.restoreState = restoreState
         self.snapshotSource = snapshot
-        contentView = SnapshotView(snapshot: snapshot)
+        contentView = SnapshotView(snapshot: snapshot, preview: preview)
     }
 
     public func load(_ url: URL) { onWake?(.load(url)) }
@@ -86,13 +91,16 @@ public final class HibernatedBrowserTab: BrowserTab {
 
 /// Shows the snapshot only while in a window. A compressed picture decodes when drawn (10 to
 /// 30 ms for a full page, a dropped frame on the switch to the tab), so it is decoded off the
-/// main thread first; the decoded pixels are held only while in a window.
+/// main thread first, with the small decoded preview shown meanwhile (from the first frame); the
+/// decoded pixels are held only while in a window.
 private final class SnapshotView: NSImageView {
     private let snapshot: @MainActor () -> CGImage?
+    private let preview: @MainActor () -> CGImage?
     private var decoding: Task<Void, Never>?
 
-    init(snapshot: @escaping @MainActor () -> CGImage?) {
+    init(snapshot: @escaping @MainActor () -> CGImage?, preview: @escaping @MainActor () -> CGImage?) {
         self.snapshot = snapshot
+        self.preview = preview
         super.init(frame: .zero)
         imageScaling = .scaleAxesIndependently
         wantsLayer = true
@@ -106,6 +114,7 @@ private final class SnapshotView: NSImageView {
         decoding?.cancel()
         image = nil
         guard newWindow != nil, let picture = snapshot() else { return }
+        if let preview = preview() { image = NSImage(cgImage: preview, size: .zero) }
         decoding = Task { [weak self] in
             let decoded = await Task.detached(priority: .userInitiated) { Self.decoded(picture) }.value
             guard let self, !Task.isCancelled else { return }

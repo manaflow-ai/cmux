@@ -208,6 +208,13 @@ capture stay). The timeout and memory pressure rules are unchanged; "off"
 still disables everything. `debug.surfaces` hibernation reports
 `page_budget` and `hidden_live_pages`. Tests: `HiddenPageWarmBudgetTests`.
 
+Wake picture: a hibernated page's JPEG took 10 to 30 ms to decode off the
+main thread after its placeholder entered a window, so a woken tab showed an
+empty pane for those frames. Each large picture now also keeps a decoded
+preview (long side 384 px, ~360 KB, counted in the 64 MB store), shown in the
+turn the placeholder enters a window until the full picture is decoded.
+Tests: `HibernationWakePictureTests`.
+
 ## 4. Not done / open
 
 - Root cause of the user's disappearing page not reproduced on a
