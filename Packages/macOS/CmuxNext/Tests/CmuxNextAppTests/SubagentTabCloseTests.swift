@@ -108,8 +108,8 @@ struct SubagentTabCloseTests {
                 #expect(page.nativeRects.contains { page.convert($0, to: nil).contains(point) },
                         "the \(name)'s page covers the x with no hole: holes \(page.nativeRects.map { page.convert($0, to: nil) }), x at \(point)")
             }
-            #expect(covering.contains("subagent"), "the subagent's chat does not share its tab row, so nothing here checks its hole: "
-                    + "window \(window.frame), pane \(controller.view.frame.size), x at \(point), \(Self.describe(services))")
+            let shares = "window \(window.frame), pane \(controller.view.frame.size), x at \(point), \(Self.describe(services))"
+            #expect(covering.contains("subagent"), "the subagent's chat does not share its tab row, so nothing checks its hole: \(shares)")
             let hit = window.contentView?.hitTest(window.contentView?.superview?.convert(point, from: nil) ?? point)
             #expect(hit.map { $0 === strip || $0.isDescendant(of: strip) } == true,
                     "the x is under \(hit.map { String(describing: type(of: $0)) } ?? "nothing"), not the strip: \(Self.describe(services))")
