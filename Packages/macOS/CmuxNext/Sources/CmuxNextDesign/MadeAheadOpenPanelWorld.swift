@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import SystemConfiguration
 
 /// What ``MadeAheadOpenPanel``'s warm-up reads from the outside world, so a test can stand in for a panel
 /// service that never answers. ``live`` is the app's.
@@ -31,7 +32,7 @@ struct MadeAheadOpenPanelWorld: Sendable {
     /// The app's world: AppKit's panel, the console session check, the app's input state.
     static let live = MadeAheadOpenPanelWorld(
         makePanel: { NSOpenPanel() },
-        serviceReady: { true },
+        serviceReady: { await consoleIsThisAccount() },
         gate: {
             // Only in a running app: a process that never ran its event loop (a test host, a ci-step
             // mini with no open-panel service) would wait 10 s per ViewBridge endpoint.
@@ -45,4 +46,13 @@ struct MadeAheadOpenPanelWorld: Sendable {
             // Never inside a tracking loop (a drag, a menu, a resize): those count as busy.
             return idle >= 1 && RunLoop.main.currentMode == .default ? .go : .busy
         })
+}
+
+/// Whether this process's account owns the console's GUI session (SCDynamicStore's console user). Without it
+/// the open panel's view service never answers, and `NSOpenPanel()` waits on it about 40 s on the main thread
+/// (aws-m4pro-3, 2026-10-23: the login window on the console; aws-m4pro-4: another account's session).
+@concurrent private func consoleIsThisAccount() async -> Bool {
+    var uid: uid_t = 0
+    guard let user = SCDynamicStoreCopyConsoleUser(nil, &uid, nil) as String?, user != "loginwindow" else { return false }
+    return uid == getuid()
 }
