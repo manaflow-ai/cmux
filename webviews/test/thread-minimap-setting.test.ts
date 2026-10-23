@@ -40,8 +40,14 @@ describe("the Chat Minimap row is the experiment's arms", () => {
   test("the page takes an arm from the key and leaves anything else to the experiment", () => {
     for (const arm of armIds(threadMinimapLayout)) expect(resolveChatDisplay({ [MINIMAP_KEY]: arm }).minimap).toBe(arm);
     expect(resolveChatDisplay({}).minimap).toBeNull();
-    expect(resolveChatDisplay({ [MINIMAP_KEY]: true }).minimap).toBeNull();
     expect(resolveChatDisplay({ [MINIMAP_KEY]: "wave-2" }).minimap).toBeNull();
+  });
+
+  // The key was an on/off toggle before it was this choice: `true` drew the full map and `false` left
+  // the chat to the experiment. A settings file the toggle wrote keeps meaning the same thing.
+  test("a value the old toggle wrote keeps its meaning", () => {
+    expect(resolveChatDisplay({ [MINIMAP_KEY]: true }).minimap).toBe("full");
+    expect(resolveChatDisplay({ [MINIMAP_KEY]: false }).minimap).toBeNull();
   });
 });
 

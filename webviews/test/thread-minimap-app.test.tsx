@@ -90,11 +90,13 @@ const chat = (count: number) =>
     { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
   ]).flat();
 
-test("the Chat Minimap key is unset by default and only an arm sets it", () => {
+test("the Chat Minimap key is unset by default and only an arm, or the old toggle's value, sets it", () => {
   expect(DEFAULT_CHAT_DISPLAY.minimap).toBeNull();
   expect(resolveChatDisplay({}).minimap).toBeNull();
   expect(resolveChatDisplay({ [MINIMAP_KEY]: "full" }).minimap).toBe("full");
-  expect(resolveChatDisplay({ [MINIMAP_KEY]: true }).minimap).toBeNull();
+  // The old toggle: on was the full map, off left the chat to the experiment.
+  expect(resolveChatDisplay({ [MINIMAP_KEY]: true }).minimap).toBe("full");
+  expect(resolveChatDisplay({ [MINIMAP_KEY]: false }).minimap).toBeNull();
   expect(resolveChatDisplay({ [MINIMAP_KEY]: "yes" }).minimap).toBeNull();
 });
 
@@ -126,6 +128,10 @@ for (const arm of ["off", "compact"] as const)
       expect(map()).not.toBeNull();
       expect(host.querySelectorAll(".acpmux-scrollmap__mark").length).toBeGreaterThan(0);
       expect(host.querySelector(".acpmux-scrollmap__view")).not.toBeNull();
+      expect(rail()).toBeNull();
+      // A settings file the old toggle wrote (`true`) still draws the map.
+      await act(async () => setChatDisplay({ [MINIMAP_KEY]: true }));
+      expect(map()).not.toBeNull();
       expect(rail()).toBeNull();
       // The row's other value: the rail where the experiment shows none, nothing where it shows the rail.
       await act(async () => setChatDisplay({ [MINIMAP_KEY]: arm === "compact" ? "off" : "compact" }));
