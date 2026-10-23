@@ -143,6 +143,12 @@ public final class HoverReveal {
     public static func owner(of view: NSView) -> HoverReveal? { viewOwners[ObjectIdentifier(view)]?.value }
     /// The reveal installed on `region`, if any.
     public static func owner(ofRegion region: NSView) -> HoverReveal? { regionOwners[ObjectIdentifier(region)]?.value }
+    /// Whether any registry still has an entry (live or released) under `view` or `region`: a view or
+    /// region claim, or a focus watch on `view`. Tests read it to prove a released reveal leaves none behind.
+    static func hasRegistryEntries(view: NSView, region: NSView) -> Bool {
+        viewOwners[ObjectIdentifier(view)] != nil || regionOwners[ObjectIdentifier(region)] != nil
+            || focusWatchers[ObjectIdentifier(view)] != nil
+    }
 
     /// Adds a view that fades with this region. Returns false (and adds
     /// nothing) when another HoverReveal already owns it.
