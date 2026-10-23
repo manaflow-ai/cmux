@@ -39,9 +39,9 @@ const TRUSTED_DIRS: [&str; 6] =
 
 /// Commands that only read, whatever their arguments.
 const PLAIN: &[&str] = &[
-    "pwd", "ls", "cat", "head", "tail", "wc", "echo", "printf", "true", "false", "which", "type",
-    "stat", "du", "df", "basename", "dirname", "realpath", "readlink", "cut", "tr", "nl", "cmp",
-    "comm", "diff", "grep", "egrep", "fgrep", "column", "whoami", "id", "uname", "test", "[", "jq",
+    "pwd", "ls", "cat", "head", "tail", "wc", "echo", "true", "false", "which", "type", "stat",
+    "du", "df", "basename", "dirname", "realpath", "readlink", "cut", "tr", "nl", "cmp", "comm",
+    "diff", "grep", "egrep", "fgrep", "column", "whoami", "id", "uname", "test", "[", "jq",
 ];
 
 /// Shell builtins: they run in the shell, whatever PATH holds.
@@ -359,6 +359,8 @@ fn segment_ok(words: &[String]) -> Option<Reads> {
     let any = |f: &dyn Fn(&str) -> bool| args.iter().any(|a| f(a));
     let ok = match name {
         n if PLAIN.contains(&n) => true,
+        // Bash's `printf -v NAME` sets a variable (`PATH`) for the commands after it.
+        "printf" => !any(&|a| a.starts_with("-v")),
         "sort" => !any(&|a| {
             a == "-o"
                 || a.starts_with("--output")
@@ -704,6 +706,7 @@ mod tests {
             "git status # ; rm -rf x",
             "sort -u x | uniq -c",
             "echo \"a b\" 'c'",
+            "printf '%s\\n' a",
         ] {
             assert!(is_read_only(script), "{script}");
         }
@@ -758,6 +761,8 @@ mod tests {
             "bash -c ls",
             "",
             "ls |& cat",
+            "printf -v PATH /tmp/evil; rg secret",
+            "printf -vPATH . ; rg x",
             "cd /tmp && ls -la",
             "git -C a -C b status",
         ] {

@@ -371,6 +371,7 @@ async fn approve_reads_runs_read_only_shell_commands_without_asking() {
     let mut r = connect(&hub).await;
     r.request(RESPOND, decision(&id, &g, "push", "deny")).await.unwrap();
     assert!(c.response(rid).await.0.is_ok());
+    std::fs::remove_dir_all(repo).unwrap();
 }
 
 /// Codex review of #24155: in a repository whose config names a program for git to run
@@ -389,6 +390,7 @@ async fn approve_reads_asks_for_git_reads_in_a_repository_that_runs_a_program() 
     let mut r = connect(&hub).await;
     r.request(RESPOND, decision(&id, &g, "both", "deny")).await.unwrap();
     assert!(c.response(rid).await.0.is_ok());
+    std::fs::remove_dir_all(repo).unwrap();
 }
 
 /// A fresh git repository with `config` in its local config.
