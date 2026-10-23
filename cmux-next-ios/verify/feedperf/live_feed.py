@@ -112,6 +112,8 @@ def main():
     ap.add_argument("--warmup", type=float, default=90, help="seconds of agent work before the scroll")
     ap.add_argument("--label", default="live")
     ap.add_argument("--skip-sign-in", action="store_true")
+    ap.add_argument("--choose", action="append", default=[],
+                    help="a Mac (its name) to link first from the Workspaces filter, as multimac_feed.py does")
     ap.add_argument("--out", default=os.path.join(HERE, "evidence"))
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
@@ -146,8 +148,27 @@ def main():
         real_agents(a.agents_rig, log, stop)
     asks = threading.Thread(target=fake_asks, args=(a.asks_rig, log, stop), daemon=True)
     asks.start()
-    # The phone open on the Feed while the agents work (it receives what they send).
-    sim.launch(bundle, args=["-cmux-mobile-tab", "feed"])
+    # Link each rig Mac (the Workspaces filter), then show All Macs; then the Feed while the agents work.
+    sim.launch(bundle)
+    time.sleep(4)
+    for name in a.choose:
+        j.back_to_list()
+        sim.tap_q(ident="workspaces.filter", timeout=60)
+        time.sleep(1.0)
+        sim.tap_q(contains=name, timeout=20)
+        time.sleep(3.0)
+        # A Mac the phone has not linked yet lists as "· Not connected, Connect": connect it.
+        connect = [e for e in sim.find(kind="Button") if name in e.label and "Connect" in e.label]
+        if connect:
+            sim.tap_el(connect[-1])
+            time.sleep(10.0)
+        log(f"linked {name}")
+    if a.choose:
+        sim.tap_q(ident="workspaces.filter", timeout=20)
+        time.sleep(1.0)
+        sim.tap_q(label="All Macs", timeout=20)
+        time.sleep(2.0)
+    j.tab("Feed")
     log(f"agents working for {a.warmup:.0f} s")
     time.sleep(a.warmup)
     sim.shot(f"{a.label}-before")

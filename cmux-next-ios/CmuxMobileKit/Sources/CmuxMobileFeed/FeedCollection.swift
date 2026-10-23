@@ -107,6 +107,8 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
     /// The events as the list shows them (the applied snapshot's order).
     private var shownOrder: [String] = []
     private var shownKeys: [String: FeedRowKey] = [:]
+    /// Each shown row's height (its shown layout's), so a commit reads no layout it did not change.
+    private var shownHeights: [String: CGFloat] = [:]
     /// The latest events from the store, applied once per run-loop turn.
     private var pending: [FeedItem]?
     private var applyScheduled = false
@@ -288,8 +290,19 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
                 QuestionDraftStore.shared.clear(question.id)
             }
         }
-        let keys = next.map { ($0.id, key(for: $0)) }
-        let missing = keys.filter { layouts.cached($0.1) == nil }.map(\.1)
+        // A row whose event and state did not change keeps the key it is shown with: no copy, no
+        // compare, no cache lookup (a live change touches one row; the store republishes all 300).
+        var unchanged = Set<String>()
+        let widthKey = Int(width.rounded()), size = textSize
+        let keys: [(String, FeedRowKey)] = next.map { item in
+            if !relayingOut, let shown = shownKeys[item.id], let old = items[item.id], shown.width == widthKey, shown.textSize == size,
+               shown.state == (states[item.id] ?? FeedRowState()), old == item {
+                unchanged.insert(item.id)
+                return (item.id, shown)
+            }
+            return (item.id, key(for: item))
+        }
+        let missing = keys.filter { !unchanged.contains($0.0) && layouts.cached($0.1) == nil }.map(\.1)
         if relayingOut {
             // A width or text size change: wait until every row is laid out again, then reconfigure them all.
             if !missing.isEmpty { computeInBackground(missing); return }
@@ -305,15 +318,15 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
                 let styles = styles, scale = scale
                 for key in missing.prefix(10) { layouts.store(FeedRowLayout.make(key, styles: styles, scale: scale), for: key) }
             }
-            let still = keys.filter { layouts.cached($0.1) == nil }.map(\.1)
+            let still = keys.filter { !unchanged.contains($0.0) && layouts.cached($0.1) == nil }.map(\.1)
             if !still.isEmpty { computeInBackground(still) }
             // Show what is ready only when nothing is shown yet; otherwise wait for the batch.
             guard shownOrder.isEmpty || still.isEmpty else { return }
-            let ready = Set(keys.filter { layouts.cached($0.1) != nil }.map(\.0))
-            commit(next.filter { ready.contains($0.id) }, keys: keys.filter { ready.contains($0.0) })
+            let ready = Set(keys.filter { unchanged.contains($0.0) || layouts.cached($0.1) != nil }.map(\.0))
+            commit(next.filter { ready.contains($0.id) }, keys: keys.filter { ready.contains($0.0) }, unchanged: unchanged)
             return
         }
-        commit(next, keys: keys)
+        commit(next, keys: keys, unchanged: unchanged)
     }
 
     private func computeInBackground(_ keys: [FeedRowKey]) {
@@ -340,19 +353,35 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
 
     /// Applies `next` to the list: a new snapshot when the order changed, else a reconfigure of
     /// the rows whose layout key changed, keeping the row under the reader's eyes in place.
-    private func commit(_ next: [FeedItem], keys: [(String, FeedRowKey)], reconfigureAll: Bool = false) {
+    private func commit(_ next: [FeedItem], keys: [(String, FeedRowKey)], reconfigureAll: Bool = false, unchanged: Set<String> = []) {
+        #if DEBUG
+        let t0 = CACurrentMediaTime()
+        defer { FeedCellTiming.log("commit n=\(next.count)", t0) }
+        #endif
         guard let dataSource, let collectionView else { return }
-        var plan = FeedListPlan(old: shownOrder.map { ($0, shownKeys[$0] ?? FeedListController.emptyKey) }, new: keys, anchorID: nil)
+        var plan = FeedListPlan(old: shownOrder.map { ($0, shownKeys[$0] ?? FeedListController.emptyKey) }, new: keys, anchorID: nil,
+                                unchanged: unchanged)
         if reconfigureAll { plan.reconfigure = keys.map(\.0).filter { shownKeys[$0] != nil } }
-        for item in next { items[item.id] = item }
+        for item in next where !unchanged.contains(item.id) { items[item.id] = item }
         // Read flags change no layout: those rows redraw their dot and actions in place.
-        let redraw = next.filter { item in !plan.reconfigure.contains(item.id) && previousRead[item.id] != nil && previousRead[item.id] != item.isRead }.map(\.id)
-        previousRead = Dictionary(next.map { ($0.id, $0.isRead) }, uniquingKeysWith: { first, _ in first })
+        let reconfiguring = Set(plan.reconfigure)
+        var redraw: [String] = []
+        for item in next where !unchanged.contains(item.id) {
+            if !reconfiguring.contains(item.id), let was = previousRead[item.id], was != item.isRead { redraw.append(item.id) }
+            previousRead[item.id] = item.isRead
+        }
         defer { for id in redraw { if let item = items[id] { cell(id)?.redraw(item) } } }
         guard !plan.isEmpty || dataSource.snapshot().numberOfSections == 0 else { return }
         let anchor = control.atTop ? nil : visibleAnchor()
         shownOrder = next.map(\.id)
-        shownKeys = Dictionary(keys, uniquingKeysWith: { first, _ in first })
+        if plan.orderChanged || reconfigureAll {
+            shownKeys = Dictionary(keys, uniquingKeysWith: { first, _ in first })
+        }
+        // Each changed row's height, from the layout of the key it is shown with.
+        for (id, key) in keys where !unchanged.contains(id) || shownHeights[id] == nil {
+            shownKeys[id] = key
+            shownHeights[id] = layouts.cached(key)?.height ?? 1
+        }
         let previousOrder = dataSource.snapshot().numberOfSections == 2 ? dataSource.snapshot().itemIdentifiers(inSection: .events) : []
         var snapshot = dataSource.snapshot()
         if snapshot.numberOfSections == 0 {
@@ -373,7 +402,7 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
         let reconfigure = plan.reconfigure.filter { present.contains($0) && previousOrder.contains($0) }
         if !reconfigure.isEmpty { snapshot.reconfigureItems(reconfigure) }
         applyCount += 1
-        let heights = shownOrder.map { id in shownKeys[id].flatMap { layouts.cached($0)?.height } ?? 1 }
+        let heights = shownOrder.map { shownHeights[$0] ?? 1 }
         UIView.performWithoutAnimation {
             listLayout.rowHeights = heights
             dataSource.apply(snapshot, animatingDifferences: false)
@@ -388,11 +417,17 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
         } else {
             _ = FeedListPlan.fresh(plan.inserted, seen: &everShown)
         }
-        scheduleWarmUp()
-        layouts.prune(keeping: Set(shownOrder))
-        items = items.filter { shownKeys[$0.key] != nil }
-        states = states.filter { shownKeys[$0.key] != nil }
-        replyChats = replyChats.filter { shownKeys[$0.key] != nil }
+        if !plan.inserted.isEmpty || !plan.reconfigure.isEmpty { scheduleWarmUp() }
+        // Rows that left the list: only when the order changed (a reconfigure removes none).
+        if plan.orderChanged {
+            let present = Set(shownOrder)
+            layouts.prune(keeping: present)
+            items = items.filter { present.contains($0.key) }
+            states = states.filter { present.contains($0.key) }
+            replyChats = replyChats.filter { present.contains($0.key) }
+            shownHeights = shownHeights.filter { present.contains($0.key) }
+            previousRead = previousRead.filter { present.contains($0.key) }
+        }
     }
 
     /// Turns `old` into `new` with deletes and inserts when the rows both keep stay in the same order.
@@ -469,6 +504,10 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
                     }
                     return
                 }
+                #if DEBUG
+                let t0 = CACurrentMediaTime()
+                defer { FeedCellTiming.log("warm", t0) }
+                #endif
                 let layout = self.warmQueue.removeFirst()
                 let cell = self.warmCell
                 cell.frame = CGRect(x: 0, y: 0, width: CGFloat(layout.key.width), height: layout.height)
@@ -543,10 +582,11 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
             let key = key(for: item)
             if layouts.cached(key) == nil { layouts.store(FeedRowLayout.make(key, styles: styles, scale: scale), for: key) }
             shownKeys[id] = key
+            shownHeights[id] = layouts.cached(key)?.height ?? 1
         }
         var snapshot = dataSource.snapshot()
         snapshot.reconfigureItems(present)
-        let heights = shownOrder.map { id in shownKeys[id].flatMap { layouts.cached($0)?.height } ?? 1 }
+        let heights = shownOrder.map { shownHeights[$0] ?? 1 }
         let apply = {
             self.listLayout.rowHeights = heights
             dataSource.apply(snapshot, animatingDifferences: false)

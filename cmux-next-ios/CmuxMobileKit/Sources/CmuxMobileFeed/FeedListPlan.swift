@@ -75,11 +75,12 @@ struct FeedListPlan: Equatable {
     /// Rows not shown before, in the new order.
     var inserted: [String]
 
-    init(old: [(String, FeedRowKey)], new: [(String, FeedRowKey)], anchorID: String?) {
+    /// `unchanged`: rows whose key is known to be the one shown (not compared again).
+    init(old: [(String, FeedRowKey)], new: [(String, FeedRowKey)], anchorID: String?, unchanged: Set<String> = []) {
         let before = Dictionary(old, uniquingKeysWith: { first, _ in first })
         orderChanged = old.map(\.0) != new.map(\.0)
         reconfigure = new.compactMap { id, key in
-            guard let previous = before[id] else { return nil }
+            guard !unchanged.contains(id), let previous = before[id] else { return nil }
             return previous == key ? nil : id
         }
         inserted = new.compactMap { id, _ in before[id] == nil ? id : nil }
