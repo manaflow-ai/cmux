@@ -242,6 +242,53 @@ class RuleTests(Fixture):
                 self.commit("short name")
                 self.assertIn("broadcast-name", [r.id for r, _ in self.check()[0]])
 
+    # rule id -> (file with justified debt, the escape line) for every rule whose escape sits above the line.
+    ESCAPED = {
+        "singleton": ("final class Hub {\n    // singleton-allow: the process has one memory-pressure source\n"
+                      "    static let shared = Hub()\n}\n", "    // singleton-allow: the process has one memory-pressure source\n"),
+        "unchecked-sendable": ("// crash-allow: x is written once in init, then only read\n"
+                               "final class Box: @unchecked Sendable {\n    let x = 0\n}\n",
+                               "// crash-allow: x is written once in init, then only read\n"),
+        "main-async": ("func f() {\n    // main-async-allow: AppKit's sheet callback API forces a GCD hop\n"
+                       "    DispatchQueue.main.async { print(1) }\n}\n",
+                       "    // main-async-allow: AppKit's sheet callback API forces a GCD hop\n"),
+        "broadcast-name": ("extension Notification.Name {\n    // broadcast-allow: every window must hear a theme change\n"
+                           "    static let themeChanged = Notification.Name(\"themeChanged\")\n}\n",
+                           "    // broadcast-allow: every window must hear a theme change\n"),
+        "row-store": ("import SwiftUI\nstruct WorkspaceRow: View {\n    // row-snapshot-allow: one row, never in a list\n"
+                      "    @Environment(SidebarStore.self) private var store\n    var body: some View { Text(\"x\") }\n}\n",
+                      "    // row-snapshot-allow: one row, never in a list\n"),
+        "generic-class-deinit": ("// generic-class-allow: its target is nonisolated by default\nfinal class Once<T> {\n    var value: T?\n}\n",
+                                 "// generic-class-allow: its target is nonisolated by default\n"),
+    }
+
+    def test_removing_only_the_escape_comment_is_new_debt(self):
+        start = self.base
+        for rule, (text, escape) in self.ESCAPED.items():
+            for name, after in (("deleted", text.replace(escape, "")),
+                                ("reworded", text.replace(escape, escape.split("//")[0] + "// reviewed once\n"))):
+                with self.subTest(rule=rule, how=name):
+                    self.git("reset", "--quiet", "--hard", start)
+                    self.rebase_on({f"{KIT}/Escaped.swift": text}, "justified debt")
+                    self.assertEqual(self.refused(guardrails.check, self.base, "HEAD"), [])
+                    self.write(f"{KIT}/Escaped.swift", after)
+                    self.commit(f"{name} the escape only")
+                    self.assertEqual([r for r, _ in self.refused()], [rule])
+
+    def test_editing_the_escape_reason_or_a_line_above_old_debt_adds_none(self):
+        start = self.base
+        for rule, (text, escape) in self.ESCAPED.items():
+            with self.subTest(rule=rule):
+                self.git("reset", "--quiet", "--hard", start)
+                self.rebase_on({f"{KIT}/Escaped.swift": text}, "justified debt")
+                self.write(f"{KIT}/Escaped.swift", text.replace(escape, escape.replace("\n", " (reviewed again)\n")))
+                self.commit("rewords the reason, keeps the escape")
+                self.assertEqual(self.refused(), [])
+        self.git("reset", "--quiet", "--hard", start)
+        self.write(f"{KIT}/Old.swift", "final class Old {\n    // the old cache\n    static let shared = Old()\n}\n")
+        self.commit("a comment above old unescaped debt")
+        self.assertEqual(self.refused(), [], "base debt the push only comments on is not new")
+
     def test_a_struct_that_becomes_a_class_around_a_named_static_is_refused(self):
         start = self.base
         for name, after in (
