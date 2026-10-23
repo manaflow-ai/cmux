@@ -8,7 +8,10 @@ layer-gate and app-size slices add theirs here. A module exports:
         '''(refusals, notes) for the pushed range BASE..HEAD.'''
 
 `base` and `head` are full commit shas (base is the range start after the ratchet's own upstream
-handling: a rebase onto origin/feat-cmux-next starts at the merge base). `changes` carries:
+handling: a rebase onto origin/feat-cmux-next starts at the merge base). When the push merges
+origin/feat-cmux-next in, `check` runs once per range (the pushed range and the one from where HEAD meets
+origin/feat-cmux-next) and the ratchet keeps only the refusals (equal tuples) found in every range, so a
+change that came in through the merge is not refused. `changes` carries:
 
     changes.repo         Path of the repository (a worktree when the hook runs in one)
     changes.files        [(status, path)] that BASE..HEAD changes (`git diff --name-status --no-renames`)

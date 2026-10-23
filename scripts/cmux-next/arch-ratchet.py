@@ -13,7 +13,8 @@ Rule modules in scripts/cmux-next/arch_rules/*.py add their own refusals (see ar
 none are needed.
 
 A push rebased onto origin/feat-cmux-next counts from the merge base; one that merges it in counts a
-rise only when it is also a rise over that merge base, so what others landed never refuses a push.
+rise only when it is also a rise over that merge base, and keeps a rule module's refusal only when
+the module refuses it over both ranges, so what others landed never refuses a push.
 
 When a count drops, it prints `lower plans/cmux-next/arch-ratchet.json: scripts/cmux-next/arch-ratchet.py
 --update` and passes. Escape for one push (say it in your report):
@@ -36,6 +37,7 @@ import datetime
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -176,8 +178,9 @@ def added_exceptions(changes: Changes) -> tuple[dict[str, int], list[str]]:
             continue
         row, n, why, date = entry.get("row"), entry.get("allow"), str(entry.get("why", "")).strip(), entry.get("date")
         try:
+            # YYYY-MM-DD and a real day: the layer gate's `exceptions` and `relayered` use the same check.
+            dated = re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(date)) is not None
             datetime.date.fromisoformat(str(date))
-            dated = True
         except ValueError:
             dated = False
         if row not in changes.counts.ROW_IDS or not isinstance(n, int) or n <= 0 or not why or not dated:
@@ -233,17 +236,20 @@ def check_range(repo: Path, base: str, head: str, rules=None,
     counts = load_counts()
     ranges = ranges_to_count(repo, base, head, upstream_ref)
     deltas = [counts.delta_count(repo, b, h) for b, h in ranges]
-    first = deltas[0]
-    changes = Changes(repo, first.base, first.head, first.files, first, counts)
-    refusals, notes = count_rule(changes, deltas)
+    per_range = [Changes(repo, d.base, d.head, d.files, d, counts) for d in deltas]
+    refusals, notes = count_rule(per_range[0], deltas)
     loaded, warnings = load_rules() if rules is None else (rules, [])
     notes += [f"arch-ratchet: WARNING: {w}" for w in warnings]
     for rule_id, module in loaded:
         try:
-            got, extra = module.check(first.base, first.head, changes)
-            for item in got:
-                refusals.append(item if isinstance(item, tuple) else (rule_id, str(item)))
-            notes += [str(n) for n in extra]
+            found = []
+            for changes in per_range:
+                got, extra = module.check(changes.base, changes.head, changes)
+                found.append([item if isinstance(item, tuple) else (rule_id, str(item)) for item in got])
+                notes += [str(n) for n in extra if str(n) not in notes]
+            # A merge of upstream refuses only what every range refuses, as the count rule takes the
+            # minimum (see ranges_to_count): a change that came in through the merge is not the push's own.
+            refusals += [item for item in found[0] if all(item in other for other in found[1:])]
         except Exception as error:  # fail open per rule
             notes.append(f"arch-ratchet: WARNING: arch rule {rule_id} failed ({type(error).__name__}: {error}); "
                          "not applied to this push")
