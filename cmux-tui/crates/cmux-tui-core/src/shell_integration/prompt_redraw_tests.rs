@@ -5,9 +5,9 @@
 //! clears it so the redraw replaces it, as in the Ghostty app. A shell that
 //! is not installed skips its test.
 
+use super::test_pty::TestPty;
 use super::*;
-use std::io::Read;
-use std::sync::mpsc::{Receiver, channel};
+use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 /// Line 1 of every prompt: padded close to the 40-column start width, so a
@@ -57,28 +57,16 @@ fn read_until_quiet(
 fn narrow_and_count_line_one(name: &str, launched: ShellLaunch, base: &Path) {
     let (mut cols, rows) = (40u16, 10u16);
     let size = |cols| cmux_pty::PtySize { rows, cols, pixel_width: 0, pixel_height: 0 };
-    let pty = cmux_pty::open(size(cols)).unwrap();
     let mut command = cmux_pty::PtyCommand::new(&launched.command[0]);
     command.args(launched.command[1..].iter().cloned());
     command.env("TERM", "xterm-256color");
     for (key, value) in &launched.env {
         command.env(key.clone(), value.clone());
     }
-    let mut spawned = pty.spawn(command).unwrap();
-    let mut reader = spawned.master.try_clone_reader().unwrap();
-    let mut writer = spawned.master.take_writer().unwrap();
-    let (chunks, received) = channel::<Vec<u8>>();
-    std::thread::spawn(move || {
-        let mut chunk = [0u8; 4096];
-        while let Ok(n) = reader.read(&mut chunk) {
-            if n == 0 || chunks.send(chunk[..n].to_vec()).is_err() {
-                break;
-            }
-        }
-    });
+    let mut pty = TestPty::spawn(size(cols), command);
     let mut term =
         ghostty_vt::Terminal::new(cols, rows, 100_000, ghostty_vt::Callbacks::default()).unwrap();
-    term.vt_write(&read_until_quiet(&received, Some(b"> "), Duration::from_millis(500)));
+    term.vt_write(&read_until_quiet(&pty.received, Some(b"> "), Duration::from_millis(500)));
     let count = |term: &mut ghostty_vt::Terminal| {
         let text = term.plain_text().unwrap();
         (text.matches("LINE-ONE").count(), text)
@@ -86,16 +74,15 @@ fn narrow_and_count_line_one(name: &str, launched: ShellLaunch, base: &Path) {
     assert_eq!(count(&mut term).0, 1, "{name}: the first prompt");
     for narrower in [32u16, 26] {
         cols = narrower;
-        spawned.master.resize(size(cols)).unwrap();
+        pty.spawned.master.resize(size(cols)).unwrap();
         term.resize(cols, rows, 8, 16).unwrap();
-        term.vt_write(&read_until_quiet(&received, None, Duration::from_millis(700)));
+        term.vt_write(&read_until_quiet(&pty.received, None, Duration::from_millis(700)));
         let (copies, text) = count(&mut term);
         assert_eq!(copies, 1, "{name}: line 1 after narrowing to {cols} columns:\n{text}");
     }
-    let _ = writer.write_all(b"exit\n");
-    drop(writer);
-    let _ = spawned.child.kill();
-    drop(spawned);
+    pty.write_quietly(b"exit\n");
+    let _ = pty.spawned.child.kill();
+    drop(pty);
     let _ = fs::remove_dir_all(base);
 }
 

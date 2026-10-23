@@ -64,6 +64,7 @@ priority = 50
 # reason (a shared resource, a race) gets that cause fixed instead.
 [test-groups]
 timing-alone = { max-threads = 1 }
+fork-count-alone = { max-threads = 1 }
 
 [[profile.default.overrides]]
 filter = '''
@@ -75,6 +76,19 @@ filter = '''
 | (binary_id(cmux-tui::terminal_host_recovery) & test(=restart_with_many_live_terminals_answers_within_budget))
 '''
 test-group = 'timing-alone'
+threads-required = 'num-test-threads'
+
+# The shell-integration fork counts read the system PID counter: a process any
+# other test starts in the window counts as a fork of the shell. nextest runs
+# each test in its own process, so the SERIAL mutex in fork_count_tests.rs
+# does not keep them apart; this group runs them one at a time, and taking
+# every test thread keeps the rest of the run out of their windows. Processes
+# outside the run (other steps on a shared worker) still inflate the counts:
+# the verdict on a Mac comes from scripts/measure/shell-integration.sh, which
+# runs alone on an idle worker.
+[[profile.default.overrides]]
+filter = 'binary_id(cmux-tui-core) & test(/^shell_integration::fork_count_tests::/)'
+test-group = 'fork-count-alone'
 threads-required = 'num-test-threads'
 
 # The lifecycle latency test (perf-10x lifecycle) prints its LIFECYCLE lines

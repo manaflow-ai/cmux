@@ -28,20 +28,28 @@
 //! fish, so it runs only the bash 4.4-5.2 budget; the bash 5.3, zsh and fish
 //! paths run on a Mac. There, `CMUX_FORK_COUNT_REQUIRE` turns a skip into a
 //! failure: a comma list of `zsh`, `fish`, `bash`, and `bash5.3` (an
-//! integrated bash 5.3 or later must run):
+//! integrated bash 5.3 or later must run).
+//!
+//! A PID gap is valid only when nothing else forks in the window. nextest
+//! runs these tests one at a time with every test thread (group
+//! `fork-count-alone` in `cmux-tui/.config/nextest.toml`), so no other test
+//! of the run forks beside them; other processes on the host still do. The
+//! Mac verdict therefore comes from `scripts/measure/shell-integration.sh`,
+//! an exclusive fleet step (alone on an idle worker) that sets
+//! `CMUX_FORK_COUNT_REQUIRE=zsh,fish,bash5.3` itself:
 //!
 //! ```text
-//! CMUX_FORK_COUNT_REQUIRE=zsh,fish,bash5.3 cargo test -p cmux-tui-core --lib fork_count_
+//! cmux-ci run --class exclusive --measurement --label measure \
+//!   --script scripts/measure/shell-integration.sh --ref SHA
 //! ```
 //!
-//! The bench (`scripts/cmux-next/shell-integration-bench.py`) also counts the
-//! app's spawn path (the `Resources/cmux-cli-path` layer) and an idle window
-//! at the prompt.
+//! The bench (`scripts/cmux-next/shell-integration-bench.py`, run by the same
+//! step) also counts the app's spawn path (the `Resources/cmux-cli-path`
+//! layer) and an idle window at the prompt.
 
+use super::test_pty::TestPty;
 use super::*;
-use std::io::Read;
 use std::sync::Mutex;
-use std::sync::mpsc::{Receiver, channel};
 use std::time::{Duration, Instant};
 
 const PROMPT: &[u8] = b"@@P@@ ";
@@ -53,8 +61,10 @@ const MAX_REPS: usize = 6;
 const COMMANDS: usize = 12;
 /// Reps a control minimum must reach to count as the baseline.
 const STABLE_REPS: usize = 2;
-/// The fork-count tests fork too: run one at a time so they do not count
-/// each other.
+/// The fork-count tests fork too: under `cargo test`, which runs a binary's
+/// tests as threads of one process, they take turns so they do not count
+/// each other (nextest runs each in its own process, kept apart by the
+/// `fork-count-alone` group instead).
 static SERIAL: Mutex<()> = Mutex::new(());
 
 /// Runs `test` alone among the fork-count tests.
@@ -99,21 +109,12 @@ fn probe_pid() -> u32 {
 
 /// One shell on a pty, driven by what it prints.
 struct Session {
-    spawned: cmux_pty::SpawnedPty,
-    writer: Box<dyn Write + Send>,
-    received: Receiver<Vec<u8>>,
+    pty: TestPty,
     output: Vec<u8>,
 }
 
 impl Session {
     fn start(command: &[String], env: &[(String, String)], cwd: &Path) -> Self {
-        let pty = cmux_pty::open(cmux_pty::PtySize {
-            rows: 30,
-            cols: 200,
-            pixel_width: 0,
-            pixel_height: 0,
-        })
-        .unwrap();
         let mut pty_command = cmux_pty::PtyCommand::new(&command[0]);
         pty_command.args(command[1..].iter().cloned());
         // Only the test's env: an inherited ENV, ZDOTDIR or PROMPT_COMMAND
@@ -123,27 +124,15 @@ impl Session {
         for (key, value) in env {
             pty_command.env(key.clone(), value.clone());
         }
-        let spawned = pty.spawn(pty_command).unwrap();
-        let mut reader = spawned.master.try_clone_reader().unwrap();
-        let writer = spawned.master.take_writer().unwrap();
-        let (chunks, received) = channel::<Vec<u8>>();
-        std::thread::spawn(move || {
-            let mut chunk = [0u8; 4096];
-            // EOF, or EIO once the child side closes (Linux).
-            while let Ok(n) = reader.read(&mut chunk) {
-                if n == 0 || chunks.send(chunk[..n].to_vec()).is_err() {
-                    break;
-                }
-            }
-        });
-        Self { spawned, writer, received, output: Vec::new() }
+        let size = cmux_pty::PtySize { rows: 30, cols: 200, pixel_width: 0, pixel_height: 0 };
+        Self { pty: TestPty::spawn(size, pty_command), output: Vec::new() }
     }
 
     fn wait_for(&mut self, done: impl Fn(&[u8]) -> bool, what: &str) {
         let deadline = Instant::now() + Duration::from_secs(30);
         while !done(self.output.as_slice()) {
             let left = deadline.saturating_duration_since(Instant::now());
-            match self.received.recv_timeout(left) {
+            match self.pty.received.recv_timeout(left) {
                 Ok(chunk) => self.output.extend_from_slice(&chunk),
                 Err(_) => {
                     let tail = &self.output[self.output.len().saturating_sub(600)..];
@@ -158,8 +147,7 @@ impl Session {
     }
 
     fn write(&mut self, bytes: &[u8]) {
-        self.writer.write_all(bytes).unwrap();
-        self.writer.flush().unwrap();
+        self.pty.write(bytes);
     }
 
     /// Returns once the line editor reads keys again: every prompt hook ran.
@@ -180,8 +168,8 @@ impl Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
-        let _ = self.writer.write_all(b"\x15exit\r");
-        let _ = self.spawned.child.kill();
+        self.pty.write_quietly(b"\x15exit\r");
+        let _ = self.pty.spawned.child.kill();
     }
 }
 
