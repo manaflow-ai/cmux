@@ -1,5 +1,6 @@
 public import CmuxNextSettings
 import CmuxNextCompat
+public import CmuxNextWakeups
 
 /// The one path from the control socket to main-actor state
 /// (plans/cmux-next/architecture.md section 5a).
@@ -8,11 +9,19 @@ import CmuxNextCompat
 ///   for one client) a request fails at once with `busy` and never runs.
 /// - Fair: FIFO within a connection, round-robin across connections, so a
 ///   client that floods the queue delays only its own requests.
-/// - Frame-budgeted: each frame drains at most `frameBudget` of work (at
-///   least one item), then returns to the run loop so input and rendering
-///   always get the rest of the frame. The first request after idle runs on
-///   the next main run loop turn instead of the next display frame
+/// - Frame-budgeted: requests are automation work (``MainWorkClass/automation``)
+///   of the app's one main-thread scheduler. With the app's frame source each
+///   frame drains requests while ``MainFrameBudget`` lets the class run (its
+///   per-frame budget, below the frame's visible updates, and never while a
+///   person's input is pending), at least one per frame; without one (tests)
+///   at most `frameBudget`. Then the drain returns to the run loop so input
+///   and rendering get the rest of the frame. The first request after idle
+///   runs on the next main run loop turn instead of the next display frame
 ///   (`scheduleSoon`); work left after a drain waits for frames.
+/// - Input first: a request of class ``MainWorkClass/input`` (an injected
+///   key, `debug.key`) is not queued behind automation work: it runs on the
+///   next main run loop turn, as a real key is dispatched from the event
+///   queue, and every budgeted batch yields while one is waiting.
 /// - Deadlined: every request carries a deadline. One that expires while
 ///   queued fails with `timeout` and is dropped without running. Time the
 ///   main thread spends in Chromium's start does not count
@@ -77,6 +86,9 @@ public final class MainActorWorkQueue: Sendable {
         var queues: [ControlConnectionID: ItemQueue] = [:]
         /// Connections with queued items, in round-robin order.
         var ready: [ControlConnectionID] = []
+        /// Injected input, FIFO across connections, ahead of every other request.
+        var input = ItemQueue()
+        var inputDrainPending = false
         var framePending = false
         var stats = Stats()
         var afterFrame: (@MainActor @Sendable () -> Void)?
@@ -113,6 +125,7 @@ public final class MainActorWorkQueue: Sendable {
     public func run<T: Sendable>(
         connection: ControlConnectionID = .inProcess,
         method: String,
+        workClass: MainWorkClass = .automation,
         deadline: ContinuousClock.Instant,
         countingFrom mark: Duration? = nil,
         _ work: @escaping @MainActor @Sendable () throws -> T
@@ -124,8 +137,12 @@ public final class MainActorWorkQueue: Sendable {
         let engineStart = MainThreadEngineStart.shared
         let mark = mark ?? engineStart.total
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
+            let isInput = workClass == .input
+            let board = isInput ? frameSource.mainTaskBoard : nil
             let item = MainActorWorkItem(
                 connection: connection,
+                method: method,
+                workClass: isInput ? .input : .automation,
                 deadline: deadline,
                 enqueuedAt: now,
                 body: {
@@ -135,8 +152,11 @@ public final class MainActorWorkQueue: Sendable {
                         continuation.resume(throwing: error)
                     }
                 },
-                fail: { continuation.resume(throwing: $0) }
+                fail: { continuation.resume(throwing: $0) },
+                claimed: { board?.inputDone() }
             )
+            // Counted before it can be claimed: batches yield until it ran or expired.
+            board?.inputQueued()
             if let rejection = enqueue(item) {
                 item.expire(rejection)
                 return
@@ -164,6 +184,14 @@ public final class MainActorWorkQueue: Sendable {
                 state.stats.rejectedBusy += 1
                 return (.busy(pending: mine, limit: limits.maxPendingPerConnection), false)
             }
+            if item.workClass == .input {
+                state.input.items.append(item)
+                state.stats.pending += 1
+                state.stats.peakPending = max(state.stats.peakPending, state.stats.pending)
+                guard !state.inputDrainPending else { return (nil, false) }
+                state.inputDrainPending = true
+                return (nil, true)
+            }
             if mine == 0 { state.ready.append(item.connection) }
             state.queues[item.connection, default: ItemQueue()].items.append(item)
             state.stats.pending += 1
@@ -172,9 +200,38 @@ public final class MainActorWorkQueue: Sendable {
             state.framePending = true
             return (nil, true)
         }
-        // Idle until now: run on the next run loop turn, not a frame later.
-        if schedule { frameSource.scheduleSoon { [self] in drainFrame() } }
+        // Input always runs on the next run loop turn; other work does when the queue was idle
+        // until now (not a frame later).
+        if schedule {
+            if item.workClass == .input {
+                frameSource.scheduleSoon { [self] in drainInput() }
+            } else {
+                frameSource.scheduleSoon { [self] in drainFrame() }
+            }
+        }
         return rejection
+    }
+
+    /// Runs every queued injected input request, unbudgeted, in arrival order.
+    @MainActor
+    private func drainInput() {
+        let budget = frameSource.mainFrameBudget
+        while let item = state.withLock({ state -> MainActorWorkItem? in
+            guard let item = state.input.popFirst() else {
+                state.inputDrainPending = false
+                return nil
+            }
+            state.stats.pending -= 1
+            return item
+        }) {
+            let ran: Bool
+            if let budget {
+                ran = budget.run(.input, owner: item.method) { item.run() }
+            } else {
+                ran = item.run()
+            }
+            if ran { state.withLock { $0.stats.executed += 1 } }
+        }
     }
 
     private func scheduleDrain() {
@@ -207,13 +264,18 @@ public final class MainActorWorkQueue: Sendable {
         let start = clock.now
         var ran = 0
         var maxWait: Duration = .zero
-        while let item = popNext() {
+        let budget = frameSource.mainFrameBudget
+        // With the app's budget: one request at a time while the automation class may run (it
+        // yields to a person's pending input and to the frame's visible updates). Without: the
+        // queue's own budget, at least one request per drain.
+        while budget?.mayRun(.automation) ?? true, let item = popNext() {
             let began = clock.now
-            if item.run() {
+            let didRun = budget.map { budget in budget.run(.automation, owner: item.method) { item.run() } } ?? item.run()
+            if didRun {
                 ran += 1
                 maxWait = max(maxWait, began - item.enqueuedAt)
             }
-            if clock.now - start >= limits.frameBudget { break }
+            if budget == nil, clock.now - start >= limits.frameBudget { break }
         }
         let elapsed = clock.now - start
         let (more, hook) = state.withLock { state -> (Bool, (@MainActor @Sendable () -> Void)?) in
@@ -223,7 +285,8 @@ public final class MainActorWorkQueue: Sendable {
             state.stats.maxFrameWork = max(state.stats.maxFrameWork, elapsed)
             state.stats.maxQueueWait = max(state.stats.maxQueueWait, maxWait)
             if elapsed > limits.frameBudget * 2 { state.stats.overBudgetFrames += 1 }
-            let more = state.stats.pending > 0
+            // Input waiting has its own drain; only queued requests need another frame.
+            let more = state.stats.pending - state.input.count > 0
             if !more { state.framePending = false }
             return (more, ran > 0 ? state.afterFrame : nil)
         }
