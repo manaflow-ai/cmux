@@ -137,7 +137,9 @@ import Testing
         ))
 
         #expect(invocation.workingDirectory == workingDirectory)
-        #expect(invocation.arguments == ["sr", "codex", "resume", sessionID, "--model", "gpt-5.6-sol"])
+        #expect(invocation.arguments == [
+            "sr", "codex", "resume", sessionID, "-c", "check_for_update_on_startup=false", "--model", "gpt-5.6-sol",
+        ])
         #expect(invocation.arguments.contains(capturedWorkingDirectory) == false)
         #expect(invocation.environment["CODEX_HOME"] == "/tmp/配置")
         #expect(invocation.environment["SUBROUTER_CODEX_BASE_URL"] == nil)
@@ -935,7 +937,7 @@ import Testing
             )
         )
 
-        #expect(invocation.arguments == ["sr", "codex", "resume", sessionID])
+        #expect(invocation.arguments == ["sr", "codex", "resume", sessionID, "-c", "check_for_update_on_startup=false"])
         #expect(invocation.codexResumeSessionID == sessionID)
         #expect(invocation.environment["PATH"] == "\(bundleBin):/usr/bin:/bin")
         #expect(invocation.environment["SUBROUTER_CODEX_BASE_URL"] == nil)

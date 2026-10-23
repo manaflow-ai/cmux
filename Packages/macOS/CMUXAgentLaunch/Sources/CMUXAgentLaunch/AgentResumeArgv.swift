@@ -531,11 +531,15 @@ public struct AgentResumeArgv: Sendable, Equatable {
             // captured `model_providers.subrouter.*` argv in that case: it may
             // contain a dead per-process localhost endpoint. Re-enter through
             // `sr` so the provider allocates a fresh route on resume.
-            if SubrouterCodexResumeRouting().usesSubrouterProvider(
-                in: [parts.executable] + parts.tail
-            ) {
+            // The kind is known to be Codex, so a custom executable name
+            // (e.g. `codex-enterprise`) still counts as a Codex invocation.
+            if SubrouterCodexResumeRouting().providerEvidence(
+                in: [parts.executable] + parts.tail,
+                launcher: "codex"
+            ) == .provider("subrouter") {
                 let clean = SubrouterCodexResumeRouting().removingRoutingArguments(from: preserved)
-                return ["sr", "codex", "resume", sessionId] + clean
+                return ["sr", "codex", "resume", sessionId]
+                    + codexResumeConfigOverrides(preserved: clean) + clean
             }
             let replayExecutable = codexReplayExecutable(
                 capturedExecutable: parts.executable,

@@ -182,7 +182,7 @@ struct CodexForkSanitizerTests {
                     "-c", "model_providers.subrouter.wire_api=responses",
                     "--yolo",
                 ]
-            ) == ["sr", "codex", "resume", "SESSION", "--yolo"]
+            ) == ["sr", "codex", "resume", "SESSION", "-c", "check_for_update_on_startup=false", "--yolo"]
         )
     }
 
