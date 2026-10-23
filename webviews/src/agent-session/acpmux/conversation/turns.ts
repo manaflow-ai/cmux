@@ -882,7 +882,13 @@ function codexRuns(rows: AcpmuxRow[]): AcpmuxRow[] {
   let latest = rows.length - 1;
   while (latest > 0 && rows[latest]!.kind === STARTED_SESSIONS) latest -= 1;
   return rows.flatMap((row, index) => {
-    if (row.kind !== "activity" || isEdit(row)) return [row];
+    if (row.kind !== "activity") return [row];
+    // A run that edited folds too, its edits named on the line ("Edited 2 files, read 3 files, ran a
+    // command"), as the Codex app collapses a run (Leo 2026-10-22: "this is pretty good ui: … the
+    // collapsing i mean"); the turn's edited-files card lists them when it ends. One with an edit
+    // still waiting for its permission stays as it is, so the edit it asks about stays in sight.
+    if (isEdit(row) && (row.items ?? []).some((item) => isEditTool(item.tool) && item.tool!.status === "pending"))
+      return [row];
     // An earlier run draws no call that has nothing to show yet; its row comes with its input.
     if (index !== latest)
       return withoutDrafts(row).map((kept) => ({

@@ -14,7 +14,7 @@ import { ToolRow } from "./ToolRow";
 import { ToolRun } from "./ToolRun";
 import { ThoughtRow } from "./ThoughtRow";
 import { toolGroups, type ToolGroup } from "./toolGroups";
-import { isFoldedRun, toolRunCategory } from "./toolRunSummary";
+import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
 import { ChevronRight, Retry } from "./icons";
@@ -125,8 +125,8 @@ function groupNode(
 /// Codex-style runs (Debug toggle `agentPane.debug.codexToolRuns`, on by default) fold a finished
 /// run (`foldRun`) of two or more entries under one summary line (toolRunSummary.ts: "Read 6 files,
 /// ran 4 commands"), and a run that is one group under that group's closed line ("Ran 3 commands"),
-/// so finished work is one click away between the paragraphs; coordination cards and edits stay in
-/// sight between such lines (`runStretches`). Off, each group and call keeps its own line.
+/// so finished work is one click away between the paragraphs; coordination cards stay in sight
+/// between such lines (`runStretches`). Off, each group and call keeps its own line.
 /// Whether the whole run folds under one summary line.
 export function shouldFoldToolRun(row: AcpmuxRow, groups: readonly ToolGroup[]): boolean {
   const stretches = runStretches(row, groups);
@@ -134,9 +134,9 @@ export function shouldFoldToolRun(row: AcpmuxRow, groups: readonly ToolGroup[]):
 }
 
 /// A folded run's entries in stretches: a coordination card (a message, a sub-session started,
-/// messaged or waited on) and an edit stay in sight, each its own stretch, and the work between
-/// them folds under its own summary line ("Read 6 files, ran 4 commands") once it holds two calls
-/// in more than one entry, so one card or edit never leaves the whole run spread out as a list
+/// messaged or waited on) stays in sight, its own stretch, and the work between cards folds under
+/// its own summary line ("Edited a file, read 6 files, ran 4 commands") once it holds two calls in
+/// more than one entry, so one card never leaves the whole run spread out as a list
 /// (Leo 2026-10-21: "it can consolidate a ton of these tool calls"). A run that is not folded
 /// (`foldRun`, the Codex-style runs) is one stretch that folds nothing.
 export type RunStretch = { from: number; groups: ToolGroup[]; items: AcpmuxActivity[]; fold: boolean };
@@ -177,12 +177,11 @@ export function thoughtIds(groups: readonly ToolGroup[]): number[] {
   });
 }
 
-/// An entry a folded run keeps in sight beside its summary lines: a coordination card or an edit.
+/// An entry a folded run keeps in sight beside its summary lines: a coordination card. Edits fold
+/// with the rest of the work and the line names them (Leo 2026-10-22: "this is pretty good ui: …
+/// the collapsing i mean"); the turn's edited-files card lists them once it ends.
 function staysInSight(group: ToolGroup): boolean {
-  if (group.type === "message" || group.type === "subsession") return true;
-  if (group.type === "group") return group.kind === "edits";
-  if (group.type === "item") return toolRunCategory(group.item.tool?.kind) === "edited" && Boolean(group.item.tool);
-  return false;
+  return group.type === "message" || group.type === "subsession";
 }
 
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {
