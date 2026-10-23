@@ -49,11 +49,16 @@ final class PaletteKeycapsView: NSView {
     }
 }
 
-/// Row background: a rounded gray fill for selection and hover, never the
-/// system accent. A fill layer under the cell, so a hover eases in and
-/// clears at once (`ChromeHover.fade`); selection, reuse and redraws paint
-/// at once.
+/// Row background: the selected row in a faint wash of the theme's accent
+/// (`selectionFill`), a hovered one in gray; never the system accent. A fill
+/// layer under the cell, so a hover eases in and clears at once
+/// (`ChromeHover.fade`); selection, reuse and redraws paint at once.
 final class PaletteTableRowView: NSTableRowView {
+    /// The selected row's fill, here and in the Actions menu: a themed menu's highlight
+    /// (`Palette.menuHighlight`), a faint wash of the theme's accent over the glass in which the
+    /// row keeps its own ink; gray in a theme without an accent.
+    static var selectionFill: NSColor { Palette.menuHighlight }
+
     private let fill = CALayer()
     private var fadesNextFill = false
 
@@ -104,7 +109,7 @@ final class PaletteTableRowView: NSTableRowView {
 
     override func drawBackground(in dirtyRect: NSRect) {
         performWithTheme {
-            let color = isPaletteSelected ? Palette.selectionFill : isHovered ? Palette.hoverFill : nil
+            let color = isPaletteSelected ? Self.selectionFill : isHovered ? Palette.hoverFill : nil
             ChromeHover.paint(fill, color, animated: fadesNextFill && window != nil)
         }
         fadesNextFill = false

@@ -3,7 +3,7 @@ import CmuxNextDesign
 import QuartzCore
 
 /// The Cmd-K menu: every command of the selected item on a small glass
-/// popup (`PopupStyle`; the palette's own shadow covers it), filterable by typing. Rebuilt when it opens or its filter changes
+/// popup (`PopupStyle`; it sits on the palette's glass and casts no shadow of its own), filterable by typing. Rebuilt when it opens or its filter changes
 /// (a handful of rows), so it needs no reuse.
 final class PaletteActionsMenuView: NSView {
     var onRun: ((Int) -> Void)?
@@ -170,7 +170,7 @@ final class PaletteMenuRow: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard isSelected else { return }
         performWithTheme {
-            Palette.selectionFill.setFill()
+            PaletteTableRowView.selectionFill.setFill()
             NSBezierPath(roundedRect: bounds, xRadius: PaletteLayout.rowCornerRadius, yRadius: PaletteLayout.rowCornerRadius).fill()
         }
     }

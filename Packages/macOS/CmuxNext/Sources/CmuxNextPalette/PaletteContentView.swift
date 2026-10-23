@@ -16,6 +16,9 @@ final class PaletteContentView: NSView {
     private let stage = FlippedView()
     /// The panel's material: glass, or opaque under Reduce Transparency.
     let glass = Glass.makeOverlayPanel(cornerRadius: PaletteLayout.cornerRadius)
+    /// Casts the shared popup shadow around the glass and never under it, as every popover and
+    /// hover card does (`PopupHostView`): a shadow under glass darkens its see-through center.
+    private let glassHost: PopupHostView
     private let body = FlippedView()
     private let topRule = NSView()
     private let bottomRule = NSView()
@@ -48,10 +51,10 @@ final class PaletteContentView: NSView {
 
     init(model: PaletteModel) {
         self.model = model
+        glassHost = PopupHostView(card: glass)
         super.init(frame: NSRect(origin: .zero, size: PaletteLayout.windowSize))
         wantsLayer = true
         layer?.masksToBounds = false
-        glass.translatesAutoresizingMaskIntoConstraints = true
         glass.contentView.addSubview(body)
         emptyTitle.stringValue = PaletteStrings.noResults
         emptyHint.stringValue = PaletteStrings.noResultsHint
@@ -60,7 +63,7 @@ final class PaletteContentView: NSView {
         [topRule, bottomRule].forEach { $0.wantsLayer = true }
         fieldHint.isHidden = true
         [searchBar, fieldHint, topRule, listHost, emptyTitle, emptyHint, bottomRule, footer].forEach(body.addSubview)
-        stage.addSubview(glass)
+        stage.addSubview(glassHost)
         stage.addSubview(actionsMenuView)
         stage.addSubview(recorderView)
         actionsMenuView.isHidden = true
@@ -220,9 +223,12 @@ final class PaletteContentView: NSView {
         super.layout()
         let margin = PaletteLayout.shadowMargin
         stage.frame = bounds
-        glass.frame = NSRect(x: margin, y: margin, width: PaletteLayout.width, height: PaletteLayout.height)
-        glass.cornerRadius = PaletteLayout.cornerRadius
-        body.frame = CGRect(origin: .zero, size: glass.bounds.size)
+        // The glass `margin` in from the top left; its host adds the popup shadow's band around it.
+        let panel = NSRect(x: margin, y: margin, width: PaletteLayout.width, height: PaletteLayout.height)
+        // The host gives its card the popup radius; the palette keeps the panel radius (it sets the glass's too).
+        glassHost.cornerRadius = PaletteLayout.cornerRadius
+        glassHost.frame = panel.insetBy(dx: -PopupStyle.standard.shadowMargin, dy: -PopupStyle.standard.shadowMargin)
+        body.frame = CGRect(origin: .zero, size: panel.size)
         let width = body.bounds.width
         var y: CGFloat = 0
         searchBar.frame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.searchHeight)
@@ -249,12 +255,12 @@ final class PaletteContentView: NSView {
         footer.frame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.footerHeight)
         // The recorder floats over the top of the list, under the field.
         let recorderWidth = min(PaletteLayout.width - 2 * Metrics.space6, PaletteLayout.actionsMenuWidth * 1.5)
-        recorderView.frame = NSRect(x: glass.frame.midX - recorderWidth / 2, y: glass.frame.minY + PaletteLayout.searchHeight + Metrics.space4,
+        recorderView.frame = NSRect(x: panel.midX - recorderWidth / 2, y: panel.minY + PaletteLayout.searchHeight + Metrics.space4,
                                     width: recorderWidth, height: recorderHeight)
         let menuWidth = PaletteLayout.actionsMenuWidth
         actionsMenuView.frame = NSRect(
-            x: glass.frame.maxX - menuWidth - Metrics.space4,
-            y: glass.frame.minY + y - menuHeight - Metrics.space2,
+            x: panel.maxX - menuWidth - Metrics.space4,
+            y: panel.minY + y - menuHeight - Metrics.space2,
             width: menuWidth,
             height: menuHeight
         )
@@ -278,9 +284,6 @@ final class PaletteContentView: NSView {
             glass.applyTheme()
             topRule.layer?.backgroundColor = Palette.separator.cgColor
             bottomRule.layer?.backgroundColor = Palette.separator.cgColor
-            // The one popup elevation (POLISH: subtle shadows): its own, darker and wider, made the
-            // palette heavier than every other popup.
-            stage.shadow = PopupStyle.elevation2.shadow()
         }
         if let editor = searchBar.field.currentEditor() as? NSTextView { applyEditorColors(editor) }
     }
