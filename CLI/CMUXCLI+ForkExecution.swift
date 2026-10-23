@@ -18,6 +18,7 @@ extension CMUXCLI {
         case unsupported
         case providerSetupFailed
         case workingDirectoryFailed
+        case workingDirectoryMissing(path: String)
         case executableNotFound
         case execveFailed
         case compatibilityShellFailed
@@ -66,6 +67,14 @@ extension CMUXCLI {
             return String(
                 localized: "cli.fork.error.workingDirectoryFailed",
                 defaultValue: "fork: the saved working directory is inaccessible. Restore access to it, then retry."
+            )
+        case .workingDirectoryMissing(let path):
+            return String(
+                format: String(
+                    localized: "cli.fork.error.workingDirectoryMissing",
+                    defaultValue: "fork: the saved working directory %@ no longer exists. Recreate or remount it, then run 'cmux fork --surface'."
+                ),
+                path
             )
         case .executableNotFound:
             return String(
@@ -126,8 +135,16 @@ extension CMUXCLI {
             return path
         }
         let changeDirectoryError = errno
+        // A directory removed since capture must not fall back to the
+        // caller's directory: the fork would start against a different
+        // checkout. Refuse, so the user can recreate or remount it.
         if changeDirectoryError == ENOENT || changeDirectoryError == ENOTDIR {
-            return nil
+            throw loggedForkError(
+                .workingDirectoryMissing(path: path),
+                stage: "working-directory.missing",
+                detail: path,
+                errorCode: changeDirectoryError
+            )
         }
         throw loggedForkError(
             .workingDirectoryFailed,
