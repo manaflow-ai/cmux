@@ -210,8 +210,12 @@ fn a_file_swapped_for_a_symlink_is_never_followed() {
             }
         })
         .unwrap();
-    never_outside(read_all(&opened), &mp4(1, 64));
-    assert_eq!(read_all(&opened).unwrap(), mp4(1, 64));
+    // The unlink moves the opened file's ctime unless it lands in the same clock tick, so the
+    // read keeps the opened bytes or is refused as changed, never the link's target.
+    match read_all(&opened) {
+        Ok(bytes) => assert_eq!(bytes, mp4(1, 64)),
+        Err(e) => assert_eq!(reason(&e), "media.changed", "{}", e.message),
+    }
 }
 
 /// Race: the folder `out` becomes a symlink out of the root, after the root is opened and after

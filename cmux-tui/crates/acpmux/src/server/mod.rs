@@ -76,6 +76,8 @@ pub struct Conn {
     /// The ephemeral sessions it created, purged when it closes (`ephemeral.rs`);
     /// None once it closed.
     ephemeral: StdMutex<Option<Vec<String>>>,
+    /// The media files it opened (`hub/media_read.rs`), closed when it closes.
+    media: crate::hub::media_handles::Handles,
 }
 
 impl Conn {
@@ -827,6 +829,7 @@ async fn serve_connection_from(
         unproven_caller: std::sync::OnceLock::new(),
         peer_leases: StdMutex::new(Some(Vec::new())),
         ephemeral: StdMutex::new(Some(Vec::new())),
+        media: crate::hub::media_handles::Handles::default(),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -874,6 +877,7 @@ async fn serve_connection_from(
         }
     }
     fan.abort();
+    conn.media.close_all();
     view::release_all(&hub, &conn);
     // Leases first: ending one is cheap and synchronous, while the ephemeral
     // release awaits each session's kill. A leased peer must not keep
