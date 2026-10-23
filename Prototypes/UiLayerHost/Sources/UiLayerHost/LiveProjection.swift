@@ -290,6 +290,13 @@ private final class UnixLineSocket: @unchecked Sendable {
     init(path: String) throws {
         let descriptor = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { throw LiveProjectionError.socket(String(cString: strerror(errno))) }
+        var noSigPipe: Int32 = 1
+        guard setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe,
+                         socklen_t(MemoryLayout<Int32>.size)) == 0 else {
+            let message = String(cString: strerror(errno))
+            Darwin.close(descriptor)
+            throw LiveProjectionError.socket(message)
+        }
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         let bytes = Array(path.utf8) + [0]
@@ -301,7 +308,7 @@ private final class UnixLineSocket: @unchecked Sendable {
         withUnsafeMutableBytes(of: &address.sun_path) { destination in
             destination.copyBytes(from: bytes)
         }
-        let length = socklen_t(MemoryLayout<sa_family_t>.size + bytes.count)
+        let length = socklen_t(MemoryLayout<sockaddr_un>.size)
         let connected = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                 Darwin.connect(descriptor, $0, length)
