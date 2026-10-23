@@ -113,7 +113,10 @@ pub(super) fn handle_connection_frame(
     let mut pending = Some(request);
     match scheduler.dispatch(mux.clone(), client, &mut pending, message.len(), writer.clone()) {
         Some(keep_open) => keep_open,
-        None => handle_request(mux, client, pending.take().unwrap(), writer),
+        None => match pending.take() {
+            Some(request) => handle_request(mux, client, request, writer),
+            None => true,
+        },
     }
 }
 

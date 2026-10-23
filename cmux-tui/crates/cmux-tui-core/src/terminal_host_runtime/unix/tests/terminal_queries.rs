@@ -34,6 +34,7 @@ fn query_launch(term: &str, env_term: Option<&str>) -> HostLaunch {
             placements: 20,
         },
         seed: Vec::new(),
+        workspace_key: String::new(),
     }
 }
 
