@@ -7,8 +7,10 @@ so the installed trusted copy of the gate is what runs. Not on CI (Lawrence 2026
 gates/tests in CI, but you have to run them yourself"): run it yourself after every change to guardrails.py,
 prepush-gate.py's guardrails path or install-git-hooks.sh: python3 tests/test_cmux_next_guardrails.py
 """
+import contextlib
 import dataclasses
 import importlib.util
+import io
 import os
 from pathlib import Path
 import shutil
@@ -937,6 +939,57 @@ class WarningTests(Fixture):
             guardrails.subprocess = subprocess
         self.assertEqual(refusals, [])
         self.assertEqual(len(calls), 3, calls)
+
+
+class BlobReadTests(Fixture):
+    """The file texts come from one `git cat-file --batch`; a failed read must stop the check, not judge lines alone."""
+
+    # A value constant (passes) and an escaped singleton (passes): both need the file's text to be judged.
+    TEXT = ("struct Style {\n    static let standard = Style()\n}\n"
+            "final class Hub {\n    // singleton-allow: the process has one memory-pressure source\n"
+            "    static let shared = Hub()\n}\n")
+
+    def fake_git(self, body):
+        """Put a `git` first on PATH whose `cat-file` runs BODY (sh) and whose other commands are the real git."""
+        real = shutil.which("git")
+        folder = self.root / "fake-bin"
+        folder.mkdir(exist_ok=True)
+        script = folder / "git"
+        script.write_text("#!/bin/sh\nfor arg in \"$@\"; do\n  if [ \"$arg\" = cat-file ]; then\n"
+                          f"{body}\n  fi\ndone\nexec {real} \"$@\"\n")
+        script.chmod(0o755)
+        saved = os.environ["PATH"]
+        os.environ["PATH"] = f"{folder}{os.pathsep}{saved}"
+        self.addCleanup(os.environ.__setitem__, "PATH", saved)
+
+    def test_the_blob_request_never_goes_through_a_pipe(self):
+        # cmux-lawrence hangs on a subprocess with more than about 10 KB of piped stdin (e8b8e40e4e9); a hang
+        # there is a push that never returns. This git refuses a piped request instead of hanging the test.
+        self.fake_git("    if [ -p /dev/stdin ]; then echo 'fake git: piped stdin hangs here' >&2; exit 1; fi")
+        self.write(f"{KIT}/Added.swift", self.TEXT)
+        self.commit("a value constant and an escaped singleton")
+        self.assertEqual(self.refused(), [])
+
+    def test_a_failed_blob_read_stops_the_check_and_the_hook_fails_open(self):
+        self.fake_git("    echo 'fake git: cat-file failed' >&2; exit 1")
+        self.write(f"{KIT}/Added.swift", self.TEXT)
+        self.commit("a value constant and an escaped singleton")
+        with self.assertRaises(Exception):
+            self.check()
+        spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate", SOURCE / "scripts/cmux-next/prepush-gate.py")
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+        stderr = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(io.StringIO()) as stdout:
+                refused = gate.guardrails(self.repo, [(self.base, "HEAD")], SOURCE / "scripts/cmux-next")
+        finally:
+            os.environ.update(saved)
+            sys.modules[_spec.name] = guardrails
+        self.assertFalse(refused, stdout.getvalue())
+        self.assertIn("guardrails.py failed", stderr.getvalue())
+        self.assertNotIn("[singleton]", stdout.getvalue())
 
 
 class HookTests(Fixture):
