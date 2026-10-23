@@ -99,7 +99,7 @@ struct AcpmuxRefusedDaemonTests {
             _ = try await host.reconnectHandshake(sessionId: "s")
             Issue.record("a daemon that is not this app's acpmux was accepted")
         } catch let error as AgentPaneHostError {
-            guard case .daemonRefused(_, let path, let reason, let executable) = error else {
+            guard case .daemonRefused(_, let path, let reason, let executable, _) = error else {
                 Issue.record("expected daemonRefused, got \(error)")
                 return ("", "", "")
             }
@@ -112,11 +112,11 @@ struct AcpmuxRefusedDaemonTests {
 }
 
 /// A unix socket served by this test process that answers every JSON-RPC request with a status.
-private nonisolated final class FakeDaemon: @unchecked Sendable {  // the fd is written once in init and closed once in stop
+nonisolated final class FakeDaemon: @unchecked Sendable {  // the fd is written once in init and closed once in stop
     private let descriptor: Int32
     private let path: String
 
-    init(socketPath: String, home: String? = nil) throws {
+    init(socketPath: String, home: String? = nil, agentHosts: Bool = true) throws {
         path = socketPath
         descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         var address = sockaddr_un()
@@ -136,12 +136,12 @@ private nonisolated final class FakeDaemon: @unchecked Sendable {  // the fd is 
             while true {
                 let client = accept(listener, nil, nil)
                 guard client >= 0 else { return }
-                Thread.detachNewThread { Self.serve(client, home: home) }
+                Thread.detachNewThread { Self.serve(client, home: home, agentHosts: agentHosts) }
             }
         }
     }
 
-    private static func serve(_ client: Int32, home: String?) {
+    private static func serve(_ client: Int32, home: String?, agentHosts: Bool) {
         defer { close(client) }
         var buffer = Data()
         var chunk = [UInt8](repeating: 0, count: 4096)
@@ -155,7 +155,7 @@ private nonisolated final class FakeDaemon: @unchecked Sendable {  // the fd is 
                 guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
                       let id = object["id"] else { continue }
                 var result: [String: Any] = [
-                    "webUrl": "ws://127.0.0.1:9/?token=t", "pid": Int(getpid()), "build": "other", "agentHosts": true,
+                    "webUrl": "ws://127.0.0.1:9/?token=t", "pid": Int(getpid()), "build": "other", "agentHosts": agentHosts,
                 ]
                 if let home { result["home"] = home }
                 let reply: [String: Any] = ["jsonrpc": "2.0", "id": id, "result": result]

@@ -131,6 +131,8 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "acpmux.restart":
+            self = .restartAcpmux
         case "harness.restart":
             self = .harnessRestart
         case "shell.run":

@@ -58,6 +58,21 @@ public nonisolated struct UnixSocketPeer: Sendable {
         return SecCodeCheckValidity(code, [], requirement) == errSecSuccess
     }
 
+    /// The team ID the peer's code is signed with, nil when it has none (ad hoc or unsigned, as a
+    /// cargo build is). For naming the peer to a person only: trust decisions use ``signed(team:identifier:)``.
+    public var signingTeam: String? {
+        var code: SecCode?
+        guard SecCodeCopyGuestWithAttributes(nil, [kSecGuestAttributeAudit: auditToken] as CFDictionary, [], &code)
+                == errSecSuccess, let code else { return nil }
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
+                == errSecSuccess, let info = info as? [String: Any] else { return nil }
+        let team = info[kSecCodeInfoTeamIdentifier as String] as? String
+        return team?.isEmpty == false ? team : nil
+    }
+
     /// Apple-anchored and signed by `team`, with exactly `identifier` when one is given.
     public func signed(team: String, identifier: String? = nil) -> Bool {
         let plain = { (text: String) in
