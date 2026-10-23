@@ -52,6 +52,11 @@ pub const TERMINAL_SURFACE_GAP: Duration = Duration::from_secs(10);
 /// At most this many terminal pushes a minute from this Mac.
 pub const TERMINAL_PER_MINUTE: usize = 10;
 
+/// A question with no tool use id this soon after the same questions were pushed on the
+/// same tab is that ask told again (Claude Code's PermissionRequest hook carries no
+/// `tool_use_id`).
+pub const QUESTION_REPEAT_WINDOW: Duration = Duration::from_secs(30);
+
 /// Turns daemon `notification` events into `terminal` pushes.
 #[derive(Debug, Default)]
 pub struct TerminalClassifier {
@@ -65,6 +70,8 @@ pub struct TerminalClassifier {
     /// Code fires two hooks for one AskUserQuestion, and the daemon posts each (bounded).
     asked: HashSet<String>,
     asked_order: VecDeque<String>,
+    /// Per surface: the last pushed question's text (all its prompts) and when.
+    last_question: HashMap<u64, (String, Instant)>,
 }
 
 const SEEN_LIMIT: usize = 512;
@@ -182,11 +189,26 @@ impl TerminalClassifier {
         if ask {
             // Named by its tool use: one push per question, which the phone matches an
             // answer to (a question without one is never answered from a notification).
-            let tool = event.pointer("/question/tool_use_id").and_then(Value::as_str).filter(|t| !t.is_empty());
+            let tool = event
+                .pointer("/question/tool_use_id")
+                .and_then(Value::as_str)
+                .filter(|t| t.chars().any(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-')));
             let event_id = match tool {
                 Some(tool) => crate::notify::event_id("q", &[tool]),
                 None => format!("n-{id}"),
             };
+            let prompts: String = questions.iter().map(|q| q.question.as_str()).collect::<Vec<_>>().join("\u{0}");
+            if tool.is_none()
+                && let Some(surface) = surface
+                && self.last_question.get(&surface).is_some_and(|(text, at)| {
+                    *text == prompts && now.saturating_duration_since(*at) < QUESTION_REPEAT_WINDOW
+                })
+            {
+                return None;
+            }
+            if let Some(surface) = surface {
+                self.last_question.insert(surface, (prompts, now));
+            }
             if tool.is_some() {
                 if !self.asked.insert(event_id.clone()) {
                     return None;
@@ -561,6 +583,32 @@ mod tests {
         // The next question (another tool use) is new.
         let next = c.handle_at(&ask(72, "toolu_B2"), &places(), t0 + Duration::from_secs(1)).unwrap();
         assert_eq!(next.event_id, "q-toolu_B2");
+    }
+
+    /// Live (Claude Code 2.1.309): the PermissionRequest hook of an AskUserQuestion carries
+    /// no `tool_use_id`, so its notification names no tool use. The same questions on the
+    /// same tab as the pushed one are that ask, not a new push.
+    #[test]
+    fn the_second_hook_without_a_tool_use_id_is_the_same_question() {
+        let mut c = TerminalClassifier::default();
+        let t0 = Instant::now();
+        let ask = |n: u64, tool: Option<&str>| {
+            let mut hook = event(n, Some(7), "agent");
+            hook["title"] = json!("Claude asked a question");
+            let mut q = json!({"harness":"claude","questions":[
+                {"question":"Which branch next?","multiSelect":false,"options":[{"label":"main"},{"label":"dev"}]}]});
+            if let Some(tool) = tool {
+                q["tool_use_id"] = json!(tool);
+            }
+            hook["question"] = q;
+            hook
+        };
+        assert_eq!(c.handle_at(&ask(1, Some("toolu_X")), &places(), t0).unwrap().event_id, "q-toolu_X");
+        assert!(c.handle_at(&ask(3, None), &places(), t0 + Duration::from_millis(300)).is_none());
+        // On another tab, or after the agent moved on (a while later), it is a new push.
+        let mut later = ask(4, None);
+        later["notification"] = json!(4);
+        assert!(c.handle_at(&later, &places(), t0 + QUESTION_REPEAT_WINDOW + Duration::from_secs(1)).is_some());
     }
 
     /// Claude Code reports its own "asks a question" program status (an OSC the terminal

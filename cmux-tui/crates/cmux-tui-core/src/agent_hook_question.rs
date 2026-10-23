@@ -109,6 +109,20 @@ pub fn agent_hook_live_question(native_event: &str, native: &Value) -> Option<St
     fit(out)
 }
 
+/// See `the_second_hook_keeps_the_first_hooks_tool_use_id`.
+pub(crate) fn carry_tool_use_id(question: &mut Value, previous: Option<&Value>) {
+    if question.get("tool_use_id").is_some() {
+        return;
+    }
+    let Some(previous) = previous else { return };
+    if previous.get("questions") != question.get("questions") {
+        return;
+    }
+    if let (Some(id), Some(object)) = (previous.get("tool_use_id"), question.as_object_mut()) {
+        object.insert("tool_use_id".into(), id.clone());
+    }
+}
+
 /// `question` as JSON text within `MAX_QUESTION_JSON_BYTES`: option descriptions go
 /// first, then the last questions; never a question cut mid-text.
 fn fit(mut question: Value) -> Option<String> {
@@ -149,6 +163,24 @@ pub(crate) fn kept_question(text: &str) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Claude Code fires PreToolUse (with `tool_use_id`) then PermissionRequest (without
+    /// it, seen live in 2.1.309) for one AskUserQuestion. The second keeps the first's
+    /// tool use id, so the phone matches an answer to that very question.
+    #[test]
+    fn the_second_hook_keeps_the_first_hooks_tool_use_id() {
+        let first = json!({"harness":"claude","tool_use_id":"toolu_A","questions":[{"question":"Which?","options":[]}]});
+        let mut second = json!({"harness":"claude","questions":[{"question":"Which?","options":[]}]});
+        carry_tool_use_id(&mut second, Some(&first));
+        assert_eq!(second["tool_use_id"], "toolu_A");
+        // Another question keeps none; one with its own id keeps its own.
+        let mut other = json!({"harness":"claude","questions":[{"question":"Other?","options":[]}]});
+        carry_tool_use_id(&mut other, Some(&first));
+        assert!(other.get("tool_use_id").is_none());
+        let mut own = json!({"harness":"claude","tool_use_id":"toolu_B","questions":[{"question":"Which?","options":[]}]});
+        carry_tool_use_id(&mut own, Some(&first));
+        assert_eq!(own["tool_use_id"], "toolu_B");
+    }
 
     fn claude(event: &str) -> Value {
         json!({
