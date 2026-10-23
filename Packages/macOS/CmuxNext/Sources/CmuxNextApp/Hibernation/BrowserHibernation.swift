@@ -89,6 +89,10 @@ final class BrowserHibernation {
     var agentPages: AgentPageHibernation? {
         didSet { agentPages?.update(setting: setting, pressure: pressure) }
     }
+    /// Hidden cmux pages in Chromium freeze on the same `browser.freezeHiddenTabs` (CmuxPageFreezing).
+    var cmuxPages: CmuxPageFreezing? {
+        didSet { cmuxPages?.update(setting: setting) }
+    }
     var restoredCount = 0
     /// Each pane's tab order and shown tab, from its `PaneController`.
     private var neighbors = NeighborTabs()
@@ -176,6 +180,7 @@ final class BrowserHibernation {
         guard setting != self.setting else { return }
         self.setting = setting
         agentPages?.update(setting: setting, pressure: pressure)
+        cmuxPages?.update(setting: setting)
         refreshNeighbors(replans: false)
         replan()
     }

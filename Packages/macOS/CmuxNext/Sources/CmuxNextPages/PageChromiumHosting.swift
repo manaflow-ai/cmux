@@ -26,6 +26,9 @@ public protocol PageChromiumHosting: AnyObject {
     /// - Returns: The live page.
     /// - Throws: When Chromium cannot start or the browser is not created.
     func makePage(_ page: PageDescriptor) async throws -> any PageChromiumPage
+    /// Freezes this host's started pages while they stay hidden (the app's hibernation, with its
+    /// grace); nil: a hidden page is never frozen. Read at each hide, wake and show.
+    var freezePolicy: (any PageFreezePolicy)? { get }
 }
 
 /// One Chromium page the page host shows. The page host drives it only through this protocol
@@ -64,6 +67,9 @@ public protocol PageChromiumPage: AnyObject {
     func setFocused(_ focused: Bool)
     /// Shows or hides and pauses the page.
     func setVisible(_ visible: Bool)
+    /// Freezes the page (its timers, tasks and rendering stop; it runs no script) or thaws it. The
+    /// request leaves before this returns, so a call made after a thaw runs on a live page.
+    func setFrozen(_ frozen: Bool)
     /// Makes the page see-through (true) or gives it its opaque page color back: where the document
     /// draws no background of its own, the view under the page shows, as under a WebKit page that
     /// draws no background.
