@@ -31,6 +31,16 @@ struct NewTabWidgetSettingsTests {
         #expect(snapshot.diagnostics.isEmpty, "\(snapshot.diagnostics)")
     }
 
+    /// A `false` saved before the headline was off by default is told apart from the default, so the
+    /// page keeps the composer where it sat for that user (no room for the headline).
+    @Test func aSavedFalseGreetingIsToldApartFromTheDefault() {
+        #expect(Self.parse(nil).newTabWidgets.greetingTurnedOff == false)
+        #expect(Self.parse(["chats": .bool(true)]).newTabWidgets.greetingTurnedOff == false)
+        #expect(Self.parse(["greeting": .bool(true)]).newTabWidgets.greetingTurnedOff == false)
+        #expect(Self.parse(["greeting": .bool(false)]).newTabWidgets.greetingTurnedOff == true)
+        #expect(Self.parse(["greeting": .string("off")]).newTabWidgets.greetingTurnedOff == false)
+    }
+
     @Test func aBadValueKeepsItsDefaultAndSaysWhy() {
         let snapshot = Self.parse(["chats": .string("on")])
         #expect(snapshot.newTabWidgets.ids == [])

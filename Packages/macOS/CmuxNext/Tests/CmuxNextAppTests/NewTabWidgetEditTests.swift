@@ -108,15 +108,16 @@ import Testing
     @Test func aDotTurnsTheQuickActionsOnAndOff() async throws {
         let (settings, directory) = try await Self.settings()
         defer { try? FileManager.default.removeItem(at: directory) }
-        #expect(settings.snapshot.newTabWidgets.ids == ["greeting"])
+        #expect(settings.snapshot.newTabWidgets.ids == [])
         try await settings.showNewTabWidget("actions")
         #expect(settings.fileRoot.value(at: ["tabs", "newTabWidgets", "actions"]) == .bool(true))
-        #expect(settings.snapshot.newTabWidgets.ids == ["greeting", "actions"])
+        #expect(settings.snapshot.newTabWidgets.ids == ["actions"])
         try await settings.removeNewTabWidget("actions")
         #expect(settings.fileRoot.value(at: ["tabs", "newTabWidgets", "actions"]) == nil, "off is the default, so the key leaves the file")
-        // The greeting is on by default: showing it after a ✕ takes the false out.
-        try await settings.removeNewTabWidget("greeting")
+        // The headline is off by default (Leo 2026-10-22): showing it writes true, a ✕ takes the key out.
         try await settings.showNewTabWidget("greeting")
+        #expect(settings.fileRoot.value(at: ["tabs", "newTabWidgets", "greeting"]) == .bool(true))
+        try await settings.removeNewTabWidget("greeting")
         #expect(settings.fileRoot.value(at: ["tabs", "newTabWidgets", "greeting"]) == nil)
         await #expect(throws: SettingNotInSchema.self) { try await settings.showNewTabWidget("order") }
     }

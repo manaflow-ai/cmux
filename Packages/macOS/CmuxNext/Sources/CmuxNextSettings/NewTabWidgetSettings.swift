@@ -9,6 +9,10 @@ public nonisolated struct NewTabWidgetSettings: Sendable, Equatable {
     /// default... maybe as toggle but as useful toggle"). The key keeps its old name, so a saved
     /// `true` from the time-of-day greeting turns the headline on.
     public var greeting = NewTabWidgetSettings.greetingDefault
+    /// true: cmux.json says `"greeting": false`, not the default. Before the headline was off by
+    /// default that turned the greeting off, and the composer sat at the page's top padding; the
+    /// page keeps it there for them (no room kept for the headline, newtab/screen.css).
+    public var greetingTurnedOff = false
     /// The Default template's card of this Mac and its recent projects.
     public var projects = NewTabWidgetSettings.projectsDefault
     /// The chats that need the user, New Terminal, New Browser Tab and New Chat.
@@ -33,7 +37,10 @@ public nonisolated struct NewTabWidgetSettings: Sendable, Equatable {
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Self {
         var settings = Self()
         guard var reader = ConfigFieldReader(root, at: ["tabs", "newTabWidgets"], diagnostics: &diagnostics) else { return settings }
-        if let value = reader.bool("greeting") { settings.greeting = value }
+        if let value = reader.bool("greeting") {
+            settings.greeting = value
+            settings.greetingTurnedOff = !value
+        }
         if let value = reader.bool("projects") { settings.projects = value }
         if let value = reader.bool("actions") { settings.actions = value }
         if let value = reader.bool("chats") { settings.chats = value }

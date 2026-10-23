@@ -185,6 +185,9 @@ type Props = NewTabScreenActions & {
   /// The page's widgets (`tabs.newTabWidgets.*`, pageWidgets.ts): on Minimal, without them the page
   /// is the composer alone. Unset shows the template's own (shownPageWidgets).
   pageWidgets?: PageWidgets;
+  /// true: `tabs.newTabWidgets.greeting` is set to false (not the default): with the headline off,
+  /// Minimal keeps no room for it, so the composer sits where it sat with the greeting off.
+  headlineOff?: boolean;
   /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the recent chats show where
   /// the template would list All chats.
   allChats?: boolean;
@@ -1279,8 +1282,10 @@ export function NewTabScreen(props: Props) {
           <>
             {/* The headline over the composer (a widget, off by default). On Minimal it sits in a
                 slot the old greeting's height, on or off, so the composer keeps the place it had
-                under the greeting (screen.css .nt-headline-slot). */}
-            {minimal ? <div className="nt-headline-slot">{headline}</div> : headline}
+                under the greeting (screen.css .nt-headline-slot). A greeting set to false in
+                cmux.json (`headlineOff`) keeps no slot while the headline is off: the composer
+                stays where it sat for those who had turned the greeting off. */}
+            {minimal && (headline || !props.headlineOff) ? <div className="nt-headline-slot">{headline}</div> : headline}
             {composerCard}
             {props.notice}
             {environmentPanel}
