@@ -56,7 +56,13 @@ import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
-import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
+import {
+  injectedNewTabContext,
+  useEarlyNewTabContext,
+  useNewTabAdoption,
+  useNewTabPlaces,
+  useNewTabWeather,
+} from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { rememberRecentFolders } from "./newtab/recentProject";
@@ -5156,6 +5162,7 @@ function AcpmuxPane() {
   }, []);
   const newTabGeneration = useNewTabAdoption(adoptNewTab);
   useNewTabPlaces(setNewTab);
+  useNewTabWeather(setNewTab);
   const earlyNewTab = useEarlyNewTabContext(callNative, setNewTab);
   // Agent chats live in the window's one sidebar (Projects and Recents); the pane opens what it picks.
   const selectSession = useCallback((sessionId: string) => {
@@ -8449,6 +8456,7 @@ function AcpmuxPane() {
               pageWidgets={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets)}
               {...(newTab.headlineOff ? { headlineOff: true } : {})}
               {...(newTab.allChats === false ? { allChats: false } : {})}
+              {...(newTab.weather ? { weather: newTab.weather } : {})}
               onEditWidgets={(edit) =>
                 editNewTabWidgets(edit, {
                   callNative,
