@@ -87,6 +87,9 @@ public final class AgentPageProvider: PageProvider {
     /// returns false so the transport closes and the page performs a full resync; no event is
     /// silently evicted.
     private var deliveryOverflowed = false
+    /// True when the provider's own gap queue, rather than a subscriber handoff, overflowed. A
+    /// replacement socket may discard only this queue after its explicit resync signal.
+    private var bufferedQueueOverflowed = false
     /// Subscribers whose replay queue reached the bound; a socket reconnect resets that stalled
     /// handoff and reapplies current replay state while keeping the subscription alive.
     private var overflowedPendingListeners: Set<UInt64> = []
@@ -138,9 +141,11 @@ public final class AgentPageProvider: PageProvider {
     public func transportDidOpen(_ connection: Int) {
         guard transportConnection != connection else { return }
         transportConnection = connection
-        // Preserve the bounded gap queue across socket reconnects: it also contains commands and
-        // chrome updates that the transport cannot recreate. Pending replay overflow is reset
-        // below, while a full gap queue remains explicit backpressure until the page resubscribes.
+        // Preserve partial gap queues across socket reconnects: they also contain commands and
+        // chrome updates that transport cannot recreate. A full gap queue was already explicit
+        // backpressure, so the replacement socket's authoritative resync may discard that queue.
+        if bufferedQueueOverflowed { bufferedEvents.removeAll(keepingCapacity: true) }
+        bufferedQueueOverflowed = false
         for id in overflowedPendingListeners {
             pendingEvents.removeValue(forKey: id)
             guard let listener = listeners[id] else { continue }
@@ -157,6 +162,7 @@ public final class AgentPageProvider: PageProvider {
               case .string(let kind)? = data["kind"] else { return }
         let value = data["value"] ?? .null
         guard bufferedEvents.count < Self.maximumBufferedEvents else {
+            bufferedQueueOverflowed = true
             deliveryOverflowed = true
             return
         }
@@ -169,6 +175,7 @@ public final class AgentPageProvider: PageProvider {
         guard !deliveryOverflowed else { return false }
         guard !listeners.isEmpty else {
             guard bufferedEvents.count < Self.maximumBufferedEvents else {
+                bufferedQueueOverflowed = true
                 deliveryOverflowed = true
                 return false
             }
@@ -271,6 +278,7 @@ public final class AgentPageProvider: PageProvider {
         guard !events.isEmpty else { return }
         let available = Self.maximumBufferedEvents - bufferedEvents.count
         guard events.count <= available else {
+            bufferedQueueOverflowed = true
             deliveryOverflowed = true
             return
         }
