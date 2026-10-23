@@ -17,8 +17,9 @@ rise only when it is also a rise over that merge base, and keeps a rule module's
 the module refuses it over both ranges (matched by the refusal's key, not its text), so what others
 landed never refuses a push.
 
-When a count drops, it prints `lower plans/cmux-next/arch-ratchet.json: scripts/cmux-next/arch-ratchet.py
---update` and passes. Escape for one push (say it in your report):
+When a count drops, it passes, and prints `lower plans/cmux-next/arch-ratchet.json:
+scripts/cmux-next/arch-ratchet.py --update` with the rows the pushed json does not yet lower by the drop
+(none when the push carries the `--update`). Escape for one push (say it in your report):
 ARCH_RATCHET_SKIP_REASON="<row>[,<row>]: <why>". A dated entry the push adds to the json's `exceptions`
 ({"date": "YYYY-MM-DD", "row": "<row>", "allow": <n>, "why": "..."}) lets that push raise the row by n.
 An internal error prints a warning and lets the push through (fail open). Never runs under GitHub
@@ -197,7 +198,7 @@ def count_rule(changes: Changes, deltas: list) -> tuple[list[tuple[str, str]], l
     counts = changes.counts
     allow, notes = added_exceptions(changes)
     refusals: list[tuple[str, str]] = []
-    dropped = False
+    dropped: dict[str, int] = {}
     for row in counts.ROWS:
         # A merge of upstream counts only what rises over both ends (see ranges_to_count).
         delta = min(deltas, key=lambda d: d.total(row.id))
@@ -210,7 +211,7 @@ def count_rule(changes: Changes, deltas: list) -> tuple[list[tuple[str, str]], l
                          + ("; the app-size rule owns that refusal" if row.id == "app_lines" else ""))
             continue
         if total < 0:
-            dropped = True
+            dropped[row.id] = total
             notes.append(f"arch-ratchet: {row.id} {total:+d} ({where})")
             continue
         if total <= allow.get(row.id, 0):
@@ -222,9 +223,36 @@ def count_rule(changes: Changes, deltas: list) -> tuple[list[tuple[str, str]], l
         lines.append(f"  Right pattern: {FIX.get(row.id, 'see arch_counts.py')}.")
         lines.append(f'  Escape for this push only: {SKIP_ENV}="{row.id}: <why>" (say it in your report).')
         refusals.append((row.id, "\n".join(lines)))
-    if dropped:
-        notes.append(f"arch-ratchet: {UPDATE_HINT}")
+    stale = stale_rows(changes, dropped)
+    if stale:
+        notes.append(f"arch-ratchet: {UPDATE_HINT} ({', '.join(stale)})")
     return refusals, notes
+
+
+def stale_rows(changes: Changes, dropped: dict[str, int]) -> list[str]:
+    """The DROPPED rows whose recorded total the push did not lower by the drop.
+
+    The pushed json is current for a row when its total is at most the base json's total plus the
+    drop (an `--update` in the push wrote it); a push that leaves the json alone keeps every drop stale.
+    """
+    if not dropped:
+        return []
+    counts = changes.counts
+    if not any(path == counts.RATCHET_JSON for _, path in changes.files):
+        return list(dropped)
+
+    def totals(rev: str) -> dict:
+        data = changes.record(rev) or {}
+        found = data.get("totals") if data.get("method_version") == counts.METHOD_VERSION else None
+        return found if isinstance(found, dict) else {}
+
+    old, new = totals(changes.base), totals(changes.head)
+    stale = []
+    for row, total in dropped.items():
+        was, now = old.get(row), new.get(row)
+        if not isinstance(was, int) or not isinstance(now, int) or now > was + total:
+            stale.append(row)
+    return stale
 
 
 def keyed_refusal(item, rule_id: str) -> tuple[str, str, tuple]:

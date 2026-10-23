@@ -363,6 +363,31 @@ class RatchetTests(Repo):
         self.assertFalse(refused, out)
         self.assertIn(ratchet.UPDATE_HINT, out)
 
+    def record_singletons(self, total, sha="0" * 40):
+        self.write(counts.RATCHET_JSON, json.dumps({"method_version": counts.METHOD_VERSION, "measured_sha": sha,
+                                                    "totals": {"stateful_singletons": total}, "exceptions": []}))
+
+    def test_a_drop_the_pushed_json_already_records_prints_no_hint(self):
+        self.record_singletons(1)
+        base = self.add_singleton()
+        self.remove(f"{SRC}/CmuxNextDomain/Store+Shared.swift")
+        self.record_singletons(0)
+        self.commit("removes it and lowers the record")
+        refusals, notes = self.check(base=base)
+        self.assertEqual(refusals, [])
+        self.assertTrue(any(n.startswith("arch-ratchet: stateful_singletons -1 ") for n in notes), notes)
+        self.assertFalse(any(ratchet.UPDATE_HINT in n for n in notes), notes)
+
+    def test_a_drop_the_pushed_json_does_not_lower_still_prints_the_hint(self):
+        self.record_singletons(1)
+        base = self.add_singleton()
+        self.remove(f"{SRC}/CmuxNextDomain/Store+Shared.swift")
+        self.record_singletons(1, sha="1" * 40)
+        self.commit("removes it and touches only measured_sha")
+        refusals, notes = self.check(base=base)
+        self.assertEqual(refusals, [])
+        self.assertIn(f"arch-ratchet: {ratchet.UPDATE_HINT} (stateful_singletons)", notes)
+
     def test_app_lines_are_report_only(self):
         self.write(f"{SRC}/CmuxNextApp/Big.swift", "let a = 1\n" * 50)
         self.commit("app lines")
