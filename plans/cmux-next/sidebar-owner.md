@@ -141,6 +141,11 @@ Delete what the rule replaces (`SidebarGroupReorder`'s shift and hysteresis, the
 `updateDocDrag`, `showGroupReorder`'s refused-keeps-gap, `SidebarNestedDropIndicatorView`). Do not keep them
 as a fallback.
 
+Status (Oct 23, owner): implemented as `SidebarGroupDragPlan` (pure: blocks, slot, cap, layout) and
+`SidebarListView+GroupDrag` (lift freezes the base, a move asks for the slot, drop sends the slot's move); the cut
+card's fade is `SidebarLiftCap`. A drop in the slot it came from sends nothing. Captures (fleet-built app,
+`debug.sidebar_group_drag` on the `tallGroup` fixture): ~/fun/cmux-galleries/group-drag-rewrite/{before,after}-strip.png.
+
 Tests: the slot function (monotonic in y, no state, both edges of every block), the capped card height, the
 layout function (rows above the slot unchanged, rows below shifted by the capped gap), and a real-app drag on
 the fleet driven through `updateDrag` with frames recorded at each step (no frame where a row moves by more than

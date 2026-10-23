@@ -44,6 +44,7 @@ extension SidebarListViewComponents {
         if let drag, !drag.isValid(in: model) { cancelDrag() }
         // The rows changed under a held drag (a batch, an adopt, a close): its hit geometry is rebuilt at the next move.
         if let drag, drag.geometryRevision != model.sectionsRevision { drag.docGeometry = nil }
+        if let drag, drag.group.map({ $0.revision != model.sectionsRevision }) == true { rebaseGroupDrag(drag) }
         let settled = settleDrop()
         // A drag's look hands over to the model on the same spring (DESIGN "Drag feel" 6).
         // Also a non-animated reload (provisional rows, a space switch) under a held drag or a settle: rows never snap then.
@@ -93,7 +94,7 @@ extension SidebarListViewComponents {
         case let .item(item):
             o.excludedItem = item
         }
-        if includeGap, drag.pinTarget == nil, case let .position(position) = drag.target {
+        if includeGap, drag.pinTarget == nil, drag.group == nil, case let .position(position) = drag.target {
             o.gap = position
             o.gapHeight = drag.gapHeight
         }
