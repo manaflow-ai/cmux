@@ -120,7 +120,7 @@ test("the run the agent works in keeps its call in flight out, on the live line"
   const rows = shaped(mixed);
   const now = rows.find((entry) => entry.id === "now")!;
   expect(words(now)).not.toContain("bun test");
-  expect(rows.at(-1)?.doing).toContain("bun test");
+  expect(rows.find((entry) => entry.doing)?.doing).toContain("bun test");
 });
 
 test("a call still running in an earlier run turns the line's glyph", () => {

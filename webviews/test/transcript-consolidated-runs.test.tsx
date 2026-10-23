@@ -105,7 +105,8 @@ test("a coordination card stays in sight; the calls around it still fold", () =>
   expect(stretches.map((stretch) => stretch.fold)).toEqual([true, false, true]);
   const html = drawn(run(items));
   expect(html).toContain("Read a file, ran a command");
-  expect(html).toContain("Read 2 files, ran a command");
+  // Named in the order the run did them: the command came before the reads.
+  expect(html).toContain("Ran a command, read 2 files");
 });
 
 test("a failed call is counted on the run's line", () => {
