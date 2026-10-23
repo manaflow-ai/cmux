@@ -77,7 +77,9 @@ def main():
     report = {"runs": [], "summary": []}
     app = BenchApp(opts.app, out=opts.out, window=(40, 40, 1600, 1000))
     try:
-        app.launch(timeout=180, settle=3)
+        # No settle sleep (it hid launch work behind a fixed 3 s). The first `made` open waits in the app until the
+        # warm-up made its panel; launch work still running then shows in round 0, which is reported on its own.
+        app.launch(timeout=180)
         for session in opts.sessions.split(","):
             if session == "stress":
                 built = load_stress().Stress(lambda m, p=None, timeout=60: app.rpc(m, p, timeout)).build()
