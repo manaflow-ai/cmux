@@ -25,6 +25,8 @@ public final class GlassBackdropFeed {
     private let evaluate: @MainActor (String) -> Void
     private let images: GlassBackdropImages
     private let mode: @MainActor () -> GlassLensMode
+    /// The scheduler the next frame ticks on, for the host (nil once it is gone).
+    private let frames: @MainActor (NSView?) -> FrameScheduler
     /// What the page has; nil for a document that got nothing yet.
     private(set) var sent: GlassBackdropPayload?
     private weak var source: WindowMaterialView?
@@ -32,7 +34,7 @@ public final class GlassBackdropFeed {
     private var watched: [ObjectIdentifier] = []
     private var observers: [MainActorObservation] = []
     /// The one-shot frame that runs the next ``update()``; made on first use.
-    private var nextFrame: FrameClient?
+    private(set) var nextFrame: FrameClient?
 
     /// - Parameters:
     ///   - host: The view the page's viewport fills.
@@ -40,12 +42,25 @@ public final class GlassBackdropFeed {
     ///   - images: Where stills are encoded and shared.
     ///   - mode: The glass mode pages draw now.
     ///   - evaluate: Runs a script in the page's main frame.
-    public init(host: NSView, zoom: @escaping @MainActor () -> Double, images: GlassBackdropImages = .shared,
-                mode: @escaping @MainActor () -> GlassLensMode = { .current }, evaluate: @escaping @MainActor (String) -> Void) {
+    public convenience init(host: NSView, zoom: @escaping @MainActor () -> Double, images: GlassBackdropImages = .shared,
+                            mode: @escaping @MainActor () -> GlassLensMode = { .current },
+                            evaluate: @escaping @MainActor (String) -> Void) {
+        self.init(host: host, zoom: zoom, images: images, mode: mode,
+                  frames: { $0.map(FrameScheduler.forView) ?? .app }, evaluate: evaluate)
+    }
+
+    /// The feed with its frame scheduler given: `frames` returns the scheduler the next frame
+    /// ticks on for the host (nil once the host is gone). The public init passes the host
+    /// window's scheduler (``FrameScheduler/app`` while it has none); tests pass one whose link
+    /// ticks only when the test says so.
+    init(host: NSView, zoom: @escaping @MainActor () -> Double, images: GlassBackdropImages,
+         mode: @escaping @MainActor () -> GlassLensMode, frames: @escaping @MainActor (NSView?) -> FrameScheduler,
+         evaluate: @escaping @MainActor (String) -> Void) {
         self.host = host
         self.zoom = zoom
         self.images = images
         self.mode = mode
+        self.frames = frames
         self.evaluate = evaluate
     }
 
@@ -66,7 +81,7 @@ public final class GlassBackdropFeed {
     /// Pushes what changed on the next display frame.
     func setNeedsUpdate() {
         let client = nextFrame ?? FrameClient(owner: "glass.backdrop", isAnimation: false,
-                                              scheduler: { [weak self] in self?.host.map(FrameScheduler.forView) ?? .app }) { [weak self] _ in
+                                              scheduler: { [weak self] in self.map { $0.frames($0.host) } ?? .app }) { [weak self] _ in
             self?.update()
             return false
         }
