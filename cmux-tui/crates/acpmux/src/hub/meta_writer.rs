@@ -12,7 +12,7 @@
 //! used to land in either order). The log stays the source of truth for what a crash cuts
 //! off: a record behind its log is caught up from the log's tail at the next start
 //! (`Hub::catch_up`), as it always was for a hard stop. `flush` waits for every queued save
-//! (shutdown); `forget` drops a session's queued save and waits for one being written, so a
+//! (shutdown); `Forget::forget` drops a session's queued save and waits for one being written, so a
 //! purge's delete always comes after the last write of the purged session.
 
 use crate::store::{SessionMeta, Store};
@@ -106,13 +106,9 @@ impl MetaWriter {
         }
     }
 
-    /// Drops session `id`'s queued save and waits for a write of it in progress: called
-    /// before a purge deletes the session's files.
-    pub(crate) fn forget(&self, id: &str) {
-        self.forget_handle().forget(id);
-    }
-
-    /// A handle that can [`forget`](Self::forget) from a blocking thread.
+    /// A handle that drops session `id`'s queued save and waits for a write of it in progress
+    /// ([`Forget::forget`]), from the blocking thread that then deletes the purged session's
+    /// files.
     pub(crate) fn forget_handle(&self) -> Forget {
         Forget(self.shared.clone())
     }
@@ -137,7 +133,7 @@ impl Drop for MetaWriter {
     }
 }
 
-/// [`MetaWriter::forget`] for a blocking thread (a purge's delete runs off the executor).
+/// Drops a session's queued save, from a blocking thread (a purge's delete runs off the executor).
 pub(crate) struct Forget(Arc<Shared>);
 
 impl Forget {
@@ -283,7 +279,7 @@ mod tests {
         let v = writer.next_version();
         writer.queue(&*store, meta("s1", "late"), v, purged.clone());
         purged.store(true, Ordering::SeqCst);
-        writer.forget("s1");
+        writer.forget_handle().forget("s1");
         store.delete("s1").unwrap();
         writer.flush();
         assert!(store.load("s1").unwrap().is_none());

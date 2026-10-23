@@ -265,9 +265,12 @@ impl Hub {
             Err(done) => return done,
         };
         // Debug builds only: a test stops the daemon between a queued prompt's `dequeued` and
-        // its turn (`durable_agents.rs`). Release builds have no seam.
+        // its turn (`durable_agents.rs`), once that record is written: the log writer
+        // (`store/log_writer.rs`) is drained first, so the stop lands after the record, as the
+        // test means. Release builds have no seam.
         #[cfg(debug_assertions)]
         if waiting && std::env::var_os("ACPMUX_TEST_EXIT_AFTER_DEQUEUE").is_some() {
+            let _ = self.store.flush();
             // crash-allow: debug-build test seam; the test asks for this stop, like a crash
             std::process::exit(0);
         }
