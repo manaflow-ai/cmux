@@ -211,7 +211,7 @@ final class HangReportsController {
     private func ask(asks: SidebarAsks, settings: SettingsController) async {
         let decision = Self.decision(defaults: defaults, settingOn: settings.snapshot.hangReports)
         guard decision == .confirm || decision == .invite else { return }
-        let yes = await asks.ask(HangReportsStrings.askTitle, detail: HangReportsStrings.askDetail, symbol: "gauge.with.dots.needle.33percent",
+        let yes = await asks.ask(HangReportsStrings.askTitle, detail: HangReportsStrings.privacySummary, symbol: "gauge.with.dots.needle.33percent",
                                  yes: HangReportsStrings.askYes, no: HangReportsStrings.askNo)
         defaults.set(true, forKey: Self.askedKey)
         guard yes else { return }
