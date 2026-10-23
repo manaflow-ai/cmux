@@ -4,7 +4,8 @@
 usage:
   python3 -I scripts/cmux-next/shell-integration-bench.py --app "/path/cmux NIGHTLY.app"
   python3 -I scripts/cmux-next/shell-integration-bench.py            # this checkout (needs ghostty-next)
-  options: --shells zsh,bash,fish  --bash /opt/homebrew/bin/bash  --require zsh,bash
+  options: --shells zsh,bash,fish  --bash /opt/homebrew/bin/bash  --require zsh,bash (default: the
+           requested zsh and bash; --require= to allow skipping)
            --layouts app,daemon  --reps 9  --cycles 20  --max-overhead-ms 15  --json out.json
 
 What it runs. Every shell starts the way a cmux-next terminal starts it: a login shell on a pty
@@ -16,6 +17,11 @@ CMUX_TUI_AGENT_SHIMS): Ghostty's integration from ghostty-next under the app's
 Ghostty files with cmux-tui's agent shims appended, as shell_integration.rs writes them). Each
 shell has an empty HOME whose only startup file sets a plain prompt, so the integration is the only
 code that differs from the control: the same shell, same flags, without the integration env.
+bash also runs with two more HOMEs whose .bashrc sets PROMPT_COMMAND the way prompt tools do, as a
+string (`PROMPT_COMMAND='history -a'`) and as an array (`PROMPT_COMMAND=("history -a")`): those are
+the branches where Ghostty's and cmux's hooks read PROMPT_COMMAND's type, and where the agent-shim
+prompt hook must still run. After the counted cycles each integrated bash run moves PATH's front
+(`PATH=/bin:$PATH`) and checks the next command sees the agent shim directory first again.
 
 What it counts. Each run takes three PID probes (a forked child that exits at once): before the
 spawn, at the first prompt, and after `--cycles` prompt cycles. A cycle types `true` one key at a
@@ -23,19 +29,23 @@ time (each key waits for its echo), presses Return and waits for the next prompt
 preexec, precmd and the prompt all fall in the window. PIDs are handed out in sequence (macOS and
 Linux), so the PID gap is the number of processes forked in the window: by the shell, plus any
 other process on the host. The minimum over `--reps` runs drops that noise. Integration cost =
-integrated minus control:
+min(integrated) minus min(control):
   startup forks   forks from the spawn to the first prompt
   forks/cycle     (cycle-window forks) / cycles; a cycle with one fork shows as >= 1.0
   first prompt    median time from the spawn to the first prompt, and its overhead over control
 
 Pass (exit 0): for every shell that ran, startup forks <= 0, forks/cycle < budget + 0.5, the
-first-prompt overhead <= --max-overhead-ms, and each integrated run wrote its prompt marks
-(OSC 133;C per command; the OSC 2 title `true` for zsh and bash) with no shell error. Budgets are 0
+first-prompt overhead <= --max-overhead-ms, each integrated run wrote its prompt marks (OSC 133;C
+per command; the OSC 2 title `true` for zsh and bash) with no shell error, and every integrated
+bash run put the agent shim directory back in front. Budgets are 0
 except bash 4.4-5.2, where Ghostty runs its preexec hook from PS0 in a command substitution (the
 only pre-command hook bash has before 5.3, 2 forks per command). Exit 1 on a failure, 2 when no
-shell could run or a `--require`d shell is missing. Apple's /bin/bash 3.2 is skipped: Ghostty does
-not integrate it. A host with busy background spawns can only make the minimum larger, never
-smaller, so noise cannot hide a fork; rerun on an idle host if a result is noisy.
+shell could run or a `--require`d shell is missing (zsh and bash are required by default, so a host
+with only Apple's /bin/bash 3.2, which Ghostty does not integrate, fails instead of skipping bash).
+Noise: host spawns only make a count larger. An inflated integrated count shows a fork that is not
+there (rerun). An inflated control minimum would understate the integration's forks, so a result
+also fails when the control minimum is reached in fewer than max(2, reps/3) reps: a baseline that
+only one rep hit is not the shell's own count. Rerun on an idle host when that happens.
 """
 
 from __future__ import annotations
@@ -105,6 +115,7 @@ class Run:
     cycle_forks: int
     first_prompt_ms: float
     output: bytes = field(repr=False, default=b"")
+    shims_dir: str = ""
 
 
 def probe_pid() -> int:
@@ -187,7 +198,11 @@ class Session:
         os.close(self.fd)
 
 
-def run_once(shell: Shell, argv: list[str], env: dict[str, str], cycles: int, timeout: float) -> Run:
+SHIM_PROBE = b"@@F@@"
+
+
+def run_once(shell: Shell, argv: list[str], env: dict[str, str], cycles: int, timeout: float,
+             check_shims: bool = False) -> Run:
     before = probe_pid()
     start = time.perf_counter()
     session = Session(shell.path, argv, env, timeout)
@@ -200,6 +215,14 @@ def run_once(shell: Shell, argv: list[str], env: dict[str, str], cycles: int, ti
             session.cycle()
         session.barrier()
         after = probe_pid()
+        if check_shims:
+            # Outside the counted window. The agent shim hook runs at each prompt
+            # (bash), so the command after the one that moves PATH's front sees
+            # the shim directory first again.
+            for line in (b"PATH=/bin:$PATH", b'echo "' + SHIM_PROBE + b'${PATH%%:*}' + SHIM_PROBE + b'"'):
+                seen = session.prompts()
+                os.write(session.fd, line + b"\r")
+                session.wait_for(lambda b, seen=seen: b.count(PROMPT) > seen, "the prompt after a shim check")
     finally:
         session.close()
     if not before < at_prompt < after:
@@ -208,14 +231,21 @@ def run_once(shell: Shell, argv: list[str], env: dict[str, str], cycles: int, ti
     return Run(at_prompt - before - 2, after - at_prompt - 1, first_prompt_ms, session.buf)
 
 
-def write_home(home: Path) -> None:
-    """A HOME whose startup files only set a prompt the bench can find."""
+# The startup PROMPT_COMMAND of each bash HOME: none, a string, an array.
+BASH_HOMES = {"plain": "", "pc-string": "PROMPT_COMMAND='history -a'\n",
+              "pc-array": "PROMPT_COMMAND=(history\\ -a)\n"}
+
+
+def write_home(home: Path, bash_extra: str = "") -> None:
+    """A HOME whose startup files only set a prompt the bench can find (and, for
+    bash, `bash_extra`)."""
     home.mkdir(parents=True, exist_ok=True)
     prompt = PROMPT.decode()
     # An existing .zshrc also keeps zsh-newuser-install from asking questions.
     (home / ".zshrc").write_text(f"PS1='{prompt}'\nSAVEHIST=0\n")
-    (home / ".bash_profile").write_text(f"PS1='{prompt}'\n")
-    (home / ".bashrc").write_text(f"PS1='{prompt}'\n")
+    # A login bash reads .bash_profile; the common one sources .bashrc.
+    (home / ".bash_profile").write_text('[ -r "$HOME/.bashrc" ] && . "$HOME/.bashrc"\n')
+    (home / ".bashrc").write_text(f"PS1='{prompt}'\n{bash_extra}")
     fish = home / ".config/fish"
     fish.mkdir(parents=True, exist_ok=True)
     # fish starts its man-page completion generator in the background until this exists.
@@ -363,10 +393,33 @@ def check_output(shell: Shell, run: Run, cycles: int) -> list[str]:
         problems.append(f"{marks} OSC 133;C marks for {cycles} commands (preexec did not run)")
     if shell.name in ("zsh", "bash") and b"\x1b]2;true\x07" not in run.output:
         problems.append("no OSC 2 title for the command (preexec title did not run)")
+    if shell.name == "bash":
+        front = shim_check_front(run)
+        if front is None:
+            problems.append("no shim check output")
+        elif front != run.shims_dir:
+            problems.append(f"after PATH=/bin:$PATH the next command saw {front!r} first, not the agent "
+                            "shim directory (the agent-shim prompt hook did not run)")
     return problems
 
 
-def measure(shell: Shell, layout: Layout, home: Path, shims: Path, args) -> dict:
+def shim_check_front(run: Run) -> str | None:
+    """The PATH front the shim check printed (the expanded echo, not the typed line)."""
+    match = re.search(re.escape(SHIM_PROBE) + rb"(/[^@\r\n]*)" + re.escape(SHIM_PROBE), run.output)
+    return match.group(1).decode() if match else None
+
+
+def stable_min(values: list[int], what: str, problems: list[str]) -> int:
+    """The minimum, with a problem when too few reps reach it to call it the baseline."""
+    low = min(values)
+    hits = values.count(low)
+    if hits < min(len(values), max(2, len(values) // 3)):
+        problems.append(f"control {what} baseline unstable ({low} in {hits} of {len(values)} reps): host "
+                        "noise may hide integration forks; rerun on an idle host")
+    return low
+
+
+def measure(shell: Shell, layout: Layout, home: Path, home_name: str, shims: Path, args) -> dict:
     control_env = base_env(home, shell)
     integrated = integrated_env(control_env, shell, layout, shims)
     integrated_argv = shell.argv + (["--posix"] if shell.name == "bash" else [])
@@ -379,7 +432,9 @@ def measure(shell: Shell, layout: Layout, home: Path, shims: Path, args) -> dict
         for variant, argv, env in order:
             for attempt in range(3):
                 try:
-                    run = run_once(shell, argv, env, args.cycles, args.timeout)
+                    run = run_once(shell, argv, env, args.cycles, args.timeout,
+                                   check_shims=variant == "integrated" and shell.name == "bash")
+                    run.shims_dir = str(shims)
                     break
                 except PidWrapped:
                     if attempt == 2:
@@ -389,8 +444,10 @@ def measure(shell: Shell, layout: Layout, home: Path, shims: Path, args) -> dict
             if rep >= args.warmup:
                 runs[variant].append(run)
     control, integ = runs["control"], runs["integrated"]
-    startup = min(r.startup_forks for r in integ) - min(r.startup_forks for r in control)
-    cycle_total = min(r.cycle_forks for r in integ) - min(r.cycle_forks for r in control)
+    control_startup = stable_min([r.startup_forks for r in control], "startup", problems)
+    control_cycle = stable_min([r.cycle_forks for r in control], "cycle", problems)
+    startup = min(r.startup_forks for r in integ) - control_startup
+    cycle_total = min(r.cycle_forks for r in integ) - control_cycle
     per_cycle = cycle_total / args.cycles
     first_control = statistics.median(r.first_prompt_ms for r in control)
     first_integrated = statistics.median(r.first_prompt_ms for r in integ)
@@ -404,9 +461,11 @@ def measure(shell: Shell, layout: Layout, home: Path, shims: Path, args) -> dict
                         f"(budget {args.max_overhead_ms:g} ms)")
     return {
         "shell": shell.name, "path": shell.path, "version": shell.version, "layout": layout.name,
-        "startup_forks": startup, "forks_per_cycle": round(per_cycle, 2),
+        "home": home_name, "startup_forks": startup, "forks_per_cycle": round(per_cycle, 2),
         "cycle_budget": shell.cycle_budget,
-        "control_startup_forks_min": min(r.startup_forks for r in control),
+        "control_startup_forks_min": control_startup,
+        "integrated_startup_forks_min": min(r.startup_forks for r in integ),
+        "control_cycle_forks_min": control_cycle,
         "first_prompt_ms": {"control": round(first_control, 1), "integrated": round(first_integrated, 1),
                             "overhead": round(overhead, 1),
                             "integrated_max": round(max(r.first_prompt_ms for r in integ), 1)},
@@ -420,7 +479,8 @@ def main() -> int:
     parser.add_argument("--ghostty-integration", type=Path,
                         help="Ghostty's shell-integration dir (default: ghostty-next/src/shell-integration)")
     parser.add_argument("--shells", default="zsh,bash,fish")
-    parser.add_argument("--require", default="", help="shells that must run, e.g. zsh,bash")
+    parser.add_argument("--require", default=None,
+                        help="shells that must run (default: zsh and bash when requested; --require= for none)")
     parser.add_argument("--bash", help="the bash to run (default: Homebrew's, else PATH's)")
     parser.add_argument("--layouts", default="app,daemon")
     parser.add_argument("--reps", type=int, default=9)
@@ -476,42 +536,49 @@ def main() -> int:
         shells, skipped = find_shells(names, args.bash)
         for name, why in skipped.items():
             print(f"SKIP {name}: {why}")
-        missing = [n for n in args.require.split(",") if n and n in skipped]
+        required = ([n for n in names if n in ("zsh", "bash")] if args.require is None
+                    else [n for n in args.require.split(",") if n])
+        missing = [n for n in required if n in skipped]
         if not shells:
             print("FAIL: no shell could run", file=sys.stderr)
+            return 2
+        if missing:
+            # Before measuring: a host without a bash Ghostty integrates cannot pass.
+            print(f"FAIL: required shell(s) did not run: {', '.join(missing)} "
+                  "(install one or pass --require= to allow it)", file=sys.stderr)
             return 2
 
         results = []
         for shell in shells:
-            home = tmp / f"home-{shell.name}"
-            write_home(home)
-            for layout in layouts:
-                try:
-                    results.append(measure(shell, layout, home, shims, args))
-                except BenchError as error:
-                    results.append({"shell": shell.name, "path": shell.path, "version": shell.version,
-                                    "layout": layout.name, "pass": False, "problems": [str(error)]})
+            homes = BASH_HOMES if shell.name == "bash" else {"plain": ""}
+            for home_name, bash_extra in homes.items():
+                home = tmp / f"home-{shell.name}-{home_name}"
+                write_home(home, bash_extra)
+                for layout in layouts:
+                    try:
+                        results.append(measure(shell, layout, home, home_name, shims, args))
+                    except BenchError as error:
+                        results.append({"shell": shell.name, "path": shell.path, "version": shell.version,
+                                        "layout": layout.name, "home": home_name, "pass": False,
+                                        "problems": [str(error)]})
 
         print(f"\nhost: {os.uname().nodename} {sys.platform} {os.uname().release}; "
               f"reps {args.reps} (min forks, median time), cycles {args.cycles}")
-        print(f"{'shell':<16} {'layout':<7} {'startup forks':>13} {'forks/cycle':>11} "
+        print(f"{'shell':<16} {'layout':<7} {'home':<9} {'startup forks':>13} {'forks/cycle':>11} "
               f"{'first prompt ms (ctrl/int/+)':>30}  result")
         for r in results:
             label = f"{r['shell']} {r['version']}"
             if "first_prompt_ms" in r:
                 fp = r["first_prompt_ms"]
                 times = f"{fp['control']:.1f} / {fp['integrated']:.1f} / {fp['overhead']:+.1f}"
-                print(f"{label:<16} {r['layout']:<7} {r['startup_forks']:>13} {r['forks_per_cycle']:>11.2f} "
+                print(f"{label:<16} {r['layout']:<7} {r['home']:<9} {r['startup_forks']:>13} {r['forks_per_cycle']:>11.2f} "
                       f"{times:>30}  {'PASS' if r['pass'] else 'FAIL'}")
             else:
-                print(f"{label:<16} {r['layout']:<7} {'-':>13} {'-':>11} {'-':>30}  FAIL")
+                print(f"{label:<16} {r['layout']:<7} {r['home']:<9} {'-':>13} {'-':>11} {'-':>30}  FAIL")
             for problem in r["problems"]:
                 print(f"    {problem}")
         if args.json:
             args.json.write_text(json.dumps({"results": results, "skipped": skipped}, indent=2) + "\n")
-        if missing:
-            print(f"FAIL: required shell(s) did not run: {', '.join(missing)}", file=sys.stderr)
-            return 2
         return 0 if all(r["pass"] for r in results) else 1
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
