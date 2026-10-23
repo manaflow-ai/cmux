@@ -1,6 +1,7 @@
 import { preferenceStorage } from "../browser-storage";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { CommandGroup, Provider, SessionOption } from "../session";
+import type { CwdCheck, CwdHarnessRequest } from "../session";
 
 export function useDefaultCwd(
   defaultCwd: string,
@@ -86,17 +87,26 @@ export function useCwdValidation(
   connectionEpoch: number,
   cwd: string,
   defaultCwd: string,
-  cwdChecks: Record<string, { ok: boolean; message?: string }>,
-  checkCwd: (cwd: string) => void,
+  cwdChecks: Record<string, CwdCheck>,
+  checkCwd: (cwd: string) => CwdHarnessRequest | null,
   setCwd: (cwd: string) => void,
   setCommittedCwd: (cwd: string) => void,
 ) {
+  const pendingRequest = useRef<CwdHarnessRequest | null>(null);
   useEffect(() => {
-    if (ready && cwd) checkCwd(cwd);
+    pendingRequest.current = ready && cwd ? checkCwd(cwd) : null;
   }, [checkCwd, connectionEpoch, cwd, ready]);
   useEffect(() => {
     const checked = cwdChecks[cwd];
-    if (!checked || checked.ok || !defaultCwd) return;
+    const request = pendingRequest.current;
+    if (
+      !checked
+      || !request
+      || checked.requestId !== request.requestId
+      || checked.connectionEpoch !== request.connectionEpoch
+    ) return;
+    pendingRequest.current = null;
+    if (checked.ok || !defaultCwd) return;
     setCwd(defaultCwd);
     setCommittedCwd(defaultCwd);
     preferenceStorage.setItem("agentui.cwd", defaultCwd);
