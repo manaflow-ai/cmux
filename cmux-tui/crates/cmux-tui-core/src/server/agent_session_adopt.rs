@@ -31,7 +31,7 @@ use serde_json::{Value, json};
 
 use super::agent_session_link::AcpmuxLink;
 use super::agent_session_start::{
-    AgentSessionStarts, CALL_TIMEOUT, THREAD_STACK_BYTES, checked_mode, is_chief, read_mode,
+    AgentSessionStarts, CALL_TIMEOUT, THREAD_STACK_BYTES, checked_mode, is_chief, read_record_mode,
     startable,
 };
 use super::{MessageWriter, Refusal, SurfaceId, ok, refuse};
@@ -100,7 +100,7 @@ pub(super) fn mode(
             let read = AcpmuxLink::connect(&socket, |_| {})
                 .map_err(|_| Refusal::Unavailable)
                 .and_then(|link| {
-                    let read = read_mode(&link, &session);
+                    let read = read_record_mode(&link, &session);
                     link.close();
                     read
                 });
