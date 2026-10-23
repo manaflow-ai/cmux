@@ -142,9 +142,7 @@ import Foundation
         guard reached else { return nil }
         // With the daemon's pane already listed, only the layout is the overlay's.
         let undo = IntentUndo.splitPane(screen: screen.handle, layout: screen.layout, columns: screen.columns,
-                                        zoomedPane: screen.zoomedPane, pane: daemon == nil ? provisional.handle : nil)
-        // Every pane create unzooms the screen in the daemon (cmux-tui `effect_add_pane`): so does its overlay.
-        if screen.zoomedPane != nil { screen.zoomedPane = nil }
+                                        pane: daemon == nil ? provisional.handle : nil)
         screen.layout = layout
         if columns != screen.columns { screen.columns = columns }
         guard daemon == nil else { return undo }
@@ -163,7 +161,8 @@ import Foundation
                                     provisional: ProvisionalPane, screen: ScreenModel, in store: DaemonStore) -> IntentUndo? {
         var columns = screen.columns
         if columns.isEmpty {
-            // A split-tree screen's tree is its one column (a zoom on it ends with the create).
+            // A zoomed or docked screen has no tree column to open beside.
+            guard screen.zoomedPane == nil else { return nil }
             columns = [ColumnSnapshot(id: column.treeHandle, width: column.treeWidth ?? 1, layout: screen.layout)]
         } else {
             columns = columns.map { entry in
@@ -176,9 +175,7 @@ import Foundation
         guard let index = columns.firstIndex(where: { $0.layout.paneIDs.contains(target) }) else { return nil }
         columns.insert(ColumnSnapshot(id: column.handle, width: column.width, layout: .leaf(leaf)), at: index + 1)
         let undo = IntentUndo.splitPane(screen: screen.handle, layout: screen.layout, columns: screen.columns,
-                                        zoomedPane: screen.zoomedPane, pane: daemon == nil ? provisional.handle : nil)
-        // Every pane create unzooms the screen in the daemon (cmux-tui `effect_add_pane`): so does its overlay.
-        if screen.zoomedPane != nil { screen.zoomedPane = nil }
+                                        pane: daemon == nil ? provisional.handle : nil)
         // The compat tree the daemon keeps beside its columns: the screen's tree with the new leaf on its right.
         screen.layout = .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: screen.layout, b: .leaf(leaf))
         screen.columns = columns
@@ -197,6 +194,7 @@ import Foundation
     /// as the daemon does. The column's `layout` stays the compat chain of its rows.
     private static func applyRow(_ row: ProvisionalRow, below target: PaneID, leaf: PaneID, daemon: PaneModel?,
                                  provisional: ProvisionalPane, screen: ScreenModel, in store: DaemonStore) -> IntentUndo? {
+        guard screen.zoomedPane == nil else { return nil }
         var columns = screen.columns
         if columns.isEmpty { columns = [ColumnSnapshot(id: ColumnID(rawValue: row.firstHandle.rawValue | (1 << 60)), width: 1, layout: screen.layout)] }
         guard let index = columns.firstIndex(where: { $0.layout.paneIDs.contains(target) }) else { return nil }
@@ -210,9 +208,7 @@ import Foundation
         }
         columns[index] = column
         let undo = IntentUndo.splitPane(screen: screen.handle, layout: screen.layout, columns: screen.columns,
-                                        zoomedPane: screen.zoomedPane, pane: daemon == nil ? provisional.handle : nil)
-        // Every pane create unzooms the screen in the daemon (cmux-tui `effect_add_pane`): so does its overlay.
-        if screen.zoomedPane != nil { screen.zoomedPane = nil }
+                                        pane: daemon == nil ? provisional.handle : nil)
         screen.layout = split(screen.layout, target, .down, 0.5, leaf, provisional.splitID)
             ?? .split(id: nil, resourceID: nil, direction: .down, ratio: 0.5, a: screen.layout, b: .leaf(leaf))
         screen.columns = columns
@@ -237,8 +233,7 @@ import Foundation
     }
 
     /// `pane`: the provisional pane to remove; nil when the split placed the daemon's pane.
-    /// `zoomedPane`: the screen's zoom before the split, which the overlay ended.
-    static func undo(screen handle: ScreenID, layout: LayoutNode, columns: [ColumnSnapshot], zoomedPane: PaneID?, pane: PaneID?,
+    static func undo(screen handle: ScreenID, layout: LayoutNode, columns: [ColumnSnapshot], pane: PaneID?,
                      in store: DaemonStore) {
         guard let screen = store.screensByHandle[handle] else {
             return store.reportMirrorViolation("intent overlay undo found split screen \(handle) missing")
@@ -252,7 +247,6 @@ import Foundation
         }
         screen.layout = layout
         if screen.columns != columns { screen.columns = columns }
-        if screen.zoomedPane != zoomedPane { screen.zoomedPane = zoomedPane }
     }
 
     /// `node` with the leaf `target` replaced by a split of `target` and `new`, or nil when the
