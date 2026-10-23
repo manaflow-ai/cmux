@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 
 /// The tooltip's ink and legibility tint, read in the panel's theme scope.
 struct TooltipStyle {
@@ -210,9 +211,7 @@ final class TooltipPanel: NSPanel {
         isFadingOut = true
         layer.removeAnimation(forKey: "transform.translation.y")
         CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self] in
-            MainActor.assumeIsolated { self?.fadedOut(fading) } // main-proof: CATransaction.h: the completion block is called on the main thread
-        }
+        CATransaction.setMainCompletion { [weak self] in self?.fadedOut(fading) }
         Motion.hoverCards.set(layer, "opacity", to: Float(0), fade: .fadeOut, from: layer.presentation()?.opacity ?? layer.opacity)
         CATransaction.commit()
     }

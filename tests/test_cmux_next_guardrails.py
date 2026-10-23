@@ -188,12 +188,36 @@ class RuleTests(Fixture):
                 refusals, _ = self.check()
                 self.assertEqual([r.id for r, _ in refusals], [], f"{rule}: the right pattern was refused")
 
-    def test_the_callback_adapters_may_use_the_raw_callbacks(self):
-        self.write(f"{PKG}/Sources/CmuxNextCompat/MainRunLoopBlock.swift", CASES["raw-main-callback"][0])
-        self.write(f"{KIT}/Fade.swift", "func f() {\n    CATransaction.setCompletionBlock { print(1) }\n}\n")
-        self.commit("an adapter and a raw completion")
-        refused = [h.path for r, hits in self.check()[0] if r.id == "raw-main-callback" for h in hits]
-        self.assertEqual(refused, [f"{KIT}/Fade.swift"])
+    def test_raw_main_callbacks_are_refused_in_every_form(self):
+        refused = {
+            "LetMain": "func f() {\n    let main = CFRunLoopGetMain()\n"
+                       "    CFRunLoopPerformBlock(main, CFRunLoopMode.commonModes.rawValue) { MainActor.assumeIsolated { g() } }\n}\n",
+            "Observer": "func f() {\n    let o = CFRunLoopObserverCreateWithHandler(nil, 0, true, 0) { _, _ in }\n}\n",
+            "Trailing": "func f() {\n    RunLoop.main.perform { g() }\n}\n",
+            "InModes": "func f() {\n    RunLoop.main.perform(inModes: [.common]) { g() }\n}\n",
+            "Completion": "func f() {\n    CATransaction.setCompletionBlock { g() }\n}\n",
+        }
+        passed = {
+            "Selector": "func f() {\n    RunLoop.main.perform(#selector(run), target: self, argument: nil, order: 1, modes: [.default])\n}\n",
+            "Allowed": "func f(loop: CFRunLoop) {\n    // callback-seam-allow: a worker thread's run loop, not main's\n"
+                       "    CFRunLoopPerformBlock(loop, CFRunLoopMode.defaultMode.rawValue) { g() }\n}\n",
+            "Adapter": "func f() {\n    MainRunLoopBlock.perform { g() }\n    CATransaction.setMainCompletion { g() }\n}\n",
+        }
+        for name, text in {**refused, **passed}.items():
+            self.write(f"{KIT}/{name}.swift", text)
+        self.commit("raw main callbacks in every form")
+        hits = sorted(h.path for r, found in self.check()[0] if r.id == "raw-main-callback" for h in found)
+        self.assertEqual(hits, sorted(f"{KIT}/{name}.swift" for name in refused))
+
+    def test_only_the_three_callback_adapters_may_use_the_raw_callbacks(self):
+        raw = "func f() {\n    CATransaction.setCompletionBlock { print(1) }\n}\n"
+        compat = f"{PKG}/Sources/CmuxNextCompat"
+        for name in ("MainRunLoopBlock", "MainRunLoopObserver", "CATransaction+MainCompletion", "OtherHelper"):
+            self.write(f"{compat}/{name}.swift", raw)
+        self.write(f"{KIT}/Fade.swift", raw)
+        self.commit("the adapters, another Compat file and a raw completion")
+        refused = sorted(h.path for r, hits in self.check()[0] if r.id == "raw-main-callback" for h in hits)
+        self.assertEqual(refused, sorted([f"{KIT}/Fade.swift", f"{compat}/OtherHelper.swift"]))
 
     def test_base_debt_and_moved_lines_never_count(self):
         self.git("mv", f"{KIT}/Old.swift", f"{KIT}/Moved.swift")
