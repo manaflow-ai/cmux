@@ -39,7 +39,7 @@ impl Surface {
             id,
             opts,
             mux,
-            (None, &[]),
+            HostLaunch::default(),
             None,
             PtyLifetime::DaemonOwned,
             cell_pixels,
@@ -56,7 +56,7 @@ impl Surface {
             id,
             opts,
             mux,
-            (None, &[]),
+            HostLaunch::default(),
             Some(TabResourceIdentity::terminal(None)?),
             PtyLifetime::SessionOwned,
             cell_pixels,
@@ -76,7 +76,7 @@ impl Surface {
             id,
             opts,
             mux,
-            (None, &[]),
+            HostLaunch::default(),
             resource_identity,
             PtyLifetime::SessionOwned,
             cell_pixels,
@@ -165,14 +165,14 @@ impl Surface {
         )
     }
 
-    /// `launch` is the reserved terminal id, and the VT replay its host
-    /// applies before the child's first byte (a hosted launch with an id
-    /// only; empty: none).
+    /// `launch` is the reserved terminal id, the VT replay its host applies
+    /// before the child's first byte, the workspace its first record names
+    /// and the spare host process to use (a hosted launch with an id only).
     pub(crate) fn spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
         id: SurfaceId,
         opts: SurfaceOptions,
         mux: Weak<Mux>,
-        (terminal_id, seed): (Option<crate::terminal_host::TerminalId>, &[u8]),
+        launch: HostLaunch<'_>,
         resource_identity: Option<TabResourceIdentity>,
         lifetime: PtyLifetime,
         cell_pixels: (u16, u16),
@@ -213,14 +213,15 @@ impl Surface {
             && let Some(root) = opts.terminal_host_root.clone()
         {
             let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+            let HostLaunch { terminal_id, seed, workspace_key, standby } = launch;
             let launched = match terminal_id {
                 Some(terminal_id) => crate::terminal_host_runtime::launch_terminal_host_seeded(
                     &opts,
                     &root,
                     (default_colors, cell_pixels, initial_kitty_limits),
                     terminal_id,
-                    None,
-                    seed,
+                    standby,
+                    (seed, workspace_key),
                 ),
                 None => crate::terminal_host_runtime::launch_terminal_host(
                     &opts,
@@ -264,7 +265,8 @@ impl Surface {
                 Err(error) => return Err(error),
             }
         }
-        let _ = (terminal_id, seed);
+        #[cfg(not(any(unix, windows)))]
+        let _ = launch;
         let initial_geometry = PtyGeometry {
             cols: opts.cols,
             rows: opts.rows,
