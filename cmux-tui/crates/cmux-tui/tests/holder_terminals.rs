@@ -393,6 +393,204 @@ fn a_restart_after_two_mib_of_output_keeps_the_alternate_screen() {
     );
 }
 
+/// The replay race at a holder crash (perf lead, holder item 1): a holder
+/// that dies while it holds output the daemon has not parsed must lose no
+/// byte, and a restart after it must restore the exact screen, also when
+/// the holder dies inside an escape sequence or a UTF-8 character.
+///
+/// The program prints numbered colored lines. The daemon is stopped
+/// (SIGSTOP) so the holder fills up: it reads the PTY until it holds its
+/// limit of unsent output and the program blocks. The holder is then
+/// SIGKILLed and the daemon continued: the lines the dead holder had read
+/// but never sent must still reach the screen, so the history has no gap.
+/// Then the program stops in the middle of an SGR sequence, and later in
+/// the middle of `é`, and the holder is SIGKILLed at each stop. The live
+/// history and screen must be exact, and a daemon restart must show the
+/// same screen and the same styled history rows.
+#[test]
+fn a_holder_killed_holding_unparsed_output_or_mid_sequence_loses_no_byte() {
+    let mut daemon = Daemon::start();
+    let progress = daemon.dir.join("progress");
+    let stop = daemon.dir.join("stop");
+    let script = daemon.dir.join("flood.sh");
+    fs::write(
+        &script,
+        format!(
+            r#"stty -echo
+i=0
+while [ ! -e '{stop}' ]; do
+  printf '\033[3%dmline %06d \303\251 abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwx\033[0m\n' $((i % 8)) "$i"
+  i=$((i + 1))
+  echo "$i" > '{progress}'
+done
+printf 'flood-end\n'
+printf 'X\033[38;5;1'
+read a
+printf '96mRED\303'
+read b
+printf '\251 END\033[0m\n'
+i=0
+while [ $i -lt 30 ]; do printf 'tail %02d\n' "$i"; i=$((i + 1)); done
+exec sleep 3600
+"#,
+            stop = stop.display(),
+            progress = progress.display(),
+        ),
+    )
+    .unwrap();
+    let created = request(
+        &daemon.socket,
+        json!({"cmd": "run", "argv": ["/bin/sh", script.to_str().unwrap()], "new_workspace": true,
+            "name": "replay-race", "cols": 80, "rows": 24}),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    daemon.track(surface);
+    let shell = shell_pid(&daemon.socket, surface);
+    let holder = parent_of(shell);
+    screen_contains(&daemon.socket, surface, "line 000001");
+
+    // The daemon stops reading its link: the holder reads the PTY until it
+    // holds its limit of unsent output, and then the program blocks in its
+    // write. A program whose progress stands still is blocked.
+    let daemon_pid = daemon.child.as_ref().unwrap().id() as i32;
+    // SAFETY: SIGSTOP of the daemon this test started.
+    unsafe { libc::kill(daemon_pid, libc::SIGSTOP) };
+    let read_progress = || fs::read_to_string(&progress).unwrap_or_default().trim().to_string();
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut last = read_progress();
+    let mut still = 0;
+    while still < 5 {
+        std::thread::sleep(Duration::from_millis(200));
+        let now = read_progress();
+        still = if now == last { still + 1 } else { 0 };
+        last = now;
+        assert!(Instant::now() < deadline, "the program never blocked: progress {last}");
+    }
+    // The holder dies holding output nobody parsed. The program stops at its
+    // next line once it can write again.
+    fs::write(&stop, b"").unwrap();
+    // SAFETY: SIGKILL of the holder this test's daemon started.
+    unsafe { libc::kill(holder, libc::SIGKILL) };
+    // SAFETY: SIGCONT of the daemon this test stopped.
+    unsafe { libc::kill(daemon_pid, libc::SIGCONT) };
+    // `X` comes in the write that ends inside `ESC [ 38;5;1`: once it shows,
+    // the parser is inside that sequence, and the program waits for a line.
+    screen_contains(&daemon.socket, surface, "flood-end\nX");
+    let second = probe_holder(&mut daemon, "probe-2");
+    // SAFETY: SIGKILL of the holder this test's daemon started.
+    unsafe { libc::kill(second, libc::SIGKILL) };
+    request(&daemon.socket, json!({"cmd": "send", "surface": surface, "text": "go\n"}));
+    // Now it waits inside the two bytes of `é`: the third holder dies there.
+    screen_contains(&daemon.socket, surface, "XRED");
+    let third = probe_holder(&mut daemon, "probe-3");
+    assert_ne!(third, second, "a new holder took over after the second one died");
+    // SAFETY: SIGKILL of the holder this test's daemon started.
+    unsafe { libc::kill(third, libc::SIGKILL) };
+    request(&daemon.socket, json!({"cmd": "send", "surface": surface, "text": "go\n"}));
+    let live_screen = screen_contains(&daemon.socket, surface, "tail 29");
+
+    let live = history(&daemon.socket, surface);
+    let flood = flood_rows(&live);
+    assert!(flood.len() > 100, "too little flood history kept: {} rows", flood.len());
+    let red = live
+        .iter()
+        .position(|row| row_text(row) == "XREDé END")
+        .unwrap_or_else(|| panic!("no exact `XREDé END` row in the history:\n{}", dump(&live)));
+    let runs = live[red]["runs"].as_array().unwrap();
+    assert_eq!(runs.len(), 2, "X then the red text: {}", live[red]);
+    assert_eq!(runs[1]["text"], "REDé END");
+    assert_ne!(runs[1]["fg"], runs[0]["fg"], "the split SGR colored the text: {}", live[red]);
+    assert!(live_screen.contains("tail 29") && !live_screen.contains("96m"), "{live_screen}");
+
+    // A restart restores the same screen and the same styled rows.
+    daemon.sigkill();
+    daemon.restart();
+    let restored_surface = running_surface(&daemon.socket, &terminal_id);
+    let restored_screen = screen_contains(&daemon.socket, restored_surface, "tail 29");
+    assert_eq!(restored_screen, live_screen, "the restart changed the screen");
+    let restored = history(&daemon.socket, restored_surface);
+    assert!(
+        restored.iter().any(|row| row_text(row) == "XREDé END"),
+        "the restart lost the red row:\n{}",
+        dump(&restored)
+    );
+    let tail = &live[live.len() - restored.len().min(live.len())..];
+    for (index, (want, got)) in tail.iter().zip(&restored).enumerate() {
+        assert_eq!(got["runs"], want["runs"], "restored history row {index} differs");
+    }
+    // The holder that runs the terminals now ends with the test.
+    probe_holder(&mut daemon, "probe-4");
+}
+
+/// A new terminal's shell is the current holder's child: its parent is the
+/// holder (and the test ends both at drop).
+fn probe_holder(daemon: &mut Daemon, name: &str) -> i32 {
+    let probe = request(
+        &daemon.socket,
+        json!({"cmd": "run", "argv": ["/bin/cat"], "new_workspace": true, "name": name,
+            "cols": 80, "rows": 24}),
+    );
+    let surface = probe["surface"].as_u64().unwrap();
+    daemon.track(surface);
+    parent_of(shell_pid(&daemon.socket, surface))
+}
+
+/// Every retained history row of `surface` (styled runs), oldest first.
+fn history(socket: &Path, surface: u64) -> Vec<Value> {
+    let mut rows = Vec::new();
+    let mut start = 0u64;
+    loop {
+        let page = request(
+            socket,
+            json!({"cmd": "read-scrollback", "surface": surface, "start": start, "count": 4096}),
+        );
+        let got = page["rows"].as_array().cloned().unwrap_or_default();
+        let total = page["total"].as_u64().unwrap_or(0);
+        start = page["start"].as_u64().unwrap_or(start) + got.len() as u64;
+        rows.extend(got.clone());
+        if got.is_empty() || start >= total {
+            return rows;
+        }
+    }
+}
+
+fn row_text(row: &Value) -> String {
+    let runs = row["runs"].as_array().cloned().unwrap_or_default();
+    let text: String = runs.iter().map(|run| run["text"].as_str().unwrap_or_default()).collect();
+    text.trim_end().to_string()
+}
+
+fn dump(rows: &[Value]) -> String {
+    let from = rows.len().saturating_sub(40);
+    rows[from..].iter().map(row_text).collect::<Vec<_>>().join("\n")
+}
+
+/// The flood rows of a history: each is exactly `line N é <letters>` in
+/// color N % 8, and N counts up by one, with no row missing or cut.
+fn flood_rows(rows: &[Value]) -> Vec<u64> {
+    let letters = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwx";
+    let mut numbers = Vec::new();
+    let mut colors: std::collections::HashMap<u64, Value> = Default::default();
+    for row in rows {
+        let text = row_text(row);
+        if !text.starts_with("line ") {
+            continue;
+        }
+        let number: u64 = text[5..11].parse().unwrap_or_else(|_| panic!("cut row {text:?}"));
+        assert_eq!(text, format!("line {number:06} é {letters}"), "a garbled flood row");
+        let runs = row["runs"].as_array().unwrap();
+        assert_eq!(runs.len(), 1, "a flood row is one run: {row}");
+        let color = colors.entry(number % 8).or_insert_with(|| runs[0]["fg"].clone());
+        assert_eq!(&runs[0]["fg"], color, "row {number} has the wrong color");
+        if let Some(previous) = numbers.last() {
+            assert_eq!(number, previous + 1, "the history skips from line {previous} to {number}");
+        }
+        numbers.push(number);
+    }
+    numbers
+}
+
 fn send(socket: &Path, surface: u64, line: &str) {
     request(socket, json!({"cmd": "send", "surface": surface, "text": format!("{line}\n")}));
 }
