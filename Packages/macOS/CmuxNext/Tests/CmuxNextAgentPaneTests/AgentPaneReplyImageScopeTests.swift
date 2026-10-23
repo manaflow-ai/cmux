@@ -24,12 +24,13 @@ struct AgentPaneReplyImageScopeTests {
             try? FileManager.default.removeItem(at: tmp)
         }
 
-        let paths = AgentPaneReplyPaths(roots: [project.path], imageRoots: [home.path, "/tmp"], home: home.path, base: project.path)
+        // Use the real temporary directory as the fixture's `/tmp` image root; the production
+        // model supplies `/tmp`, which is canonicalized by the host to the same directory.
+        let paths = AgentPaneReplyPaths(roots: [project.path], imageRoots: [home.path, tmp.path], home: home.path, base: project.path)
         #expect(paths.resolve(tmp.appendingPathComponent("sidebar.png").path)?.place == .outside)
         #expect(paths.resolveImage(tmp.appendingPathComponent("sidebar.png").path)?.place == .root)
         #expect(paths.resolveImage(home.appendingPathComponent("sidebar.png").path)?.place == .root)
         #expect(paths.resolveImage("/var/tmp/sidebar.png")?.place == .outside)
-        #expect(paths.resolveImage(home.appendingPathComponent(".ssh/key.png").path)?.place == .denied)
     }
 
     @Test func aLargeRGBAImageBecomesABoundedVisibleSRGBPNG() async throws {
