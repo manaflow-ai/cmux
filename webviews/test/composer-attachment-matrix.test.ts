@@ -120,7 +120,7 @@ describe("attachment matrix: what the agent receives per file type", () => {
         mimeType: type === "image/jpeg" ? type : "image/png",
         name: name.replace(/\.(gif|webp)$/, ".png"),
       });
-      expect(result.sent).toEqual([]);
+      expect(result.sent.map((batch) => batch.map((each) => each.name))).toEqual([[name]]);
       expect(result.error).toBeUndefined();
     });
 
@@ -332,7 +332,7 @@ describe("attachment matrix: a chat on this Mac links what no block takes where 
     test(`${name} goes as a link to where it is, however large`, async () => {
       const local = paths();
       const result = await take([sized(name, type, size)], { localPaths: local.localPaths });
-      expect(result.sent.map((batch) => batch.map((each) => each.name))).toEqual([[name]]);
+      expect(result.sent).toEqual([]);
       expect(only(result.attachments)).toMatchObject({
         kind: "link",
         name,
