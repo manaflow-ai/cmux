@@ -246,6 +246,13 @@ def sample_main(pid, label):
     path = os.path.join(OUT, f"stall-{label}-{len(SAMPLED)}.txt")
     subprocess.run(["sample", str(pid), "2", "-file", path], capture_output=True, timeout=60)
     SAMPLED.append(path)
+    try:
+        # The report is the step's one artifact: keep the main thread's part of the sample in it.
+        text = open(path, errors="replace").read()
+        start = text.find("Thread_")
+        results.setdefault("stall_samples", []).append({"label": label, "text": text[start:start + 40000] if start >= 0 else text[:40000]})
+    except OSError:
+        pass
     note(f"stall sample: {os.path.basename(path)}")
 
 
