@@ -331,6 +331,11 @@ final class FeedAutoScroller: NSObject {
     @objc private func step(_ link: CADisplayLink) {
         guard let scrollView else { link.invalidate(); return }
         let dt = last.map { link.timestamp - $0 } ?? 0
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_CELL_TIMING"] == "1", dt > 0.025 {
+            FeedCellTiming.logger.notice("FEEDCELL long frame \(Int(dt * 1000), privacy: .public) ms at y=\(Int(scrollView.contentOffset.y), privacy: .public)")
+        }
+        #endif
         last = link.timestamp
         let top = -scrollView.adjustedContentInset.top
         let bottom = max(top, scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom)

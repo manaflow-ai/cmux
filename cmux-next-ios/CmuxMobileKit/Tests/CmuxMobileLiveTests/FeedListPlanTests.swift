@@ -85,4 +85,25 @@ import Testing
         #expect(plan.insertedAbove(anchor: "i3", in: new.map(\.id)) == 2)
         #expect(plan.reconfigure.isEmpty)
     }
+
+    // MARK: Snapshot edits
+
+    @Test func aLiveInsertIsAnEditNotARebuild() {
+        let edit = FeedSnapshotEdit(old: ["a", "b", "c"], new: ["n1", "n2", "a", "b", "x", "c", "z"])
+        #expect(edit == FeedSnapshotEdit.init(old: ["a", "b", "c"], new: ["n1", "n2", "a", "b", "x", "c", "z"]))
+        #expect(edit?.removed == [])
+        #expect(edit?.groups == [.init(before: "a", ids: ["n1", "n2"]), .init(before: "c", ids: ["x"])])
+        #expect(edit?.tail == ["z"])
+    }
+
+    @Test func aRemovalIsAnEdit() {
+        let edit = FeedSnapshotEdit(old: ["a", "b", "c"], new: ["a", "c"])
+        #expect(edit?.removed == ["b"])
+        #expect(edit?.groups == [])
+        #expect(edit?.tail == [])
+    }
+
+    @Test func aReSortRebuilds() {
+        #expect(FeedSnapshotEdit(old: ["a", "b", "c"], new: ["b", "a", "c"]) == nil)
+    }
 }
