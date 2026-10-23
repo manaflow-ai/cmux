@@ -89,7 +89,7 @@ final class CEFLayerHosting {
     init(isEnabled: @escaping () -> Bool = { BrowserResizeTunables.layerHosting.value },
          schedule: @escaping Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
          makePage: @escaping (CGRect) -> CEFHostedPageView = { CEFHostedPageView(frame: $0) },
-         resizeDeadlineMs: @escaping () -> Int32 = { Int32(BrowserResizeTunables.syncDeadlineMs.value.rounded()) }) {
+         resizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.syncDeadline.value * 1_000).rounded()) }) {
         self.isEnabled = isEnabled
         self.resizeDeadlineMs = resizeDeadlineMs
         self.schedule = schedule
