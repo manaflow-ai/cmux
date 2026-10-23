@@ -99,6 +99,19 @@ def load_budgets_module():
     return mod
 
 
+def animation_budgets(budgets_mod):
+    """perf-budgets' animation rows; scripts/perf-bench/budget.py imports its siblings, so their directory goes
+    on sys.path first. None of them on this checkout: no animation rows (their default budgets apply)."""
+    bench = os.path.join(ROOT, "scripts", "perf-bench")
+    if bench not in sys.path:
+        sys.path.insert(0, bench)
+    try:
+        return budgets_mod.animation_budgets()
+    except Exception as error:  # noqa: BLE001 - a newer budget.py shape must not stop the report
+        print(f"perf-cron: no animation budgets ({error!r})")
+        return {}
+
+
 def empty_state(t):
     return {"schema": SCHEMA, "created_at": iso(t), "current": None, "last": None, "last_good": None,
             "first_bad": None, "range": None, "regressions": [], "issue": None, "stale_noted_for": None, "history": []}
@@ -380,6 +393,27 @@ def github_busy(repo, yield_mode, now=None):
     return None
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+def download_redirected(url, timeout=120):
+    """An artifact archive: GitHub answers 302 to a signed storage URL, which refuses the GitHub token, so the
+    redirect is followed without it."""
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                                               "Accept": "application/vnd.github+json", "User-Agent": "cmux-perf-cron"})
+    try:
+        with urllib.request.build_opener(_NoRedirect).open(req, timeout=timeout) as r:
+            return r.read()
+    except urllib.error.HTTPError as error:
+        if error.code not in (301, 302, 303, 307, 308) or not error.headers.get("Location"):
+            raise
+        location = error.headers["Location"]
+    with urllib.request.urlopen(urllib.request.Request(location, headers={"User-Agent": "cmux-perf-cron"}), timeout=timeout) as r:
+        return r.read()
+
+
 def fetch_state(repo, out_dir):
     """Download the newest perf-cron-state artifact into out_dir; True when one was found."""
     os.makedirs(out_dir, exist_ok=True)
@@ -387,7 +421,7 @@ def fetch_state(repo, out_dir):
     for a in sorted(found, key=lambda a: a.get("created_at") or "", reverse=True):
         if a.get("expired"):
             continue
-        blob = gh_request(a["archive_download_url"], raw=True, timeout=120)
+        blob = download_redirected(a["archive_download_url"])
         zipfile.ZipFile(io.BytesIO(blob)).extractall(out_dir)
         print(f"perf-cron: state from artifact {a['id']} (run {a.get('workflow_run', {}).get('id')}, {a.get('created_at')})")
         return True
@@ -773,7 +807,7 @@ def cmd_report(o):
         changed = True
         mod = load_budgets_module()
         budgets = json.load(open(os.path.join(HERE, "perf-budgets.json")))
-        budgets["_animations"] = mod.animation_budgets()
+        budgets["_animations"] = animation_budgets(mod)
         rows, refresh = {}, []
         for name in cur["parts"]:
             path = os.path.join(o.dir, "parts", f"{name}.json")
