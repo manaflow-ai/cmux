@@ -67,6 +67,36 @@ OWNERS = """# owners
 | Kit sidebar | `Packages/macOS/CmuxNext/Sources/CmuxNextKit/Sidebar/` | a590 | [sidebar-owner.md](sidebar-owner.md) |
 """
 BENCHES = '{"paths": {"key-dispatch": {"bench": "scripts/cmux-next/bench-typing.py", "owner": "PL-typing"}}}'
+LAYERS = ('{"order": ["core", "service", "domain", "ui", "app"], "targets": {'
+          '"CmuxNextCompat": {"layer": "core"}, "CmuxNextKit": {"layer": "service"}, '
+          '"CmuxNextHistory": {"layer": "ui"}, "CmuxNextApp": {"layer": "app"}}}')
+MANIFEST = """// swift-tools-version: 6.2
+let package = Package(
+    name: "CmuxNext",
+    targets: [
+        .target(
+            name: "CmuxNextKit",
+            dependencies: ["CmuxNextCompat"]
+        ),
+        .target(
+            name: "CmuxNextCompat",
+            dependencies: [
+                // fixture
+            ]
+        ),
+        .target(
+            name: "CmuxNextHistory",
+            dependencies: [
+                "CmuxNextCompat",
+            ]
+        ),
+        .testTarget(
+            name: "CmuxNextKitTests",
+            dependencies: ["CmuxNextKit", "CmuxNextHistory"]
+        ),
+    ]
+)
+"""
 ROW = """import SwiftUI
 struct WorkspaceRow: View {
     let title: String
@@ -94,6 +124,8 @@ CASES = {
                       "import Observation\n@Observable final class Model {\n    var x = 0\n}\n"),
     "generic-class-deinit": ("@MainActor final class Once<T> {\n    var value: T?\n}\n",
                              "@MainActor final class Once<T> {\n    var value: T?\n    nonisolated deinit {}\n}\n"),
+    "layer-import": ("public import CmuxNextHistory\nfinal class StashService {}\n",
+                     "public import CmuxNextCompat\nfinal class StashService {}\n"),
     "row-store": ("import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n"
                   "    @Environment(SidebarStore.self) private var store\n    var body: some View { Text(title) }\n}\n",
                   "import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n    let onSelect: () -> Void\n"
@@ -124,6 +156,7 @@ class Fixture(unittest.TestCase):
         self.write(f"{KIT}/Old.swift", "final class Old {\n    static let shared = Old()\n}\n")  # base debt
         self.write("plans/cmux-next/OWNERS.md", OWNERS)
         self.write("scripts/cmux-next/perf-hot-benches.json", BENCHES)
+        self.write("plans/cmux-next/architecture-layers.json", LAYERS)
         self.commit("base")
         self.base = self.git("rev-parse", "HEAD").stdout.strip()
 
@@ -390,6 +423,85 @@ class RuleTests(Fixture):
                    "package final class Old {\n    package static let shared = Old()\n}\n")
         self.commit("git mv into another package; access internal -> package")
         self.assertEqual(self.refused(), [])
+
+    def test_a_lower_target_importing_a_ui_target_is_refused_and_higher_targets_pass(self):
+        # The hard layer edges arch-layers.py counts (Stash -> History, DaemonService -> Layout, ...).
+        sources = "Packages/macOS/CmuxNext/Sources"
+        self.write(f"{KIT}/Stash.swift", "import Foundation\n@testable import CmuxNextHistory\nimport struct CmuxNextHistory.Entry\n")
+        self.write(f"{KIT}/Allowed.swift", "// layer-allow: 2026-10-23 until the History model moves (cx-1)\n"
+                   "import CmuxNextHistory\n")
+        self.write(f"{sources}/CmuxNextHistory/Page.swift", "import CmuxNextKit\nimport CmuxNextHistory\n")
+        self.write(f"{APP}/Wiring.swift", "import CmuxNextHistory\nimport CmuxNextKit\n")
+        self.write(f"{sources}/CmuxNextUnplaced/Thing.swift", "import CmuxNextHistory\n")
+        self.commit("imports across layers")
+        self.assertEqual(self.refused(), [("layer-import", [
+            "Stash.swift: @testable import CmuxNextHistory", "Stash.swift: import struct CmuxNextHistory.Entry"])])
+
+    def test_layer_import_counts_only_new_edges_and_fails_open_without_the_layers_file(self):
+        self.write(f"{KIT}/Stash.swift", "import CmuxNextHistory\nfinal class StashService {}\n")
+        self.commit("an edge already on the base")
+        base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.write(f"{KIT}/Stash.swift", "import CmuxNextHistory\nfinal class StashService {\n    var count = 0\n}\n")
+        self.commit("an edit next to the old edge")
+        self.assertEqual(self.refused(None, base, "HEAD"), [])
+
+        # Unreadable on the base and at head: the rule does not run and says so.
+        self.write("plans/cmux-next/architecture-layers.json", "{")
+        self.commit("a broken layers file")
+        broken = self.git("rev-parse", "HEAD").stdout.strip()
+        self.write(f"{KIT}/New.swift", "import CmuxNextHistory\n")
+        self.commit("a new edge while the layers file is broken")
+        refusals, warnings = self.check(None, broken, "HEAD")
+        self.assertEqual(refusals, [])
+        self.assertIn("layer-import did not run", " ".join(w for _, w in warnings))
+
+    def test_a_moved_layer_import_pays_only_inside_its_own_target(self):
+        sources = "Packages/macOS/CmuxNext/Sources"
+        self.write(f"{KIT}/Stash.swift", "import CmuxNextHistory\nfinal class StashService {}\n")
+        self.write(f"{KIT}/Page.swift", "import CmuxNextHistory\nfinal class Page {}\n")
+        self.commit("two edges already on the base")
+        base = self.git("rev-parse", "HEAD").stdout.strip()
+        # The target keeps its edge through Page.swift; Compat taking the import is a new edge, not a move.
+        self.write(f"{KIT}/Stash.swift", "final class StashService {}\n")
+        self.write(f"{sources}/CmuxNextCompat/Value.swift", "import CmuxNextHistory\n")
+        self.commit("the import leaves Kit and lands in Compat")
+        self.assertEqual(self.refused(None, base, "HEAD"), [("layer-import", ["Value.swift: import CmuxNextHistory"])])
+
+        self.git("reset", "--quiet", "--hard", base)
+        self.write(f"{KIT}/Stash.swift", "final class StashService {}\n")
+        self.write(f"{KIT}/Moved.swift", "@testable import CmuxNextHistory\nfinal class Moved {}\n")
+        self.commit("the import moves inside Kit")
+        self.assertEqual(self.refused(None, base, "HEAD"), [])
+
+        self.git("reset", "--quiet", "--hard", base)
+        self.write(f"{KIT}/Stash.swift", "import CmuxNextApp\nfinal class StashService {}\n")
+        self.commit("one upward edge swapped for another in the same file")
+        self.assertEqual(self.refused(None, base, "HEAD"), [("layer-import", ["Stash.swift: import CmuxNextApp"])])
+
+    def test_a_push_that_relabels_a_target_keeps_the_base_layer_for_its_own_imports(self):
+        sources = "Packages/macOS/CmuxNext/Sources"
+        self.write("plans/cmux-next/architecture-layers.json", LAYERS.replace(
+            '"CmuxNextKit": {"layer": "service"}', '"CmuxNextKit": {"layer": "ui"}, "CmuxNextNew": {"layer": "service"}'))
+        self.write(f"{KIT}/Stash.swift", "import CmuxNextHistory\n")
+        self.write(f"{sources}/CmuxNextNew/Thing.swift", "import CmuxNextHistory\n")
+        self.commit("Kit relabeled ui, a new service target, and both import History")
+        self.assertEqual(self.refused(), [("layer-import", ["Stash.swift: import CmuxNextHistory",
+                                                            "Thing.swift: import CmuxNextHistory"])])
+
+    def test_an_upward_dependency_added_to_package_swift_is_refused(self):
+        self.write(f"{PKG}/Package.swift", MANIFEST)
+        self.commit("a manifest on the base")
+        base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.write(f"{PKG}/Package.swift", MANIFEST
+                   .replace('dependencies: ["CmuxNextCompat"]', 'dependencies: ["CmuxNextCompat", "CmuxNextHistory"]')
+                   .replace('                "CmuxNextCompat",\n', '                "CmuxNextCompat", "CmuxNextKit",\n')
+                   .replace('            dependencies: [\n                // fixture\n',
+                            '            dependencies: [\n                // layer-allow: 2026-10-23 until the value moves (cx-2)\n'
+                            '                "CmuxNextHistory",\n')
+                   .replace('["CmuxNextKit", "CmuxNextHistory"]', '["CmuxNextKit", "CmuxNextHistory", "CmuxNextApp"]'))
+        self.commit("Kit depends on History; History on Kit; Compat with a written exception; a test target on App")
+        self.assertEqual(self.refused(None, base, "HEAD"), [("layer-import", [
+            'Package.swift: CmuxNextKit -> CmuxNextHistory: dependencies: ["CmuxNextCompat", "CmuxNextHistory"]'])])
 
     def test_the_bench_configuration_is_refused_in_shipped_build_settings(self):
         self.write(".github/workflows/nightly.yml", "jobs:\n  build:\n    steps:\n      - run: ./scripts/reload.sh --config bench\n")

@@ -69,6 +69,7 @@ APP = SOURCES + "CmuxNextApp/"
 UPSTREAM = "origin/feat-cmux-next"
 OWNERS = "plans/cmux-next/OWNERS.md"
 BENCHES = "scripts/cmux-next/perf-hot-benches.json"
+LAYERS = "plans/cmux-next/architecture-layers.json"  # each target's layer (arch-layers.py reads it too)
 SKIP_ENV = "CMUX_GUARDRAILS_SKIP_REASON"
 COMMENT_LINE = re.compile(r"^\s*(//|\*|/\*)")
 ATTRIBUTE_LINE = re.compile(r"^\s*@\w+(\([^)]*\))?\s*$")
@@ -90,8 +91,9 @@ def is_ancestor(repo: Path, ancestor: str, descendant: str) -> bool:
                           capture_output=True, env=env).returncode == 0
 
 
-def code_of(line: str) -> str:
-    """LINE without a trailing `//` comment (outside string literals) and with string contents blanked."""
+def code_of(line: str, keep_strings: bool = False) -> str:
+    """LINE without a trailing `//` comment (outside string literals) and with string contents blanked (kept
+    with KEEP_STRINGS: the names in Package.swift's `dependencies:`)."""
     if '"' not in line and "/" not in line:
         return line
     if COMMENT_LINE.match(line):
@@ -101,10 +103,14 @@ def code_of(line: str) -> str:
         c = line[i]
         if in_string:
             if c == "\\":
+                if keep_strings:
+                    out.append(line[i:i + 2])
                 i += 2
                 continue
             if c == '"':
                 in_string = False
+                out.append(c)
+            elif keep_strings:
                 out.append(c)
             i += 1
             continue
@@ -158,6 +164,7 @@ class FileChange:
     base_lines: list[str] = field(default_factory=list)
     is_new: bool = False
     has_perf_hot: bool = False
+    layers: dict = field(default_factory=dict)  # target -> (rank, layer) (LAYERS, base over head), shared
 
     @property
     def head(self) -> Version:
@@ -236,7 +243,8 @@ def debt_key(text: str) -> str:
     return re.sub(r"\s+", " ", ACCESS_WORDS.sub(lambda m: "import " if m.group(2) else "", text)).strip()
 
 
-def resolve(found: list[tuple[list[Added], list[Added]]]) -> list[Added]:
+def resolve(found: list[tuple[list[Added], list[Added]]], key: Callable[[Added], str] | None = None,
+            per_file: bool = True) -> list[Added]:
     """New debt from each file's (head debt the push changed, base debt the push changed), in file order.
 
     1. In a file, a head line pairs with a base line of the same text (unchanged, re-indented, context kept).
@@ -245,14 +253,17 @@ def resolve(found: list[tuple[list[Added], list[Added]]]) -> list[Added]:
        debt: a changed initializer, an added conformance). It is a count ratchet per file.
     A base line pays once: a line paired by a move never pays again in its own file. A move takes its line from
     the file with the most base debt to spare (then the first in path order), so an edit there still has its own.
+    KEY (default: the line's ``debt_key``) is what "the same text" means; PER_FILE False drops step 3, for a
+    rule whose debt is the line's identity (an import edge), not a count.
     """
+    key_of = key or (lambda line: debt_key(line.text))
     left_added: list[list[Added]] = []
     pools: list[collections.Counter] = []
     for added, removed in found:
-        pool = collections.Counter(debt_key(r.text) for r in removed)
+        pool = collections.Counter(key_of(r) for r in removed)
         rest = []
         for line in added:
-            key = debt_key(line.text)
+            key = key_of(line)
             if pool[key] > 0:
                 pool[key] -= 1
             else:
@@ -262,7 +273,7 @@ def resolve(found: list[tuple[list[Added], list[Added]]]) -> list[Added]:
     for i, rest in enumerate(left_added):
         still = []
         for line in rest:
-            key = debt_key(line.text)
+            key = key_of(line)
             sources = [j for j, pool in enumerate(pools) if j != i and pool[key] > 0]
             source = max(sources, key=lambda j: (sum(pools[j].values()) - len(left_added[j]), -j), default=None)
             if source is None:
@@ -272,7 +283,7 @@ def resolve(found: list[tuple[list[Added], list[Added]]]) -> list[Added]:
         left_added[i] = still
     hits = []
     for rest, pool in zip(left_added, pools):
-        hits += rest[sum(pool.values()):]
+        hits += rest[sum(pool.values()):] if per_file else rest
     return hits
 
 
@@ -747,6 +758,120 @@ def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Adde
     return hits
 
 
+# An import of a ui or app target from a core, service or domain target: the hard layer edge
+# scripts/cmux-next/arch-layers.py counts from Package.swift, caught where the code takes it, and the same
+# edge added to a target's `dependencies:` in Package.swift (arch-layers.py counts that list).
+IMPORT = re.compile(r"^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:public|package|internal|private|fileprivate)\s+)?import\s+"
+                    r"(?:(?:struct|class|enum|protocol|typealias|func|var|let|actor)\s+)?(?P<module>\w+)")
+LAYER_ALLOW = re.compile(r"//\s*layer-allow:\s*\S")
+UPWARD = ("ui", "app")
+MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
+MANIFEST_DECLARATION = re.compile(r"^\s*\.(?P<kind>target|testTarget|executableTarget|binaryTarget|plugin|macro)\(")
+MANIFEST_NAME = re.compile(r'\bname:\s*"(?P<name>[^"]+)"')
+QUOTED = re.compile(r'"([^"\\]*)"')
+
+
+def layer_ranks(text: str | None) -> dict:
+    """{target: (rank, layer)} from architecture-layers.json text; {} when it is missing or broken (fail open)."""
+    try:
+        spec = json.loads(text or "")
+        order = {name: index for index, name in enumerate(spec["order"])}
+        return {name: (order[entry["layer"]], entry["layer"]) for name, entry in spec["targets"].items()}
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return {}
+
+
+def source_target(path: str) -> str:
+    """The target a file under Sources/ belongs to ("" outside Sources)."""
+    return path[len(SOURCES):].split("/", 1)[0] if path.startswith(SOURCES) else ""
+
+
+def import_edge(line: Added) -> str:
+    """An import line as its edge, `<target> -> <module>`: a moved import pays only inside its own target (the
+    edge arch-layers.py counts is the target's), and `import M` -> `@testable import M` is the same edge."""
+    match = IMPORT.match(code_of(line.text))
+    return f"{source_target(line.path)} -> {match.group('module') if match else line.text.strip()}"
+
+
+def upward_imports(version: Version, lines: list[Added], ranks: dict) -> list[Added]:
+    """LINES of VERSION that import a ui/app target from a lower target (no `layer-allow:` escape)."""
+    target = source_target(version.path)
+    if target not in ranks:
+        return []
+    rank = ranks[target][0]
+    out = []
+    for line in lines:
+        match = IMPORT.match(code_of(line.text))
+        dep = ranks.get(match.group("module")) if match else None
+        if dep is None or dep[0] <= rank or dep[1] not in UPWARD:
+            continue
+        if line.number - 1 < len(version.lines) and escaped(version.lines, line.number - 1, LAYER_ALLOW):
+            continue
+        out.append(line)
+    return out
+
+
+def manifest_edges(lines: list[str]) -> dict[tuple[str, str], int]:
+    """{(target, dependency): 0-based line} of every regular `.target(` in Package.swift LINES: each quoted name
+    in its `dependencies: [...]` (product and package names too; they have no layer, so no rule reads them)."""
+    edges: dict[tuple[str, str], int] = {}
+    kind = name = None
+    depth = 0  # brackets open in the current `dependencies:` list; 0 outside one
+    for index, line in enumerate(lines):
+        code = code_of(line, keep_strings=True)
+        if depth == 0:
+            start = MANIFEST_DECLARATION.match(code)
+            if start:
+                kind, name = start.group("kind"), None
+            if kind != "target":
+                continue
+            if name is None and (found := MANIFEST_NAME.search(code)):
+                name = found.group("name")
+            at = code.find("dependencies:")
+            if name is None or at < 0 or "[" not in code[at:]:
+                continue
+            code = code[code.index("[", at):]
+        for i, char in enumerate(code):
+            if char == "[":
+                depth += 1
+            elif char == "]":
+                depth -= 1
+                if depth == 0:
+                    code = code[:i]
+                    break
+        for dependency in QUOTED.findall(code):
+            edges.setdefault((name, dependency), index)
+    return edges
+
+
+def upward_dependencies(manifest: FileChange) -> list[Added]:
+    """Package.swift `dependencies:` entries the push adds from a core, service or domain target to a ui or app
+    target (no `layer-allow:` escape): the edge arch-layers.py counts, even with no import that uses it yet."""
+    ranks = manifest.layers
+    base = manifest_edges(manifest.base_lines)
+    if not ranks or (not base and not manifest.is_new):  # no layers, or no base text to compare with: fail open
+        return []
+    out = []
+    for (target, dependency), index in manifest_edges(manifest.head_lines).items():
+        if (target, dependency) in base or target not in ranks or dependency not in ranks:
+            continue
+        if ranks[dependency][0] <= ranks[target][0] or ranks[dependency][1] not in UPWARD:
+            continue
+        if escaped(manifest.head_lines, index, LAYER_ALLOW):
+            continue
+        out.append(Added(manifest.path, index + 1, f"{target} -> {dependency}: {manifest.head_lines[index].strip()}"))
+    return out
+
+
+def upward_import(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    sources = [c for c in changes if c.path.startswith(SOURCES)]
+    hits = resolve([(upward_imports(c.head, c.added, c.layers), upward_imports(c.base, c.removed, c.layers))
+                    for c in sources], key=import_edge, per_file=False)
+    for manifest in (c for c in changes if c.path == MANIFEST):
+        hits += upward_dependencies(manifest)
+    return hits
+
+
 # A generic class whose deinit is implicit. In a main-actor target (the default of every UI and test
 # target, `.defaultIsolation(MainActor.self)`) that deinit is isolated, and swift-frontend 6.3.3 (Xcode 26.6)
 # crashes on it in -O: signal 11 in EarlyPerfInliner, isCallerAndCalleeLayoutConstraintsCompatible, on the
@@ -854,6 +979,14 @@ RULES = (
          None,
          line_rule(r"CMUX_BENCH_HOOKS|--config[= ]bench\b", None),
          scope=SHIPPED_BUILD + (".xcconfig", "project.pbxproj")),
+    Rule("layer-import", "An import of a ui or app target from a core, service or domain target",
+         "a lower layer that imports a view package couples to it (a hard layer violation, arch-layers.py; "
+         "plans/cmux-next/architecture-refactor-DESIGN.md): every view change rebuilds it and the DAG can cycle",
+         "move the type the import is for down (a model or value into its domain or core target, a process "
+         "host into a service), or invert it with a protocol the lower target declares and the higher one "
+         "implements; layers are in plans/cmux-next/architecture-layers.json",
+         "// layer-allow: <the written, dated exception>",
+         upward_import, scope=(SOURCES, MANIFEST)),
     Rule("app-size", f"CmuxNextApp's composition root grows (in source lines: the root's wiring +{ROOT_BUDGET} per "
          f"push, moves into the root included, plus one Host file; new App files only as moves; growth of the App "
          f"and of its feature files warns)",
@@ -1079,13 +1212,19 @@ def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added
                          "Performance Lead (PL-guardrails) with the output of: git diff -U0 " + f"{base} {head} | head"))
     paths = sorted(changes)
     texts = blobs(repo, [(head, p) for p in paths] + [(base, p) for p in paths]
-                  + [(head, BENCHES), (head, OWNERS)])
+                  + [(head, BENCHES), (head, OWNERS), (head, LAYERS), (base, LAYERS)])
+    # The base's layers win: a push that relabels a target (service -> ui) does not turn the rule off for its
+    # own imports. A target the base does not list yet takes its head layer.
+    ranks = {**layer_ranks(texts.get((head, LAYERS))), **layer_ranks(texts.get((base, LAYERS)))}
+    if ((head, LAYERS) in texts or (base, LAYERS) in texts) and not ranks:
+        warnings.append(("guardrails", f"could not read {LAYERS}, so layer-import did not run (fail open)"))
     for path in paths:
         change = changes[path]
         text = texts.get((head, path), "")
         change.head_lines = text.split("\n")
         change.base_lines = texts.get((base, path), "").split("\n")
         change.has_perf_hot = "perf-hot:" in text
+        change.layers = ranks
     files = [changes[p] for p in paths]
     moved = collections.Counter(r.text.strip() for c in files for r in c.removed if r.text.strip())
     refusals = []
