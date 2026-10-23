@@ -16,6 +16,13 @@ Every machine action takes `--target machine:<id>`; without it the app
 refuses the run. `cmux action describe "cloud <verb>"` shows a verb's
 arguments. With `--json`, an action's fields are under `.result`.
 
+Never build your own way into a machine: no `cmux-tui wg hub`, no SSH or
+port tunnel, no local port bridge, and never a copy of the app's WireGuard
+config. A second hub on the app's key knocks the app's own link off the
+machine, and a local port to the desktop hands the machine's unprotected VNC
+to every program on this Mac. When the user asks to see the desktop, send
+screenshots (section 3); a live view in cmux is not available yet, so say so.
+
 ## 1. Find or make a machine
 
 ```sh
