@@ -59,9 +59,7 @@ const OUT_OF_SCOPE: BoundaryAllowance[] = [
 const src = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src");
 
 function stylesheets(dir: string, out: string[] = []): string[] {
-  for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
-    a.name.localeCompare(b.name),
-  )) {
+  for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       // Prototypes are not loaded by the app and include deliberately experimental motion.
@@ -158,8 +156,7 @@ function animationNames(value: string, known: Set<string>): string[] {
 function isForever(decls: { property: string; value: string }[]): boolean {
   return decls.some(
     ({ property, value }) =>
-      (property === "animation" || property === "animation-iteration-count") &&
-      /\binfinite\b/i.test(value),
+      (property === "animation" || property === "animation-iteration-count") && /\binfinite\b/i.test(value),
   );
 }
 
@@ -197,16 +194,12 @@ function findLoops(file: string, css: string, byName: Map<string, string>): Find
 function allowanceFor(finding: Finding): Allowance | undefined {
   return ALLOWLIST.find(
     (entry) =>
-      entry.file === finding.file &&
-      finding.selector.includes(entry.selector) &&
-      entry.keyframe === finding.keyframe,
+      entry.file === finding.file && finding.selector.includes(entry.selector) && entry.keyframe === finding.keyframe,
   );
 }
 
 function outOfScope(finding: Finding): boolean {
-  return OUT_OF_SCOPE.some(
-    (entry) => entry.file === finding.file && finding.selector.includes(entry.selector),
-  );
+  return OUT_OF_SCOPE.some((entry) => entry.file === finding.file && finding.selector.includes(entry.selector));
 }
 
 const files = stylesheets(src).map((absolute) => ({
@@ -228,9 +221,7 @@ for (const finding of findings) {
   const detail = allowance
     ? `${finding.selector} uses ${finding.keyframe} (${finding.properties.join(", ")}); ${allowance.why}`
     : `${finding.selector} uses ${finding.keyframe} (${finding.properties.join(", ")}); status-dot loops must be reviewed against Leo's settled ruling`;
-  console.warn(
-    `::warning file=webviews/src/${finding.file},line=${finding.line},title=${title}::${detail}`,
-  );
+  console.warn(`::warning file=webviews/src/${finding.file},line=${finding.line},title=${title}::${detail}`);
 }
 
 console.log(
