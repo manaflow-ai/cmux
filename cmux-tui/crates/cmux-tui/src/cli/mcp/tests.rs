@@ -299,6 +299,37 @@ impl Backend for Fake {
         }));
         Ok(json!({"session": "default", "output": "ok\n", "truncated": false, "error": null}))
     }
+
+    fn acpmux(
+        &self,
+        method: &str,
+        params: Value,
+        _timeout: Duration,
+        idempotency_key: Option<&str>,
+        mutation: bool,
+    ) -> Result<Value, CallFailure> {
+        self.sent.borrow_mut().push(json!({
+            "kind": "acpmux",
+            "method": method,
+            "params": params,
+            "key": idempotency_key,
+            "mutation": mutation,
+        }));
+        Ok(json!({
+            "brief": {
+                "briefId": "brief_qwen_1",
+                "title": "Qwen task",
+                "from": "acp:opus",
+                "to": "acp:qwen",
+                "target": "auto",
+                "host": "cmux16",
+                "stopCondition": "Report findings",
+                "status": "running",
+                "sessionId": "session_qwen_1"
+            },
+            "event": {"kind": "dispatch", "briefId": "brief_qwen_1"}
+        }))
+    }
 }
 
 impl Fake {
@@ -457,6 +488,54 @@ fn call(server: &mut Server<Fake>, name: &str, arguments: Value) -> Value {
     let response = server.handle(&request).expect("a response");
     assert!(response.get("error").is_none(), "{response}");
     response["result"].clone()
+}
+
+#[test]
+fn agent_dispatch_tools_route_one_harness_agnostic_call_without_shell() {
+    let mut server = Server::new(Fake::default(), None);
+    let result = call(
+        &mut server,
+        "agent_dispatch",
+        json!({
+            "title": "Qwen task",
+            "brief": "Inspect the fixture and report the result.",
+            "target": "auto",
+            "harness": "qwen",
+            "stop_condition": "Report findings",
+            "idempotency_key": "brief-qwen-1"
+        }),
+    );
+    assert_eq!(result["isError"], false, "{result}");
+    assert_eq!(result["structuredContent"]["briefId"], "brief_qwen_1");
+    assert_eq!(result["structuredContent"]["event"]["kind"], "dispatch");
+    let sent = server.backend.last("acpmux");
+    assert_eq!(sent["method"], "_acpmux/dispatch");
+    assert_eq!(sent["params"]["model"], "qwen");
+    assert_eq!(sent["params"]["target"], "auto");
+    assert!(sent["params"].get("shell").is_none());
+    assert!(sent["params"].get("ssh").is_none());
+    assert_eq!(sent["key"], "brief-qwen-1");
+}
+
+#[test]
+fn agent_brief_tools_use_the_brief_id_for_steer_list_and_report() {
+    let mut server = Server::new(Fake::default(), None);
+    let _ = call(
+        &mut server,
+        "agent_steer",
+        json!({"brief_id": "brief_qwen_1", "text": "Keep going", "steer": true}),
+    );
+    assert_eq!(server.backend.last("acpmux")["method"], "_acpmux/steer");
+    assert_eq!(server.backend.last("acpmux")["params"]["briefId"], "brief_qwen_1");
+    let _ = call(&mut server, "agent_briefs_list", json!({"status": "running"}));
+    assert_eq!(server.backend.last("acpmux")["method"], "_acpmux/briefs");
+    let _ = call(
+        &mut server,
+        "agent_report",
+        json!({"brief_id": "brief_qwen_1", "summary": "Done", "status": "reported"}),
+    );
+    assert_eq!(server.backend.last("acpmux")["method"], "_acpmux/report");
+    assert_eq!(server.backend.last("acpmux")["params"]["briefId"], "brief_qwen_1");
 }
 
 #[test]
