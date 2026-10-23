@@ -30,6 +30,10 @@ import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
 # `--suite=pane-perf` (through the allowlisted fleet entry scripts/measure/split-spring.sh): the whole pane
 # motion suite instead, scripts/cmux-next/pane-perf-terminal.py, with the same --tag/--app/--out/--json.
 # `--suite=budgets`: every perf budget row, scripts/cmux-next/perf-budgets.py (one table, one gate).
+# `--suite=pl-launch` (scratch, #17587 testing; not for landing): scripts/cmux-next/pl-launch-fleet.py.
+if "--suite=pl-launch" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pl-launch-fleet.py")
+    os.execv(sys.executable, [sys.executable, suite] + sys.argv[1:])
 if "--suite=budgets" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-budgets.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=budgets"])
