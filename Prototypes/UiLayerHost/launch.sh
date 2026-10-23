@@ -67,9 +67,9 @@ fi
 run_host() {
   host_started="$(timestamp_ns)"
   if [[ -n "$attach" ]]; then
-    swift run --package-path "$package" -- --attach "$attach" &
+    swift run --package-path "$package" cmux-ui-layer --attach "$attach" &
   else
-    swift run --package-path "$package" -- --snapshot "$snapshot" &
+    swift run --package-path "$package" cmux-ui-layer --snapshot "$snapshot" &
   fi
   host_pid=$!
 }
