@@ -51,6 +51,12 @@ extension LiveCoordinator {
             for (key, value) in params { fields[key] = value }
             return try await client.request(command, params: fields)
         }
+        session.terminalFeed.type = { [weak session] surface, bytes, connection in
+            guard let session, session.workspaces.connectionSerial == connection, let client = session.workspaces.daemon else {
+                throw LinkError(code: "no-link", message: "Not connected to the Mac")
+            }
+            _ = try WorkspaceSync.check(try await client.request("send", params: ["surface": surface, "bytes": bytes.base64EncodedString()]))
+        }
         session.workspaces.onTree = { [weak self, weak session] tree in
             guard let self, let session else { return }
             self.apply(tree, session: session)
@@ -536,7 +542,7 @@ extension LiveCoordinator {
         guard chiefMacID != focusedMacID else { return }
         let owner = focused
         guard let link = owner.servedLink else {
-            if chiefMacID != nil { chiefOffline() }
+            if chiefMacID != nil { chiefOffline() } else { useChiefCloudCopy(macName: owner.name) }
             return
         }
         Task { [weak self] in
@@ -555,6 +561,24 @@ extension LiveCoordinator {
         ChiefSession.shared.use(ChiefOfflineBackend())
         ChiefSession.shared.status = nil
         chiefLive = false
+        useChiefCloudCopy(macName: ChiefSession.shared.macName)
+    }
+
+    /// With no link to the Mac, Chief reads the Mac's cloud copy and its
+    /// messages wait in the cloud for the Mac (a450, logs/iphone-chief-DESIGN.md);
+    /// nothing changes when the Mac publishes no copy or a link came back meanwhile.
+    func useChiefCloudCopy(macName: String?) {
+        // task-owner: one host lookup; ends with the swap or nothing
+        Task { [weak self] in
+            guard let replica = await ChiefSources.shared.macReplica(named: macName) else { return }
+            let session = ChiefSession.shared
+            guard let self, self.chiefLink == nil, session.backend is ChiefOfflineBackend else {
+                replica.close()
+                return
+            }
+            session.use(replica)
+            session.status = ChiefSources.macOfflineReason
+        }
     }
 
     /// Chief on the Mac: its Chief owner over the link's scoped `chief`
@@ -590,7 +614,9 @@ extension LiveCoordinator {
                 session.use(ChiefOfflineBackend(reason: reason))
             }
             chiefLive = false
+            MacHomeFeed.shared.forget(unless: owner.macID)
             log.info("chief unavailable: \(reason, privacy: .public)")
+            useChiefCloudCopy(macName: owner.name)
         }
         do {
             let channel = try await link.openChannel(service: ChiefDaemonBackend.service, args: [:])
@@ -601,6 +627,11 @@ extension LiveCoordinator {
                 await channel.close(code: "eof", reason: "chief unavailable")
                 offline(String(localized: "Chief on this Mac: \(object?["error"] as? String ?? "unavailable")"))
                 return
+            }
+            // Home shows this Mac's Home list (its owner's `home-inbox`), on a channel of its own.
+            if current() {
+                let macID = owner.macID
+                Task { await MacHomeFeed.shared.connect(link: link, macID: macID) }
             }
             let conversations = (object?["data"] as? [String: Any])?["conversations"] as? [[String: Any]] ?? []
             let identity = ChiefIdentity.standard
@@ -864,6 +895,8 @@ extension LiveCoordinator {
 @MainActor
 final class MultiMacFeedActions: FeedActions {
     private weak var coordinator: LiveCoordinator?
+    /// The coordinator, for the terminal-question answers (`MultiMacFeedActions+Terminal.swift`).
+    var coordinatorForTerminal: LiveCoordinator? { coordinator }
     /// How long an answer waits for its Mac's link and chats to open.
     var linkTimeout: Duration = .seconds(20)
 
@@ -940,10 +973,12 @@ final class MultiMacFeedActions: FeedActions {
     }
 
     func answer(_ item: FeedItem, question: AgentQuestion, with answer: AgentQuestionAnswer) async throws {
+        if item.opensTerminal { return try await terminalOwner(item).answer(item, question: question, with: answer) }
         try await owner(item).answer(item, question: question, with: answer)
     }
 
     func decline(_ item: FeedItem, question: AgentQuestion) async throws {
+        if item.opensTerminal { return try await terminalOwner(item).decline(item, question: question) }
         try await owner(item).decline(item, question: question)
     }
 
@@ -953,6 +988,7 @@ final class MultiMacFeedActions: FeedActions {
 
     func message(for error: any Error) -> String {
         if let unsent = error as? Unsent { return unsent.message }
+        if let refused = error as? TerminalFeed.QuestionRefused { return refused.message }
         return AcpmuxSessionSource.message(error)
     }
 

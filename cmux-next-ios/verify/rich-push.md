@@ -11,7 +11,7 @@ PROTOCOL.md "Push notifications (API 0.13.0)". The trust analysis for PR B is
 | --- | --- | --- | --- | --- |
 | Question, one choice, at most 4 options | "<Agent> asks", the question, `<workspace> · <Mac>` | the chat's last lines, the question, option rows, the composer | one per option | the chat, scrolled to the question |
 | Question, multi-select, more than 4 options, several questions or free text | same | option rows (checkboxes for multi-select), Submit, the composer | "Answer…" | the chat |
-| Permission | "<Agent> needs permission", the command or tool title | the last lines and the request | Allow once, Always allow (when offered), Deny | the chat |
+| Permission | "<Agent> needs permission", the command or tool title | the last lines and the request | Allow once, Deny (as the Feed: acpmux refuses a lasting grant from a phone, `remote.lasting_grant_refused`) | the chat |
 | Finished turn | "<Agent> finished", the last line | the last lines, the composer | Reply (text) | the chat |
 | Error | "<Agent> stopped with an error" | same | Reply (text) | the chat |
 | Chief | "Chief", the reply's first lines | the last messages, the composer | Reply (text) | that Chief's conversation |
@@ -23,7 +23,7 @@ Thread per session (`thread-id`), the collapse rules from #23803 unchanged.
 
 - **Face ID stays where it is.** An Allow or an answer is signed by the
   approval key, which needs Face ID (`verify/phone-approvals.md`). iOS shows
-  Face ID only in a foreground app, so Allow, Always allow and every answer
+  Face ID only in a foreground app, so Allow and every answer
   are foreground actions: the app opens on the chat, asks Face ID and sends.
   Deny and text replies need no signature, so they are background actions
   (device unlock required), delivered without opening the app.

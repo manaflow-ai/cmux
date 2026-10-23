@@ -1,3 +1,4 @@
+import CmuxAgentQuestion
 import CmuxMobileFeed
 import CmuxMobileModel
 import Foundation
@@ -29,6 +30,9 @@ public final class TerminalFeed {
         public var createdAt: Date
         public var source: String
         public var acknowledged: Bool
+        /// The question a terminal agent still waits on (an AskUserQuestion in
+        /// Claude Code; the daemon's `question`, while the agent is blocked on it).
+        public var question: AgentQuestion?
 
         public init?(json: [String: Any]) {
             guard let id = json["id"] as? String, !id.isEmpty else { return nil }
@@ -41,6 +45,9 @@ public final class TerminalFeed {
             createdAt = AgentState.date(json["created_at_ms"]) ?? Date(timeIntervalSince1970: 0)
             source = json["source"] as? String ?? "cli"
             acknowledged = json["acknowledged"] as? Bool ?? false
+            question = (json["question"] as? [String: Any]).flatMap { question in
+                surface.flatMap { AgentQuestion(terminalQuestion: question, ledgerID: id, surface: $0) }
+            }
         }
     }
 
@@ -56,6 +63,12 @@ public final class TerminalFeed {
     /// so a read or a read mark never crosses to another Mac or connection.
     /// Parameters are integers only (`limit`, `surface`).
     public var request: (@MainActor (_ command: String, _ params: [String: Int], _ connection: Int) async throws -> Data)?
+    /// Types `bytes` into the terminal `surface` on the Mac's `daemon` channel of
+    /// `connection` (`send`, as the phone's own keyboard does); nil while unbound.
+    public var type: (@MainActor (_ surface: Int, _ bytes: Data, _ connection: Int) async throws -> Void)?
+    /// The pause between the keys of an answer: the agent's screen redraws after each.
+    var keyPause: Duration = .milliseconds(300)
+    var clock: any Clock<Duration> = ContinuousClock()
 
     private(set) var macID = ""
     private var connection: Int?
@@ -131,7 +144,7 @@ public final class TerminalFeed {
         for entry in entries {
             guard let surface = entry.surface, resumed.contains(surface) else { continue }
             let id = Self.itemID(macID: macID, entry: entry.id)
-            if let item = store.item(id: id), item.kind == .needsInput, item.resolution == nil {
+            if let item = store.item(id: id), item.waitsInTerminal {
                 store.resolveElsewhere(id, text: "Answered in the terminal")
             }
         }
@@ -248,6 +261,13 @@ public final class TerminalFeed {
             var item = Self.item(entry, id: id, harness: harness, workspace: place.workspace, tab: place.tab)
             if known == nil, hydrated, !historyIDs.contains(entry.id) { fresh.append(item) } else {
                 if let known {
+                    // An answered (or declined) question card keeps what the person did.
+                    if case .question(let question) = known.kind, !question.isPending || known.resolution != nil { continue }
+                    // The agent moved on from a question shown inline: it was answered there.
+                    if case .question = known.kind, item.kind == .needsInput {
+                        store.resolveElsewhere(id, text: "Answered in the terminal")
+                        continue
+                    }
                     item.createdAt = known.createdAt
                     // Unchanged: no merge (each one rewrites and saves the Feed).
                     if known.kind == item.kind, known.markdown == item.markdown, known.agentName == item.agentName,
@@ -275,7 +295,7 @@ public final class TerminalFeed {
         for entry in entries {
             guard let surface = entry.surface else { continue }
             let id = Self.itemID(macID: macID, entry: entry.id)
-            guard id.hasPrefix(prefix), let item = store.item(id: id), item.kind == .needsInput, item.resolution == nil else { continue }
+            guard id.hasPrefix(prefix), let item = store.item(id: id), item.waitsInTerminal else { continue }
             let later = entries.contains { $0.surface == surface && $0.createdAt > entry.createdAt && !isEcho($0) }
             if later { store.resolveElsewhere(id, text: "Answered in the terminal") }
         }
@@ -307,10 +327,11 @@ public final class TerminalFeed {
 
     static func item(_ entry: Entry, id: String, harness: String, workspace: Workspace, tab: WorkspaceTab) -> FeedItem {
         let agentName = harness == "terminal" ? "Terminal" : DaemonTree.agentName(harness)
-        let kind = kind(entry)
+        let kind: FeedItem.Kind = entry.question.map { .question($0) } ?? kind(entry)
         var item = FeedItem(
             id: id, kind: kind, workspaceID: workspace.id, tabID: tab.id, agentName: agentName, harness: harness,
-            workspaceTitle: workspace.title, markdown: text(entry, agentName: agentName, kind: kind), quote: nil,
+            workspaceTitle: workspace.title,
+            markdown: entry.question?.items.first?.prompt ?? text(entry, agentName: agentName, kind: kind), quote: nil,
             createdAt: entry.createdAt
         )
         item.opensTerminal = true
@@ -362,5 +383,74 @@ public final class TerminalFeed {
         let known = ["codex", "claude", "cursor", "gemini", "opencode", "amp", "droid", "copilot", "pi"]
         guard let first = title.split(separator: " ").first?.lowercased() else { return nil }
         return known.contains(first) ? first : nil
+    }
+}
+
+// MARK: Terminal agent questions
+
+extension FeedItem {
+    /// A terminal agent's ask still open on the phone: a needs-input card, or a
+    /// question card nobody answered yet.
+    var waitsInTerminal: Bool {
+        guard resolution == nil else { return false }
+        switch kind {
+        case .needsInput: return true
+        case .question(let question): return opensTerminal && question.isPending
+        default: return false
+        }
+    }
+}
+
+extension TerminalFeed {
+    /// Why a terminal question's answer was not typed (shown under the card; the question stays open).
+    public struct QuestionRefused: Error, Equatable, Sendable {
+        public var message: String
+    }
+
+    /// The question card of the agent in terminal tab `tabID` (`s<surface>`) and its question,
+    /// while the agent waits on it: a push names the tab, not the ledger row.
+    public func pendingQuestion(tabID: String) -> (FeedItem, AgentQuestion)? {
+        guard let tree, let surface = tree.surfaces[tabID] else { return nil }
+        for entry in entries.reversed() where entry.surface == surface {
+            guard entry.question != nil, let item = store.item(id: Self.itemID(macID: macID, entry: entry.id)),
+                  case .question(let question) = item.kind, question.isPending, item.resolution == nil else { continue }
+            return (item, question)
+        }
+        return nil
+    }
+
+    /// Answers a terminal agent's question by typing it into its terminal
+    /// (`TerminalQuestionKeys`), only while that terminal shows this question.
+    public func answer(_ item: FeedItem, question: AgentQuestion, with answer: AgentQuestionAnswer) async throws {
+        let keys: [Data]
+        do {
+            keys = try TerminalQuestionKeys.keys(question, answer)
+        } catch let refusal as TerminalQuestionKeys.Refusal {
+            throw QuestionRefused(message: refusal.message)
+        }
+        try await typeOnQuestionScreen(item, question: question, answer: answer, keys: keys)
+    }
+
+    /// Declines it: Escape, on the question's screen only.
+    public func decline(_ item: FeedItem, question: AgentQuestion) async throws {
+        try await typeOnQuestionScreen(item, question: question, answer: AgentQuestionAnswer(selections: [:]),
+                                       keys: TerminalQuestionKeys.decline)
+    }
+
+    private func typeOnQuestionScreen(_ item: FeedItem, question: AgentQuestion, answer: AgentQuestionAnswer, keys: [Data]) async throws {
+        guard let request, let type, let connection, let surface = Int(question.source.session.dropFirst()),
+              question.source.session.hasPrefix("s") else {
+            throw QuestionRefused(message: FeedStore.notConnectedMessage)
+        }
+        let reply = try WorkspaceSync.check(try await request("read-screen", ["surface": surface], connection))
+        let screen = (reply["data"] as? [String: Any])?["text"] as? String ?? ""
+        guard TerminalQuestionKeys.screenShows(screen, question: question, answer: answer) else {
+            log.info("terminal question \(item.id, privacy: .public): the terminal no longer shows it; nothing typed")
+            throw QuestionRefused(message: String(localized: "The terminal isn't showing this question anymore. Nothing was typed."))
+        }
+        for (index, key) in keys.enumerated() {
+            if index > 0 { try await clock.sleep(for: keyPause) }
+            try await type(surface, key, connection)
+        }
     }
 }

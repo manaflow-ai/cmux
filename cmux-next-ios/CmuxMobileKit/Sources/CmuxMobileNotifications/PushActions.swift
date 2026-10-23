@@ -160,7 +160,8 @@ public struct PushActions: Sendable {
             guard !payload.options.isEmpty else { return [(.answer, title(.answer))] }
             var out: [(action: PushAction, title: String)] = []
             if payload.options.contains(where: { $0.kind == .allowOnce }) { out.append((.allowOnce, title(.allowOnce))) }
-            if payload.options.contains(where: { $0.kind == .allowAlways }) { out.append((.allowAlways, title(.allowAlways))) }
+            // Never Always allow: acpmux refuses a lasting grant from a phone
+            // (`remote.lasting_grant_refused`); allow it for the chat on the Mac.
             if payload.options.contains(where: \.isReject) { out.append((.deny, title(.deny))) }
             return out
         case .completed, .failed, .chief:

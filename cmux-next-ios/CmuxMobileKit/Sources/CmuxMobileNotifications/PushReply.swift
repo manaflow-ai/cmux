@@ -83,10 +83,12 @@ public struct PushReply: Codable, Sendable, Equatable, Identifiable {
         case .option(let index):
             guard payload.isSingleChoice, let q = payload.questions.first, q.options.indices.contains(index) else { return nil }
             action = .option(index, label: q.options[index].label)
-        case .allowOnce, .allowAlways:
-            let kind: PushOption.Kind = button == .allowOnce ? .allowOnce : .allowAlways
-            guard let option = payload.options.first(where: { $0.kind == kind }) else { return nil }
+        case .allowOnce:
+            guard let option = payload.options.first(where: { $0.kind == .allowOnce }) else { return nil }
             action = .allow(optionID: option.id)
+        case .allowAlways:
+            // acpmux refuses a lasting grant from a phone (PushActions offers no such button).
+            return nil
         case .deny:
             action = .deny(optionID: payload.options.first(where: { $0.kind == .rejectOnce })?.id ?? payload.options.first(where: \.isReject)?.id)
         case .reply, .terminalReply:

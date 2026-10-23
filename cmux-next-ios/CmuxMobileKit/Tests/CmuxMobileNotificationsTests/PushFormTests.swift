@@ -59,9 +59,10 @@ import Testing
                            PushOption(id: "x", label: "Weird", kind: nil),
                            PushOption(id: "r1", label: "Deny", kind: .rejectOnce)]
         var form = PushForm(payload: payload)
-        #expect(form.rows.map(\.style) == [.allow, .allow, .deny])
-        #expect(form.tap(form.rows[1]) == .allow(optionID: "a2"))
-        #expect(form.tap(form.rows[2]) == .deny(optionID: "r1"))
+        // No Always allow row: acpmux refuses a lasting grant from a phone.
+        #expect(form.rows.map(\.style) == [.allow, .deny])
+        #expect(form.tap(form.rows[0]) == .allow(optionID: "a1"))
+        #expect(form.tap(form.rows[1]) == .deny(optionID: "r1"))
         #expect(!form.hasComposer && !form.showsSubmit)
     }
 

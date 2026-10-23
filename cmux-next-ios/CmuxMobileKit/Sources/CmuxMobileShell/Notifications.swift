@@ -143,9 +143,14 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         return showing ? [] : [.banner, .list, .sound]
     }
 
-    /// Taps and buttons. iOS keeps a background launch alive until this
-    /// returns, so a background reply is delivered (or fails) before it does.
-    public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+    /// Taps and buttons. iOS keeps a background launch alive until the
+    /// completion handler runs, so a background reply is delivered (or fails)
+    /// first. The handler must run on the main thread: UIKit updates the app's
+    /// snapshot in it and aborts off the main thread (verify/push-matrix.md,
+    /// failure 2: the async form returned on a background thread and every
+    /// notification button crashed the app).
+    public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                                   withCompletionHandler completionHandler: @escaping @Sendable () -> Void) {
         // Only Sendable values cross to the main actor.
         let userInfo = response.notification.request.content.userInfo
         // Only the app's own (local) notifications may carry a retry (review H1).
@@ -153,7 +158,10 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         let read = PushReplies.Response(actionIdentifier: response.actionIdentifier,
                                         text: (response as? UNTextInputNotificationResponse)?.userText,
                                         userInfo: userInfo, fromPush: fromPush, retries: PushRetryStore.app)
-        await PushReplies.shared.handle(read)
+        Task { @MainActor in
+            await PushReplies.shared.handle(read)
+            completionHandler()
+        }
     }
 }
 
@@ -180,7 +188,8 @@ final class LiveDeviceDirectory: SettingsDeviceDirectory {
         var out: [SettingsDevice] = []
         for device in all where device.kind == "mac" {
             out.append(SettingsDevice(ids: [device.deviceId], kind: .mac, name: device.name, online: device.online ?? false,
-                                      lastSeenAt: device.lastSeenDate, addedAt: device.createdDate, isThisDevice: false, receivesNotifications: false))
+                                      lastSeenAt: device.lastSeenDate, addedAt: device.createdDate, isThisDevice: false, receivesNotifications: false,
+                                      machineID: device.machineId, teamID: device.teamId))
         }
         let phones = all.filter { $0.kind == "phone" }
         let presence = phones.filter { $0.name.hasSuffix(Self.presenceSuffix) }

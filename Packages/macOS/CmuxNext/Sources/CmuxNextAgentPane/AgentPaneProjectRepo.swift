@@ -106,6 +106,10 @@ nonisolated struct AgentPaneProjectRepoReader: Sendable {
         } else if let link = text(dotGit), let line = link.split(separator: "\n").first, line.hasPrefix("gitdir:") {
             // A linked worktree: `.git` is a file naming its folder inside the main `.git/worktrees`.
             gitDir = Self.resolve(line.dropFirst("gitdir:".count).trimmingCharacters(in: .whitespacesAndNewlines), from: folder)
+        } else if let head = text(folder + "/HEAD"), let config = text(folder + "/config"), Self.isBare(config) {
+            // A bare repository (a lane mirror, `cmux.git`): the folder is the repository itself, so a
+            // chat in it still has its GitHub origin and its owner's avatar.
+            return repo(commonDir: folder, head: head)
         } else {
             return nil
         }
@@ -153,6 +157,20 @@ nonisolated struct AgentPaneProjectRepoReader: Sendable {
         guard line.hasPrefix("ref: refs/heads/") else { return nil }
         let name = String(line.dropFirst("ref: refs/heads/".count))
         return name.isEmpty ? nil : name
+    }
+
+    /// Whether a Git config says `bare = true` in its `[core]` section.
+    static func isBare(_ config: String) -> Bool {
+        var inCore = false
+        for raw in config.split(whereSeparator: \.isNewline) {
+            let line = raw.trimmingCharacters(in: .whitespaces).lowercased()
+            if line.hasPrefix("[") {
+                inCore = line.replacingOccurrences(of: " ", with: "") == "[core]"
+                continue
+            }
+            if inCore, line.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "\t", with: "") == "bare=true" { return true }
+        }
+        return false
     }
 
     /// The `url` of `[remote "origin"]` in a Git config.

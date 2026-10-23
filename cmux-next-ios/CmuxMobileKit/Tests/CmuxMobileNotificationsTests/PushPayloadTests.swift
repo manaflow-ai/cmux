@@ -81,7 +81,8 @@ import UserNotifications
         ])
         #expect(PushActions().plan(for: p).map(\.action) == [.allowOnce, .deny])
         p.options.append(PushOption(id: "aa", label: "Always", kind: .allowAlways))
-        #expect(PushActions().plan(for: p).map(\.action) == [.allowOnce, .allowAlways, .deny])
+        // Never Always allow (acpmux refuses a lasting grant from a phone).
+        #expect(PushActions().plan(for: p).map(\.action) == [.allowOnce, .deny])
         // None listed (a v1 push, or a sealed one the Mac trimmed to fit): "Answer…" opens the app.
         #expect(PushActions().plan(for: PushPayload(mac: "m", kind: .permission)).map(\.action) == [.answer])
     }
@@ -135,7 +136,8 @@ import UserNotifications
     ])
 
     @Test func buttonsBecomeReplies() throws {
-        #expect(try #require(PushReply(payload: permission, button: .allowAlways)).action == .allow(optionID: "aa"))
+        #expect(try #require(PushReply(payload: permission, button: .allowOnce)).action == .allow(optionID: "a"))
+        #expect(PushReply(payload: permission, button: .allowAlways) == nil)
         // Deny is the one-time reject, never the lasting one.
         #expect(try #require(PushReply(payload: permission, button: .deny)).action == .deny(optionID: "r"))
         let reply = try #require(PushReply(payload: PushPayload(mac: "m", kind: .completed, sessionId: "s"), button: .reply, text: "  go on \n"))

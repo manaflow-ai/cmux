@@ -52,7 +52,8 @@ public struct PushForm: Sendable, Equatable {
             }
         case .permission:
             return payload.options.compactMap { option in
-                if option.isAllow { return Row(id: option.id, question: 0, label: option.label, detail: nil, style: .allow) }
+                // No lasting grant from a phone (acpmux refuses it).
+                if option.kind == .allowOnce { return Row(id: option.id, question: 0, label: option.label, detail: nil, style: .allow) }
                 if option.isReject { return Row(id: option.id, question: 0, label: option.label, detail: nil, style: .deny) }
                 return nil
             }
