@@ -227,6 +227,26 @@ still observes `GhosttyRuntime.configDidChange` through `MainActorObservation`, 
 observer: the target is a direct stream from GhosttyRuntime to its 3 consumers. bench-terminal-resize.py
 launches the app itself; P12 asks for `bench_launch.py`: migrate it with the next bench change.
 
+### Next batch: bash 4.4-5.2 fork-free; terminal fling (lead, 2026-10-23)
+
+bash 4.4-5.2 (ghostty-next `src/shell-integration/bash/ghostty.bash`): today 2 forks per command. PS0
+appends `$(__ghostty_preexec_hook >/dev/tty)` (a subshell; bash < 5.3 cannot call a function from a prompt
+expansion without one) and the hook reads the line with `$(history 1)`. A real bug too: in that subshell
+`__ghostty_preexec`'s `PS1`/`PS2` restore and `_ghostty_executing=1` never reach the shell. Plan: preexec runs
+in the shell from a DEBUG trap armed by precmd (first DEBUG after a prompt, not inside PROMPT_COMMAND or
+completion; chain a user's existing DEBUG trap, `extdebug` untouched). The title's full command line without
+a fork: `builtin history 1 >| "$file"` then `builtin read -r -d '' cmd < "$file"` (a builtin's redirection
+forks nothing), with `$file` in a per-user directory only (`$XDG_RUNTIME_DIR`, else macOS's per-user
+`$TMPDIR`, mode 0700); with neither, the title uses `$BASH_COMMAND` (first simple command: the one documented
+degradation, no fork). The file is removed by an EXIT trap. Guard, red first: cmux-tui-core
+`shell_integration/fork_count_tests` strict on bash 4.4, 5.0, 5.2 and 5.3, 0 extra forks per command and at
+start. One ghostty-next PR, one pin bump; PL-shell-integration's branch rebases on it.
+
+Terminal fling: `ghostty_surface_mouse_scroll` takes the renderer-state mutex on main while output streams.
+Plan: scroll becomes a renderer mailbox message (latest viewport offset wins), and the scrollbar state is
+published from the renderer thread once per frame through a snapshot the main thread reads without the lock.
+Guard, red first: main stall per scroll event < 1 ms with 10 printing terminals.
+
 ## 5. Measurements
 
 Filled in as fleet runs land: host, build sha, refresh rate, light and STRESS side by side.
