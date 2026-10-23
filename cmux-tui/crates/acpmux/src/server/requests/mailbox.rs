@@ -7,7 +7,7 @@
 
 use super::*;
 use crate::mailbox::{MailboxError, SendInput};
-use crate::session_identity::{SessionReceipt, LOCAL_HOST_ID};
+use crate::session_identity::{LOCAL_HOST_ID, SessionReceipt};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -19,7 +19,14 @@ pub(super) async fn handle(
 ) -> Result<Value, RpcError> {
     require_local_origin(conn.origin)?;
     match method {
-        crate::rpc::method::MUX_MAIL_SEND if params.get("target").is_some() => {
+        crate::rpc::method::MUX_MAIL_SEND
+            if params.get("target").is_some_and(|target| !target.is_null()) =>
+        {
+            if params.get("recipient").is_some_and(|recipient| !recipient.is_null()) {
+                return Err(RpcError::invalid_params(
+                    "mailbox send accepts either recipient or target, not both",
+                ));
+            }
             let id = required_string(params, "id")?;
             let (sender_id, sender_receipt) = identity_params_or_bound(conn, params, "sender")?;
             let sender_bound =

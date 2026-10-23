@@ -190,7 +190,7 @@ final class FeedService {
     /// mailbox wait is event-driven; quiet delivery notifies this reader but
     /// never wakes the sender's ACP turn.
     private func startReportsIfNeeded() {
-        guard reportsTask == nil, let socketPath = acpmuxEnvironment?.socketPath else { return }
+        guard auth.isSignedIn, reportsTask == nil, let socketPath = acpmuxEnvironment?.socketPath else { return }
         let client = reportsClient
         reportsTask = Task { [weak self] in
             guard let self else { return }
