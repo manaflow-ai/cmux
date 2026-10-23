@@ -93,9 +93,11 @@ import Testing
         let row = try #require(list.displayed.row(for: .workspace(loose)), "\(label): no loose row")
         let rowView = try #require(list.rowViews[.workspace(loose)])
         let rich = list.displayed.row(for: .workspace(Self.rich))?.height ?? -1
-        let expectedMetrics = minimal ? SidebarLayoutMetrics.standard.minimal : SidebarLayoutMetrics.standard
-        var parts = ["row \(row.height)", "rowView \(rowView.frame.height)", "rich \(rich)", "metrics \(expectedMetrics.rowHeight)"]
-        #expect(abs(row.height - expectedMetrics.rowHeight) <= 0.5, "\(label): a one-line row is \(row.height), metrics say \(expectedMetrics.rowHeight)")
+        var o = SidebarLayoutOptions()
+        (o.minimal, o.expanded) = (minimal, density == .expanded)
+        let expectedMetrics = SidebarLayoutMetrics.standard.resolved(for: o)
+        var parts = ["row \(row.height)", "rowView \(rowView.frame.height)", "rich \(rich)", "metrics \(expectedMetrics.rowStep)"]
+        #expect(abs(row.height - expectedMetrics.rowStep) <= 0.5, "\(label): a plain row is \(row.height), metrics say \(expectedMetrics.rowStep)")
         for (name, id) in [("group", group), ("pinned", pinned), ("parent", parent), ("child", child)] {
             let slot = try #require(list.displayed.row(for: .group(id)), "\(label): no \(name) header")
             let view = try #require(list.rowViews[.group(id)] as? GroupHeaderRowView, "\(label): no \(name) header view")
@@ -118,5 +120,28 @@ import Testing
         let header = try #require(list.displayed.row(for: .group(group))).height
         #expect(abs(rich - header) <= 0.5, "\(label): a workspace row is \(rich) pt, its group header \(header) pt")
         print("HEIGHTS|\(label)|" + parts.joined(separator: "|"))
+    }
+
+    /// The guard against drift: under every layout option a group header takes the same step as a
+    /// workspace row with the density's usual lines, from the one `resolved(for:)` every sizing site reads.
+    @Test(arguments: DensityPreset.allCases)
+    func resolvedMetricsGiveHeadersAndRowsOneStep(preset: DensityPreset) {
+        DensityTokens.$scoped.withValue(preset.tokens) {
+            for minimal in [false, true] {
+                for expanded in [false, true] {
+                    for tabs in [false, true] {
+                        var o = SidebarLayoutOptions()
+                        (o.minimal, o.expanded, o.workspacesAsTabs) = (minimal, expanded, tabs)
+                        let m = SidebarLayoutMetrics.standard.resolved(for: o)
+                        let plain = m.height(for: WorkspaceRowContent())
+                        var usual = WorkspaceRowContent()
+                        usual.detail = expanded && !minimal && !tabs ? "~/fun/cmux" : nil
+                        let label = "\(preset.rawValue) minimal \(minimal) expanded \(expanded) tabs \(tabs)"
+                        #expect(m.groupHeaderHeight == plain, "\(label): header \(m.groupHeaderHeight), plain row \(plain)")
+                        #expect(m.groupHeaderHeight == m.height(for: usual), "\(label): header \(m.groupHeaderHeight), usual row \(m.height(for: usual))")
+                    }
+                }
+            }
+        }
     }
 }
