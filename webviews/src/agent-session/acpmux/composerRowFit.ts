@@ -37,6 +37,8 @@ export const COMPOSER_FIT_STEPS = {
   effortShort: 470,
   /** The location strip's machine shows its laptop icon alone. */
   machineIconOnly: 460,
+  /** The quiet row's harness shows its mark alone, its name in its tooltip (ComposerHarness.tsx). */
+  harnessMark: 460,
   /** The model shows its family ("Opus"). */
   modelFamily: 440,
   /** The permission mode's label goes; its glyph and chevron stay. */
@@ -55,28 +57,29 @@ export const COMPOSER_FIT_STEPS = {
   barTight: 260,
 } as const;
 
-export type FitUnit = "access" | "effort" | "mic" | "model";
+export type FitUnit = "access" | "effort" | "harness" | "mic" | "model";
 export type FitForm = "full" | "short" | "family" | "icon" | "hidden";
 
 /** The row's steps: at its width (COMPOSER_FIT_STEPS) `unit` takes the form `to`. Labels shorten
- *  early and whole, a little before the row runs out of room: effort's short name, the model's
- *  family, the permission label (its glyph stays), the model's mark alone (its name only while the
+ *  early and whole, a little before the row runs out of room: effort's short name, the quiet row's
+ *  harness to its mark alone (the mark still names it, Leo 2026-10-21), the model's family, the permission label (its glyph stays), the model's mark alone (its name only while the
  *  row can hold it, #20548). The mic never leaves (Leo 2026-10-19, as Claude Code's): the prompt gives way instead. A row too long
  *  for its width's steps takes the next ones too, in this order.
  *  One table: the steps change here. */
 export const ROW_FIT_STEPS: readonly { step: keyof typeof COMPOSER_FIT_STEPS; unit: FitUnit; to: FitForm }[] = [
   { step: "effortShort", unit: "effort", to: "short" },
+  { step: "harnessMark", unit: "harness", to: "icon" },
   { step: "modelFamily", unit: "model", to: "family" },
   { step: "accessLabelHidden", unit: "access", to: "icon" },
   { step: "modelMark", unit: "model", to: "icon" },
 ];
 
-const UNITS: readonly FitUnit[] = ["access", "effort", "mic", "model"];
+const UNITS: readonly FitUnit[] = ["access", "effort", "harness", "mic", "model"];
 type Forms = Record<FitUnit, FitForm>;
 
 /** Each unit's form in a pane `width` px wide that also took the first `extra` steps. */
 export function fitForms(width: number, extra = 0, steps = ROW_FIT_STEPS): Forms {
-  const forms: Forms = { access: "full", effort: "full", mic: "full", model: "full" };
+  const forms: Forms = { access: "full", effort: "full", harness: "full", mic: "full", model: "full" };
   steps.forEach(({ step, unit, to }, index) => {
     if (index < extra || width <= COMPOSER_FIT_STEPS[step]) forms[unit] = to;
   });
@@ -197,7 +200,8 @@ function show(bar: HTMLElement, step: number): void {
  *  while its unit (`data-fit-title-unit`) is in its icon form. */
 function nameIcons(bar: HTMLElement, forms: Forms): void {
   for (const wrapper of bar.querySelectorAll<HTMLElement>("[data-fit-title]")) {
-    const button = wrapper.querySelector<HTMLElement>(".acpmux-picker-button");
+    // The footer's fixed harness is text, not a button (ComposerHarness.tsx): its face takes the tooltip.
+    const button = wrapper.querySelector<HTMLElement>(".acpmux-picker-button, .acpmux-foot-harness-face");
     const name = wrapper.dataset.fitTitle ?? "";
     if (!button) continue;
     const iconOnly = forms[wrapper.dataset.fitTitleUnit as FitUnit] === "icon";

@@ -58,6 +58,11 @@ Fleet (an owned mini's console; the allowlisted entry builds the tagged app at t
     --artifact artifacts/split-spring/report.json --arg=--suite=every-action [--arg=--sessions=light,stress]
   (also artifacts/split-spring/every-action.md in a second step with that --artifact)
 
+On the fleet pass --vdisplay=120 to split-spring.sh: a 1920x1080 120 Hz virtual display, so frames are judged at
+full ProMotion refresh and the STRESS grid (4 columns) fits; a 1024x768 console refuses the splits. The window
+opens on screen 0, the main display: the virtual one when split-spring.sh made it main, else the console.
+Pass --vdisplay-hold=SECONDS longer than the run (the helper ends itself after 1200 s by default).
+
 Usage: every-action-sweep.py --app APP --tag TAG --out DIR [--json PATH] [--sessions light,stress] [--repeat 3]
        [--only id,id] [--limit N] [--shard K/N] [--settle 0.5] [--no-interactions] [--keep]
 A sharded run (--shard K/N) times the interactions in shard 1 only; merge the shards' JSON with
@@ -67,6 +72,8 @@ import argparse, csv, signal, threading, glob, importlib.util, json, os, platfor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
+sys.path.insert(0, HERE)
+from tag_teardown import TagTeardown  # noqa: E402
 
 if len(sys.argv) > 2 and sys.argv[1] == "--merge":
     MERGE = (sys.argv[2], sys.argv[3:])
@@ -194,7 +201,7 @@ class App:
         env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/zsh", "CMUX_DEV_BACKEND_MODE": "local",
                "CMUX_NEXT_AGENT_PANE_MOCK": "1", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-               "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(map(str, WINDOW)),
+               "CMUX_NEXT_TEST_WINDOW_SCREEN": "0", "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(map(str, WINDOW)),
                "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY, "CMUX_NEXT_CHIEF_ISOLATED": "1",
                "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"), "CMUX_NEXT_TYPING_PROBE": PROBE,
                "CMUX_NEXT_HANG_THRESHOLD_MS": "8", "ACPMUX_AGENT_LAUNCH": "deny"}
@@ -220,6 +227,14 @@ class App:
         time.sleep(3)  # test script: launch work (restore, first pages) ends before the first measure
 
     def stop(self):
+        try:
+            self.quit()
+        finally:
+            # The tag's headless cmux-tui session and acpmux outlive a quit (keep-on-quit): end them, so the next
+            # session starts empty (a relaunch otherwise restores every workspace the last session left).
+            TagTeardown(opts.app, log=note).end()
+
+    def quit(self):
         if not self.process or self.process.poll() is not None:
             return
         rpc("action.run", {"action": "quitEndSessions"}, timeout=10)  # ends the tag's terminal sessions too
@@ -397,6 +412,13 @@ class Sweep:
 
     def build(self):
         self.builder = self.stress_module.Stress(rpc, log=note, settle=3.0)
+        # A session starts from one workspace: anything a restore brought back is closed first.
+        leftover = [w["id"] for w in topology().get("workspaces") or [] if w.get("id")][1:]
+        for workspace in leftover:
+            rpc("action.run", {"action": "closeWorkspace", "target": f"workspace:{workspace}", "origin": "script"}, timeout=30)
+        if leftover:
+            note(f"every-action: {self.session}: closed {len(leftover)} restored workspaces; "
+                 f"{len(topology().get('workspaces') or [])} left")
         if self.session == "stress":
             summary = self.builder.build()
             note("STRESS-SESSION " + json.dumps(summary))
@@ -1315,7 +1337,9 @@ def main():
     report = {"env": env, "sessions": []}
     report_path = opts.json or os.path.join(OUT, "every-action.json")
     try:
-        for name in [s for s in opts.sessions.split(",") if s]:
+        for index, name in enumerate([s for s in opts.sessions.split(",") if s]):
+            if index:
+                app.relaunch()  # each session starts from a fresh app: STRESS is exactly perf-stress-session's shape
             sweep = Sweep(app, name, stress_module)
             sweep.run(actions)
             report["sessions"].append({"name": name, "summary": sweep.summary, "validity": sweep.validity, "idle": sweep.idle,

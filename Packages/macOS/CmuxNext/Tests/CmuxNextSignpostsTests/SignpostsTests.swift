@@ -100,32 +100,38 @@ struct SignpostsTests {
 
     /// The boundary is only correct while Core Animation commits at an order below
     /// `CommitBoundary.order`; this reads the main run loop's observers on the macOS that runs it
-    /// (14, 15, 26 and 27 are supported), so a change in a new major fails here.
+    /// (14, 15, 26 and 27 are supported), so a change in a new major fails here. AppKit's own
+    /// display observers are checked by `CommitBoundaryAppKitTests` (CmuxNextAppTests) and in the
+    /// running app by `debug.commit_boundary`.
     @Test("Core Animation's commit observer on this macOS runs before the boundary")
     func coreAnimationCommitsBeforeTheBoundary() throws {
         // A property change on the main thread opens an implicit transaction, which installs
         // Core Animation's commit observer on the main run loop.
         let layer = CALayer()
         layer.opacity = 0.5
-        let description: String = CFCopyDescription(CFRunLoopGetMain()) as String
-        let orders = Self.coreAnimationObserverOrders(in: description)
+        let audit = CommitBoundaryAudit.mainRunLoop()
         pollingTurn()
-        try #require(!orders.isEmpty, "no Core Animation commit observer on the main run loop:\n\(description.prefix(6_000))")
-        #expect(orders.allSatisfy { $0 < CommitBoundary.order }, "Core Animation observer orders \(orders)")
+        try #require(!audit.coreAnimation.isEmpty, "no Core Animation commit observer on the main run loop: \(audit.observers)")
+        #expect(audit.late.isEmpty, "observers after the boundary: \(audit.late)")
     }
 
-    /// The orders of the main run loop's Core Animation transaction observers in a
-    /// `CFCopyDescription` dump of the run loop (`order = 2000000, callout = _ZN2CA11Transaction...`).
-    private static func coreAnimationObserverOrders(in description: String) -> [Int] {
-        guard let pattern = try? NSRegularExpression(pattern: #"order = (-?\d+), callout = ([^\s(]+)"#) else { return [] }
-        let range = NSRange(description.startIndex..., in: description)
-        return pattern.matches(in: description, range: range).compactMap { match in
-            guard let orderRange = Range(match.range(at: 1), in: description),
-                  let calloutRange = Range(match.range(at: 2), in: description) else { return nil }
-            let callout = description[calloutRange]
-            guard callout.contains("CA11Transaction") || callout.contains("CA::Transaction") else { return nil }
-            return Int(description[orderRange])
-        }
+    @Test("The audit reads observers from a run loop dump, once each, and flags late display observers")
+    func auditReadsADump() {
+        let dump = """
+        observers = (
+            "<CFRunLoopObserver 0x1 [0x2]>{valid = Yes, activities = 0xa0, repeats = Yes, order = 2000000, callout = _ZN2CA11Transaction17observer_callbackEP19__CFRunLoopObservermPv (0x3), context = <CFRunLoopObserver context 0x0>}",
+            "<CFRunLoopObserver 0x4 [0x2]>{valid = Yes, activities = 0xa0, repeats = Yes, order = 2000000, callout = _ZN2CA11Transaction17observer_callbackEP19__CFRunLoopObservermPv (0x3), context = <CFRunLoopObserver context 0x0>}",
+            "<CFRunLoopObserver 0x5 [0x2]>{valid = Yes, activities = 0xa0, repeats = Yes, order = 2001000, callout = _NSDisplayCycleObserverCallback (0x6), context = <CFRunLoopObserver context 0x0>}",
+            "<CFRunLoopObserver 0x7 [0x2]>{valid = Yes, activities = 0x2, repeats = Yes, order = 2500000, callout = _NSLayoutTimingObserver (0x8), context = <CFRunLoopObserver context 0x0>}",
+            "<CFRunLoopObserver 0x9 [0x2]>{valid = Yes, activities = 0x1, repeats = Yes, order = -2147483647, callout = _runLoopObserverCallout (0xa), context = <CFRunLoopObserver context 0x0>}",
+        )
+        """
+        let audit = CommitBoundaryAudit(description: dump)
+        #expect(audit.observers.map(\.order) == [2_000_000, 2_001_000, 2_500_000], "\(audit.observers)")
+        #expect(audit.coreAnimation.map(\.activities) == [0xa0])
+        // The display cycle observer after the boundary, at before-waiting, makes action.commit end
+        // too early; the layout one fires only before timers, where the boundary never does.
+        #expect(audit.late.map(\.callout) == ["_NSDisplayCycleObserverCallback"])
     }
 
     @Test("An interval runs its body and returns its value, with a text or an action message")

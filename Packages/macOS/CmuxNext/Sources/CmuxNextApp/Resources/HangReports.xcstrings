@@ -1,0 +1,661 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "hangReports.ask.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "هل تساعد في جعل cmux أسرع؟"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pomoći da cmux bude brži?"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vil du hjælpe med at gøre cmux hurtigere?"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux schneller machen helfen?"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Help Make cmux Faster?"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¿Nos ayudas a hacer cmux más rápido?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aider à rendre cmux plus rapide ?"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vuoi aiutarci a rendere cmux più veloce?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmuxの高速化に協力しますか？"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ជួយ​ធ្វើ​ឱ្យ cmux លឿន​ជាង​មុន?"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux를 더 빠르게 만드는 데 도움을 주시겠어요?"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vil du hjelpe med å gjøre cmux raskere?"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pomożesz przyspieszyć cmux?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quer ajudar a deixar o cmux mais rápido?"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Помочь сделать cmux быстрее?"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ช่วยให้ cmux เร็วขึ้นไหม"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux’u hızlandırmaya yardım eder misiniz?"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Допомогти зробити cmux швидшим?"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Giúp cmux nhanh hơn?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "帮助 cmux 变得更快？"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "協助 cmux 變得更快？"
+          }
+        }
+      }
+    },
+    "hangReports.ask.detail" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "أرسل تقريرًا يوميًا عن حالات التجمّد والإطارات البطيئة من إصدار Nightly هذا. يحتوي على مكدسات الاستدعاء والتوقيتات، ولا يحتوي أبدًا على أسماء ملفات أو نصوص أو عناوين ويب. يضم قسم الإعدادات المفتاح ويعرض ما يُرسل."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Šalji dnevni izvještaj o zastojima i sporim kadrovima iz ove Nightly verzije. Sadrži stekove poziva i vremena, nikada imena datoteka, tekst ni web adrese. Postavke imaju prekidač i pokazuju šta se šalje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send en daglig rapport om hængninger og langsomme billeder fra denne Nightly-build. Den indeholder kaldestakke og tider, aldrig filnavne, tekst eller webadresser. Indstillinger har kontakten og viser, hvad der sendes."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sende täglich einen Bericht über Hänger und langsame Frames aus diesem Nightly-Build. Er enthält Aufrufstapel und Zeiten, nie Dateinamen, Texte oder Webadressen. In den Einstellungen findest du den Schalter und siehst, was gesendet wird."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send a daily report of hangs and slow frames from this Nightly build. It holds call stacks and timings, never file names, text or web addresses. Settings has the switch and shows what is sent."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envía un informe diario de bloqueos y fotogramas lentos de esta versión Nightly. Contiene pilas de llamadas y tiempos, nunca nombres de archivo, texto ni direcciones web. En Ajustes está el interruptor y puedes ver lo que se envía."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoyez chaque jour un rapport sur les blocages et les images lentes de cette version Nightly. Il contient des piles d’appels et des durées, jamais de noms de fichiers, de texte ni d’adresses web. Les réglages contiennent l’interrupteur et montrent ce qui est envoyé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invia ogni giorno un rapporto su blocchi e fotogrammi lenti da questa build Nightly. Contiene stack di chiamate e tempi, mai nomi di file, testo o indirizzi web. Nelle Impostazioni trovi l’interruttore e vedi cosa viene inviato."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このNightlyビルドのハングと遅いフレームのレポートを1日1回送信します。コールスタックと所要時間のみで、ファイル名、テキスト、Webアドレスは一切含みません。設定でオン・オフを切り替え、送信内容を確認できます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ផ្ញើ​របាយការណ៍​ប្រចាំថ្ងៃ​អំពី​ការ​គាំង និង​ស៊ុម​យឺត​ពី​កំណែ Nightly នេះ។ វា​មាន​ជង់​ការ​ហៅ និង​ពេលវេលា មិន​ដែល​មាន​ឈ្មោះ​ឯកសារ អត្ថបទ ឬ​អាសយដ្ឋាន​បណ្ដាញ​ឡើយ។ ការកំណត់​មាន​កុងតាក់ និង​បង្ហាញ​អ្វី​ដែល​ត្រូវ​ផ្ញើ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 Nightly 빌드의 멈춤과 느린 프레임에 대한 보고서를 하루에 한 번 보냅니다. 호출 스택과 소요 시간만 담기며 파일 이름, 텍스트, 웹 주소는 절대 포함하지 않습니다. 설정에서 켜고 끌 수 있고 보내는 내용을 확인할 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send en daglig rapport om henginger og trege bilder fra dette Nightly-bygget. Den inneholder kallstabler og tider, aldri filnavn, tekst eller nettadresser. Innstillinger har bryteren og viser hva som sendes."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wysyłaj codzienny raport o zawieszeniach i wolnych klatkach z tej wersji Nightly. Zawiera stosy wywołań i czasy, nigdy nazwy plików, tekst ani adresy stron. W Ustawieniach jest przełącznik i podgląd tego, co jest wysyłane."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envie um relatório diário de travamentos e quadros lentos desta versão Nightly. Ele contém pilhas de chamadas e tempos, nunca nomes de arquivos, texto ou endereços web. Os Ajustes têm a chave e mostram o que é enviado."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Раз в день отправлять отчёт о зависаниях и медленных кадрах из этой сборки Nightly. В нём только стеки вызовов и длительности, никогда имена файлов, текст или веб-адреса. В настройках есть переключатель и видно, что отправляется."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ส่งรายงานการค้างและเฟรมที่ช้าจากรุ่น Nightly นี้วันละครั้ง มีเพียง call stack และเวลาที่ใช้ ไม่มีชื่อไฟล์ ข้อความ หรือที่อยู่เว็บเลย การตั้งค่ามีสวิตช์และแสดงสิ่งที่ส่ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Nightly sürümünden her gün donmalar ve yavaş kareler hakkında bir rapor gönderin. Çağrı yığınlarını ve süreleri içerir; asla dosya adı, metin veya web adresi içermez. Ayarlar’da anahtar bulunur ve neyin gönderildiği gösterilir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Щодня надсилати звіт про зависання й повільні кадри з цієї збірки Nightly. Він містить стеки викликів і тривалості, ніколи назви файлів, текст чи вебадреси. У Параметрах є перемикач і видно, що надсилається."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gửi báo cáo hằng ngày về các lần treo và khung hình chậm từ bản Nightly này. Báo cáo chứa ngăn xếp lệnh gọi và thời gian, không bao giờ có tên tệp, văn bản hay địa chỉ web. Cài đặt có công tắc và cho thấy nội dung được gửi."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每天从这个 Nightly 版本发送一份卡顿与慢帧报告。报告只含调用栈和耗时，绝不包含文件名、文本或网址。可在设置中开关并查看发送的内容。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每天從這個 Nightly 版本傳送一份卡頓與慢影格報告。報告只含呼叫堆疊和耗時，絕不包含檔案名稱、文字或網址。可在設定中開關並檢視傳送的內容。"
+          }
+        }
+      }
+    },
+    "hangReports.ask.yes" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "إرسال تقارير التجمّد"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Šalji izvještaje o zastojima"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send hængningsrapporter"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hänger-Berichte senden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send Hang Reports"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enviar informes de bloqueos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoyer les rapports de blocages"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invia rapporti sui blocchi"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ハングレポートを送信"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ផ្ញើ​របាយការណ៍​គាំង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "멈춤 보고서 보내기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send hengerapporter"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wysyłaj raporty o zawieszeniach"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enviar relatórios de travamentos"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправлять отчёты о зависаниях"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ส่งรายงานการค้าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Donma raporlarını gönder"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Надсилати звіти про зависання"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gửi báo cáo treo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发送卡顿报告"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "傳送卡頓報告"
+          }
+        }
+      }
+    },
+    "hangReports.ask.no" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ليس الآن"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ne sada"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ikke nu"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht jetzt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not Now"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ahora no"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pas maintenant"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non ora"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今はしない"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "មិនមែន​ឥឡូវ​ទេ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "나중에"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ikke nå"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nie teraz"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agora não"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не сейчас"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ไว้ทีหลัง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Şimdi değil"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не зараз"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Để sau"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以后再说"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以後再說"
+          }
+        }
+      }
+    },
+    "hangReports.unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تقارير التجمّد غير متاحة في هذا الإصدار."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Izvještaji o zastojima nisu dostupni u ovoj verziji."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hængningsrapporter er ikke tilgængelige i denne build."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hänger-Berichte sind in diesem Build nicht verfügbar."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hang reports are not available in this build."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los informes de bloqueos no están disponibles en esta versión."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les rapports de blocages ne sont pas disponibles dans cette version."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I rapporti sui blocchi non sono disponibili in questa build."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このビルドではハングレポートを利用できません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "របាយការណ៍​គាំង​មិន​មាន​ក្នុង​កំណែ​នេះ​ទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 빌드에서는 멈춤 보고서를 사용할 수 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hengerapporter er ikke tilgjengelige i dette bygget."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Raporty o zawieszeniach nie są dostępne w tej wersji."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Os relatórios de travamentos não estão disponíveis nesta versão."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отчёты о зависаниях недоступны в этой сборке."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "รายงานการค้างใช้ไม่ได้ในรุ่นนี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Donma raporları bu sürümde kullanılamaz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Звіти про зависання недоступні в цій збірці."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Báo cáo treo không có trong bản dựng này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此版本不提供卡顿报告。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此版本不提供卡頓報告。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

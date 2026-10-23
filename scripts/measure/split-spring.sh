@@ -10,8 +10,11 @@
 # Options this script reads (the rest go to split-spring-terminal.py):
 #   --app-cache     reuse this commit's app when an earlier step on this worker built it
 #                   ($CI_SHARED_CACHE_DIR/split-spring-apps/<sha>), and keep it there after a build (the 3
-#                   newest commits). The perf cron (scripts/cmux-next/perf-cron.py) builds once per measurement.
-#   --build-only    build (or find) the app, keep it in the cache, measure nothing; report.json records the build.
+#                   newest unpinned commits). The perf cron (scripts/cmux-next/perf-cron.py) builds once per
+#                   measurement.
+#   --build-only    build (or find) the app, keep it in the cache and pin it there for 13 h (`pin`; a perf cron
+#                   measurement is abandoned after 12 h), measure nothing; report.json records the build. No
+#                   eviction removes a pinned app, so a measurement's later parts never build cold.
 #   --vdisplay=HZ   measure on a virtual display at HZ (scripts/ci/frame-pacing/vdisplay.m, the private
 #                   CGVirtualDisplay API), which the helper makes the main display (`main`: origin 0,0, for
 #                   this process only) so the app opens on it. When it does not come up as the main display at
@@ -79,11 +82,21 @@ if [[ -z "$app" ]]; then
       rm -rf "${cache:?}/$sha"
       mv "$cache/$sha.tmp" "$cache/$sha"
       touch "$cache/$sha/ok"
-      # shellcheck disable=SC2012 # the directory names are 40-hex commit ids
-      ls -1t "$cache"/*/ok 2>/dev/null | tail -n +4 | while read -r old; do rm -rf "$(dirname "$old")"; done
       echo "split-spring: kept the app of $sha in the app cache"
     fi
   fi
+fi
+if [[ -n "$cache" && -d "$cache/$sha" ]]; then
+  [[ "$build_only" == 1 ]] && touch "$cache/$sha/pin"
+  # Keep the 3 newest unpinned apps; a pin younger than 13 h (780 min) keeps its app whatever its age.
+  # shellcheck disable=SC2012 # the directory names are 40-hex commit ids
+  ls -1t "$cache"/*/ok 2>/dev/null | while read -r ok; do
+    dir="$(dirname "$ok")"
+    if [[ -f "$dir/pin" && -n "$(find "$dir/pin" -mmin -780 2>/dev/null)" ]]; then
+      continue
+    fi
+    echo "$dir"
+  done | tail -n +4 | while read -r old; do rm -rf "$old"; done
 fi
 build_seconds=$((SECONDS - build_start))
 if [[ "$build_only" == 1 ]]; then

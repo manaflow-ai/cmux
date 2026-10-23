@@ -35,6 +35,7 @@ final class HostPressureIndicatorView: NSView {
     private let windowVisible: @MainActor (NSWindow?) -> Bool
     private let makeService: @MainActor () -> HostPressureService
     private let notifications: NotificationCenter
+    private let toasts: CmuxToastCenter
     private let onVisibilityChange: () -> Void
     private var subscription: HostPressureSubscription?
     private var service: HostPressureService? { subscription?.service }
@@ -47,14 +48,15 @@ final class HostPressureIndicatorView: NSView {
     /// Whether it is subscribed to the service now (tests read it).
     var isSampling: Bool { service != nil }
 
-    /// `store`, `notifications`, `windowVisible` and `service` are for tests; the app passes none.
+    /// `store`, `notifications`, `windowVisible`, `service` and `toasts` are for tests; the app passes none.
     init(services: AppServices, store: TunableStore = .shared, notifications: NotificationCenter = .default,
          windowVisible: @escaping @MainActor (NSWindow?) -> Bool = HostPressureSampling.isVisible,
-         service: (@MainActor () -> HostPressureService)? = nil,
+         service: (@MainActor () -> HostPressureService)? = nil, toasts: CmuxToastCenter = .shared,
          onVisibilityChange: @escaping () -> Void) {
         self.services = services
         self.store = store
         self.notifications = notifications
+        self.toasts = toasts
         self.windowVisible = windowVisible
         self.makeService = service ?? { HostPressureService.shared(acpmux: QuitAgents.environment(services)) }
         self.onVisibilityChange = onVisibilityChange
@@ -228,7 +230,7 @@ final class HostPressureIndicatorView: NSView {
         let reasons = HostPressurePopoverView.reasons(verdict).joined(separator: "; ")
         let toast = CmuxToast(id: "host-pressure.critical", message: HostPressureStrings.banner(reasons),
                               action: CmuxToast.Action(title: HostPressureStrings.showDetails), duration: CmuxToast.untilClosed)
-        let handle = CmuxToastCenter.shared.show(toast, in: window)
+        let handle = toasts.show(toast, in: window)
         banner = HostPressureBanner(handle)
         handle.onAction = { [weak self] in self?.openPopover() }
         handle.onDismiss = { [weak self, weak handle] reason in
