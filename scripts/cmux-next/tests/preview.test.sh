@@ -6,8 +6,10 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d)
 state="$TMP/state"
+foreign_gallery_pid=""
 cleanup() {
   local state_file pid
+  [[ -z "$foreign_gallery_pid" ]] || kill "$foreign_gallery_pid" 2>/dev/null || true
   state_file=$(find "$state" -name '*.state' -type f -print -quit 2>/dev/null || true)
   if [[ -n "$state_file" ]]; then
     pid=$(sed -n 's/^pid[[:space:]]*//p' "$state_file" | head -1 || true)
@@ -93,6 +95,48 @@ assert second["ok"] is True
 assert second["reused"] is True
 assert second["pid"] == first["pid"]
 assert second["index_url"] == first["index_url"]
+PY
+
+# A gallery from another checkout must not become this preview's gallery merely
+# because it answers on the configured port. This helper publishes only an index.
+python3 - "$TMP/foreign-gallery-port" <<'PY' &
+import http.server
+import pathlib
+import sys
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"another checkout's gallery")
+
+    def log_message(self, *args):
+        pass
+
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+pathlib.Path(sys.argv[1]).write_text(str(server.server_port))
+server.serve_forever()
+PY
+foreign_gallery_pid=$!
+for _ in $(seq 1 50); do
+  [[ -s "$TMP/foreign-gallery-port" ]] && break
+  sleep 0.1
+done
+foreign_gallery_port=$(cat "$TMP/foreign-gallery-port")
+set +e
+foreign_gallery_json=$(CMUX_PREVIEW_STATE_DIR="$state" CMUX_PREVIEW_WEB_DEV_SCRIPT="$TMP/fake-web.sh" \
+  CMUX_WEB_DEV_GALLERY_PORT="$foreign_gallery_port" "$ROOT/scripts/cmux-next/preview.sh" gallery --json)
+foreign_gallery_rc=$?
+set -e
+[[ "$foreign_gallery_rc" -eq 1 ]] || { echo "preview must refuse a gallery the helper did not publish" >&2; exit 1; }
+python3 - "$foreign_gallery_json" <<'PY'
+import json
+import sys
+
+result = json.loads(sys.argv[1])
+assert result["ok"] is False
+assert "live gallery is unavailable" in result["error"]
+assert result["gallery_url"] is None
 PY
 
 grep -q 'No native build is performed' <("$ROOT/scripts/cmux-next/preview.sh" --help)
