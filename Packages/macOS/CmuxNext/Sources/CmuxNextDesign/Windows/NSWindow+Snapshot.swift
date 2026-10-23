@@ -95,15 +95,64 @@ extension NSWindow {
     /// of the window then shows them as on screen. Menus are not in AppKit's window list, so
     /// the window server's list chooses (``ownWindows(above:pid:region:layer:skipping:ordinary:)``).
     public func floatingWindowsSnapshot() -> (image: CGImage, count: Int)? {
-        guard windowNumber > 0, isOnActiveSpace, let primary = NSScreen.screens.first else { return nil }
-        let above = (CGWindowListCopyWindowInfo([.optionOnScreenAboveWindow], CGWindowID(windowNumber)) as? [[String: Any]] ?? [])
-            .compactMap(ListedWindow.init)
-        let numbers = Self.ownWindows(above: above, pid: getpid(), region: Self.globalRect(of: frame, primaryHeight: primary.frame.maxY),
-                                      layer: level.rawValue, skipping: Set(visibleChildWindows.map(\.windowNumber)),
-                                      ordinary: Self.ordinaryWindowTrees(besides: self))
+        let numbers = floatingWindowNumbers()
         guard !numbers.isEmpty, let image = Self.windowServerImage(ofNumbers: numbers, croppedTo: self),
               image.width > 0, image.height > 0, !Self.isBlank(image) else { return nil }
         return (image, numbers.count)
+    }
+
+    /// The numbers of the windows ``floatingWindowsSnapshot()`` paints, topmost first.
+    private func floatingWindowNumbers() -> [Int] {
+        guard windowNumber > 0, isOnActiveSpace, let primary = NSScreen.screens.first else { return [] }
+        let above = (CGWindowListCopyWindowInfo([.optionOnScreenAboveWindow], CGWindowID(windowNumber)) as? [[String: Any]] ?? [])
+            .compactMap(ListedWindow.init)
+        return Self.ownWindows(above: above, pid: getpid(), region: Self.globalRect(of: frame, primaryHeight: primary.frame.maxY),
+                               layer: level.rawValue, skipping: Set(visibleChildWindows.map(\.windowNumber)),
+                               ordinary: Self.ordinaryWindowTrees(besides: self))
+    }
+
+    /// This window, every visible child window and the app's windows over it
+    /// (``floatingWindowsSnapshot()``: an open menu, a card or popover that is not its child)
+    /// composited together by the window server and cropped to the window's frame, with how many
+    /// of those other windows it includes; nil without an image (not on screen, or all
+    /// transparent). Composited together, a glass or vibrancy panel blurs the window under it, as
+    /// on screen; composited alone (``childWindowsSnapshot(includeChild:)``) it blurs nothing and
+    /// comes out grey. Windows of other apps are never included.
+    public func compositedSnapshotWithOverlays() -> (image: CGImage, floating: Int)? {
+        let floating = floatingWindowNumbers()
+        let children = visibleChildWindows.map(\.windowNumber)
+        let image = children.isEmpty && floating.isEmpty
+            ? Self.windowServerImage(of: windowNumber)
+            : Self.windowServerImage(ofNumbers: Self.frontToBack([windowNumber] + children + floating), croppedTo: self)
+        guard let image, image.width > 0, image.height > 0, !Self.isBlank(image) else { return nil }
+        return (image, floating.count)
+    }
+
+    /// `composite` (this window's ``compositedSnapshotWithOverlays()``) kept only where its overlays
+    /// cover the window, transparent elsewhere: the visible child windows `includeChild` accepts
+    /// and the app's windows over it. Nil without any. A page image painted over the composite
+    /// covers the popovers and menus over its page; this, painted over the page image, gives
+    /// them back, with the window's blur under them.
+    public func overlays(cutFrom composite: CGImage, includeChild: (NSWindow) -> Bool) -> CGImage? {
+        let numbers = visibleChildWindows.filter(includeChild).map(\.windowNumber) + floatingWindowNumbers()
+        guard !numbers.isEmpty, let coverage = Self.windowServerImage(ofNumbers: Self.frontToBack(numbers), croppedTo: self),
+              coverage.width > 0, coverage.height > 0, !Self.isBlank(coverage) else { return nil }
+        return Self.masked(composite, by: coverage)
+    }
+
+    /// `image` kept where `mask` is opaque and faded where it is translucent (premultiplied:
+    /// `image` times the mask's alpha), at `image`'s size.
+    nonisolated static func masked(_ image: CGImage, by mask: CGImage) -> CGImage? {
+        let width = image.width, height = image.height
+        guard width > 0, height > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        let whole = CGRect(x: 0, y: 0, width: width, height: height)
+        context.interpolationQuality = .high
+        context.draw(mask, in: whole)
+        context.setBlendMode(.sourceIn)
+        context.draw(image, in: whole)
+        return context.makeImage()
     }
 
     /// From `above` (the windows the window server shows above a window, topmost first), the
@@ -196,12 +245,18 @@ extension NSWindow {
     /// Windows it does not list on screen keep AppKit's order behind them
     /// (each child after its parent is above it, so reversed).
     private static func frontToBack(_ numbers: [Int]) -> [Int] {
-        let wanted = Set(numbers)
         let onScreen = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
             .compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.intValue }
-            .filter { wanted.contains($0) }
-        let listed = Set(onScreen)
-        return onScreen + numbers.reversed().filter { !listed.contains($0) }
+        return frontToBack(numbers, onScreen: onScreen)
+    }
+
+    /// `numbers` in the order of `onScreen` (the window server's on-screen list, topmost first),
+    /// then the ones it does not list, last of `numbers` first; each number once.
+    nonisolated static func frontToBack(_ numbers: [Int], onScreen: [Int]) -> [Int] {
+        let wanted = Set(numbers)
+        var seen = Set<Int>()
+        let listed = onScreen.filter { wanted.contains($0) && seen.insert($0).inserted }
+        return listed + numbers.reversed().filter { seen.insert($0).inserted }
     }
 
     /// Whether every pixel of `image` is transparent (sampled at 64 x 64).
