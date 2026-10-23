@@ -53,6 +53,9 @@ beforeAll(() => {
 beforeEach(() => setComposerLook("claude"));
 
 afterAll(() => {
+  // The look is module state: leave the default for the files after this one.
+  setComposerLook("claude");
+  window.localStorage.clear();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];
