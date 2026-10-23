@@ -1,4 +1,3 @@
-// cmux-web-test-timeout: 420
 // l10n-allow-file: test fixtures (mode and model names as the harnesses name them).
 // The New Tab composer's row holds still from its first frame (Leo 2026-10-23, cx-ncc.113.116:
 // "why is this thing still not showing on the very beginning? ... the composer is just, it's messy
@@ -6,7 +5,8 @@
 // frame, in both looks, naming the harness's highest permission level until acpmux answers
 // ("if you don't know what to switch to, typically just switch to the highest permission level"),
 // and no control in the row moves or resizes while the harness list, its models and acpmux's start
-// mode arrive.
+// mode arrive. A saved choice that is not the highest level (acpmux's late answer names it) replaces
+// the highest level in the control's own slot, and nothing else in the row moves.
 //
 // The real agent pane (the dev entry) in Chromium and WebKit, with a stand-in host and a stand-in
 // acpmux daemon that answers late. The page is a later New Tab of a launch (the harness catalog
@@ -61,10 +61,15 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
     "_acpmux/start_mode": 1_100,
     "_acpmux/route/list": 1_100,
   };
-  /// The harness each page asks about, by daemon connection: whose start mode acpmux knows.
+  /// Each page's start-mode answer having been sent, by daemon connection.
   const answered = new Map<string, () => void>();
+  /// A saved choice acpmux answers with (the person's setting or pick), by harness.
+  const SAVED: Record<string, { modeId: string; name: string; level: string }> = {
+    claude: { modeId: "default", name: "Manual", level: "standard" },
+    codex: { modeId: "agent", name: "Ask for approval", level: "standard" },
+  };
 
-  function answer(method: string, params: Record<string, unknown>): unknown {
+  function answer(method: string, params: Record<string, unknown>, saved: boolean): unknown {
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
@@ -90,6 +95,10 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
       // Claude Code's modes are acpmux's own (claude_stdio::MODES): it names full access. Codex's
       // are not known until a Codex chat runs: full access, and no mode named (hub/start_mode.rs).
       case "_acpmux/start_mode":
+        if (saved) {
+          const choice = SAVED[String(params.harness)]!;
+          return { harness: params.harness, ...choice, source: "settings" };
+        }
         return params.harness === "claude"
           ? {
               harness: "claude",
@@ -114,8 +123,9 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
       port: 0,
       hostname: "127.0.0.1",
       fetch(request, server) {
-        const page = new URL(request.url).searchParams.get("page") ?? "";
-        return server.upgrade(request, { data: { page } }) ? undefined : new Response("acpmux", { status: 426 });
+        const query = new URL(request.url).searchParams;
+        const data = { page: query.get("page") ?? "", saved: query.get("saved") === "1" };
+        return server.upgrade(request, { data }) ? undefined : new Response("acpmux", { status: 426 });
       },
       websocket: {
         async message(ws, raw) {
@@ -124,10 +134,10 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
           const delay = DELAYS[message.method];
           // fixed-wait: acpmux answering late is the state under test, not a wait for one
           if (delay) await Bun.sleep(delay);
-          ws.send(
-            JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params ?? {}) }),
-          );
-          if (message.method === "_acpmux/start_mode") answered.get((ws.data as { page: string }).page)?.();
+          const data = ws.data as { page: string; saved: boolean };
+          const result = answer(message.method, message.params ?? {}, data.saved);
+          ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+          if (message.method === "_acpmux/start_mode") answered.get(data.page)?.();
         },
       },
     });
@@ -148,13 +158,19 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
 
   let pages = 0;
   /// A New Tab page (no folder of its own) on `harness` (the app's last pick) in `look`, recording
-  /// the boxes of the row's controls; resolves with the page once acpmux has answered its start mode.
-  async function load(name: string, look: string, harness: string): Promise<{ page: Page; ready: Promise<void> }> {
+  /// the boxes of the row's controls; resolves with the page once acpmux has answered its start mode
+  /// (`saved`: with the person's saved choice, SAVED).
+  async function load(
+    name: string,
+    look: string,
+    harness: string,
+    saved = false,
+  ): Promise<{ page: Page; ready: Promise<void> }> {
     const page = await browsers.get(name)!.newPage({ viewport: { width: 1000, height: 760 } });
     await installPaintedFrames(page);
     const id = `p${(pages += 1)}`;
     const ready = new Promise<void>((resolve) => answered.set(id, resolve));
-    const endpoint = `ws://127.0.0.1:${daemon!.port}/?page=${id}`;
+    const endpoint = `ws://127.0.0.1:${daemon!.port}/?page=${id}${saved ? "&saved=1" : ""}`;
     const model = harness === "claude" ? "claude-opus-5-5" : "gpt-5.5";
     const context = {
       kind: "agent",
@@ -219,13 +235,19 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
           const record = controls.join(" | ");
           if (records.at(-1) !== record) records.push(record);
         };
-        new MutationObserver(read).observe(document, {
+        const observer = new MutationObserver(read);
+        observer.observe(document, {
           subtree: true,
           childList: true,
           characterData: true,
           attributes: true,
         });
-        window.cmuxAfterPaint(read);
+        const stopPaint = window.cmuxAfterPaint(read);
+        // The test stops both in its `finally` (close), so a failed assertion leaves no frame loop.
+        w.__stopRecording = () => {
+          observer.disconnect();
+          stopPaint();
+        };
       },
       { endpoint, context, look, catalog },
     );
@@ -250,6 +272,15 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
       observer.disconnect();
     });
 
+  /// Stops the page's recording (its observer and frame loop), then closes it.
+  const close = async (page: Page) => {
+    await page
+      .evaluate(() => (window as unknown as { __stopRecording?: () => void }).__stopRecording?.())
+      .catch(() => undefined);
+    await page.close();
+  };
+  const records = (page: Page) => page.evaluate(() => (window as unknown as { __records: string[] }).__records);
+
   // The access chip's name: the label in the Claude look, the shield's tooltip in Codex's.
   const modeName = (page: Page) =>
     page.locator(".nt-composer .acpmux-mode").evaluate((node) => node.textContent?.trim() ?? "");
@@ -265,20 +296,53 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
       `%s: the ${look} look's row on ${harness} holds still, its mode control there from the first frame`,
       async (name) => {
         const { page, ready } = await load(name, look, harness);
-        await page.locator(".nt-field").waitFor({ timeout: 30_000 });
-        const first = await page.evaluate(() => (window as unknown as { __records: string[] }).__records[0] ?? "");
-        // The mode control is in the row on the first frame, naming the harness's highest level.
-        expect(first).toContain("mode ");
-        expect(await modeName(page)).toBe(highest);
-        // The harness list, its models and acpmux's start mode arrive.
-        await ready;
-        await settled(page);
-        expect(await modeName(page)).toBe(highest);
-        const records = await page.evaluate(() => (window as unknown as { __records: string[] }).__records);
-        await page.close();
-        console.info(`${name} ${look} ${harness}: ${records.length} record(s)\n  ${records.join("\n  ")}`);
-        // One record from the first frame on: no control in the row moved, resized, came or went.
-        expect(records).toHaveLength(1);
+        try {
+          await page.locator(".nt-field").waitFor({ timeout: 30_000 });
+          const first = (await records(page))[0] ?? "";
+          // The mode control is in the row on the first frame, naming the harness's highest level.
+          expect(first).toContain("mode ");
+          expect(await modeName(page)).toBe(highest);
+          // The harness list, its models and acpmux's start mode arrive.
+          await ready;
+          await settled(page);
+          expect(await modeName(page)).toBe(highest);
+          const seen = await records(page);
+          console.info(`${name} ${look} ${harness}: ${seen.length} record(s)\n  ${seen.join("\n  ")}`);
+          // One record from the first frame on: no control in the row moved, resized, came or went.
+          expect(seen).toHaveLength(1);
+        } finally {
+          await close(page);
+        }
+      },
+    );
+    const saved = SAVED[harness]!;
+    test.each(engines.map(([name]) => name))(
+      `%s: the ${look} look on ${harness}: a saved ${saved.modeId} replaces the highest level in its own slot`,
+      async (name) => {
+        const { page, ready } = await load(name, look, harness, true);
+        try {
+          await page.locator(".nt-field").waitFor({ timeout: 30_000 });
+          // Before acpmux answers: the highest level, in the control's slot.
+          expect((await records(page))[0] ?? "").toContain("mode ");
+          expect(await modeName(page)).toBe(highest);
+          // acpmux answers with the saved choice: it replaces the highest level.
+          await ready;
+          await page.waitForFunction(
+            (name) => document.querySelector(".nt-composer .acpmux-mode")?.textContent?.trim() === name,
+            saved.name,
+            { timeout: 10_000 },
+          );
+          await settled(page);
+          expect(await modeName(page)).toBe(saved.name);
+          // The control keeps its place (its label's width is its own); no other control moves.
+          const seen = (await records(page)).map((record) =>
+            record.replace(/mode ([\d.]+,[\d.]+) [\d.]+x[\d.]+/, "mode $1"),
+          );
+          console.info(`${name} ${look} ${harness} saved: ${seen.length} record(s)\n  ${seen.join("\n  ")}`);
+          expect(new Set(seen).size).toBe(1);
+        } finally {
+          await close(page);
+        }
       },
     );
   }
