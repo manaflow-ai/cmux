@@ -1652,11 +1652,11 @@
       "title" : "Computer Use",
       "type" : "boolean"
     },
-    "deviceHub.url" : {
-      "default" : "",
-      "description" : "Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub.",
-      "title" : "Device Hub Address",
-      "type" : "string"
+    "diagnostics.hangReports" : {
+      "default" : false,
+      "description" : "Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent.",
+      "title" : "Send Hang Reports",
+      "type" : "boolean"
     },
     "diff.colors" : {
       "default" : "theme",
@@ -2542,18 +2542,6 @@
       "default" : false,
       "description" : "With Split Automatically, new browsers also get their own pane instead of a tab.",
       "title" : "Split for Browsers Too",
-      "type" : "boolean"
-    },
-    "macScreen.debug.relayOnly" : {
-      "default" : false,
-      "description" : "Mac Screen tabs connect through the TURN relay only, never directly, to check the relay path. Tabs that are connected reconnect.",
-      "title" : "Relay Only",
-      "type" : "boolean"
-    },
-    "macScreen.systemShortcuts" : {
-      "default" : false,
-      "description" : "While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility.",
-      "title" : "Send System Shortcuts to the Remote Mac",
       "type" : "boolean"
     },
     "ManagedTeam" : {
