@@ -5,6 +5,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextMallocZone
 import CmuxNextTerminal
+import CmuxNextCompat
 
 /// Entry point called from the Xcode target's `App/main.swift`.
 public struct CmuxNextApp {

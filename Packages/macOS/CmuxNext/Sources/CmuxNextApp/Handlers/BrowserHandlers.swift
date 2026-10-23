@@ -130,7 +130,7 @@ enum BrowserHandlers {
     /// new split in one daemon `split {tab}` call.
     private static func bindSplits(into registry: ActionRegistry, context: AppActionContext) {
         for (id, direction) in [("splitBrowserRight", SplitDirection.right), ("splitBrowserDown", .down)] {
-            registry.bind(ActionID(rawValue: id), requires: DaemonCapabilities.shared.frontendBrowserTabs, daemon: context.daemon, run: { invocation in
+            registry.bind(ActionID(rawValue: id), requires: DaemonCapabilities.frontendBrowserTabs, daemon: context.daemon, run: { invocation in
                 try splitBrowser(from: try context.pane(invocation), direction: direction, byPerson: invocation.origin == .user,
                                  context: context)
             })
@@ -156,7 +156,8 @@ enum BrowserHandlers {
         case .tab(let strip):
             return try browserTab(in: strip, url: url, profile: profile, context: context)
         case .besideDock(let dock):
-            // Home's pinned dock alone: the daemon makes a browser tab aimed at it in a new column right of it.
+            // Home's pinned dock alone: a browser tab aimed at it opens in a new column right of it
+            // (the daemon's reroute, or PaneBrowserTabOpener's move while the dock takes tabs).
             _ = dock.newBrowserTab(url: url, profile: profile)
             return
         }

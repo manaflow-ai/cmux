@@ -1,5 +1,6 @@
 public import AppKit
 public import QuartzCore
+public import CmuxNextDesignTokens
 
 /// The one status indicator every surface draws (sidebar rows and group
 /// headers, sidebar section items, tabs, Home, pane headers). It owns one

@@ -107,7 +107,7 @@ final class ProjectsImport {
             return
         }
         guard let services, let connection = services.machines.local.connection,
-              services.machines.local.supports(DaemonCapabilities.shared.projectList) else { return }
+              services.machines.local.supports(DaemonCapabilities.projectList) else { return }
         let id = ObjectIdentifier(connection)
         let fresh = connectionID != id
         if fresh { sent = [:] }

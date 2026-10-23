@@ -2,6 +2,7 @@ import AppKit
 import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// The accent is never orange: with the macOS accent set to orange (System Settings > Appearance),
 /// cmux's menus, selections and focus rings still draw the theme's own colors, which are neutral

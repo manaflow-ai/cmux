@@ -3,11 +3,14 @@
 // since it's just all looks anyways. first 2 dots minimal on the new tab page, and then when you're
 // in a chat you can also switch the dots if you hover on that bottom area"):
 //
-// - The New Tab page shows two dots under it, Claude then Codex, Claude checked by default. The
-//   second dot gives the page's composer Codex's look (data-composer-look="codex"): the model sits in
-//   the box's own row, no quiet row under it. The pick is remembered across a reload.
-// - On another page style (Classic) the look dots switch the look only: the page keeps its style,
-//   whose own dot (Minimal among them) stays marked, and draws the look; Cards draws Codex's tray.
+// - The New Tab page shows three dots under it (Leo 2026-10-23: "1 CLAUDE MINIMAL / 2 CLAUDE MINIMAL
+//   + NEW TAB/TERMINAL/WHATEVER / 3 CODEX MINIMAL"; newtab/tabDots.ts): Claude Minimal checked by
+//   default; the second adds the quick action pills under Claude's composer; the third gives the
+//   composer Codex's look (data-composer-look="codex"): the model sits in the box's own row, no
+//   quiet row under it, and no pills. Arrow keys move across the three. The pick is remembered
+//   across a reload.
+// - On another page style (Classic) the dots switch the look only: the page keeps its style, whose
+//   own dot (Minimal among them) stays marked, and draws the look; Cards draws Codex's tray.
 // - In a chat the same two dots sit in the composer's bottom area, unseen until the pointer is over
 //   that area. The second dot switches the chat composer's look: the form takes
 //   data-composer-look="codex", the mode and model move into the box, and the quiet row goes; the
@@ -84,21 +87,30 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     await box.click();
   };
 
-  test("New Tab: two dots, Claude by default; Codex's dot gives the composer Codex's look and stays", async () => {
+  test("New Tab: three dots, Claude Minimal by default; the second adds the pills, the third is Codex's look", async () => {
     const context = await browser.newContext({ viewport: { width: 760, height: 600 } });
     const page = await context.newPage();
     await open(page, "agent-pane.new-tab", "minimal-default");
     expect(await dots(page, ".nt-style")).toEqual([
-      { value: "claude", name: "Claude", checked: true },
-      { value: "codex", name: "Codex", checked: false },
+      { value: "claude", name: "Claude Minimal", checked: true },
+      { value: "claudeActions", name: "Claude + Quick Actions", checked: false },
+      { value: "codex", name: "Codex Minimal", checked: false },
     ]);
     expect(await page.$(".nt-composer[data-composer-look]")).toBeNull();
+    expect(await page.$(".nt-create")).toBeNull();
+
+    // The second dot: Claude's composer with New terminal, New browser tab and New chat under it.
+    await pickDot(page, ".nt-style", "claudeActions");
+    await page.waitForSelector(".nt-create [data-create=chat]");
+    expect(await page.$(".nt-composer[data-composer-look]")).toBeNull();
+    expect(await page.$(".nt-stage")).toBeNull();
 
     await pickDot(page, ".nt-style", "codex");
     await page.waitForSelector('.nt-composer[data-composer-look="codex"]');
-    // Codex's look: the model in the box's row, no quiet row under the box.
+    // Codex's look: the model in the box's row, no quiet row under the box, no pills.
     expect(await page.$(".nt-composer .nt-box .acpmux-model")).not.toBeNull();
     expect(await page.$(".nt-composer .acpmux-composer-foot")).toBeNull();
+    await page.waitForFunction(() => !document.querySelector(".nt-create"));
     // Still the Minimal page: the look dot does not change the page's style.
     expect(await page.$(".nt-screen[data-template='minimal'], .nt-screen:not([data-template])")).not.toBeNull();
 
@@ -107,6 +119,37 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     await ready(page);
     await page.waitForSelector('.nt-composer[data-composer-look="codex"]');
     expect((await dots(page, ".nt-style")).find((dot) => dot.checked)?.value).toBe("codex");
+    await context.close();
+  });
+
+  test("New Tab: arrow keys move across the three dots, each setting the look and the pills", async () => {
+    const context = await browser.newContext({ viewport: { width: 760, height: 600 } });
+    const page = await context.newPage();
+    await open(page, "agent-pane.new-tab", "minimal-default");
+    const checked = async () => (await dots(page, ".nt-look-dots")).find((dot) => dot.checked)?.value;
+    const state = () =>
+      page.evaluate(() => ({
+        codex: !!document.querySelector('.nt-composer[data-composer-look="codex"]'),
+        pills: !!document.querySelector(".nt-create"),
+      }));
+    await page.focus(".nt-look-dots input[value=claude]");
+    await page.keyboard.press("ArrowRight");
+    await page.waitForSelector(".nt-create");
+    expect(await checked()).toBe("claudeActions");
+    expect(await state()).toEqual({ codex: false, pills: true });
+    await page.keyboard.press("ArrowRight");
+    await page.waitForSelector('.nt-composer[data-composer-look="codex"]');
+    await page.waitForFunction(() => !document.querySelector(".nt-create"));
+    expect(await checked()).toBe("codex");
+    expect(await state()).toEqual({ codex: true, pills: false });
+    await page.keyboard.press("ArrowLeft");
+    await page.waitForSelector(".nt-create");
+    expect(await checked()).toBe("claudeActions");
+    expect(await state()).toEqual({ codex: false, pills: true });
+    await page.keyboard.press("ArrowLeft");
+    await page.waitForFunction(() => !document.querySelector(".nt-create"));
+    expect(await checked()).toBe("claude");
+    expect(await state()).toEqual({ codex: false, pills: false });
     await context.close();
   });
 
@@ -121,10 +164,11 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     await pickDot(page, ".nt-style", "codex");
     await page.waitForSelector('.acpmux-newtab[data-composer-look="codex"]');
     expect(await page.$(".nt-screen")).toBeNull();
-    // The looks, then the page's styles (Minimal among them), each marking its own pick.
+    // The three dots, then the page's styles (Minimal among them), each marking its own pick.
     expect(await dots(page, ".nt-look-dots")).toEqual([
-      { value: "claude", name: "Claude", checked: false },
-      { value: "codex", name: "Codex", checked: true },
+      { value: "claude", name: "Claude Minimal", checked: false },
+      { value: "claudeActions", name: "Claude + Quick Actions", checked: false },
+      { value: "codex", name: "Codex Minimal", checked: true },
     ]);
     expect(await page.$(".nt-style:not(.nt-look-dots) input[value=classic]:checked")).not.toBeNull();
     expect(await page.$(".nt-style:not(.nt-look-dots) input[value=minimal]")).not.toBeNull();

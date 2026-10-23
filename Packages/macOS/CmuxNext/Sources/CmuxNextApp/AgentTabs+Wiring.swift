@@ -178,7 +178,7 @@ extension AgentTabStore {
         // Run API here, so this is the boundary. The tab's own daemon stores the remote-terminal
         // reference (RemoteTerminalService.openTerminal does the same).
         tabs.runAttach = { [weak services] key, request in
-            let vm = request.providerVMID, tabsCapability = DaemonCapabilities.shared.remoteTerminalTabs
+            let vm = request.providerVMID, tabsCapability = DaemonCapabilities.remoteTerminalTabs
             guard let services, let (_, pane) = services.locateTab(key) else { throw DaemonError.notConnected }
             let home = services.machines.daemon(forPane: pane)
             guard let homeConnection = home.connection, services.machines.session(vm) != nil, let worker = services.machines.daemon(machine: vm), !worker.isLocal,
@@ -222,14 +222,14 @@ extension AgentTabStore {
             }
             let machine = record.hostName ?? services.machines.machineName(daemon.machineID) ?? daemon.machineID
             let session = record.session ?? tabs.sessions[tabs.resolve(key)]
-            guard !daemon.isLocal, daemon.supports(DaemonCapabilities.shared.agentSessionAttach), let endpoint = daemon.remoteEndpoint else {
+            guard !daemon.isLocal, daemon.supports(DaemonCapabilities.agentSessionAttach), let endpoint = daemon.remoteEndpoint else {
                 // A chat this app started on that machine says what to do there; an older tab
                 // recorded for another Mac keeps the "runs on" notice.
                 guard started else { return nil }
                 return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
             }
-            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapabilities.shared.agentSessionTrust),
-                                           servesKeyedReason: daemon.supports(DaemonCapabilities.shared.agentSessionStartKeyedReason))
+            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapabilities.agentSessionTrust),
+                                           servesKeyedReason: daemon.supports(DaemonCapabilities.agentSessionStartKeyedReason))
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
                 host.existing = { [weak tabs] in
@@ -242,7 +242,7 @@ extension AgentTabStore {
                 // daemon that serves the verb; never a fallback to this Mac (cx-k21v). It starts at
                 // the page's first send, never when the tab opens.
                 guard started else { return nil }
-                guard daemon.supports(DaemonCapabilities.shared.agentSessionStart) else { return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine)) }
+                guard daemon.supports(DaemonCapabilities.agentSessionStart) else { return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine)) }
                 host.start = { [weak tabs] cwd, harness, personKey in
                     guard let tabs else { throw CancellationError() }
                     return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, personKey: personKey, endpoint: endpoint)

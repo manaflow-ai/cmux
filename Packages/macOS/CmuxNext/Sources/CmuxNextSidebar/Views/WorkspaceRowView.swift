@@ -38,19 +38,12 @@ final class WorkspaceRowView: SidebarRowView {
     /// are muted. A click mutes or unmutes them (`onToggleAudio`).
     let audioButton = SidebarIconButton(icon: .browserTabAudio, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.muteTabs)
     internal(set) var audio: SidebarWorkspaceAudio?
-    /// The hover close: on the row's top-right corner (Leo 2026-10-21), in the cut its fill leaves
-    /// out there (Leo 2026-10-22), taking nothing from the text.
-    let closeButton = SidebarDogEarButton(icon: .actionClose, label: Strings.closeButton)
-    /// The row's menu (cx-a9h6, ChatGPT project style): the right-click menu, opened under the
-    /// corner. On hover, the dog-ear of a row that cannot close (Home); a closable row's dog-ear
-    /// is its close, and its menu stays on right-click and VoiceOver's custom action.
-    let moreButton = SidebarDogEarButton(icon: OverflowButton.glyph, label: Strings.workspaceMenu)
-    /// The corner cut out of the row's fill while the close or the menu shows there; nil otherwise.
-    var closeNotch: SidebarCloseNotch?
-    /// `sidebar.closeNotch` as of the last configure (`SidebarTunablesWatch` reconfigures the shown
-    /// rows when it changes); a change lays the row out again.
-    var closeNotchLook = SidebarCloseNotch.tunable.defaultValue { didSet { if closeNotchLook != oldValue { needsLayout = true } } }
-    /// An expanded row's Pin or Unpin (cx-13w3), on hover at the end of the name's line.
+    let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.closeButton)
+    /// The row's menu (cx-a9h6, ChatGPT project style): the right-click menu,
+    /// under the button. Shows on hover only, over the end of the title
+    /// behind a fade (Lawrence 2026-10-11: no layout shift).
+    let moreButton = OverflowButton(label: Strings.workspaceMenu)
+    /// An expanded row's Pin or Unpin (cx-13w3), on hover beside the menu button.
     let pinButton = SidebarIconButton(icon: .actionPin, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.pinWorkspace)
     /// `sidebar.showWorkspaceTabs`: hides or lists the workspace's tabs. Always drawn
     /// while the setting is on (never on hover), so rows never shift.
@@ -163,13 +156,9 @@ final class WorkspaceRowView: SidebarRowView {
         pinButton.onPress = { [weak self] in self?.onPin?() }
         disclosureButton.onPress = { [weak self] in self?.onToggleTabs?() }
         audioButton.onPress = { [weak self] in self?.onToggleAudio?() }
-        raiseControlsOverDogEar()
     }
 
-    /// In hit-test order: the dog-ear comes last, so a control that shows under its corner (the
-    /// tabs chevron, the session tree's fold, the audio button at the row's end) keeps its clicks,
-    /// and it draws over the fold (`raiseControlsOverDogEar`).
-    override var interactiveSubviews: [NSView] { [pinButton, disclosureButton, treeFoldButton, audioButton, closeButton, moreButton] }
+    override var interactiveSubviews: [NSView] { [closeButton, moreButton, pinButton, disclosureButton, treeFoldButton, audioButton] }
     override var debugIcon: String? {
         switch iconKind {
         case nil: !agentMark.isHidden && agentMarkVariant == .besideTitle ? "agentMark" : nil
@@ -197,7 +186,6 @@ final class WorkspaceRowView: SidebarRowView {
         isSecondarySelected = false
         isOnScreen = false
         isDropTarget = false
-        closeNotch = nil
         onClose = nil
         onMore = nil
         (onPin, isPinned) = (nil, nil)
@@ -230,7 +218,6 @@ final class WorkspaceRowView: SidebarRowView {
     func configure(_ ws: SidebarWorkspace, row: SidebarRow, badgeStyle: SidebarRowBadgeStyle? = nil) {
         lastConfiguration = (ws, row, badgeStyle)
         let tunables = observedTunables()
-        closeNotchLook = tunables.closeNotch
         let content = Content(
             ws: ws, group: row.group,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize,

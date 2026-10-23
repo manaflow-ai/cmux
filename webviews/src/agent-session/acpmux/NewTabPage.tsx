@@ -3,7 +3,7 @@ import { useEscapingList } from "../../ui/popupHost";
 import { AgentMark as BrandMark } from "../shared/AgentMark";
 import { agentBrand } from "../shared/agentBrand";
 import { agentDisplayName } from "./agents";
-import { seedLastPicks } from "./lastPick";
+import { seedLastPicks, useLastPick } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
 import { useComposerLook } from "./composerLook";
 import type { AcpmuxSnapshot } from "./model";
@@ -36,6 +36,7 @@ import { isStartableProject, rememberedStartedProject } from "./newtab/startedPr
 import { seedWarmNewTab } from "./newtab/warmSnapshot";
 import { useNoEntryMotion } from "./newtab/noEntryMotion";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
+import { newTabStart, useNewTabChipModel } from "./newtab/chipDefaults";
 import type { ComposerAttachment } from "./attachments";
 import {
   AttachmentStrip,
@@ -48,6 +49,8 @@ import { DropOverlay } from "./composer/DropOverlay";
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
 export type TabKind = (typeof TAB_KINDS)[number];
+/// The chat an Agent submit starts: the harness and model the page's chips show.
+export type NewTabChat = { harness: string; model?: string };
 
 /// The event the host dispatches on `window` for Focus Location Bar (Cmd-L).
 export const FOCUS_LOCATION_EVENT = "acpmux-focus-location";
@@ -117,8 +120,12 @@ export type NewTabHost = {
   /// The widget view under the composer (Debug Settings `newTab.widgets`, newtab/WidgetCards.tsx).
   widgets?: boolean;
   /// The Minimal layout's widgets the user turned on (`tabs.newTabWidgets.*`, newtab/pageWidgets.ts);
-  /// unset is Settings' defaults (the greeting).
+  /// unset is Settings' defaults (none: the composer alone).
   pageWidgets?: PageWidget[];
+  /// `tabs.newTabWidgets.greeting` is set to false in cmux.json, not left to the default: Minimal
+  /// keeps no room for the headline over the composer, which stays where it sat with the greeting
+  /// off (newtab/screen.css .nt-headline-slot).
+  headlineOff?: true;
   /// The page lists only its own connection's chats, not the store every page shares (Debug
   /// Settings `newTab.privateChatLists`, newtab/chatStore.ts).
   privateChatLists?: boolean;
@@ -176,6 +183,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(object.history === true ? { history: true } : {}),
     ...(object.widgets === true ? { widgets: true } : {}),
     ...(pageWidgets ? { pageWidgets } : {}),
+    ...(object.headlineOff === true ? { headlineOff: true as const } : {}),
     ...(object.privateChatLists === true ? { privateChatLists: true } : {}),
     ...(object.allChats === false ? { allChats: false as const } : {}),
   };
@@ -266,8 +274,10 @@ type Props = {
   host?: string;
   inputToken?: string;
   onInputReady?(token: string): void;
-  /// The agent's composer chips (model, mode), shown under the field for Agent.
-  chips?: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
+  /// The agent's composer chips (model, mode), shown under the field for Agent, with the page's folder.
+  chips?: React.ComponentType<{ snapshot: AcpmuxSnapshot; cwd?: string }>;
+  /// The agent the host remembers (the handshake's `newTab.lastAgent`): Agent's harness before a pick.
+  lastAgent?: string;
   /// Open tabs, workspaces, folders, commands and history the bar suggests.
   omnibar?: OmnibarContext;
   /// The current tab's URL or folder: in the field and selected when the page opens,
@@ -277,7 +287,13 @@ type Props = {
   projects?: Project[];
   /// Make the tab `kind`: run `text` (in `cwd`), open it, or ask it. A promise that rejects is a
   /// refused open: the page says so under the field and keeps what was typed.
-  onSubmit(kind: TabKind, text: string, cwd?: string, attachments?: ComposerAttachment[]): void | Promise<unknown>;
+  onSubmit(
+    kind: TabKind,
+    text: string,
+    cwd?: string,
+    attachments?: ComposerAttachment[],
+    chat?: NewTabChat,
+  ): void | Promise<unknown>;
   /// Go to an open tab or workspace instead of opening a duplicate.
   onJump?(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
@@ -301,6 +317,7 @@ export function NewTabPage({
   knownProjects,
   host,
   chips: Chips,
+  lastAgent,
   omnibar = EMPTY_OMNIBAR,
   location,
   projects = [],
@@ -335,6 +352,14 @@ export function NewTabPage({
       : (firstProject(started ? [started.replace(/(.)\/+$/, "$1")] : [], home, knownProjects) ??
         mostRecentProject(snapshot.sessions, home, knownProjects) ??
         cwd));
+  // Agent's harness and model before a pick, as the New Tab screen reads them (newTabStart): the
+  // chips pick on this snapshot, and Return starts the chat on the same harness and model.
+  const remembered = useLastPick(projectCwd);
+  const { harness, snapshot: chipSnapshot } = useMemo(
+    () => newTabStart(snapshot, snapshot.catalog, lastAgent, projectCwd, remembered),
+    [snapshot, lastAgent, projectCwd, remembered],
+  );
+  const chipModel = useNewTabChipModel(chipSnapshot);
   const [text, setText] = useState(location ?? "");
   /// The last open was refused (the host made no tab): a note under the field until the next edit.
   const [openFailed, setOpenFailed] = useState(false);
@@ -342,7 +367,8 @@ export function NewTabPage({
   const make = (next: TabKind, value: string, folder?: string) => {
     setOpenFailed(false);
     const attachments = next === "agent" ? attachmentRef.current : [];
-    const result = onSubmit(next, value, folder, attachments.length ? attachments : undefined);
+    const chat = next === "agent" && harness ? { harness, ...(chipModel ? { model: chipModel } : {}) } : undefined;
+    const result = onSubmit(next, value, folder, attachments.length ? attachments : undefined, chat);
     // The suggestions float over the note: they close until the next edit, so it shows.
     if (result)
       void result.catch(() => {
@@ -425,7 +451,7 @@ export function NewTabPage({
   // A pane without a known folder names none rather than showing "No folder".
   const selectedProject = projectCwd ? projectLabel(projectCwd) : undefined;
   const folder = projectCwd ? projectLabel(projectCwd) : "";
-  const agent = agentDisplayName(snapshot.summary?.harness ?? snapshot.catalog[0]?.id ?? "agent");
+  const agent = agentDisplayName(harness ?? "agent");
   const placeholder = NEW_TAB_LABELS.placeholder[kind](t, kind === "agent" ? agent : folder);
 
   const changeKind = (next: TabKind) => {
@@ -676,7 +702,7 @@ export function NewTabPage({
                   {agent}
                 </span>
               )}
-              {kind === "agent" && Chips && <Chips snapshot={snapshot} />}
+              {kind === "agent" && Chips && <Chips snapshot={chipSnapshot} cwd={projectCwd} />}
             </span>
             <button
               type="submit"

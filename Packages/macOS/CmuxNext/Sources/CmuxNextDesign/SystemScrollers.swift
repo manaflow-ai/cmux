@@ -46,9 +46,10 @@ public struct SystemScrollers {
         follow(scrollView)
     }
 
-    /// The opt-in auto-hide of every ``ThinScroller``: true fades its knob out at rest and in while
-    /// the view scrolls; false (the default) keeps it shown for as long as the content overflows.
-    public static var thinScrollersAutoHide = false {
+    /// The auto-hide of every ``ThinScroller``: true (the default, Lawrence 2026-10-23 msg 11494)
+    /// fades its knob out at rest and in while the view scrolls or the pointer nears its edge;
+    /// false keeps it shown for as long as the content overflows (Leo 2026-10-21's look).
+    public static var thinScrollersAutoHide = true {
         didSet {
             followed.removeAll { $0.value == nil }
             for entry in followed {

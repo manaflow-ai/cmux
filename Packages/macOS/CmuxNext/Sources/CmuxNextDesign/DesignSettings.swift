@@ -1,6 +1,7 @@
 public import CoreGraphics
 public import Observation
 import Foundation
+public import CmuxNextDesignTokens
 
 /// Metrics a user may override individually on top of a density preset.
 /// Raw values are the cmux.json keys under `appearance.metrics`.

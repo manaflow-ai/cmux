@@ -1,6 +1,7 @@
 public import AppKit
 import CCmuxMotionFFI
 public import CmuxTheme
+public import CmuxNextDesignTokens
 
 /// How every theme and color change animates (`appearance.colorTransition.*`, cx-3rf4z; Lawrence
 /// 2026-10-15: "always smooth animation (that can be configured, fully ... or even just instant").

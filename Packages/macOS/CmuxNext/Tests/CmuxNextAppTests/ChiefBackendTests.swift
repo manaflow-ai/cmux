@@ -53,6 +53,18 @@ import Testing
         #expect(items.first { $0.value == "claude-cr" }?.title == "claude-cr")
     }
 
+    /// Lawrence 2026-10-23: "chief can choose between literally all the acpmux stuff". After the
+    /// official engines, the picker offers every harness this Mac's acpmux lists, once each.
+    @MainActor @Test func theHarnessPickerOffersEveryAcpmuxHarness() {
+        let listed = ["claude", "codex", "opencode", "pi", "gemini", "claude-sr", "claude-cr", "muse", "unii"]
+        #expect(HomeChiefSettingsView.harnesses(routeConfigured: false, listed: listed)
+            == ["claude", "codex", "muse", "unii", "opencode", "pi", "gemini", "claude-sr", "claude-cr"])
+        #expect(HomeChiefSettingsView.harnesses(routeConfigured: true, listed: listed)
+            == ["claude", "claude-cr", "codex", "muse", "unii", "opencode", "pi", "gemini", "claude-sr"])
+        let items = HomeChiefSettingsView.harnessItems(routeConfigured: false, listed: ["gemini"])
+        #expect(items.last?.value == "gemini" && items.last?.title == "gemini")
+    }
+
     @MainActor @Test func theNewChiefSheetHandsTheChosenBackendToItsCreate() async throws {
         let sheet = HomeNewChiefSheet()
         _ = sheet.view

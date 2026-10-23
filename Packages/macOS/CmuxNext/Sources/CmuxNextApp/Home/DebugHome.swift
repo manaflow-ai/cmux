@@ -46,7 +46,6 @@ enum DebugHome {
             return .object(row)
         }
         let local = services.machines.local
-        let caps = DaemonCapabilities.shared
         let workspace = home.homeWorkspace
         let tabs = workspace?.screens.flatMap(\.panes).flatMap(\.tabs) ?? []
         let setup: CmuxNextSettings.JSONValue = .object([
@@ -54,9 +53,9 @@ enum DebugHome {
             "workspace": workspace.map { .string($0.id) } ?? .null,
             "kind": workspace?.kind.map(CmuxNextSettings.JSONValue.string) ?? .null,
             "tab_kinds": .array(tabs.map { .string(String(describing: $0.kind)) }),
-            "workspace_kind": .bool(local.supports(caps.workspaceKind)),
-            "conversation_tabs": .bool(local.supports(caps.conversationTabs)),
-            "local_conversations": .bool(home.chief.supports(caps.localConversations)),
+            "workspace_kind": .bool(local.supports(DaemonCapabilities.workspaceKind)),
+            "conversation_tabs": .bool(local.supports(DaemonCapabilities.conversationTabs)),
+            "local_conversations": .bool(home.chief.supports(DaemonCapabilities.localConversations)),
         ])
         let chief = home.chief
         let owner: CmuxNextSettings.JSONValue = .object([

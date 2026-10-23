@@ -7,10 +7,11 @@ build. A Swift-only change to the lists (67b13e24e84d moved sidebar-layout-v1
 to `optional`) then breaks every tagged build. This check reads the lists from
 the Swift source, with no build, in the Linux checks job and in safe-push.
 
-It reads `DaemonCapabilities`: the string constants (`public let name = "..."`),
+It reads `DaemonCapabilities`: the string constants (`public static let name = "..."`),
 the literal `required` list and the identifier lists `optional` and
 `unservedByBundledDaemon`. An identifier it cannot resolve to a constant fails
-the check, so a new way to build a list cannot slip past it silently.
+the check, so a new way to build a list cannot slip past it silently, and a constant in
+no list fails it too.
 
 It then renders the export the way DaemonCapabilityExportTests.json does
 (JSONEncoder with .prettyPrinted, .sortedKeys and .withoutEscapingSlashes, each
@@ -106,6 +107,10 @@ def swift_lists(source: str) -> dict[str, list[str]]:
             else:
                 unresolved.append(f"{name}: {item}")
         lists[name] = values
+    # Every named constant is in a list (DaemonCapabilityExportTests checked this with Mirror
+    # while the catalog had an instance; its members are static now).
+    every = set(lists["required"]) | set(lists["optional"]) | set(lists["unservedByBundledDaemon"])
+    lists["unlisted"] = sorted(name for name, value in constants.items() if value not in every)
     if unresolved:
         sys.exit("check-daemon-capabilities-fresh: cannot resolve " + ", ".join(unresolved)
                  + f" to a `let name = \"...\"` constant in DaemonCapabilities; extend this check "
@@ -153,6 +158,9 @@ def main() -> int:
         both = sorted(set(swift[a]) & set(swift[b]))
         if both:
             problems.append(f"in both {a} and {b} in DaemonEndpoint.swift: {', '.join(both)}; keep each in one list")
+    if swift["unlisted"]:
+        problems.append("named in DaemonCapabilities but in no list (required, optional, unservedByBundledDaemon): "
+                        + ", ".join(swift["unlisted"]))
     for name in LISTS:
         want, have = swift[name], stored.get(name, [])
         if len(set(want)) != len(want):

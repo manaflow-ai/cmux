@@ -12,6 +12,7 @@ import { plainText } from "./messageMenu";
 import { drawnThought } from "./thoughts";
 import { shellOutput } from "./toolFailure";
 import { toolResult } from "./toolResult";
+import { stripsEnvelopeImages } from "../toolImages";
 
 /** One match: the `occurrence`th match of the query in row `rowIndex`. */
 export type FindMatch = { rowIndex: number; rowId: string; occurrence: number };
@@ -31,13 +32,15 @@ function drawnText(item: AcpmuxActivity): string {
   // A thought draws its headings without their marks (ThoughtRow.tsx, thoughts.ts thoughtParts).
   if (!tool) return item.kind === "thought" ? drawnThought(item.text) : item.text;
   const call = mcpCall(tool);
-  if (call) return [prettyValue(call.args), prettyOutput(tool.output)].filter(Boolean).join("\n");
+  // A finished call's envelope images show in its strip, not its text (toolImages.ts).
+  const strip = stripsEnvelopeImages(tool);
+  if (call) return [prettyValue(call.args), prettyOutput(tool.output, strip)].filter(Boolean).join("\n");
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // A shell draws its output without Claude Code's leading "Exit code N" line (toolFailure.ts), which
   // its Shell block says once, at its end. Other output reads as ToolRow draws it: out of its envelope,
   // without injected context (toolResult.ts), and Markdown as its words, without the marks
   // (messageMenu.ts plainText).
-  const result = shell || !tool.output ? undefined : toolResult(tool.output, cleanText);
+  const result = shell || !tool.output ? undefined : toolResult(tool.output, cleanText, strip);
   const output = shell
     ? shellOutput(tool)
     : !result

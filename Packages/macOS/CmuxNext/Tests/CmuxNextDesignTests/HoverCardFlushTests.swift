@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Lawrence 2026-10-19: "For hover on tab card there is a gap in between ... such that there is no
 /// gap in between." A card at rest touches its target: no empty band for the pointer to cross

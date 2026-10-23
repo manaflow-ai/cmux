@@ -211,8 +211,7 @@ macro_rules! home_rule {
   from your own shell job, or its `_acpmux/process` id), never one found by
   name or command line: no `pkill`, `killall`, `kill $(pgrep ...)` or
   `ps | grep` kills. A process you did not start belongs to the user or
-  another agent; when it looks stuck, leave it and say so. Tell each
-  subagent the same.
+  another agent; when it looks stuck, leave it and say so.
 - Git: commit and push straight to the feature branch you work on
   (`feat-cmux-next` for cmux-next): rebase on its latest remote first, plain
   push, never force; no pull requests unless the user asks. Work in your own
@@ -221,9 +220,9 @@ macro_rules! home_rule {
   request's checks, whether it merged) with `gh api` or `gh pr view`, not
   `git fetch`; fetch only the one branch you rebase on, and never run `git
   log --all` or `git rev-list --all`: on a partial clone each downloads
-  hundreds of thousands of objects. Tell each subagent the same. A subagent's
-  work is done only when its report names the sha range it landed on that
-  branch; a scratch or work branch is not landed, so tell it to land."
+  hundreds of thousands of objects. A subagent's work is done only when its
+  report names the sha range it landed on that branch; a scratch or work
+  branch is not landed, so tell it to land."
     };
 }
 
@@ -283,7 +282,9 @@ cmux Home, and your final reply of each turn is posted there.
   it answers their ids at once, and for each one the cmux workspace where
   the user can watch and join its chat, or that it has none and why. Tell
   the user only what that answer says. A subagent sees your view and its
-  task, so say in the task what it must do and report.
+  task, and its own prompt holds the user's profile and these rules (links,
+  processes, git and landing, sign-ins, groups, decisions): never restate
+  them in a task. Say only what is new: goal, scope, facts, what to report.
   Each one's report reaches you as a message, \"[id] report\", when it
   finishes. `tell(id, message)` sends a running
   subagent more instructions. Never wait or poll for them.
@@ -401,7 +402,10 @@ cmux Home, and your final reply of each turn is posted there.
   directory the work is in); it prints their ids at once, and for each one
   the cmux workspace where the user can watch and join its chat, or that it
   has none and why. Tell the user only what it prints. A subagent sees your
-  view and its task, so say in the task what it must do and report. Each one's report reaches you as a message,
+  view and its task, and its own prompt holds the user's profile and these
+  rules (links, processes, git and landing, sign-ins, groups, decisions):
+  never restate them in a task. Say only what is new: goal, scope, facts,
+  what to report. Each one's report reaches you as a message,
   \"[id] report\", when it finishes. `{chief} tell ID \"message\"`
   sends a running subagent more instructions. Never wait or poll for them.
 - Versions: `cmux version --json` (or the `version` tool, which adds
@@ -478,12 +482,9 @@ report.
 - The `cmux` CLI drives the cmux session of the machine you run on
   (`cmux --help`). Never close or change workspaces the user did not ask
   about.
-- Versions: `cmux version --json` (or the `version` tool, which adds
-  your engine) names this `cmux` CLI, the app its
-  socket reaches (name, full version with the nightly build, channel,
-  bundle id and path, pid), whether the CLI is not the app's own, the update
-  state (phase, ready on quit, last check), the bundled acpmux and Chief
-  host stamps and macOS. Run it before you say which build the user runs.
+- Versions: run `cmux version --json` (app and nightly build, whether the
+  CLI is not the app's own, update state) before you say which build the
+  user runs.
 - The user's sign-ins from another browser: `cmux browser import-cookies
   --from chrome[:PROFILE] --domain SITE --reason \"why\"`. Always give the
   reason and the fewest sites; the user must Allow it in cmux first.
@@ -562,17 +563,38 @@ pub fn subagent_blocks(view: &str, task: &str) -> Vec<Value> {
     // An empty chat has no view to give: only the task itself, with no
     // "Your task:" label (it would label nothing; cx-qqs1). With a view, the
     // label separates the task from the view (the pane's envelope marker).
+    let view = without_stop_lines(view);
     let lines = view
         .lines()
         .filter(|l| !matches!(l.trim(), "" | "<chat>" | "</chat>"));
     if lines.count() == 0 {
         return vec![json!({"type": "text", "text": task})];
     }
-    turn_blocks(view, &[format!("Your task:\n\n{task}")])
+    turn_blocks(&view, &[format!("Your task:\n\n{task}")])
+}
+
+/// `view` without its one-message lines that only say the Chief stopped its
+/// turn (a `stop` call or its echo): they tell a subagent nothing. The fold
+/// logs neither for new turns (`fold::unlogged`); older logs still hold them.
+fn without_stop_lines(view: &str) -> String {
+    let noise = |line: &str| {
+        line.split_once('|').is_some_and(|(head, text)| {
+            head.ends_with("+1")
+                && (text.starts_with("tool: mcp__optchat__stop ")
+                    || text.starts_with("echo: outcome: done. the turn ends now"))
+        })
+    };
+    let mut out = String::with_capacity(view.len());
+    for line in view.split_inclusive('\n') {
+        if !noise(line) {
+            out.push_str(line);
+        }
+    }
+    out
 }
 
 /// Tool descriptions of section 9's `spawn` and `tell`.
-pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat, its sidebar group and where it is, or that it has none and why. Start each task with a line `Title: <2-5 words>` (its workspace name) and optionally `Group: <sidebar group>`; without them both come from the task. Tell the user only that. Each subagent sees the view and its task. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them. place: cloud runs them on the cloud VM peer (code and tests; Mac builds go to the fleet), local on this Mac (its app, UI, screenshots, computer use); by default, the `control cloud` setting. This is how a background agent starts: never `acpmux new` or a headless `claude -p`.";
+pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat, its sidebar group and where it is, or that it has none and why. Start each task with a line `Title: <2-5 words>` (its workspace name) and optionally `Group: <sidebar group>`; without them both come from the task. Tell the user only that. Each subagent sees the view, its task, the user's profile and the cmux rules (git and landing, links, processes, sign-ins): a task never restates them. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them. place: cloud runs them on the cloud VM peer (code and tests; Mac builds go to the fleet), local on this Mac (its app, UI, screenshots, computer use); by default, the `control cloud` setting. This is how a background agent starts: never `acpmux new` or a headless `claude -p`.";
 pub const SPAWN_CWD_DESCRIPTION: &str = "The most specific directory the work is in, on the machine you run on (~ is its home), for example ~/fun/repo: never ~ itself, / or a private folder such as ~/Downloads or ~/Documents, where they would read the user's private files and macOS would ask the user for access; those run in the subagents' own folder. The answer says when it does not exist there.";
 /// A subagent's `peers` tool (acp-chief-issues.md #11).
 pub const PEERS_DESCRIPTION: &str =

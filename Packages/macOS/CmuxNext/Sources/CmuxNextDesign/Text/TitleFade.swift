@@ -1,4 +1,5 @@
 public import QuartzCore
+public import CmuxNextDesignTokens
 
 /// Fades a clipped single-line title and runs its hover marquee.
 ///

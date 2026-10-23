@@ -66,11 +66,15 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// true: the page shows the widget view under its composer (Debug Settings `newTab.widgets`,
     /// ``AgentPaneTunables/newTabWidgets``); nil shows none.
     public var widgets: Bool?
-    /// The Minimal layout's widgets the user turned on (`tabs.newTabWidgets.*`: "greeting",
-    /// "projects", "actions", "chats", "styleDots"); Minimal draws the composer and
-    /// only these besides. nil is Settings' defaults (the greeting). The other layouts ignore it.
+    /// The Minimal layout's widgets the user turned on (`tabs.newTabWidgets.*`: "greeting" (the
+    /// headline asking what to work on), "projects", "actions", "chats", "styleDots"); Minimal draws
+    /// the composer and only these besides. nil is Settings' defaults (none). The other layouts ignore it.
     /// The page validates it.
     public var pageWidgets: [String]?
+    /// true: `tabs.newTabWidgets.greeting` is false in cmux.json, not the default
+    /// (``NewTabWidgetSettings/greetingTurnedOff``): Minimal keeps no room over the composer for the
+    /// headline, so the composer stays where it sat with the greeting off; nil keeps the room.
+    public var headlineOff: Bool?
     /// true: the page lists only its own connection's chats, not the store every page shares
     /// (Debug Settings `newTab.privateChatLists`, ``AgentPaneTunables/newTabPrivateChatLists``).
     public var privateChatLists: Bool?

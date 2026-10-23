@@ -118,6 +118,8 @@ final class HomeHostView: NSView {
             try? services?.settingsWindow.show(section: nil, focus: true, route: "#/settings/chief")
         }
         settingsView.checkHarness = { [weak services] id in (try? await services?.agentHarnesses.doctor(id: id))?["ok"]?.boolValue == true }
+        // Every harness this Mac's acpmux has (Settings > Agents' list), after the official engines.
+        settingsView.listHarnesses = { [weak services] in (try? await services?.agentHarnesses.listed())?.sorted() ?? [] }
         settingsView.onRename = { [weak service] name in
             guard let service else { return .noConnection }
             // A cloud Chief's name is its account record's (UserDO renames its conversation after):

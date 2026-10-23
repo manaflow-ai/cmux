@@ -23,7 +23,7 @@
    "cmux-tui-platform": 1,
    "cmux-tui-remote-access": 1,
    "cmux-tui-util": 1,
-   "cmux-wg": 15
+   "cmux-wg": 3
   },
   "panic_macro": {
    "acpmux": 2,
@@ -33,12 +33,12 @@
    "cmux-tui-core": 26
   },
   "unwrap": {
-   "acpmux": 140,
+   "acpmux": 139,
    "chatmux-relay": 7,
    "cmux-remote": 4,
    "cmux-terminal-client": 30,
-   "cmux-tui": 435,
-   "cmux-tui-core": 1162,
+   "cmux-tui": 433,
+   "cmux-tui-core": 1163,
    "cmux-tui-image-paste": 22,
    "cmux-tui-platform": 17,
    "cmux-tui-remote-access": 5,
@@ -60,13 +60,13 @@
    "CmuxNextAgentActivity": 2,
    "CmuxNextAgentCursor": 1,
    "CmuxNextAgentPane": 2,
-   "CmuxNextApp": 3,
+   "CmuxNextApp": 4,
    "CmuxNextBrowser": 12,
    "CmuxNextBrowserAutomation": 17,
    "CmuxNextDesign": 14,
    "CmuxNextPages": 4,
    "CmuxNextSidebar": 3,
-   "MessagesLabHome": 20
+   "MessagesLabHome": 21
   },
   "render_font": {
    "CmuxHomeRender": 4,
@@ -86,7 +86,7 @@
    "CmuxMobileSupport": 4,
    "CmuxMobileTunnel": 4,
    "CmuxNextAgentPane": 2,
-   "CmuxNextApp": 4,
+   "CmuxNextApp": 3,
    "CmuxNextApps": 1,
    "CmuxNextBridge": 1,
    "CmuxNextBrowser": 4,

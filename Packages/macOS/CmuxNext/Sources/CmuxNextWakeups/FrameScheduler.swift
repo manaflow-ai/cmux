@@ -1,5 +1,6 @@
 public import AppKit
 public import QuartzCore
+import CmuxNextCompat
 
 /// What a scheduler needs from a display link (a fake in tests).
 @MainActor
@@ -50,11 +51,8 @@ public final class FrameScheduler: NSObject {
         // The window keeps its scheduler alive.
         objc_setAssociatedObject(window, &FrameScheduler.associationKey, scheduler, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         // The link retains its target: break the cycle when the window closes.
-        scheduler.closeObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification, object: window, queue: .main
-        ) { [weak scheduler] _ in
-            // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
-            MainActor.assumeIsolated { scheduler?.invalidate() }
+        scheduler.closeObserver = MainActorObservation(NSWindow.willCloseNotification, object: window) { [weak scheduler] in
+            scheduler?.invalidate()
         }
         return scheduler
     }
@@ -86,7 +84,7 @@ public final class FrameScheduler: NSObject {
     private let stall: DemandTimer
     private var stalls = 0
     private var lastTimestamp: CFTimeInterval?
-    private var closeObserver: (any NSObjectProtocol)?
+    private var closeObserver: MainActorObservation?
     /// Frames delivered since creation (debug).
     public private(set) var frames: UInt64 = 0
 
@@ -161,7 +159,7 @@ public final class FrameScheduler: NSObject {
         stall.cancel()
         link?.invalidate()
         link = nil
-        if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+        closeObserver = nil
         closeObserver = nil
     }
 
@@ -224,7 +222,7 @@ public final class FrameScheduler: NSObject {
         if clients.isEmpty { pause() } else { armStall() }
     }
 
-    private func deliver(timestamp: CFTimeInterval?, refreshInterval: Double?) {
+    private func deliver(timestamp: CFTimeInterval?, refreshInterval: Double?) { // perf-hot: 0.5ms frame-tick (every frame)
         frames &+= 1
         let now = timestamp ?? CACurrentMediaTime()
         let elapsed = lastTimestamp.map { now - $0 } ?? (1.0 / 60.0)

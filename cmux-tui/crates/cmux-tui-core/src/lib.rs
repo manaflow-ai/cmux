@@ -89,6 +89,8 @@ pub mod sizing_policy;
 mod state;
 pub mod store_schemas;
 use cmux_tui_util::stream_interrupt;
+#[cfg(unix)]
+mod holder_runtime;
 mod surface;
 mod terminal_activity;
 #[cfg(unix)]

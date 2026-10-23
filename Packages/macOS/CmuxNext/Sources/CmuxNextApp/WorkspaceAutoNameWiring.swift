@@ -30,7 +30,7 @@ struct WorkspaceAutoNameWiring {
                         WorkspaceAutoNamer.Target(
                             machineID: daemon.machineID,
                             workspace: workspace,
-                            supportsNameSource: daemon.supports(DaemonCapabilities.shared.workspaceNameSource),
+                            supportsNameSource: daemon.supports(DaemonCapabilities.workspaceNameSource),
                             daemonGeneration: identity?.generation,
                             nameSource: workspace.nameSource,
                             nameRevision: workspace.nameRevision)
@@ -44,7 +44,7 @@ struct WorkspaceAutoNameWiring {
             rename: { [weak services] target, name in
                 guard let services, target.supportsNameSource, let key = target.workspace.key,
                       let daemon = services.machines.daemon(machine: target.machineID),
-                      daemon.supports(DaemonCapabilities.shared.workspaceNameSource) else { return }
+                      daemon.supports(DaemonCapabilities.workspaceNameSource) else { return }
                 daemon.send("auto-rename workspace") {
                     _ = try await $0.renameWorkspace(key, to: name, source: .auto,
                                                       expectedNameRevision: target.nameRevision)

@@ -11,7 +11,7 @@ import CmuxNextDaemon
 /// never made unread again. The row verbs act on the panel row their
 /// `notification` argument names, else on the latest unread.
 enum NotificationHandlers {
-    static let ack = DaemonCapabilities.shared.notificationAck
+    static let ack = DaemonCapabilities.notificationAck
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services

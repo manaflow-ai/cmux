@@ -10,7 +10,7 @@ enum DaemonConnectionChange {
         switch self {
         case .connected(let identity, let envelope):
             store.sideEvents.noteControl(envelope)
-            store.session.connected(servesStateResources: identity.supports(DaemonCapabilities.shared.stateResources))
+            store.session.connected(servesStateResources: identity.supports(DaemonCapabilities.stateResources))
             store.connectionState = .connected(identity)
             store.noteHandshake(identity)
             return .resync

@@ -1,4 +1,4 @@
-import { keepPreviousData, QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, notifyManager, QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useSyncExternalStore } from "react";
 import type { AcpmuxSnapshot } from "./model";
 
@@ -155,11 +155,14 @@ export function useHarnessCatalog(
 
 /// True once a harness fetch of this pane landed (acpmux answered). A cached catalog from an earlier
 /// launch, or no answer yet, is not a listing: an empty catalog then says nothing about what is
-/// installed (the composer's Add harness chip waits for this).
+/// installed (the composer's Add harness chip waits for this). It hears the cache in the same batch
+/// as the catalog's own query observers (`notifyManager.batchCalls`, as useQuery subscribes), so no
+/// frame draws the listing landed before the catalog it lists: that frame drew Add harness for a
+/// moment over a first launch's model chip.
 export function useHarnessesListed(): boolean {
   const client = useQueryClient();
   return useSyncExternalStore(
-    (listener) => client.getQueryCache().subscribe(listener),
+    (listener) => client.getQueryCache().subscribe(notifyManager.batchCalls(listener)),
     () =>
       client
         .getQueryCache()

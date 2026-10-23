@@ -69,6 +69,9 @@ final class GroupHeaderRowView: SidebarRowView {
     var isKeyboardFocused = false { didSet { if isKeyboardFocused != oldValue { needsLayout = true; needsDisplay = true } } }
     /// The group editor is open for this group.
     var isEditing = false { didSet { if isEditing != oldValue { needsLayout = true; needsDisplay = true } } }
+    /// How far this header's frame reaches left of its members' x, over their rail (`SidebarListView.railReach(for:)`):
+    /// the bar and the dot start there, at the rail's left edge, and the name keeps the members' text column.
+    var railReach: CGFloat = 0 { didSet { if railReach != oldValue { needsLayout = true } } }
     /// Shows the group's full menu: VoiceOver's More Group Actions (a right-click shows the same menu).
     var onMore: (() -> Void)?
     /// Opens the group editor (name, color and actions): the more button and VoiceOver's Edit action.
@@ -189,6 +192,8 @@ final class GroupHeaderRowView: SidebarRowView {
     var ink: NSColor? { name.textColor }
     /// The group chip (`GroupLabelBandTests`): a click here opens the editor.
     var labelFrame: NSRect { pill.frame }
+    /// The header's leading mark the members' rail lines up with: the bar, or the quiet styles' dot.
+    var leadingMarkFrame: NSRect { pill.isHidden ? dot.frame : pill.frame }
     /// The width the name needs to draw whole (`GroupLabelBandTests`).
     var titleIntrinsicWidth: CGFloat { Self.drawnWidth(name) }
     /// The width a header label needs to draw its text whole: its text in the font it draws in,
@@ -320,7 +325,7 @@ final class GroupHeaderRowView: SidebarRowView {
         let pad = (barHeight * 0.62).rounded()
         // The name starts where ungrouped rows start (`SidebarStyle.horizontalInset`): an icon
         // on their icon column with the name on their text column, or the name alone on it.
-        let lead = SidebarStyle.horizontalInset
+        let lead = SidebarStyle.horizontalInset + railReach
         name.isHidden = renaming
         name.font = SidebarStyle.groupHeaderFont(barHeight: barHeight)
         count.font = SidebarStyle.groupHeaderCountFont(name: name.font ?? SidebarStyle.headerFont)
@@ -400,11 +405,10 @@ final class GroupHeaderRowView: SidebarRowView {
         // The cx-rcby chip: one full-width rounded bar, the row's full height like a workspace row's fill.
         pill.frame = NSRect(x: 0, y: 0, width: b.width, height: b.height)
         pill.cornerRadius = SidebarStyle.rowCornerRadius // one radius with the pinned and workspace rows
-        // The quiet styles' dot sits in the header's leading corner; the members' line runs just
-        // left of the rows (SidebarStyle.groupLineX), as the rows keep the ungrouped rows' left edge.
+        // The quiet styles' dot sits in the header's leading corner, where the members' line starts (the frame's left
+        // edge, `railReach` left of the rows: SidebarStyle.groupLineX), as the rows keep the ungrouped rows' left edge.
         let dotSide = SidebarStyle.groupDotSize
-        dot.frame = CGRect(x: SidebarStyle.groupBarX + SidebarStyle.groupBarWidth / 2 - dotSide / 2, y: (b.height - dotSide) / 2,
-                           width: dotSide, height: dotSide)
+        dot.frame = CGRect(x: 0, y: (b.height - dotSide) / 2, width: dotSide, height: dotSide)
         dot.cornerRadius = dotSide / 2
         // The members' line starts under this bar: one layer per group
         // under the rows (SidebarListView+GroupLines, cx-qno.17).

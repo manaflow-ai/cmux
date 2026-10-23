@@ -37,7 +37,10 @@ import argparse, glob, json, os, pathlib, signal, subprocess, sys, tempfile, tim
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", required=True)
-parser.add_argument("--layouts", default="1x2,4x2,6x5")
+parser.add_argument("--layouts", default="1x2,4x2,6x5",
+                    help="COLSxROWS terminal grids, and `stress`: the STRESS session (perf-stress-session.py)")
+parser.add_argument("--stress-selected", default="terminal", choices=["terminal", "chromium"],
+                    help="layout `stress`: what each pane of the measured workspace shows")
 parser.add_argument("--actions", default="split,close,column,zoom,drag")
 parser.add_argument("--rounds", type=int, default=3)
 parser.add_argument("--scrollback", type=int, default=5000)
@@ -254,6 +257,21 @@ def layout(columns, rows):
     focus_page()
     time.sleep(1.5 if opts.scrollback else 0.5)  # test harness: seq fills the scrollback
     return None
+
+
+STRESS = {}  # layout `stress`: the session's summary (perf-stress-session.py)
+
+
+def stress_layout():
+    """The STRESS session (perf-stress-session.py), ending on its measured workspace's top-left pane."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("perf_stress_session", os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                                                   "perf-stress-session.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    STRESS.update(module.Stress(rpc, selected=opts.stress_selected).build())
+    print("STRESS-SESSION " + json.dumps(STRESS), flush=True)
+    return None if STRESS.get("measured_panes") else f"the STRESS session has no measured panes: {json.dumps(STRESS)[:300]}"
 
 
 def vertical_divider():
@@ -554,13 +572,17 @@ def main():
     report = {"tag": TAG, "macos": macos, "host": host, "stream": opts.stream, "scrollback": opts.scrollback, "runs": []}
     sequence = steps()
     for name in opts.layouts.split(","):
-        columns, rows = (int(v) for v in name.split("x"))
-        problem = layout(columns, rows)
+        if name == "stress":
+            problem = stress_layout()
+            panes = STRESS.get("measured_panes") or 0
+        else:
+            columns, rows = (int(v) for v in name.split("x"))
+            problem = layout(columns, rows)
+            panes = columns * rows
         if problem:
             print(f"  {name}: {problem}", flush=True)
             row(f"{name}: the Chromium page runs (--browser)", "window.__frames counting", problem, False)
             continue
-        panes = columns * rows
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-before.png")})
         for index in range(opts.rounds):
             for step in sequence:

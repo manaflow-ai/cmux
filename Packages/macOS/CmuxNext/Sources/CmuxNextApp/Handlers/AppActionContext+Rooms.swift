@@ -7,8 +7,8 @@ extension AppActionContext {
     var roomStore: DaemonStore { services.machines.local.store }
 
     func requireRooms() throws {
-        guard services.machines.local.supports(DaemonCapabilities.shared.profiles) else {
-            throw ActionFailure(message: services.machines.local.missingCapabilityMessage(DaemonCapabilities.shared.profiles))
+        guard services.machines.local.supports(DaemonCapabilities.profiles) else {
+            throw ActionFailure(message: services.machines.local.missingCapabilityMessage(DaemonCapabilities.profiles))
         }
     }
 

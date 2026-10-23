@@ -5,8 +5,9 @@ import GhosttyNextKit
 
 /// One terminal on screen: a Ghostty surface fed by a ``TerminalIO``.
 ///
-/// Embed ``view``. The session consumes `io.events` on the main actor,
-/// feeds bytes through a serial off-main output lane, and writes Ghostty's
+/// Embed ``view``. The session consumes `io.events` off the main actor: live
+/// output goes straight to a serial off-main output lane, every other event
+/// is handled on the main actor in stream order. It writes Ghostty's
 /// encoded input back to `io.write` in order. Consumption is demand-driven:
 /// the next event is taken only once the lane has room, so a slow parser
 /// pushes back on the IO (which bounds its own buffer) instead of queueing
@@ -173,13 +174,7 @@ public final class TerminalSession {
             }
         }
 
-        let events = io.events
-        eventsTask = Task { [weak self] in
-            for await event in events {
-                guard let self else { return }
-                await self.handle(event)
-            }
-        }
+        eventsTask = Self.consume(io.events, for: self)
         // The first grid report fired inside the surface init, before
         // `session` was set; report it now.
         surfaceView.updateSurfaceSize(forceReport: true)
@@ -279,7 +274,39 @@ public final class TerminalSession {
 
     // MARK: Events
 
-    private func handle(_ event: TerminalIOEvent) async {
+    /// Consumes `events` off the main actor. Output for a surface that already has content goes
+    /// straight to its output lane: a busy terminal costs the main thread nothing per chunk, and an
+    /// echo never waits behind other terminals' output or a motion frame on main. Every other event
+    /// (a replay, a snapshot, a grid, a status, a surface's first content) is handled on the main
+    /// actor, in stream order: the loop waits for it, and it hands back the lane the next output
+    /// may use (nil while the surface still waits for its first content, or none is live). Only
+    /// ``handle(_:)`` swaps surfaces, so that lane stays current until the next main-actor event.
+    private nonisolated static func consume(_ events: AsyncStream<TerminalIOEvent>,
+                                            for session: TerminalSession) -> Task<Void, Never> {
+        Task.detached(priority: .high) { [weak session] in
+            var lane: TerminalOutputLane?
+            for await event in events {
+                if case .output(let data) = event, let lane {
+                    TypingLatencyProbe.shared.mark(.outputMain)
+                    ExpectedActivity.shared.note(.terminalOutput)
+                    await lane.waitForCapacity()
+                    lane.processOutput(data)
+                    continue
+                }
+                guard let session else { return }
+                lane = await session.handle(event)
+            }
+        }
+    }
+
+    /// Handles one event on the main actor. Returns the lane later output may go to off the main
+    /// actor (``consume(_:for:)``).
+    private func handle(_ event: TerminalIOEvent) async -> TerminalOutputLane? {
+        await apply(event)
+        return surfaceHasContent ? surfaceView.lane : nil
+    }
+
+    private func apply(_ event: TerminalIOEvent) async {
         #if DEBUG
         if NewTerminalTrace.shared.isArmed { traceEvent(event) }
         #endif

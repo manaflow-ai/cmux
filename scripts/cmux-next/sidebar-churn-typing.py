@@ -210,6 +210,11 @@ def main_thread_profile(path):
         return element
 
     inclusive, leaf, samples = {}, {}, 0
+    # For a few frames: who called them and what they called, so a hot generic frame names its owner.
+    focus = ("generateAccessList", "Array._makeMutableAndUnique", "withObservationTracking<", "SidebarSameTurn.observe",
+             "DaemonStore.applyBatch", "stepTransactionFlush", "SidebarListView.reload", "ObservationStream.LegacyIterator.track",
+             "FrameBatcher.drain", "publishNow", "reconcileMembership", "SidebarRowIndex.patching")
+    callers, callees = {}, {}
     for row in root.iter("row"):
         thread = backtrace = None
         for child in row:
@@ -227,13 +232,24 @@ def main_thread_profile(path):
             leaf[frames[0]] = leaf.get(frames[0], 0) + 1
         for name in set(frames):
             inclusive[name] = inclusive.get(name, 0) + 1
+        seen = set()
+        for i, name in enumerate(frames):  # leaf first
+            key = next((f for f in focus if f in name), None)
+            if key is None or key in seen:
+                continue
+            seen.add(key)  # the outermost-but-first occurrence per sample: one count each
+            up = frames[i + 1] if i + 1 < len(frames) else "-"
+            down = frames[i - 1] if i > 0 else "(self)"
+            callers.setdefault(key, {})[up[:160]] = callers.setdefault(key, {}).get(up[:160], 0) + 1
+            callees.setdefault(key, {})[down[:160]] = callees.setdefault(key, {}).get(down[:160], 0) + 1
     generic = ("main", "start", "NSApplicationMain", "-[NSApplication run]", "_DPSNextEvent", "CFRunLoopRun", "__CFRunLoop",
                "_CFRunLoopRun", "-[NSApplication(NSEvent) _nextEventMatchingEventMask", "_BlockUntilNextEventMatchingListInMode",
                "ReceiveNextEventCommon", "RunCurrentEventLoopInMode", "_dispatch_main_queue", "__CFRUNLOOP", "_dispatch_", "?",
                "_DPSBlockUntilNextEventMatchingListInMode", "-[NSApplication(NSEventRouting)", "CmuxNextApp.main()")
     top = [{"frame": n[:220], "samples": c, "pct": round(100.0 * c / samples, 1) if samples else 0}
            for n, c in sorted(inclusive.items(), key=lambda kv: -kv[1]) if not n.startswith(generic)][:80]
-    return {"main_samples": samples, "top_inclusive": top,
+    top_of = lambda table: {k: sorted(v.items(), key=lambda kv: -kv[1])[:8] for k, v in table.items()}
+    return {"main_samples": samples, "top_inclusive": top, "callers": top_of(callers), "callees": top_of(callees),
             "top_leaf": [{"frame": n[:220], "samples": c} for n, c in sorted(leaf.items(), key=lambda kv: -kv[1])[:30]]}
 
 
@@ -386,7 +402,7 @@ def main():
         results["setup"] = {"workspaces": len(ids), "groups": len(groups), "typing": typed_id}
         type_keys(10)  # warm-up
         for r in range(opts.rounds):
-            phase(f"idle-{r}", app.pid, ids, groups, 0)
+            phase(f"idle-{r}", app.pid, ids, groups, 0, trace=opts.trace and r == 0)
             phase(f"churn-{r}", app.pid, ids, groups, opts.churn_hz, trace=opts.trace and r == 0)
     finally:
         idle = [p for p in results["phases"] if p["churn_hz"] == 0 and p.get("key_to_frame_ms")]

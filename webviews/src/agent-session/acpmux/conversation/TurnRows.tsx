@@ -17,7 +17,7 @@ import { awaitsPermission, toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
-import { ArrowRight, ChevronRight, Retry } from "./icons";
+import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
 import {
   ForkButton,
   MessageCopy,
@@ -29,7 +29,11 @@ import {
 } from "./MessageActions";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { useT } from "../i18n";
-import { failureCopy, failureKind, type FailureRoute } from "../failureCopy";
+import { failureCopy, failureKind, failureRecovery, type FailureRoute } from "../failureCopy";
+import { experimentArm } from "../../../experiments/experiment";
+import { turnErrorCard } from "./turnErrorCard.experiment";
+import { codeRouterOffer } from "./codeRouterOffer.experiment";
+import { CodeRouterAction, useCodeRouterChoice } from "./CodeRouterOffer";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 
 /// The "Worked for 15s" line; it opens the turn's commentary and tool calls.
@@ -243,7 +247,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const prompt = row.prompt;
   const seq = row.seq;
   const failed = row.status === "failed" || row.status === "error";
-  const kind = failed ? failureKind(row.error, route) : undefined;
+  const kind = failed ? failureKind(row.error, route, row.errorCode) : undefined;
   // Only the CLI's own login (or an unexplained 401 on a direct route) asks to sign in (cx-w10a).
   const authenticationFailed = kind === "subscription-login" || kind === "auth";
   const label = footerLabel(t, row);
@@ -260,7 +264,15 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // turn the reader points at, from its answer to its footer).
   return (
     <>
-      {failed && <TurnFailure message={row.error} route={route} switchModel={switchModel} />}
+      {failed && (
+        <TurnFailure
+          message={row.error}
+          code={row.errorCode}
+          route={route}
+          switchModel={switchModel}
+          retry={retry && prompt && row.retryRowId ? () => retry(row.retryRowId!, prompt) : undefined}
+        />
+      )}
       <div
         className={
           failed
@@ -322,68 +334,126 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   );
 }
 
-/// A failed turn's note (cx-w10a): the cause in plain words, naming the harness and the proxy or endpoint
-/// when the error names one, never a generic "sign-in expired"; the agent's own message under Details;
-/// Switch model for capacity, network, key, proxy and sign-in failures; Copy error always.
+/// A failed turn's card (cx-w10a; Leo 2026-10-22: "we need to have prettier errors"): the cause in
+/// one human line, naming the harness and the proxy or endpoint when the error names one, never a
+/// generic "sign-in expired" and never the agent's raw words; the way out first (Retry, or Switch
+/// model for capacity, key and proxy failures, and for sign-in ones beside the footer's Sign in
+/// again); Details opens the agent's own message with Copy error. Its surface is the
+/// `turn-error-card` experiment's arm (turnErrorCard.experiment.ts).
 function TurnFailure({
   message,
+  code,
   route,
   switchModel,
+  retry,
 }: {
   message: string | undefined;
+  code?: string;
   route?: FailureRoute;
   switchModel?: () => void;
+  retry?: () => void;
 }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const kind = failureKind(message, route);
-  const sentence = failureCopy(t, message, route);
+  const kind = failureKind(message, route, code);
+  const sentence = failureCopy(t, message, route, code);
+  const arm = experimentArm(turnErrorCard);
+  const recovery = failureRecovery(kind);
   // A sign-in failure offers it too: the picker moves the chat to a route that is signed in (cx-gz0dz).
   const offersSwitch =
     switchModel &&
     ["rate-limited", "unreachable", "invalid-key", "proxy-auth", "subscription-login", "auth"].includes(kind);
+  // Retry is the way out, or the second one after Switch model; never for a sign-in or trust failure.
+  const offersRetry = recovery !== undefined && retry !== undefined;
+  // The way out goes first and reads as the card's one filled button.
+  const switchFirst = offersSwitch && (recovery === "switch-model" || !offersRetry);
+  // cmux's own route for a key, sign-in or capacity failure (CodeRouterOffer.tsx), placed by the
+  // `coderouter-offer` arm. It takes the filled button only in the `primary` arm, or when it is the
+  // only way out; the card keeps exactly one.
+  const codeRouter = useCodeRouterChoice(kind, route, retry !== undefined);
+  const offerArm = experimentArm(codeRouterOffer);
+  const offerLeads = codeRouter !== undefined && offerArm === "primary";
+  const offerFilled =
+    offerLeads || (codeRouter !== undefined && offerArm === "button" && !offersSwitch && !offersRetry);
+  const switchButton = offersSwitch && (
+    <button
+      type="button"
+      className={`cv-turn-auth-action${switchFirst && !offerLeads ? " cv-turn-error__primary" : ""}`}
+      onClick={switchModel}
+    >
+      {t("turn.failure.switchModel")}
+    </button>
+  );
   return (
-    <div className="cv-turn-note" data-failure-kind={kind}>
-      <span className="text-fg">{sentence}</span>
-      {message && sentence !== message && (
-        <details className="mt-0.5" onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
-          {/* The chat's chevron, as on Worked for, not the browser's triangle. */}
-          <summary className="cv-turn-note__summary">
-            {t("turn.failure.details")}
-            <ChevronRight
-              size={12}
-              strokeWidth={1.2}
-              aria-hidden="true"
-              className={`cv-rotor${detailsOpen ? " is-open" : ""}`}
-            />
-          </summary>
-          <span className="mt-1 block font-mono text-detail whitespace-pre-wrap text-dim select-text">{message}</span>
-        </details>
-      )}
-      {(offersSwitch || message) && (
-        <span className="mt-1 flex flex-wrap gap-1.5">
-          {offersSwitch && (
-            <button type="button" className="cv-turn-auth-action" onClick={switchModel}>
-              {t("turn.failure.switchModel")}
-            </button>
-          )}
-          {message && (
-            <button
-              type="button"
-              className="cv-turn-auth-action"
-              onClick={() =>
-                void copyText(message).then(
-                  () => setCopied(true),
-                  () => setCopied(false),
-                )
-              }
-            >
-              {copied ? t("turn.copied") : t("turn.failure.copyError")}
-            </button>
+    <div
+      className={`cv-turn-note cv-turn-error cv-turn-error--${arm}${arm === "card" ? " ui-glass" : ""}`}
+      data-failure-kind={kind}
+    >
+      <span className="cv-turn-error__cause">
+        {arm !== "note" && <AlertCircle size={14} className="cv-turn-error__icon" />}
+        <span className="text-fg">
+          {sentence}
+          {codeRouter && offerArm === "link" && (
+            <>
+              {" "}
+              <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-error__offer-link" />
+            </>
           )}
         </span>
-      )}
+      </span>
+      <span className="cv-turn-error__actions">
+        {offerLeads && (
+          <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-auth-action cv-turn-error__primary" />
+        )}
+        {switchFirst && switchButton}
+        {offersRetry && (
+          <button
+            type="button"
+            className={`cv-turn-auth-action${switchFirst || offerLeads ? "" : " cv-turn-error__primary"}`}
+            onClick={retry}
+          >
+            {t("turn.retry")}
+          </button>
+        )}
+        {!switchFirst && switchButton}
+        {codeRouter && offerArm === "button" && (
+          <CodeRouterAction
+            choice={codeRouter}
+            retry={retry}
+            className={`cv-turn-auth-action${offerFilled ? " cv-turn-error__primary" : ""}`}
+          />
+        )}
+        {message && (
+          <details className="cv-turn-error__details" onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
+            {/* The chat's chevron, as on Worked for, not the browser's triangle. */}
+            <summary className="cv-turn-note__summary">
+              {t("turn.failure.details")}
+              <ChevronRight
+                size={12}
+                strokeWidth={1.2}
+                aria-hidden="true"
+                className={`cv-rotor${detailsOpen ? " is-open" : ""}`}
+              />
+            </summary>
+            <span className="cv-turn-error__raw">
+              <span className="block font-mono text-detail whitespace-pre-wrap text-dim select-text">{message}</span>
+              <button
+                type="button"
+                className="cv-turn-auth-action"
+                onClick={() =>
+                  void copyText(message).then(
+                    () => setCopied(true),
+                    () => setCopied(false),
+                  )
+                }
+              >
+                {copied ? t("turn.copied") : t("turn.failure.copyError")}
+              </button>
+            </span>
+          </details>
+        )}
+      </span>
     </div>
   );
 }

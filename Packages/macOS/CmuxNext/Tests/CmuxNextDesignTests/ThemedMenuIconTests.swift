@@ -2,6 +2,7 @@ import AppKit
 import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// User 2026-10-21: "for all the right click context menus i dont like the icons, they should be
 /// whiter, and i dont like the svgs for the icons". A themed menu row's icon is an SF Symbol inked

@@ -2,6 +2,7 @@ import AppKit
 import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Follow-up to #19754: the workspace, tab and pane right-click menus highlight their rows with a
 /// wash of the theme's accent, not macOS's. NSMenu draws its highlight in the system accent whatever the

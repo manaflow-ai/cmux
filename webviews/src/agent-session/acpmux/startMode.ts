@@ -98,6 +98,17 @@ export function cachedStartMode(harness: string | undefined, cwd?: string): Kept
   return valid(mode) ? { ...mode, borrowed: true } : undefined;
 }
 
+/// What this viewer kept for a new chat on `harness` in `cwd`: acpmux's answer (`cachedStartMode`),
+/// `null` when acpmux answered that it sets no mode there (or, borrowed, in the folder it answered
+/// last), `undefined` when acpmux never answered for `harness` here.
+function keptAnswer(harness: string, cwd?: string): KeptStartMode | null | undefined {
+  const all = load();
+  const key = keyOf(harness, cwd);
+  if (key in all || Object.keys(all).some((other) => other.startsWith(`${harness}\u0000`)))
+    return cachedStartMode(harness, cwd) ?? null;
+  return undefined;
+}
+
 /// acpmux's last answer for `harness` in this very folder; none borrowed from another.
 export function exactStartMode(harness: string | undefined, cwd?: string): StartMode | undefined {
   const mode = cachedStartMode(harness, cwd);
@@ -175,8 +186,13 @@ export function onStartModeAskAgain(asker: () => void): () => void {
 }
 
 /// The mode a new chat on `harness` in `cwd` starts in, while `enabled`: acpmux's kept answer from
-/// the first frame, asked again on mount and whenever it may have changed.
-export function useStartMode(harness: string | undefined, cwd: string | undefined, enabled: boolean) {
+/// the first frame, asked again on mount and whenever it may have changed. `null`: acpmux sets no
+/// mode there; `undefined`: no answer yet (or not `enabled`).
+export function useStartMode(
+  harness: string | undefined,
+  cwd: string | undefined,
+  enabled: boolean,
+): KeptStartMode | null | undefined {
   const state = useSyncExternalStore(
     subscribe,
     () => `${generation}:${version}`,
@@ -187,5 +203,14 @@ export function useStartMode(harness: string | undefined, cwd: string | undefine
   useEffect(() => {
     if (key && harness) void askStartMode(harness, cwd);
   }, [key, harness, cwd, asked]);
-  return key ? cachedStartMode(harness, cwd) : undefined;
+  // The kept answer lives outside React: `state` (bumped whenever it changes) is passed in, so the
+  // React Compiler reads it again when an answer lands. Memoized on `harness` and `cwd` alone, an
+  // answer that came after the first frame never reached the chip (cx-ncc.113.116: a cold New Tab
+  // showed no mode control at all).
+  return key && harness ? keptAt(state, harness, cwd) : undefined;
+}
+
+/// `keptAnswer`, read at store state `_state` (see useStartMode).
+function keptAt(_state: string, harness: string, cwd?: string): KeptStartMode | null | undefined {
+  return keptAnswer(harness, cwd);
 }
