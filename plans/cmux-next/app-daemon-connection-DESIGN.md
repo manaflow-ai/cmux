@@ -108,7 +108,7 @@ one byte that matters for the framing is `0xFF`. No code sends `\xFFCO` yet.
 | kind | name | payload | offset |
 |---|---|---|---|
 | 1 | OUTPUT | raw PTY bytes | offset of the first payload byte |
-| 2 | GRID | JSON meta: `cols`, `rows`, `history_rows`, `history_digest` (G2 in-band resize marker) | stream offset of the resize |
+| 2 | GRID | JSON meta: `cols`, `rows`, optional `history_rows`, `history_digest` (G2 in-band resize marker) | stream offset of the resize |
 | 3 | EVENT | one JSON event object, no newline (`size-state`, `colors-changed`, `scroll-changed`, `notification`, `digest`, `detached`, `overflow`, `stream-end`) | stream offset the event applies after |
 | 4 | SNAPSHOT | `meta_len u32`, JSON meta (today's `snapshot` fields without `data`), raw data | the READY's cut |
 | 5 | SNAPSHOT_MORE | same shape, `phase` `history` or `images` (history stays raw DEFLATE) | the READY's cut |
@@ -119,6 +119,11 @@ one byte that matters for the framing is `0xFF`. No code sends `\xFFCO` yet.
 - A colors sidecar (`OutputWithColors`) is an OUTPUT (or RING_ADVANCE) followed by an EVENT
   `colors-changed` at the same offset; the client applies colors after the bytes up to that offset. Order
   inside a stream is the wire order, as today.
+- GRID decodes to the existing resize event of the attach stream and is applied on the lane in stream
+  order, exactly like today's resize (`TerminalSession.applyCanonicalGrid`, then `TerminalGridLock.lock`
+  behind every earlier chunk); the reader never acts on it (PL-ghostty review, required). Its
+  `history_rows` / `history_digest` feed the local-history READY check; until ghostty-next has an in-band
+  reflow, the app still asks for a local-history READY at a resize, so the digest fields are optional.
 - The client checks offset continuity: an OUTPUT whose offset is not the end of the last one, outside a
   snapshot, is a gap (section 3.4), never a splice.
 - Frame size: the daemon cuts OUTPUT payloads at `OUTPUT_FRAME_MAX`. With at most two queued frames per
@@ -251,13 +256,20 @@ the size is raised with that number as its reason.
 
 ### 4.4 Reading and zero copy
 
-- RING_ADVANCE to `t`: the reader turns `[cursor, t)` into at most two spans (wrap) and queues them as
-  `.output(Data(bytesNoCopy: base + s % cap, count:, deallocator: .custom { release, validate }))`. If
-  `t - cursor > capacity` the bytes are already lost: a gap before any parse.
-- The deallocator runs when Ghostty's lane has parsed the span and dropped it; it validates with the
-  `reserve` rule and, on an overwrite, marks the stream lapped (the next event is the resync). A torn span
-  was parsed by Ghostty before the check; the READY that follows replaces the whole terminal state, so it
-  shows for at most until that READY lands.
+- RING_ADVANCE to `t`: the reader turns `[cursor, t)` into at most two spans (wrap). It checks the
+  `reserve` rule when it cuts the spans, before anything is queued (PL-ghostty review, required): if
+  `t - cursor > capacity` or `reserve > cursor + capacity` the bytes are already lost or being overwritten,
+  nothing is queued, and the stream goes straight to the gap path (3.4). Only spans that pass are queued as
+  `.output(Data(bytesNoCopy: base + s % cap, count:, deallocator: .custom { release, validate }))`.
+- The deallocator runs when Ghostty's lane has parsed the span and dropped it, and checks the rule again: a
+  writer that lapped the reader during the parse marks the stream lapped (the next event is the resync).
+  The check at cut time keeps a torn span from reaching the mirror's parser, grid lock and local-history
+  digest whenever the lap had already begun; the second check covers a lap that starts during the parse,
+  whose READY then replaces the terminal state.
+- Each OUTPUT frame and each span is its own `.output` event in stream order. Spans merge only with the
+  adjacent span of the same mapping, never across a GRID, SNAPSHOT, REPLAY or any other event (PL-ghostty
+  review, required: a merge must not move bytes past a grid lock). Since G4, `.output` goes from the
+  session's events loop straight to the lane; every other event hops to main in stream order.
 - Copies app-side: none. The span reaches `ghostty_surface_process_output` through `withUnsafeBytes`
   (`app:CmuxNextTerminal/TerminalOutputLane.swift:59-62`). Every stage between must pass the `Data` through
   without appending: `TerminalEventQueue` merges spans by range instead of `append` (one span covering two
