@@ -741,14 +741,28 @@ export function ComposerPickers({
       ...(harnessProfiles.get(chipHarness)?.modes?.availableModes ?? []).map((choice) => choice.id),
       ...(startMode && !startMode.borrowed ? [startMode.modeId] : []),
     ]);
-  const startModeName = startMode?.borrowed
-    ? t(PICKER_LABELS.mode)
+  // The chip names a mode whenever one is likely, never "Mode" on this Mac (Lucas 2026-10-24:
+  // "always show the bypass permissions or whatever the mode is meant to be"): another folder's
+  // answer names its mode, and with no answer at all the harness's highest level, the level acpmux
+  // starts a chat in when nothing is saved. This folder's answer replaces either in place when it
+  // differs. A chat on another machine says "Mode" until it reports: that machine decides.
+  const shownStart: { modeId: string; name?: string } | undefined = startMode?.borrowed
+    ? startMode.modeId
+      ? startMode
+      : local
+        ? highestMode(
+            summary?.family ?? snapshot.catalog.find((entry) => entry.id === chipHarness)?.family,
+            chipHarness,
+          )
+        : undefined
+    : startMode;
+  const startModeName = shownStart
+    ? (pendingMenu?.rows.find((row) => row.id === shownStart.modeId)?.name ??
+      shownStart.name ??
+      harnessProfiles.get(chipHarness)?.modes?.availableModes.find((choice) => choice.id === shownStart.modeId)?.name ??
+      shownStart.modeId)
     : startMode
-      ? (pendingMenu?.rows.find((row) => row.id === startMode.modeId)?.name ??
-        startMode.name ??
-        harnessProfiles.get(chipHarness)?.modes?.availableModes.find((choice) => choice.id === startMode.modeId)
-          ?.name ??
-        startMode.modeId)
+      ? t(PICKER_LABELS.mode)
       : undefined;
   // The start mode the chip names: none for the "Mode" placeholder or another folder's answer.
   const namedStart = startMode && !startMode.borrowed ? startMode : undefined;
@@ -965,8 +979,8 @@ export function ComposerPickers({
         pendingAccessModes.length === 0 && (
           <PendingMode
             label={startModeName}
-            modeId={startMode.borrowed ? undefined : startMode.modeId}
-            icon={startMode.borrowed ? undefined : pendingMenu?.rows.find((row) => row.id === startMode.modeId)?.icon}
+            modeId={shownStart?.modeId}
+            icon={pendingMenu?.rows.find((row) => row.id === shownStart?.modeId)?.icon}
           />
         )}
       {/* Granted folder trust and chat allowance stay revocable when the harness offers no modes. */}
@@ -974,7 +988,7 @@ export function ComposerPickers({
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
           modes={modes.length > 0 ? modes : pendingAccessModes}
-          current={mode?.id ?? (pendingAccessModes.length > 0 ? namedStart?.modeId : undefined)}
+          current={mode?.id ?? (pendingAccessModes.length > 0 ? shownStart?.modeId : undefined)}
           sessionId={summary?.sessionId}
           warning={t(PICKER_LABELS.fullAccessWarning)}
           help={t(PICKER_LABELS.modeHelp)}
