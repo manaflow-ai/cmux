@@ -50,8 +50,12 @@ final class HostPressureService {
     /// `acpmux`: the daemon whose verdict counts, nil without one (showcase, mock agent host).
     init(acpmux: AcpmuxEnvironment?, store: TunableStore = .shared) {
         self.acpmux = acpmux
-        let reader: (@Sendable () async -> HostBudgetVerdict?)? = acpmux.map { acpmux in
-            { await acpmux.hostPressure().flatMap { try? JSONDecoder().decode(HostBudgetVerdict.self, from: $0) } }
+        var reader: (@Sendable () async -> HostBudgetVerdict?)?
+        if let acpmux {
+            reader = { @Sendable () async -> HostBudgetVerdict? in
+                guard let data = await acpmux.hostPressure() else { return nil }
+                return try? JSONDecoder().decode(HostBudgetVerdict.self, from: data)
+            }
         }
         monitor = HostPressureMonitor(source: LocalHostPressureSource(acpmux: reader))
         // task-owner: the service (cancelled in stop()); event-driven (Observation of the tunable store)
