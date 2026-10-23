@@ -150,7 +150,7 @@ holder's live terminals, with the A3 reconcile notice. Target: every daemon op <
 |---|---|---|
 | D1 | No I/O on any request path: no disk write or fsync, process-table scan, child process (git, sh), DNS or network. The request path changes memory and answers; I/O runs in background workers | disk syncs off (batch 1); journal best effort (decided); process scans and discovery-file writes on create: to check |
 | D2 | One writer, readers never wait: one event loop owns the state; subscribers and status queries read an immutable snapshot | open |
-| D3 | One connection per app, multiplexed streams; no per-terminal identify/set-client-info handshake; local output through a shared-memory ring (0 copies) | open |
+| D3 | One connection per app, multiplexed streams; no per-terminal identify/set-client-info handshake; local output through a shared-memory ring (0 copies) | designed: [app-daemon-connection-DESIGN.md](app-daemon-connection-DESIGN.md) (PL-conn, cmux-4f); slices 1-5 |
 | D4 | Binary framing; no base64-in-JSON output (G5/G8 agreed format) | open |
 | D5 | Bounded queue per connection; a slow client is isolated and gets a fresh snapshot on overflow, never an unbounded backlog ([#20999](https://github.com/manaflow-ai/cmux/issues/20999), [#21000](https://github.com/manaflow-ai/cmux/issues/21000)) | open |
 | D6 | Event driven: 0 wakeups and 0 polling at idle; child exits via kqueue EVFILT_PROC ([#23087](https://github.com/manaflow-ai/cmux/issues/23087)) | open |
