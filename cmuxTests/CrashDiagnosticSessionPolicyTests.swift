@@ -1111,6 +1111,116 @@ struct CrashDiagnosticSessionPolicyTests {
         return (original, replay)
     }
 
+    private func crashTestWorkspace(
+        _ title: String,
+        agents: [String] = [],
+        tmuxSessions: [String] = [],
+        richDirectories: Bool = true
+    ) -> SessionWorkspaceSnapshot {
+        let directory = "/work/\(title)"
+        let agentPanels = agents.map { checkpoint -> SessionPanelSnapshot in
+            let terminal = SessionTerminalPanelSnapshot(
+                workingDirectory: richDirectories ? directory : nil,
+                agent: SessionRestorableAgentSnapshot(
+                    kind: .codex,
+                    sessionId: checkpoint,
+                    workingDirectory: richDirectories ? directory : nil
+                ),
+                wasAgentRunning: true
+            )
+            return terminalPanelSnapshot(id: UUID(), directory: richDirectories ? directory : nil, terminal: terminal)
+        }
+        let tmuxPanels = tmuxSessions.map { name -> SessionPanelSnapshot in
+            let terminal = SessionTerminalPanelSnapshot(
+                workingDirectory: directory,
+                resumeBinding: SurfaceResumeBindingSnapshot(
+                    name: "tmux \(name)",
+                    kind: "tmux",
+                    command: "tmux new-session -A -s \(name)",
+                    cwd: directory,
+                    checkpointId: name,
+                    source: "process-detected"
+                )
+            )
+            return terminalPanelSnapshot(id: UUID(), directory: directory, terminal: terminal)
+        }
+        let panels = agentPanels + tmuxPanels
+        let first = panels.first?.id ?? UUID()
+        return SessionWorkspaceSnapshot(
+            workspaceId: UUID(),
+            processTitle: "Terminal",
+            customTitle: title,
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: directory,
+            focusedPanelId: first,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: panels.map(\.id), selectedPanelId: first)),
+            panels: panels,
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+    }
+
+    private func crashTestWindow(_ workspaces: [SessionWorkspaceSnapshot], id: UUID = UUID()) -> SessionWindowSnapshot {
+        SessionWindowSnapshot(
+            windowId: id,
+            frame: nil,
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: 0, workspaces: workspaces),
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+        )
+    }
+
+    /// Two real windows (a laptop screen and a monitor) can both attach the
+    /// same tmux sessions, e.g. `tmux new -A -s cmux`. Multiplexer session
+    /// names are meant to be shared, so they are not agent checkpoints.
+    @Test
+    func sessionSnapshotKeepsWindowsThatShareTmuxSessionsSeparate() {
+        let titles = ["api", "docs", "infra", "web"]
+        let laptop = crashTestWindow(titles.map { crashTestWorkspace($0, tmuxSessions: ["cmux", "work"]) })
+        let monitor = crashTestWindow(titles.map { crashTestWorkspace($0, tmuxSessions: ["cmux", "work"]) })
+        let merged = SessionPersistencePolicy.mergingCrashDuplicateWindows(in: AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [laptop, monitor]
+        ))
+
+        #expect(merged.mergedWindowCount == 0)
+        #expect(merged.snapshot.windows.count == 2)
+    }
+
+    /// When one copy of a workspace holds every agent of the other copy and
+    /// more, it wins even if the other copy scores higher on directories:
+    /// otherwise an agent pane found only in the replay is dropped.
+    @Test
+    func sessionSnapshotKeepsTheWorkspaceCopyWithMoreAgentsWhenCrashCopiesMerge() {
+        let id = UUID()
+        let rich = crashTestWindow([
+            crashTestWorkspace("api", agents: ["a"]),
+            crashTestWorkspace("docs", agents: ["c"]),
+            crashTestWorkspace("infra", agents: ["d"]),
+            crashTestWorkspace("web", agents: ["e"]),
+        ], id: id)
+        let replay = crashTestWindow([
+            crashTestWorkspace("api", agents: ["a", "b"], richDirectories: false),
+            crashTestWorkspace("docs", agents: ["c"], richDirectories: false),
+            crashTestWorkspace("infra", agents: ["d"], richDirectories: false),
+            crashTestWorkspace("web", agents: ["e"], richDirectories: false),
+        ], id: id)
+        let merged = SessionPersistencePolicy.mergingCrashDuplicateWindows(in: AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [rich, replay]
+        ))
+
+        #expect(merged.mergedWindowCount == 1)
+        let api = merged.snapshot.windows.first?.tabManager.workspaces.first { $0.customTitle == "api" }
+        #expect(Set(api?.panels.compactMap { $0.terminal?.agent?.sessionId } ?? []) == ["a", "b"])
+        #expect(merged.snapshot.windows.first?.tabManager.workspaces.count == 4)
+    }
+
     @Test
     func sessionSnapshotMergesACrashReplayedWindowWithANewWindowID() {
         let pair = replayedWindowPair()
@@ -1279,7 +1389,7 @@ struct CrashDiagnosticSessionPolicyTests {
 
     private func terminalPanelSnapshot(
         id: UUID,
-        directory: String,
+        directory: String?,
         terminal: SessionTerminalPanelSnapshot
     ) -> SessionPanelSnapshot {
         SessionPanelSnapshot(
