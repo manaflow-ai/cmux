@@ -578,6 +578,8 @@ export function InspectorPanel({
       style={
         {
           width,
+          // Pushing, its enter and exit run its right margin from minus this (inspector.css).
+          "--acpmux-inspector-width": `${width}px`,
           ...(under ? { "--acpmux-inspector-top": under } : {}),
           ...(side > 0 ? { "--acpmux-inspector-side": `${side}px` } : {}),
         } as CSSProperties
