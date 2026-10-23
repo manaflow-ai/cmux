@@ -35,8 +35,8 @@ pushed, so the plain binding is safe there. Repro: `scripts/fuzz/macos-matrix/vm
 **Floor: macOS 14 Sonoma.** It is the floor of classic cmux, so the move to
 cmux-next strands no current user. It keeps 100% of today's cmux users (macOS
 14 is 2.0% of them, 4,180 of 206,425 in 30 days) and about 96.7% of the
-Homebrew developer population. Cost: about 11 agent-days once, plus a VM launch
-smoke per release. The work is mostly mechanical shims: `Mutex`/`Atomic`
+Homebrew developer population. Cost: about 11 agent-days once. The work is
+mostly mechanical shims: `Mutex`/`Atomic`
 (macOS 15), the `Observations` async sequence (macOS 26), and fallbacks for
 Liquid Glass and SpeechAnalyzer (macOS 26).
 
