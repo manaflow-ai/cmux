@@ -213,7 +213,7 @@ The layout of the New Tab page. The template dots under the page switch it in pl
 }
 ```
 
-- `minimal` (the default): a short greeting and the composer. Everything else is a widget you turn on, see `tabs.newTabWidgets`.
+- `minimal` (the default): a short greeting, the composer, and New Terminal, New Browser Tab and New Chat pills under it. Its parts are widgets you turn on or off, see `tabs.newTabWidgets`.
 - `cards`: one rounded field with the Search and Ask switch (Tab switches), the project and agent chips under it, and three recent chats as tall cards.
 - `default`: one field with agent rows, recent chats as cards, and Tools.
 - `composer`: one large prompt field, with nothing else.
@@ -226,11 +226,11 @@ Cmd-T and the + button always open the New Tab page. Change the template in **Se
 
 ## `tabs.newTabWidgets`
 
-The `minimal` template, the default, shows a short greeting and the composer, which keeps its folder and machine. Everything else on it is a widget you turn on; with the project card, the actions or the chats on, the page takes the `default` template's layout around the composer. The other templates ignore these keys and draw what they always drew.
+The `minimal` template, the default, shows a short greeting and the composer, which keeps its folder and machine, with New Terminal, New Browser Tab and New Chat pills under it and the template dots under the page. Each part is a widget you turn on or off; with the project card or the chats on, the page takes the `default` template's layout around the composer, and the actions become its card of the chats that need you and the same three. The other templates ignore these keys and draw what they always drew.
 
 ```json
 {
-  "tabs": { "newTabWidgets": { "chats": true, "styleDots": true } }
+  "tabs": { "newTabWidgets": { "chats": true, "styleDots": false } }
 }
 ```
 
@@ -238,9 +238,9 @@ The `minimal` template, the default, shows a short greeting and the composer, wh
 | --- | --- | --- |
 | `greeting` | `true` | A short greeting by the time of day over the composer. |
 | `projects` | `false` | A card of this Mac and its recent projects. |
-| `actions` | `false` | The chats that need you, and New Terminal, New Browser Tab and New Chat. |
+| `actions` | `true` | New Terminal, New Browser Tab and New Chat as pills under the composer (with the project card or the chats on, a card that also lists the chats that need you). |
 | `chats` | `false` | The recent chats, as rows under the composer. |
-| `styleDots` | `false` | The template dots under the page. |
+| `styleDots` | `true` | The template dots under the page. |
 
 With every widget off the page still does everything: type a URL or a prompt, and find any chat with the palette (Cmd-P). Change them in **Settings > General > Tabs** or with `cmux settings set tabs.newTabWidgets.chats true`.
 

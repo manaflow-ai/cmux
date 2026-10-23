@@ -104,7 +104,15 @@ async function renderDots(styleDots: boolean): Promise<Root> {
   const { PageDots } = await import("../src/agent-session/acpmux/newtab/PageDots");
   const root = createRoot(host);
   await act(async () =>
-    root.render(<PageDots template={template} styleDots={styleDots} callNative={async () => undefined} show={noop} onCancel={noop} />),
+    root.render(
+      <PageDots
+        template={template}
+        styleDots={styleDots}
+        callNative={async () => undefined}
+        show={noop}
+        onCancel={noop}
+      />,
+    ),
   );
   return root;
 }

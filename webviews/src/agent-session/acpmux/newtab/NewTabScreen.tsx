@@ -222,12 +222,17 @@ export function NewTabScreen(props: Props) {
   const sections = screenSections(template);
   const widgets = props.pageWidgets ?? shownPageWidgets(template);
   // Claude Code desktop's new-session page (templates.ts stage, the Default template): the composer
-  // at the foot, the environment and suggestions cards over it. On Minimal with none of the stage's
-  // widgets on, the page is the plain one: the greeting and the composer.
-  const stage = sections.stage && (widgets.has("projects") || widgets.has("actions") || widgets.has("chats"));
-  // Nothing but the greeting and the composer (Minimal, Leo 2026-10-20): the composer sits about the
-  // window's middle.
-  const minimal = !stage && !widgets.has("actions") && !widgets.has("chats");
+  // at the foot, the environment and suggestions cards over it. On Minimal with neither the project
+  // card nor the chats on, the page is the plain one: the greeting, the composer and, with the quick
+  // actions on (their default), New terminal, New browser tab and New chat as pills under it (Lucas
+  // 2026-10-22: "add the pills for "New terminal", "New browser", "New chat" back"). Default, which
+  // always shows its cards, keeps its stage.
+  const stage =
+    sections.stage &&
+    (widgets.has("projects") || widgets.has("chats") || (template !== "minimal" && widgets.has("actions")));
+  // The greeting and the composer, and the pills when on (Minimal, Leo 2026-10-20): the composer sits
+  // about the window's middle.
+  const minimal = !stage && !widgets.has("chats");
   // Minimal's edit mode (right-click > Edit New Tab): its widgets wiggle, move and close.
   const onEditWidgets = template === "minimal" ? props.onEditWidgets : undefined;
   const editing = useWidgetEditing(onEditWidgets);
@@ -1255,43 +1260,47 @@ export function NewTabScreen(props: Props) {
                 Not beside All chats: that list takes the room under the field (new-tab-scroll). */}
             {/* Cards draws no create row (u2851, as Aside's New Tab): New Terminal, New Browser Tab and
                 New Chat stay in the palette and the pane's + menu. With the split too, not only the pill. */}
-            {!allChats && template !== "cards" && widgets.has("actions") && (
-              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-              <div className="nt-create ui-ghost-row" role="group" aria-label={nt("create.label")}>
-                {props.onCreate && (
-                  <>
-                    <button
-                      type="button"
-                      className="nt-tool ui-ghost"
-                      data-create="terminal"
-                      onClick={() => create("terminal")}
-                    >
-                      <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-                        <Icon name="terminal" size={14} />
-                      </span>
-                      <span>{nt("create.terminal")}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="nt-tool ui-ghost"
-                      data-create="browser"
-                      onClick={() => create("browser")}
-                    >
-                      <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-                        <Icon name="browser" size={14} />
-                      </span>
-                      <span>{nt("create.browser")}</span>
-                    </button>
-                  </>
-                )}
-                <button type="button" className="nt-tool ui-ghost" data-create="chat" onClick={startChat}>
-                  <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-                    <Icon name="agent.chat" size={14} />
-                  </span>
-                  <span>{nt("create.chat")}</span>
-                </button>
-              </div>
-            )}
+            {!allChats &&
+              template !== "cards" &&
+              widgets.has("actions") &&
+              frame(
+                "actions",
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                <div className="nt-create ui-ghost-row" role="group" aria-label={nt("create.label")}>
+                  {props.onCreate && (
+                    <>
+                      <button
+                        type="button"
+                        className="nt-tool ui-ghost"
+                        data-create="terminal"
+                        onClick={() => create("terminal")}
+                      >
+                        <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
+                          <Icon name="terminal" size={14} />
+                        </span>
+                        <span>{nt("create.terminal")}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="nt-tool ui-ghost"
+                        data-create="browser"
+                        onClick={() => create("browser")}
+                      >
+                        <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
+                          <Icon name="browser" size={14} />
+                        </span>
+                        <span>{nt("create.browser")}</span>
+                      </button>
+                    </>
+                  )}
+                  <button type="button" className="nt-tool ui-ghost" data-create="chat" onClick={startChat}>
+                    <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
+                      <Icon name="agent.chat" size={14} />
+                    </span>
+                    <span>{nt("create.chat")}</span>
+                  </button>
+                </div>,
+              )}
             {!allChats && <NowPlayingPlayer {...(props.onNowPlaying ? { onCommand: props.onNowPlaying } : {})} />}
             {lists}
           </>
