@@ -23,16 +23,20 @@ nonisolated struct CEFHostGeometry: Equatable, Sendable {
     var backingScale: CGFloat
     var hidden: Bool
 
-    /// `view`'s geometry now. Reads no tracker counter: the clip memo counts
-    /// the fork's reads only.
+    /// `view`'s geometry now, with its clip inputs `clip` when the caller already worked them out
+    /// (the fork's read does), else from one walk of its ancestors.
     @MainActor
-    init(of view: CEFHostView) {
+    init(of view: CEFHostView, clip given: CEFClipShape.Inputs? = nil) {
         let window = view.window
         let inWindow = view.convert(view.bounds, to: nil)
         screenRect = window?.convertToScreen(inWindow) ?? inWindow
-        visibleInWindow = Self.visibleRectInWindow(of: view)
-        clip = CEFClipShape.Inputs(around: view)
-        CEFHostView.trackerStats.clipInputWalks += 1
+        visibleInWindow = visibleRectInWindow(of: view)
+        if let given {
+            clip = given
+        } else {
+            clip = CEFClipShape.Inputs(around: view)
+            CEFHostView.trackerStats.clipInputWalks += 1
+        }
         occlusion = view.occlusionRects
         let bounds = view.bounds
         windowOcclusion = ((window as? any BrowserWindowOcclusionProviding)?.browserOcclusionRectsInWindow ?? []).compactMap { rect in
@@ -42,20 +46,21 @@ nonisolated struct CEFHostGeometry: Equatable, Sendable {
         backingScale = window?.backingScaleFactor ?? 0
         hidden = view.isHiddenOrHasHiddenAncestor
     }
+}
 
-    /// The fork's visible rect: the view's rect in its window cut by every
-    /// ancestor that clips (a clip view, the content view, a layer that masks
-    /// to its bounds, a view that clips to its bounds).
-    @MainActor
-    private static func visibleRectInWindow(of view: NSView) -> CGRect {
-        var rect = view.convert(view.bounds, to: nil)
-        var ancestor = view.superview
-        while let current = ancestor, !rect.isEmpty {
-            let clips = current is NSClipView || current === current.window?.contentView || current.superview == nil
-                || current.layer?.masksToBounds == true || current.clipsToBounds
-            if clips { rect = rect.intersection(current.convert(current.bounds, to: nil)) }
-            ancestor = current.superview
-        }
-        return rect
+/// The fork's visible rect: the view's rect in its window cut by every ancestor that clips (a clip
+/// view, the content view, a layer that masks to its bounds, a view that clips to its bounds). Keep in
+/// step with the fork's `-[CmuxParentViewTracker visibleRectInWindow]` (chrome_child_window_mac.mm):
+/// a rule the fork has and this lacks would skip a post the fork needed.
+@MainActor
+private func visibleRectInWindow(of view: NSView) -> CGRect {
+    var rect = view.convert(view.bounds, to: nil)
+    var ancestor = view.superview
+    while let current = ancestor, !rect.isEmpty {
+        let clips = current is NSClipView || current === current.window?.contentView || current.superview == nil
+            || current.layer?.masksToBounds == true || current.clipsToBounds
+        if clips { rect = rect.intersection(current.convert(current.bounds, to: nil)) }
+        ancestor = current.superview
     }
+    return rect
 }
