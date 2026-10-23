@@ -33,13 +33,20 @@ nonisolated struct CEFHostGeometry: Equatable, Sendable {
         visibleInWindow = Self.visibleRectInWindow(of: view)
         clip = CEFClipShape.Inputs(around: view)
         occlusion = view.occlusionRects
+        windowOcclusion = Self.windowOcclusion(over: view)
+        backingScale = window?.backingScaleFactor ?? 0
+        hidden = view.isHiddenOrHasHiddenAncestor
+    }
+
+    /// The window's interactive overlays and occluders over `view`, in its coordinates (the
+    /// holes `CEFHostView.allOcclusionRects` adds to the view's own).
+    @MainActor
+    static func windowOcclusion(over view: NSView) -> [CGRect] {
         let bounds = view.bounds
-        windowOcclusion = ((window as? any BrowserWindowOcclusionProviding)?.browserOcclusionRectsInWindow ?? []).compactMap { rect in
+        return ((view.window as? any BrowserWindowOcclusionProviding)?.browserOcclusionRectsInWindow ?? []).compactMap { rect in
             let local = view.convert(rect, from: nil).intersection(bounds)
             return local.isNull || local.isEmpty ? nil : local
         }
-        backingScale = window?.backingScaleFactor ?? 0
-        hidden = view.isHiddenOrHasHiddenAncestor
     }
 
     /// The fork's visible rect: the view's rect in its window cut by every

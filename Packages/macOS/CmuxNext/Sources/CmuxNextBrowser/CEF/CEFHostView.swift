@@ -96,11 +96,13 @@ final class CEFHostView: NSView {
     /// Read by the fork (`-cmuxOcclusionRects`, NSArray of NSValue NSRect)
     /// on every geometry update, so window rects convert at the current
     /// position.
-    @objc func cmuxOcclusionRects() -> NSArray {
+    @objc func cmuxOcclusionRects() -> NSArray { // perf-hot: 0.1ms cef-geometry (the fork reads it on every update of a shown page, several per frame while it moves)
         Self.trackerStats.occlusionReads += 1
-        // The fork reads these first on every update of a shown page.
-        readGeometry = CEFHostGeometry(of: self)
-        return allOcclusionRects.map { NSValue(rect: $0) } as NSArray
+        // The fork reads these first on every update of a shown page. The holes come from what
+        // is recorded, so the ancestors' clips and the window's overlays are walked once per read.
+        let geometry = CEFHostGeometry(of: self)
+        readGeometry = geometry
+        return holes(clip: geometry.clip, windowOcclusion: geometry.windowOcclusion).map { NSValue(rect: $0) } as NSArray
     }
 
     /// Read by the fork (`-cmuxClipPath`) on every geometry update: the
@@ -138,7 +140,11 @@ final class CEFHostView: NSView {
     private func clipShape() -> ClipMemo {
         let started = CEFTrackerStats.now()
         defer { Self.trackerStats.clipSeconds += CEFTrackerStats.now() - started }
-        let inputs = CEFClipShape.Inputs(around: self)
+        return clipShape(CEFClipShape.Inputs(around: self))
+    }
+
+    /// The clip shape for `inputs` already read from the ancestors (the memo's path operations only).
+    private func clipShape(_ inputs: CEFClipShape.Inputs) -> ClipMemo {
         if let clipMemo, clipMemo.inputs == inputs {
             Self.trackerStats.clipHits += 1
             return clipMemo
@@ -154,15 +160,13 @@ final class CEFHostView: NSView {
     /// The chrome's rects plus the window's interactive overlays over this
     /// view, in this view's coordinates.
     var allOcclusionRects: [CGRect] {
-        if CEFClipShape.showsNothing(pageClip), !bounds.isEmpty { return [bounds] }
-        var rects = occlusionRects
-        if let provider = window as? any BrowserWindowOcclusionProviding {
-            for rect in provider.browserOcclusionRectsInWindow {
-                let local = convert(rect, from: nil).intersection(bounds)
-                if !local.isNull, !local.isEmpty { rects.append(local) }
-            }
-        }
-        return Self.outermost(rects)
+        holes(clip: CEFClipShape.Inputs(around: self), windowOcclusion: CEFHostGeometry.windowOcclusion(over: self))
+    }
+
+    /// ``allOcclusionRects`` from the clip inputs and the window's overlays over this view, read once.
+    private func holes(clip: CEFClipShape.Inputs, windowOcclusion: [CGRect]) -> [CGRect] {
+        if CEFClipShape.showsNothing(clipShape(clip).path), !bounds.isEmpty { return [bounds] }
+        return Self.outermost(occlusionRects + windowOcclusion)
     }
 
     /// `rects` without those inside another (one of equal rects stays): a
