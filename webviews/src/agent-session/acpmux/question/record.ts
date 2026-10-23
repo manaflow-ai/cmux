@@ -3,7 +3,8 @@
 // what was chosen, or that nothing was. The inverse of model.ts `reply`, per harness: Claude Code's
 // answers come keyed by question text, one comma-separated string per question; Codex's by
 // question id, `{answers: [label]}`; an ACP ask's answer is the permission option chosen.
-import type { AgentQuestion, Answer, CancelReason, Item, Respondent, Selection, State } from "./model";
+import { plainText } from "./inlineText";
+import { questionSummary, type AgentQuestion, type Answer, type CancelReason, type Item, type Respondent, type Selection, type State } from "./model";
 
 /// The transcript row of a decided question; it draws under a finished turn's fold line, not in it
 /// (conversation/turns.ts `staysOut`).
@@ -131,3 +132,9 @@ export function decidedQuestion(question: AgentQuestion, outcome: Json, answered
       : { kind: "cancelled" };
   return { ...question, state };
 }
+
+/// The arguments of the line an unanswered ask leaves (`cancelledKey`): the question without its
+/// inline marks, the same in the card and in what Copy reads.
+export const cancelledArgs = (question: AgentQuestion): { prompt: string } => ({
+  prompt: plainText(questionSummary(question)),
+});

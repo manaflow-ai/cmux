@@ -3,7 +3,7 @@
 // harness: the inverse of model.ts `reply`.
 import { describe, expect, test } from "bun:test";
 import { questionFromPermission, reply, summaryLines, type AgentQuestion, type Answer } from "./model";
-import { answerFromOutcome, decidedQuestion } from "./record";
+import { answerFromOutcome, cancelledArgs, decidedQuestion } from "./record";
 
 const options = [
   { optionId: "allow_once", name: "Answer", kind: "allow_once" },
@@ -201,5 +201,14 @@ describe("answerFromOutcome", () => {
     // `device` is an install id (AcpmuxPermissionFeedBridge.swift), never shown as a name.
     const byDevice = decidedQuestion(acp, outcome, { device: "ios-7f3a", feedItem: "f1" });
     expect(byDevice.state.kind === "answered" && byDevice.state.answer.respondent).toEqual({ isRemote: true });
+  });
+
+  test("the unanswered line reads the question without its inline marks", () => {
+    const marked: AgentQuestion = {
+      ...claude,
+      items: claude.items.map((item, index) => (index === 0 ? { ...item, prompt: "Use `formatDate` or **dayjs**?" } : item)),
+    };
+    expect(cancelledArgs(marked)).toEqual({ prompt: "Use formatDate or dayjs?" });
+    expect(cancelledArgs(claude)).toEqual({ prompt: claude.items[0]!.prompt });
   });
 });

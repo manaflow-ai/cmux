@@ -30,13 +30,13 @@ import {
   itemAnswerText,
   QuestionProblemError,
   cancelledKey,
-  questionSummary,
   reply,
   type AgentQuestion,
   type Answer,
   type Option,
   type QuestionReply,
 } from "./model";
+import { cancelledArgs } from "./record";
 import { questionPreviewLayout, type QuestionPreviewLayout } from "./previewLayout.experiment";
 
 /// The keys a pending card answers while focus is inside it (the AgentQuestionCardState inputs).
@@ -640,7 +640,7 @@ function CancelledQuestion({ question }: { question: AgentQuestion }) {
       className="acpmux-question-cancelled"
       data-reason={question.state.kind === "cancelled" ? question.state.reason : undefined}
     >
-      {t(cancelledKey(question), { prompt: plainText(questionSummary(question)) })}
+      {t(cancelledKey(question), cancelledArgs(question))}
     </div>
   );
 }
