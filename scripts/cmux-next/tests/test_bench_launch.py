@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent.parent
@@ -37,6 +38,45 @@ def fake_bundle(folder: str, tag: str) -> str:
     # account (Python 3.9 of Xcode 26.6 on aws-m4pro-3, macOS 27.0.1).
     shutil.copy("/bin/sleep", os.path.join(macos, "cmux DEV"))
     return app
+
+
+NO_SESSION = {"ok": False, "user": "worker", "console_user": None, "screen_locked": None,
+              "detail": "nobody is logged in on the console (login window); worker has no GUI session"}
+
+
+class SessionGateTests(unittest.TestCase):
+    """No environment variable turns the GUI-session gate off (deep review of fleet-gui, findings 3 and 7): a step
+    that exported BENCH_LAUNCH_ANY_SESSION=1 got past it, and every bench in that environment then measured a display
+    that does not tick and wrote its frame rows as a normal run."""
+
+    def setUp(self):
+        self.folder = tempfile.mkdtemp(prefix="bench-launch-gate-")
+        self.tag = f"bl-gate-{os.getpid()}"
+
+    def tearDown(self):
+        shutil.rmtree(self.folder, ignore_errors=True)
+
+    def test_a_launch_without_a_gui_session_starts_no_app_whatever_the_environment(self):
+        app = bl.BenchApp(fake_bundle(self.folder, self.tag), out=os.path.join(self.folder, "out"), teardown=False)
+        with mock.patch.object(bl, "gui_session", return_value=NO_SESSION), \
+                mock.patch.dict(os.environ, {"BENCH_LAUNCH_ANY_SESSION": "1"}):
+            with self.assertRaises(bl.LaunchError) as refused:
+                app.launch(timeout=5)
+        try:
+            self.assertEqual(refused.exception.reason, "no-gui-session")
+            self.assertIsNone(app.process, "the gate let an app start with no GUI session")
+        finally:
+            if app.process and app.process.poll() is None:
+                app.process.kill()  # the exact process this test made launch() start
+                app.process.wait()
+
+    def test_the_bench_session_check_cannot_be_skipped(self):
+        with mock.patch.object(bl, "gui_session", return_value=NO_SESSION), \
+                mock.patch.dict(os.environ, {"BENCH_LAUNCH_ANY_SESSION": "1"}), \
+                mock.patch.object(bl, "note"):
+            with self.assertRaises(SystemExit) as refused:
+                bl.require_gui_session("test", argv=[])
+        self.assertEqual(refused.exception.code, 1)
 
 
 class TagInUseTests(unittest.TestCase):
