@@ -91,6 +91,15 @@ import Testing
         #expect(toolbar.view.reservedCount == 0)
     }
 
+    @Test func showInTabBarOnlyOffersControlsForTheSelectedKind() throws {
+        let registry = ActionRegistry.standard()
+        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil })
+        toolbar.update(target: "browser", kind: .browser)
+        let menu = try #require(toolbar.view.moreMenu?())
+        let show = try #require(menu.items.first { $0.title == PaneToolbarStrings.showInTabBar })
+        #expect(Set(show.submenu?.items.map(\.title) ?? []) == Set(["Split Right", "Split Down", "Toggle Pane Zoom"]))
+    }
+
     /// "…" slides right into its trailing slot as it fades in; Reduce Motion keeps it in place (fade only).
     @Test func moreSlidesRightIntoItsSlotOnReveal() {
         Motion.reduceMotionOverride = false

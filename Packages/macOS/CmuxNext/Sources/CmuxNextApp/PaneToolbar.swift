@@ -209,7 +209,11 @@ final class PaneToolbar {
         let item = NSMenuItem(title: PaneToolbarStrings.showInTabBar, action: nil, keyEquivalent: "")
         let submenu = NSMenu(title: PaneToolbarStrings.showInTabBar)
         let setting = PaneToolbarButtonsSetting(pinned: pinned)
-        for id in PaneToolbarButtonsSetting.buttonIDs {
+        // A pin only makes sense for the selected tab kind. Keep browser and
+        // other panes from offering terminal/new-tab controls that disappear
+        // as soon as the user selects a different kind (#menu-trim).
+        let available = Set(kind.map(Self.actions) ?? [])
+        for id in PaneToolbarButtonsSetting.buttonIDs where available.contains(ActionID(rawValue: id)) {
             guard let descriptor = registry.descriptor(for: ActionID(rawValue: id)) else { continue }
             let row = NSMenuItem(title: descriptor.title, action: #selector(ActionMenuClosure.run), keyEquivalent: "")
             row.state = pinned.contains(id) ? .on : .off

@@ -134,6 +134,13 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         .minimalMenu: [
             "space.setDefaults", "browserProfile.clearSpaceDefault",
+            // Pane geometry and provider-specific controls stay in the palette/View menu;
+            // the pointer menu keeps the 30 common pane actions (menu trim, 2026-10-23).
+            "newPaneAutoLayout", "triggerFlash", "palette.swapWithSession", "toggleCanvasLayout",
+            "palette.newSimulatorPane", "remote.openTerminalHere", "column.moveLeft", "column.moveRight",
+            "column.center", "column.widthOneThird", "column.widthHalf", "column.widthTwoThirds",
+            "column.widthFull", "column.dock", "column.undock", "column.float", "column.dockLeft",
+            "column.dockRight", "column.dockTop", "column.dockBottom",
         ],
         .paletteInternal: [
             "commandPaletteNext", "commandPalettePrevious",
