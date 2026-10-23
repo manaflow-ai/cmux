@@ -31,6 +31,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.canMarkAllUnread == rhs.canMarkAllUnread &&
             lhs.statusGlyph == rhs.statusGlyph &&
             lhs.compactsAgentStatus == rhs.compactsAgentStatus &&
+            lhs.memberIndent == rhs.memberIndent &&
             lhs.shortcutDigit == rhs.shortcutDigit &&
             lhs.shortcutModifierSymbol == rhs.shortcutModifierSymbol &&
             lhs.showsShortcutHint == rhs.showsShortcutHint &&
@@ -71,6 +72,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let statusGlyph: SidebarCompactStatusGlyph?
     /// Whether `sidebar.compactAgentStatus` is on; see the AppKit row model.
     var compactsAgentStatus = false
+    /// `sidebar.groupMemberIndent`, for the group-scoped bottom drop indicator.
+    var memberIndent = SidebarWorkspaceGroupingMetrics.memberIndent
     let shortcutDigit: Int?
     let shortcutModifierSymbol: String?
     let showsShortcutHint: Bool
@@ -106,7 +109,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
 #endif
 
     private var metrics: SidebarWorkspaceGroupHeaderMetrics {
-        SidebarWorkspaceGroupHeaderMetrics(fontScale: fontScale)
+        SidebarWorkspaceGroupHeaderMetrics(fontScale: fontScale, memberIndent: memberIndent)
     }
 
     private var iconColor: Color {

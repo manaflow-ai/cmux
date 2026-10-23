@@ -1,6 +1,9 @@
+import CmuxSettings
 import SwiftUI
 
 enum SidebarWorkspaceGroupingMetrics {
-    /// Leading inset applied to workspace rows that visually nest under a group header.
-    static let memberIndent: CGFloat = 12
+    /// Default leading inset applied to workspace rows that visually nest under a
+    /// group header. Rows read the configured `sidebar.groupMemberIndent` from
+    /// ``SidebarTabItemSettingsSnapshot/groupMemberIndent``.
+    static let memberIndent = CGFloat(SidebarCatalogSection().groupMemberIndent.defaultValue)
 }

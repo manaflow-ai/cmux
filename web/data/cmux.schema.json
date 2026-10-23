@@ -1699,6 +1699,14 @@
           "description": "Maximum lines shown for the latest notification below each workspace title.",
           "descriptionKey": "schemaDescriptions.sidebar.notificationMessageLineLimit"
         },
+        "groupMemberIndent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 48,
+          "default": 12,
+          "description": "Leading indent in points for workspace rows inside a workspace group, so group members stand apart from ungrouped workspaces. 0 removes the indent.",
+          "descriptionKey": "schemaDescriptions.sidebar.groupMemberIndent"
+        },
         "showBranchDirectory": {
           "type": "boolean",
           "default": true,

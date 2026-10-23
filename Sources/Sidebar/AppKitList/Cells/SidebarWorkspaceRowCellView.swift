@@ -1267,7 +1267,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     func layoutContent(model: SidebarWorkspaceRowModel, width: CGFloat, apply: Bool) -> CGFloat {
         let outerPad = SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
         let contentPad = SidebarWorkspaceListMetrics.rowContentHorizontalPadding
-        let leading = outerPad + contentPad + (model.isGrouped ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
+        let leading = outerPad + contentPad + (model.isGrouped ? model.settings.groupMemberIndent : 0)
         let trailing = width - outerPad - contentPad
         let contentWidth = max(10, trailing - leading)
         var y: CGFloat = 8
@@ -1531,7 +1531,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             // and hover background shift right with the content. Indenting
             // only the content left the full-width highlight hiding the
             // nesting ("can't tell when a workspace is in a group").
-            let bgX = outerPad + (model.isGrouped ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
+            let bgX = outerPad + (model.isGrouped ? model.settings.groupMemberIndent : 0)
             backgroundView.frame = NSRect(x: bgX, y: 0, width: max(0, width - outerPad - bgX), height: y)
             railView.frame = NSRect(x: bgX + 4 - 1, y: 5, width: 3, height: max(0, y - 10))
             railView.layer?.cornerRadius = 1.5

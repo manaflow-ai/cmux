@@ -153,6 +153,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.selectionColor` | colorHexOrNull | `null` | Override the selected workspace background color in the sidebar. |
 | `sidebar.notificationBadgeColor` | colorHexOrNull | `null` | Override the unread notification badge color in the sidebar. |
 | `sidebar.notificationMessageLineLimit` | integer | `12` | Maximum lines shown for the latest notification below each workspace title. |
+| `sidebar.groupMemberIndent` | integer | `12` | Leading indent in points for workspace rows inside a workspace group, so group members stand apart from ungrouped workspaces. 0 removes the indent. |
 | `sidebar.watchGitStatus` | boolean | `true` | Watch repository files for sidebar branch and pull request metadata without polling git. |
 | `sidebar.showAgentActivity` | boolean | `true` | Show the loading spinner on workspaces with running coding agents or active loaders. |
 | `sidebar.loadingSpinnerPosition` | `"leading"` or `"trailing"` | `"leading"` | Which side of the workspace row the loading spinner appears on: leading (left, sharing the unread-badge slot) or trailing (right). |
