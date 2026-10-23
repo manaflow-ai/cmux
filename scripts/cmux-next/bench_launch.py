@@ -285,11 +285,54 @@ def report_matches(path, pid=None, binary=None):
     return binary is not None and re.search(rf"^\s*Path:\s+{re.escape(binary)}\s*$", text, re.M) is not None
 
 
+def crash_report_folders():
+    """Where ReportCrash writes this account's reports, and the system's."""
+    return (os.path.join(account_home(), "Library/Logs/DiagnosticReports"), "/Library/Logs/DiagnosticReports")
+
+
+class FolderEvents:
+    """Wakes when any of `folders` gains, loses or renames an entry (kqueue EVFILT_VNODE NOTE_WRITE on each folder):
+    the signal for a file another process writes with no signal of its own (ReportCrash's .ips). A folder that is
+    missing or unreadable is not watched; with none watched, `wait` returns False at once (nothing can wake it)."""
+
+    def __init__(self, folders):
+        self.folders = folders
+        self.queue = None
+        self.fds = []
+
+    def __enter__(self):
+        import select
+        flags = getattr(os, "O_EVTONLY", os.O_RDONLY)  # O_EVTONLY: watch without keeping the volume busy
+        for folder in self.folders:
+            try:
+                self.fds.append(os.open(folder, flags))
+            except OSError:
+                pass
+        if self.fds:
+            self.queue = select.kqueue()
+            self.queue.control([select.kevent(fd, filter=select.KQ_FILTER_VNODE,
+                                              flags=select.KQ_EV_ADD | select.KQ_EV_CLEAR,
+                                              fflags=select.KQ_NOTE_WRITE) for fd in self.fds], 0)
+        return self
+
+    def wait(self, timeout):
+        """True when a watched folder changed within `timeout` seconds."""
+        if self.queue is None:
+            return False
+        return bool(self.queue.control(None, len(self.fds), timeout))
+
+    def __exit__(self, *_):
+        if self.queue is not None:
+            self.queue.close()
+        for fd in self.fds:
+            os.close(fd)
+
+
 def crash_reports(since, name="cmux DEV", pid=None, binary=None):
     """Crash and hang reports of the app written after `since` (epoch seconds); with `pid` or `binary`, only
     those of that process or executable."""
     found = []
-    for folder in (os.path.join(account_home(), "Library/Logs/DiagnosticReports"), "/Library/Logs/DiagnosticReports"):
+    for folder in crash_report_folders():
         for path in glob.glob(os.path.join(folder, f"{name}*")):
             try:
                 if os.path.getmtime(path) >= since and report_matches(path, pid, binary):
@@ -402,7 +445,7 @@ class BenchApp:
     def rpc(self, method, params=None, timeout=60):
         return rpc_at(self.socket, method, params, timeout)
 
-    def launch(self, timeout=180, ready="debug.windows", settle=0.0, on_start=None):
+    def launch(self, timeout=180, ready="debug.windows", on_start=None):
         """Starts the app and returns once `ready` answers (debug.windows: with a window).
 
         `on_start(process)` runs right after the spawn (a script's own PID list for its cleanup). On a
@@ -451,8 +494,6 @@ class BenchApp:
                 if isinstance(last, dict) and not last.get("error") and (ready != "debug.windows" or last.get("windows")):
                     self.ready_seconds = round(time.monotonic() - start, 2)
                     note(f"bench-launch: {self.tag} answered on {path} after {self.ready_seconds} s")
-                    if settle:
-                        time.sleep(settle)  # bench: launch work (restore, first pages) ends before a measure
                     return self
             time.sleep(0.25)  # the poll interval
         log.flush()
@@ -505,16 +546,24 @@ class BenchApp:
 
     def wait_for_crash_report(self, exit_code, wait=10):
         """This launch's crash and hang reports. After a signal exit (exit < 0) ReportCrash writes the .ips a few
-        seconds after the process ends, so this waits up to `wait` seconds for one; otherwise it reads once."""
+        seconds after the process ends, so this waits for a report folder to gain a file (kqueue), at most `wait`
+        seconds; otherwise it reads once."""
         if not self.launched_at:
             return []
         pid = self.process.pid if self.process else None
-        deadline = time.monotonic() + (wait if exit_code is not None and exit_code < 0 else 0)
-        while True:
-            found = crash_reports(self.launched_at - 1, pid=pid, binary=self.binary)
-            if found or time.monotonic() >= deadline:
-                return found
-            time.sleep(0.5)  # bounded wait for ReportCrash, which gives no signal when it is done
+
+        def found():
+            return crash_reports(self.launched_at - 1, pid=pid, binary=self.binary)
+
+        if exit_code is None or exit_code >= 0:
+            return found()
+        with FolderEvents(crash_report_folders()) as events:
+            deadline = time.monotonic() + wait
+            while True:
+                reports = found()  # read after the watch is armed: a report written meanwhile is not missed
+                left = deadline - time.monotonic()
+                if reports or left <= 0 or not events.wait(left):
+                    return reports or found()
 
     def sample_main_thread(self, seconds=2):
         path = os.path.join(self.out, f"sample-launch-{self.tag}.txt")
