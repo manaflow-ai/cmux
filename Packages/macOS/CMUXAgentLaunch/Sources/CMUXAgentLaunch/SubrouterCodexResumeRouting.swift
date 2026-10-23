@@ -246,44 +246,94 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         return providerEvidenceFromAssignments(in: tokens)
     }
 
-    /// The launch record a legacy Codex restore uses when its persisted shell
-    /// command proves Subrouter, or nil when it doesn't.
+    /// What a legacy Codex restore does with its persisted shell command.
+    public enum LegacyRestoreDecision: Equatable, Sendable {
+        /// The command proves Subrouter: resume from this canonical capture,
+        /// which the planner turns into the fixed `sr codex resume <id>`.
+        case route(AgentLaunchCommand)
+        /// The command names a Subrouter provider in a form that can't be read
+        /// safely; it must be neither routed nor replayed.
+        case refuse
+        /// The command doesn't prove Subrouter; keep the existing legacy path.
+        case fallThrough
+    }
+
+    /// Decides how a legacy Codex restore treats its persisted command.
     ///
-    /// The result is the canonical capture `codex -c model_provider=subrouter`
-    /// (plus an inline `CODEX_HOME`/`HOME` the command set), which the restore
-    /// planner resumes through the fixed `sr codex resume <id>` route. The
+    /// Evidence comes from `CodexLegacyRestoreCommand` when the command is a
+    /// literal resume of this session, and otherwise from the bounded
+    /// shell-command reader, which also requires a UUID session and rejects a
+    /// `resume` naming another session. Only `.provider("subrouter")` routes.
+    /// Absent or other-provider evidence falls through, so an ordinary command
+    /// that merely mentions subrouter (in a path, say) restores as before.
+    /// Ambiguous evidence refuses only when the command names a Subrouter
+    /// provider assignment; other unreadable commands fall through.
+    ///
+    /// A routed capture is `codex -c model_provider=subrouter`, carrying the
+    /// captured launch environment and verification home, with an inline
+    /// `CODEX_HOME`/`HOME` from the legacy command taking precedence. The
     /// legacy command's own words, including any captured per-process
     /// `model_providers.subrouter.*` endpoint and other options, are never
     /// carried into the resume.
-    public func legacyRestoreLaunchCommand(
+    public func legacyRestoreDecision(
         legacyCommand: String,
         sessionID: String,
-        workingDirectory: String?
-    ) -> AgentLaunchCommand? {
+        workingDirectory: String?,
+        capturedLaunch: AgentLaunchCommand? = nil
+    ) -> LegacyRestoreDecision {
         let evidence: SubrouterCodexProviderEvidence
-        var environment: [String: String] = [:]
+        var inlineEnvironment: [String: String] = [:]
         if let parsed = CodexLegacyRestoreCommand(command: legacyCommand, sessionID: sessionID) {
             evidence = providerEvidence(in: parsed.arguments)
-            environment = parsed.environment
+            inlineEnvironment = parsed.environment
         } else {
-            evidence = providerEvidence(inShellCommand: legacyCommand)
+            evidence = shellCommandEvidence(legacyCommand, sessionID: sessionID)
         }
-        guard evidence == .provider("subrouter") else { return nil }
-        return AgentLaunchCommand(
-            launcher: "codex",
-            arguments: ["codex", "-c", "model_provider=subrouter"],
-            workingDirectory: workingDirectory,
-            environment: environment.isEmpty ? nil : environment,
-            source: "legacy-command"
-        )
+        switch evidence {
+        case .provider("subrouter"):
+            var environment = capturedLaunch?.environment ?? [:]
+            environment.merge(inlineEnvironment) { _, inline in inline }
+            return .route(AgentLaunchCommand(
+                launcher: "codex",
+                arguments: ["codex", "-c", "model_provider=subrouter"],
+                workingDirectory: workingDirectory,
+                environment: environment.isEmpty ? nil : environment,
+                verificationHome: capturedLaunch?.verificationHome,
+                source: "legacy-command"
+            ))
+        case .ambiguous:
+            return namesSubrouterProvider(legacyCommand) ? .refuse : .fallThrough
+        case .absent, .provider:
+            return .fallThrough
+        }
     }
 
-    /// Whether a legacy command names Subrouter at all, even if it can't be
-    /// parsed. Such a command must not be replayed: its captured route points
-    /// at a provider process that no longer exists.
-    public func legacyCommandMentionsSubrouter(_ legacyCommand: String) -> Bool {
-        let lowered = legacyCommand.lowercased()
-        return lowered.contains("model_provider") && lowered.contains("subrouter")
+    /// Shell-command evidence for a legacy resume of `sessionID`: ambiguous
+    /// unless the session is a UUID and any `resume` names that session.
+    private func shellCommandEvidence(_ command: String, sessionID: String) -> SubrouterCodexProviderEvidence {
+        let evidence = providerEvidence(inShellCommand: command)
+        guard evidence != .absent else { return .absent }
+        guard UUID(uuidString: sessionID) != nil,
+              let tokens = Self.shellCommandTokens(command) else {
+            return .ambiguous
+        }
+        let positionalEnd = tokens.firstIndex(of: "--") ?? tokens.endIndex
+        let words = tokens[..<positionalEnd]
+        if let resume = words.firstIndex(of: "resume"),
+           words.index(after: resume) < words.endIndex,
+           words[words.index(after: resume)] != sessionID {
+            return .ambiguous
+        }
+        return evidence
+    }
+
+    /// Whether a command names a Subrouter provider assignment
+    /// (`model_provider=subrouter` or `model_providers.subrouter.*`), read
+    /// loosely so unreadable text is still recognized.
+    private func namesSubrouterProvider(_ command: String) -> Bool {
+        let lowered = command.lowercased()
+        return lowered.range(of: #"model_provider\s*=\s*["']?subrouter"#, options: .regularExpression) != nil
+            || lowered.contains("model_providers.subrouter.")
     }
 
     /// Splits a legacy persisted command into words the way a POSIX shell
@@ -294,15 +344,15 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
     /// tab between words.
     static func shellCommandTokens(_ command: String) -> [String]? {
         var tokens: [String] = []
-        var token = ""
+        var token = String.UnicodeScalarView()
         var inToken = false
-        var quote: Character?
+        var quote: Unicode.Scalar?
         var escaped = false
         var escapedInDoubleQuotes = false
-        for character in command {
-            if character.unicodeScalars.contains(where: { scalar in
-                CharacterSet.controlCharacters.contains(scalar) && scalar != "\t"
-            }) {
+        // A shell reads bytes, not grapheme clusters: as a Character, a quote
+        // followed by a combining mark is not a quote. Scalars agree with it.
+        for character in command.unicodeScalars {
+            if CharacterSet.controlCharacters.contains(character) && character != "\t" {
                 return nil
             }
             if escaped {
@@ -319,7 +369,7 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
                 if escapedInDoubleQuotes {
                     // Inside double quotes a backslash escapes only these;
                     // before anything else it stays literal.
-                    if !"\"\\$`".contains(character) { token.append("\\") }
+                    if !"\"\\$`".unicodeScalars.contains(character) { token.append("\\") }
                     token.append(character)
                     escapedInDoubleQuotes = false
                 } else if character == "\\" {
@@ -343,11 +393,11 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
                 inToken = true
             } else if character == " " || character == "\t" {
                 if inToken {
-                    tokens.append(token)
-                    token = ""
+                    tokens.append(String(token))
+                    token = String.UnicodeScalarView()
                     inToken = false
                 }
-            } else if ";&|<>()$`*?[]{}!#".contains(character) || (character == "~" && !inToken) {
+            } else if ";&|<>()$`*?[]{}!#".unicodeScalars.contains(character) || (character == "~" && !inToken) {
                 return nil
             } else {
                 token.append(character)
@@ -355,7 +405,7 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
             }
         }
         guard !escaped, quote == nil else { return nil }
-        if inToken { tokens.append(token) }
+        if inToken { tokens.append(String(token)) }
         return tokens
     }
 
