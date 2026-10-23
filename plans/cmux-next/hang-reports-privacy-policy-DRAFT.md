@@ -18,8 +18,10 @@ Add one paragraph to `afterBullets`, after the Sparkle paragraph:
 
 > Nightly builds of the macOS Application can send hang reports, which help us find and fix
 > moments when the Application stops responding or draws slowly. Hang reports are off until you
-> turn them on, either from the one-time notice in the Application or with Send Hang Reports in
-> Settings; Release builds never send them. A report is sent at most a few times a day and
+> turn them on, and each Mac sends them only after you confirm on that Mac (a settings file
+> copied from another Mac does not turn them on by itself). If you turned off anonymous usage
+> data, the Application does not ask you about hang reports. Release builds never send them,
+> and data collected before you confirmed is not sent. A report is sent at most a few times a day and
 > contains: call stacks of the Application's and macOS's own code (the code library name, its
 > build identifier, and a numeric position in it; code from any other developer appears only as
 > "other"), how long hangs and slow frames lasted, statistics macOS collects about the
