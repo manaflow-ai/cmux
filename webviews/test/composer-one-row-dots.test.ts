@@ -6,10 +6,12 @@
 //
 // - New Tab in Claude's look: nothing over the composer's box; the folder, the computer and the model
 //   are one row under it (newtab/screen.css, NewTabScreen.tsx).
-// - New Tab with the composer at the page's foot: the dots sit on their own line under the composer,
-//   the same distance under its last part in both looks (Claude's row, Codex's box), never on it.
-// - In a chat the look dots sit in one band under the composer's last part in both looks, so a look
-//   switched by keys leaves them where they were, the keyboard on them, and Escape goes back.
+// - New Tab with the composer at the page's foot, and a chat: the dots sit at the same place in the
+//   pane in both looks, out of the flow on its bottom edge, in the gutter under the composer's last
+//   part (Claude's quiet row, Codex's box), never on it and never past the pane's edge. They add no
+//   line: the quiet row keeps its few px over the edge (composer-bottom-space.test.ts).
+// - A look switched by keys leaves the dots where they were, the keyboard on them, and Escape goes
+//   back.
 //
 // Real Chromium on the gallery stage. CI fails the file when it cannot launch it
 // (requireBrowserLane). Locally: CMUX_BROWSER_TESTS=1 bun test test/composer-one-row-dots.test.ts
@@ -63,19 +65,34 @@ await requireBrowserLane("composer-one-row-dots.test.ts", async () => {
   };
   const settle = (page: Page) =>
     page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
-  /** Where the dots sit against the composer: the gap from its last part's bottom (the quiet row, or
-   *  the box with Codex's look) to the dots' top, and the dots' own place on the page. */
+  /** Where the dots sit: the gap from the composer's last part's bottom (the quiet row, or the box
+   *  with Codex's look) to the dots' top, the room left under them to the pane's edge, and their
+   *  place in the pane. */
   const dotsPlace = (page: Page, composer: string, dots: string) =>
     page.evaluate(
       ({ composer, dots }) => {
         const host = document.querySelector(composer)!;
         const last = (host.querySelector(".acpmux-composer-foot") ??
           host.querySelector(".nt-box, .acpmux-composer-box"))!.getBoundingClientRect();
+        const pane = document.querySelector(".acpmux-main")!.getBoundingClientRect();
         const group = document.querySelector(dots)!.getBoundingClientRect();
-        return { gap: Math.round(group.top - last.bottom), top: Math.round(group.top), left: Math.round(group.left) };
+        return {
+          gap: group.top - last.bottom,
+          under: Math.min(pane.bottom, window.innerHeight) - group.bottom,
+          top: Math.round(group.top - pane.top),
+          left: Math.round(group.left - pane.left),
+        };
       },
       { composer, dots },
     );
+  /** The dots in one place in both looks, clear of the composer, inside the pane. */
+  const samePlace = (claude: Awaited<ReturnType<typeof dotsPlace>>, codex: Awaited<ReturnType<typeof dotsPlace>>) => {
+    for (const at of [claude, codex]) {
+      expect(at.gap, "clear of the quiet row or the box").toBeGreaterThanOrEqual(-0.5);
+      expect(at.under, "inside the pane").toBeGreaterThanOrEqual(-0.5);
+    }
+    expect({ top: codex.top, left: codex.left }).toEqual({ top: claude.top, left: claude.left });
+  };
 
   test("New Tab, Claude's look: nothing over the box, the folder, computer and model one row under it", async () => {
     for (const variant of ["newtab-stage-claude", "newtab-claude"]) {
@@ -115,30 +132,24 @@ await requireBrowserLane("composer-one-row-dots.test.ts", async () => {
     }
   });
 
-  test("New Tab: the dots keep one place under the composer in both looks, clear of its last part", async () => {
+  test("New Tab: the dots keep one place on the page's edge in both looks, clear of the composer", async () => {
     const claude = await open("newtab-stage-claude");
     const atClaude = await dotsPlace(claude.page, ".nt-composer", ".nt-look-dots");
     await claude.close();
     const codex = await open("newtab-stage-codex");
     const atCodex = await dotsPlace(codex.page, ".nt-composer", ".nt-look-dots");
     await codex.close();
-    expect(atClaude.gap).toBeGreaterThanOrEqual(0);
-    expect(atCodex.gap).toBeGreaterThanOrEqual(0);
-    expect(Math.abs(atClaude.gap - atCodex.gap)).toBeLessThanOrEqual(1);
-    expect(Math.abs(atClaude.top - atCodex.top)).toBeLessThanOrEqual(1);
+    samePlace(atClaude, atCodex);
   });
 
-  test("in a chat the dots sit in the same band under the composer in both looks", async () => {
+  test("in a chat the dots keep one place on the composer's edge in both looks, clear of it", async () => {
     const claude = await open("claude-chat", 600);
     const atClaude = await dotsPlace(claude.page, ".acpmux-composer", ".acpmux-look-dots");
     await claude.close();
     const codex = await open("codex-chat", 600);
     const atCodex = await dotsPlace(codex.page, ".acpmux-composer", ".acpmux-look-dots");
     await codex.close();
-    expect(atClaude.gap).toBeGreaterThanOrEqual(0);
-    expect(atCodex.gap).toBeGreaterThanOrEqual(0);
-    expect(Math.abs(atClaude.gap - atCodex.gap)).toBeLessThanOrEqual(1);
-    expect(Math.abs(atClaude.top - atCodex.top)).toBeLessThanOrEqual(1);
+    samePlace(atClaude, atCodex);
   });
 
   test("arrow keys switch the look with the dots held in place and the keyboard on them; Escape goes back", async () => {
@@ -190,7 +201,7 @@ await requireBrowserLane("composer-one-row-dots.test.ts", async () => {
     ).toBe(true);
     const after = await dots();
     expect({ top: after.top, left: after.left }).toEqual({ top: before.top, left: before.left });
-    expect(after.gap).toBeGreaterThanOrEqual(0);
+    expect(after.gap).toBeGreaterThanOrEqual(-0.5);
     await newTab.keyboard.press("Escape");
     await settle(newTab);
     expect(

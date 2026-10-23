@@ -68,8 +68,8 @@ export type ComposerBoxProps = {
   trailing?: React.ReactNode;
   /// The hideable controls the row's right-click shows again (composerChrome.tsx).
   chromeItems: readonly HideableChromeItem[];
-  /// Drawn in the composer's bottom area, centered: the chat's look dots (LookSwitch.tsx), in a band
-  /// under the composer's last part in both looks.
+  /// Drawn in the composer's bottom area, centered: the chat's look dots (LookSwitch.tsx), out of the
+  /// flow on the composer's bottom edge, the same place in both looks.
   bottom?: React.ReactNode;
 };
 
@@ -239,8 +239,8 @@ export function ComposerBox({
         </ChromeArea>
       )}
       {/* One place for both looks, so a look switched from the dots by keys keeps the same dots and
-          their focus (they would remount under the box and drop it): the band under the composer's
-          last part, the quiet row or the box, the same in both looks (composerLook.css). */}
+          their focus (they would remount under the box and drop it): out of the flow, on the
+          composer's bottom edge in the gutter under the quiet row or the box (composerLook.css). */}
       {bottom && <div className="acpmux-composer-under">{bottom}</div>}
     </>
   );
