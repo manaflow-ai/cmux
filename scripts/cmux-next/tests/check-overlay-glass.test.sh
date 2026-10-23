@@ -59,6 +59,19 @@ final class OtherCard: NSView {
     let other = Glass.makeOverlayPanel(content: otherView) // "{" in a comment
     let url = "https://example.com/{"
 }'
+expect_fail nested-type-glass popup-host 'final class BadMenuPanel: NSPanel {
+    let card = NSVisualEffectView()
+    private struct UnusedPreview {
+        let glass = Glass.makeOverlayPanel(content: otherView)
+    }
+}'
+expect_fail host-call-nested-glass popup-host 'final class BadPicker {
+    private let popup = NativePopupHost(panel: NativePopupPanel(identifier: "cmux.bad"))
+    func show() { popup.panel.adoptPopupStyle(card: NSVisualEffectView()) }
+    enum Preview {
+        static func card() -> NSView { Glass.makeOverlayPanel(content: otherView) }
+    }
+}'
 expect_fail top-level-host-type-glass popup-host 'popup.panel.adoptPopupStyle(card: plainView)
 final class OtherCard: NSView {
     let other = Glass.makeOverlayPanel(content: otherView)
@@ -143,12 +156,31 @@ palette="$tmp/Packages/macOS/CmuxNext/Sources/CmuxNextPalette"
 mkdir -p "$palette"
 rm -f "$src"/*.swift "$stale"/*.swift
 printf '%s\n' 'final class PalettePanel: ActiveAppKeyPanel {}' > "$palette/PalettePanel.swift"
-printf '%s\n' '    let glass = NSVisualEffectView()' > "$palette/PaletteContentView.swift"
-if out="$(python3 -I "$CHECK" "$tmp")"; then
-  echo "check-overlay-glass.test: a palette without its glass passed"; echo "$out"; exit 1
-fi
-grep -q "PalettePanel.swift:1: \[popup-host\]" <<<"$out" || { echo "check-overlay-glass.test: PalettePanel not named"; echo "$out"; exit 1; }
-printf '%s\n' '    let glass = Glass.makeOverlayPanel(cornerRadius: PaletteLayout.cornerRadius)' > "$palette/PaletteContentView.swift"
+expect_palette_fail() {
+  printf '%s\n' "$1" > "$palette/PaletteContentView.swift"
+  if out="$(python3 -I "$CHECK" "$tmp")"; then
+    echo "check-overlay-glass.test: a palette without its glass passed ($2)"; echo "$out"; exit 1
+  fi
+  grep -q "PalettePanel.swift:1: \[popup-host\]" <<<"$out" || { echo "check-overlay-glass.test: PalettePanel not named ($2)"; echo "$out"; exit 1; }
+}
+expect_palette_fail 'final class PaletteContentView: NSView {
+    let glass = NSVisualEffectView()
+}' "no glass"
+# The mapped file's glass must be the named type's own: a helper's beside it, or a type nested in
+# it, does not count.
+expect_palette_fail 'final class PaletteContentView: NSView {
+    let glass = NSVisualEffectView()
+}
+final class PalettePreviewHelper {
+    let other = Glass.makeOverlayPanel(cornerRadius: 4)
+}' "glass in a sibling type"
+expect_palette_fail 'final class PaletteContentView: NSView {
+    let glass = NSVisualEffectView()
+    struct Unused { let other = Glass.makeOverlayPanel(cornerRadius: 4) }
+}' "glass in a nested type"
+printf '%s\n' 'final class PaletteContentView: NSView {
+    let glass = Glass.makeOverlayPanel(cornerRadius: PaletteLayout.cornerRadius)
+}' > "$palette/PaletteContentView.swift"
 out="$(python3 -I "$CHECK" "$tmp")" || { echo "check-overlay-glass.test: the palette on its glass failed"; echo "$out"; exit 1; }
 
 echo "check-overlay-glass.test: ok"
