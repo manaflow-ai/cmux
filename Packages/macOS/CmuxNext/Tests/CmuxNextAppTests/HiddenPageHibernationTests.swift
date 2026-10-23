@@ -130,6 +130,33 @@ import Testing
         #expect(rig.isHibernated(key))
     }
 
+    /// The 2026-10-23 light bench kept 4-5 Chromium bench pages live as form input: each shows a
+    /// `<select>` with no default option, and a probe without the recorder's baseline (a page
+    /// without the recorder, or one whose recorder attached after the page was used, as Chromium's
+    /// does) compares every field with its default. A one-line menu with no default option shows
+    /// its first enabled option, and that is no edit; the probe called it one because no option is
+    /// `defaultSelected`. The field probe and the recorder share the comparison
+    /// (`BrowserPageBusy.differsFromDefault`). A menu moved off what its markup shows still is an edit.
+    @Test func aMenuWithNoDefaultOptionIsNoEditToTheFieldProbe() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let page = try await rig.page("menus", body: """
+            <select id="size"><option>s</option><option>m</option><option>l</option></select>
+            <select id="pick"><option disabled>Pick one</option><option>a</option><option>b</option></select>
+            <select id="many" multiple><option>x</option><option>y</option></select>
+            """)
+        func edited() async throws -> Bool? {
+            guard case .string(let json) = try await page.evaluate(BrowserPageBusy.fieldProbeScript, world: .isolated),
+                  let data = json.data(using: .utf8),
+                  let object = try JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return nil }
+            return object["form"]
+        }
+        #expect(try await edited() == false, "the field probe called menus with no default option edited")
+
+        _ = try await page.evaluate("document.getElementById('pick').selectedIndex = 2; true", world: .page)
+        #expect(try await edited() == true, "the field probe missed a menu moved off its first enabled option")
+    }
+
     /// #20866 second review: a composer the person typed in and then sent (a chat app clears it)
     /// holds nothing to lose: the page hibernates.
     @Test func aRichEditorThePersonClearedLetsThePageHibernate() async throws {
