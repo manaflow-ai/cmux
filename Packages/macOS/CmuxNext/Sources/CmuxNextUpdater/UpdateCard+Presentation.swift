@@ -20,8 +20,8 @@ nonisolated public struct UpdateCardPresentation: Equatable, Sendable {
 
 extension UpdateCard {
     /// The card for the running build (`version` = CFBundleShortVersionString,
-    /// `build` = CFBundleVersion).
-    nonisolated public func presentation(version: String, build: String) -> UpdateCardPresentation {
+    /// `build` = CFBundleVersion); `install` says what an ``installing`` card waits on.
+    nonisolated public func presentation(version: String, build: String, install: UpdateInstallStatus? = nil) -> UpdateCardPresentation {
         let current = Self.versionLabel(version: version, build: build)
         switch self {
         case .checking:
