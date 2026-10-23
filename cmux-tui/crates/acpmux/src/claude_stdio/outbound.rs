@@ -301,7 +301,8 @@ impl Translator {
                                 RpcError::invalid_params("server is required"),
                             ));
                         }
-                        self.pending.lock().await.insert(id.to_string(), Pending::McpReconnect);
+                        // Nothing kept here: its answer carries the ACP id (`mcp-<id>`), so an
+                        // answer that never comes leaves nothing behind (the hub gives up on it).
                         Outbound::Lines(vec![
                             json!({"type": "control_request", "request_id": format!("mcp-{}", id), "request": {"subtype": "mcp_reconnect", "serverName": server}}),
                         ])

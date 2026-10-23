@@ -2629,11 +2629,15 @@ export class AcpmuxDirectClient {
     }
     // Claude Code's /context after a turn (acpmux claude_stdio): the session detail's
     // `contextBreakdown` from then on. Before the detail is in, the detail itself carries it.
-    const breakdown = update?.sessionUpdate === SESSION_INFO_KIND ? update?._meta?.acpmux?.contextBreakdown : undefined;
-    if (breakdown !== undefined) {
-      if (this.summary) this.summary = { ...this.summary, contextBreakdown: breakdown };
+    // The same update may carry more (a title, Claude Code's facts), which the code below reads.
+    const breakdown =
+      update?.sessionUpdate === SESSION_INFO_KIND
+        ? contextBreakdownOf(update?._meta?.acpmux?.contextBreakdown)
+        : undefined;
+    if (breakdown && this.summary) this.summary = { ...this.summary, contextBreakdown: breakdown };
+    // An update that carries only the breakdown has nothing more to draw.
+    if (breakdown && update.title === undefined && Object.keys(update._meta ?? {}).every((key) => key === "acpmux"))
       return;
-    }
     // Claude Code names its version and model on every turn's init line: one row, where the
     // session first said so, that a later line with other facts (a restart on a new version, a
     // model switch) updates in place.
@@ -2681,6 +2685,8 @@ export class AcpmuxDirectClient {
         if (typeof msg.from === "string" && typeof msg.to === "string") {
           this.endAssistantSegment();
           this.streamingActivity = undefined;
+          // The last harness's /context is not the fallback's: acpmux drops it there too.
+          if (this.summary?.contextBreakdown) this.summary = { ...this.summary, contextBreakdown: undefined };
           const id = `failover-${event.seq}`;
           this.rows.set(id, {
             id,

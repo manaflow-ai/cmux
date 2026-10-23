@@ -54,7 +54,10 @@ FAKE_CLAUDE_INIT (a JSON object) adds its fields to system/init (`mcp_servers`,
 `skills`, ...); with FAKE_CLAUDE_CONTROL_LOG set, the subtype of every
 control request is appended to that file, one per line.
 FAKE_CLAUDE_CONTEXT=1 answers get_context_usage with a /context breakdown
-(=error refuses it); FAKE_CLAUDE_MCP_DOWN=<name> fails mcp_reconnect of that
+(=error refuses it). FAKE_CLAUDE_LATE_CONTEXT=<path> makes a FAKE_CLAUDE_DIE_IF prompt a
+usage limit instead (the process lives on, and answers no more get_context_usage), and leaves a
+process of its own that writes a /context answer 1.5 s later, then creates <path>: a replaced
+Claude Code's answer that arrives after the failover. FAKE_CLAUDE_MCP_DOWN=<name> fails mcp_reconnect of that
 server, and every other reconnect succeeds. "env: NAME"
 replies with that environment variable. Any plain prompt
 replies with the process's argv (spawn flags such as `--disallowedTools`).
@@ -119,6 +122,8 @@ COMMANDS = [
 
 
 # Claude Code's get_context_usage answer (detail "summary"), with what acpmux leaves out.
+# Set once a FAKE_CLAUDE_LATE_CONTEXT prompt hit its usage limit.
+LIMITED = False
 CONTEXT_USAGE = {
     "categories": [
         {"id": "system_prompt", "name": "System prompt", "tokens": 3000, "color": "promptBorder", "kind": "used"},
@@ -434,7 +439,8 @@ while True:
         answer = {}
         if request.get("subtype") == "initialize" and SKILLS:
             answer = {"commands": COMMANDS}
-        if request.get("subtype") == "get_context_usage" and os.environ.get("FAKE_CLAUDE_CONTEXT") == "1":
+        if (request.get("subtype") == "get_context_usage" and os.environ.get("FAKE_CLAUDE_CONTEXT") == "1"
+                and not LIMITED):
             answer = CONTEXT_USAGE
         send({"type": "control_response", "response": {"subtype": "success", "request_id": msg.get("request_id"), "response": answer}})
         if request.get("subtype") == "apply_flag_settings":
@@ -501,6 +507,24 @@ while True:
                   "duration_api_ms": 0, "usage": {"input_tokens": 0, "output_tokens": 0}})
     elif kind == "user":
         die_if = os.environ.get("FAKE_CLAUDE_DIE_IF")
+        late = os.environ.get("FAKE_CLAUDE_LATE_CONTEXT")
+        if late and die_if and os.path.exists(die_if):
+            LIMITED = True
+            if os.fork() == 0:
+                # Its own session: the failover's kill of this process group leaves it.
+                os.setsid()
+                import time
+                time.sleep(1.5)
+                send({"type": "control_response", "response": {"subtype": "success", "request_id": "ctx-late",
+                      "response": CONTEXT_USAGE}})
+                open(late, "w").close()
+                os._exit(0)
+            said = "You've hit your usage limit"
+            send({"type": "assistant", "error": "rate_limit", "message": {"model": "<synthetic>",
+                  "content": [{"type": "text", "text": said}]}})
+            send({"type": "result", "subtype": "success", "is_error": True, "result": said, "num_turns": 1,
+                  "duration_api_ms": 0, "usage": {"input_tokens": 0, "output_tokens": 0}})
+            continue
         if os.environ.get("FAKE_CLAUDE_DIE") == "1" or (die_if and os.path.exists(die_if)):
             sys.stderr.write("proxy down\n")
             sys.stderr.flush()

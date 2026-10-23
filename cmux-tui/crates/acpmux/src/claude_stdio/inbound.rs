@@ -548,7 +548,6 @@ impl Translator {
                 } else if let Some(acp) = rid.strip_prefix("mcp-") {
                     // An mcp_reconnect's answer (`MCP_RECONNECT`).
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
-                    self.pending.lock().await.remove(&id.to_string());
                     out.push(if ok {
                         Message::ok(id, json!({}))
                     } else {

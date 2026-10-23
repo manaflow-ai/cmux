@@ -228,8 +228,8 @@ pub const BACKGROUND_TASKS: &str = "_acpmux/claude/background_tasks";
 /// or Claude Code's error.
 pub const MCP_RECONNECT: &str = "_acpmux/claude/mcp_reconnect";
 
-/// The most memory files, MCP tools and skills a context breakdown names
-/// (`context_breakdown`), the largest first: a chat with hundreds of MCP
+/// The most categories, memory files, MCP tools and skills a context breakdown
+/// names (`context_breakdown`; the lists the largest first, categories in Claude Code's order): a chat with hundreds of MCP
 /// tools would otherwise log every one at each turn's end.
 const BREAKDOWN_ROWS: usize = 50;
 
@@ -457,8 +457,6 @@ enum Pending {
     /// `end_background_asks` unmarks them when nothing moved, at that
     /// deadline, or when the turn ends.
     Background(Vec<String>, Option<std::time::Instant>),
-    /// An `mcp_reconnect` (`MCP_RECONNECT`), answered when claude did it.
-    McpReconnect,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -828,8 +826,10 @@ pub(super) fn context_breakdown(usage: &Value) -> Option<Value> {
         rows.truncate(BREAKDOWN_ROWS);
         rows
     };
+    // Claude Code names a dozen; the bound keeps a misbehaving answer out of the log.
     let categories: Vec<Value> = categories
         .iter()
+        .take(BREAKDOWN_ROWS)
         .map(|c| {
             let mut kept =
                 json!({"name": c.get("name"), "tokens": tokens(c), "kind": c.get("kind")});

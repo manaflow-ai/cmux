@@ -209,11 +209,12 @@ impl Hub {
             ));
         };
         let params = json!({"sessionId": meta.agent_session_id, "server": server});
-        let asked = child.request(crate::claude_stdio::MCP_RECONNECT, params);
-        match tokio::time::timeout(RECONNECT_TIMEOUT, asked).await {
-            Ok(Ok(_)) => {}
-            Ok(Err(e)) => return Err(e),
-            Err(_) => {
+        // The translator forgets its own entry when Claude Code answers, late or not; a late answer
+        // then reaches no one here (`request_within`).
+        match child.request_within(crate::claude_stdio::MCP_RECONNECT, params, RECONNECT_TIMEOUT).await {
+            Some(Ok(_)) => {}
+            Some(Err(e)) => return Err(e),
+            None => {
                 return Err(RpcError::internal("Claude Code did not answer mcp_reconnect in time"));
             }
         }
