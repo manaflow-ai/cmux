@@ -180,7 +180,7 @@ public final class ThemeScope {
         let previous = displayedBackdrop
         displayedBackdrop = key
         // The shown opacity follows the picture and its tuning; a tint drag re-reads nothing.
-        if previous?.selection != key.selection || previous?.tuning != key.tuning { BackdropRevision.shared.bump() }
+        if previous?.selection != key.selection || previous?.tuning != key.tuning { ThemeStore.shared.backdropRevision.bump() }
         // Art Color: another work is another accent.
         if ThemeStore.shared.accentFollowsArt { update(animated: false, repaint: false) }
         repaint(animated: false, from: nil)
