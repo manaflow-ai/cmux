@@ -106,4 +106,11 @@ import Testing
     @Test func aReSortRebuilds() {
         #expect(FeedSnapshotEdit(old: ["a", "b", "c"], new: ["b", "a", "c"]) == nil)
     }
+
+    /// Only events never shown before count for the "N new" pill (an undone Done does not).
+    @Test func onlyNeverSeenEventsAreNew() {
+        var seen: Set<String> = ["a", "b"]
+        #expect(FeedListPlan.fresh(["n1", "a"], seen: &seen) == ["n1"])
+        #expect(FeedListPlan.fresh(["n1"], seen: &seen).isEmpty)
+    }
 }

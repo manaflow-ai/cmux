@@ -362,7 +362,11 @@ final class FeedAutoScroller: NSObject {
         Logger(subsystem: "dev.cmux.mobile", category: "frames")
             .notice("FRAMELOG feed-autoscroll-done passes=\(self.pass, privacy: .public) worst=\(worst?.line ?? "-", privacy: .public)")
         // The rig (`verify/feedperf/rig.sh run`) waits for the app to exit.
-        if ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_EXIT_WHEN_DONE"] == "1" { exit(0) }
+        if ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_EXIT_WHEN_DONE"] == "1" {
+            // The last window's line must be on disk before the process ends.
+            FrameLogFile.flush()
+            exit(0)
+        }
     }
 }
 

@@ -78,7 +78,11 @@ final class FeedCollectionView: UICollectionView {
     override func layoutSubviews() {
         if abs(bounds.width - lastWidth) > 0.5 {
             lastWidth = bounds.width
-            onWidthChange?(bounds.width)
+            let width = bounds.width
+            // Not during this layout pass: the change applies snapshots and moves the offset.
+            RunLoop.main.perform(inModes: [.common]) { [weak self] in
+                MainActor.assumeIsolated { self?.onWidthChange?(width) }
+            }
         }
         super.layoutSubviews()
     }
@@ -123,8 +127,14 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
     private var minuteTimer: Timer?
     private var replyChats: [String: AgentChatStore] = [:]
     private var previousRead: [String: Bool] = [:]
+    /// Every event id the list has shown this session (the "N new" pill counts others only).
+    private var everShown: Set<String> = []
     /// Snapshots applied (tests and the rig read it).
     private(set) var applyCount = 0
+
+    deinit {
+        MainActor.assumeIsolated { minuteTimer?.invalidate() }
+    }
 
     init(context: FeedRowContext, swipe: FeedSwipeCoordinator, control: FeedListControl) {
         self.context = context
@@ -175,6 +185,7 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
         collectionView = view
         scale = view.traitCollection.displayScale > 0 ? view.traitCollection.displayScale : 3
         view.registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { [weak self] (_: FeedCollectionView, _: UITraitCollection) in
+            self?.measureHeader()
             self?.relayoutAll()
         }
         minuteTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
@@ -200,7 +211,9 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
             headerSignature = signature
             measureHeader()
         }
-        pending = next
+        // The diffable source refuses a repeated id: keep the first (the store's order is newest first).
+        var seen = Set<String>()
+        pending = next.filter { seen.insert($0.id).inserted }
         guard !applyScheduled else { return }
         applyScheduled = true
         // Every write of this run-loop turn (a burst from the Mac) becomes one snapshot.
@@ -259,14 +272,31 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
         #endif
         applyScheduled = false
         guard let next = pending, width > 0, collectionView != nil else { return }
-        // A question answered or cancelled elsewhere keeps no card state.
+        // A pending question's card shows its saved draft (a relaunch keeps a partly answered question
+        // where the person left it); a question answered or cancelled keeps no card state or draft.
         for item in next {
-            if case .question(let question) = item.kind, var state = states[item.id]?.question {
-                if question.isPending { state.update(question); states[item.id]?.question = state } else { states[item.id]?.question = nil }
+            guard case .question(let question) = item.kind else { continue }
+            if question.isPending {
+                if var state = states[item.id]?.question {
+                    state.update(question)
+                    states[item.id, default: FeedRowState()].question = state
+                } else if let draft = QuestionDraftStore.shared.draft(for: question.id) {
+                    states[item.id, default: FeedRowState()].question = draft.restore(into: question)
+                }
+            } else if states[item.id]?.question != nil {
+                states[item.id]?.question = nil
+                QuestionDraftStore.shared.clear(question.id)
             }
         }
         let keys = next.map { ($0.id, key(for: $0)) }
         let missing = keys.filter { layouts.cached($0.1) == nil }.map(\.1)
+        if relayingOut {
+            // A width or text size change: wait until every row is laid out again, then reconfigure them all.
+            if !missing.isEmpty { computeInBackground(missing); return }
+            relayingOut = false
+            commit(next, keys: keys, reconfigureAll: true)
+            return
+        }
         // Rows are laid out off the main thread; the list shows the change once its rows are ready.
         // Only the first screen of a new Feed is laid out here.
         if !missing.isEmpty {
@@ -296,7 +326,11 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.batchInFlight = false
-                    for layout in built { self.layouts.store(layout, for: layout.key) }
+                    // A layout for a key that changed meanwhile is dropped (a newer one is or will be cached).
+                    let current = Dictionary((self.pending ?? []).map { ($0.id, self.key(for: $0)) }, uniquingKeysWith: { first, _ in first })
+                    for layout in built where current[layout.key.item.id].map({ $0 == layout.key }) ?? true {
+                        self.layouts.store(layout, for: layout.key)
+                    }
                     self.applyScheduled = true
                     self.applyPending()
                 }
@@ -306,10 +340,15 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
 
     /// Applies `next` to the list: a new snapshot when the order changed, else a reconfigure of
     /// the rows whose layout key changed, keeping the row under the reader's eyes in place.
-    private func commit(_ next: [FeedItem], keys: [(String, FeedRowKey)]) {
+    private func commit(_ next: [FeedItem], keys: [(String, FeedRowKey)], reconfigureAll: Bool = false) {
         guard let dataSource, let collectionView else { return }
-        let plan = FeedListPlan(old: shownOrder.map { ($0, shownKeys[$0] ?? FeedListController.emptyKey) }, new: keys, anchorID: nil)
+        var plan = FeedListPlan(old: shownOrder.map { ($0, shownKeys[$0] ?? FeedListController.emptyKey) }, new: keys, anchorID: nil)
+        if reconfigureAll { plan.reconfigure = keys.map(\.0).filter { shownKeys[$0] != nil } }
         for item in next { items[item.id] = item }
+        // Read flags change no layout: those rows redraw their dot and actions in place.
+        let redraw = next.filter { item in !plan.reconfigure.contains(item.id) && previousRead[item.id] != nil && previousRead[item.id] != item.isRead }.map(\.id)
+        previousRead = Dictionary(next.map { ($0.id, $0.isRead) }, uniquingKeysWith: { first, _ in first })
+        defer { for id in redraw { if let item = items[id] { cell(id)?.redraw(item) } } }
         guard !plan.isEmpty || dataSource.snapshot().numberOfSections == 0 else { return }
         let anchor = control.atTop ? nil : visibleAnchor()
         shownOrder = next.map(\.id)
@@ -333,9 +372,6 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
         let present = Set(shownOrder)
         let reconfigure = plan.reconfigure.filter { present.contains($0) && previousOrder.contains($0) }
         if !reconfigure.isEmpty { snapshot.reconfigureItems(reconfigure) }
-        // Read flags change no layout: those rows redraw their dot in place.
-        let redraw = next.filter { item in !plan.reconfigure.contains(item.id) && previousRead[item.id] != nil && previousRead[item.id] != item.isRead }.map(\.id)
-        previousRead = Dictionary(next.map { ($0.id, $0.isRead) }, uniquingKeysWith: { first, _ in first })
         applyCount += 1
         let heights = shownOrder.map { id in shownKeys[id].flatMap { layouts.cached($0)?.height } ?? 1 }
         UIView.performWithoutAnimation {
@@ -344,15 +380,19 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
             if plan.orderChanged || !plan.reconfigure.isEmpty { listLayout.invalidateLayout() }
             if let anchor { restore(anchor) }
         }
-        for id in redraw { if let item = items[id] { cell(id)?.redraw(item) } }
         if let anchor {
-            let above = plan.insertedAbove(anchor: anchor.id, in: shownOrder)
+            // Only events never shown before count as new (an undone Done or a filter switch does not).
+            let fresh = FeedListPlan.fresh(plan.inserted, seen: &everShown)
+            let above = shownOrder.prefix { $0 != anchor.id }.count { fresh.contains($0) }
             if above > 0 { control.newAbove += above }
+        } else {
+            _ = FeedListPlan.fresh(plan.inserted, seen: &everShown)
         }
         scheduleWarmUp()
         layouts.prune(keeping: Set(shownOrder))
         items = items.filter { shownKeys[$0.key] != nil }
         states = states.filter { shownKeys[$0.key] != nil }
+        replyChats = replyChats.filter { shownKeys[$0.key] != nil }
     }
 
     /// Turns `old` into `new` with deletes and inserts when the rows both keep stay in the same order.
@@ -458,23 +498,30 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
         relayoutAll()
     }
 
-    /// The width or the text size changed: every layout is stale.
+    /// The width or the text size changed: every layout is stale. The list keeps showing what it
+    /// shows (order, row state) while the rows are laid out again: the visible ones here, the rest off
+    /// the main thread; then every row is reconfigured at once, and nothing counts as new.
     private func relayoutAll() {
+        guard width > 0 else { return }
         let pendingItems = pending ?? shownOrder.compactMap { items[$0] }
-        shownKeys = [:]
-        layouts.removeAll()
         pending = pendingItems
         let keys = pendingItems.map { key(for: $0) }
         let styles = styles, scale = scale
-        // The visible rows now, the rest off the main thread.
         let visible = Set(collectionView?.indexPathsForVisibleItems.compactMap { dataSource?.itemIdentifier(for: $0) } ?? [])
-        for key in keys where visible.contains(key.item.id) || visible.isEmpty && keys.firstIndex(of: key).map({ $0 < 10 }) == true {
+        for key in keys where visible.contains(key.item.id) || (visible.isEmpty && keys.firstIndex(of: key).map { $0 < 10 } == true) {
             layouts.store(FeedRowLayout.make(key, styles: styles, scale: scale), for: key)
         }
-        shownOrder = []
+        relayingOut = !shownOrder.isEmpty
+        // Off the layout pass (this runs from layoutSubviews and trait changes).
+        guard !applyScheduled else { return }
         applyScheduled = true
-        applyPending()
+        RunLoop.main.perform(inModes: [.common]) { [weak self] in
+            MainActor.assumeIsolated { self?.applyPending() }
+        }
     }
+
+    /// A relayout is waiting for its rows (``relayoutAll()``).
+    private var relayingOut = false
 
     // MARK: Row state
 
@@ -722,8 +769,10 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
         switch sent {
         case .sent(let chat):
             store.reply(id, text: text)
-            replyChats[id] = chat
-            observeReplyChat(id, chat)
+            if replyChats[id] !== chat {
+                replyChats[id] = chat
+                observeReplyChat(id, chat)
+            }
             mutateState(id) { $0.replyFailure = chat.clientError; $0.replying = false; $0.replyDraft = "" }
         case .failed(let reason):
             mutateState(id) { $0.replyFailure = reason; $0.replying = false; $0.replyDraft = "" }
@@ -735,7 +784,8 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
     private func observeReplyChat(_ id: String, _ chat: AgentChatStore) {
         withObservationTracking { _ = chat.clientError } onChange: { [weak self, weak chat] in
             Task { @MainActor in
-                guard let self, let chat, self.replyChats[id] === chat else { return }
+                // The chain ends when the row leaves the list or its chat changes.
+                guard let self, let chat, self.replyChats[id] === chat, self.items[id] != nil else { return }
                 if self.states[id]?.replyFailure != chat.clientError { self.mutateState(id, animated: false) { $0.replyFailure = chat.clientError } }
                 self.observeReplyChat(id, chat)
             }
@@ -787,12 +837,16 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
         let effect = state.send(input)
         switch effect {
         case .submit(let answer):
-            QuestionDraftStore.shared.clear(question.id)
-            mutateState(id) { $0.question = nil }
+            // The card state and draft stay until the question stops pending (a refused answer
+            // brings the card back with the person's picks); applyPending clears them then.
+            QuestionDraftStore.shared.save(QuestionDraft(state), for: question.id)
+            states[id, default: FeedRowState()].question = state
             store.answer(id, answer: answer)
         default:
             QuestionDraftStore.shared.save(QuestionDraft(state), for: question.id)
             mutateState(id) { $0.question = state }
+            if effect == .beginOtherEditing { cell(id)?.focusQuestionOther() }
+            if effect == .resign { cell(id)?.resignQuestionOther() }
         }
     }
 

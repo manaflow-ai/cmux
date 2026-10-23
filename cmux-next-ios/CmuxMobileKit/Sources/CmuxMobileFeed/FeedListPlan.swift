@@ -87,6 +87,13 @@ struct FeedListPlan: Equatable {
 
     var isEmpty: Bool { !orderChanged && reconfigure.isEmpty }
 
+    /// The ids in `inserted` never seen before, recording them as seen.
+    static func fresh(_ inserted: [String], seen: inout Set<String>) -> Set<String> {
+        var fresh = Set<String>()
+        for id in inserted where seen.insert(id).inserted { fresh.insert(id) }
+        return fresh
+    }
+
     /// New rows placed above `anchor` (the first row the person sees): the "N new" pill's count.
     func insertedAbove(anchor: String, in order: [String]) -> Int {
         guard let index = order.firstIndex(of: anchor) else { return 0 }

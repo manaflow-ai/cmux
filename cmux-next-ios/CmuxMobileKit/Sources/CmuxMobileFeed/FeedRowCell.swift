@@ -54,14 +54,55 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
     private let source = UILabel()
     private let time = UILabel()
     private let menuButton = UIButton(type: .custom)
-    private let quote = FeedQuoteView()
-    private let chip = FeedChipView()
+    // Parts a row may not show are made when a row first needs them, so a new cell (the list makes
+    // one when it needs more mid-scroll) costs its avatar, header, body and footer, not every part.
+    private lazy var quote: FeedQuoteView = {
+        let view = FeedQuoteView()
+        view.onTap = { [weak self] in self.map { $0.delegate?.rowToggleQuote($0.id) } }
+        row.addSubview(view)
+        made.insert("quote")
+        FeedRowCell.drawAsync(view)
+        return view
+    }()
+    private lazy var chip: FeedChipView = {
+        let view = FeedChipView()
+        row.addSubview(view)
+        made.insert("chip")
+        FeedRowCell.drawAsync(view)
+        return view
+    }()
+    private var made: Set<String> = []
     private let body = UIView()
     private let inlineText = UILabel()
-    private let markdown = NativeMarkdownView()
-    private let web = WebMarkdownUIView()
-    private let webPlaceholder = UILabel()
-    private let fade = FeedFadeView()
+    private lazy var markdown: NativeMarkdownView = {
+        let view = NativeMarkdownView()
+        body.addSubview(view)
+        made.insert("markdown")
+        return view
+    }()
+    private lazy var web: WebMarkdownUIView = {
+        let view = WebMarkdownUIView()
+        view.onTap = { [weak self] in self.map { $0.delegate?.rowOpen($0.id) } }
+        view.onHeight = { [weak self] height in self.map { $0.delegate?.rowWebHeight($0.id, height) } }
+        body.addSubview(view)
+        made.insert("web")
+        return view
+    }()
+    private lazy var webPlaceholder: UILabel = {
+        let label = UILabel()
+        label.numberOfLines = 0
+        body.addSubview(label)
+        made.insert("webPlaceholder")
+        FeedRowCell.drawAsync(label)
+        return label
+    }()
+    private lazy var fade: FeedFadeView = {
+        let view = FeedFadeView()
+        view.isUserInteractionEnabled = false
+        row.insertSubview(view, aboveSubview: body)
+        made.insert("fade")
+        return view
+    }()
     private let showMore = UIButton(type: .custom)
     private let answerLabel = UILabel()
     /// Rarely shown parts, made the first time a row needs them: a new cell (the list makes a few
@@ -72,9 +113,24 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         return view
     }()
     private var spinnerMade = false
-    private let command = FeedCommandCardView()
+    private lazy var command: FeedCommandCardView = {
+        let view = FeedCommandCardView()
+        view.onShowAll = { [weak self] in self.map { $0.delegate?.rowCodeExpand($0.id) } }
+        view.onCopy = { [weak self] in self.map { $0.delegate?.rowCopyCommand($0.id) } }
+        row.addSubview(view)
+        made.insert("command")
+        FeedRowCell.drawAsync(view)
+        return view
+    }()
     private var capsules: [FeedCapsuleButton] = []
-    private let question = FeedQuestionCardView()
+    private lazy var question: FeedQuestionCardView = {
+        let view = FeedQuestionCardView()
+        view.onInput = { [weak self] input in self.map { $0.delegate?.rowQuestion($0.id, input) } }
+        row.addSubview(view)
+        made.insert("question")
+        FeedRowCell.drawAsync(view)
+        return view
+    }()
     private let answeredCaption = UILabel()
     private var answeredHeaders: [UILabel] = []
     private var bubbles: [FeedBubbleLabel] = []
@@ -155,31 +211,18 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         }])
         row.addSubview(menuButton)
 
-        quote.onTap = { [weak self] in self.map { $0.delegate?.rowToggleQuote($0.id) } }
-        row.addSubview(quote)
-        row.addSubview(chip)
 
         body.clipsToBounds = true
         inlineText.numberOfLines = 0
-        webPlaceholder.numberOfLines = 0
-        for view in [inlineText, markdown, web, webPlaceholder] as [UIView] { body.addSubview(view) }
-        web.onTap = { [weak self] in self.map { $0.delegate?.rowOpen($0.id) } }
-        web.onHeight = { [weak self] height in self.map { $0.delegate?.rowWebHeight($0.id, height) } }
+        body.addSubview(inlineText)
         body.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(openTapped)))
         row.addSubview(body)
-        fade.isUserInteractionEnabled = false
-        row.addSubview(fade)
         showMore.contentHorizontalAlignment = .leading
         showMore.addAction(UIAction { [weak self] _ in self.map { $0.delegate?.rowToggleExpanded($0.id) } }, for: .touchUpInside)
         row.addSubview(showMore)
 
         answerLabel.numberOfLines = 0
         row.addSubview(answerLabel)
-        command.onShowAll = { [weak self] in self.map { $0.delegate?.rowCodeExpand($0.id) } }
-        command.onCopy = { [weak self] in self.map { $0.delegate?.rowCopyCommand($0.id) } }
-        row.addSubview(command)
-        question.onInput = { [weak self] input in self.map { $0.delegate?.rowQuestion($0.id, input) } }
-        row.addSubview(question)
         answeredCaption.numberOfLines = 0
         row.addSubview(answeredCaption)
         errorLabel.numberOfLines = 0
@@ -216,15 +259,12 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         row.addGestureRecognizer(closeTap)
 
         // Made with the cell: the permission buttons, a reply and an answer, so no row allocates views mid-scroll.
-        for index in 0..<3 { capsule(index).isHidden = true }
-        for index in 0..<2 { bubble(index).isHidden = true }
-        question.prewarm(options: 3)
         // Text is drawn on a background thread at commit (the labels' layers draw asynchronously):
         // a row's first draw no longer lands on the main thread's frame.
         FeedRowCell.drawAsync(contentView)
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (cell: FeedRowCell, _: UITraitCollection) in
             cell.unread.layer.borderColor = UIColor.cmuxMobileBackground.resolvedColor(with: cell.traitCollection).cgColor
-            cell.quote.updateColors()
+            if cell.made.contains("quote") { cell.quote.updateColors() }
         }
     }
 
@@ -258,7 +298,7 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         super.prepareForReuse()
         if offset != 0 { setOffset(0, animated: false) }
         armed = false
-        web.release()
+        if made.contains("web") { web.release() }
         if composerText.value?.isFirstResponder == true { composerText.value?.resignFirstResponder() }
     }
 
@@ -299,10 +339,18 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         applyHeader(layout)
         menuButton.frame = layout.menuButton
 
-        quote.isHidden = layout.quote == nil
-        if let part = layout.quote { quote.apply(part, origin: layout.column.origin) }
-        chip.isHidden = layout.chip == nil
-        if let part = layout.chip { chip.apply(part) }
+        if let part = layout.quote {
+            quote.isHidden = false
+            quote.apply(part, origin: layout.column.origin)
+        } else if made.contains("quote") {
+            quote.isHidden = true
+        }
+        if let part = layout.chip {
+            chip.isHidden = false
+            chip.apply(part)
+        } else if made.contains("chip") {
+            chip.isHidden = true
+        }
 
         applyBody(layout.body, settled: settled)
         applyAnswer(layout)
@@ -372,9 +420,9 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         body.frame = part.frame
         let full = CGRect(x: 0, y: 0, width: part.frame.width, height: part.fullHeight)
         inlineText.isHidden = true
-        markdown.isHidden = true
-        web.isHidden = true
-        webPlaceholder.isHidden = true
+        if made.contains("markdown") { markdown.isHidden = true }
+        if made.contains("web") { web.isHidden = true }
+        if made.contains("webPlaceholder") { webPlaceholder.isHidden = true }
         switch part.content {
         case .inline(let text):
             inlineText.isHidden = false
@@ -386,7 +434,7 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
             markdown.apply(native)
         case .web(let source, let height, let placeholder):
             web.frame = full
-            if settled || web.isShowing {
+            if settled || (made.contains("web") && web.isShowing) {
                 web.isHidden = false
                 web.show(source, contentHeight: height)
             } else {
@@ -396,8 +444,11 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
                 webPlaceholder.frame = full
             }
         }
-        fade.isHidden = !(part.overflowing && part.frame.height < part.fullHeight)
-        fade.frame = CGRect(x: part.frame.minX, y: part.frame.maxY - 32, width: part.frame.width, height: 32)
+        let fades = part.overflowing && part.frame.height < part.fullHeight
+        if fades || made.contains("fade") {
+            fade.isHidden = !fades
+            fade.frame = CGRect(x: part.frame.minX, y: part.frame.maxY - 32, width: part.frame.width, height: 32)
+        }
         showMore.isHidden = part.showMore == nil
         if let more = part.showMore {
             showMore.setAttributedTitle(more.title, for: .normal)
@@ -408,6 +459,7 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
     private func capsule(_ index: Int) -> FeedCapsuleButton {
         while capsules.count <= index {
             let button = FeedCapsuleButton()
+            FeedRowCell.drawAsync(button)
             button.addAction(UIAction { [weak self, weak button] _ in
                 guard let self, let button, let id = button.actionID else { return }
                 if button.actionID == "terminal" { self.delegate?.rowOpen(self.id) } else { self.delegate?.rowRespond(self.id, optionID: id) }
@@ -421,6 +473,7 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
     private func bubble(_ index: Int) -> FeedBubbleLabel {
         while bubbles.count <= index {
             let view = FeedBubbleLabel()
+            FeedRowCell.drawAsync(view)
             bubbles.append(view)
             row.addSubview(view)
         }
@@ -428,13 +481,19 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
     }
 
     private func applyAnswer(_ layout: FeedRowLayout) {
+        // A reused cell carries no identifier or hint from the event it showed before.
+        answerLabel.accessibilityIdentifier = nil
+        for button in capsules {
+            button.accessibilityIdentifier = nil
+            button.accessibilityHint = nil
+        }
         answerLabel.isHidden = true
         if spinnerMade {
             spinner.isHidden = true
             spinner.stopAnimating()
         }
-        command.isHidden = true
-        question.isHidden = true
+        if made.contains("command") { command.isHidden = true }
+        if made.contains("question") { question.isHidden = true }
         answeredCaption.isHidden = true
         var used = 0
         var headers = 0
@@ -547,6 +606,9 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         send.tintColor = empty ? .tertiaryLabel : .cmuxMobileOnAccent
         send.frame = CGRect(x: frame.width - 5 - 30, y: frame.height - 5 - 30, width: 30, height: 30)
     }
+
+    func focusQuestionOther() { if made.contains("question") { question.focusOther() } }
+    func resignQuestionOther() { if made.contains("question") { question.resignOther() } }
 
     /// Opens the reply field's keyboard (the footer's Reply).
     func focusComposer() {
@@ -1107,6 +1169,15 @@ final class FeedQuestionCardView: UIView, UITextFieldDelegate {
     private var otherRow = 0
     var onInput: ((AgentQuestionCardState.Input) -> Void)?
 
+    /// The Other field takes the keyboard (only when the person opened it: `.beginOtherEditing`).
+    func focusOther() {
+        if !otherField.isHidden { otherField.becomeFirstResponder() }
+    }
+
+    func resignOther() {
+        if otherField.isFirstResponder { otherField.resignFirstResponder() }
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .cmuxMobileCard
@@ -1200,7 +1271,6 @@ final class FeedQuestionCardView: UIView, UITextFieldDelegate {
                 otherField.isHidden = false
                 otherField.frame = entry.frame
                 if otherField.text != entry.draft { otherField.text = entry.draft }
-                if !otherField.isFirstResponder, entry.draft.isEmpty { otherField.becomeFirstResponder() }
             } else {
                 other.isHidden = false
                 other.frame = entry.frame
@@ -1214,7 +1284,7 @@ final class FeedQuestionCardView: UIView, UITextFieldDelegate {
         }
         back.isHidden = card.back == nil
         if let frame = card.back {
-            back.frame = frame.offsetBy(dx: -card.frame.minX, dy: 0)
+            back.frame = frame
             back.titleLabel?.font = UIFont.systemFont(ofSize: UIFont.preferredFont(forTextStyle: .subheadline).pointSize, weight: .semibold)
         }
         while buttons.count < card.buttons.count {
@@ -1233,9 +1303,7 @@ final class FeedQuestionCardView: UIView, UITextFieldDelegate {
         }
         for (index, button) in buttons.enumerated() {
             guard index < card.buttons.count else { button.isHidden = true; continue }
-            var placed = card.buttons[index]
-            placed.frame = placed.frame.offsetBy(dx: -card.frame.minX, dy: 0)
-            button.apply(placed)
+            button.apply(card.buttons[index])
         }
     }
 }

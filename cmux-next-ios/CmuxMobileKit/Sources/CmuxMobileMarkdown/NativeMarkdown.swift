@@ -469,22 +469,6 @@ public final class NativeMarkdownView: UIView {
     public override init(frame: CGRect) {
         super.init(frame: frame)
         isUserInteractionEnabled = true
-        // The parts a typical body uses, made with the cell, so its first event never allocates mid-scroll.
-        for _ in 0..<3 {
-            let label = UILabel()
-            label.numberOfLines = 0
-            label.isHidden = true
-            labels.append(label)
-            addSubview(label)
-        }
-        let code = NativeCodeCardView()
-        code.isHidden = true
-        codes.append(code)
-        addSubview(code)
-        let table = NativeTableView()
-        table.isHidden = true
-        tables.append(table)
-        addSubview(table)
     }
 
     @available(*, unavailable)
@@ -496,6 +480,8 @@ public final class NativeMarkdownView: UIView {
             if label == labels.count {
                 let view = UILabel()
                 view.numberOfLines = 0
+                // Text draws off the main thread at commit (a row's first draw stays out of the frame).
+                view.layer.drawsAsynchronously = true
                 labels.append(view)
                 addSubview(view)
             }

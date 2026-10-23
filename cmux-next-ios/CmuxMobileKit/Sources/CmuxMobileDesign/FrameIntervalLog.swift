@@ -159,8 +159,14 @@ public final class FrameClock {
 /// Appends recorder output to a file in the app container (read back with
 /// `simctl get_app_container`), off the main thread.
 public enum FrameLogFile {
+    /// One queue, in order, so `flush()` waits for every append (the rig exits right after its last window).
+    static let queue = DispatchQueue(label: "dev.cmux.mobile.framelog", qos: .utility)
+
+    /// Waits until every queued append is written.
+    public static func flush() { queue.sync {} }
+
     public static func append(_ data: Data, to url: URL) {
-        DispatchQueue.global(qos: .utility).async {
+        queue.async {
             if let handle = try? FileHandle(forWritingTo: url) {
                 _ = try? handle.seekToEnd()
                 try? handle.write(contentsOf: data)
