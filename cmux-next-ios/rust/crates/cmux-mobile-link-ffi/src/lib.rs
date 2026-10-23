@@ -398,6 +398,19 @@ impl LinkHandle {
         Ok(u32::try_from(rtt.as_millis()).unwrap_or(u32::MAX))
     }
 
+    /// Whether the link is alive within `timeout_ms`: the round trip in
+    /// milliseconds on the pong, `None` when other frames from the Mac came
+    /// first (a slow relay's queue; the link is alive), an error only when
+    /// nothing came back at all or the link closed. The app's heartbeat,
+    /// foreground and presence checks use it, so a busy link is never
+    /// closed for a late pong (link-reliability-20261023.md).
+    pub async fn probe(&self, timeout_ms: u32) -> Result<Option<u32>, CmuxMobileError> {
+        let link = self.link.clone();
+        let timeout = Duration::from_millis(u64::from(timeout_ms));
+        let rtt = on_runtime(async move { link.probe(timeout).await }).await?;
+        Ok(rtt.map(|rtt| u32::try_from(rtt.as_millis()).unwrap_or(u32::MAX)))
+    }
+
     pub fn transport(&self) -> Transport {
         self.transport
     }

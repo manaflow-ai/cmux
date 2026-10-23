@@ -45,6 +45,10 @@ public final class LinkController {
     /// host may have restarted (termfix-r13 D2b: the dead link was kept until
     /// the heartbeat, 26.7 s). A live link answers in milliseconds.
     nonisolated static let presenceProbeTimeout: Duration = .milliseconds(1500)
+    /// Beyond a probe's own timeout, how long the bound around it waits.
+    nonisolated static let probeGrace: Duration = .milliseconds(500)
+    /// A probe that saw the Mac's frames but not its pong (alive, no round trip).
+    nonisolated static let aliveWithoutPong = UInt32.max
     @ObservationIgnored private var quickProbe = false
     @ObservationIgnored public var onLink: (@MainActor ((any MacLink)?) -> Void)?
     /// Runs right after a dial, in the same detached step (no main actor):
@@ -245,14 +249,22 @@ public final class LinkController {
         guard let link else { return }
         let clock = clock
         Task { [weak self] in
-            // The ping races a timeout: a frozen Mac never answers.
-            let result = await Self.race(timeout: timeout, clock: clock) { try await link.ping() }
+            // The link's probe: the pong, or any frame from the Mac within the
+            // timeout (a pong behind a busy queue on a slow relay is not a dead
+            // link; closing such links was the "peer closed the link" 22 to
+            // 24 s after link up of link-reliability-20261023.md). The race
+            // stays as a bound: the FFI call ignores cancellation.
+            let result = await Self.race(timeout: timeout + Self.probeGrace, clock: clock) {
+                try await link.probe(timeout: timeout) ?? Self.aliveWithoutPong
+            }
             guard let self else { return }
             switch result {
             case .success(let rtt):
-                ConnectTimeline.shared.mark("link_alive", detail: "\(rtt) ms")
+                ConnectTimeline.shared.mark("link_alive", detail: rtt == Self.aliveWithoutPong ? "traffic" : "\(rtt) ms")
                 guard case .connected(_, let path, _) = self.phase else { return }
-                self.send(.linkUpdated(generation: generation, path: path, rttMillis: rtt))
+                // Alive without a pong: no new round trip to show.
+                self.send(.linkUpdated(generation: generation, path: path,
+                                       rttMillis: rtt == Self.aliveWithoutPong ? nil : rtt))
             case .failure(let error):
                 self.send(.probeFailed(generation: generation, reason: Self.reason(error)))
             }

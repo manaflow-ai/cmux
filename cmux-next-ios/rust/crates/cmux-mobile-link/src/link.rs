@@ -698,11 +698,31 @@ impl Link {
         Ok(rtt)
     }
 
-    /// Whether the link is alive (see the tests): a pong, `Ok(Some(rtt))`.
+    /// Whether the link is alive, within `timeout`: `Ok(Some(rtt))` on the
+    /// pong, `Ok(None)` as soon as any other frame arrives after the ping went
+    /// out (a pong can trail a full transmit queue on a slow relay; the link's
+    /// own keepalive counts any inbound frame as life too), `Err(Timeout)`
+    /// only when nothing at all came back, `Err(Closed)` once closed.
     pub async fn probe(&self, timeout: Duration) -> Result<Option<Duration>, LinkError> {
-        match tokio::time::timeout(timeout, self.ping()).await {
-            Ok(result) => result.map(Some),
-            Err(_) => Err(LinkError::Timeout),
+        /// How often arrivals are checked while the pong is outstanding.
+        const TRAFFIC_CHECK: Duration = Duration::from_millis(50);
+        let sent = Instant::now();
+        let deadline = sent + timeout;
+        let ping = self.ping();
+        tokio::pin!(ping);
+        loop {
+            let next = (Instant::now() + TRAFFIC_CHECK).min(deadline);
+            tokio::select! {
+                result = &mut ping => return result.map(Some),
+                () = tokio::time::sleep_until(next) => {
+                    if self.inner.last_received() > sent {
+                        return Ok(None);
+                    }
+                    if Instant::now() >= deadline {
+                        return Err(LinkError::Timeout);
+                    }
+                }
+            }
         }
     }
 
