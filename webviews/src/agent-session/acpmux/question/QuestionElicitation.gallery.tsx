@@ -112,6 +112,9 @@ export default componentEntry({
     lead: { note: "Shipped: the message leads the first field; a tab per field.", props: { question: form("lead") } },
     every: { note: "Alternative: the message leads every field.", props: { question: form("every") } },
     fields: { note: "Alternative: the fields only.", props: { question: form("fields") } },
-    single: { note: "Shipped: a one-field form asks the message under the server's name.", props: { question: single } },
+    single: {
+      note: "Shipped: a one-field form asks the message under the server's name.",
+      props: { question: single },
+    },
   },
 });
