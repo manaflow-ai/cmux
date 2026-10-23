@@ -96,8 +96,10 @@ public final class ThemedMenuRowView: NSView {
         }
         var x = Self.leading(of: item)
         if let image = item.image {
-            let rect = Self.iconRect(for: image.size, x: x, midY: titleY + titleHeight / 2)
-            Self.draw(image, in: rect, tint: image.isTemplate ? quiet : nil)
+            let box = NSRect(x: x, y: titleY + (titleHeight - Self.imageSide) / 2, width: Self.imageSide, height: Self.imageSide)
+            // A template icon takes the title's ink, as a native menu draws it: white in dark mode,
+            // black in light, in every state (user 2026-10-21: the icons "should be whiter").
+            Self.draw(image, in: Self.fitted(image.size, in: box), tint: image.isTemplate ? ink : nil)
         }
         // Titles line up whether or not their row has an icon, once any row of the menu has one.
         if Self.hasIconColumn(item) { x += Self.imageSide + Self.gap }
@@ -120,6 +122,16 @@ public final class ThemedMenuRowView: NSView {
             let shortcut = NSAttributedString(string: Self.shortcutText(of: item), attributes: [.font: font, .foregroundColor: quiet])
             shortcut.draw(at: NSPoint(x: right - shortcut.size().width, y: titleY))
         }
+    }
+
+    /// `size` centered in `box`, scaled down (never up) to fit and keeping its proportions: a
+    /// menu-size symbol draws at its own size, as in a native menu, and a wide one such as
+    /// `rectangle.split.3x1` is not squashed into the square.
+    static func fitted(_ size: NSSize, in box: NSRect) -> NSRect {
+        guard size.width > 0, size.height > 0 else { return box }
+        let scale = min(box.width / size.width, box.height / size.height, 1)
+        let fit = NSSize(width: size.width * scale, height: size.height * scale)
+        return NSRect(x: box.midX - fit.width / 2, y: box.midY - fit.height / 2, width: fit.width, height: fit.height)
     }
 
     /// A template image in the row's ink; any other as drawn.
@@ -322,13 +334,6 @@ extension ThemedMenuRowView {
 
     /// Where `item`'s icon, or its title without one, starts.
     static func leading(of item: NSMenuItem) -> CGFloat { hasStateColumn(item) ? stateTitleX : titleX }
-
-    /// An image of `size` fitted, shape kept, into the ``imageSide`` box at `x`, centered on `midY`.
-    static func iconRect(for size: NSSize, x: CGFloat, midY: CGFloat) -> NSRect {
-        let scale = size.width > 0 && size.height > 0 ? min(imageSide / size.width, imageSide / size.height) : 1
-        let width = size.width > 0 ? size.width * scale : imageSide, height = size.height > 0 ? size.height * scale : imageSide
-        return NSRect(x: x + (imageSide - width) / 2, y: midY - height / 2, width: width, height: height)
-    }
 
     static func height(of item: NSMenuItem) -> CGFloat { subtitle(of: item) == nil ? rowHeight : subtitleRowHeight }
 

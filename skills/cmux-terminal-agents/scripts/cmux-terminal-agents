@@ -299,9 +299,50 @@ def cmd_start(a):
             print(f"cmux-terminal-agents: group add failed ({e})", file=sys.stderr)
     save(rec)
     result = {"agent": rec, "create_seconds": round(t_created - t0, 3)}
+    try:
+        result["start"] = verify_start(rec, prompt, a.start_timeout)
+    except ActionFailed as e:
+        result["start"] = e.result
+        result["error"] = e.result.get("error")
+        fail_json(result, 3 if e.result.get("stage") == "blocked_on_prompt" else 2)
     if a.wait and prompt:
         result["wait"] = wait_turn(rec, a.timeout, a.idle_seconds)
-    print(json.dumps(result, indent=2))
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+
+
+def verify_start(rec, prompt, timeout):
+    """After launch, checks the TUI came up and (with a first prompt) took it."""
+    if not prompt:
+        text = wait_ready(rec, timeout)
+        return {"verified": "composer_ready", "screen": screen_tail(text)}
+    snip = snippet(prompt)[:12]
+    t0 = now_ms()
+
+    def check(text):
+        if blocking_prompt(text):
+            return "blocked"
+        if busy_on_screen(text):
+            return "working"
+        region = norm(composer_region(text))
+        for l in text.splitlines():
+            if l.lstrip().startswith(("❯", "›")) and snip and snip in norm(l) and norm(l) not in region:
+                return "prompt_in_transcript"
+        if user_records(rec, prompt):
+            return "transcript_user_record"
+        return None
+
+    how, text = poll_screen(rec, check, timeout, interval=0.3)
+    if not how and osc_working_since(rec, t0):
+        how = "osc7501_working"
+    if how == "blocked":
+        raise ActionFailed({"verified": None, "stage": "blocked_on_prompt",
+                            "error": "the agent shows a prompt or menu before its first turn; answer it with choose/steer/key",
+                            "prompt": blocking_prompt(text), "screen": screen_tail(text)})
+    if not how:
+        raise ActionFailed({"verified": None, "stage": "first_prompt_not_seen",
+                            "error": f"no sign the first prompt was taken within {timeout:g}s",
+                            "screen": screen_tail(text)})
+    return {"verified": how, "screen": screen_tail(text)}
 
 
 def read_text(words):
@@ -311,12 +352,200 @@ def read_text(words):
     return text.strip()
 
 
-def send_text(rec, text):
-    # One write: a bracketed paste keeps a multi-line prompt as one message,
-    # and the CR after the paste end submits it (one cmux mutation, not two:
-    # under load each mutation costs seconds).
-    data = b"\x1b[200~" + text.encode() + b"\x1b[201~\r"
+# ---------------------------------------------------------------- verified actions
+#
+# Every action is followed by a screen check: a key is never assumed to have
+# landed. A send pastes, reads the screen until the paste is rendered in the
+# composer, then presses Enter as a separate mutation and checks the submit
+# took. TUIs drop a CR that arrives while a paste is still being processed,
+# and drop all input sent before they are ready.
+
+PASTE_MARKS = re.compile(r"\[Pasted (text|Content)", re.I)
+RULE = re.compile(r"^\s*[─━]{8,}")
+
+
+class ActionFailed(Exception):
+    def __init__(self, result):
+        super().__init__(result.get("error", "action failed"))
+        self.result = result
+
+
+def norm(text):
+    return re.sub(r"\s+", "", text or "")
+
+
+def snippet(text):
+    """The part of the text a composer shows first, without whitespace."""
+    return norm(text)[:24]
+
+
+def composer_region(text):
+    """The composer: from the last prompt-marker line (❯ / ›) to the next rule.
+    Without one, the last few non-empty lines."""
+    lines = (text or "").rstrip("\n").splitlines()
+    marks = [i for i, l in enumerate(lines) if l.lstrip().startswith(("❯", "›"))]
+    if not marks:
+        return "\n".join([l for l in lines if l.strip()][-6:])
+    i = marks[-1]
+    end = next((j for j in range(i + 1, len(lines)) if RULE.match(lines[j])), len(lines))
+    return "\n".join(lines[i:end])
+
+
+def in_composer(text, sent):
+    region = norm(composer_region(text))
+    snip = snippet(sent)
+    return bool(snip) and snip in region or bool(PASTE_MARKS.search(composer_region(text)))
+
+
+def screen_tail(text, n=30):
+    lines = [l for l in (text or "").splitlines() if l.strip()]
+    return "\n".join(lines[-n:])
+
+
+def write_bytes(rec, data):
     cmux("terminal", rec["terminal_id"], "write", "--bytes-base64", base64.b64encode(data).decode())
+
+
+def read_screen(rec):
+    s = screen(rec["terminal_id"])
+    if s is None:
+        return None
+    return s.get("text") or (s.get("result") or {}).get("text") or ""
+
+
+def poll_screen(rec, check, timeout, interval=0.15):
+    """Reads the screen until check(text) is truthy; returns (value, text)."""
+    deadline = time.time() + timeout
+    text = None
+    while True:
+        got = read_screen(rec)
+        if got is not None:
+            text = got
+            v = check(text)
+            if v:
+                return v, text
+        if time.time() >= deadline:
+            return None, text
+        time.sleep(interval)
+
+
+def user_records(rec, text):
+    """Claude transcript user records that contain the text (None: no transcript)."""
+    path = session_transcript(rec) if rec.get("harness") == "claude" else None
+    if not path:
+        return None
+    snip, n = snippet(text), 0
+    try:
+        with open(path) as f:
+            for line in f:
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                if d.get("type") != "user":
+                    continue
+                c = (d.get("message") or {}).get("content")
+                if isinstance(c, list):
+                    c = " ".join(x.get("text", "") for x in c if isinstance(x, dict))
+                if isinstance(c, str) and snip and snip in norm(c):
+                    n += 1
+    except OSError:
+        return None
+    return n
+
+
+def osc_working_since(rec, since_ms):
+    app = [r for r in program_status(rec["terminal_id"]) or [] if r.get("app") in ("claude-code", "codex")]
+    return any(r.get("state") == "working" and int(r.get("updated_at_ms") or 0) >= since_ms for r in app)
+
+
+def wait_ready(rec, timeout):
+    """Waits until the TUI shows a composer and holds still; fails on a prompt/menu."""
+    last = {"text": None, "since": time.time()}
+
+    def ready(text):
+        if text != last["text"]:
+            last["text"], last["since"] = text, time.time()
+        if blocking_prompt(text):
+            return "blocked"
+        has_composer = any(l.lstrip().startswith(("❯", "›")) for l in text.splitlines())
+        return "ready" if has_composer and time.time() - last["since"] >= 0.4 else None
+
+    state, text = poll_screen(rec, ready, timeout)
+    if state == "blocked":
+        raise ActionFailed({"submitted": False, "stage": "blocked_on_prompt",
+                            "error": "a prompt or menu is on screen; answer it (choose/steer) first",
+                            "prompt": blocking_prompt(text), "screen": screen_tail(text)})
+    if state != "ready":
+        raise ActionFailed({"submitted": False, "stage": "not_ready",
+                            "error": f"no composer on screen within {timeout:g}s",
+                            "screen": screen_tail(text)})
+    return text
+
+
+def submit_signal(rec, text, before, sent_ms):
+    """Why we believe the Enter took, or None."""
+    def check(screen_text):
+        if not in_composer(screen_text, text):
+            return "composer_cleared"
+        if busy_on_screen(screen_text) and not before["busy"]:
+            return "esc_to_interrupt"
+        if before["user_records"] is not None:
+            n = user_records(rec, text)
+            if n is not None and n > before["user_records"]:
+                return "transcript_user_record"
+        return None
+    return check
+
+
+def verified_send(rec, text, submit=True, ready_timeout=30, render_timeout=10, submit_timeout=6):
+    """Paste, see it rendered, Enter, see it submitted. Raises ActionFailed."""
+    wait_ready(rec, ready_timeout)
+    before_text = read_screen(rec) or ""
+    before = {"busy": busy_on_screen(before_text), "user_records": user_records(rec, text)}
+    paste = b"\x1b[200~" + text.encode() + b"\x1b[201~"
+    if in_composer(before_text, text):
+        # The same text already sits unsent in the composer (an Enter that was
+        # lost earlier): press Enter for it instead of pasting it twice.
+        rendered, shown, pastes = True, before_text, 0
+    else:
+        write_bytes(rec, paste)
+        pastes = 1
+        rendered, shown = poll_screen(rec, lambda t: in_composer(t, text), render_timeout)
+    if not rendered and blocking_prompt(shown):
+        raise ActionFailed({"submitted": False, "stage": "blocked_on_prompt", "pastes": pastes,
+                            "error": "a prompt or menu came up; answer it (choose/steer/key) first",
+                            "prompt": blocking_prompt(shown), "screen": screen_tail(shown)})
+    if not rendered and snippet(text) not in norm(shown or ""):
+        # Nothing of it anywhere on screen: the TUI dropped the input. Paste once more.
+        write_bytes(rec, paste)
+        pastes += 1
+        rendered, shown = poll_screen(rec, lambda t: in_composer(t, text), render_timeout)
+    if not rendered:
+        raise ActionFailed({"submitted": False, "stage": "paste_not_rendered", "pastes": pastes,
+                            "error": f"the pasted text never showed in the composer within {render_timeout:g}s",
+                            "screen": screen_tail(shown)})
+    if not submit:
+        return {"submitted": False, "rendered": True, "verified": "composer_has_text",
+                "pastes": pastes, "enter_presses": 0, "screen": screen_tail(shown)}
+    sent_ms = now_ms()
+    check = submit_signal(rec, text, before, sent_ms)
+    for presses in (1, 2):
+        write_bytes(rec, b"\r")
+        how, shown = poll_screen(rec, check, submit_timeout)
+        if not how and osc_working_since(rec, sent_ms) and not before["busy"]:
+            how = "osc7501_working"
+        if how:
+            return {"submitted": True, "verified": how, "pastes": pastes,
+                    "enter_presses": presses, "sent_ms": sent_ms, "screen": screen_tail(shown)}
+    raise ActionFailed({"submitted": False, "stage": "enter_not_taken", "pastes": pastes, "enter_presses": 2,
+                        "error": f"Enter pressed twice; the text still sits in the composer after {2 * submit_timeout:g}s",
+                        "screen": screen_tail(shown)})
+
+
+def fail_json(result, code=2):
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    raise SystemExit(code)
 
 
 def cmd_send(a, text=None):
@@ -325,14 +554,18 @@ def cmd_send(a, text=None):
     if not text:
         raise SystemExit("nothing to send")
     before = turn_marks(rec)
-    sent = now_ms()
-    send_text(rec, text)
-    rec.setdefault("turns", []).append({"sent_ms": sent, "prompt": text, "before": before})
-    save(rec)
-    result = {"sent": True, "agent": rec["name"]}
-    if a.wait:
-        result["wait"] = wait_turn(rec, a.timeout, a.idle_seconds)
-    print(json.dumps(result, indent=2))
+    try:
+        res = verified_send(rec, text, submit=not a.no_submit, ready_timeout=a.ready_timeout,
+                            render_timeout=a.render_timeout, submit_timeout=a.submit_timeout)
+    except ActionFailed as e:
+        fail_json({"sent": False, "agent": rec["name"], **e.result})
+    result = {"sent": res["submitted"], "agent": rec["name"], **res}
+    if res["submitted"]:
+        rec.setdefault("turns", []).append({"sent_ms": res["sent_ms"], "prompt": text, "before": before})
+        save(rec)
+        if a.wait:
+            result["wait"] = wait_turn(rec, a.timeout, a.idle_seconds)
+    print(json.dumps(result, indent=2, ensure_ascii=False))
 
 
 def session_transcript(rec):
@@ -397,6 +630,9 @@ def wait_turn(rec, timeout, idle_seconds):
     before = turn.get("before") or {}
     start = time.time()
     seen_running = False
+    # Each signal ends the wait only after it saw this turn running itself:
+    # Codex's hook says idle right after submit, before it says working.
+    hook_running_ms, osc_working = None, False
     last_text, last_change = None, time.time()
     probes = Probes(term)
     path, seen_at = None, None
@@ -419,14 +655,16 @@ def wait_turn(rec, timeout, idle_seconds):
                 if hook:
                     st = hook.get("state")
                     upd = int(hook.get("updated_at_ms") or 0)
-                    if st == "running":
+                    if st in ("running", "working"):
                         seen_running = True
-                    elif upd > sent and seen_running and st in ("idle", "done", "needs_input", "blocked", "waiting"):
+                        if upd >= sent - 1000:
+                            hook_running_ms = max(hook_running_ms or 0, upd)
+                    elif hook_running_ms and upd > hook_running_ms and st in ("idle", "done", "needs_input", "blocked", "waiting"):
                         return ended("hook", start, sent, state=st, signal_ms=upd)
                 app = [r for r in got.get("status") or [] if r.get("app") in ("claude-code", "codex")]
                 if any(r.get("state") == "working" for r in app):
-                    seen_running = True
-                elif seen_running and app and all(r.get("state") in ("idle", "done", "blocked", "error") for r in app):
+                    seen_running = osc_working = True
+                elif osc_working and app and all(r.get("state") in ("idle", "done", "blocked", "error") for r in app):
                     return ended("osc7501", start, sent, state=app[0].get("state"), signal_ms=max(int(r.get("updated_at_ms") or 0) for r in app))
                 if (got.get("proc") or {}).get("exited"):
                     return ended("exit", start, sent)
@@ -447,7 +685,8 @@ def wait_turn(rec, timeout, idle_seconds):
 
 def ended(via, start, sent, **extra):
     t = time.time()
-    out = {"ended": True, "via": via, "waited_seconds": round(t - start, 2), "since_send_seconds": round(t - sent / 1000, 2)}
+    out = {"ended": True, "via": via, "waited_seconds": round(t - start, 2),
+           "since_send_seconds": round(t - sent / 1000, 2) if sent else None}
     if "signal_ms" in extra:
         out["detect_lag_seconds"] = round(t - extra.pop("signal_ms") / 1000, 2)
     out.update(extra)
@@ -483,7 +722,9 @@ def cmd_continue(a):
 
 
 PROMPT_MARKS = ("Do you want to proceed", "Do you want to make this edit", "Do you want to create",
-                "❯ 1. Yes", "Esc to cancel", "(y/n)", "[Y/n]", "Allow command?", "Press Enter to continue")
+                "❯ 1. Yes", "Esc to cancel", "(y/n)", "[Y/n]", "Allow command?", "Press Enter to continue",
+                "Trust this folder", "I trust this folder", "Hooks need review", "enter confirm · esc",
+                "enter continue · esc")
 
 
 def target(name_or_term):
@@ -503,6 +744,25 @@ def prompt_on_screen(text):
     return tail if any(m in tail for m in PROMPT_MARKS) else None
 
 
+# A selected numbered option ("› 1. Trust and continue", "❯ 2. No"): a menu.
+MENU_ROW = re.compile(r"^\s*[›❯]\s*\d+\.\s", re.M)
+
+
+def selected_row(text):
+    """The number of the selected option of a numbered menu on screen, or None."""
+    rows = MENU_ROW.findall("\n".join([l for l in (text or "").splitlines() if l.strip()][-12:]))
+    if not rows:
+        return None
+    m = re.search(r"\d+", rows[-1])
+    return int(m.group(0)) if m else None
+
+
+def blocking_prompt(text):
+    """A prompt/menu in the bottom lines of the screen (where a live one sits)."""
+    tail = "\n".join([l for l in (text or "").splitlines() if l.strip()][-12:])
+    return tail if any(m in tail for m in PROMPT_MARKS) or MENU_ROW.search(tail) else None
+
+
 def cmd_prompts(a):
     """Agents (this tool's, plus --terminal ids) blocked on a prompt/menu."""
     recs = all_agents() + [{"name": t, "terminal_id": t} for t in (a.terminal or [])]
@@ -514,28 +774,136 @@ def cmd_prompts(a):
     print(json.dumps(out, indent=2, ensure_ascii=False))
 
 
+def verified_esc(rec, presses, timeout):
+    """Presses Esc and checks what it did: a prompt went away, a turn stopped,
+    or (nothing to dismiss) the screen after it."""
+    before = read_screen(rec) or ""
+    had_prompt, was_busy = blocking_prompt(before), busy_on_screen(before)
+    for _ in range(max(1, presses)):
+        write_bytes(rec, b"\x1b")
+        time.sleep(0.4)
+
+    def check(text):
+        if had_prompt and not blocking_prompt(text):
+            return "prompt_gone"
+        if not had_prompt and was_busy and not busy_on_screen(text):
+            return "turn_interrupted"
+        return None
+
+    how, text = poll_screen(rec, check, timeout if (had_prompt or was_busy) else 0)
+    if how:
+        return {"verified": how, "esc_presses": presses, "screen": screen_tail(text)}
+    if had_prompt:
+        raise ActionFailed({"verified": None, "stage": "prompt_still_on_screen", "esc_presses": presses,
+                            "error": f"Esc pressed; the prompt is still on screen after {timeout:g}s",
+                            "screen": screen_tail(text)})
+    if was_busy:
+        return {"verified": "still_busy", "esc_presses": presses, "screen": screen_tail(text),
+                "note": "the turn is still running; --esc 2 interrupts it"}
+    return {"verified": "nothing_to_dismiss", "esc_presses": presses, "screen": screen_tail(text)}
+
+
 def cmd_steer(a):
-    """Esc (dismiss prompt/menu or interrupt the turn), then send the text + Enter."""
+    """Esc (dismiss prompt/menu or interrupt the turn), then a verified send."""
     rec = target(a.name)
     text = read_text(a.text)
-    for _ in range(max(1, a.esc)):
-        cmux("terminal", rec["terminal_id"], "write", "--bytes-base64", base64.b64encode(b"\x1b").decode())
-        time.sleep(0.4)
-    result = {"escaped": True, "agent": rec["name"]}
-    if text:
-        send_text(rec, text)
-        result["sent"] = text
-        if "turns" in rec:
-            rec["turns"].append({"sent_ms": now_ms(), "prompt": text, "before": turn_marks(rec)})
-            save(rec)
-    print(json.dumps(result, indent=2))
+    result = {"agent": rec["name"]}
+    try:
+        result["esc"] = verified_esc(rec, a.esc, a.esc_timeout)
+        result["escaped"] = True
+        if text:
+            before = turn_marks(rec) if "turns" in rec else None
+            result["send"] = verified_send(rec, text, ready_timeout=a.ready_timeout,
+                                           render_timeout=a.render_timeout, submit_timeout=a.submit_timeout)
+            result["sent"] = text
+            if "turns" in rec:
+                rec["turns"].append({"sent_ms": result["send"]["sent_ms"], "prompt": text, "before": before})
+                save(rec)
+    except ActionFailed as e:
+        key = "send" if "esc" in result else "esc"
+        result[key] = e.result
+        result["error"] = e.result.get("error")
+        fail_json(result)
+    print(json.dumps(result, indent=2, ensure_ascii=False))
 
 
 def cmd_choose(a):
-    """Pick a numbered option on a visible menu (types the digit, no Esc)."""
+    """Pick a numbered option on a visible menu (types the digit, no Esc), then
+    check the menu went away."""
     rec = target(a.name)
-    cmux("terminal", rec["terminal_id"], "write", "--bytes-base64", base64.b64encode(str(a.option).encode()).decode())
-    print(json.dumps({"chose": a.option, "agent": rec["name"]}))
+    before = read_screen(rec) or ""
+    menu = blocking_prompt(before)
+    if not menu:
+        fail_json({"chose": None, "agent": rec["name"], "stage": "no_menu",
+                   "error": "no prompt or menu on screen; nothing to choose",
+                   "screen": screen_tail(before)})
+    write_bytes(rec, str(a.option).encode())
+
+    def check(text):
+        if not blocking_prompt(text):
+            return "prompt_gone"
+        if blocking_prompt(text) != menu:
+            return "menu_changed"
+        return None
+
+    how, text = poll_screen(rec, check, a.timeout)
+    method = "digit"
+    if not how and selected_row(text):
+        # Some menus ignore digits (Codex): move the selection with arrows, checking
+        # each step on screen, then Enter.
+        method = "arrows"
+        for _ in range(12):
+            cur = selected_row(text)
+            if cur is None or cur == a.option:
+                break
+            write_bytes(rec, b"\x1b[B" if cur < a.option else b"\x1b[A")
+            moved, text = poll_screen(rec, lambda t, c=cur: selected_row(t) != c, a.timeout)
+            if not moved:
+                break
+        if selected_row(text) == a.option:
+            write_bytes(rec, b"\r")
+            how, text = poll_screen(rec, check, a.timeout)
+    out = {"chose": a.option, "agent": rec["name"], "verified": how, "method": method, "screen": screen_tail(text)}
+    if not how:
+        out.update(stage="menu_unchanged", error=f"tried option {a.option} ({method}); the same menu is still on screen after {a.timeout:g}s")
+        fail_json(out)
+    print(json.dumps(out, indent=2, ensure_ascii=False))
+
+
+KEY_BYTES = {
+    "enter": b"\r", "escape": b"\x1b", "esc": b"\x1b", "tab": b"\t", "backtab": b"\x1b[Z",
+    "up": b"\x1b[A", "down": b"\x1b[B", "right": b"\x1b[C", "left": b"\x1b[D",
+    "backspace": b"\x7f", "space": b" ", "ctrl-c": b"\x03", "ctrl-d": b"\x04", "ctrl-l": b"\x0c",
+    "shift-tab": b"\x1b[Z",
+}
+
+
+def cmd_key(a):
+    """Presses a named key (or a digit/letter) and returns the screen after it,
+    with whether it changed (--expect REGEX: fail unless it shows)."""
+    rec = target(a.name)
+    data = KEY_BYTES.get(a.key.lower()) or (a.key.encode() if len(a.key) == 1 else None)
+    if data is None:
+        raise SystemExit(f"unknown key {a.key}; use one of {', '.join(KEY_BYTES)} or one character")
+    before = read_screen(rec) or ""
+    for i in range(max(1, a.repeat)):
+        write_bytes(rec, data)
+        if i + 1 < a.repeat:
+            time.sleep(a.delay)
+    want = re.compile(a.expect, re.M | re.I) if a.expect else None
+
+    def check(text):
+        if want:
+            return "expect_matched" if want.search(text) else None
+        return "screen_changed" if text != before else None
+
+    how, text = poll_screen(rec, check, a.timeout)
+    out = {"key": a.key, "repeat": a.repeat, "agent": rec["name"],
+           "verified": how or ("no_visible_change" if not want else None), "screen": screen_tail(text)}
+    if want and not how:
+        out.update(stage="expect_not_seen", error=f"{a.expect!r} did not show within {a.timeout:g}s")
+        fail_json(out)
+    print(json.dumps(out, indent=2, ensure_ascii=False))
 
 
 def cmd_list(a):
@@ -576,7 +944,13 @@ def main():
         sp.add_argument("--timeout", type=float, default=1800, help="seconds; 0 waits forever")
         sp.add_argument("--idle-seconds", type=float, default=20, help="screen-unchanged fallback; 0 turns it off")
 
+    def checks(sp):
+        sp.add_argument("--ready-timeout", type=float, default=30, help="seconds to wait for a composer before pasting")
+        sp.add_argument("--render-timeout", type=float, default=10, help="seconds to wait for the paste to show")
+        sp.add_argument("--submit-timeout", type=float, default=6, help="seconds per Enter to see the submit take")
+
     s = sub.add_parser("start", help="start an agent in a new background workspace")
+    s.add_argument("--start-timeout", type=float, default=60, help="seconds to see the TUI up / the first prompt taken")
     s.add_argument("name")
     s.add_argument("--harness", default="claude", choices=["claude", "codex"])
     s.add_argument("--cwd")
@@ -586,10 +960,12 @@ def main():
     waits(s)
     s.set_defaults(fn=cmd_start)
 
-    s = sub.add_parser("send", help="send a prompt (bracketed paste + Enter)")
+    s = sub.add_parser("send", help="paste a prompt, see it in the composer, Enter, see it submitted")
     s.add_argument("name")
     s.add_argument("text", nargs="*", help="'-' reads stdin")
+    s.add_argument("--no-submit", action="store_true", help="paste and verify it shows; no Enter")
     waits(s)
+    checks(s)
     s.set_defaults(fn=cmd_send)
 
     s = sub.add_parser("wait", help="wait until the current turn ends")
@@ -607,7 +983,8 @@ def main():
     s.add_argument("name")
     s.add_argument("--message")
     waits(s)
-    s.set_defaults(fn=cmd_continue)
+    checks(s)
+    s.set_defaults(fn=cmd_continue, no_submit=False)
 
     s = sub.add_parser("list", help="agents this tool started")
     s.add_argument("--fast", action="store_true", help="skip live state")
@@ -621,12 +998,24 @@ def main():
     s.add_argument("name")
     s.add_argument("text", nargs="*", help="'-' reads stdin; empty = Esc only")
     s.add_argument("--esc", type=int, default=1, help="Esc presses (2 also interrupts a running turn)")
+    s.add_argument("--esc-timeout", type=float, default=5, help="seconds to see the Esc take")
+    checks(s)
     s.set_defaults(fn=cmd_steer)
 
-    s = sub.add_parser("choose", help="pick option N on a visible menu (name or term_… id)")
+    s = sub.add_parser("choose", help="pick option N on a visible menu, then check it went (name or term_… id)")
     s.add_argument("name")
     s.add_argument("option", type=int)
+    s.add_argument("--timeout", type=float, default=5, help="seconds to see the menu go")
     s.set_defaults(fn=cmd_choose)
+
+    s = sub.add_parser("key", help="press a key and return the screen after it (name or term_… id)")
+    s.add_argument("name")
+    s.add_argument("key", help="enter, escape, tab, backtab, up, down, left, right, backspace, space, ctrl-c, ctrl-d, ctrl-l, or one character")
+    s.add_argument("--repeat", type=int, default=1)
+    s.add_argument("--delay", type=float, default=0.15, help="seconds between repeats (TUIs drop unpaced bursts)")
+    s.add_argument("--expect", help="regex the screen must show after the key (else exit 2)")
+    s.add_argument("--timeout", type=float, default=3, help="seconds to see the change / --expect")
+    s.set_defaults(fn=cmd_key)
 
     s = sub.add_parser("close", help="close agents this tool started (never others)")
     s.add_argument("names", nargs="*")

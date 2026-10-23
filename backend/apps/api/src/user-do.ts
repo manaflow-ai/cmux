@@ -372,6 +372,8 @@ export class UserDO extends OwnerDO<UserState> {
       const agent = (result.value as { id?: string }).id
       if (!agent) return
       this.closeSockets((p) => p.agent === agent, "chief archived")
+      // Its sandboxes pause and their Freestyle identity (tokens and grants) is revoked (chief-brain-cc/sandbox.ts).
+      this.ctx.waitUntil((this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(`${agent}/sandboxes`)) as unknown as { ccSandboxRetire(): Promise<unknown> }).ccSandboxRetire().catch(() => undefined))
       if (markAgentClosing(this.ctx.storage.sql, agent, Date.now()) > 0) this.ctx.waitUntil(this.flushCloses(Date.now()).finally(() => this.scheduleAlarm()))
       return
     }

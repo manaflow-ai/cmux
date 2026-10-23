@@ -8,7 +8,7 @@ import Foundation
 /// model router on this deployment yet") said that "API Error: 403 {json}" before.
 public struct TurnFailureCopy: Hashable, Sendable {
     public enum Kind: String, Hashable, Sendable {
-        case trustPending, trustUntrusted
+        case trustPending, trustUntrusted, noTeamAccount
         case modelServiceUnavailable, modelServiceNotConnected, modelServiceExpired, modelServiceUnreachable
         case rateLimited, unreachable, invalidKey, subscriptionLogin, proxyAuth, auth, modelUnavailable, other
     }
@@ -38,6 +38,8 @@ public struct TurnFailureCopy: Hashable, Sendable {
         let sentence: String = switch kind {
         case .trustPending: "Answer the folder trust question on the Mac first."
         case .trustUntrusted: "This folder isn't trusted, so the agent can't take prompts here."
+        case .noTeamAccount:
+            "\(name) needs a team account on this machine. To add one for the team, run \(Self.firstMatch(Self.addCommand, in: raw) ?? "cr add") in this machine’s terminal."
         case .modelServiceUnavailable:
             (parts.message ?? raw).range(of: "this team", options: .caseInsensitive) != nil
                 ? "cmux's model service isn't available for this team yet."
@@ -71,6 +73,11 @@ public struct TurnFailureCopy: Hashable, Sendable {
     static func kind(_ raw: String, parts: (code: String?, message: String?), harness: String?) -> Kind {
         if raw.range(of: #"\btrust\.pending\b"#, options: [.regularExpression, .caseInsensitive]) != nil { return .trustPending }
         if raw.range(of: #"\btrust\.untrusted\b"#, options: [.regularExpression, .caseInsensitive]) != nil { return .trustUntrusted }
+        // CodeRouter's refusal on a team Cloud machine with no team account for the agent (a 403
+        // `no_account_configured`, web/services/coderouter/noAccountMessage.ts). Codex shows only its
+        // `error.message`, so the fixed opening is the signal. Before capacity and sign-in: a team
+        // machine refuses own sign-ins, and no retry or model switch helps.
+        if matches(Self.noTeamAccount, raw), firstMatch(Self.addCommand, in: raw) != nil { return .noTeamAccount }
         // The cmux model service and its local relay say what is wrong in their own codes.
         switch parts.code {
         case "router.no_upstream": return .modelServiceNotConnected
@@ -108,6 +115,10 @@ public struct TurnFailureCopy: Hashable, Sendable {
         return (code, message?.isEmpty == false ? message : nil)
     }
 
+    /// The current server's opening, and the one before it.
+    private static let noTeamAccount = #"needs a team account on this machine|account is shared with this Cloud machine's team"#
+    /// The command the refusal names, captured.
+    private static let addCommand = #"\b(cr add (?:codex|claude|opencode))\b"#
     private static let modelUnavailable = #"\bmodel\b.{0,80}\b(?:is not supported|isn't supported|not supported|does not exist|is not available|not available|not found|unknown model|no access)|(?:unknown|unsupported|invalid) model"#
     private static let rate = #"\b(?:429|529)\b|rate.?limit|too many requests|overloaded|at capacity|no non-exhausted|usage limit|quota|\b503\b|service unavailable"#
     private static let unreachable = #"ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|ECONNRESET|EHOSTUNREACH|fetch failed|socket hang up|connection (?:refused|reset|closed|error)|could not (?:connect|resolve)|network (?:error|is unreachable)|\bunreachable\b|timed out"#

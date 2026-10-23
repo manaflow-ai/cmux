@@ -72,17 +72,18 @@ import Testing
         #expect(try #require(result.view).frame.width == withColumn - (ThemedMenuRowView.stateTitleX - 15))
     }
 
-    /// An icon fits the 14pt box with its shape kept: an SF Symbol is rarely square, and stretching
-    /// it to a square made the menu's icons look oversized.
+    /// An icon fits the 14pt box with its shape kept, scaled down and never up: an SF Symbol is
+    /// rarely square, and stretching it to a square made the menu's icons look oversized.
     @Test func iconsFitAFourteenPointBox() throws {
         #expect(ThemedMenuRowView.imageSide == 14)
-        let wide = ThemedMenuRowView.iconRect(for: NSSize(width: 20, height: 10), x: 15, midY: 11)
-        #expect(wide == NSRect(x: 15, y: 7.5, width: 14, height: 7))
-        let tall = ThemedMenuRowView.iconRect(for: NSSize(width: 12, height: 16), x: 15, midY: 11)
+        let box = NSRect(x: 15, y: 4, width: 14, height: 14)
+        #expect(ThemedMenuRowView.fitted(NSSize(width: 20, height: 10), in: box) == NSRect(x: 15, y: 7.5, width: 14, height: 7))
+        let tall = ThemedMenuRowView.fitted(NSSize(width: 12, height: 16), in: box)
         #expect(tall.height == 14 && abs(tall.width - 10.5) < 0.001 && abs(tall.midX - 22) < 0.001 && tall.midY == 11)
+        #expect(ThemedMenuRowView.fitted(NSSize(width: 10, height: 10), in: box) == NSRect(x: 17, y: 6, width: 10, height: 10))
         for symbol in ["doc.on.doc", "text.quote", "questionmark.bubble", "magnifyingglass"] {
             let size = try #require(NSImage.menuSymbol(symbol), "\(symbol) is a system symbol").size
-            let rect = ThemedMenuRowView.iconRect(for: size, x: 0, midY: 0)
+            let rect = ThemedMenuRowView.fitted(size, in: NSRect(x: 0, y: 0, width: 14, height: 14))
             #expect(rect.width <= 14.001 && rect.height <= 14.001, "\(symbol) draws \(rect.size)")
             #expect(abs(rect.width / rect.height - size.width / size.height) < 0.01, "\(symbol) keeps its shape")
         }
