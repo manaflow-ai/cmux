@@ -259,6 +259,7 @@ let package = Package(
                 "CmuxNextControl",
                 "CmuxNextSettings",
                 "CmuxNextSettingsWindow",
+                "CmuxNextSignposts",
                 "CmuxNextCloud",
                 "CmuxNextRemote",
                 "CmuxNextMobile",
@@ -1289,6 +1290,14 @@ let package = Package(
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // Terminal tests that need only TerminalSession (the TextBox composer), without the
+        // whole App build. libghostty needs libc++, as in CmuxNextAppTests.
+        .testTarget(
+            name: "CmuxNextTerminalTests",
+            dependencies: ["CmuxNextTerminal"],
+            swiftSettings: uiSwiftSettings,
+            linkerSettings: [.linkedLibrary("c++")]
+        ),
         // Pure grid-geometry policy for terminal surfaces (which grid a
         // mirror renders, which grid it reports). No GhosttyKit, so it has
         // tests; CmuxNextTerminal applies it to the live surface.
@@ -1491,6 +1500,7 @@ let package = Package(
                 "CmuxNextRemote",
                 "CmuxNextRemoteLocalhostService",
                 "CmuxNextScreenshots",
+                "CmuxNextSignposts",
                 "CmuxNextStash",
                 "CmuxNextTabs",
                 "CmuxNextTasks",

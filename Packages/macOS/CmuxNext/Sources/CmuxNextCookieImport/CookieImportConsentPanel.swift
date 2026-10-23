@@ -205,7 +205,6 @@ final class CookieImportConsentPanel {
         self.finish = nil
         deadline.cancel()
         observers.removeAll()
-        observers.removeAll()
         parent?.removeChildWindow(panel)
         panel.orderOut(nil)
         finish(answer)
