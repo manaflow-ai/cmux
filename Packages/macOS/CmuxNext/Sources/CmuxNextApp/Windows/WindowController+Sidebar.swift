@@ -13,7 +13,12 @@ extension WindowController {
             for pane in self?.content?.panes.values.map({ $0 }) ?? [] { pane.view.stripView.updateWindowControlsAvoidance() }
         }
         // The host pressure indicator joins the top row after the band and badge (cmuxterm-hq#2995).
-        root.hostPressureIndicator = HostPressureIndicatorView(services: services) { [weak self] in self?.root.layoutSubtreeIfNeeded(); self?.relayoutTopRowStrips() }
+        root.hostPressureIndicator = HostPressureIndicatorView(services: services) { [weak self] in
+            // Shown or hidden: the top row places it (layoutTitlebarAccessories), then strips avoid it.
+            self?.root.needsLayout = true
+            self?.root.layoutSubtreeIfNeeded()
+            self?.relayoutTopRowStrips()
+        }
         let model = sidebar.model
         sidebarObservation = Task { [weak self] in
             for await hidden in ObservationStream({ model.isHidden }) {

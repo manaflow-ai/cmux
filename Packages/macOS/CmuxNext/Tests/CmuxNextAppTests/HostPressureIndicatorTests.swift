@@ -121,6 +121,20 @@ import Testing
         service.stop()
     }
 
+    /// Joining and leaving in one main-actor turn queues a start and then a stop: the start
+    /// must not run the monitor (and its timer) at all.
+    @Test func aStartOvertakenByTheLastLeaveStartsNothing() async {
+        let service = HostPressureService(acpmux: nil, store: Self.store(forcing: nil, enabled: true))
+        service.subscribe()
+        service.unsubscribe()
+        #expect(await !service.monitorIsRunning())
+        service.subscribe()
+        #expect(await service.monitorIsRunning())
+        service.unsubscribe()
+        #expect(await !service.monitorIsRunning())
+        service.stop()
+    }
+
     @Test func theGateIsTheToggleAndTheWindow() {
         #expect(HostPressureSampling(enabled: true, windowVisible: true).samples)
         #expect(!HostPressureSampling(enabled: true, windowVisible: false).samples)

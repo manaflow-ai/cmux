@@ -45,6 +45,9 @@ final class HostPressureService {
     /// The last start or stop hop: each waits for the one before, so a window closing and
     /// another opening reach the monitor in order.
     @ObservationIgnored private var lifecycle: Task<Void, Never>?
+    /// Bumped by each start and stop: a start hop whose number is no longer current when its turn
+    /// comes (the last window left first) starts nothing.
+    @ObservationIgnored private var lifecycleGeneration = 0
     private static let log = Logger(subsystem: "com.cmuxterm.next", category: "host-pressure")
 
     /// `acpmux`: the daemon whose verdict counts, nil without one (showcase, mock agent host).
@@ -75,6 +78,11 @@ final class HostPressureService {
     /// How many windows' indicators are subscribed, and whether the monitor (and its timer) runs.
     var subscriberCount: Int { subscribers }
     var isMonitoring: Bool { running }
+    /// Whether the monitor itself runs (its timer and source exist), after the hops so far.
+    func monitorIsRunning() async -> Bool {
+        await lifecycle?.value
+        return await monitor.isRunning
+    }
 
     /// A window's indicator joined: the monitor runs while one is subscribed.
     func subscribe() {
@@ -91,10 +99,12 @@ final class HostPressureService {
     private func updateRunning() {
         if subscribers > 0, !running {
             running = true
-            let (monitor, previous) = (monitor, lifecycle)
+            lifecycleGeneration += 1
+            let (monitor, previous, generation) = (monitor, lifecycle, lifecycleGeneration)
             // task-owner: one hop to start the monitor, after the previous hop; it ends when the monitor has started
-            lifecycle = Task {
+            lifecycle = Task { [weak self] in
                 await previous?.value
+                guard let self, lifecycleGeneration == generation else { return }
                 await monitor.start { [weak self] level, verdict in
                     self?.monitored = level
                     self?.monitoredVerdict = verdict
@@ -117,6 +127,7 @@ final class HostPressureService {
 
     private func stopMonitor() {
         running = false
+        lifecycleGeneration += 1
         monitored = .normal
         monitoredVerdict = nil
         let (monitor, previous) = (monitor, lifecycle)
