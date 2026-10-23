@@ -845,6 +845,18 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
 /// scoped to the bound session; this command only relays the already checked media reader bytes.
 fn media(attachment: &Attachment, path: String) -> Result<Value, Refusal> {
     use base64::Engine;
+    let image_extension = std::path::Path::new(&path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "png" | "jpg" | "jpeg" | "gif" | "webp"
+            )
+        });
+    if !image_extension {
+        return Err(Refusal::BadRequest);
+    }
     if path.is_empty() || path.len() > 4096 {
         return Err(Refusal::BadRequest);
     }
