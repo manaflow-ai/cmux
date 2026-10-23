@@ -9,7 +9,7 @@ import {
   WorkingFor,
   type WorkingCounts,
 } from "../../src/agent-session/acpmux/conversation/WorkingFor";
-import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
+import type { AcpmuxRow, TurnTokenSplit } from "../../src/agent-session/acpmux/model";
 
 const START = Date.UTC(2026, 9, 21, 9, 0, 0);
 const now = () => START + 35_000;
@@ -29,5 +29,11 @@ export const tokenLines: Record<string, ReactElement> = {
   "the line over the turn (WorkingFor.tsx)": <WorkingFor row={working} now={now} />,
 };
 
-export const tokenLineMarkup = (line: ReactElement) =>
-  renderToStaticMarkup(<WorkingCountsContext.Provider value={counts}>{line}</WorkingCountsContext.Provider>);
+/// A turn's tokens split as acpmux reports them: 12.4K out, 2.1M read.
+export const SPLIT: TurnTokenSplit = { output: 12_400, input: 18_000, cacheRead: 2_080_000, cacheWrite: 42_000 };
+
+/// `line` drawn with the turn's tokens: one total, or that total split (`split`).
+export const tokenLineMarkup = (line: ReactElement, split?: TurnTokenSplit) =>
+  renderToStaticMarkup(
+    <WorkingCountsContext.Provider value={split ? { ...counts, split } : counts}>{line}</WorkingCountsContext.Provider>,
+  );

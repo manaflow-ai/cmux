@@ -30,6 +30,17 @@ const call = (used: number, size = 200_000): Step => [
   "usage_update",
   update({ sessionUpdate: "usage_update", used, size, _meta: { acpmux: { call: true } } }),
 ];
+/// One model call's usage with acpmux's split (claude_stdio/inbound.rs): output apart from what it read.
+const splitCall = (split: { input: number; cacheRead: number; cacheWrite: number; output: number }): Step => [
+  "in",
+  "usage_update",
+  update({
+    sessionUpdate: "usage_update",
+    used: split.input + split.cacheRead + split.cacheWrite + split.output,
+    size: 200_000,
+    _meta: { acpmux: { call: true, tokens: split } },
+  }),
+];
 /// The context a harness holds: Claude Code's result repeating its last call, or another harness.
 const held = (used: number, size = 200_000): Step => [
   "in",
@@ -190,6 +201,54 @@ test("a Claude turn's tokens are the sum of its model calls since it started, li
     daemon.push(record([prompt("again"), started, call(50_000)], 8));
     await until(() => snapshot().turnTokens !== undefined, "the next turn's call");
     expect(snapshot().turnTokens).toBe(50_000);
+  } finally {
+    client.close();
+  }
+});
+
+test("a turn's tokens split into output and what its calls read, while every call carries the split", async () => {
+  const daemon = fakeDaemon(
+    record([
+      prompt("fix the build"),
+      started,
+      splitCall({ input: 1_200, cacheRead: 30_000, cacheWrite: 4_000, output: 300 }),
+      splitCall({ input: 800, cacheRead: 35_000, cacheWrite: 0, output: 9_100 }),
+    ]),
+  );
+  const { client, snapshot } = await connect(daemon);
+  try {
+    expect(snapshot().turnTokens).toBe(80_400);
+    expect(snapshot().turnTokenSplit).toEqual({ output: 9_400, input: 2_000, cacheRead: 65_000, cacheWrite: 4_000 });
+    // A call without the split (an older acpmux): the total still counts, the split goes away
+    // rather than leave the call out.
+    daemon.push(record([call(5_000)], 5));
+    await until(() => snapshot().turnTokens === 85_400, "the unsplit call");
+    expect(snapshot().turnTokenSplit).toBeUndefined();
+    // The turn's result names its tokens; its summary row carries them for Worked for.
+    daemon.push(
+      record(
+        [
+          [
+            "mux",
+            "turn_result",
+            {
+              status: "completed",
+              outputTokens: 9_400,
+              inputTokens: 2_000,
+              cacheReadTokens: 65_000,
+              cacheWriteTokens: 4_000,
+            },
+          ],
+        ],
+        6,
+      ),
+    );
+    // The fake daemon never reports the session idle, so the turn's end is its summary row.
+    const summary = () => snapshot().rows.find((row: AcpmuxRow) => row.kind === "turnSummary");
+    await until(() => summary() !== undefined, "the turn's end");
+    const row = summary();
+    expect(row?.tokens).toEqual({ output: 9_400, input: 2_000, cacheRead: 65_000, cacheWrite: 4_000 });
+    expect(snapshot().turnTokenSplit).toBeUndefined();
   } finally {
     client.close();
   }

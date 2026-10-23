@@ -463,6 +463,9 @@ function shapeTurn(
         // Only the turn's last part ended as the turn did (a Stop stopped that one).
         ...(lastPart && { status: summary.status }),
         toolCount: summary.toolCount,
+        // The turn's tokens (its `turn_result`'s) on the line of the part that ends it, when the
+        // turn has no steer: a steered turn's are not split by part.
+        ...(lastPart && part.opener === user && summary.tokens && { tokens: summary.tokens }),
         durationMs:
           said && !later.length
             ? Math.max(0, said.at - from)
