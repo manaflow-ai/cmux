@@ -1852,7 +1852,29 @@ extension Workspace {
                     ?? restorableAgent.launchCommand?.workingDirectory
                     ?? workingDirectory
             }()
-            let restoredBindingLaunch = unresolvedBindingLaunch
+            // A crash snapshot can contain the same agent checkpoint in more
+            // than one workspace or window. The first panel that is about to
+            // start it (immediately or through deferred admission) owns it for
+            // the enclosing restore pass; later panels stay manually
+            // recoverable but never start a second writer. A live owner keeps
+            // the ordinary attach path, so it is never claimed here.
+            let restorePassIdentity: (kind: String, sessionID: String)? =
+                restoredHibernation == nil &&
+                    !suppressesResumeForBackgroundSession &&
+                    liveSessionOwner == nil &&
+                    !stablePanelHasLiveProcess
+                    ? SurfaceResumeRunPromptBatch.agentRestoreIdentity(
+                        restorableAgent: restorableAgent,
+                        agentMayAutoResume: shouldAutoResumeAgent && restorableAgentCanAutoResume,
+                        resumeBinding: resumeBinding,
+                        bindingWillLaunch: unresolvedBindingLaunch != nil
+                    )
+                    : nil
+            let restorePassClaim = restorePassIdentity.map {
+                SurfaceResumeRunPromptBatch.shared.claimAgentRestore(kind: $0.kind, sessionID: $0.sessionID)
+            } ?? .unscoped
+            let duplicateRestoreOwner = restorePassClaim == .duplicate
+            let restoredBindingLaunch = duplicateRestoreOwner ? nil : unresolvedBindingLaunch
             let restorableTmuxStartCommand = localTmuxStartCommand
                 ?? (!restoreStartupBlocked &&
                     liveSessionOwner == nil &&
@@ -1874,6 +1896,7 @@ extension Workspace {
             let agentSessionAlreadyActive: Bool = {
                 guard shouldAutoResumeAgent, restorableAgentCanAutoResume,
                       restoredHibernation == nil, restoredBindingLaunch == nil,
+                      !duplicateRestoreOwner,
                       let restorableAgent else {
                     return false
                 }
@@ -1921,7 +1944,7 @@ extension Workspace {
                 return remoteRestoreClaim == nil
             }()
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
-                if shouldAutoResumeAgent && restorableAgentCanAutoResume,
+                if shouldAutoResumeAgent && !duplicateRestoreOwner && restorableAgentCanAutoResume,
                    restoredHibernation == nil && restoredBindingLaunch == nil
                     && !agentSessionAlreadyActive {
                     if restoresRemoteWorkspaceTerminalSnapshot {
@@ -1951,7 +1974,8 @@ extension Workspace {
             // Build the candidate before arming the gate. A binding that is
             // disabled, unapproved, or cannot render a command must start as an
             // ordinary shell instead of waiting behind deferred admission.
-            let deferredAgentResumeCandidateInput: String? = if restoreStartupBlocked || liveSessionOwner != nil,
+            let deferredAgentResumeCandidateInput: String? = if !duplicateRestoreOwner,
+                restoreStartupBlocked || liveSessionOwner != nil,
                 restoredHibernation == nil,
                 restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
                 if let restorableAgent {
@@ -2116,6 +2140,14 @@ extension Workspace {
                 )
             ) else {
                 if let replayFileURL { try? FileManager.default.removeItem(at: replayFileURL) }
+                // The panel never attached, so give back a checkpoint this
+                // panel claimed: a later panel carrying it may start it.
+                if restorePassClaim == .owner, let restorePassIdentity {
+                    SurfaceResumeRunPromptBatch.shared.releaseAgentRestore(
+                        kind: restorePassIdentity.kind,
+                        sessionID: restorePassIdentity.sessionID
+                    )
+                }
                 // The claim taken above (if any) was for a launch that never
                 // actually happened; release it immediately instead of
                 // leaving it to block a legitimate resume for up to the TTL.
@@ -2138,6 +2170,29 @@ extension Workspace {
                 return nil
             }
             terminalPanel.restoreRecovery.restore(from: snapshot.terminal?.restoreRecovery)
+            if duplicateRestoreOwner {
+                // Offer the same command this panel would have run, in the
+                // form its terminal needs (remote restores cannot reach the
+                // local `cmux restore` verb).
+                let duplicateRecoveryInput: String? = if let restorableAgent,
+                    shouldAutoResumeAgent,
+                    restorableAgentCanAutoResume {
+                    restoresRemoteWorkspaceTerminalSnapshot
+                        ? restorableAgent.resumeStartupInput(
+                            useLocalRestoreVerb: false,
+                            workingDirectorySelection: .exact(resumeSessionWorkingDirectory)
+                        )
+                        : restorableAgent.resumeStartupInput(
+                            restoringWorkingDirectory: resumeSessionWorkingDirectory
+                        )
+                } else {
+                    unresolvedBindingLaunch?.initialInput
+                }
+                terminalPanel.restoreRecovery.state = .failed(
+                    reason: "duplicate-restore-owner",
+                    recoveryInput: duplicateRecoveryInput
+                )
+            }
             if deferredAgentResumeAdmission { terminalPanel.restoreRecovery.markCheckingPreservingFailure() }
             terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
             if let restoredRemotePTYSessionID {
@@ -2220,6 +2275,7 @@ extension Workspace {
                 chatWorkingDirectory: resumeSessionWorkingDirectory,
                 agentSessionAlreadyActive: liveSessionOwner != nil ||
                     suppressesResumeForBackgroundSession ||
+                    duplicateRestoreOwner ||
                     (deferredAgentResumeAdmission
                         ? true
                         : (restoreIndexUnavailable ? false : agentSessionAlreadyActive)),
