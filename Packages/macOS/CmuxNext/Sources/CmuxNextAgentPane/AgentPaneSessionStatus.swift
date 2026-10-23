@@ -20,7 +20,7 @@ enum AgentPaneSessionStatus {
 
     /// Follows the tunable for `view` for as long as the view lives.
     @MainActor static func follow(_ view: AgentPaneView) -> Task<Void, Never> {
-        // task-owner: the view (stored on it as an OwnedTask); cancelled in its close() and on its release; event-driven (Observation)
+        // task-owner: the view (stored on it); cancelled in its close() and deinit; event-driven (Observation)
         Task { [weak view] in
             for await on in ObservationStream({ AgentPaneTunables.sessionStatus.value }) {
                 guard let view else { return }
