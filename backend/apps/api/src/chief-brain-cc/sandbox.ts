@@ -412,14 +412,19 @@ export const ccSandboxRetire = async (b: ChiefBrainDO): Promise<{ paused: number
 /** The Chief was deleted: its sandboxes are deleted (disks and all; nothing can restore them) and its identity goes. A
  * sandbox Freestyle did not delete stays listed, so its TTL still ends it. */
 export const ccSandboxPurge = async (b: ChiefBrainDO): Promise<{ deleted: number; left: number; revoked: boolean }> => {
-  const left: Array<Sandbox> = []
-  for (const s of listOf(b)) {
-    await revokeGrant(b, s.id).catch(() => undefined)
-    const res = await freestyle(b.doEnv, "DELETE", `/v5/vms/${encodeURIComponent(s.id)}`).catch(() => null)
-    await res?.body?.cancel().catch(() => undefined)
-    if (!res || !(res.ok || res.status === 404)) left.push(s)
-  }
-  const deleted = listOf(b).length - left.length
-  save(b, left)
-  return { deleted, left: left.length, revoked: await revokeIdentity(b) }
+  // One list rewrite under serial (as every rewrite): a sandbox made meanwhile is never dropped from the list.
+  const { deleted, left } = await serial(b, async () => {
+    const all = listOf(b)
+    const gone = new Set<string>()
+    for (const s of all) {
+      await revokeGrant(b, s.id).catch(() => undefined)
+      const res = await freestyle(b.doEnv, "DELETE", `/v5/vms/${encodeURIComponent(s.id)}`).catch(() => null)
+      await res?.body?.cancel().catch(() => undefined)
+      if (res && (res.ok || res.status === 404)) gone.add(s.id)
+    }
+    const rest = listOf(b).filter((x) => !gone.has(x.id))
+    save(b, rest)
+    return { deleted: gone.size, left: rest.length }
+  })
+  return { deleted, left, revoked: await revokeIdentity(b) }
 }
