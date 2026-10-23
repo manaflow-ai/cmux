@@ -1,8 +1,6 @@
-//! Dead agents resume their conversation; recorded linked worktrees can be recreated.
 use super::super::*;
 use std::path::Path;
 use std::process::Command;
-
 fn records(hub: &Hub, id: &str, kind: &str) -> Vec<Value> {
     hub.events(id, 0, 10_000)
         .unwrap()
@@ -11,15 +9,12 @@ fn records(hub: &Hub, id: &str, kind: &str) -> Vec<Value> {
         .map(|e| e.msg)
         .collect()
 }
-
 fn kinds(hub: &Hub, id: &str) -> Vec<String> {
     hub.events(id, 0, 10_000).unwrap().into_iter().map(|e| e.kind).collect()
 }
-
 fn prompt_ids(hub: &Hub, id: &str) -> Vec<Value> {
     records(hub, id, "user_message").into_iter().map(|m| m["promptId"].clone()).collect()
 }
-
 fn agent_sid(hub: &Hub, id: &str) -> Option<String> {
     hub.resolve(id).unwrap().meta().agent_session_id
 }
@@ -89,8 +84,6 @@ async fn stop_during_the_wait_keeps_a_dead_agent_from_resuming() {
     assert_eq!(status(&hub, &id), "disconnected");
 }
 
-/// A limit is moved to another account or host (the fallback profile, or the reconciler that
-/// reads `lastTurn` and `status`), never continued here.
 #[tokio::test]
 async fn a_limit_is_never_resumed_even_when_the_agent_dies_of_it() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
@@ -193,7 +186,6 @@ async fn deleted_worktrees_return_without_running_repository_filters() {
         assert_eq!(std::fs::read_to_string(wt.join("a.txt")).unwrap(), "words\n");
         assert!(!marker.exists(), "repository smudge filter ran");
         assert_eq!(records(&hub, id, "worktree_recreated").len(), 1);
-        // A failed recreate keeps the retryable refusal and cwd. It never moves to a parent.
         hub.detach_child(&session).await;
         std::fs::remove_dir_all(&wt).unwrap();
         std::fs::remove_dir_all(&repo).unwrap();

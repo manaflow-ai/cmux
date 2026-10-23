@@ -186,7 +186,11 @@ pub(crate) fn add_without_config(
         .chain(add.iter().map(|arg| if *arg == destination { stage.as_ref() } else { *arg }))
         .collect();
     git(&args)?;
-    let filled = check_out_without_config(&objects, &format, &staged, commit, Some(by))
+    let filled = git_by(&staged, &["rev-parse", "HEAD"], by)
+        .and_then(|actual| {
+            (actual == commit).then_some(()).ok_or_else(|| "branch advanced during recovery".into())
+        })
+        .and_then(|()| check_out_without_config(&objects, &format, &staged, commit, Some(by)))
         .and_then(|()| git_by(&staged, &["read-tree", commit], by).map(drop))
         .and_then(|()| git(&["worktree", "move", &stage, &destination]).map(drop))
         .and_then(|()| {
