@@ -41,11 +41,9 @@ public nonisolated struct PageNavigation: Sendable, Equatable {
 /// Engine options a page asks for. Each engine maps them (WebKit today, CEF later); an engine
 /// without the option ignores it.
 public nonisolated struct PageEngineOptions: Sendable, Equatable {
-    /// Render at WebKit's rate nearest 60 fps (60 on a 120 Hz display) instead of the display's
-    /// full rate: only the agent pane's `capped` render rate, a debug choice. Off by default, so
-    /// every page scrolls and animates at the display's refresh (a page that draws nothing makes
-    /// no rendering update at either rate, so full rate costs nothing at idle).
-    public var capsFrameRate: Bool
+    /// How fast the page renders in WebKit (``PageRenderRate``). ``PageRenderRate/display`` by
+    /// default: the display's full rate, near 60 fps in Low Power Mode, as browser tabs.
+    public var renderRate: PageRenderRate
     /// Keeps this page on WebKit whatever `browser.defaultEngine` says, for this reason (the update
     /// island floats over the window: ``PageWebKitReason/transparentOverlay``). Nil lets
     /// ``PageEnginePolicy`` decide.
@@ -55,8 +53,8 @@ public nonisolated struct PageEngineOptions: Sendable, Equatable {
     /// page does. Off by default.
     public var chromiumAgentChat: Bool
 
-    public init(capsFrameRate: Bool = false, requiresWebKit: PageWebKitReason? = nil, chromiumAgentChat: Bool = false) {
-        self.capsFrameRate = capsFrameRate
+    public init(renderRate: PageRenderRate = .display, requiresWebKit: PageWebKitReason? = nil, chromiumAgentChat: Bool = false) {
+        self.renderRate = renderRate
         self.requiresWebKit = requiresWebKit
         self.chromiumAgentChat = chromiumAgentChat
     }

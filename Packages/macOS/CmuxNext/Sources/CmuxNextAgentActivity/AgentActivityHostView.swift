@@ -27,8 +27,9 @@ public final class AgentActivityHostView: NSView {
         self.source = source
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
-        // At the display's full rate, as every page on the page host.
-        WebKitRenderRate.apply(fullRate: true, to: configuration.preferences)
+        // The page host's rule (PageRenderRate.display): full rate outside Low Power Mode.
+        WebKitRenderRate.apply(fullRate: WebKitRenderRate.prefersFullRate(lowPowerMode: LowPowerMode.system.isEnabled),
+                               to: configuration.preferences)
         let bridge = AgentActivityBridge(model: model, source: source)
         model.layout = AgentActivityTunables.layout.value
         configuration.userContentController.addScriptMessageHandler(bridge, contentWorld: .page, name: AgentActivityBridge.handlerName)
