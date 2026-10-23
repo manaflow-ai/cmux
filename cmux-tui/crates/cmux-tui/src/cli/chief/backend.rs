@@ -169,11 +169,13 @@ impl ChatClient {
     ) -> Result<Value, LinkError> {
         let key = new_message_id();
         let mut op = json!({"kind": "message.send", "client_msg_id": key, "parts": parts});
-        if let Some(reply_to) = reply_to {
-            op["reply_to"] = reply_to;
-        }
-        if let Some(root) = thread_root {
-            op["thread_root"] = json!(root);
+        if let Some(fields) = op.as_object_mut() {
+            if let Some(reply_to) = reply_to {
+                fields.insert("reply_to".into(), reply_to);
+            }
+            if let Some(root) = thread_root {
+                fields.insert("thread_root".into(), json!(root));
+            }
         }
         let result = self.op(conversation, &key, op)?;
         Ok(sent_message(&result))

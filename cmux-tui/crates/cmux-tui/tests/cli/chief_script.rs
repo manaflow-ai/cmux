@@ -295,18 +295,75 @@ impl FakeCloud {
     }
 }
 
+/// A daemon started as the app starts it (`server ensure`), which has the
+/// cloud proxy (`cloud-conversations-v1`); a bare `--headless` owner has none.
+struct EnsuredDaemon {
+    dir: PathBuf,
+    socket: PathBuf,
+    session: String,
+}
+
+impl EnsuredDaemon {
+    fn start(name: &str) -> Self {
+        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let dir =
+            PathBuf::from("/tmp").join(format!("cmux-cs-{name}-{}-{stamp}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let daemon = Self { socket: dir.join("mux.sock"), session: format!("cs-{name}"), dir };
+        let output = daemon.server("ensure").output().unwrap();
+        assert!(
+            output.status.success(),
+            "ensure failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        daemon
+    }
+
+    fn server(&self, action: &str) -> Command {
+        let mut command = Command::new(bin());
+        command
+            .args(["server", action, "--json", "--session", &self.session, "--socket"])
+            .arg(&self.socket)
+            .env("CMUX_TUI_STATE_DIR", self.dir.join("state"))
+            .env("CMUX_TUI_CONFIG", self.dir.join("config.json"))
+            .stdin(Stdio::null());
+        command
+    }
+
+    fn chief(&self, args: &[&str]) -> Output {
+        let mut command = Command::new(bin());
+        command.arg("--socket").arg(&self.socket).arg("chief").args(args).env("LC_ALL", "C");
+        for key in
+            ["CMUX_TUI_SOCKET", "ACPMUX_ENV", "CMUX_AGENT_PRINCIPAL", "CMUX_CHIEF_OWNER_SOCKET"]
+        {
+            command.env_remove(key);
+        }
+        command.stdin(Stdio::null()).output().unwrap()
+    }
+}
+
+impl Drop for EnsuredDaemon {
+    fn drop(&mut self) {
+        let _ = self.server("stop").arg("--end-terminals").output();
+        let _ = fs::remove_dir_all(&self.dir);
+    }
+}
+
 #[test]
 fn chief_script_cloud_chats_use_the_clis_own_lease_and_send_as_cli() {
-    let server = HeadlessServer::start("chief-script-cloud");
+    let daemon = EnsuredDaemon::start("cloud");
     let cloud = FakeCloud::start();
-    let token = server.dir.join("cloud.token");
+    let token = daemon.dir.join("cloud.token");
     fs::write(&token, "cli.jwt\n").unwrap();
     let token = token.display().to_string();
-    let rows = json_of(&chief_cli(
-        &server,
-        &["chats", "--cloud-api", &cloud.base, "--cloud-token-file", &token, "--json"],
-        "",
-    ));
+    let rows = json_of(&daemon.chief(&[
+        "chats",
+        "--cloud-api",
+        &cloud.base,
+        "--cloud-token-file",
+        &token,
+        "--json",
+    ]));
     assert_eq!(rows[0]["id"], CLOUD_CONV, "{rows}");
     assert_eq!(rows[0]["owner"], "cloud");
     assert_eq!(rows[0]["chief"], CLOUD_CHIEF, "a Chief DM's Chief is its peer");
@@ -314,7 +371,7 @@ fn chief_script_cloud_chats_use_the_clis_own_lease_and_send_as_cli() {
     assert_eq!(rows[0]["default"], true);
 
     // The lease stays on this daemon (no app holds one); a send needs only --cloud.
-    let sent = json_of(&chief_cli(&server, &["send", "hi cloud", "--cloud", "--json"], ""));
+    let sent = json_of(&daemon.chief(&["send", "hi cloud", "--cloud", "--json"]));
     assert_eq!(sent["seq"], 4, "{sent}");
     assert_eq!(sent["conversation"], CLOUD_CONV);
     let ops: Vec<Value> =

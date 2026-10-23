@@ -176,7 +176,7 @@ pub(super) fn slash(command: &str, chat: &mut Chat, session: &mut Session) -> Sl
         }
         "chats" | "open" | "reply" | "react" | "unreact" | "thread" | "attach" | "edit"
         | "retract" | "new" => {
-            let rest = command[name.len()..].trim();
+            let rest = command.get(name.len()..).unwrap_or_default().trim();
             Slash::Note(match home_command(name, rest, chat, session) {
                 Ok(note) | Err(note) => note,
             })
@@ -246,7 +246,9 @@ fn home_command(
         }
         "open" => {
             let wanted = match rest.parse::<usize>() {
-                Ok(n) if (1..=chat.listed.len()).contains(&n) => chat.listed[n - 1].clone(),
+                Ok(n) if n >= 1 => {
+                    chat.listed.get(n - 1).cloned().unwrap_or_else(|| rest.to_owned())
+                }
                 _ => rest.to_owned(),
             };
             let wanted = (!wanted.is_empty()).then_some(wanted);

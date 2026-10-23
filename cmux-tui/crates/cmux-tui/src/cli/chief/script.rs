@@ -145,8 +145,8 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
     let number = |flag: &str, text: &str| -> Result<u64, String> {
         text.parse().map_err(|_| format!("{flag} takes a number, not {text}"))
     };
-    while index < args.len() {
-        let arg = args[index].as_str();
+    while let Some(arg) = args.get(index) {
+        let arg = arg.as_str();
         let (flag, inline) = match arg.split_once('=') {
             Some((flag, value)) if flag.starts_with("--") => (flag, Some(value.to_owned())),
             _ => (arg, None),
@@ -355,14 +355,15 @@ pub(super) fn chat_row(summary: &Value, current: bool) -> Value {
 /// The plain text of a `chats` row, numbered from 1.
 pub(super) fn chat_row_text(number: usize, row: &Value) -> String {
     let field = |key: &str| row.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
-    let mark = if row["default"] == true { "*" } else { " " };
+    let mark = if row.get("default") == Some(&json!(true)) { "*" } else { " " };
+    let number_of = |key: &str| row.get(key).and_then(Value::as_u64).unwrap_or(0);
     format!(
         "{mark}{number:>3}  {}  {}  {}  #{}  unread {}",
         field("id"),
         field("title"),
         field("chief"),
-        row["last_seq"].as_u64().unwrap_or(0),
-        row["unread"].as_u64().unwrap_or(0),
+        number_of("last_seq"),
+        number_of("unread"),
     )
 }
 
@@ -473,7 +474,7 @@ fn read(session: &mut Session, request: &Request, json: bool) -> Outcome {
 
 /// The text `send` sends: its words, or stdin for `-`.
 fn send_text(words: &[String]) -> Result<String, (i32, String)> {
-    if words.len() == 1 && words[0] == "-" {
+    if words.len() == 1 && words.first().is_some_and(|w| w == "-") {
         let mut text = String::new();
         std::io::Read::read_to_string(&mut std::io::stdin(), &mut text)
             .map_err(|e| (2, e.to_string()))?;
@@ -547,7 +548,7 @@ fn send(session: &mut Session, request: &Request, json: bool) -> Outcome {
         };
         let Some(event) = stream_event(session, input)? else { continue };
         watch.on(&event);
-        for reply in &watch.replies[printed..] {
+        for reply in watch.replies.iter().skip(printed) {
             if !json {
                 print_lines(&chat.message(reply));
             }

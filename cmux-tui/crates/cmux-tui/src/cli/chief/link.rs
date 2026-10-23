@@ -383,8 +383,8 @@ pub(super) fn send_parts_params(
         Some(text) => send_params(conversation, &text),
         None => json!({"conversation": conversation, "parts": parts}),
     };
-    if let Some(reply_to) = reply_to {
-        params["reply_to"] = reply_to;
+    if let (Some(reply_to), Some(fields)) = (reply_to, params.as_object_mut()) {
+        fields.insert("reply_to".into(), reply_to);
     }
     params
 }
