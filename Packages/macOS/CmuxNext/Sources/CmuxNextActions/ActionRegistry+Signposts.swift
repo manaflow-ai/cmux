@@ -50,16 +50,20 @@ extension ActionRegistry {
     /// The age in milliseconds of the input a person's run answers; -1 for any other run (socket,
     /// CLI, MCP, script, page, remote) or when there is none.
     ///
-    /// The OS input event AppKit is dispatching now (`event`, a key or a click) wins: a run a
-    /// confirmation sheet's button or the palette's Return lets through answers that click or key,
-    /// not the first press. Outside a dispatch, `carried` (the stamp of the press that started a
-    /// gated run, ``ActionInvocation/inputTimestamp``) gives the age. `NSApp.currentEvent` is not
-    /// used: it keeps the last event after its dispatch ends, so a socket run minutes after a key
-    /// press would report that key's age.
+    /// `carried` (the stamp of the press that started a gated run, ``ActionInvocation/inputTimestamp``)
+    /// wins: a carried stamp always belongs to the run. Only an unasked confirmation carries one
+    /// (`proceed(asked: true)`, the argument collector and the handler hand-off strip it), and it may
+    /// resume inside an unrelated dispatch (a menu's or a drag's nested tracking loop running the
+    /// main-actor job after a TabCloseGuard round trip), whose event is not this run's input.
+    /// Without a carried stamp the OS input event AppKit is dispatching now (`event`, a key or a
+    /// click) gives the age: a run a confirmation sheet's button or the palette's Return lets
+    /// through answers that click or key. `NSApp.currentEvent` is not used: it keeps the last
+    /// event after its dispatch ends, so a socket run minutes after a key press would report that
+    /// key's age.
     static func inputAgeMilliseconds(origin: ActionOrigin, event: NSEvent?, carried: Double? = nil,
                                      now: TimeInterval) -> Double {
         guard origin == .user else { return -1 }
-        guard let stamp = inputTimestamp(of: event) ?? carried, stamp <= now else { return -1 }
+        guard let stamp = carried ?? inputTimestamp(of: event), stamp <= now else { return -1 }
         return (now - stamp) * 1_000
     }
 
