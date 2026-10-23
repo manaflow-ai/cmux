@@ -202,10 +202,14 @@ final class CEFHostView: NSView {
     /// motion frame the static pages have nothing to re-place, re-clip or
     /// re-mask (Lawrence 2026-10-23: splits lag more with Chromium pages).
     /// `force`: a page window moved by something other than the fork must be
-    /// put back over its host even though the host did not move.
+    /// put back over its host even though the host did not move. A refused
+    /// layer hosting request waits for the fork's next read of this view
+    /// (`CEFLayerHosting.trackerDidRead`), so while one is armed the post goes
+    /// out even with nothing moved: a still page would otherwise keep its
+    /// retry until it next moves or shows.
     func pagesNeedUpdate(force: Bool) {
         let now = CEFHostGeometry(of: self)
-        guard force || readGeometry != now else {
+        guard force || layerHosting.isRetryArmed || readGeometry != now else {
             Self.trackerStats.geometrySkips += 1
             return
         }

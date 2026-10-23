@@ -1,4 +1,5 @@
 import AppKit
+@testable import CmuxNextApp
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 import Testing
@@ -158,5 +159,85 @@ import Testing
         pages.left.isHidden = true
         #expect(pages.posts { pages.requestPageUpdate() } == 1, "the hide reaches the fork")
         #expect(pages.posts { pages.requestPageUpdate() } == 0, "a page still hidden has nothing new")
+    }
+
+    /// A view that clips its subviews the way the fork's visible rect sees it (`clipsToBounds`)
+    /// without a layer mask, so the clip shape's inputs (layer masks only) stay the same.
+    final class ClippingView: NSView {
+        override var clipsToBounds: Bool {
+            get { true }
+            set {}
+        }
+    }
+
+    /// A clipping ancestor shrinks while the page keeps its place on screen (a clip view or a
+    /// strip edge cutting into the pane): only the visible rect changes, and the fork must re-clip
+    /// the page window to it.
+    @Test func aClippingAncestorThatShrinksReachesThePageItCuts() throws {
+        let pages = TwoPages()
+        let clipper = ClippingView(frame: pages.left.frame)
+        pages.left.removeFromSuperview()
+        pages.left.frame = clipper.bounds
+        clipper.addSubview(pages.left)
+        pages.stage.addSubview(clipper)
+        pages.forkReads()
+        let before = CEFHostGeometry(of: pages.left)
+        clipper.setFrameSize(NSSize(width: 300, height: 500))
+        let after = CEFHostGeometry(of: pages.left)
+        try #require(after.screenRect == before.screenRect && after.clip == before.clip,
+                     "only the visible rect changes: screen \(before.screenRect) -> \(after.screenRect)")
+        try #require(after.visibleInWindow != before.visibleInWindow, "the ancestor cuts the page: \(after.visibleInWindow)")
+        #expect(pages.posts { pages.requestPageUpdate() } == 1, "the page whose visible rect changed posts, the other does not")
+    }
+
+    /// The fork read a page mid-layout (a page update inside the pass, or a frame notification of
+    /// a view the pass moves again), and the pass then put the page back where the fork read it
+    /// before. The request after the pass compares with what the fork read last, so it posts.
+    @Test func theRequestAfterAStaleMidLayoutReadPosts() {
+        let pages = TwoPages()
+        pages.forkReads()
+        let resting = pages.left.frame
+        pages.left.frame = resting.insetBy(dx: 20, dy: 0)
+        pages.forkReads()
+        pages.left.frame = resting
+        #expect(pages.posts { pages.requestPageUpdate() } == 1, "the fork last read the mid-layout frame: the final one must reach it")
+        #expect(pages.posts { pages.requestPageUpdate() } == 0, "after it, nothing is new")
+    }
+
+    /// A forced update asked for inside the window's layout pass (a page window moved by another
+    /// app while the pass runs) waits for the pass, and a plain request in the same pass must not
+    /// drop its force: after the pass every page re-places its window, moved or not
+    /// (`WindowOverlayLayer.forcedPageUpdateAfterLayout`).
+    @Test func aForcedUpdateAskedInsideTheLayoutPassReachesEveryPageAfterIt() {
+        _ = NSApplication.shared
+        let window = ShellWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 500), styleMask: [.titled, .resizable],
+                                 backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let content = NSView(frame: CGRect(x: 0, y: 0, width: 800, height: 500))
+        window.contentView = content
+        let left = CEFHostView(frame: CGRect(x: 0, y: 0, width: 400, height: 500))
+        let right = CEFHostView(frame: CGRect(x: 400, y: 0, width: 400, height: 500))
+        content.addSubview(left)
+        content.addSubview(right)
+        for page in [left, right] {
+            _ = page.cmuxOcclusionRects()
+            _ = page.cmuxClipPath()
+        }
+        func posts(_ body: () -> Void) -> Int {
+            let before = CEFHostView.trackerStats.geometryPosts
+            body()
+            return CEFHostView.trackerStats.geometryPosts - before
+        }
+        let layer = window.overlayLayer
+        layer.windowWillLayout()
+        let inside = posts {
+            layer.requestPageUpdate(force: true)
+            layer.requestPageUpdate()
+        }
+        #expect(inside == 0, "nothing reaches the pages inside the layout pass: \(inside) posts")
+        let after = posts { layer.windowDidLayout() }
+        #expect(after == 2, "the forced update reaches both pages after the pass: \(after) posts")
+        #expect(posts { layer.requestPageUpdate() } == 0, "after it, nothing is new")
     }
 }
