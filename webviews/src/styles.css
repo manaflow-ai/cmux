@@ -50,8 +50,11 @@
      #a6e22e). */
   --cmux-diff-addition-fg: var(--cmux-diff-addition-fg-light);
   --cmux-diff-deletion-fg: var(--cmux-diff-deletion-fg-light);
+  --cmux-diff-modified-fg: var(--cmux-diff-modified-fg-light);
   --cmux-diff-count-added: color-mix(in srgb, var(--cmux-diff-addition-fg) 66%, var(--cmux-diff-solid-bg));
   --cmux-diff-count-deleted: color-mix(in srgb, var(--cmux-diff-deletion-fg) 66%, var(--cmux-diff-solid-bg));
+  /* A modified file's name and square in the files list, softened as the counts are. */
+  --cmux-diff-count-modified: color-mix(in srgb, var(--cmux-diff-modified-fg) 66%, var(--cmux-diff-solid-bg));
   /* Dim text: directories, file names in the tree, placeholders, icons. */
   --cmux-diff-text-dim: color-mix(in srgb, var(--cmux-diff-fg) 50%, var(--cmux-diff-solid-bg));
   --cmux-diff-muted-bg: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
@@ -91,6 +94,7 @@
     --cmux-diff-fg: var(--cmux-diff-fg-dark);
     --cmux-diff-addition-fg: var(--cmux-diff-addition-fg-dark);
     --cmux-diff-deletion-fg: var(--cmux-diff-deletion-fg-dark);
+    --cmux-diff-modified-fg: var(--cmux-diff-modified-fg-dark);
   }
 }
 * {
@@ -1501,6 +1505,144 @@ body[data-loading="true"] #status::before {
 .file-review-stage:hover {
   background: var(--cmux-diff-hover-bg);
 }
+/* Revert (D3): the file bar's arrow, a hunk's buttons on hover at the right of the line, and the
+   Stage all / Revert all bar floating at the bottom center of the diff (the Codex Review pane's). */
+.file-review-revert {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--cmux-diff-text-dim);
+  cursor: pointer;
+}
+.file-review-revert:hover {
+  background: var(--cmux-diff-hover-bg);
+  color: var(--cmux-diff-fg);
+}
+.file-review-revert svg,
+.diff-hunk-action-icon svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.diff-hunk-action-icon {
+  display: inline-flex;
+}
+.diff-hunk-actions,
+.diff-bulk-bar {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  /* The cmux NEXT chrome (#23154): a hairline rim and the files panel's lift, opaque over code. */
+  background: color-mix(in srgb, var(--cmux-diff-fg) 4%, var(--cmux-diff-files-bg));
+  box-shadow:
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cmux-diff-rim),
+    var(--elevation-2);
+  font-family: var(--cmux-diff-ui-font-family);
+  font-size: calc(var(--cmux-diff-ui-font-size) * 0.9);
+  color: var(--cmux-diff-fg);
+}
+/* The Codex Review pane's hunk pill: Revert's arrow and Stage's plus, icon buttons in a capsule
+   at the right end of the hunk's first changed line. */
+.diff-hunk-actions {
+  right: 12px;
+  z-index: var(--layer-overlay);
+  gap: 0;
+  border-radius: 999px;
+  transform: translateY(-50%);
+}
+.diff-bulk-bar {
+  bottom: 14px;
+  left: 50%;
+  z-index: var(--layer-overlay);
+  gap: 4px;
+  padding: 4px;
+  max-width: calc(100% - 24px);
+  border-radius: 9px;
+  transform: translateX(-50%);
+  font-size: var(--cmux-diff-ui-font-size);
+}
+.diff-hunk-action,
+.diff-bulk-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.diff-bulk-action {
+  height: 26px;
+  padding: 0 10px;
+}
+.diff-hunk-action {
+  justify-content: center;
+  width: 28px;
+  padding: 0;
+  border-radius: 999px;
+  color: var(--cmux-diff-text-muted);
+}
+.diff-hunk-action:hover {
+  color: var(--cmux-diff-fg);
+}
+.diff-hunk-action:hover,
+.diff-bulk-action:hover {
+  background: var(--cmux-diff-hover-bg);
+}
+.diff-hunk-action:disabled,
+.diff-bulk-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.file-review-revert:focus-visible,
+.diff-hunk-action:focus-visible,
+.diff-bulk-action:focus-visible {
+  outline: 2px solid var(--cmux-diff-accent);
+  outline-offset: 1px;
+}
+/* Revert loses work: Revert all reads in the deletion color. The hunk pill's arrow stays quiet,
+   as in the Codex Review pane; a hunk revert has Undo. */
+.diff-bulk-action[data-kind="revert"] {
+  color: var(--cmux-diff-deletion-fg);
+}
+.diff-bulk-note {
+  min-width: 0;
+  padding: 0 4px 0 8px;
+  overflow: hidden;
+  color: var(--cmux-diff-text-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* A failure wraps, so git's whole reason reads in the bar (no tooltip repeats shown text). */
+.diff-bulk-note[data-kind="error"] {
+  color: var(--cmux-diff-deletion-fg);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.diff-bulk-divider {
+  align-self: stretch;
+  width: 1px;
+  margin: 4px 2px;
+  background: var(--cmux-diff-border);
+}
 /* Stage, Commit and Push reuse the changes view's git.css (cx-ueuc8): its tokens, from the viewer's. */
 .diff-git {
   --agent-text: var(--cmux-diff-fg);
@@ -1761,10 +1903,13 @@ svg[data-icon-fill] {
 .source-menu .toolbar-menu-item {
   grid-template-columns: minmax(0, 1fr) 18px;
 }
-.toolbar-menu-item:focus:not(:focus-visible),
+/* Only the pointer tints a row: a click leaves focus on it, and a tint on that focus stayed after
+   the pointer left, as if the row were selected (its check mark says it is on). */
 .toolbar-menu-item:hover {
   background: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
   color: var(--cmux-diff-fg);
+}
+.toolbar-menu-item:focus:not(:focus-visible) {
   outline: none;
 }
 /* Keyboard focus on a menu row is the row tint and optional accent bar (desktop.css). */
@@ -1963,46 +2108,8 @@ svg[data-icon-fill] {
 .diff-pill-button svg [data-diff-addition] {
   fill: color-mix(in srgb, var(--cmux-diff-addition-fg) 55%, var(--cmux-diff-solid-bg));
 }
-/* Tooltip below the hovered or keyboard-focused button (the pill sits at the
-   top of the page). */
-.diff-pill-button::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  top: calc(100% + 10px);
-  left: 50%;
-  translate: -50% -4px;
-  padding: 5px 10px;
-  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
-  border-radius: 9px;
-  background: color-mix(in lab, var(--cmux-diff-bg) 86%, var(--cmux-diff-fg));
-  box-shadow: var(--elevation-2);
-  color: var(--cmux-diff-fg);
-  font-size: 12px;
-  white-space: nowrap;
-  pointer-events: none;
-  opacity: 0;
-  transition:
-    opacity var(--cmux-motion-quick) ease,
-    translate var(--cmux-motion-quick) ease;
-}
-.diff-pill-button:last-child::after {
-  left: auto;
-  right: 0;
-  translate: 0 -4px;
-}
-.diff-pill-button:hover::after,
-.diff-pill-button:focus-visible::after {
-  opacity: 1;
-  translate: -50% 0;
-  transition-delay: 350ms;
-}
-.diff-pill-button:last-child:hover::after,
-.diff-pill-button:last-child:focus-visible::after {
-  translate: 0 0;
-}
-.diff-pill-button[aria-expanded="true"]::after {
-  display: none;
-}
+/* A button's tooltip is the shared one every cmux page has (ui/titleTooltips.ts, from its
+   `data-tooltip`). The pill drew its own here too, so two showed at once. */
 /* The "..." menu opens down from the pill. */
 #options-menu.options-menu {
   position: absolute;
@@ -2011,11 +2118,6 @@ svg[data-icon-fill] {
   min-width: 248px;
   max-height: calc(100vh - 120px);
   overflow-y: auto;
-}
-@media (prefers-reduced-motion: reduce) {
-  .diff-pill-button::after {
-    transition: none;
-  }
 }
 
 /* The base picker popover uses the toolbar menu surface. */
@@ -2111,6 +2213,30 @@ svg[data-icon-fill] {
   text-overflow: ellipsis;
   color: var(--cmux-diff-fg);
 }
+/* The file name as a bare button (FileHeader's onOpenFile). */
+button.file-header-open {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  line-height: inherit;
+  text-align: start;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-user-select: text;
+  user-select: text;
+}
+button.file-header-open:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+button.file-header-open:focus-visible {
+  outline: 2px solid var(--cmux-diff-accent);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
 .file-header-caret {
   flex: 0 0 auto;
   width: 20px;
@@ -2122,8 +2248,9 @@ svg[data-icon-fill] {
   border-radius: 5px;
   color: var(--cmux-diff-text-muted);
 }
-/* The whole bar is the toggle; the caret shows its hover and state. */
-.file-header:hover .file-header-caret {
+/* The whole bar is the toggle; the caret shows its hover and state. The file
+   name opens the file instead (D4), so hovering it underlines the name, not the caret. */
+.file-header:hover:not(:has(.file-header-open:hover)) .file-header-caret {
   background: var(--cmux-diff-hover-bg);
   color: var(--cmux-diff-fg);
 }
@@ -2321,4 +2448,119 @@ svg[data-icon-fill] {
 .selectable {
   -webkit-user-select: text;
   user-select: text;
+}
+
+/* Inline previews (InlinePreview.tsx): an image file's two sides, or Markdown rendered, in place of
+   its diff (the line annotation of the file's one-line item). */
+.inline-preview {
+  padding: 16px 24px 20px;
+  font-family: var(--cmux-diff-ui-font-family);
+  color: var(--cmux-diff-fg);
+  white-space: normal;
+}
+.rich-preview-status {
+  margin: 24px 0;
+  color: var(--cmux-diff-text-muted);
+  text-align: center;
+}
+/* The rendered Markdown reads like a document: the page's text, a measure, quiet rules. */
+.rich-preview-markdown {
+  max-width: 760px;
+  line-height: 1.6;
+}
+.rich-preview-markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1.2em 0 0.5em;
+  line-height: 1.25;
+}
+.rich-preview-markdown h1 {
+  font-size: 1.8em;
+}
+.rich-preview-markdown h2 {
+  font-size: 1.4em;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--cmux-diff-border);
+}
+.rich-preview-markdown h3 {
+  font-size: 1.15em;
+}
+.rich-preview-markdown :is(p, ul, ol, blockquote, pre, table) {
+  margin: 0 0 1em;
+}
+.rich-preview-markdown :is(code, pre) {
+  font-family: var(--cmux-diff-font-family, ui-monospace, monospace);
+  font-size: 0.9em;
+}
+.rich-preview-markdown code {
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: color-mix(in lab, var(--cmux-diff-fg) 9%, transparent);
+}
+.rich-preview-markdown pre {
+  overflow: auto;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: color-mix(in lab, var(--cmux-diff-fg) 6%, transparent);
+}
+.rich-preview-markdown pre code {
+  padding: 0;
+  background: none;
+}
+.rich-preview-markdown blockquote {
+  padding-left: 12px;
+  border-left: 3px solid var(--cmux-diff-border);
+  color: var(--cmux-diff-text-muted);
+}
+.rich-preview-markdown table {
+  border-collapse: collapse;
+}
+.rich-preview-markdown :is(th, td) {
+  padding: 6px 12px;
+  border: 1px solid var(--cmux-diff-border);
+}
+.rich-preview-markdown .md-link {
+  color: var(--cmux-diff-accent);
+}
+.rich-preview-markdown .md-image {
+  color: var(--cmux-diff-text-muted);
+  font-style: italic;
+}
+.rich-preview-markdown li[data-task] {
+  list-style: none;
+}
+.rich-preview-markdown .md-task {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin: 0 0.45em 0 -1.3em;
+  border: 1px solid var(--cmux-diff-text-muted);
+  border-radius: 3px;
+  vertical-align: -0.05em;
+}
+.rich-preview-markdown li[data-task="done"] .md-task {
+  border-color: var(--cmux-diff-accent);
+  background: var(--cmux-diff-accent);
+}
+/* Before and after, side by side, each on a checkerboard so transparency shows. */
+.rich-preview-images {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.rich-preview-image {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+.rich-preview-image img {
+  max-width: 100%;
+  max-height: 60vh;
+  align-self: flex-start;
+  object-fit: contain;
+  border-radius: 6px;
+  background: repeating-conic-gradient(
+      color-mix(in lab, var(--cmux-diff-fg) 10%, transparent) 0% 25%,
+      transparent 0% 50%
+    )
+    50% / 16px 16px;
 }

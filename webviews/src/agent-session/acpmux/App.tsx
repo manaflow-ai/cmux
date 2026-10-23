@@ -185,7 +185,7 @@ import {
 import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
-import { readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointSource";
+import { latestTurnCheckpointPair, readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointSource";
 import { registerComposerHost } from "./composerSettings";
 import { WHOLE_FILE_CONTEXT } from "./changes/wholeFile";
 import { restoredDecisions, type HunkDecision, type HunkReview } from "./changes/hunkReview";
@@ -237,7 +237,7 @@ import {
   sessionEdits,
   type SessionEdits,
 } from "./turnChanges/sessionRows";
-import { repositoryRoot, viewChangesBeside } from "./turnChanges/viewChanges";
+import { repositoryRoot, viewChangesBeside, viewChangesTurn } from "./turnChanges/viewChanges";
 import { TurnActionsContext, chatLoginCommand, resumeThrough, type TurnActions } from "./conversation/turnActions";
 import {
   RunInBackgroundContext,
@@ -4698,7 +4698,7 @@ function AcpmuxPane() {
   /// diff then opens in place, as it does for a folder outside a repository and a turn that changed a
   /// file outside the repository, which the folder's diff does not hold (turnChanges/viewChanges.ts).
   /// Set below, once the header's actions exist.
-  const diffBeside = useRef<(rowId: string) => Promise<boolean>>(async () => false);
+  const diffBeside = useRef<(rowId: string, path?: string) => Promise<boolean>>(async () => false);
   // A click does not focus a button in WebKit, so the clicked control is the opener, not the focus.
   const openDiff = useCallback<OpenDiff>((rowId, path, opener) => {
     const clicked = opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined);
@@ -4707,7 +4707,7 @@ function AcpmuxPane() {
       setInspectorOpen(false);
       setDiffView({ sessionId: sessionIdRef.current, rowId, path, opener: clicked });
     };
-    void diffBeside.current(rowId).then((opened) => {
+    void diffBeside.current(rowId, path).then((opened) => {
       if (!opened) inPlace();
     }, inPlace);
   }, []);
@@ -6931,8 +6931,12 @@ function AcpmuxPane() {
   const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
   // The header's tools and "..." menu run app actions on this chat's tab.
   // A quick action names its mode; the App toggles the split it opened (header/quickActions.ts).
-  const runHeaderAction = (id: string, cwd?: string, mode?: QuickActionMode) =>
-    ignoreFailure(callNative("pane.action", { id, ...(cwd ? { cwd } : {}), ...(mode ? { mode } : {}) }));
+  const runHeaderAction = (id: string, cwd?: string, mode?: QuickActionMode) => {
+    // Changes offers the chat's latest turn as the diff tab's Last turn (a chat on this Mac: `cwd`).
+    const pair = id === HEADER_ACTIONS.changes && cwd ? latestTurnCheckpointPair(snapshot.rows) : undefined;
+    const turn = pair ? { turn: { ...pair, show: false } } : {};
+    ignoreFailure(callNative("pane.action", { id, ...(cwd ? { cwd } : {}), ...(mode ? { mode } : {}), ...turn }));
+  };
   // A remote or cloud chat's folder is not on this Mac; its terminal opens in the pane's folder.
   const summary = snapshot.summary;
   const localCwd =
@@ -6995,17 +6999,21 @@ function AcpmuxPane() {
     runHeaderAction(id, cwd, mode);
     window.setTimeout(refreshTabState, 400);
   };
-  diffBeside.current = async (rowId) => {
+  diffBeside.current = async (rowId, path) => {
     // A remote or cloud chat's folder is not on this Mac, and Quick Chat's panel has no tab beside it.
     if (quick || !localCwd) return false;
     // The folder's diff is its repository's: a folder outside one, or a file the turn wrote outside
     // the repository, opens the turn's own diff in place (turnChanges/viewChanges.ts).
     const root = await repositoryRoot(localCwd, readFolderStatus);
-    if (!viewChangesBeside(turnRowsRef.current, rowId, root)) return false;
+    if (!root || !viewChangesBeside(turnRowsRef.current, rowId, root)) return false;
+    // The tab opens on the turn (its Last turn), at the row's file; a turn with no checkpoint pair
+    // opens the folder's diff.
+    const turn = viewChangesTurn(turnRowsRef.current, rowId, path, root, localCwd);
     const reply = await callNative<{ ran?: boolean } | null>("pane.action", {
       id: HEADER_ACTIONS.changes,
       cwd: localCwd,
       mode: "open",
+      ...(turn ? { turn } : {}),
     });
     window.setTimeout(refreshTabState, 400);
     return reply?.ran === true;
