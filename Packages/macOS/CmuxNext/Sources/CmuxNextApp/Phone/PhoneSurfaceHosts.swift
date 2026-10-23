@@ -67,6 +67,9 @@ final class PhoneSurfaceHosts: MobileHostSurfaceHosting {
             guard let id = shown else { throw Failure.noPhone }
             servers.removeValue(forKey: tab)?.stop()
             let server = SimulatorSurfaceServer(service: phones, device: id)
+            // The tab closed or now shows another phone: the source stops (and hostd hears surface_gone).
+            let device = device
+            server.stillShown = { device(surface) == .some(id) }
             server.onEnd = { [weak self, weak server] in
                 if let server, self?.servers[tab] === server { self?.servers[tab] = nil }
                 onExit()

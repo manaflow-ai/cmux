@@ -316,9 +316,16 @@ no new path for a peer and no new trust decision.
   window or other app is captured.
 - **What it can do.** Touch the simulator, type text, press a short list of
   keys and Home or Lock: what a person at the Mac's phone tab can do. No
-  install, launch, open-URL, pasteboard, location, appearance, recording or
-  `simctl` reaches a phone; hostd drops any other input, and the source takes
-  only those lines.
+  install, launch, open-URL, location, appearance or recording reaches a
+  phone; hostd drops any other input, and the source takes only those lines.
+  One indirect effect: text a US keyboard cannot type (accents, emoji) is put
+  on the simulator's pasteboard with `simctl pbcopy` and pasted, as the Mac's
+  own phone tab does, so it also lands on that simulator's pasteboard (which
+  Simulator.app may sync to the Mac's while it is open). The source applies
+  input one event at a time from a bounded queue (256), so a flood cannot
+  start more than one `simctl` at once.
+- **Lifetime.** The source stops when its tab closes or shows another phone
+  (checked on every input and frame), and hostd hears `surface_gone`.
 - **Loopback.** The app's source listens on `127.0.0.1` (accept local only),
   with a per-launch secret it gives hostd over stdin, compared in constant
   time. hostd's own host for each tab is on loopback with its own secret, as

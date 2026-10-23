@@ -75,7 +75,14 @@ nonisolated final class SurfaceFrameEncoder: @unchecked Sendable {
         VTCompressionSessionPrepareToEncodeFrames(created)
     }
 
+    /// Emits every pending frame now, so each encode hostd asked for is answered
+    /// (with an access unit or a skip) before the session goes (a rotation replaces it).
+    func finish() {
+        VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
+    }
+
     deinit {
+        VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
         VTCompressionSessionInvalidate(session)
         VTPixelTransferSessionInvalidate(transfer)
     }

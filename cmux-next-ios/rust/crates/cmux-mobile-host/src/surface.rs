@@ -410,11 +410,15 @@ pub async fn host_session(
     let _ = stream.set_nodelay(true);
     let mut deframer = StreamDeframer::default();
     let mut buffer = vec![0u8; 64 * 1024];
+    // One deadline for the whole hello: a client that trickles bytes is closed too.
+    let hello_by = tokio::time::Instant::now() + HELLO_TIMEOUT;
     let hello = loop {
-        if let Ok(Some((STREAM_CONTROL, payload))) = deframer.next_frame() {
-            break serde_json::from_slice::<Control>(&payload).ok();
+        match deframer.next_frame() {
+            Ok(Some((STREAM_CONTROL, payload))) => break serde_json::from_slice::<Control>(&payload).ok(),
+            Ok(Some(_)) | Err(_) => break None,
+            Ok(None) => {}
         }
-        match tokio::time::timeout(HELLO_TIMEOUT, stream.read(&mut buffer)).await {
+        match tokio::time::timeout_at(hello_by, stream.read(&mut buffer)).await {
             Ok(Ok(n)) if n > 0 => deframer.extend(&buffer[..n]),
             _ => return Err("no hello".into()),
         }
@@ -481,30 +485,37 @@ pub async fn host_session(
         EngineConfig { width, height, max_fps: MAX_FPS, max_datagram, ..EngineConfig::default() },
         surface_clock_us(),
     );
-    let mut pending: Option<EncodeRequest> = engine.start(surface_clock_us());
-    let mut in_flight: Option<EncodeRequest> = None;
-    let mut touching = false;
+    let mut flow = Flow { pending: engine.start(surface_clock_us()), ..Flow::default() };
     let (mut phone_read, mut phone_write) = stream.into_split();
     let (mut app_read, mut app_write) = app.into_split();
     let result = loop {
         let mut to_phone = Vec::new();
         let mut to_app = Vec::new();
-        if in_flight.is_none()
-            && let Some(request) = pending.take()
+        let now = surface_clock_us();
+        // An encode the source never answered (it lost the frame) counts as skipped.
+        if flow.in_flight.as_ref().is_some_and(|(_, deadline)| now >= *deadline)
+            && let Some((request, _)) = flow.in_flight.take()
+            && let Ok(output) = engine.encoded(&request, None, now)
         {
-            to_app.extend(
-                SourceFrame::Json(
-                    json!({"t": "encode", "idr": request.force_idr, "kbps": request.target_kbps}),
-                )
-                .encode(),
-            );
-            in_flight = Some(request);
+            tracing::warn!("surface: the source did not answer an encode in time");
+            flow.take(output, &mut to_phone, &mut to_app);
         }
-        if !to_app.is_empty() && app_write.write_all(&to_app).await.is_err() {
+        if flow.in_flight.is_none()
+            && let Some(request) = flow.pending.take()
+        {
+            let kbps = flow.kbps(request.target_kbps, now);
+            to_app.extend(
+                SourceFrame::Json(json!({"t": "encode", "idr": request.force_idr, "kbps": kbps})).encode(),
+            );
+            flow.in_flight = Some((request, now + ENCODE_TIMEOUT_US));
+        }
+        if !to_app.is_empty() && app_write.write_all(&std::mem::take(&mut to_app)).await.is_err() {
             break Err("the source closed".to_owned());
         }
-        let now = surface_clock_us();
-        let wake = engine.next_deadline_us().unwrap_or(now + 1_000_000).min(now + 1_000_000);
+        let mut wake = engine.next_deadline_us().unwrap_or(now + 1_000_000).min(now + 1_000_000);
+        if let Some((_, deadline)) = &flow.in_flight {
+            wake = wake.min(*deadline);
+        }
         let sleep = tokio::time::sleep(Duration::from_micros(wake.saturating_sub(now)));
         tokio::select! {
             read = phone_read.read(&mut buffer) => match read {
@@ -516,15 +527,7 @@ pub async fn host_session(
                         match deframer.next_frame() {
                             Ok(Some((STREAM_DATAGRAM, payload))) => {
                                 let output = engine.on_datagram(&payload, true, surface_clock_us());
-                                for event in &output.inject {
-                                    if let InputEvent::Service { bytes, .. } = event
-                                        && let Ok(event) = serde_json::from_slice::<Value>(&bytes[..])
-                                        && let Some(line) = input_line(&event, &mut touching)
-                                    {
-                                        to_app.extend(SourceFrame::Json(line).encode());
-                                    }
-                                }
-                                pending = pending.or(emit(&mut to_phone, output));
+                                flow.take(output, &mut to_phone, &mut to_app);
                             }
                             Ok(Some((STREAM_CONTROL, payload))) => match serde_json::from_slice::<Control>(&payload) {
                                 Ok(Control::Stop) => stop = true,
@@ -564,49 +567,60 @@ pub async fn host_session(
                 Ok(0) | Err(_) => break Err("the source closed".to_owned()),
                 Ok(n) => {
                     source_frames.extend(&app_buffer[..n]);
+                    let mut bad = None;
                     loop {
                         match source_frames.next_frame() {
                             Ok(Some(SourceFrame::AccessUnit { idr, capture_us, annex_b })) => {
-                                let Some(request) = in_flight.take() else { continue };
+                                let Some((request, _)) = flow.in_flight.take() else { continue };
                                 let encoded = Encoded { access_unit: annex_b, idr, t_capture_us: capture_us };
                                 match engine.encoded(&request, Some(encoded), surface_clock_us()) {
-                                    Ok(output) => pending = pending.or(emit(&mut to_phone, output)),
+                                    Ok(output) => flow.take(output, &mut to_phone, &mut to_app),
                                     Err(error) => tracing::warn!(?error, "surface: a frame did not packetize"),
                                 }
                             }
                             Ok(Some(SourceFrame::Json(value))) => match value.get("t").and_then(Value::as_str) {
                                 Some("damage") => {
                                     let full = Rect { x: 0, y: 0, width, height };
-                                    pending = pending.or(engine.damage(0, full, surface_clock_us()));
+                                    flow.newest(engine.damage(0, full, surface_clock_us()));
                                 }
                                 Some("skip") => {
-                                    if let Some(request) = in_flight.take()
+                                    if let Some((request, _)) = flow.in_flight.take()
                                         && let Ok(output) = engine.encoded(&request, None, surface_clock_us())
                                     {
-                                        pending = pending.or(emit(&mut to_phone, output));
+                                        flow.take(output, &mut to_phone, &mut to_app);
                                     }
                                 }
                                 Some("size") => {
                                     let size = |key: &str| value.get(key).and_then(Value::as_u64).and_then(|v| u32::try_from(v).ok());
                                     if let (Some(w), Some(h)) = (size("width"), size("height"))
-                                        && w > 0 && h > 0 && w <= 8192 && h <= 8192
+                                        && w > 0 && h > 0 && w <= 8192 && h <= 8192 && (w, h) != (width, height)
                                     {
+                                        // A rotation: the phone hears the new size (its touches map by the decoded frame).
                                         (width, height) = (w, h);
+                                        rb(json!({"t": "rb.screen_applied", "seq": 0, "pixel_width": width,
+                                                  "pixel_height": height, "scale": 1.0}), &mut to_phone);
                                     }
                                 }
                                 Some("error") => tracing::warn!(message = value["message"].as_str(), "surface: the source reported"),
                                 _ => {}
                             },
                             Ok(None) => break,
-                            Err(reason) => return Err(reason.into()),
+                            Err(reason) => {
+                                bad = Some(reason);
+                                break;
+                            }
                         }
+                    }
+                    if let Some(reason) = bad {
+                        break Err(reason.into());
                     }
                 }
             },
             () = sleep => {
                 let now = surface_clock_us();
                 let output = engine.tick(true, now);
-                pending = pending.or(emit(&mut to_phone, output)).or(engine.poll(now));
+                flow.take(output, &mut to_phone, &mut to_app);
+                flow.newest(engine.poll(now));
             }
         }
         if !to_app.is_empty() && app_write.write_all(&to_app).await.is_err() {
@@ -616,15 +630,87 @@ pub async fn host_session(
             break Ok(());
         }
     };
-    // A finger left down on the simulator is lifted when its viewer goes.
-    if touching {
-        let _ = app_write
-            .write_all(
-                &SourceFrame::Json(json!({"t": "touch", "phase": "ended", "x": 0.5, "y": 0.5})).encode(),
-            )
-            .await;
+    // A finger left down on the simulator is lifted where it was when its viewer goes.
+    if let Some(lift) = flow.lift() {
+        let _ = app_write.write_all(&SourceFrame::Json(lift).encode()).await;
     }
     result
+}
+
+/// How long the source has to answer one `encode` before it counts as skipped.
+const ENCODE_TIMEOUT_US: u64 = 1_000_000;
+/// How long a halved bitrate (a frame too large for the path) holds.
+const HALVED_FOR_US: u64 = 2_000_000;
+
+/// The engine's requests and the phone's finger between hostd and the source.
+#[derive(Default)]
+struct Flow {
+    /// The next encode to ask for: always the newest request (the engine's frame
+    /// gate counts a request as sent, so an older one dropped for it never stalls it).
+    pending: Option<EncodeRequest>,
+    /// The encode the source is working on, and when it counts as skipped.
+    in_flight: Option<(EncodeRequest, u64)>,
+    touching: bool,
+    last_touch: (f64, f64),
+    /// A bitrate cap after the engine asked to halve it, and until when.
+    halved: Option<(u32, u64)>,
+}
+
+impl Flow {
+    fn newest(&mut self, request: Option<EncodeRequest>) {
+        if request.is_some() {
+            self.pending = request;
+        }
+    }
+
+    fn kbps(&mut self, target: u32, now: u64) -> u32 {
+        match self.halved {
+            Some((cap, until)) if now < until => target.min(cap),
+            _ => {
+                self.halved = None;
+                target
+            }
+        }
+    }
+
+    /// One engine output: datagrams to the phone, input to the source, the next request.
+    fn take(&mut self, output: Output, to_phone: &mut Vec<u8>, to_app: &mut Vec<u8>) {
+        for event in &output.inject {
+            if let InputEvent::Service { bytes, .. } = event
+                && let Ok(event) = serde_json::from_slice::<Value>(&bytes[..])
+                && let Some(line) = input_line(&event, &mut self.touching)
+            {
+                if line["t"] == "touch" {
+                    self.last_touch = (line["x"].as_f64().unwrap_or(0.5), line["y"].as_f64().unwrap_or(0.5));
+                }
+                to_app.extend(SourceFrame::Json(line).encode());
+            }
+        }
+        // The engine gave up on input it held behind a gap: a finger down is lifted.
+        if output.release_all
+            && let Some(lift) = self.lift()
+        {
+            to_app.extend(SourceFrame::Json(lift).encode());
+        }
+        if output.halve_bitrate {
+            let now = surface_clock_us();
+            let current = self.halved.map_or(u32::MAX, |(cap, _)| cap);
+            let base =
+                self.in_flight.as_ref().map_or(current, |(request, _)| request.target_kbps.min(current));
+            self.halved = Some(((base / 2).max(300), now + HALVED_FOR_US));
+        }
+        self.newest(emit(to_phone, output));
+    }
+
+    /// The `touch ended` that lifts a finger still down, at its last point.
+    fn lift(&mut self) -> Option<Value> {
+        if !self.touching {
+            return None;
+        }
+        self.touching = false;
+        let (x, y) = self.last_touch;
+        Some(json!({"t": "touch", "phase": "ended", "x": x, "y": y}))
+    }
 }
 
 fn emit(out: &mut Vec<u8>, output: Output) -> Option<EncodeRequest> {

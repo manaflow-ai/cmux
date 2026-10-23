@@ -37,6 +37,10 @@ public final class SimulatorSurfaceServer {
     private var ready: [CheckedContinuation<UInt16, any Error>] = []
     /// Runs once when the source stops (``stop()``, or its listener failed).
     public var onEnd: (@MainActor () -> Void)?
+    /// Whether the phone tab this source streams still shows this simulator. Asked on
+    /// every input and frame (a dictionary lookup); false stops the source, so a tab
+    /// closed or switched to another phone is never streamed or driven again.
+    public var stillShown: (@MainActor () -> Bool)?
 
     public init(service: PhoneService, device: PhoneDeviceID) {
         self.service = service
@@ -95,7 +99,9 @@ public final class SimulatorSurfaceServer {
     private func accept(_ connection: NWConnection) {
         guard let live = service.live else { return connection.cancel() }
         let id = ObjectIdentifier(connection)
-        let session = Session(connection: connection, secret: secret, udid: device.raw, device: device, live: live, service: service) { [weak self] in
+        let session = Session(connection: connection, secret: secret, udid: device.raw, device: device, live: live, service: service,
+                              stillShown: { [weak self] in self?.stillShown?() ?? true },
+                              stale: { [weak self] in self?.stop() }) { [weak self] in
             self?.sessions[id] = nil
         }
         sessions[id] = session
@@ -114,6 +120,15 @@ extension SimulatorSurfaceServer {
         private let live: SimulatorKitHID
         private let service: PhoneService
         private let ended: @MainActor () -> Void
+        private let stillShown: @MainActor () -> Bool
+        private let stale: @MainActor () -> Void
+        /// The phone's input, applied one at a time in order: touches and keys at once,
+        /// text and buttons through ``PhoneService`` (text a US keyboard cannot type
+        /// is pasted with simctl). Bounded: a flood drops new input, never spawns more.
+        private let inputs: AsyncStream<[String: SurfaceSourceValue]>
+        private let queue: AsyncStream<[String: SurfaceSourceValue]>.Continuation
+        private var applying: Task<Void, Never>?
+        static let inputBacklog = 256
         private var wire = SurfaceSourceWire()
         private var authorized = false
         private var watch: SimulatorKitHID.ScreenWatch?
@@ -127,7 +142,12 @@ extension SimulatorSurfaceServer {
         private var closed = false
 
         init(connection: NWConnection, secret: String, udid: String, device: PhoneDeviceID, live: SimulatorKitHID,
-             service: PhoneService, ended: @escaping @MainActor () -> Void) {
+             service: PhoneService, stillShown: @escaping @MainActor () -> Bool, stale: @escaping @MainActor () -> Void,
+             ended: @escaping @MainActor () -> Void) {
+            (inputs, queue) = AsyncStream.makeStream(of: [String: SurfaceSourceValue].self,
+                                                     bufferingPolicy: .bufferingOldest(Self.inputBacklog))
+            self.stillShown = stillShown
+            self.stale = stale
             self.connection = connection
             self.secret = secret
             self.udid = udid
@@ -145,6 +165,14 @@ extension SimulatorSurfaceServer {
                 }
             }
             connection.start(queue: .main)
+            let inputs = inputs
+            // task-owner: the session's one input applier; ends with the stream in end()
+            applying = Task { [weak self] in
+                for await line in inputs {
+                    guard let self, !self.closed else { return }
+                    await self.apply(line)
+                }
+            }
             receive()
         }
 
@@ -154,6 +182,8 @@ extension SimulatorSurfaceServer {
             if let watch { live.stopScreen(watch) }
             watch = nil
             encoder = nil
+            queue.finish()
+            applying?.cancel()
             connection.cancel()
             ended()
         }
@@ -196,10 +226,9 @@ extension SimulatorSurfaceServer {
             switch type {
             case "encode": encode(idr: line["idr"]?.bool ?? false, kbps: Int(line["kbps"]?.number ?? 4000))
             case "visible": setVisible(line["visible"]?.bool ?? true)
-            case "touch": touch(line)
-            case "text": if let text = line["text"]?.string { act(.text(text)) }
-            case "key": key(line)
-            case "button": button(line["button"]?.string)
+            case "touch", "text", "key", "button":
+                guard stillShown() else { return stale() }
+                queue.yield(line)
             default: break
             }
         }
@@ -226,13 +255,19 @@ extension SimulatorSurfaceServer {
         }
 
         private func frame(_ surface: IOSurface) {
+            guard stillShown() else { return stale() }
             let first = latest == nil
             latest = surface
             latestAt = Self.now()
             let width = IOSurfaceGetWidth(surface), height = IOSurfaceGetHeight(surface)
             if encoder.map({ $0.sourceWidth != width || $0.sourceHeight != height }) ?? true {
                 // A new size (first frame, a rotation): a new encoder, whose first frame is an IDR.
+                encoder?.finish()
                 encoder = SurfaceFrameEncoder(sourceWidth: width, sourceHeight: height)
+                guard encoder != nil else {
+                    send(SurfaceSourceWire.json(["t": "error", "message": "VideoToolbox gave no H.264 encoder for this screen"]))
+                    return end()
+                }
                 let size = SurfaceFrameEncoder.encodedSize(width: width, height: height)
                 send(SurfaceSourceWire.json(["t": "size", "width": size.width, "height": size.height]))
                 if !first { damageSent = false }
@@ -306,18 +341,25 @@ extension SimulatorSurfaceServer {
             }
         }
 
-        private func button(_ name: String?) {
-            switch name {
-            case "home": act(.button(.home))
-            case "lock": act(.button(.lock))
+        /// One queued input, in order (see ``inputs``).
+        private func apply(_ line: [String: SurfaceSourceValue]) async {
+            switch line["t"]?.string {
+            case "touch": touch(line)
+            case "key": key(line)
+            case "text": if let text = line["text"]?.string { await act(.text(text)) }
+            case "button":
+                switch line["button"]?.string {
+                case "home": await act(.button(.home))
+                case "lock": await act(.button(.lock))
+                default: break
+                }
             default: break
             }
         }
 
-        private func act(_ input: PhoneInput) {
-            let service = service, device = device
-            // task-owner: one input the phone sent; PhoneService logs it into a running recording
-            Task { try? await service.send(input, to: device) }
+        /// Sends `input` through ``PhoneService``, which logs it into a running recording.
+        private func act(_ input: PhoneInput) async {
+            try? await service.send(input, to: device)
         }
     }
 }

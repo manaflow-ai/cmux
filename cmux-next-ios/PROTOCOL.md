@@ -685,8 +685,8 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   lane, and the shown tab owns it among browser and simulator tabs alike
   (`rb.visibility`). The host answers `rb.open` and `rb.screen` with
   `rb.opened` and `rb.screen_applied` at the simulator's encoded size (its
-  framebuffer scaled to at most 1920 px on the long side, rotation included)
-  and sends no `rb.page`. The phone sends only rd datagrams, `stop` and
+  framebuffer scaled to at most 1920 px on the long side), sends a new
+  `rb.screen_applied` (seq 0) when the simulator rotates, and sends no `rb.page`. The phone sends only rd datagrams, `stop` and
   `rb.open`, `rb.close`, `rb.visibility`, `rb.screen`, `rb.vsync`; hostd drops
   every other rb message. Input is `rb` input events in rd `service` input:
   `pointer` `down`/`move`/`up` at `x`, `y` in 0...1 of the simulator's screen
