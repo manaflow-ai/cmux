@@ -2002,7 +2002,7 @@ export function VirtualTranscript({
   // size as it was (a prompt the fold hides, or one an opened list's cap cuts off, run by another
   // client) runs neither observer: still noted as queued, the next resize took it for a card that
   // left then, and kept room above the stack for FLOOR_HOLD_MS that then glided away (#24182).
-  useLayoutEffect(() => noteQueue(), [queueIds, noteQueue]);
+  useLayoutEffect(() => noteQueue(), [sessionId, queueIds, noteQueue]);
   const [width, setWidth] = useState(() => lastTranscriptBox.width);
   // The column's cap (layout.json `chatWidth`): a new one measures every row again.
   const chatWidth = useChatWidth();
