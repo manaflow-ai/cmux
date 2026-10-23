@@ -39,5 +39,13 @@ struct WhatsNewPlacementTests {
         let relaunch = WhatsNewCenter(currentVersion: "1.0.0", defaults: defaults, sources: [source])
         await relaunch.load().value
         #expect(!relaunch.showsUpdatedCard, "once per version: a relaunch after the x shows no card")
+
+        let nextUpdate = WhatsNewCenter(currentVersion: "1.1.0", defaults: defaults, sources: [source])
+        await nextUpdate.load().value
+        #expect(nextUpdate.showsUpdatedCard, "a newer update gets its own card after the prior one was dismissed")
+        nextUpdate.dismissUpdated()
+        let nextRelaunch = WhatsNewCenter(currentVersion: "1.1.0", defaults: defaults, sources: [source])
+        await nextRelaunch.load().value
+        #expect(!nextRelaunch.showsUpdatedCard, "the newer update's card stays gone after it is dismissed")
     }
 }

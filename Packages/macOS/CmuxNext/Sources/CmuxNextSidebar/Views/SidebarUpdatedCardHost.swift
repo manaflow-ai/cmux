@@ -86,6 +86,7 @@ final class SidebarUpdatedCardHost: NSView {
             setHoverShown(closeButton, false, fades: false)
         }
         isHidden = card == nil || island == nil
+        syncHoverToPointer()
     }
 
     /// The card's height: the page's content height (0 until it drew).
@@ -100,6 +101,20 @@ final class SidebarUpdatedCardHost: NSView {
 
     /// Whether the x shows now (proofs).
     var closeShown: Bool { !closeButton.isHidden && closeButton.alphaValue > 0 }
+
+    /// AppKit does not send `mouseEntered` when a tracking area becomes visible beneath a
+    /// stationary pointer. The page reports its height after launch, so sync the reveal once the
+    /// host is unhidden instead of waiting for the pointer to leave and re-enter the card.
+    private func syncHoverToPointer() {
+        guard let window, card != nil, !isHiddenOrHasHiddenAncestor else { return }
+        let pointer = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        setHovered(bounds.contains(pointer))
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        syncHoverToPointer()
+    }
 
     override func layout() {
         super.layout()
