@@ -7,6 +7,9 @@
 Launches the tagged app (no activation, automation socket, scratch config), then per layout drags a
 vertical divider left and right, one `debug.mouse` move per display frame:
 
+  idle-cursor  a focused terminal at rest with a hidden cursor: Ghostty frames drawn in --idle-s
+           seconds (0 expected: a blink tick of a hidden cursor changes no pixel).
+
   light    a workspace split right: 2 terminals, each with --scrollback lines of history and one long
            line, so every column change reflows real text.
   stress   the STRESS session (perf-stress-session.py: 60 workspaces, 4x3 panes + nested splits, 6
@@ -31,11 +34,12 @@ from tag_teardown import TagTeardown  # noqa: E402
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", default=os.environ.get("NX_APP"))
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or "/tmp/bench-terminal-resize")
-parser.add_argument("--layouts", default="light,stress")
+parser.add_argument("--layouts", default="idle-cursor,light,stress")
 parser.add_argument("--steps", type=int, default=60, help="moves each way")
 parser.add_argument("--step-pt", type=float, default=4.0)
 parser.add_argument("--scrollback", type=int, default=20000, help="history lines printed in each light terminal")
 parser.add_argument("--rounds", type=int, default=2)
+parser.add_argument("--idle-s", type=float, default=5.0)
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 APP = (opts.app or "").rstrip("/")
@@ -181,6 +185,21 @@ def light():
     return measure("light")
 
 
+def idle_cursor():
+    """A focused terminal at rest with its cursor hidden (as agent TUIs keep it): Ghostty frames drawn in
+    --idle-s seconds. Each blink tick used to update and draw a frame (about 1.7/s); none changes a pixel."""
+    rpc("action.run", {"action": "newTab", "focus": True})
+    wait(lambda: surfaces(), 30)
+    write("clear; printf '\\033[?25l'; sleep 600\r")
+    time.sleep(1.5)  # bench script: the command runs and the screen settles
+    focused = [s for s in surfaces()]
+    before = focused[0]["counters"].get("frames", 0) if focused else 0
+    time.sleep(opts.idle_s)  # bench script: the measured idle window
+    after_rows = surfaces()
+    after = after_rows[0]["counters"].get("frames", 0) if after_rows else 0
+    return {"layout": "idle-cursor", "idle_s": opts.idle_s, "frames": int(after) - int(before)}
+
+
 def stress():
     path = os.path.join(HERE, "perf-stress-session.py")
     spec = importlib.util.spec_from_file_location("perf_stress_session", path)
@@ -215,7 +234,7 @@ try:
     if not wait(lambda: os.path.exists(SOCKET) and "error" not in (rpc("debug.focus") or {"error": 1}), 120):
         sys.exit("app did not come up")
     for name in [n for n in opts.layouts.split(",") if n]:
-        result = {"light": light, "stress": stress}[name]()
+        result = {"idle-cursor": idle_cursor, "light": light, "stress": stress}[name]()
         report["layouts"].append(result)
         print(f"TERMINAL-RESIZE {json.dumps(result)}", flush=True)
 finally:
