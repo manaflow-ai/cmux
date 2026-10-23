@@ -100,6 +100,12 @@ nonisolated enum AcpmuxPaneMethods {
         // The composer's Account menu (direct.ts routes, setChatRoute): read the routes, and pick
         // one for a chat in the pane's scope. Adding or changing a route stays the unix socket's.
         "_acpmux/route/list", "_acpmux/chat/route.set",
+        // The Inspector's running-limit stepper (direct.ts setRunningLimit): how many of a chat's
+        // sub-sessions in the pane's scope run a turn at once, or back to the inherited limit
+        // (`null`). Only `maxRunning`: it starts nothing new and widens no permission (each child already
+        // runs under its parent's policy), so no gesture; acpmux takes it only from a connection that
+        // proved the person key (hub/subsessions.rs, `set_subsession_limits`).
+        "_acpmux/subsession/limits",
         // The forum's current rules for the rules card above the composer (direct.ts forumRules,
         // RulesNotice.tsx; acpmux server/forum.rs, hq#2570). Read only and without params: the
         // rules every agent on this Mac is told already. Posting, acking and retiring stay off the pane.
@@ -202,6 +208,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set",
+        "_acpmux/subsession/limits",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
