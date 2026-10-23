@@ -16,20 +16,24 @@ if [ -n "${CMUX_CLI_BASH_ENV-}" ]; then
   [ -r "$__cmux_cli_next_env" ] && builtin source "$__cmux_cli_next_env"
   builtin unset __cmux_cli_next_env
 fi
-# Ghostty's preexec hook reads the command line with `cmd=$(builtin history 1)`:
-# a fork before every command. bash 5.3 captures a builtin's output in the shell
-# itself with `${ ...; }`, which Ghostty already uses there to run this hook from
-# PS0, so the hook costs no process. Older bash has no fork-free capture and
-# keeps Ghostty's hook. Defined through eval so an older bash never parses the
-# 5.3 syntax. This layer runs over Ghostty's script in both spawn paths (the
-# app's and the daemon's cli_path::wrap). Drop it once ghostty-next's
-# ghostty.bash reads the history this way; scripts/cmux-next/shell-integration-bench.py
-# counts the forks.
+# Interim; delete with the ghostty-next bump. The root fix belongs in
+# ghostty-next's ghostty.bash (patch sent to PL-ghostty). Its preexec hook reads
+# the command line with `cmd=$(builtin history 1)`, a fork before every command.
+# Its PROMPT_COMMAND type check `$(declare -p)` also forks at start when the
+# user's startup files set PROMPT_COMMAND, and this layer cannot reach that one.
+# bash 5.3 captures a builtin's output in the shell itself with `${ ...; }`, and
+# Ghostty already uses that form to run this hook from PS0. Older bash has no
+# fork-free capture and keeps Ghostty's hook. eval keeps older bash from parsing
+# the 5.3 syntax. No temporary LC_ALL=C: inside `${ }` it would switch the
+# shell's own locale to C and back on every command, and the digit strip below
+# runs in the caller's locale anyway. This override covers only spawns that get
+# this layer: the app's, and the daemon's cli_path::wrap when it knows the
+# app's bundled CLI. scripts/cmux-next/shell-integration-bench.py counts the forks.
 if [[ "$-" == *i* ]] && (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 3) )) \
   && builtin declare -F __ghostty_preexec_hook >/dev/null; then
   builtin eval '__ghostty_preexec_hook() {
     builtin local cmd
-    cmd=${ LC_ALL=C HISTTIMEFORMAT= builtin history 1; }
+    cmd=${ HISTTIMEFORMAT= builtin history 1; }
     cmd="${cmd#*[[:digit:]][* ] }"
     [[ -n "$cmd" ]] && __ghostty_preexec "$cmd"
   }'
