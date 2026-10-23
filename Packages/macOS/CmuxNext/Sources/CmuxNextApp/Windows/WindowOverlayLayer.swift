@@ -264,6 +264,7 @@ final class WindowOverlayLayer {
         var dividers: [LayoutMouseArea] = []
         var areas: [LayoutMouseArea] = []
         var held: [ObjectIdentifier: [LayoutMouseArea]] = [:]
+        var passThrough: Set<String> = []
         for plane in planes {
             guard let root = plane.home as? LayoutRootView, root.window === window else { continue }
             rects += root.interactiveOverlayRects.map { root.convert($0, to: nil) }
@@ -280,13 +281,15 @@ final class WindowOverlayLayer {
             let id = ObjectIdentifier(root)
             let frozen = root.isLive && root.isInLayoutMotion ? catcherAreasAtRest[id] : nil
             held[id] = frozen ?? live
+            if let frozen { passThrough.formUnion(frozen.map(\.id)) }
             areas += frozen ?? live
         }
         catcherAreasAtRest = held
         dividerAreas = dividers
         if let sidebarResizeArea { areas.append(sidebarResizeArea) }
-        if areas != catcherAreas {
+        if areas != catcherAreas || passThrough != catcherPassThrough {
             catcherAreas = areas
+            catcherPassThrough = passThrough
             syncCatchers()
             // Layer-hosted pages leave these rects to the window as mouse holes (`mouseOnlyRects`).
             if !hostedPageHosts.isEmpty { requestPageUpdate() }
@@ -414,7 +417,7 @@ final class WindowOverlayLayer {
         }
         // A modal or dimming overlay blocks the whole window: no divider takes the mouse under it.
         let blocked = WindowOverlayHost.existingHost(for: window)?.blocksWholeWindow == true
-        catchers.update(catcherAreas, active: placement == .overlayWindow && !blocked)
+        catchers.update(catcherAreas, active: placement == .overlayWindow && !blocked, passThrough: catcherPassThrough)
         // The panels pass hover through to the layout, and moving them under
         // a still pointer sends no event: the layout recomputes now (cx-ww20).
         for plane in planes {
