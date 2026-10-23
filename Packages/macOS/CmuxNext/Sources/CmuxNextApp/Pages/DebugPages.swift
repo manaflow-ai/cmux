@@ -1,8 +1,10 @@
 import AppKit
 import CmuxNextControl
+import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
+import WebKit
 
 // `debug.page` (DEBUG builds): the generic page verb for every React page
 // (plans/cmux-next/react-pages.md), from the Settings lead's `debug.settings_web`.
@@ -12,7 +14,8 @@ import Foundation
 // showed), the one in the key window first, else the newest. `action`:
 // - `list`: every live page of the id: instance, parked, window number, claim outcome;
 // - `state` (default): page id, URL fragment, language, visible text, control count, computed
-//   html/body backgrounds (the one-backdrop check), `painted` (the document's first frame, with
+//   html/body backgrounds (the one-backdrop check), `render_rate` (`full`, `near60`, `chromium`)
+//   and `display_fps`, `painted` (the document's first frame, with
 //   `painted_uptime` in host systemUptime seconds and `painted_ms` on the page clock), `instance`,
 //   `parked`, `window_number` and `claim` (how a pooled host took its last claim: `path`
 //   acknowledged / refused / timedOut / loaded, `ms`) and `in_flight` (the page's calls still
@@ -79,6 +82,9 @@ enum DebugPages {
                 members["window_visible"] = .bool(page.window?.isVisible ?? false)
                 members["window_occluded"] = .bool(!(page.window?.occlusionState.contains(.visible) ?? false))
                 members["frame"] = .string("\(Int(page.frame.width))x\(Int(page.frame.height))")
+                // How fast it renders, against the display it is on (perf: every page at full rate).
+                members["render_rate"] = .string(renderRate(page))
+                members["display_fps"] = page.window?.screen.map { .number(Double($0.maximumFramesPerSecond)) } ?? .null
                 state = .object(members)
             }
             return state
@@ -116,6 +122,16 @@ enum DebugPages {
         default:
             return ["error": "unknown action"]
         }
+    }
+
+    /// How fast the page renders: `chromium` (the display's rate), `full` or `near60` (WebKit's
+    /// PreferPageRenderingUpdatesNear60FPSEnabled), `unknown` (a WebKit without that feature).
+    @MainActor
+    private static func renderRate(_ page: PageWebView) -> String {
+        if page.showsChromium { return "chromium" }
+        guard let near60 = page.webKitView.configuration.preferences.isWebKitFeatureEnabled(WebKitRenderRate.near60FPSFeature)
+        else { return "unknown" }
+        return near60 ? "near60" : "full"
     }
 
     /// Which live view a probe read.

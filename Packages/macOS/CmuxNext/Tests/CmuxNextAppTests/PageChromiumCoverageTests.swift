@@ -15,8 +15,8 @@ import Testing
     /// Every page the app ships, with the engine options its service makes it with.
     private static let surfaces: [(page: PageDescriptor, options: PageEngineOptions)] = [
         (.agent, PageEngineOptions(chromiumAgentChat: AgentPaneTunables.chromium.value)), (.history, .standard), (.cloud, .standard), (.apps, .standard), (.settings, PageFactory.settingsEngineOptions),
-        (.keybindings, .standard), (.diff, DiffPageService.engineOptions), (.markdown, FilePageService.engineOptions),
-        (.editor, FilePageService.engineOptions), (.iconPicker, IconPickerService.engineOptions), (.passwords, .standard),
+        (.keybindings, .standard), (.diff, .standard), (.markdown, .standard),
+        (.editor, .standard), (.iconPicker, IconPickerService.engineOptions), (.passwords, .standard),
         (.chiefInspector, .standard), (.debugSettings, .standard), (.homeChannels, PageFactory.homeChannelsEngineOptions),
         (.changelog, .standard), (.coderouter, .standard), (.files, .standard), (.stats, .standard),
         (.chiefUsage, .standard), (.mobilePairing, .standard), (.agentActivity, .standard),
