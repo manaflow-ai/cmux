@@ -38,7 +38,13 @@ public final class SidebarRowFeed {
 
     private final class Entry {
         var make: Make
-        var row: SidebarWorkspace
+        /// The last mapped row; each write moves `revision`.
+        var row: SidebarWorkspace { didSet { revision &+= 1 } }
+        /// Moves with every write of `row`.
+        var revision: UInt64 = 0
+        /// The `revision` of the row the last pass got from `row(_:machine:make:)` (`fill` writes the row only
+        /// when it moved since); `.max` for a stub, which `fill` always writes.
+        var namedRevision: UInt64 = .max
         /// The row's mapping has an observation armed.
         var armed = false
         /// The armed observation's generation; a callback of an older one is stale.
@@ -106,6 +112,7 @@ public final class SidebarRowFeed {
         if let entry = entries[id] {
             entry.make = make
             entry.pass = pass
+            entry.namedRevision = entry.revision
             return entry.row
         }
         let stub = SidebarWorkspace(id: id, machineID: machine, title: "")
@@ -118,6 +125,11 @@ public final class SidebarRowFeed {
     /// them again when the pass's inputs changed). Forgets rows the pass did
     /// not name. Each row keeps its row state from `sections`. Call outside
     /// any observation tracking.
+    ///
+    /// Writes only the rows that differ from what the pass got (new rows, rows mapped again here or by a flush
+    /// since): a reorder writes none, so its cost does not grow with the sidebar (a rewrite of every row was
+    /// most of a reorder's main-thread time at 400 workspaces, and typing in a terminal waited on it:
+    /// sidebar-churn-typing.py).
     public func fill(_ sections: [SidebarSection]) -> [SidebarSection] {
         SidebarPerfCounters.add(.rebuilds)
         return SidebarPerfCounters.timed { fillNow(sections) }
@@ -129,7 +141,6 @@ public final class SidebarRowFeed {
             entries[id] = nil
         }
         var rows: [SidebarWorkspace] = []
-        rows.reserveCapacity(named.count)
         let remap = inputsChanged
         inputsChanged = false
         for id in named {
@@ -138,7 +149,9 @@ public final class SidebarRowFeed {
             // and sends it as a patch. Mapped here, a tick's status would ride this pass as a structural set (hitch17:
             // a sidebar reload and an anchored offset shift every 1-2 s under 50 ticking terminals).
             if remap || (!entry.armed && !dirty.contains(id)) { entry.row = arm(id, entry) }
-            rows.append(entry.row)
+            // The pass holds this row already, unless it was a stub or was mapped again since.
+            if entry.revision != entry.namedRevision { rows.append(entry.row) }
+            entry.namedRevision = entry.revision
         }
         if remap { dirty.subtract(named) }
         return SidebarRowIndex.patching(rows, in: sections)

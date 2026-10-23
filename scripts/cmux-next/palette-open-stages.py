@@ -20,6 +20,9 @@ Usage: palette-open-stages.py --tag <tag> --app PATH [--rounds 10] [--interval 0
 """
 import argparse, glob, json, os, re, signal, socket, statistics, subprocess, sys, tempfile, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import BenchApp  # noqa: E402
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", required=True, help="the tagged .app bundle")
@@ -190,7 +193,7 @@ def cleanup():
 
 
 def main():
-    global app
+    global app, SOCKET
     if os.path.exists(SOCKET):
         ps = subprocess.run(["ps", "-axo", "command="], capture_output=True, text=True).stdout
         if any(line.startswith(APP + "/Contents/MacOS/") for line in ps.splitlines()):
@@ -200,12 +203,15 @@ def main():
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900"}
-    log = open(os.path.join(opts.out, f"app-{TAG}.log"), "a")
-    app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    LAUNCHED.append(app.pid)
+    # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
+    bench = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=None, screen=None, teardown=False, env=env)
+    try:
+        bench.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
+    finally:
+        app = bench.process
+    SOCKET = bench.socket
+    ENV["CMUX_SOCKET_PATH"] = SOCKET
     print(f"launched pid {app.pid}", flush=True)
-    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
-        sys.exit("the tagged app did not come up")
     made = run("workspace", "create", "--name", "paletteopen-e2e")
     tab = re.search(r"value\.tab_id\s+(tab_\S+)", made.stdout)
     workspace = re.search(r"value\.workspace_id\s+(\S+)", made.stdout)

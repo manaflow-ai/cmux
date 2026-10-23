@@ -32,7 +32,7 @@ grep -q "only the base autofix writes it" "$tmp/out" || fail "a bot-only file sa
 drift "$schema" schemas/settings-export/settings-schema.sources.sha256 \
   Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Tabs.swift || fail "a settings source causes its exports"
 # A setting declared outside CmuxNextSettings (CmuxNextDesign's AttentionSettings) changes the exports too.
-drift "$schema" docs/mdm/com.manaflow.cmux.plist Packages/macOS/CmuxNext/Sources/CmuxNextDesign/AttentionSettings.swift \
+drift "$schema" docs/mdm/com.manaflow.cmux.plist Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/AttentionSettings.swift \
   || fail "a setting declared in another CmuxNext module causes the settings exports"
 drift schemas/defaults/cmux-next.json Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift \
   || fail "a default binding change causes the defaults snapshot"

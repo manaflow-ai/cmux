@@ -385,15 +385,13 @@ for (const [harness, family] of [
     }
   });
 
-// The context ring's card splits the window into the agent's setup and the conversation only when
-// the harness reports the setup on its usage record (`_meta.acpmux.setup`); the composer passes the
-// snapshot's usage to the ring as is. Without one the bar is one stretch, never a guessed split.
-const segmentsOf = (usage: { used: number; size: number; setup?: number }) =>
-  [...renderToStaticMarkup(<ContextCardBody {...usage} working={false} />).matchAll(/data-segment="(\w+)"/g)]
-    .map((match) => match[1])
-    .filter((kind, at, all) => all.indexOf(kind) === at);
+// The composer tooltip stays compact for harnesses without a category breakdown. The usage record
+// still carries the setup value for the context summary, but it is intentionally not guessed into
+// the small Codex-style hover surface.
+const compactCard = (usage: { used: number; size: number; setup?: number }) =>
+  renderToStaticMarkup(<ContextCardBody {...usage} working={false} />).includes("acpmux-context-card-compact-content");
 
-test("a usage record's reported setup reaches the context card as its split bar", async () => {
+test("a usage record's reported setup reaches the context summary while the tooltip stays compact", async () => {
   const withSetup: Step = [
     "in",
     "usage_update",
@@ -404,12 +402,12 @@ test("a usage record's reported setup reaches the context card as its split bar"
   try {
     await until(() => snapshot().summary?.usage !== undefined, "the usage");
     expect(snapshot().summary.usage).toEqual({ used: 111_000, size: 475_000, setup: 20_000 });
-    expect(segmentsOf(snapshot().summary.usage)).toEqual(["setup", "conversation"]);
-    // A later record with no setup draws one bar again; a setup past what is used is no split.
+    expect(compactCard(snapshot().summary.usage)).toBe(true);
+    // A later record with no setup keeps the same compact tooltip.
     daemon.push(record([held(120_000, 475_000)], 4));
     await until(() => snapshot().summary.usage.used === 120_000, "the next usage");
     expect(snapshot().summary.usage).toEqual({ used: 120_000, size: 475_000 });
-    expect(segmentsOf(snapshot().summary.usage)).toEqual(["used"]);
+    expect(compactCard(snapshot().summary.usage)).toBe(true);
     daemon.push(
       record(
         [

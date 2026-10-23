@@ -80,9 +80,9 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
     return (fastest * distance * 1000) / 60;
   };
 
-  async function open(rows: unknown[], top: number, count = COUNT): Promise<Page> {
+  async function open(rows: unknown[], top: number, count = COUNT, height = 820): Promise<Page> {
     const { port } = vite!.httpServer!.address() as { port: number };
-    const page = await browser!.newPage({ viewport: { width: 1280, height: 820 } });
+    const page = await browser!.newPage({ viewport: { width: 1280, height } });
     await installPaintedFrames(page);
     await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html`);
     await page.waitForFunction(() => "__showRows" in window);
@@ -369,6 +369,39 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
         if (loaded * 10 > 574) expect(Math.abs(frames.at(-1)!.y - before.y)).toBeLessThanOrEqual(1);
         await page.close();
       }
+    });
+
+    // Leo, 2026-10-22: "it wouldn't show the highlighted bottom text where I was scrolling at the
+    // bottom ... It didn't show the bottom bits being highlighted." The rail sits inside the
+    // transcript, whose mask fades rows out under its top and above its foot; in a short window the
+    // rail filled the view less 8 px each end, so its first and last lit ticks drew inside those fades.
+    test("in a short window every lit tick stays clear of the transcript's faded edges, at any offset", async () => {
+      const page = await open(turns(0, COUNT), 0, COUNT, 420);
+      const clipped = await page.evaluate(async () => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const probe = window as unknown as { __still(frames?: number): Promise<void> };
+        const px = (name: string) => Number.parseFloat(getComputedStyle(scroller).getPropertyValue(name)) || 0;
+        const end = scroller.scrollHeight - scroller.clientHeight;
+        const found: string[] = [];
+        for (const share of [0, 0.02, 0.1, 0.5, 0.9, 0.97, 0.99, 1]) {
+          scroller.scrollTop = Math.round(end * share);
+          await probe.__still();
+          const view = scroller.getBoundingClientRect();
+          // The mask's opaque band (conversation.css): below the top fade, above the foot's.
+          const top = view.top + px("--acpmux-fade-top");
+          const bottom = view.top + view.height - px("--acpmux-dock-space") - px("--acpmux-fade-bottom");
+          for (const tick of document.querySelectorAll<HTMLElement>('.acpmux-minimap__tick[aria-current="true"]')) {
+            const box = tick.getBoundingClientRect();
+            if (box.top < top - 0.5 || box.bottom > bottom + 0.5)
+              found.push(
+                `${share}: tick ${tick.dataset.tick} at ${box.top - view.top}..${box.bottom - view.top} of ${top - view.top}..${bottom - view.top}`,
+              );
+          }
+        }
+        return found;
+      });
+      expect(clipped).toEqual([]);
+      await page.close();
     });
   });
 });

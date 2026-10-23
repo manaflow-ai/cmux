@@ -1,0 +1,30 @@
+{
+ "_recorded": "run 39964296950 (2026-10-23T13:50Z), the Linux part's report as `perf-cron linux part:` printed it; the log cut the stream object at 600 characters, so it holds only the keys printed before the cut.",
+ "sidecar": {
+  "sampleBytes": 16777216,
+  "iterations": 20,
+  "manifestDecodeMedianMicros": 2,
+  "manifestDecodeP95Micros": 4,
+  "sequentialReadMedianMicros": 728,
+  "sequentialReadP95Micros": 3225,
+  "sequentialReadMibPerSecond": 21950.945125381055
+ },
+ "stream": {
+  "patchBytes": 530578,
+  "fileCount": 2000,
+  "iterations": 10,
+  "medianMs": 12.33,
+  "p95Ms": 22.22,
+  "filesPerSecond": 162218,
+  "firstBatchFileCount": 32,
+  "firstBatchMs": 0.37,
+  "flushCount": 4,
+  "longYieldCount": 0,
+  "maxBatchSize": 1328,
+  "maxYieldMs": 0.01,
+  "appRenderCount": 4,
+  "appRenderMs": 0.83,
+  "appRenderedItemCount": 2000,
+  "maxJumpOptionCount": 200
+ }
+}

@@ -605,6 +605,22 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
     isn't in a folder this Mac shares with your iPhone."). The phone shows the
     reason over the page, in its own words for a known `code`, and the address
     bar goes back to the page.
+  - **The host checks every `file:` load itself** (2026-10-22): hostd sends
+    `rb.file_policy {roots, files}` right after its hello, and again when it
+    changes. `roots` are the shared folders; `files` are the pages the Mac showed
+    this tab (each page alone, never its folder). The host's request
+    handler (`OnBeforeBrowse` for navigations and frames,
+    `OnBeforeResourceLoad` for images, iframes, fetch and every other
+    subresource) refuses a `file:` URL whose path, resolved at load time, is
+    not one of `files` or inside one of `roots`. A host with no policy (the
+    Mac app's own remote tabs) loads every file. Known limits: the policy is
+    refreshed when hostd next checks an address (2 s cache), a link the host
+    refuses shows no notice on the phone, and a page restored from the
+    back-forward cache is not checked again by the host (hostd's take-back
+    still applies); a policy is replaced, never
+    removed, and a phone cannot send one (hostd's viewer allowlist). A new
+    host of a `file:` page starts at `about:blank` and hostd navigates it
+    after the policy.
   - hostd checks the host's `rb.page` too: a page the host went to by itself
     (a link, a redirect, script) that the rules refuse is not forwarded; hostd
     sends the host `rb.history back` (or `rb.navigate` to the last shown page
@@ -625,10 +641,15 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   Paste sends the phone's clipboard text as `ime_commit`. While the keyboard shows, the phone sends
   `rb.screen` with the page's visible height, so the page lays out above the
   keyboard. Hiding the keyboard sends nothing (the page keeps its focus). The host
-  does not report the focused field yet (`rb.text_input`), so the phone cannot
-  raise the keyboard by itself when the page focuses a field. Keys of a
-  hardware keyboard attached to the phone reach the page only as text (and
-  Return, Tab, Backspace); arrows, Escape and shortcuts go through the key bar. Under
+  reports the focused field, `rb.text_input {input_type, composition_rects,
+  caret}` (CSS pixels; `input_type` `none` when nothing takes text): the phone
+  raises the keyboard when a field gains focus and lowers it when the page
+  blurs a field it raised it for; Chromium keeps the focused field in view as
+  the viewport shrinks. A hardware keyboard's arrows, Escape, Home/End,
+  forward Delete and Command/Control shortcuts go to the page directly as
+  `key` events (with the Mac's edit commands: Option-arrows by word,
+  Command-arrows by line or document, Command-Z/Shift-Command-Z); Command-V
+  pastes the phone's clipboard. Under
   `CMUX_MOBILE_CONTROL=stdio` the app starts the hosts: hostd writes
   `{"type":"need_browser","request","tab","url"}` and the app answers
   `{"type":"browser","request","addr":"127.0.0.1:PORT","secret"}` or
@@ -814,3 +835,83 @@ The phone's link line names the path: "WireGuard direct", "WireGuard relay
 (TURN)", "WireGuard relay (TURN over TLS)" (and the same for WebRTC's
 TURN). There is no WebSocket relay any more. cmux-mobile-host reports the path as
 `direct`, `turn`, `turn-tls` or `none` (`phone_up`, `phone_path`).
+
+## Terminal size claims
+
+When the phone shows a Mac terminal, the shared PTY is sized for the phone too
+(cmux-tui shared sizing, docs/shared-terminal-sizing.md), and the Mac's pane
+shows the phone's grid. The phone's size counts only while the person is
+looking at that terminal; on every other path the claim ends and the Mac's
+pane gets its own size back (2026-10-21).
+
+Mechanisms, phone first, then the Mac:
+
+- **Release / claim (phone).** A terminal page claims its size while it is on
+  screen, settled and taking input (TabsKit `isInteractive`: not zoomed out to
+  the grid, not mid-swipe, no page menu open), the app is in the foreground
+  and none of its own sheets covers it (Files and Links, the photo picker, the
+  file importer). Losing that sends `release-surface-size {surface}` on the
+  attach channel after a 1 s debounce (`TerminalSizeClaimDebounce`), so a
+  quick switch away and back sends nothing and never resizes the Mac twice.
+  The app entering the background (or the lock screen) releases at once,
+  with no debounce, before iOS suspends it. Coming back claims at once:
+  `resize-surface` with the last measured grid. While released, layout passes
+  are remembered and not sent, and a reattach attaches without a size.
+- **Stop (phone).** A session that stops (its tab cooled out of the warm set
+  of 4, closed, another account) sends `release-surface-size` and waits for the
+  answer (at most 2 s) before it closes its channel. The daemon would read a
+  bare close as a dropped link and hold the grid.
+- **Size lease (phone and daemon, `size-lease-v1`).** The phone lists
+  `size-lease-v1` in `set-client-info` `capabilities`; when `identify` lists
+  it, the phone sends its claimed size again every 15 s while it claims (a
+  same-size `resize-surface` renews the lease and never resizes the PTY). A
+  size not refreshed for 45 s is released by the daemon; a connection that
+  ended without releasing ends the departed-view hold its own departure set
+  at that moment (a later departure's hold runs on). A suspended or dead phone can never pin the Mac's grid past it.
+- **Departed-view hold (daemon).** A phone's connection that ends without a
+  release (the link dropped) keeps the grid from growing for 30 s, so a link
+  blip that reattaches finds the grid it left (termqa V2-5); capped by the
+  lease as above, and ended at once by a phone back with a size.
+- **Release on purpose (cmux-mobile-host).** The Mac releases a phone's sizes
+  itself, sending `release-surface-size` for every terminal the channel
+  attached to or sized and waiting up to 500 ms for the answers before it
+  closes the daemon socket, when: the phone closed the `daemon` channel (a
+  `close` frame); the owner removed the phone (link closed `removed`); hostd
+  exits (stdin ends or SIGTERM: iPhone connections turned off, the app
+  quitting). A link that timed out or failed keeps the hold.
+- **Link keepalive.** A dead link closes 15-35 s after its last frame
+  ("Link"); the daemon socket closes with it.
+
+The Mac app's Swift phone splice (`DaemonLaneSplice`, the irx connection
+server) has no release of its own: a phone on that path relies on its own
+release and the daemon's size lease.
+
+| Path | Mechanism | Mac pane restored within |
+| --- | --- | --- |
+| Back to the workspace list | page disappears → release after debounce | 1 s + one round trip |
+| Another tab of the workspace | page not interactive → release | 1 s + RTT |
+| Tab grid opened | page not interactive (zoomed out) → release | 1 s + RTT |
+| Another workspace, another Mac | page disappears → release | 1 s + RTT |
+| Quick switch away and back (< 1 s) | debounce: nothing sent | no change (no thrash) |
+| Page menu open longer than 1 s | page not interactive → release; claimed again on close | 1 s + RTT |
+| Files and Links, photo picker or file importer over the page | covered → release | 1 s + RTT |
+| A sheet the page does not own (Connected Devices) | still claims (the terminal shows behind it) | n/a |
+| App to the background, screen locked | `didEnterBackground` → release at once, inside a short background task | one round trip |
+| Force quit, killed by iOS while foreground | no release; lease ends (or keepalive + hold, capped by the lease) | 45 s |
+| Killed by iOS in the background | already released on entering it | one round trip |
+| Link drop: network loss, roaming | keepalive closes the socket; hold capped by the lease | 45 s (a reattach inside it keeps the phone's grid) |
+| Transport switch | link redialled; hold; reattach finds the grid | no change if it reattaches within 30 s; else 45 s |
+| Mac host (hostd) restarts: SIGTERM | hostd releases before exit | 0.7 s |
+| hostd crashes or is killed (SIGKILL) | socket closes; hold capped by the lease | 45 s |
+| The Mac's cmux-tui daemon restarts | new daemon, no phone participant until it reattaches | at once |
+| iPhone connections turned off on the Mac | hostd SIGTERM → release | 0.7 s |
+| The owner removes the phone on the Mac | link closed `removed` → hostd releases | 0.5 s |
+| Phone signs out, "Remove This iPhone from My Macs" | links close (sessions stop and release when the link still carries them); else hold capped by the lease | 45 s worst case |
+| Tab cooled out of the warm set, tab closed | session stop → release, then close; else hostd releases on the close frame | one round trip |
+| Grid card of a tab not started | `read-screen` only, never attaches | never claims |
+| Grid card of a started tab | its page is not interactive → release | 1 s + RTT |
+| Several phones | each claims and releases its own; the grid is the Mac's again once every claim ended | the slowest phone's bound |
+| A phone and another remote client (a second Mac, the TUI) | the phone's release makes the grid follow the remaining views; a non-handheld view never holds | as the phone's path |
+| Older phone without `size-lease-v1` | no lease: hostd releases on its close frame, the keepalive + 30 s hold on a drop | 65 s on a drop |
+
+Measured on the rig: cmux-next-ios/verify/size-release-20261021.md.

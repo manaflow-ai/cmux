@@ -77,8 +77,8 @@ final class SidebarTabRowView: SidebarRowView {
         let iconSide = SidebarStyle.tabIconSize
         let iconX = SidebarStyle.titleLeading + Metrics.space3
         icon.frame = NSRect(x: iconX, y: (b.height - iconSide) / 2, width: iconSide, height: iconSide)
-        // Without a favicon the icon's slot stays empty, so every tab's title starts at one x.
-        let textX = icon.frame.maxX + Metrics.space2
+        // Without a favicon the title takes the icon's place (Lawrence 2026-10-23: "as left as possible").
+        let textX = icon.isHidden ? iconX - SidebarStyle.labelCellPadding : icon.frame.maxX + Metrics.space2
         // The dot sits where a workspace row's dot does: its slot at the row's trailing inset.
         var trailing = b.width - SidebarStyle.horizontalInset
         if unreadDot.state.isUnread {

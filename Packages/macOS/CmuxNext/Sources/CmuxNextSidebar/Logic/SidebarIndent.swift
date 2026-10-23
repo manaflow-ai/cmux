@@ -9,10 +9,13 @@ import CoreGraphics
 nonisolated struct SidebarIndent: Hashable, Sendable {
     /// One level's step: the members' gutter (`SidebarStyle.groupGutter`).
     var step: CGFloat
-    /// The label width a row keeps at its deepest drawn level.
-    var minimumLabelWidth: CGFloat = 120
-    /// Levels past this never move in more, whatever the width.
-    var maxVisualLevels = 4
+    /// The label width a row keeps at its deepest drawn level: in a narrow sidebar the indent stops before a
+    /// label gets narrower than this.
+    var minimumLabelWidth: CGFloat = 150
+    /// Steps past this never move in more, whatever the width. Six steps draw a seven-level tree with every
+    /// level at its own x in the default sidebar (Lawrence 2026-10-23: "i want to see deeply nested groups");
+    /// deeper levels share the deepest x, and still nest.
+    var maxVisualLevels = 6
 
     /// How many steps in the deepest drawn level may go, for a row `width` wide at level 0.
     func visualCap(width: CGFloat) -> Int {

@@ -4,9 +4,11 @@
 // the box). `codex` lays them out as Codex desktop does: one row inside the box under the prompt, +
 // and the mode on the left, the model and effort, the mic and Send on the right, and on New Tab the
 // folder and computer strip a tray tucked under the box's top edge (composerLocation.css,
-// newtab/screen.css). The New Tab page's first two dots pick it (newtab/PageDots.tsx). The choice is
-// the viewer's, kept in localStorage across chats, panes and launches (in step by the `storage`
-// event), as the transcript's wrap choice is (conversation/blockWrap.ts).
+// newtab/screen.css). Dots pick it: on New Tab the page's three (newtab/tabDots.ts: Claude Minimal,
+// Claude Minimal with the quick actions, Codex Minimal), in a chat two on hover in the composer's
+// bottom area (LookSwitch.tsx). The choice is the
+// viewer's, kept in localStorage across chats, panes and launches (in step by the `storage` event),
+// as the transcript's wrap choice is (conversation/blockWrap.ts).
 import { useSyncExternalStore } from "react";
 import { useComposerSettings } from "./composerSettings";
 

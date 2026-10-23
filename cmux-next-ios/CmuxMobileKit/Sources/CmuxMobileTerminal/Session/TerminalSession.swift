@@ -137,6 +137,11 @@ public protocol TerminalSession: AnyObject {
     /// `.output` until it asks again (`false`). Sessions that cannot hold
     /// the program back ignore it.
     func setOutputPaused(_ paused: Bool)
+    /// The terminal is on screen in the foreground app (true) or not:
+    /// only then does this phone's size count on the Mac (a session on the
+    /// Mac releases its size when told false and claims it again on true).
+    /// Driven by ``TerminalSizeClaimer``. Sessions without a Mac ignore it.
+    func setClaimsSize(_ claims: Bool)
 }
 
 extension TerminalSession {
@@ -149,6 +154,8 @@ extension TerminalSession {
     public var connectionState: TerminalConnectionState { .attached }
 
     public func setOutputPaused(_ paused: Bool) {}
+
+    public func setClaimsSize(_ claims: Bool) {}
 }
 
 /// Follows DEC private modes 47, 1047 and 1049 in a byte stream, across chunk

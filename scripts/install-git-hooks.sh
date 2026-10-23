@@ -52,8 +52,13 @@ install -m 0755 scripts/git-hooks/pre-push "$TRUSTED_HOOK_DIR/pre-push"
 install -m 0644 scripts/web_lint_prepush.py "$TRUSTED_HOOK_DIR/web_lint_prepush.py"
 install -m 0644 scripts/cmux-next/prepush-gate.py "$TRUSTED_HOOK_DIR/cmux_next_prepush_gate.py"
 install -m 0644 scripts/ci/base_merge_warning.py "$TRUSTED_HOOK_DIR/base_merge_warning.py"
+# The hooks are per clone: every worktree of it (main-based ones too) runs these copies. A push in another
+# worktree can run while this installs, so each install writes a new versioned copy and points the
+# cmux-next-checks symlink at it with one rename: the checks are never missing (a missing guardrails.py
+# would let a push through unchecked). The gate resolves the link once when it starts.
 TRUSTED_CHECKS_DIR="$TRUSTED_HOOK_DIR/cmux-next-checks"
-TRUSTED_CHECKS_STAGE="$TRUSTED_HOOK_DIR/cmux-next-checks.new.$$"
+CHECKS_VERSION="cmux-next-checks.v$(date +%s).$$"
+TRUSTED_CHECKS_STAGE="$TRUSTED_HOOK_DIR/$CHECKS_VERSION.partial"
 rm -rf "$TRUSTED_CHECKS_STAGE"
 mkdir -p "$TRUSTED_CHECKS_STAGE"
 while IFS= read -r -d '' checker; do
@@ -64,8 +69,30 @@ while IFS= read -r -d '' checker; do
     mkdir -p "$TRUSTED_CHECKS_STAGE/$(dirname "$relative")"
     cp -p "$checker" "$TRUSTED_CHECKS_STAGE/$relative"
 done < <(git ls-files -z scripts/cmux-next)
-rm -rf "$TRUSTED_CHECKS_DIR"
-mv "$TRUSTED_CHECKS_STAGE" "$TRUSTED_CHECKS_DIR"
+mv "$TRUSTED_CHECKS_STAGE" "$TRUSTED_HOOK_DIR/$CHECKS_VERSION"
+PREVIOUS_CHECKS=""
+if [[ -L "$TRUSTED_CHECKS_DIR" ]]; then
+    PREVIOUS_CHECKS="$(readlink "$TRUSTED_CHECKS_DIR")"
+elif [[ -e "$TRUSTED_CHECKS_DIR" ]]; then
+    # Once, from the plain directory older installs wrote: the only moment it is briefly absent.
+    PREVIOUS_CHECKS="cmux-next-checks.plain.$$"
+    mv "$TRUSTED_CHECKS_DIR" "$TRUSTED_HOOK_DIR/$PREVIOUS_CHECKS"
+fi
+rm -f "$TRUSTED_CHECKS_DIR.link.$$"
+ln -s "$CHECKS_VERSION" "$TRUSTED_CHECKS_DIR.link.$$"
+"$PYTHON3_BIN" -I -c 'import os, sys; os.replace(sys.argv[1], sys.argv[2])' \
+    "$TRUSTED_CHECKS_DIR.link.$$" "$TRUSTED_CHECKS_DIR"
+# Keep the copy just replaced (a push that started before the swap may still read it) and any copy younger
+# than 10 minutes (another install may be about to link it, or a push started on it); remove older ones. That
+# includes `.partial` stages and `.link.` temporaries older than 10 minutes: an install takes seconds, so those
+# were left by a killed install (about 570 files each) and would otherwise stay forever.
+while IFS= read -r -d '' old; do
+    name="$(basename "$old")"
+    case "$name" in
+        "$CHECKS_VERSION"|"$PREVIOUS_CHECKS") continue ;;
+    esac
+    rm -rf "$old"
+done < <(find "$TRUSTED_HOOK_DIR" -mindepth 1 -maxdepth 1 -name 'cmux-next-checks.*' -mmin +10 -print0)
 if (( NAMESPACE_FIX )); then
     install -m 0755 scripts/lint_swift_namespaces.py "$TRUSTED_HOOK_DIR/lint_swift_namespaces.py"
     install -m 0644 scripts/swift_source_mask.py "$TRUSTED_HOOK_DIR/swift_source_mask.py"
