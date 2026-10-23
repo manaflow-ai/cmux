@@ -203,3 +203,11 @@ test("a Claude Agent call's result gives its subagent the agentId a SendMessage 
   expect(agents.map((agent) => agent.agentId)).toEqual(["a39e817af38ddf5e7"]);
   expect(agentNames(agents).get("a39e817af38ddf5e7")).toBe("Fix grid jump");
 });
+
+test("the agentId is the last one a result names, after a report that mentions another", async () => {
+  const { agentIdIn } = await import("./subagentFold");
+  expect(agentIdIn("Found agentId: aaaa1111bbbb2222 in the log.\n\nagentId: a39e817af38ddf5e7 (internal ID)")).toBe(
+    "a39e817af38ddf5e7",
+  );
+  expect(agentIdIn("no id here")).toBeUndefined();
+});

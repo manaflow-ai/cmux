@@ -721,6 +721,19 @@ class WebviewsChecksGate(unittest.TestCase):
                                   "/w/merge", "/w/base")
         self.assertEqual(added, [])
 
+    def test_replay_of_24274_the_format_check_file_count_is_not_a_finding(self):
+        # #24274's fast gates: the base's `vp fmt --check` was red on the same files as the merge, and the merge
+        # (with the pull request's new test files) closed on 2481 files where the base closed on 2479. That closing
+        # line read as the one finding the merge added.
+        red = "src/a.ts (2ms)\nFormat issues found in above 1 files. Run without `--check` to fix.\n"
+        self.assertEqual(self.module.added(red + "Finished in 528ms on 2481 files using 4 threads.\n",
+                                           red + "Finished in 2057ms on 2479 files using 4 threads.\n"), [])
+        self.assertEqual(self.module.added("src/b.ts (1ms)\n" + red + "Finished in 5ms on 2481 files using 4 threads.\n",
+                                           red + "Finished in 9ms on 2479 files using 4 threads.\n"), ["src/b.ts (1ms)"])
+        # Only the whole closing line is noise: a file whose name starts like it is still a finding.
+        self.assertEqual(self.module.added("Finished in 1ms on 2 files.ts (1ms)\n" + red, red),
+                         ["Finished in 1ms on 2 files.ts (1ms)"])
+
     def test_replay_of_24252_unicode_frames_in_another_order_add_nothing(self):
         # #24252's fast gates: Oxlint printed its Unicode frame (`╭─[`, `│`, `·`, `╰`), and with 4 threads the
         # base and the merge listed the same 84 errors in another order. The run's summary glued onto whichever
