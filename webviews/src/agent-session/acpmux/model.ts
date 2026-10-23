@@ -504,7 +504,9 @@ export type AcpmuxSnapshot = {
     /// `setup`, the part the agent took before the conversation (its system prompt, tools and
     /// memory), when the harness reports it (`_meta.acpmux.setup`).
     usage?: { used: number; size: number; setup?: number };
-    /// What the context holds by category, as Claude Code's /context reports it.
+    /// What the context holds by category, as Claude Code's /context said after the last turn
+    /// (acpmux `contextBreakdown`); unset for other harnesses. Each list holds at most 50 rows,
+    /// the largest.
     contextBreakdown?: AcpmuxContextBreakdown;
     host?: string;
     peer?: string;

@@ -88,7 +88,9 @@ pub(super) async fn check(
         | method::MUX_BTW
         | method::SESSION_SET_MODE
         | method::SESSION_SET_CONFIG_OPTION
-        | method::MUX_SET_TOOLS => session_key(params).ok().map(str::to_owned),
+        | method::MUX_SET_TOOLS
+        // A reconnect starts the server's configured command again, in the chat's folder.
+        | method::MUX_MCP_RECONNECT => session_key(params).ok().map(str::to_owned),
         method::MUX_HANDOFF_START => params
             .get("handoffId")
             .and_then(Value::as_str)
@@ -114,6 +116,7 @@ pub(super) async fn check(
             | method::SESSION_SET_MODE
             | method::SESSION_SET_CONFIG_OPTION
             | method::MUX_SET_TOOLS
+            | method::MUX_MCP_RECONNECT
     );
     if same_agent && !web && running(&session) { pending_passes(answered) } else { answered }
 }

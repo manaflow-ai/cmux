@@ -294,6 +294,20 @@ impl Translator {
                             json!({"type": "control_request", "request_id": format!("bg-{}", id), "request": request}),
                         ])
                     }
+                    MCP_RECONNECT => {
+                        let server = p.get("server").and_then(Value::as_str).unwrap_or("");
+                        if server.is_empty() {
+                            return Outbound::Reply(Message::err(
+                                id.clone(),
+                                RpcError::invalid_params("server is required"),
+                            ));
+                        }
+                        // Nothing kept here: its answer carries the ACP id (`mcp-<id>`), so an
+                        // answer that never comes leaves nothing behind (the hub gives up on it).
+                        Outbound::Lines(vec![
+                            json!({"type": "control_request", "request_id": format!("mcp-{}", id), "request": {"subtype": "mcp_reconnect", "serverName": server}}),
+                        ])
+                    }
                     method::MUX_SUBAGENT_STOP => self.subagent_stop(id, &p).await,
                     // Send now on a steer Claude Code has not read: its step stops, so it
                     // reads the steer; with none waiting, or while a subagent or a background

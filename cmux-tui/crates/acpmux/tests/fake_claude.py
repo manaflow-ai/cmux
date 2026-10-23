@@ -52,7 +52,14 @@ Claude Code's own "Not logged in · Please run /login".
 FAKE_CLAUDE_SKILLS=1 has one skill installed and sends system/init every turn.
 FAKE_CLAUDE_INIT (a JSON object) adds its fields to system/init (`mcp_servers`,
 `skills`, ...); with FAKE_CLAUDE_CONTROL_LOG set, the subtype of every
-control request is appended to that file, one per line. "env: NAME"
+control request is appended to that file, one per line.
+FAKE_CLAUDE_CONTEXT=1 answers get_context_usage with a /context breakdown
+(=error refuses it). FAKE_CLAUDE_LATE_CONTEXT=<path> makes a FAKE_CLAUDE_DIE_IF prompt a
+usage limit instead (the process lives on, and answers no more get_context_usage), and leaves a
+process outside its own (forked twice, so a kill of its group and descendants misses it) that 1 s
+later writes a /context answer, then a `system/late_probe` line, then creates <path>: a replaced
+Claude Code's answer that arrives after the failover. FAKE_CLAUDE_MCP_DOWN=<name> fails mcp_reconnect of that
+server, and every other reconnect succeeds. "env: NAME"
 replies with that environment variable. Any plain prompt
 replies with the process's argv (spawn flags such as `--disallowedTools`).
 "cost-probe" ends its turn the way Claude Code reports spend: the turn's own
@@ -110,6 +117,30 @@ COMMANDS = [
     {"name": "compact", "description": "Clear conversation history but keep a summary in context",
      "argumentHint": "<optional custom summarization instructions>"},
 ]
+
+
+# Claude Code's get_context_usage answer (detail "summary"), with what acpmux leaves out.
+# Set once a FAKE_CLAUDE_LATE_CONTEXT prompt hit its usage limit.
+LIMITED = False
+CONTEXT_USAGE = {
+    "categories": [
+        {"id": "system_prompt", "name": "System prompt", "tokens": 3000, "color": "promptBorder", "kind": "used"},
+        {"name": "MCP tools (deferred)", "tokens": 900, "color": "inactive", "isDeferred": True, "kind": "deferred"},
+        {"id": "messages", "name": "Messages", "tokens": 1500, "color": "purple", "kind": "used"},
+        {"id": "free_space", "name": "Free space", "tokens": 195500, "color": "promptBorder", "kind": "free"},
+    ],
+    "totalTokens": 4500, "maxTokens": 200000, "rawMaxTokens": 200000, "percentage": 2,
+    "gridRows": [[{"color": "purple", "isFilled": True, "categoryName": "Messages", "tokens": 1500,
+                   "percentage": 1, "squareFullness": 1}]],
+    "model": "fake",
+    "memoryFiles": [{"path": "/repo/CLAUDE.md", "type": "Project", "tokens": 120}],
+    "mcpTools": [{"name": "mcp__cmux__a", "serverName": "cmux", "tokens": 40, "isLoaded": True},
+                 {"name": "mcp__cmux__b", "serverName": "cmux", "tokens": 60, "isLoaded": False}],
+    "agents": [],
+    "skills": {"totalSkills": 1, "includedSkills": 1, "tokens": 30,
+               "skillFrontmatter": [{"name": "demo-skill", "source": "user", "tokens": 30}]},
+    "isAutoCompactEnabled": True,
+}
 
 
 def init():
@@ -390,9 +421,25 @@ while True:
         # Like Claude Code, the next init reports the mode the session was switched to.
         if request.get("subtype") == "set_permission_mode" and isinstance(request.get("mode"), str):
             MODE = request["mode"]
+        # FAKE_CLAUDE_CONTEXT=1 answers get_context_usage as Claude Code 2.1.305 does (grid and
+        # colors included); =error refuses it as a Claude Code that cannot answer. A reconnect of
+        # the MCP server FAKE_CLAUDE_MCP_DOWN names fails as Claude Code's does.
+        refusal = None
+        if request.get("subtype") == "get_context_usage" and os.environ.get("FAKE_CLAUDE_CONTEXT") == "error":
+            refusal = "get_context_usage is not supported in this context (onGetContextUsage callback not registered)"
+        if (request.get("subtype") == "mcp_reconnect"
+                and request.get("serverName") == os.environ.get("FAKE_CLAUDE_MCP_DOWN")):
+            refusal = "Server status: failed"
+        if refusal:
+            send({"type": "control_response", "response": {"subtype": "error", "request_id": msg.get("request_id"),
+                  "error": refusal}})
+            continue
         answer = {}
         if request.get("subtype") == "initialize" and SKILLS:
             answer = {"commands": COMMANDS}
+        if (request.get("subtype") == "get_context_usage" and os.environ.get("FAKE_CLAUDE_CONTEXT") == "1"
+                and not LIMITED):
+            answer = CONTEXT_USAGE
         send({"type": "control_response", "response": {"subtype": "success", "request_id": msg.get("request_id"), "response": answer}})
         if request.get("subtype") == "apply_flag_settings":
             FLAG_SETTINGS.append(request.get("settings"))
@@ -458,6 +505,30 @@ while True:
                   "duration_api_ms": 0, "usage": {"input_tokens": 0, "output_tokens": 0}})
     elif kind == "user":
         die_if = os.environ.get("FAKE_CLAUDE_DIE_IF")
+        late = os.environ.get("FAKE_CLAUDE_LATE_CONTEXT")
+        if late and die_if and os.path.exists(die_if):
+            LIMITED = True
+            first = os.fork()
+            if first == 0:
+                # Forked twice and in its own session: no longer this process's descendant or in its
+                # group by the time the failover kills those.
+                os.setsid()
+                if os.fork() != 0:
+                    os._exit(0)
+                import time
+                time.sleep(1.0)
+                send({"type": "control_response", "response": {"subtype": "success", "request_id": "ctx-late",
+                      "response": CONTEXT_USAGE}})
+                send({"type": "system", "subtype": "late_probe"})
+                open(late, "w").close()
+                os._exit(0)
+            os.waitpid(first, 0)
+            said = "You've hit your usage limit"
+            send({"type": "assistant", "error": "rate_limit", "message": {"model": "<synthetic>",
+                  "content": [{"type": "text", "text": said}]}})
+            send({"type": "result", "subtype": "success", "is_error": True, "result": said, "num_turns": 1,
+                  "duration_api_ms": 0, "usage": {"input_tokens": 0, "output_tokens": 0}})
+            continue
         if os.environ.get("FAKE_CLAUDE_DIE") == "1" or (die_if and os.path.exists(die_if)):
             sys.stderr.write("proxy down\n")
             sys.stderr.flush()
