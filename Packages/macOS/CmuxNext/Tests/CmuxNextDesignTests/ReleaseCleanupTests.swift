@@ -83,6 +83,87 @@ import Testing
         #expect(view.trackingAreas.isEmpty, "a hover released off main left a tracking area whose owner is freed on the view")
     }
 
+    /// A hover's tracking area is held by exact object, not by its identity: a view that removed
+    /// every area and added its own (a row's `updateTrackingAreas`) keeps that area when the hover
+    /// goes. Removal by `ObjectIdentifier` took the first area at the freed area's address, which
+    /// the next `NSTrackingArea` the view adds usually reuses.
+    @Test func aReleasedHoverLeavesAnotherOwnersAreaOnTheView() async {
+        let view = Self.view()
+        let other = NSObject()
+        func replaceAreas() {
+            autoreleasepool { for area in view.trackingAreas { view.removeTrackingArea(area) } }
+            view.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: other))
+        }
+        var hover: PointerHover? = PointerHover(view)
+        replaceAreas()
+        #expect(hover != nil && view.trackingAreas.count == 1)
+        hover = nil
+        #expect(view.trackingAreas.map { $0.owner === other } == [true],
+                "a hover released on main removed the area the view added after its own")
+
+        await releaseOffMain {
+            let hover = PointerHover(view)
+            replaceAreas()
+            return hover
+        }
+        #expect(view.trackingAreas.map { $0.owner === other } == [true],
+                "a hover released off main removed the area the view added after its own")
+    }
+
+    /// A coordinator released while a card shows removes its dismissal and move monitors and gives
+    /// the card's parent back its own mouse-move setting (the parent took mouse moves everywhere
+    /// while the card showed; no release restored it before).
+    @Test func aReleasedHoverCardCoordinatorEndsItsMonitorsOnAnyThread() async {
+        _ = NSApplication.shared
+        let parent = NSWindow(contentRect: CGRect(x: 200, y: 200, width: 300, height: 100), styleMask: [.borderless], backing: .buffered, defer: false)
+        parent.isReleasedWhenClosed = false
+        parent.acceptsMouseMovedEvents = false
+        parent.orderFrontRegardless()
+        defer { parent.close() }
+        let source = CardSource(window: parent)
+
+        var seen: [(monitor: LocalEventMonitor?, move: LocalEventMonitor?, panel: HoverCardPanel?)] = []
+        func showing() -> HoverCardCoordinator {
+            let coordinator = HoverCardCoordinator()
+            coordinator.appIsActive = { true }
+            coordinator.register(source)
+            coordinator.pin(HoverTarget(id: CardSource.id, window: parent.windowNumber, delay: .zero), from: source)
+            // The panel stays with the test, so a release off main frees no window there.
+            seen.append((coordinator.monitor, coordinator.moveMonitor, coordinator.panel))
+            return coordinator
+        }
+
+        var coordinator: HoverCardCoordinator? = showing()
+        #expect(coordinator != nil && seen[0].monitor?.isInstalled == true && seen[0].move?.isInstalled == true)
+        #expect(parent.acceptsMouseMovedEvents, "a shown card's parent takes mouse moves")
+        coordinator = nil
+        #expect(seen[0].monitor?.isInstalled == false && seen[0].move?.isInstalled == false,
+                "a coordinator released on main left its monitors installed")
+        #expect(!parent.acceptsMouseMovedEvents, "a coordinator released on main left its card's parent taking mouse moves")
+
+        await releaseOffMain { showing() }
+        #expect(seen.count == 2 && seen[1].monitor != nil && seen[1].move != nil, "the second card did not show")
+        #expect(seen[1].monitor?.isInstalled == false && seen[1].move?.isInstalled == false,
+                "a coordinator released off main left its monitors installed")
+        #expect(!parent.acceptsMouseMovedEvents, "a coordinator released off main left its card's parent taking mouse moves")
+    }
+
+    /// One card target on its window, with a plain body.
+    private final class CardSource: HoverCardSource {
+        static let id = HoverTargetID("card")
+        let window: NSWindow
+        private let body = NSView(frame: NSRect(x: 0, y: 0, width: 80, height: 40))
+        init(window: NSWindow) { self.window = window }
+        var hoverCardWindow: NSWindow? { window }
+        func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? { nil }
+        func hoverCardAnchor(for id: HoverTargetID) -> CGRect? { window.frame }
+        func hoverCardBody(for id: HoverTargetID) -> HoverCardBody? {
+            HoverCardBody(view: body, placement: .below, themeAnchor: nil, applyTheme: {})
+        }
+        func hoverCardActivated(_ id: HoverTargetID) {}
+        func hoverCardDeactivated(_ id: HoverTargetID) {}
+    }
+
     @Test func aReleasedLowPowerObservationStopsItsCallsOnAnyThread() async {
         let mode = LowPowerMode(enabled: false)
         var calls = 0
