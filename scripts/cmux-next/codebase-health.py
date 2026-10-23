@@ -46,7 +46,8 @@ CATEGORIES = (
     ("clock_sleep", "clock sleeps `.sleep(for:/until:)`", r"\.sleep\((for|until):", r"wakeup-allow:", "as above"),
     ("main_async", "`DispatchQueue.main.async`", r"\bDispatchQueue\.main\.async\b", None, "use @MainActor and await"),
     ("async_after", "`asyncAfter`", r"\basyncAfter\(", None, "banned (check-concurrency.sh); an injected Clock"),
-    ("observers", "NotificationCenter observers", r"\.addObserver\(|\.notifications\(named:|\.publisher\(for:", None,
+    ("observers", "NotificationCenter observers",
+     r"\.addObserver\(|\.notifications\(named:|\.publisher\(for:|\bMainActorObservation\(", None,  # a token is a registration too
      "each one wakes on every post of its name"),
     ("notification_names", "custom `Notification.Name` declarations", r"\b(NS)?Notification\.Name\(\s*\"", None,
      "a broadcast signal: every observer reacts, O(all)"),
