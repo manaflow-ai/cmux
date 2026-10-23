@@ -118,11 +118,13 @@ public final class AgentPageRedraw {
     public func rememberFrame(of pane: NSView, appearance: NSAppearance.Name?) {
         // Only a page that draws today's chats and model (`AgentPaneNewTabFrame`).
         guard let model = (pane as? AgentPaneView)?.model, AgentPaneNewTabFrame.shared.shows(model).0 else { return }
+        // A Chromium picture draws the page's clear areas black (``PageWebView/snapshotKeepsClearAreas``):
+        // checked before and after, as the page can leave Chromium while its picture decodes.
+        guard page?.snapshotKeepsClearAreas ?? true else { return }
         let (size, place, generation) = (pane.frame.size, pane.superview, AgentPaneNewTabFrame.shared.generation)
         // task-owner: one snapshot; dropped when the page moved or resized meanwhile
         Task { @MainActor [weak self, weak webView, weak page, weak pane, weak place] in
             let image: NSImage? = if let page { await page.snapshot() } else { try? await webView?.takeSnapshot(configuration: nil) }
-            // A Chromium picture draws the page's clear areas black (``PageWebView/snapshotKeepsClearAreas``).
             guard let image, image.size == size, page?.snapshotKeepsClearAreas ?? true,
                   let pane, pane.superview === place, pane.frame.size == size else { return }
             self?.remembered = (image, size, appearance, generation)
