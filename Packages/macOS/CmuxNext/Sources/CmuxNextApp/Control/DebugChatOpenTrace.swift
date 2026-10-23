@@ -16,6 +16,7 @@ import Foundation
 /// - `wait`: waits until the armed trace's chat shows (its loading cover left and no hold keeps it
 ///   hidden) or `timeout_ms` (default 10000, at most 15000), samples `settle_ms` more of frames
 ///   (default 300), finishes the trace and returns it.
+///   `page_timing: true` adds the page's own clock (navigation, paint and resource timing).
 /// - `finish`: finishes the running trace now (a launch trace) and returns it.
 /// - `get` (default): the last `count` traces (default 10), oldest first, the running one last.
 ///
@@ -40,7 +41,6 @@ enum DebugChatOpenTrace {
     }
 
     static func handle(_ params: [String: JSON], _ services: AppServices?) async -> JSON {
-        guard services != nil else { return .null }
         let trace = ChatOpenTrace.shared
         switch params["action"]?.stringValue ?? "get" {
         case "arm":
@@ -48,7 +48,8 @@ enum DebugChatOpenTrace {
             trace.mark(.action)
             return .object(["armed": .bool(true)])
         case "wait":
-            return await wait(params)
+            guard let services else { return .null }
+            return await wait(params, services)
         case "finish":
             return trace.finish(timedOut: false).map(json) ?? .null
         case "get":
@@ -59,14 +60,39 @@ enum DebugChatOpenTrace {
         }
     }
 
-    private static func wait(_ params: [String: JSON]) async -> JSON {
+    private static func wait(_ params: [String: JSON], _ services: AppServices) async -> JSON {
         let trace = ChatOpenTrace.shared
         guard trace.isArmed else { return .object(["error": .string("no trace is armed")]) }
         let timeout = min(max(params["timeout_ms"]?.intValue ?? 10_000, 100), 15_000)
         let settle = min(max(params["settle_ms"]?.intValue ?? 300, 0), 2_000)
         let shown = await trace.waitUntilShown(timeout: .milliseconds(timeout))
         await trace.settle(for: .milliseconds(settle))
-        return trace.finish(timedOut: !shown).map(json) ?? .null
+        guard case .object(var result)? = trace.finish(timedOut: !shown).map(json) else { return .null }
+        if params["page_timing"]?.boolValue == true { result["page_timing"] = await pageTiming(params, services) }
+        return .object(result)
+    }
+
+    /// The traced chat's own clock (`page_timing: true`), in either engine: its navigation timing,
+    /// paint entries, the resources it loaded and when, and the time it marked painted.
+    private static func pageTiming(_ params: [String: JSON], _ services: AppServices) async -> JSON {
+        guard case .success(let (_, view)) = DebugAgentPane.agentPane(params, services: services) else { return .null }
+        let script = """
+            const nav = performance.getEntriesByType("navigation")[0];
+            const round = (value) => Math.round(value * 10) / 10;
+            return JSON.stringify({
+              navigation: nav ? { response_start: round(nav.responseStart), response_end: round(nav.responseEnd),
+                dom_interactive: round(nav.domInteractive), dom_content_loaded: round(nav.domContentLoadedEventEnd),
+                load: round(nav.loadEventEnd) } : null,
+              paint: performance.getEntriesByType("paint").map((entry) => [entry.name, round(entry.startTime)]),
+              resources: performance.getEntriesByType("resource").map((entry) => [entry.name.split("/").pop(),
+                round(entry.startTime), round(entry.responseEnd), entry.transferSize]),
+              painted: Number(document.documentElement.dataset.cmuxPainted ?? NaN),
+            });
+            """
+        guard let text = try? await view.callPageScript(script) as? String,
+              let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)),
+              let value = JSON(foundation: object) else { return .null }
+        return value
     }
 
     private static func json(_ record: ChatOpenTrace.Record) -> JSON {
