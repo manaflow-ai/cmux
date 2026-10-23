@@ -14,6 +14,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -89,6 +90,7 @@ await requireBrowserLane("new-tab-tray-under-glass.test.ts", async () => {
   /// The Codex look's New Tab in a see-through window over a flat wallpaper colour.
   async function load(name: string): Promise<Page> {
     const page = await browsers.get(name)!.newPage({ viewport: { width: 1000, height: 640 } });
+    await installPaintedFrames(page);
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     const context = {
       kind: "agent",
@@ -144,23 +146,10 @@ await requireBrowserLane("new-tab-tray-under-glass.test.ts", async () => {
     return page;
   }
 
-  test.each(engines.map(([name]) => name))("%s: the Codex look's tray never shows through the box", async (name) => {
-    const page = await load(name);
-    const { tray, box } = await page.evaluate(() => {
-      const rect = (selector: string) => {
-        const r = document.querySelector(selector)!.getBoundingClientRect();
-        return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
-      };
-      return { tray: rect(".nt-composer > .nt-above"), box: rect(".nt-composer > .nt-box") };
-    });
-    // The tray still tucks under the box: its place is unchanged.
-    expect(tray.bottom).toBeGreaterThan(box.top);
-    if (SHOTS) await page.locator(".nt-composer").screenshot({ path: `${SHOTS}-${name}.png` });
-    // Columns over the tray's middle, inside the box's rim: rows in the tuck, and rows under it.
-    const x = Math.round((tray.left + tray.right) / 2) - 40;
-    const clip = { x, y: Math.round(box.top) - 2, width: 80, height: Math.round(tray.bottom - box.top) + 12 };
+  /// Each CSS row's mean colour in `clip`, from a screenshot.
+  async function sampleRows(page: Page, clip: { x: number; y: number; width: number; height: number }) {
     const png = await page.screenshot({ clip });
-    const rows = await page.evaluate(
+    return page.evaluate(
       async ({ data, height }) => {
         const image = new Image();
         image.src = `data:image/png;base64,${data}`;
@@ -172,7 +161,6 @@ await requireBrowserLane("new-tab-tray-under-glass.test.ts", async () => {
         context.drawImage(image, 0, 0);
         const scale = image.naturalHeight / height;
         const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-        // Each CSS row's mean colour.
         return Array.from({ length: height }, (_, row) => {
           const y = Math.min(canvas.height - 1, Math.round((row + 0.5) * scale));
           let r = 0;
@@ -189,20 +177,89 @@ await requireBrowserLane("new-tab-tray-under-glass.test.ts", async () => {
       },
       { data: png.toString("base64"), height: clip.height },
     );
-    await page.close();
-    // The first row is the tray's, just over the box's top edge; then the box's rim; then the box.
-    const [over, , , ...inside] = rows;
-    const below = inside.at(-1)!;
-    const differs = inside
-      .slice(0, -1)
-      .map((row) => Math.max(...row.map((value, index) => Math.abs(value - below[index]!))));
-    console.info(
-      `${name}: over the edge ${over!.join(",")}; box rows vs under the tuck ${below.join(",")}: ${differs.join(" ")}`,
-    );
-    // The tray reaches the box's edge: no strip of the wallpaper between them.
-    const wallpaper = [64, 120, 180];
-    expect(Math.max(...over!.map((value, index) => Math.abs(value - wallpaper[index]!)))).toBeGreaterThan(10);
-    // Every row in the tuck is the box's own glass over the wallpaper, as under it (no band, no line).
-    for (const difference of differs) expect(difference).toBeLessThanOrEqual(2);
+  }
+  const apart = (a: number[], b: number[]) => Math.max(...a.map((value, index) => Math.abs(value - b[index]!)));
+  /// The Codex tray's computed mask image ("none" when unmasked).
+  const trayMask = (page: Page) =>
+    page.evaluate(() => {
+      const style = getComputedStyle(document.querySelector(".nt-composer > .nt-above")!);
+      return style.maskImage || style.getPropertyValue("-webkit-mask-image") || "none";
+    });
+
+  test.each(engines.map(([name]) => name))("%s: the Codex look's tray never shows through the box", async (name) => {
+    const page = await load(name);
+    try {
+      const { tray, box } = await page.evaluate(() => {
+        const rect = (selector: string) => {
+          const r = document.querySelector(selector)!.getBoundingClientRect();
+          return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+        };
+        return { tray: rect(".nt-composer > .nt-above"), box: rect(".nt-composer > .nt-box") };
+      });
+      // The tray still tucks under the box: its place is unchanged.
+      expect(tray.bottom).toBeGreaterThan(box.top);
+      if (SHOTS) await page.locator(".nt-composer").screenshot({ path: `${SHOTS}-${name}.png` });
+      // Columns over the tray's middle: two rows over the box's top edge, the edge's row (the rim),
+      // every row of the tuck from the one right under the rim, and rows under the tuck.
+      const x = Math.round((tray.left + tray.right) / 2) - 40;
+      const top = Math.floor(box.top);
+      const clip = { x, y: top - 2, width: 80, height: Math.ceil(tray.bottom) - top + 10 };
+      const rows = await sampleRows(page, clip);
+      const over = rows.slice(0, 2);
+      const inside = rows.slice(3);
+      const below = inside.at(-1)!;
+      const differs = inside.slice(0, -1).map((row) => apart(row, below));
+      console.info(
+        `${name}: over the edge ${over.map((row) => row.join(",")).join(" ")}; box rows vs under the tuck ${below.join(",")}: ${differs.join(" ")}`,
+      );
+      // The tray reaches the box's edge: no strip of the wallpaper between them.
+      const wallpaper = [64, 120, 180];
+      for (const row of over) expect(apart(row, wallpaper)).toBeGreaterThan(10);
+      // Every row in the tuck, from the first under the rim, is the box's own glass over the
+      // wallpaper, as under it (no band, no line).
+      for (const difference of differs) expect(difference).toBeLessThanOrEqual(2);
+      // The box stays glass: another wallpaper shows through it.
+      await page.addStyleTag({ content: "html, body { background: rgb(190, 90, 60) !important; }" });
+      await page.evaluate(() => window.cmuxPaintFrame());
+      const other = (await sampleRows(page, clip)).at(-1)!;
+      console.info(`${name}: under the tuck over another wallpaper ${other.join(",")}`);
+      expect(apart(other, below)).toBeGreaterThan(10);
+    } finally {
+      await page.close();
+    }
   });
+
+  test.each(engines.map(([name]) => name))(
+    "%s: with Reduce Transparency (the app's attribute) the tray is not masked",
+    async (name) => {
+      const page = await load(name);
+      try {
+        expect(await trayMask(page)).not.toBe("none");
+        await page.evaluate(() => document.documentElement.setAttribute("data-reduce-transparency", ""));
+        expect(await trayMask(page)).toBe("none");
+      } finally {
+        await page.close();
+      }
+    },
+  );
+
+  // The media feature: Chromium only. WebKit has no prefers-reduced-transparency (it matches neither
+  // value), which is why the mask is not scoped to no-preference; the app sets the attribute there.
+  test.each(engines.map(([name]) => name).filter((name) => name === "chromium"))(
+    "%s: with prefers-reduced-transparency: reduce the tray is not masked",
+    async (name) => {
+      const page = await load(name);
+      try {
+        expect(await trayMask(page)).not.toBe("none");
+        const session = await page.context().newCDPSession(page);
+        await session.send("Emulation.setEmulatedMedia", {
+          features: [{ name: "prefers-reduced-transparency", value: "reduce" }],
+        });
+        expect(await page.evaluate(() => matchMedia("(prefers-reduced-transparency: reduce)").matches)).toBe(true);
+        expect(await trayMask(page)).toBe("none");
+      } finally {
+        await page.close();
+      }
+    },
+  );
 });

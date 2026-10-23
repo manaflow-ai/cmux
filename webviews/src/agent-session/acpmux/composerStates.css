@@ -198,8 +198,14 @@
 }
 @media (prefers-reduced-transparency: reduce) {
   :root[data-top-strip="tray"] :is(.acpmux-composer, .nt-composer)
-    > :is(.acpmux-composer-strip, .acpmux-composer-queue, .acpmux-queue-foldbar),
-  .nt-composer[data-composer-look="codex"] > .nt-above {
+    > :is(.acpmux-composer-strip, .acpmux-composer-queue, .acpmux-queue-foldbar) {
+    mask: none;
+  }
+  /* The Codex tray's mask above, at its own specificity (a plainer selector loses to it). The app
+     also says Reduce Transparency with data-reduce-transparency, which that rule leaves out; WebKit
+     has no prefers-reduced-transparency, so the mask is never scoped to its no-preference. */
+  :root[data-cmux-see-through]:not([data-reduce-transparency]) .nt-composer[data-composer-look="codex"]
+    > .nt-above:has(+ .nt-box) {
     mask: none;
   }
 }
