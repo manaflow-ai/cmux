@@ -32,8 +32,8 @@ extension ControlTopology {
     /// (bd cx-5xsi); `cache` keeps each workspace's daemon facts between calls.
     @MainActor
     public init(store: DaemonStore, selectedTab: (PaneModel) -> String?, pages: ControlPageFacts = ControlPageFacts(),
-                cache: ControlWorkspaceInfoCache? = nil) {
-        self = ControlTopologyMapper.topology(store: store, selectedTab: selectedTab, pages: pages, cache: cache)
+                cache: ControlWorkspaceInfoCache? = nil, scope: ControlAppFactScope? = nil) {
+        self = ControlTopologyMapper.topology(store: store, selectedTab: selectedTab, pages: pages, cache: cache, scope: scope)
     }
 }
 
@@ -60,7 +60,7 @@ struct ControlPaneSlot {
 enum ControlTopologyMapper {
     static func topology(store: DaemonStore, selectedTab: (PaneModel) -> String?,
                          pages: ControlPageFacts = ControlPageFacts(),
-                         cache: ControlWorkspaceInfoCache? = nil) -> ControlTopology {
+                         cache: ControlWorkspaceInfoCache? = nil, scope: ControlAppFactScope? = nil) -> ControlTopology {
         var topology = ControlTopology()
         topology.isLoaded = store.isLoaded
         topology.daemonState = switch store.connectionState {

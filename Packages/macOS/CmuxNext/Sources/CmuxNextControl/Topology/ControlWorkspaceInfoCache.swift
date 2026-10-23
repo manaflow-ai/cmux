@@ -53,6 +53,9 @@ public final class ControlWorkspaceInfoCache {
     /// Runs after an entry went stale: cached entries are not re-read by the
     /// publisher's own tracking, so their changes must schedule the publish.
     public var onStale: @MainActor () -> Void = {}
+    /// Workspaces a topology pass looked up, rebuilt or applied app facts
+    /// to, since the cache was made (tests read the per-publish delta).
+    private(set) var workspaceVisits = 0
 
     public init() {}
 
@@ -60,6 +63,7 @@ public final class ControlWorkspaceInfoCache {
     /// nothing their build read changed.
     func info(for model: WorkspaceModel, build: (WorkspaceModel) -> (ControlWorkspaceInfo, [[ControlPaneSlot]]))
         -> (info: ControlWorkspaceInfo, slots: [[ControlPaneSlot]]) {
+        workspaceVisits += 1
         let key = ObjectIdentifier(model)
         if let entry = entries[key], entry.model === model,
            !stale.withLock({ $0.contains(entry.generation) }) {
