@@ -137,16 +137,17 @@ struct AgentSessionAdoptNoPageTests {
             for task in work { if let failure = await task.value { failures.append(failure.message) } }
             #expect(!failures.isEmpty, "the other machine adopted a session no acpmux lists")
 
-            // The close is a daemon commit; the store mirrors it once the tree event lands.
+            // The close is a daemon commit; the store mirrors it once the tree event lands, and the
+            // repair, which observes the store, lets the key go after that.
+            let repair = services.machines.emptyWorkspaceRepair(machine.daemon.machineID, local: services.emptyWorkspaces)
             let settleDeadline = ContinuousClock.now + .seconds(10)
-            while Set(store.workspaces.map(\.id)) != before, ContinuousClock.now < settleDeadline {
+            while Set(store.workspaces.map(\.id)) != before || repair.isSettling(WorkspaceKey(rawValue: key)), ContinuousClock.now < settleDeadline {
                 try? await Task.sleep(for: .milliseconds(50))
             }
             let left = Set(store.workspaces.map(\.id)).subtracting(before)
             #expect(left.isEmpty, "the refused adopt left a workspace on the other machine: \(left) \(failures)")
             #expect(services.machines.workspace(id: key) == nil, "the refused adopt's workspace is still listed")
             // Its repair claim goes with it: a failed adopt never leaves the key settling.
-            let repair = services.machines.emptyWorkspaceRepair(machine.daemon.machineID, local: services.emptyWorkspaces)
             #expect(!repair.isSettling(WorkspaceKey(rawValue: key)), "the refused adopt's workspace is still settling in the repair")
             result = .success(())
         } catch {

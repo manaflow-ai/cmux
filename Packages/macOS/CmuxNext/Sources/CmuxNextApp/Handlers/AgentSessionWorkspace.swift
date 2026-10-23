@@ -72,27 +72,36 @@ enum AgentSessionWorkspace {
         return Task { @MainActor in
             do {
                 // The workspace, its terminal, the agent tab and the adopt, owned by `repair` while they run
-                // (as WorkspaceCreation does): a failure leaves the key closing, never repaired or settling.
-                // Any failure closes the workspace with its terminal and any tab, bound or not (refused, or
-                // the tab or adopt reply never came); closing only detaches a session, so a lost reply after
-                // a bind ends nothing. WorkspaceCreation's own close takes only an empty workspace.
+                // (as WorkspaceCreation does). Any failure after the workspace may exist closes it with its
+                // terminal and any tab, bound or not (refused, or the tab or adopt reply never came); closing
+                // only detaches a session, so a lost reply after a bind ends nothing. WorkspaceCreation's own
+                // close takes only an empty workspace. The close runs once `populating` has failed, so the
+                // repair already holds the key as closing when the store drops the workspace and clears it
+                // then; closed inside, a drop applied first left the key settling for good.
+                var made = false
                 var created: WorkspaceMutationResult?
                 // The terminal made here, closed with the workspace even by a daemon without batch close.
                 var terminals: [WorkspaceClose.Terminal] = []
-                let opened: (tab: NewConversationTabRequest.Response, adopted: AgentSessionAttachClient.Adopted) = try await repair.populating(key) {
-                    try await WorkspaceCreation.withTerminal(
-                        key, createWorkspace: { created = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key) },
-                        createTerminal: { _ in
-                            guard let created else { throw DaemonError.notConnected }
-                            let terminal = try await connection.createTerminal(in: created.key, cwd: cwd)
-                            terminals = [(terminal.terminalID, terminal.terminalIncarnation)]
-                            // One mutation id for every send: a tab the daemon made after the deadline replays.
-                            let request = NewConversationTabRequest(agentSession: AgentSessionRef(host: host, hostName: machine), workspace: created.workspace,
-                                                                    origin: AgentTabStore.createOrigin, mutationID: "adopt-" + key.rawValue)
-                            let tab = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command) { try await connection.request(request) }
-                            return (tab: tab, adopted: try await AgentSessionAttachClient.adopt(session: session, surface: tab.surface.rawValue, endpoint: endpoint))
-                        },
-                        closeWorkspace: { try await closeFailedAdopt($0, terminals: terminals, on: daemon, repair: repair, services: services) })
+                let opened: (tab: NewConversationTabRequest.Response, adopted: AgentSessionAttachClient.Adopted)
+                do {
+                    opened = try await repair.populating(key) {
+                        try await WorkspaceCreation.withTerminal(
+                            key, createWorkspace: { created = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key) },
+                            createTerminal: { _ in
+                                guard let created else { throw DaemonError.notConnected }
+                                let terminal = try await connection.createTerminal(in: created.key, cwd: cwd)
+                                terminals = [(terminal.terminalID, terminal.terminalIncarnation)]
+                                // One mutation id for every send: a tab the daemon made after the deadline replays.
+                                let request = NewConversationTabRequest(agentSession: AgentSessionRef(host: host, hostName: machine), workspace: created.workspace,
+                                                                        origin: AgentTabStore.createOrigin, mutationID: "adopt-" + key.rawValue)
+                                let tab = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command) { try await connection.request(request) }
+                                return (tab: tab, adopted: try await AgentSessionAttachClient.adopt(session: session, surface: tab.surface.rawValue, endpoint: endpoint))
+                            },
+                            closeWorkspace: { _ in made = true })
+                    }
+                } catch {
+                    if made { await closeFailedAdopt(key, terminals: terminals, on: daemon, repair: repair, services: services) }
+                    throw error
                 }
                 let (tab, adopted) = (opened.tab, opened.adopted)
                 AgentBypassSessions.shared.set(session, bypass: !adopted.asking)
@@ -139,17 +148,18 @@ enum AgentSessionWorkspace {
         }
     }
 
-    /// ``closeFailedAdopt(_:terminals:on:present:)`` while `daemon` is one of the app's machines; a
-    /// workspace still open after it is released to `repair` with the adopt's failure, as
-    /// WorkspaceCreation does.
+    /// ``closeFailedAdopt(_:terminals:on:present:)`` while `daemon` is one of the app's machines, after
+    /// `repair` took the key as closing (a failed `populating`). A workspace still open after it is
+    /// released to `repair` (`endClosing`), so it is repaired or closed like any other; the adopt's own
+    /// failure stays the one the person sees.
     @MainActor
     private static func closeFailedAdopt(_ key: WorkspaceKey, terminals: [WorkspaceClose.Terminal], on daemon: DaemonService,
-                                         repair: EmptyWorkspaceRepair, services: AppServices) async throws {
+                                         repair: EmptyWorkspaceRepair, services: AppServices) async {
         do {
             try await closeFailedAdopt(key, terminals: terminals, on: daemon, present: { services.machines.daemons.contains { $0 === daemon } })
         } catch {
-            repair.closeFailed(key)
-            throw error
+            repair.endClosing(key)
+            daemon.logger.error("agent.openSessionWorkspace: closing a failed adopt's workspace failed: \(String(describing: error), privacy: .public)")
         }
     }
 
