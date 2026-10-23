@@ -206,7 +206,9 @@ describe("answerFromOutcome", () => {
   test("the unanswered line reads the question without its inline marks", () => {
     const marked: AgentQuestion = {
       ...claude,
-      items: claude.items.map((item, index) => (index === 0 ? { ...item, prompt: "Use `formatDate` or **dayjs**?" } : item)),
+      items: claude.items.map((item, index) =>
+        index === 0 ? { ...item, prompt: "Use `formatDate` or **dayjs**?" } : item,
+      ),
     };
     expect(cancelledArgs(marked)).toEqual({ prompt: "Use formatDate or dayjs?" });
     expect(cancelledArgs(claude)).toEqual({ prompt: claude.items[0]!.prompt });

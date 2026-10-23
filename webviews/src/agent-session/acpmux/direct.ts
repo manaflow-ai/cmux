@@ -39,12 +39,7 @@ import { forgetTail, keptTail, KEPT_EVENTS, readHostTail, rememberReadAhead, rem
 import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { HandoffClient } from "./handoff/client";
 import { PermissionGroupClient } from "./permissions/client";
-import {
-  cancelledKey,
-  questionFromPermission,
-  summaryLines,
-  type AgentQuestion,
-} from "./question/model";
+import { cancelledKey, questionFromPermission, summaryLines, type AgentQuestion } from "./question/model";
 import { cancelledArgs, decidedQuestion, QUESTION_RECORD } from "./question/record";
 import { DECISION_TEXT, PERMISSION_RECORD, permissionDecision } from "./permissions/record";
 import { isNotification, typedRequest } from "./protocol/client";

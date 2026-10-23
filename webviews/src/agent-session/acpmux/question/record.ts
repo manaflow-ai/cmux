@@ -4,7 +4,16 @@
 // answers come keyed by question text, one comma-separated string per question; Codex's by
 // question id, `{answers: [label]}`; an ACP ask's answer is the permission option chosen.
 import { plainText } from "./inlineText";
-import { questionSummary, type AgentQuestion, type Answer, type CancelReason, type Item, type Respondent, type Selection, type State } from "./model";
+import {
+  questionSummary,
+  type AgentQuestion,
+  type Answer,
+  type CancelReason,
+  type Item,
+  type Respondent,
+  type Selection,
+  type State,
+} from "./model";
 
 /// The transcript row of a decided question; it draws under a finished turn's fold line, not in it
 /// (conversation/turns.ts `staysOut`).
