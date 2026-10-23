@@ -137,6 +137,11 @@ async fn forward_inner(
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
         bound_page(m, params, &mut p);
+        if matches!(m, method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE) {
+            return super::media_forward::forward(&conn.remote_media, &peer, &id, m, p)
+                .await
+                .map(Some);
+        }
         // A keyed prompt replaces only its sender's (`hub/supersede.rs`): the peer cannot see the
         // session this connection runs in, so it gets that session's name.
         if m == method::SESSION_PROMPT {

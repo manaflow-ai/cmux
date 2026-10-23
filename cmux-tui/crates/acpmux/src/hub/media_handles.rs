@@ -5,7 +5,9 @@
 //!   reference to that session, so a handle of a chat that was replaced or purged since, even
 //!   one with the same ID, is refused (`media.handle`).
 //! - A table holds at most [`MAX_HANDLES`], and the daemon at most [`MAX_OPEN`] over all its
-//!   connections (`media.handles`, `media.busy`).
+//!   connections (`media.handles`, `media.busy`). A peer daemon's link carries the reads of all
+//!   that daemon's clients, which it caps one by one (`server/media_forward.rs`), so its table
+//!   is capped only by [`MAX_OPEN`] ([`Handles::for_peer_link`]).
 //! - A handle unused for [`IDLE`] is closed by the table's sweeper: one task per table, spawned
 //!   by the insert that finds none, sleeping until the earliest handle's deadline. It stops when
 //!   the table is empty, when the table is dropped, or at [`Handles::close_all`], which aborts it.
@@ -58,6 +60,7 @@ struct Entry<O> {
 
 struct State<O> {
     entries: HashMap<String, Entry<O>>,
+    cap: usize,
     sweeper: Option<AbortHandle>,
     closed: bool,
 }
@@ -70,8 +73,18 @@ pub struct Handles<O = super::Session> {
 
 impl<O> Default for Handles<O> {
     fn default() -> Self {
-        let state = State { entries: HashMap::new(), sweeper: None, closed: false };
+        let state =
+            State { entries: HashMap::new(), cap: MAX_HANDLES, sweeper: None, closed: false };
         Handles { state: Arc::new(Mutex::new(state)) }
+    }
+}
+
+impl<O> Handles<O> {
+    /// The table of a peer daemon's link: capped by the daemon's [`MAX_OPEN`] alone.
+    pub fn for_peer_link() -> Self {
+        let handles = Self::default();
+        lock(&handles.state).cap = MAX_OPEN;
+        handles
     }
 }
 
@@ -94,7 +107,7 @@ impl<O: Send + Sync + 'static> Handles<O> {
         if state.closed {
             return Err(refused("media.closed", "the connection that opened the file has ended"));
         }
-        if state.entries.len() >= MAX_HANDLES {
+        if state.entries.len() >= state.cap {
             let message = "too many media files are open; read one to its end";
             return Err(refused("media.handles", message));
         }

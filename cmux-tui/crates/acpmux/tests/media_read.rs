@@ -262,6 +262,19 @@ async fn media_of_a_peers_chat_is_read_on_the_peer() {
     let opened = ca.open(&remote, "out/clip.mp4").await;
     assert_eq!(opened["result"]["peer"], "b", "{opened}");
     assert_eq!(ca.read(&remote, "out/clip.mp4", 400).await, ("video/mp4".into(), clip()));
+    // The link carries every client's reads: a handle is its own client's, and one client's
+    // full table leaves room on the link for another's.
+    let mut held = Vec::new();
+    for _ in 0..acpmux::hub::media_handles::MAX_HANDLES {
+        let opened = ca.open(&remote, "out/clip.mp4").await;
+        held.push(opened["result"]["handle"].clone());
+    }
+    assert_eq!(reason(&ca.open(&remote, "out/clip.mp4").await), "media.handles");
+    let mut other = client(&a, Origin::Local);
+    assert_eq!(reason(&other.range(&remote, &held[0], 0, 10).await), "media.handle");
+    let theirs = other.open(&remote, "out/clip.mp4").await;
+    assert_eq!(theirs["result"]["size"], clip().len(), "{theirs}");
+    assert_eq!(ca.range(&remote, &held[0], 0, 10).await["result"]["offset"], 0);
 }
 
 /// A peer from before the reader (it lists no `mediaRead`): it counts the media calls it gets.
