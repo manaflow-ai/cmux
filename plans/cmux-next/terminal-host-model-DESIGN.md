@@ -114,10 +114,14 @@ processes and ~2,000 threads fewer.
    so the daemon's parser is the only one outside the app. Test: `tests/holder_terminals.rs`
    (no host record; daemon SIGKILL and restart restores every screen from the ring; holder
    SIGKILL keeps every shell and screen; a second restart re-attaches from the new holder).
-   Open in slice 2: an archived terminal's reopen seed and the respawn after a host loss stay on
-   the host path; after a holder crash a later daemon restart has only the output since the new
-   holder took over (the old ring died with its holder) until the journal VT snapshot restore
-   (section 5) lands; reader and frame threads are still per terminal.
+   Slice 3 (2026-10-23): the reopen seed reaches the parser first; a holder that cannot restart
+   ends its terminals lost (respawn path); on ADOPT the daemon hands the new holder a VT replay
+   of each screen (its prologue, at most 768 KiB), which the holder sends first to a restarted
+   daemon, so a restart after a holder crash restores the whole screen. Fleet A/B (aws-m4pro-7,
+   send to reply p50/p95, hosts -> holder): new-tab 31.9/56.9 -> 13.2/55.6 ms, new-workspace
+   33.6/52.3 -> 14.1/15.1 ms, unsized split 25.7/47.8 -> 13.5/14.9 ms; 0 host processes.
+   Still open: reader, wait and frame threads per terminal (the shared frame producer lands
+   from the daemon-speed workstream); default on (slice 4).
 3. G5 binary attach frames and the in-band resize marker (with PL-ghostty's decode).
 4. Default on; old `__terminal-host` processes keep their client until none is left (pty-holder 2.2).
 
