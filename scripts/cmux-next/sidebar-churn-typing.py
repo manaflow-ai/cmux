@@ -28,6 +28,8 @@ phase's p95 by more than --gate-delta-ms (default 2). Fleet (an owned mini with 
     --artifact artifacts/split-spring/report.json --arg=--suite=sidebar-churn [--arg=--trace] [--arg=--gate-p95-ms=8]
 """
 import argparse, csv, glob, json, os, random, shutil, socket, statistics, subprocess, sys, tempfile, threading, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import BenchApp, LaunchError  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -357,27 +359,21 @@ def phase(name, pid, ids, groups, churn_hz, trace=False):
 
 
 def main():
-    with open(CONFIG, "w") as f:
-        json.dump({"appearance": {"theme": "Catppuccin Mocha"}}, f)
-    open(GHOSTTY, "w").write("")
-    if os.path.exists(SOCKET):
-        os.unlink(SOCKET)
-    env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-           "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-           "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY, "CMUX_NEXT_CHIEF_ISOLATED": "1",
-           "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"), "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(map(str, WINDOW)),
-           "CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"}
-    log = open(os.path.join(OUT, "app.log"), "a")
-    binary = next((p for p in sorted(glob.glob(os.path.join(opts.app, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
-    app = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    note(f"launched pid {app.pid}")
+    global SOCKET, CONFIG
+    # One launch path for GUI benches (bench_launch.py): the console-session check, the tag's socket in the state
+    # folder, and the reason when the app does not come up. The bench's own environment on top of its defaults.
+    bench = BenchApp(opts.app, out=OUT, config={"appearance": {"theme": "Catppuccin Mocha"}}, window=WINDOW, log_name="app.log",
+                     env={"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"})
     results["load_at_start"] = os.getloadavg()
     made = []
     groups = []
     try:
-        if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 180):
-            sys.exit(f"the tagged app did not come up (exit={app.poll()})")
-        time.sleep(3)
+        try:
+            bench.launch(timeout=180, settle=3.0)
+        except LaunchError as error:
+            results["launch_failure"] = {"reason": error.reason, "detail": error.report.get("detail")}
+            raise
+        app, SOCKET, CONFIG = bench.process, bench.socket, os.path.join(bench.scratch, "cmux.json")
         t0 = time.monotonic()
         for g in range(opts.groups):
             name = f"churn group {g:02d}"
@@ -422,11 +418,7 @@ def main():
         with open(report, "w") as f:
             json.dump(results, f, indent=1, default=str)
         if not opts.keep:
-            rpc("action.run", {"action": "quitEndSessions", "origin": "script"})
-            try:
-                app.wait(timeout=30)
-            except subprocess.TimeoutExpired:
-                app.terminate()
+            bench.stop()
     if opts.gate_p95_ms is not None and summary:
         over = summary["churn_p95_ms"] > opts.gate_p95_ms or summary["churn_p95_ms"] - summary["idle_p95_ms"] > opts.gate_delta_ms
         if over:
