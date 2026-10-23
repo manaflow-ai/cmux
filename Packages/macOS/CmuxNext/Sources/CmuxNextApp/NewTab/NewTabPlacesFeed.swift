@@ -49,15 +49,38 @@ enum NewTabPlacesFeed {
     /// and a New Tab page is no place (``NewTabPage/place(_:home:)``), so the pages of one window
     /// share one list; a page that is a place (its chat started) gets its own.
     private static func push(_ tabs: AgentTabStore, services: AppServices) {
-        var shared: [String?: (tabs: [AgentPaneOmnibar.Tab], workspaces: [AgentPaneOmnibar.Workspace], folders: [String])] = [:]
+        var pages: [(key: String, current: String?, view: AgentPaneView)] = []
         for key in tabs.newTabPages.keys {
             guard let view = tabs.views[key] else { continue }
             let window = view.window.flatMap { services.windows.owner(of: $0) } ?? services.windows.active
-            let current = window?.state.workspaceID
-            let all = shared[current] ?? NewTabPage.places(services, excluding: nil, current: current)
-            shared[current] = all
-            let places = all.tabs.contains { $0.id == key } ? NewTabPage.places(services, excluding: key, current: current) : all
-            view.refreshNewTabPlaces(tabs: places.tabs, workspaces: places.workspaces)
+            pages.append((key, window?.state.workspaceID, view))
         }
+        let places = sharedPlaces(for: pages.map { ($0.key, $0.current) },
+                                  build: { NewTabPage.places(services, excluding: $0, current: $1) },
+                                  lists: { all, key in all.tabs.contains { $0.id == key } })
+        for page in pages {
+            guard let mine = places[page.key] else { continue }
+            page.view.refreshNewTabPlaces(tabs: mine.tabs, workspaces: mine.workspaces)
+        }
+    }
+
+    /// Each page's places, built once per shown workspace (`current`) and again only for a page
+    /// that `lists` itself as a place, which gets the list without itself.
+    /// - Parameters:
+    ///   - pages: Each open New Tab page's key and its window's shown workspace.
+    ///   - build: The places of `current`, without the page `excluding` (nil: every place).
+    ///   - lists: Whether the places list the page `key`.
+    /// - Returns: The places each page shows, by page key.
+    static func sharedPlaces<Places>(for pages: [(key: String, current: String?)],
+                                     build: (_ excluding: String?, _ current: String?) -> Places,
+                                     lists: (Places, _ key: String) -> Bool) -> [String: Places] {
+        var shared: [String?: Places] = [:]
+        var result: [String: Places] = [:]
+        for page in pages {
+            let all = shared[page.current] ?? build(nil, page.current)
+            shared[page.current] = all
+            result[page.key] = lists(all, page.key) ? build(page.key, page.current) : all
+        }
+        return result
     }
 }
