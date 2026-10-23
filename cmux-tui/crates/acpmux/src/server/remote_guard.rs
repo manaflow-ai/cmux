@@ -321,7 +321,14 @@ pub(super) async fn check(
         .with_data(serde_json::json!({"reason": "tools.remote"})));
     }
     // A dropped file is saved from the app or the unix socket only (`hub/file_uploads.rs`).
-    if m == method::MUX_FILE_PUT && control_of(origin, auth, params) == crate::hub::Control::Web {
+    if matches!(
+        m,
+        method::MUX_FILE_PUT
+            | method::MUX_FILE_PUT_BEGIN
+            | method::MUX_FILE_PUT_CHUNK
+            | method::MUX_FILE_PUT_FINISH
+    ) && control_of(origin, auth, params) == crate::hub::Control::Web
+    {
         return Err(RpcError::invalid_params(
             "filePut.remote: a file is saved for a chat only from the app or over the local unix socket",
         )
