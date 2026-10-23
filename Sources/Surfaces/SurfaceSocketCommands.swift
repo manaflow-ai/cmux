@@ -146,6 +146,8 @@ extension TerminalController {
                         focus: focus,
                         reuseExisting: false
                     )
+                    payload = Self.surfaceResourcePayload(resource, projections: [opened.projection])
+                    payload["resource"] = resource.id.rawValue
                     payload.merge(Self.surfaceProjectPayload(opened.projection, reused: opened.reused)) { _, new in new }
                 }
                 return await Self.markBackgroundOpen(payload, focus: focus)

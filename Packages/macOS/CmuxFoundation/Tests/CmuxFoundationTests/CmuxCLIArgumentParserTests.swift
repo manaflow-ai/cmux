@@ -20,6 +20,13 @@ struct CmuxCLIArgumentParserTests {
         #expect(result.remaining == ["run", "--command", "--json"])
     }
 
+    @Test("bare focus does not consume a following presentation flag")
+    func extractsJSONAfterBareFocus() throws {
+        let result = try parser.parse(["surface", "new-display", "--focus", "--json"])
+        #expect(result.jsonOutput)
+        #expect(result.remaining == ["surface", "new-display", "--focus"])
+    }
+
     @Test("terminator stops presentation parsing")
     func honorsTerminator() throws {
         let result = try parser.parse(["run", "--", "--json"])

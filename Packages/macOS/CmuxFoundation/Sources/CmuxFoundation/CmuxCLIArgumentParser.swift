@@ -43,7 +43,7 @@ public struct CmuxCLIArgumentParser: Sendable {
         "--action", "--after-workspace", "--agent", "--amount", "--arch",
         "--attr", "--before-workspace", "--body", "--color", "--command",
         "--config", "--cwd", "--description", "--direction", "--domain",
-        "--dx", "--dy", "--email", "--event", "--expires", "--focus",
+        "--dx", "--dy", "--email", "--event", "--expires",
         "--function", "--id", "--image", "--index", "--key", "--kind",
         "--label", "--layout", "--lines", "--load-state", "--max-depth", "--name", "--os",
         "--order", "--out", "--pane", "--panel", "--path", "--profile", "--property",

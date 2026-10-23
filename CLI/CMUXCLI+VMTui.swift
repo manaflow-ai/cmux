@@ -826,7 +826,9 @@ extension CMUXCLI {
     }
 
     static var surfaceUsage: String {
-        """
+        CMUXDiffViewerLocalization.string(
+            "cli.surface.usage",
+            defaultValue: """
         Usage: cmux surface ls [<machine>|local] [--refresh] [--json]
                cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>]
                                  [--left|--right|--up|--down|--tab] [--new] [--focus|--no-focus] [--json]
@@ -862,6 +864,7 @@ extension CMUXCLI {
         --focus / --no-focus:  focus the opened pane, or open it in the background.
                \(openFocusDefaultHelp)
         """
+        )
     }
 
     static var vmOpenUsage: String {
@@ -1782,6 +1785,9 @@ extension CMUXCLI {
             let known = ["--no-open", "--json"]
             if let unknown = rest3.first(where: { $0.hasPrefix("-") && !known.contains($0) }) {
                 throw CLIError(message: "surface new-display: unknown flag '\(unknown)'\n\n\(Self.surfaceUsage)")
+            }
+            if rest3.contains(where: { !$0.hasPrefix("-") }) {
+                throw CLIError(message: "surface new-display: unexpected argument\n\n\(Self.surfaceUsage)")
             }
             guard let machine = machineOpt, !machine.isEmpty else {
                 throw CLIError(message: "surface new-display: --machine <cloud-id> is required\n\n\(Self.surfaceUsage)")
