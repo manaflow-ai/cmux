@@ -1017,7 +1017,8 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
     // collapsing i mean"); the turn's edited-files card lists them when it ends. One with a file
     // change still waiting for its permission stays as it is, so the change it asks about stays in
     // sight (an ended turn's folded run keeps it in sight too: TurnRows.tsx `staysInSight`).
-    if ((row.items ?? []).some((item) => awaitsPermission(item.tool))) return [row];
+    if ((row.items ?? []).some((item) => awaitsPermission(item.tool)))
+      return [{ ...row, foldRun: false, version: row.version * RUN_STATES }];
     // An earlier run draws no call that has nothing to show yet; its row comes with its input.
     if (index !== latest)
       return withoutDrafts(row).flatMap((kept) => {

@@ -155,7 +155,7 @@ test("a run with an edit waiting for its permission is not collapsed", () => {
   const work = shaped([read("src/a.ts"), command("ls"), edit("src/a.ts", { status: "pending" })]).find(
     (entry) => entry.id === "work",
   )!;
-  expect(work.foldRun).toBeUndefined();
+  expect(work.foldRun).toBe(false);
   expect(words(work)).toContain("ls");
 });
 
@@ -165,7 +165,7 @@ test("a delete or a move waiting for its permission stays in sight, live and in 
     const items = [read("src/a.ts"), command("ls"), pending, command("pwd")];
     // Live: its run is not collapsed.
     const live = shaped(items).find((entry) => entry.id === "work")!;
-    expect(live.foldRun).toBeUndefined();
+    expect(live.foldRun).toBe(false);
     // Ended, its Worked for opened: the run folds around it, and it keeps its own row.
     const ended = turnView(
       [
@@ -210,6 +210,9 @@ test("an edit waiting for its permission next to finished edits keeps its row", 
     edit("src/a.ts", { status: "pending" }),
     edit("src/c.ts"),
   ];
+  const live = shaped(items).find((entry) => entry.id === "work")!;
+  expect(isEditRow(live)).toBe(false);
+  expect(words(live)).toContain("Edit src/a.ts");
   const ended = turnView(
     [
       row("u4", "user", { text: "Edit them" }),
