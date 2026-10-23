@@ -423,31 +423,34 @@ impl Hub {
             let cfg = self.config.read().await;
             self.policy_for(session, cfg.permission_policy) == PermissionPolicy::ApproveReads
         };
+        // Judged in the environment the harness runs it with: the daemon's, the allow-listed
+        // login values, then the env its agent was started with (`ensure_child`). An agent this
+        // daemon did not start (re-adopted after a restart) asks.
+        let launched = session.launch_env.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let shell_reads = reads_policy
             && request.pointer("/toolCall/kind").and_then(Value::as_str) == Some("execute")
-            && {
-                // Judged in the environment the harness runs it with: the daemon's, the
-                // allow-listed login values, then the profile, preset and session env.
-                let meta = session.meta();
-                let (_, mut own) = self.harness_env(&meta).await;
-                own.extend(meta.session_env.clone());
-                let family = self.config.read().await.family(&meta.harness);
-                let mut env = crate::login_env::effective_for(family.as_deref(), &own);
-                // The agent's PATH, unless its own env names one (`apply_tokio_for`).
-                if let Some(path) = crate::login_env::agent_path()
-                    && !own.contains_key("PATH")
-                {
-                    env.insert("PATH".to_owned(), path.to_string_lossy().into_owned());
+            && match launched {
+                None => false,
+                Some(own) => {
+                    let meta = session.meta();
+                    let family = self.config.read().await.family(&meta.harness);
+                    let mut env = crate::login_env::effective_for(family.as_deref(), &own);
+                    // The agent's PATH, unless its own env names one (`apply_tokio_for`).
+                    if let Some(path) = crate::login_env::agent_path()
+                        && !own.contains_key("PATH")
+                    {
+                        env.insert("PATH".to_owned(), path.to_string_lossy().into_owned());
+                    }
+                    let (request, cwd) = (request.clone(), meta.cwd);
+                    // A probe that takes too long asks; its thread finishes on its own.
+                    let probe = tokio::task::spawn_blocking(move || {
+                        super::shell_readonly::request_is_read_only(&request, &cwd, &env)
+                    });
+                    matches!(
+                        tokio::time::timeout(super::shell_readonly::PROBE_TIMEOUT, probe).await,
+                        Ok(Ok(true))
+                    )
                 }
-                let (request, cwd) = (request.clone(), meta.cwd);
-                // A probe that takes too long asks; its thread finishes on its own.
-                let probe = tokio::task::spawn_blocking(move || {
-                    super::shell_readonly::request_is_read_only(&request, &cwd, &env)
-                });
-                matches!(
-                    tokio::time::timeout(super::shell_readonly::PROBE_TIMEOUT, probe).await,
-                    Ok(Ok(true))
-                )
             };
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;

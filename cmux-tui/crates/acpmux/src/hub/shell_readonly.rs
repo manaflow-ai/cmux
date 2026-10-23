@@ -21,11 +21,12 @@
 //! look at a repository this never checked.
 //!
 //! The commands run with the harness's environment, not the daemon's, so they are judged in it
-//! (`permissions.rs` passes `login_env::effective_for` of the session's profile, preset and
-//! session env): a bare name passes only when that PATH finds it in a system directory first,
-//! an environment that points these programs elsewhere (`GIT_*`, `LD_PRELOAD`, `BASH_ENV`, ...)
-//! asks, and the repository probe runs that git with that environment. Not under approve-edits:
-//! an agent that writes files unasked could put its own `rg` in one of those directories.
+//! (`permissions.rs` passes `login_env::effective_for` of the env its agent was started with:
+//! profile, family defaults, preset, session env and route): a bare name passes only when that
+//! PATH finds it in a system directory first, an environment that points these programs
+//! elsewhere (`GIT_*`, `LD_PRELOAD`, `BASH_ENV`, ...) asks, and the repository probe runs that
+//! git with that environment. Not under approve-edits: an agent that writes files unasked could
+//! put its own `rg` in one of those directories.
 
 use serde_json::Value;
 use std::collections::BTreeMap;

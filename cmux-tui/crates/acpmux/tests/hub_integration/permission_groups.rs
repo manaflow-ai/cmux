@@ -393,6 +393,27 @@ async fn approve_reads_asks_for_git_reads_in_a_repository_that_runs_a_program() 
     std::fs::remove_dir_all(repo).unwrap();
 }
 
+/// Codex review of #24155: the family's `defaults.env` reaches the agent too, so a
+/// `GIT_EXTERNAL_DIFF` there makes `git status` ask like any other command.
+#[tokio::test]
+async fn approve_reads_asks_for_git_reads_under_a_defaults_env_that_runs_a_program() {
+    let defaults = BTreeMap::from([("GIT_EXTERNAL_DIFF".to_owned(), "/bin/false".to_owned())]);
+    let (hub, mut c) =
+        setup_defaults_env(PermissionPolicy::ApproveReads, BTreeMap::new(), defaults).await;
+    let repo = git_repo(&[]);
+    let id = session_in(&mut c, "shell-reads", &repo).await;
+    let rid =
+        c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: shell-reads", None)).await;
+    let g = ready(&mut c).await;
+    let detail = c.request(method::MUX_INFO, json!({"sessionId":id})).await.unwrap();
+    let pending = detail["pending"].as_array().unwrap();
+    assert_eq!(pending.len(), 2, "{pending:?}");
+    let mut r = connect(&hub).await;
+    r.request(RESPOND, decision(&id, &g, "both", "deny")).await.unwrap();
+    assert!(c.response(rid).await.0.is_ok());
+    std::fs::remove_dir_all(repo).unwrap();
+}
+
 /// A fresh git repository with `config` in its local config.
 fn git_repo(config: &[(&str, &str)]) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("acpmux-shell-reads-{}", uuid::Uuid::now_v7()));
