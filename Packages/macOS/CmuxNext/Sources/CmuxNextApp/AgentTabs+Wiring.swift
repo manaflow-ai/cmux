@@ -313,8 +313,9 @@ extension AgentTabStore {
         }
         // task-owner: one read of this Mac's name, shown to Macs that see its tabs and on every
         // pane's location row (a pane's handshake awaits it)
+        let showcase = services.environment.showcase
         AgentPaneModel.localMachineName = Task { [weak tabs] in
-            let name = await MacName().displayName()
+            let name = await AgentTabStore.localMachineName(showcase: showcase) { await MacName().displayName() }
             tabs?.localHostName = name
             return AgentPaneModel.rememberLocalMachineName(AgentTabStore.displayName(name) ?? name)
         }

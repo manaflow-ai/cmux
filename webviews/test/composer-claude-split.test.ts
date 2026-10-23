@@ -208,15 +208,17 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
         if (stage.sendAtRest) expect(at.send, "Send is in the box").not.toBeNull();
         else expect(at.send, "no Send with an empty draft").toBeNull();
         if (stage.plus) expect(at.plus, "+ is in the box").not.toBeNull();
-        // The harness on the left, its mark on the prompt's text edge (16 px in from the box, where
-        // Claude Code's footer starts with its project), its name after it; then the mode, its symbol
+        // The harness on the left, its pill on the box's left edge (Leo 2026-10-21: no inset of the
+        // row's own, composer-side-inset.test.ts), so its mark sits the chip's hover inset in, where
+        // Claude Code's footer starts with its project; its name after it; then the mode, its symbol
         // and its name. A New Tab page before its chat starts may have no mode yet; the model button
         // stays right.
         expect(at.harnessMark, "the row starts with the harness's mark").not.toBeNull();
+        expect(at.harnessMark!.left, "the harness's mark inside the box").toBeGreaterThanOrEqual(at.box.left);
         expect(
-          Math.abs(at.harnessMark!.left - (at.box.left + 16)),
-          "the harness's mark on the 16 px edge",
-        ).toBeLessThanOrEqual(3);
+          at.harnessMark!.left - at.box.left,
+          "the harness's mark a chip's inset from the box's edge",
+        ).toBeLessThanOrEqual(10);
         expect(at.harness, "the harness names itself").not.toBeNull();
         expect(at.harness!.left, "the harness's name follows its mark").toBeGreaterThan(at.harnessMark!.right);
         if (stage.plus) expect(at.mode, "the mode names itself").not.toBeNull();
