@@ -31,6 +31,11 @@ export function isReadOnly(binding: Pick<Binding, "source" | "removed">): boolea
   return binding.removed === true || binding.source === "ghostty" || binding.source === "ghostty-fallback";
 }
 
+/** A row the `when` editor can change: one with keys (an unset row has nothing to scope). */
+export function canEditWhen(binding: Pick<Binding, "source" | "removed" | "unset">): boolean {
+  return !isReadOnly(binding) && binding.unset !== true;
+}
+
 /** A row's identity across re-lists (ids are positions and move when the table changes). */
 export function identity(binding: Pick<Binding, "source" | "command" | "key" | "when" | "removed">): string {
   return [binding.removed ? "removed" : binding.source, binding.command, binding.key, binding.when ?? ""].join(

@@ -27,6 +27,12 @@ export interface Binding {
    * page can offer Reset; it is not active.
    */
   removed?: boolean;
+  /**
+   * Optional: the action has no keys because the user removed them (cmux.json unbinds it). `key`
+   * and `display` are empty; the row stays so the action can get a key again (`set` with no
+   * `replaces`), and Reset gives the default back.
+   */
+  unset?: boolean;
   /** Set on a removed default when the user's Ghostty config claims its key (read-only; no Reset). */
   removedBy?: "ghostty";
   /** Set on a system-wide key (Start Agent from Any App) cmux could not register: another app holds it. */

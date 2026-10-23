@@ -5,6 +5,7 @@
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import {
+  canEditWhen,
   filterBindings,
   identity,
   isReadOnly,
@@ -199,7 +200,7 @@ export class KeybindingsStore {
   // Inline `when` editor.
 
   editWhen(binding: Binding): void {
-    if (isReadOnly(binding)) return;
+    if (!canEditWhen(binding)) return;
     this.set({ editing: identity(binding), selection: identity(binding) });
   }
 
@@ -226,7 +227,7 @@ export class KeybindingsStore {
     await this.beginRecording({ target: "search" });
   }
 
-  /** "Change keybinding": the recorded strokes become this row's new keys. */
+  /** "Change keybinding" (a click on the keys): the recorded strokes become this row's new keys. */
   async changeKeybinding(binding: Binding): Promise<void> {
     if (isReadOnly(binding)) return;
     if (this.snapshot.recording) this.endRecording();
@@ -266,7 +267,8 @@ export class KeybindingsStore {
       return;
     }
     this.endRecording();
-    if (event.done && event.key && !keyMatches(event.key, { key: recording.binding.key, exact: true })) {
+    const same = !recording.binding.unset && keyMatches(event.key, { key: recording.binding.key, exact: true });
+    if (event.done && event.key && !same) {
       void this.write(KeybindingOps.set, this.setParams(recording.binding, event.key, recording.binding.when));
     }
   }
@@ -280,7 +282,7 @@ export class KeybindingsStore {
   // Writes.
 
   remove(binding: Binding): Promise<void> {
-    if (isReadOnly(binding)) return Promise.resolve();
+    if (isReadOnly(binding) || binding.unset) return Promise.resolve();
     return this.write(KeybindingOps.remove, {
       command: binding.command,
       key: binding.key,
@@ -322,9 +324,10 @@ export class KeybindingsStore {
       command: binding.command,
       key,
       when,
-      replaces: { key: binding.key, when: binding.when },
       idempotency_key: this.key(),
     };
+    // An unset row has no entry to replace: the new keys bind the action again.
+    if (!binding.unset) params.replaces = { key: binding.key, when: binding.when };
     if (binding.args) params.args = binding.args;
     return params;
   }

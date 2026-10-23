@@ -2103,127 +2103,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Record Keys"
+            "value": "Search by Keys"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "キーを記録"
+            "value": "キーで検索"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تسجيل المفاتيح"
+            "value": "البحث بالمفاتيح"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Snimi tipke"
+            "value": "Pretraži po tipkama"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Optag taster"
+            "value": "Søg efter taster"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tasten aufnehmen"
+            "value": "Nach Tasten suchen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Grabar teclas"
+            "value": "Buscar por teclas"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Enregistrer les touches"
+            "value": "Rechercher par touches"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Registra tasti"
+            "value": "Cerca per tasti"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កត់ត្រាគ្រាប់ចុច"
+            "value": "ស្វែងរកតាមគ្រាប់ចុច"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "키 기록"
+            "value": "키로 검색"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ta opp taster"
+            "value": "Søk etter taster"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nagraj klawisze"
+            "value": "Szukaj według klawiszy"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gravar teclas"
+            "value": "Buscar por teclas"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Записать клавиши"
+            "value": "Поиск по клавишам"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "บันทึกปุ่ม"
+            "value": "ค้นหาด้วยปุ่ม"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tuşları Kaydet"
+            "value": "Tuşlarla Ara"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Записати клавіші"
+            "value": "Пошук за клавішами"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ghi phím"
+            "value": "Tìm theo phím"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "录制按键"
+            "value": "按按键搜索"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "錄製按鍵"
+            "value": "依按鍵搜尋"
           }
         }
       }
@@ -4320,6 +4320,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "按下按鍵，然後按 Return 儲存。按 Escape 取消。"
+          }
+        }
+      }
+    },
+    "keybindings.page.notSet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not Set"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未設定"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "غير معيّن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije postavljeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke angivet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nicht festgelegt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sin asignar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non défini"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non impostato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនបានកំណត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "설정 안 됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke angitt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie ustawiono"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não definido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не задано"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ได้ตั้งค่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ayarlanmadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не задано"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa đặt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未设置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未設定"
           }
         }
       }

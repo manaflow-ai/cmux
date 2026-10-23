@@ -3,7 +3,7 @@
 // intents. Cmd/Ctrl chords never reach page handlers; recording goes through the app's dispatcher.
 import { useSyncExternalStore, type KeyboardEvent } from "react";
 import type { Strings } from "../shared/i18n";
-import { displayStrokes, identity, isReadOnly, moveSelection, sourceLabel } from "./model";
+import { canEditWhen, displayStrokes, identity, isReadOnly, moveSelection, sourceLabel } from "./model";
 import type { KeybindingsStore } from "./store";
 import type { Binding } from "./types";
 
@@ -28,8 +28,9 @@ function composing(event: KeyboardEvent): boolean {
 }
 
 const ICONS = {
-  // Pencil.
-  change: "M10.75 2.75 13.25 5.25 5.5 13H3v-2.5ZM9 4.5l2.5 2.5",
+  // A keyboard: the body, two rows of keys and the space bar.
+  keyboard:
+    "M2.25 4.25h11.5v7.5H2.25ZM4.5 6.5h.01M6.75 6.5h.01M9 6.5h.01M11.25 6.5h.01M4.5 8.5h.01M11.25 8.5h.01M6.25 9.5h3.5",
   // Minus in a circle.
   remove: "M8 1.75a6.25 6.25 0 1 0 0 12.5 6.25 6.25 0 0 0 0-12.5ZM5.25 8h5.5",
   // Counter-clockwise arrow.
@@ -121,12 +122,14 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
           />
           <button
             type="button"
-            className={`keys-toggle keys-record${searchRecording ? " on" : ""}`}
+            className={`keys-icon-button keys-record${searchRecording ? " on" : ""}`}
             aria-pressed={searchRecording}
+            aria-label={t("keybindings.page.recordSearch")}
+            title={t("keybindings.page.recordSearch")}
             disabled={disconnected}
             onClick={() => void store.toggleSearchRecording()}
           >
-            {t("keybindings.page.record")}
+            <Icon name="keyboard" />
           </button>
         </div>
         <div className="keys-filters">
@@ -274,14 +277,36 @@ function BindingRow({ binding, strings, selected, editing, recordingDisplay, res
         <span className="keys-command-id">{binding.command}</span>
       </td>
       <td className="keys-col-key">
-        {recording ? (
-          recordingDisplay ? (
-            <Keycaps display={recordingDisplay} />
-          ) : (
-            <span className="keys-placeholder">{t("keybindings.page.pressKeys")}</span>
-          )
-        ) : (
+        {isReadOnly(binding) ? (
           <Keycaps display={binding.display} />
+        ) : (
+          // The keys are the control: a click records new ones (Return on the row does too).
+          <button
+            type="button"
+            className="keys-key-button"
+            aria-label={
+              binding.display ? `${t("keybindings.page.change")}: ${binding.display}` : t("keybindings.page.change")
+            }
+            title={t("keybindings.page.change")}
+            aria-pressed={recording}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (recording) store.stopRecording();
+              else void store.changeKeybinding(binding);
+            }}
+          >
+            {recording ? (
+              recordingDisplay ? (
+                <Keycaps display={recordingDisplay} />
+              ) : (
+                <span className="keys-placeholder">{t("keybindings.page.pressKeys")}</span>
+              )
+            ) : binding.unset ? (
+              <span className="keys-placeholder">{t("keybindings.page.notSet")}</span>
+            ) : (
+              <Keycaps display={binding.display} />
+            )}
+          </button>
         )}
         {binding.conflicts.length > 0 && !binding.removed && (
           <button
@@ -332,7 +357,7 @@ function BindingRow({ binding, strings, selected, editing, recordingDisplay, res
             type="button"
             className="keys-when"
             aria-label={`${t("keybindings.page.editWhen")}${binding.when ? `: ${binding.when}` : ""}`}
-            disabled={isReadOnly(binding)}
+            disabled={!canEditWhen(binding)}
             onClick={(event) => {
               event.stopPropagation();
               store.editWhen(binding);
@@ -345,27 +370,12 @@ function BindingRow({ binding, strings, selected, editing, recordingDisplay, res
       <td className="keys-col-source">{t(sourceLabel(binding))}</td>
       <td className="keys-col-actions">
         <span className="keys-actions">
-          {!isReadOnly(binding) && (
-            <button
-              type="button"
-              className="keys-icon-button keys-change"
-              aria-label={t("keybindings.page.change")}
-              title={t("keybindings.page.change")}
-              aria-pressed={recording}
-              onClick={(event) => {
-                event.stopPropagation();
-                if (recording) store.stopRecording();
-                else void store.changeKeybinding(binding);
-              }}
-            >
-              <Icon name="change" />
-            </button>
-          )}
-          {!isReadOnly(binding) && (
+          {!isReadOnly(binding) && !binding.unset && (
             <button
               type="button"
               className="keys-icon-button keys-remove"
               aria-label={t("keybindings.page.remove")}
+              title={t("keybindings.page.remove")}
               onClick={(event) => {
                 event.stopPropagation();
                 void store.remove(binding);

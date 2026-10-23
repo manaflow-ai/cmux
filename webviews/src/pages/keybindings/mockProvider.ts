@@ -28,6 +28,8 @@ export interface MockLayers {
   base: Array<MockEntry & { source: "default" | "app" }>;
   user: MockEntry[];
   removals: Array<Pick<MockEntry, "command" | "key" | "when">>;
+  /** Commands cmux.json unbinds (`shortcuts.bindings.<id>: null`): no default keys, one unset row. */
+  unbound?: string[];
 }
 
 export interface MockCall {
@@ -217,6 +219,7 @@ export class MockKeybindingsProvider implements PageClient {
   }
 
   private set(params: SetParams): void {
+    this.layers.unbound = this.layers.unbound?.filter((command) => command !== params.command);
     if (params.replaces) {
       this.removeEntry({ command: params.command, key: params.replaces.key, when: params.replaces.when });
     }
@@ -225,8 +228,24 @@ export class MockKeybindingsProvider implements PageClient {
     this.layers.user.push(entry);
   }
 
+  /** The command's only active key: cmux.json unbinds the action (KeybindingPageWrites.remove). */
   private remove(params: RemoveParams): void {
-    this.removeEntry(params);
+    const others = this.active().filter((entry) => entry.command === params.command && !sameEntry(entry, params));
+    if (others.length > 0) {
+      this.removeEntry(params);
+      return;
+    }
+    this.layers.user = this.layers.user.filter((entry) => entry.command !== params.command);
+    this.layers.unbound = [...(this.layers.unbound ?? []), params.command];
+  }
+
+  /** The entries that run: defaults and app entries not removed or unbound, then user entries. */
+  private active(): MockEntry[] {
+    const unbound = new Set(this.layers.unbound);
+    const base = this.layers.base.filter(
+      (entry) => !unbound.has(entry.command) && !this.layers.removals.some((removal) => sameEntry(removal, entry)),
+    );
+    return [...base, ...this.layers.user];
   }
 
   /** A user entry is deleted; a default or app entry gets a removal. */
@@ -243,15 +262,23 @@ export class MockKeybindingsProvider implements PageClient {
   private reset(params: ResetParams): void {
     this.layers.user = this.layers.user.filter((entry) => entry.command !== params.command);
     this.layers.removals = this.layers.removals.filter((entry) => entry.command !== params.command);
+    this.layers.unbound = this.layers.unbound?.filter((command) => command !== params.command);
   }
 
   private list(): BindingListResult {
     const rows: Array<Omit<Binding, "id" | "conflicts">> = [];
+    const unbound = new Set(this.layers.unbound);
     for (const entry of this.layers.base) {
+      if (unbound.has(entry.command)) continue;
       const removed = this.layers.removals.some((removal) => sameEntry(removal, entry));
       rows.push({ ...this.row(entry), source: entry.source, ...(removed ? { removed: true } : {}) });
     }
     for (const entry of this.layers.user) rows.push({ ...this.row(entry), source: "user" });
+    for (const command of unbound) {
+      if (rows.some((row) => row.command === command && !row.removed)) continue;
+      const title = this.titles[command] ?? command;
+      rows.push({ key: "", display: "", command, title, when: null, source: "user", unset: true });
+    }
     const bindings: Binding[] = rows.map((row, id) => ({
       ...row,
       id,
@@ -259,12 +286,13 @@ export class MockKeybindingsProvider implements PageClient {
       ...(!row.removed && this.heldElsewhere.has(row.command) ? { heldElsewhere: true } : {}),
     }));
     for (const a of bindings) {
-      if (a.removed) continue;
+      if (a.removed || a.unset) continue;
       a.conflicts = bindings
         .filter(
           (b) =>
             b.id !== a.id &&
             !b.removed &&
+            !b.unset &&
             normalized(b.key) === normalized(a.key) &&
             (a.when === null || b.when === null || a.when === b.when),
         )
@@ -323,7 +351,7 @@ export const SAMPLE_TITLES: Record<string, string> = {
 };
 
 /** Sample layers for the dev loop and tests: chords, an app entry, a user entry, a removed
- *  default, and two conflicts. */
+ *  default, an action whose keys were removed, and two conflicts. */
 export function sampleLayers(): MockLayers {
   return {
     base: [
@@ -347,5 +375,6 @@ export function sampleLayers(): MockLayers {
       { command: "split.down", key: "cmd+k cmd+d", when: null },
     ],
     removals: [{ command: "split.down", key: "cmd+shift+d", when: null }],
+    unbound: ["workspace.new"],
   };
 }

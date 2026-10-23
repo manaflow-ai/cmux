@@ -74,6 +74,20 @@
   background: var(--page-hover);
 }
 
+/* Search by keys: a keyboard icon beside the search field, as tall as the field. */
+.keys-search-row .keys-record {
+  width: 32px;
+  height: auto;
+  border: 1px solid var(--page-separator);
+  border-radius: 7px;
+}
+
+.keys-search-row .keys-record.on {
+  color: var(--page-text);
+  background: var(--page-selection);
+  border-color: var(--page-text-3);
+}
+
 .keys-toggle.on {
   color: var(--page-text);
   background: var(--page-selection);
@@ -209,6 +223,33 @@
   border: 1px solid var(--page-separator);
   border-bottom-width: 2px;
   color: var(--page-text);
+}
+
+/* The keys are the control that records new ones: a hover box like the when cell's, and the
+   pressed look while it records. */
+.keys-key-button {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 24px;
+  margin-left: -4px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  vertical-align: middle;
+  cursor: default;
+}
+
+.keys-key-button:hover {
+  background: var(--page-hover);
+}
+
+.keys-key-button[aria-pressed="true"] {
+  background: var(--page-selection);
+  box-shadow: inset 0 0 0 1px var(--page-text-3);
 }
 
 .keys-placeholder {

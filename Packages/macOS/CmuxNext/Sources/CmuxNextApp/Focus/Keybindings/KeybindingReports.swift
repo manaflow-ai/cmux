@@ -69,17 +69,25 @@ enum KeybindingReports {
     /// and two rows with one identity piled up on the page (dogfood run 7).
     /// A row of an action in `heldElsewhere` (a
     /// system-wide key `GlobalHotKeyService` could not register: another app
-    /// holds it) carries `heldElsewhere: true`.
+    /// holds it) carries `heldElsewhere: true`. An action cmux.json unbinds
+    /// (the page's Remove on its only key) is one `unset` row with no keys, so
+    /// it stays listed and can get a key again.
     static func pageList(_ params: [String: JSONValue], registry: ActionRegistry,
                          heldElsewhere: Set<ActionID> = []) -> JSONValue {
-        let entries = RegistryKeyBindings(registry).table.entries
+        let table = RegistryKeyBindings(registry).table
+        let entries = table.entries
         let user = Set(entries.filter { $0.source == .ghostty }.map { GhosttyRow(keys: $0.keys, command: $0.command) })
         var later: Set<KeyBinding> = []
         let repeated = Set(entries.indices.reversed().filter { !later.insert(entries[$0]).inserted })
-        let page = list(params, registry: registry) { index in
+        var page = list(params, registry: registry) { index in
             let entry = entries[index]
             return !repeated.contains(index)
                 && (entry.source != .ghosttyFallback || !user.contains(GhosttyRow(keys: entry.keys, command: entry.command)))
+        }
+        if case .object(var object) = page, case .array(let rows)? = object["bindings"] {
+            let firstID = entries.count + table.removed.count + table.claimedByGhostty.count
+            object["bindings"] = .array(rows + unsetRows(params, registry: registry, bound: Set(entries.map(\.command)), firstID: firstID))
+            page = .object(object)
         }
         guard !heldElsewhere.isEmpty, case .object(var object) = page, case .array(let rows)? = object["bindings"] else { return page }
         object["bindings"] = .array(rows.map { row in
@@ -89,6 +97,31 @@ enum KeybindingReports {
             return .object(entry)
         })
         return .object(object)
+    }
+
+    /// Rows of the actions cmux.json unbinds (`shortcuts.bindings.<id>: null`)
+    /// that have no other entry: no keys, the action's own `when`, source `user`
+    /// (Reset gives the default back).
+    private static func unsetRows(_ params: [String: JSONValue], registry: ActionRegistry,
+                                  bound: Set<ActionID>, firstID: Int) -> [JSONValue] {
+        let command = params["command"]?.stringValue.map { registry.canonicalID(for: ActionID(rawValue: $0)) }
+        let ids = registry.shortcutOverrides.compactMap { id, shortcut in shortcut == nil ? id : nil }
+            .filter { !bound.contains($0) && registry.disabledFeature(for: $0) == nil && (command == nil || command == $0) }
+            .sorted { $0.rawValue < $1.rawValue }
+        return ids.enumerated().map { offset, id in
+            let when = WhenClause.requiring(registry.descriptor(for: id)?.requires ?? [])
+            return .object([
+                "id": JSONValue(firstID + offset),
+                "key": "",
+                "display": "",
+                "command": .string(id.rawValue),
+                "title": .string(registry.title(for: id) ?? id.rawValue),
+                "when": when.map { .string($0.text) } ?? .null,
+                "source": .string(KeyBinding.Source.user.name),
+                "unset": true,
+                "conflicts": [],
+            ])
+        }
     }
 
     private struct GhosttyRow: Hashable {
