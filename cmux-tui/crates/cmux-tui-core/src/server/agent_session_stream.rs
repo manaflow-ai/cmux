@@ -274,7 +274,13 @@ fn reread_mode(attachment: &Arc<Attachment>) {
                         return worker.end(None);
                     }
                 }
-                worker.mode_reading.store(false, Ordering::Release);
+                // A swap, not a store: an event's `swap(true)` that came first in
+                // `mode_reading`'s order is read here (acquire), so its
+                // `mode_again = true` is seen below; one that comes later reads
+                // false and starts a worker itself. A plain store left both
+                // sides free to miss each other (store buffering) and drop the
+                // change.
+                worker.mode_reading.swap(false, Ordering::AcqRel);
                 if !worker.mode_again.load(Ordering::Acquire)
                     || worker.mode_reading.swap(true, Ordering::AcqRel)
                 {

@@ -157,6 +157,17 @@ struct AgentSessionAdoptNoPageTests {
         try result.get()
     }
 
+    /// A failed adopt's close is sent again after a dropped link or a lost reply, never after the
+    /// daemon's own answer (a refusal, or a workspace already gone).
+    @Test func aFailedAdoptsCloseRetriesOnlyALostLink() {
+        #expect(AgentSessionWorkspace.closeRetries(after: .notConnected))
+        #expect(AgentSessionWorkspace.closeRetries(after: .connectionClosed(reason: "eof")))
+        #expect(AgentSessionWorkspace.closeRetries(after: .daemonShutdown))
+        #expect(AgentSessionWorkspace.closeRetries(after: .timedOut("close-workspace")))
+        #expect(!AgentSessionWorkspace.closeRetries(after: .command(cmd: "close-workspace", message: "no such workspace", code: "not_found")))
+        #expect(!AgentSessionWorkspace.closeRetries(after: .malformedResponse("x")))
+    }
+
     /// A failed adopt whose failure is the other machine's link dropping still closes the workspace
     /// it made there: the close waits for the link to come back, never runs on the dead connection.
     @Test func aFailedAdoptsWorkspaceClosesOnceTheMachineReconnects() async throws {
