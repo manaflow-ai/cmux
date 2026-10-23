@@ -27,7 +27,10 @@ struct Scratch(PathBuf);
 
 impl Scratch {
     fn new(tag: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("acpmux-media-{tag}-{}", uuid::Uuid::now_v7()));
+        // Short, so a socket bound inside stays under SUN_LEN (104 bytes on macOS) under a long
+        // TMPDIR. The tail of a v7 UUID is its random part.
+        let id = uuid::Uuid::now_v7().simple().to_string();
+        let dir = std::env::temp_dir().join(format!("am-{tag}-{}", &id[20..]));
         std::fs::create_dir_all(dir.join("root/out")).unwrap();
         std::fs::create_dir_all(dir.join("outside")).unwrap();
         std::fs::write(dir.join("root/out/clip.mp4"), mp4(1, 64)).unwrap();
