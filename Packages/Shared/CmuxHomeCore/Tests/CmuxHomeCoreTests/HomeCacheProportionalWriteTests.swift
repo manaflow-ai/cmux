@@ -12,6 +12,8 @@ import Testing
     static let bob = ConversationID("conv_bob")
     static let author = ParticipantID("agent_chief")
 
+    static let writer = UUID()
+
     static func cache() -> HomeCache {
         HomeCache(url: FileManager.default.temporaryDirectory
             .appendingPathComponent("home-proportional-\(UUID().uuidString)/home.json"))
@@ -40,18 +42,18 @@ import Testing
         var state = HomeCacheState()
         state.windows = [Self.austin: Self.messages(Self.austin, count: 50),
                          Self.bob: Self.messages(Self.bob, count: 50)]
-        #expect(await cache.write(state, sequence: 1))
+        #expect(await cache.write(state, sequence: 1, writer: Self.writer))
         let austin = try Self.inode(Self.windowFile(cache, Self.austin))
         let bob = try Self.inode(Self.windowFile(cache, Self.bob))
         let index = try Self.inode(cache.url)
 
         state.windows[Self.bob] = Self.messages(Self.bob, count: 51)
-        #expect(await cache.write(state, sequence: 2))
+        #expect(await cache.write(state, sequence: 2, writer: Self.writer))
         #expect(try Self.inode(Self.windowFile(cache, Self.austin)) == austin, "an unchanged window was rewritten")
         #expect(try Self.inode(Self.windowFile(cache, Self.bob)) != bob, "the changed window is written")
         #expect(try Self.inode(cache.url) == index, "the index did not change, so it is not rewritten")
 
-        #expect(await cache.write(state, sequence: 3))
+        #expect(await cache.write(state, sequence: 3, writer: Self.writer))
         #expect(try Self.inode(Self.windowFile(cache, Self.austin)) == austin)
         #expect(try Self.inode(cache.url) == index, "an equal state writes nothing")
 
@@ -65,22 +67,25 @@ import Testing
         var state = HomeCacheState()
         state.windows = [Self.austin: Self.messages(Self.austin, count: 3),
                          Self.bob: Self.messages(Self.bob, count: 3)]
-        #expect(await cache.write(state, sequence: 2))
+        #expect(await cache.write(state, sequence: 2, writer: Self.writer))
         var newer = state
         newer.windows[Self.austin] = nil
-        #expect(await cache.write(newer, sequence: 3))
+        #expect(await cache.write(newer, sequence: 3, writer: Self.writer))
         #expect(!FileManager.default.fileExists(atPath: Self.windowFile(cache, Self.austin).path))
         // A write that reaches the actor after a newer one (quit flush vs the coalesced write).
-        #expect(await cache.write(state, sequence: 1))
+        #expect(await cache.write(state, sequence: 1, writer: Self.writer))
         let loaded = try #require(cache.load())
         #expect(loaded.windows.keys.sorted { $0.rawValue < $1.rawValue } == [Self.bob])
+        // Another writer (a second store on the same cache) numbers its states apart.
+        #expect(await cache.write(state, sequence: 1, writer: UUID()))
+        #expect(try #require(cache.load()).windows.count == 2, "another writer's first state was dropped")
     }
 
     @Test func aWindowKeepsItsNewestMessagesOnly() async throws {
         let cache = Self.cache()
         var state = HomeCacheState()
         state.windows = [Self.austin: Self.messages(Self.austin, count: HomeCache.windowLimit + 30)]
-        #expect(await cache.write(state, sequence: 1))
+        #expect(await cache.write(state, sequence: 1, writer: Self.writer))
         let window = try #require(cache.load()?.windows[Self.austin])
         #expect(window.count == HomeCache.windowLimit)
         #expect(window.last?.seq == Seq(HomeCache.windowLimit + 30))
@@ -106,11 +111,11 @@ import Testing
         let first = Self.cache()
         var state = HomeCacheState()
         state.windows = [Self.austin: Self.messages(Self.austin, count: 20)]
-        #expect(await first.write(state, sequence: 1))
+        #expect(await first.write(state, sequence: 1, writer: Self.writer))
         let austin = try Self.inode(Self.windowFile(first, Self.austin))
         let relaunched = HomeCache(url: first.url)
         state.drafts = [Self.austin: "typed after the relaunch"]
-        #expect(await relaunched.write(state, sequence: 1))
+        #expect(await relaunched.write(state, sequence: 1, writer: UUID()))
         #expect(try Self.inode(Self.windowFile(relaunched, Self.austin)) == austin)
         #expect(relaunched.load()?.drafts[Self.austin] == "typed after the relaunch")
     }

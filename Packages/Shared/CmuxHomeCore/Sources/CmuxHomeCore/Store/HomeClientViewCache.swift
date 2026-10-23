@@ -33,6 +33,8 @@ final class HomeClientViewCache {
     private var dirty = false
     /// Numbers each state handed to the cache, so a late older write never replaces a newer one.
     private var sequence: UInt64 = 0
+    /// This view cache's name at the cache actor, which orders each writer's states apart.
+    private let writer = UUID()
     /// A coalesced write is waiting for its delay.
     var hasPendingWrite: Bool { pendingWrite != nil }
 
@@ -90,9 +92,10 @@ final class HomeClientViewCache {
             do { try await clock.sleep(for: delay) } catch { return }
             guard let self else { return }
             self.pendingWrite = nil
+            let writer = self.writer
             guard let cache = self.cache, let taken = self.takeState() else { return }
             // Encoded and written on the cache's actor; this actor only made the copies.
-            let wrote = await cache.write(taken.state, sequence: taken.sequence)
+            let wrote = await cache.write(taken.state, sequence: taken.sequence, writer: writer)
             if !wrote { self.dirty = true }
         }
     }
@@ -102,7 +105,7 @@ final class HomeClientViewCache {
         pendingWrite?.cancel()
         pendingWrite = nil
         guard let cache, let taken = takeState() else { return }
-        if !cache.writeAndWait(taken.state, sequence: taken.sequence) { dirty = true }
+        if !cache.writeAndWait(taken.state, sequence: taken.sequence, writer: writer) { dirty = true }
     }
 
     /// The state to write and its number, nil when nothing changed; clears `dirty` (a failed
