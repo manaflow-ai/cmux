@@ -1999,9 +1999,13 @@ export function VirtualTranscript({
   const [transcriptRange, setTranscriptRange] = useState<TranscriptRange | undefined>();
   /// The end rows of a selection a drag from the margin makes (gutterSelect.ts): they stay mounted
   /// while it lasts, so the selection keeps its ends when the view scrolls them out (at most two).
-  const [heldRows, setHeldRows] = useState<HeldRow[] | undefined>();
+  /// Each with how far from the last row it was, which older history paging in above it keeps.
+  const [heldRows, setHeldRows] = useState<{ session: string; rows: (HeldRow & { fromEnd: number })[] } | undefined>();
+  /// The chat a hold is for: a hold from another chat (sessions reuse row ids) mounts nothing.
+  const heldSession = useRef("");
   const pendingFocus = useRef<string | undefined>(undefined);
   const sessionKey = sessionId ?? "";
+  heldSession.current = sessionKey;
   // Keep the key in state so a StrictMode render cannot consume the session transition before the
   // reset effect commits. The keyed values below make the first new-session paint fresh as well.
   const [selectionSessionKey, setSelectionSessionKey] = useState(sessionKey);
@@ -2470,19 +2474,28 @@ export function VirtualTranscript({
   // of building them in its own frame. A jump past them mounts only what it shows.
   const warmTop = useDeferredValue(renderScroll.top);
   const warm = visibleLayoutRange(layout, warmTop - height * WARM_VIEWPORTS, height * (1 + 2 * WARM_VIEWPORTS));
-  const mountedRanges = mergeRowRanges([
-    ...(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),
-    ...(heldRows ?? [])
-      .filter(({ id, index }) => rows[index]?.id === id)
-      .map(({ index }) => ({ first: index, last: index + 1 })),
-  ]);
+  const scrolledRanges = mergeRowRanges(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]);
+  // A held row (gutterSelect.ts) is at its index, or as far from the end as it was when older history
+  // pages in above it. At most two, so this reads two rows.
+  const held = heldRows?.session === sessionKey && !sessionChanged ? heldRows.rows : [];
+  const heldIndices = held
+    .map(({ id, index, fromEnd }) =>
+      rows[index]?.id === id ? index : rows[rows.length - fromEnd]?.id === id ? rows.length - fromEnd : -1,
+    )
+    .filter((index) => index >= 0);
+  const mountedRanges =
+    heldIndices.length === 0
+      ? scrolledRanges
+      : mergeRowRanges([...scrolledRanges, ...heldIndices.map((index) => ({ first: index, last: index + 1 }))]);
   // Find highlights only need repainting when the query/target, row content, or mounted DOM
   // window changes. Keep this signature primitive so scroll and layout state updates that leave
   // the mounted rows alone do not walk every text node in the transcript again.
   const mountedRangeKey = mountedRanges.map(({ first, last }) => `${first}:${last}`).join(",");
+  // The scrolled rows only: a held row far from the view would widen every drawn-height search
+  // (`measured`) to the rows between them. A held row's height does not change while it is held.
   if (lastPlaced.current) {
-    lastPlaced.current.first = mountedRanges[0]?.first ?? 0;
-    lastPlaced.current.last = mountedRanges.at(-1)?.last ?? 0;
+    lastPlaced.current.first = scrolledRanges[0]?.first ?? 0;
+    lastPlaced.current.last = scrolledRanges.at(-1)?.last ?? 0;
   }
   // A session can reuse row ids. Until the reset effect commits, render the new session as a
   // fresh transcript so a stale focus or range never flashes on its first paint.
@@ -3218,7 +3231,18 @@ export function VirtualTranscript({
     // A drag from the empty margins either side of the column selects text (gutterSelect.ts); the
     // view it scrolls past an edge is the reader's scroll.
     const removeGutter =
-      node && thread.current ? installGutterSelect(node, thread.current, reader, setHeldRows) : undefined;
+      node && thread.current
+        ? installGutterSelect(node, thread.current, reader, (held) =>
+            setHeldRows(
+              held
+                ? {
+                    session: heldSession.current,
+                    rows: held.map((row) => ({ ...row, fromEnd: rowsRef.current.length - row.index })),
+                  }
+                : undefined,
+            ),
+          )
+        : undefined;
     return () => {
       clearTimeout(settle.current);
       for (const name of inputs) node?.removeEventListener(name, reader);

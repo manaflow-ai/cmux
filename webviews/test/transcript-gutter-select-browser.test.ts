@@ -267,6 +267,50 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       await page.close();
     });
 
+    test(`${name}: a held row stays mounted when older history pages in above it`, async () => {
+      const page = await browsers.get(name)!.newPage({ viewport: { width: 1280, height: 360 } });
+      await installPaintedFrames(page);
+      const { port } = vite!.httpServer!.address() as { port: number };
+      await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
+      await page.waitForFunction(() => "__showRows" in window);
+      const entry = (id: string, index: number) =>
+        row(id, "assistant", `Entry ${index}. The keeper wrote the hour and the height of the tide.`);
+      const tail = Array.from({ length: 120 }, (_, index) => entry(`p${index}`, index));
+      const show = (shown: unknown) =>
+        page.evaluate((list) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(list), shown);
+      const paint = (count: number) =>
+        page.evaluate(async (n) => {
+          for (let left = n; left > 0; left--) await window.cmuxPaintFrame();
+        }, count);
+      await show(tail);
+      await paint(10);
+      await page.evaluate(() => (document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 0));
+      await paint(6);
+      const top = await box(page, "p0");
+      const x = top.left / 2;
+      await page.mouse.move(x, top.top + 4);
+      await page.mouse.down();
+      await page.mouse.move(x, 200);
+      await paint(1);
+      await page.evaluate(async () => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        for (let step = 0; step < 12; step += 1) {
+          scroller.scrollTop += 400;
+          for (let left = 3; left > 0; left--) await window.cmuxPaintFrame();
+        }
+      });
+      // Thirty older rows page in above: every row's index moves.
+      await show([...Array.from({ length: 30 }, (_, index) => entry(`o${index}`, 1000 + index)), ...tail]);
+      await paint(6);
+      expect(await page.evaluate(() => !!document.querySelector('.acpmux-row[data-row-id="p0"]'))).toBe(true);
+      await page.mouse.move(x, 210);
+      await paint(1);
+      await page.mouse.up();
+      await paint(4);
+      expect((await selected(page)).startsWith("Entry 0.")).toBe(true);
+      await page.close();
+    });
+
     test(`${name}: a drag inside the column still selects as before`, async () => {
       const page = await open(name);
       const first = await box(page, "m1");
