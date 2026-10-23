@@ -222,6 +222,14 @@ impl HolderClient {
         (self.stream, self.reader, self.version)
     }
 
+    /// End the link now, as a daemon's death does: the holder reads its
+    /// end even while a process another thread just forked still holds a
+    /// copy of the socket (until that child's exec closes it), which a
+    /// plain drop would leave open.
+    pub fn end(self) {
+        let _ = self.stream.shutdown(std::net::Shutdown::Both);
+    }
+
     /// Whether the holder sends at most [`wire::CREDIT_WINDOW`] past the
     /// last [`Self::ack`] (wire version 2).
     pub fn has_credit(&self) -> bool {

@@ -59,6 +59,12 @@ pub const IDLE_EXIT: Duration = Duration::from_secs(30);
 /// stream that crashes the daemon's parser cannot crash every restart.
 const POISON_STRIKES: usize = 2;
 const STRIKE_WINDOW: Duration = Duration::from_secs(10);
+
+/// Reads of the old link a takeover makes to see whether that daemon
+/// already ended (`Holder::link_ended`): enough for the frames a dead
+/// daemon left (each read takes up to the reader's chunk).
+const LINK_END_READS: usize = 16;
+
 /// A child's end ends its terminal once the master has nothing more to
 /// read, even while a background job keeps the PTY open. Not on Linux: a
 /// slave's last write reaches the master through an asynchronous flip
@@ -93,6 +99,10 @@ struct Terminal {
     exit_sent: bool,
     /// Next offset to send the attached daemon; `None` while not attached.
     sent: Option<u64>,
+    /// An ADOPT's `resume` until its daemon ATTACHes (or the link ends):
+    /// reading stops [`UNSENT_HIGH_WATER`] past it, as it would attached,
+    /// so the ring never runs past the credit the ATTACH sets up.
+    held: Option<u64>,
     /// Offset the attached daemon acknowledged it parsed up to.
     acked: u64,
     /// A CLOSE asked for its end: the holder forgets it once it ended and
@@ -564,6 +574,14 @@ impl Holder {
     /// replaces hears SUPERSEDED (when its queue lets that through) so it
     /// does not take the holder back.
     fn promote(&mut self, pending: Pending, version: u16) {
+        // A daemon that died with frames still unread (its last ACKs) ended
+        // before this one connected: its end is a lost link (a strike, the
+        // poison pill), not a takeover. A restart after a parser crash
+        // connects at once, so the holder can see the new HELLO in the turn
+        // that still reads the dead link's last bytes.
+        if self.link_ended() {
+            self.drop_link(LinkDrop::Lost);
+        }
         if self.flush_link()
             && let Some(old) = self.link.as_ref()
             && !old.has_output()
@@ -609,6 +627,7 @@ impl Holder {
                 terminal.strike(now);
             }
             terminal.sent = None;
+            terminal.held = None;
             terminal.exit_sent = false;
         }
     }
@@ -623,6 +642,27 @@ impl Holder {
             Err(_) => return false,
         }
         self.drain_link_frames()
+    }
+
+    /// Read and handle what the link has buffered, up to its end: true when
+    /// it ended or broke. A live link stops at the first read that would
+    /// block, or after [`LINK_END_READS`] reads (a daemon that keeps
+    /// writing is alive).
+    fn link_ended(&mut self) -> bool {
+        for _ in 0..LINK_END_READS {
+            let Some(link) = self.link.as_mut() else { return false };
+            match link.reader.fill(link.stream.as_raw_fd()) {
+                Ok(true) => {}
+                Ok(false) => return true,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => return false,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(_) => return true,
+            }
+            if !self.drain_link_frames() {
+                return true;
+            }
+        }
+        false
     }
 
     /// Handle every complete frame the link has buffered. False when the
@@ -660,6 +700,7 @@ impl Holder {
             Some(Kind::Snapshot) => self.snapshot(frame.chan, &frame.payload),
             Some(Kind::Detach) => self.terminal(frame.chan).map(|terminal| {
                 terminal.sent = None;
+                terminal.held = None;
                 terminal.exit_sent = false;
             }),
             Some(Kind::Ack) => {
@@ -791,6 +832,9 @@ impl Holder {
             ring.upgrade_layout();
         }
         let mut terminal = Terminal::with_ring(id, master, pid, false, ring);
+        // The daemon ATTACHes right after its ADOPT: until then read no
+        // more than an attached stream from `resume` would.
+        terminal.held = Some(resume);
         terminal.prologue = input.rest().to_vec();
         terminal.prologue_base = base;
         // Tell the daemon which ring this holder writes (the one it was
@@ -845,6 +889,7 @@ impl Holder {
             terminal.strikes.clear();
         }
         terminal.sent = Some(start);
+        terminal.held = None;
         // The `from - parsed` bytes the daemon holds unparsed count against
         // its window (moved past a GAP with the stream): after an adoption
         // or a resume the holder sends at most the window past what the
@@ -1216,6 +1261,7 @@ impl Terminal {
             eof: false,
             exit_sent: false,
             sent: None,
+            held: None,
             acked: base,
             closing: false,
             input: VecDeque::new(),
@@ -1240,11 +1286,12 @@ impl Terminal {
         self.eof && (self.status.is_some() || !self.own_child)
     }
 
-    /// Bytes the holder may read from the master now. Attached, at most
-    /// [`UNSENT_HIGH_WATER`] bytes wait unsent; unattached, the ring keeps
-    /// the newest bytes and reading never stops.
+    /// Bytes the holder may read from the master now. Attached (or adopted
+    /// and waiting for its ATTACH), at most [`UNSENT_HIGH_WATER`] bytes wait
+    /// unsent; unattached, the ring keeps the newest bytes and reading never
+    /// stops.
     fn room(&self) -> usize {
-        match self.sent {
+        match self.sent.or(self.held) {
             Some(sent) => {
                 let unsent = self.ring.end().saturating_sub(sent);
                 UNSENT_HIGH_WATER.saturating_sub(usize::try_from(unsent).unwrap_or(usize::MAX))

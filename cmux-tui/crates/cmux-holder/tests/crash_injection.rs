@@ -810,8 +810,11 @@ fn a_terminal_whose_streams_keep_ending_without_detach_restores_without_its_ring
     client.attach(1, 0).unwrap();
     let mut screens = BTreeMap::from([(1, Screen { master, pid, base: 0, bytes: Vec::new() })]);
     pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
-    // Strike 1: the first daemon's link ends without DETACH.
-    drop(client);
+    // Strike 1: the first daemon's link ends without DETACH. `end`, not a
+    // drop: a holder another test forks in this window would keep the
+    // socket open past the next connect, and the holder would see a
+    // takeover, not a lost link.
+    client.end();
     // Strike 2: the next one replays the ring, then ends the same way.
     let (mut client, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();
     client.reattach(1, listed[0].oldest).unwrap();
@@ -819,7 +822,7 @@ fn a_terminal_whose_streams_keep_ending_without_detach_restores_without_its_ring
         Event::Data { offset: 0, .. } => {}
         other => panic!("the second daemon did not get the ring: {other:?}"),
     }
-    drop(client);
+    client.end();
     // The third gets no ring tail: a GAP to the end, then live output.
     let (mut client, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();
     let end = listed[0].end;
@@ -836,7 +839,7 @@ fn a_terminal_whose_streams_keep_ending_without_detach_restores_without_its_ring
     }
     // A daemon that DETACHes is no strike: the next one gets the whole ring.
     client.detach(1).unwrap();
-    drop(client);
+    client.end();
     let (mut client, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();
     client.reattach(1, listed[0].oldest).unwrap();
     match expect_event(&mut client, "the ring after a clean detach") {
