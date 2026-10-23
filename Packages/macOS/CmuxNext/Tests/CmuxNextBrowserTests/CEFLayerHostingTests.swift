@@ -275,7 +275,9 @@ import Testing
         let pane = makeHosting()
         pane.pageWindowCreated(browser: 3, fork: fake.fork)
         let refused = CEFLayerHosting(isEnabled: { true }, schedule: { [turn] in turn.add($0) })
-        refused.view = NSView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        // `view` is weak (the host view owns its hosting): keep this one alive past the turn.
+        let refusedView = NSView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        refused.view = refusedView
         let refusing = FakeFork()
         refusing.contextID = 0
         refused.pageWindowCreated(browser: 9, fork: refusing.fork)
@@ -285,6 +287,7 @@ import Testing
         #expect(report.hostedPages == 1)
         #expect(report.refusals == 1)
         #expect(report.forkCalls == 2)
+        #expect(refused.view === refusedView)
         // The page window closed: its view no longer counts.
         pane.stop()
         #expect(CEFLayerHostingReport(hostings: [pane]).hostedPages == 0)
