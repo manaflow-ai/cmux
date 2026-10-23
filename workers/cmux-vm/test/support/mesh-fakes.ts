@@ -60,7 +60,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     })),
   ).pipe(Layer.provide(base.layer));
   const store = { ...base, layer: failingLayer };
-  const vpcs = new Map<string, { readonly id: string; readonly cidr: string }>();
+  const vpcs = new Map<string, { readonly id: string; readonly cidr: string; readonly slug?: string; readonly displayName?: string }>();
+  let networkCreateStatus: number | null = null, networkLostReplies = 0, hideNetworks = false;
+  let networkHold: Promise<void> | null = null, networkHeld = false;
+  const networkWaiters: Array<() => void> = [];
   const tunnels = new Map<string, FakeTunnel>();
   const rules = new Map<string, FakeRule>();
   /** VM provider id -> network id. */
@@ -131,14 +134,26 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     const fields = typeof body === "object" && body !== null ? Object.fromEntries(Object.entries(body)) : {};
 
     if (path === "/v5/vpcs" && method === "POST") {
+      if (networkHold !== null) {
+        networkHeld = true;
+        for (const wake of networkWaiters.splice(0)) wake();
+        await networkHold;
+      }
+      if (networkCreateStatus !== null) return json({ message: "injected failure" }, networkCreateStatus);
       const id = `vpc-${crypto.randomUUID()}`;
       const cidr = typeof fields["cidr"] === "string" ? fields["cidr"] : "10.0.0.0/24";
-      vpcs.set(id, { id, cidr });
-      return json({ id, cidr, cidrV6: "fd00:1::/64", createdAt: "2026-10-07T00:00:00Z" });
+      const slug = typeof fields["slug"] === "string" ? fields["slug"] : undefined;
+      const displayName = typeof fields["displayName"] === "string" ? fields["displayName"] : undefined;
+      if (slug !== undefined && [...vpcs.values()].some((vpc) => vpc.slug === slug)) return json({ message: "slug in use" }, 409);
+      const vpc = { id, cidr, ...(slug === undefined ? {} : { slug }), ...(displayName === undefined ? {} : { displayName }) };
+      vpcs.set(id, vpc);
+      if (networkLostReplies > 0) { networkLostReplies--; throw new Error("lost network creation reply"); }
+      return json({ ...vpc, cidrV6: "fd00:1::/64", createdAt: "2026-10-07T00:00:00Z" });
     }
     const vpcMatch = /^\/v5\/vpcs\/([^/]+)$/u.exec(path);
     if (vpcMatch !== null && method === "GET") {
-      const found = vpcs.get(decodeURIComponent(vpcMatch[1] ?? ""));
+      const id = decodeURIComponent(vpcMatch[1] ?? "");
+      const found = hideNetworks ? undefined : vpcs.get(id) ?? [...vpcs.values()].find((vpc) => vpc.slug === id);
       return found === undefined ? json({ message: "not found" }, 404) : json({ ...found, cidrV6: "fd00:1::/64", createdAt: "2026-10-07T00:00:00Z" });
     }
     if (vpcMatch !== null && method === "DELETE") {
@@ -247,21 +262,43 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     return json({ message: "no route" }, 404);
   };
 
-  const layer = (fetch: (request: Request) => Promise<Response>) =>
+  let client: ReturnType<typeof makeUpstreamMesh> | null = null;
+  let providerFetch: ((request: Request) => Promise<Response>) | null = null;
+  const layer = (fetch: (request: Request) => Promise<Response>) => {
+    providerFetch = fetch;
+    client = makeUpstreamMesh({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch });
+    return (
     Layer.mergeAll(
       store.layer,
-      Layer.succeed(UpstreamMesh, makeUpstreamMesh({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch })),
+      Layer.succeed(UpstreamMesh, client),
       meshConfigLayer({
         experiment: options.experiment ?? true,
         tenantIds: options.tenants ?? ["team_alpha", "team_bravo"],
         ...(options.budgets === undefined ? {} : { budgets: options.budgets }),
       }),
-    );
+    ));
+  };
 
   return {
     upstream,
     layer,
     store,
+    failNetworkCreates(status: number | null) { networkCreateStatus = status; },
+    loseNetworkReplies(times: number) { networkLostReplies = times; },
+    hideNetworks(on: boolean) { hideNetworks = on; },
+    holdNetworkCreates(): () => void {
+      let release = () => {};
+      networkHeld = false;
+      networkHold = new Promise<void>((resolve) => { release = () => { networkHold = null; resolve(); }; });
+      return () => release();
+    },
+    networkCreateHeld(): Promise<void> {
+      return networkHeld ? Promise.resolve() : new Promise<void>((resolve) => networkWaiters.push(resolve));
+    },
+    setProviderConfig(baseUrl = UPSTREAM_URL, apiKey = UPSTREAM_KEY) {
+      if (client === null || providerFetch === null) throw new Error("mesh client has not been composed");
+      Object.assign(client, makeUpstreamMesh({ baseUrl, apiKey: Redacted.make(apiKey), environment: "local", fetch: providerFetch }));
+    },
     /** The next `times` rule records fail after the provider created the rule. */
     failRuleRecords(times: number) {
       recordFailures = times;

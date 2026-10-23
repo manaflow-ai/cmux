@@ -5751,6 +5751,16 @@
               }
             }
           },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
           "429": {
             "description": "QuotaExceeded",
             "content": {
@@ -5772,7 +5782,7 @@
             }
           }
         },
-        "description": "Create the team's mesh. Requires the mesh:write scope. A session must be a team admin. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "description": "Create the team's mesh. Requires the mesh:write scope. A session must be a team admin. An Idempotency-Key retains the team's original creation across retries; changed intent is 409 and a deleted key cannot create another mesh. Retry an uncertain result with the same key. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
         "summary": "Create the team's mesh",
         "requestBody": {
           "content": {
