@@ -408,6 +408,8 @@ def main():
                     help="seconds of unmeasured streaming (first configuration) after the host starts; 0: none")
     ap.add_argument("--page-scroll", type=int, default=6, help="the bench page's own scroll, css px per frame (0: still)")
     ap.add_argument("--sim-name", default="cmux-mobile-rbvideo-bench")
+    ap.add_argument("--phone-ready", action="store_true",
+                    help="the phone app is installed and signed in: set up the Mac (pairing seed, bench tab), not the phone")
     ap.add_argument("--surface", action="store_true", help="stream a Mac phone tab (a rig simulator showing the bench page)")
     ap.add_argument("--rig-sim", default="cmux-simsurface-rig", help="--surface: the rig Mac's own simulator")
     ap.add_argument("--no-build", action="store_true")
@@ -471,7 +473,7 @@ def main():
     app_path = os.path.join(CNX, "build/dd/Build/Products/Demo-iphonesimulator/CmuxMobileApp.app") if a.no_build else e2e.build_ios(log, "Demo")
     rig = os.path.expanduser(f"~/cmux-next-ios-e2e/{os.path.basename(mac_app)[len('cmux DEV '):-4]}")
     mac = Mac(rig, mac_app)
-    if not a.skip_setup:
+    if not a.skip_setup or a.phone_ready:
         mac.prepare()
         mac.seed_pairing(names=[a.sim_name])
     page_dir = os.path.join(HERE, "bench-page")
@@ -485,11 +487,11 @@ def main():
         mac.launch()
         log(f"Mac app up (pid {mac.pid}); cmux-mobile-host {'running' if mac.wait_hostd(120) else 'NOT running'}")
         j = Journey(sim, mac, out, app_path, log)
-        if a.skip_setup:
+        if a.skip_setup and not a.phone_ready:
             j.ws_name = "bench"
         for name in ([] if a.skip_setup else a.configs.split(",")[:0]):
             pass
-        if a.skip_setup:
+        if a.skip_setup and not a.phone_ready:
             bench = Bench(a, log)
             if a.warmup:
                 try:
@@ -524,6 +526,8 @@ def main():
             mac.cmux("tab", tab["value"]["tab_id"], "focus", check=False)
         mac.cmux("tab", ws["tab_id"], "close", check=False)
         for sid, title, owner, fn in j.plan():
+            if a.phone_ready and sid != "mac_discovered":
+                continue
             if sid in ("fresh_install", "sign_in", "choose_space", "mac_discovered"):
                 j.step(sid, title, owner, fn)
         bench = Bench(a, log)

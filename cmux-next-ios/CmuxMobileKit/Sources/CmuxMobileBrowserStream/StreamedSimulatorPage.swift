@@ -40,8 +40,9 @@ public struct StreamedSimulatorPage: View {
                 status(String(localized: "Opening the simulator on your Mac…"))
             }
             if StreamedBrowserOverlay.enabled {
+                // Top left: the accessory bar (Home, Lock, keyboard) sits at the bottom.
                 StreamedBrowserOverlay(model: model)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .allowsHitTesting(false)
             }
         }
