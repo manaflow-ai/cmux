@@ -101,6 +101,16 @@ Swift/Rust builds and tests stay on the fleet.
   it: only a `Ghostty-defaults-OK: <the user's words>` commit trailer does. (2f3e1f95983 made
   Cmd-Opt-Left / Right sidebar keys; Lawrence 2026-10-20: "ensure this never happens again".)
 
+## Before you touch hot paths
+
+- Budget: every action reaches its committed frame in < 10 ms p95; motion runs at full refresh, 0 drops.
+  Measure on the fleet yourself, light and STRESS ([perf-lead.md](plans/cmux-next/perf-lead.md)), before and after. Never add CI gates, perf-gate rows or CI tests.
+- `// perf-hot: <budget> <path-id>` marks a per-frame, per-key or per-switch function; the pre-push hook names
+  its bench ([perf-hot-benches.json](scripts/cmux-next/perf-hot-benches.json)). Mark new hot paths the same way.
+- Read [OWNERS.md](plans/cmux-next/OWNERS.md) before you change an owned area, and tell the owner.
+- The hook's guardrails refuse new debt in added lines (`scripts/cmux-next/guardrails.py --list`). Rules
+  change: after a rebase, run `scripts/install-git-hooks.sh` from a checkout at origin/feat-cmux-next.
+
 ## Swift namespace convention
 
 Public and package types in package source must expose an instance surface or

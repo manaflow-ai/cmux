@@ -23,7 +23,7 @@ final class FeedService {
     private var started = false
     /// The account the mirror belongs to; a sign-out or another account resets it.
     private var account: String?
-    private var observers: [any NSObjectProtocol] = []
+    private var observers: [MainActorObservation] = []
     private var accountWatch: Task<Void, Never>?
     private(set) var connection: FeedConnection = .disconnected("not started")
     /// Owner-confirmed state of each item (never the overlay).
@@ -74,8 +74,8 @@ final class FeedService {
             source.setPresence(active: forced ?? NSApp.isActive)
             if forced == nil { source.checkAlive() }
         }
-        func on(_ center: NotificationCenter, _ name: Notification.Name, _ forced: Bool?) -> any NSObjectProtocol {
-            center.addObserver(forName: name, object: nil, queue: .main) { _ in MainActor.assumeIsolated { update(forced) } } // main-proof: observer on queue: .main
+        func on(_ center: NotificationCenter, _ name: Notification.Name, _ forced: Bool?) -> MainActorObservation {
+            MainActorObservation(name, center: center) { update(forced) }
         }
         observers = [
             on(app, NSApplication.didBecomeActiveNotification, true),

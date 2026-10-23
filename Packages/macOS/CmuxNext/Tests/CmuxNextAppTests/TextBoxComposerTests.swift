@@ -51,7 +51,7 @@ struct TextBoxComposerTests {
         session.view.frame = NSRect(x: 0, y: 0, width: 480, height: 240)
         session.view.layoutSubtreeIfNeeded()
         let sink = RecordingSink(), ran = Ran()
-        let textBox = TextBoxController(session: session, sink: sink, perform: { ran.ids.append($0) })
+        let textBox = TextBoxController(session: session, sink: sink, perform: { ran.ids.append(ActionID(rawValue: $0.rawValue)) })
         return Harness(session: session, io: io, window: window, sink: sink, textBox: textBox, ran: ran)
     }
 

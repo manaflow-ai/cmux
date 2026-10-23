@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextLayout
 
 /// Screen group actions (the tab group actions, for the screen bar). The
 /// group is resolved before the capability check, so an unknown group is

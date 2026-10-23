@@ -1,0 +1,116 @@
+# cmux NEXT: how we integrate Ghostty, and what is fundamentally wrong
+
+Status: audit 2026-10-23 (PL-ghostty, perf lead batch 1). Lawrence: "surface and fix fundamentally
+wrong things about how we integrate with ghostty in cmux-next"; resizing must be "as fluid as
+possible". Targets are the perf lead's ([perf-lead.md](perf-lead.md) sec. 1): every action < 10 ms
+p95 to its committed frame, motion at full refresh with 0 drops, light and STRESS sessions.
+
+Code read at feat-cmux-next 62c427ab5bd, ghostty-next 5555f42. Paths: `app:` is
+`Packages/macOS/CmuxNext/Sources/`, `gn:` is `ghostty-next/`, `tui:` is
+`cmux-tui/crates/cmux-tui-core/src/`. Numbers marked "code" are counted from the code; numbers
+marked "fleet" come from a fleet run (host, sha and refresh rate in sec. 5).
+
+## 1. The integration today
+
+One terminal is three processes and three VT parsers:
+
+```
+shell <-> PTY  [__terminal-host process]  parser #1 (full Terminal, 10 MB scrollback)
+               | binary frames, Unix socket
+               v
+          [cmux-tui daemon]  surface mirror, parser #2 (full Terminal, 10 MB scrollback)
+               | JSON lines, output as base64, one Unix socket per attached view
+               v
+          [cmux app]  TerminalSession (main actor) -> TerminalOutputLane (serial queue)
+               -> ghostty_surface_process_output, parser #3 (GHOSTTY_SURFACE_IO_MANUAL_MIRROR)
+               -> renderer thread -> Metal -> IOSurface -> IOSurfaceLayer.contents (main)
+```
+
+- Host parses every byte: `tui:terminal_host_runtime/shared/host_parser.rs:155`; it publishes raw
+  bytes to subscribers before it parses (`host_start.rs:197-212`).
+- Daemon parses every byte into its mirror (`tui:surface/hosted_reader/output.rs:41-42`,
+  `Terminal::new(.., opts.scrollback, ..)` at `surface.rs:668`) and only then broadcasts to the
+  app (`output.rs:83-90`, under the terminal lock).
+- The app's surface parses again (`app:CmuxNextTerminal/TerminalOutputLane.swift:56-70`,
+  mirror mode chosen in `TerminalSession.swift:142`: "the daemon's VT core answers DA/DSR").
+- Daemon to app is JSON with base64 data: `tui:server/terminal_snapshot.rs:509-511`,
+  `message_writer.rs:187-190`; decoded per line in
+  `app:CmuxNextDaemon/Terminal/TerminalAttachment+Decoding.swift:153-155`.
+
+Threads per terminal (code): host 7 + 2 per client; daemon 3 per surface + ~5 per attached view
+connection; app 2 Ghostty threads per surface (`gn:src/Surface.zig:852-865`: renderer and termio
+IO, the IO thread idles in manual mode), one output-lane queue, one transport reader. That is
+~19 threads per terminal; fleet heavy run: 3,300 threads, daemon 797 at ~172 terminals
+(speed-of-sound sec. 7).
+
+## 2. Faults, ranked by what Lawrence feels
+
+| # | Fault | Evidence | Real fix | Owner |
+|---|---|---|---|---|
+| G1 | **A resize frame shows the old text at the new size.** The surface is host-sized (`app:TerminalSurfaceView.swift` `createSurface`, `ghostty_surface_set_host_sized`). Each `set_size` marks the layer for display; Core Animation's display pass calls Ghostty's `displayCallback` → `drawFrame(true)` on the main thread (`gn:src/renderer/Metal.zig:237-241`), which draws the cells the renderer thread built for the *previous* grid (`generic.zig:1996-2140`: no `updateFrame` in that path) and blocks main until the GPU finishes. The reflowed text (reflow preview) comes later from the renderer thread as an async frame, and `setSurfaceCallback` discards an async frame whose size is no longer the host size (`metal/IOSurfaceLayer.zig:172-190`). In a continuous drag most async frames lose that race. | code; fleet frame counts in sec. 5 | **Size-synchronous frames**: `set_size` asks the surface's renderer thread for a frame at the new size with cells rebuilt (preview included) at once; the display pass waits for *that* frame (bounded) instead of drawing stale cells on main. N resizing surfaces then build in parallel on N renderer threads, main waits for the slowest, not the sum, and the CA transaction carries every terminal at its new size with its new text. | PL-ghostty (ghostty-next + `TerminalSurfaceView`) |
+| G2 | **Every grid step of a resize is a full snapshot round trip and up to four whole-scrollback reflows.** App → daemon → host: host `term.resize` reflow #1 (`tui:host_shared/resize.rs:213`), PTY reads stall on `source_order_lock` meanwhile (`:121`); daemon mirror reflow #2 (`pty_surface.rs:580`) and a full render frame (`:632`); the daemon sends a READY snapshot, not an in-band resize (`attach_tap.rs:631-638`, `terminal_snapshot.rs:524`); the app's local-history restore decodes READY twice and reflows its own whole history, reflow #3 (`gn:src/termio/Termio.zig:1148-1310`, `old.resize(.., .reflow = true)` at 1242), **with `hold_frames = true` for the whole restore** (`:1200`, released at `:1213`): no frame draws, and the output lane is blocked, while it runs. 4 socket hops, ~7 thread handoffs per step (code); `ResizeCoordinator` allows one grid in flight (`app:CmuxNextBridge/ResizeCoordinator.swift:13-21`), so the step rate is bounded by this round trip. | code; fleet hold time per step in sec. 5 | App side: the mirror reflows itself at the owner's stream point (`set_grid` already runs in stream order on the lane) without holding frames: reflow off the live terminal, swap under the lock, draw the preview meanwhile. Wire: the resize is an in-band marker at its stream offset plus the 64-row history digest (`gn:src/terminal/history_digest.zig`), a snapshot only on mismatch. Daemon side: one reflow, not two (see G3). | PL-ghostty (app, ghostty-next); daemon/protocol half to PL-daemon |
+| G3 | **Every byte is parsed three times, and the daemon's parse sits on the echo path.** Host parser, daemon mirror, app surface (sec. 1). The host publishes before it parses; the daemon parses first and broadcasts after, under the terminal lock (`tui:surface/hosted_reader/output.rs:30-90`). | code; STRESS has 10 printing terminals | Daemon: broadcast before the mirror parse (the stream offset is recorded under the same lock, so snapshot cuts stay consistent); then drop the daemon mirror: the host is the authority and serves snapshots. 3 parsers become 2 (the app's is needed to draw). | PL-daemon |
+| G4 | **Terminal output goes through the main actor, chunk by chunk.** `TerminalSession` is `@MainActor`; its events task takes every `.output` on main (`app:CmuxNextTerminal/TerminalSession.swift:312-321`, `TypingLatencyProbe.mark(.outputMain)`), then queues it on the lane. 10 busy terminals in STRESS put one main-thread turn per output chunk on the same thread that runs motion frames and key dispatch; every echo waits behind them (bench-typing segment "decoded to main actor"). | code; fleet main wakes/s under output in sec. 5 | Output and in-stream grid/snapshot events go from the transport's decode thread straight to the surface's serial lane (it is already thread-safe and ordered); main sees only lifecycle and status events, coalesced to one turn per frame. | PL-ghostty (app) |
+| G5 | **Output is base64 in JSON on one socket per view.** +33 % bytes, a base64 encode and a JSON serialize in the daemon (`terminal_snapshot.rs:327-329, 509-511`), a JSON parse and base64 decode in the app, per chunk. Coalescing only when the socket writer already holds 2 messages (`attach_tap.rs:643-660`). | code | Length-prefixed binary output frames on the attach stream (the host→daemon hop already is binary, `terminal_host_protocol.rs:730-735`). | PL-daemon (protocol), app decode PL-ghostty |
+| G6 | **Each surface keeps two OS threads and per-surface GPU copies whatever it shows.** Renderer + IO thread per surface even in manual IO (`gn:src/Surface.zig:852-865`, `termio/Manual.zig:1-3`); 3 swap-chain frames each with its own IOSurface target and its own copy of both glyph atlases (`gn:src/renderer/generic.zig:456-484, 2142-2157`, `Metal.zig:37-38`), its own `MTLCommandQueue`. Occlusion does release the swap chain (`generic.zig:1311-1358`) and lowers QoS; every `process_output` still wakes the renderer thread of a hidden surface (`Termio.zig:1823`, early return at `Thread.zig:570`). | code; 172 terminals: 3,300 threads (speed-of-sound sec. 7) | Manual-IO surfaces run no IO thread (their timers move to the renderer loop); glyph atlases are one GPU texture per font grid shared by every surface; hidden surfaces wake nothing (renderer notified only while visible, a dirty flag otherwise). | PL-ghostty (ghostty-next), after G1/G2/G4 |
+| G7 | **Idle terminals cost CPU.** 20 idle terminals 7.3 % CPU, 1 terminal 0.09 % (speed-of-sound sec. 5, Oct 20); baseline budget row `idle.terminals.app_cpu_pct` 1.3. Ghostty itself is idle when unfocused: the blink timer stops on focus loss (`gn:src/renderer/Thread.zig:351-364`) and the display link stops when nothing changes (`generic.zig:1422-1434, 2040-2044`). A focused, visible, non-blinking terminal still rebuilds and draws a frame every 600 ms (`cells_rebuilt` set on every rebuild, `generic.zig:3280`). | re-measure per process (app / daemon / hosts) in sec. 5 before any fix | Name the owner with a per-process sample first; then: no frame for a blink tick that changes no pixel. | PL-ghostty (Ghostty side), daemon side to PL-daemon |
+| G8 | **Scrollback is held three times.** 10 MB limit in host, daemon mirror and app mirror (`tui:shared/codec.rs:676-678`, `surface.rs:177`, Ghostty default in the app). Fleet: 7.8 MB per hidden terminal (2.1-2.5 MB host process + 2.4 MB shell + app). | code + speed-of-sound sec. 5 | Falls out of G3 (no daemon mirror); app mirror keeps a bounded history and pages older rows from the host on scroll. | PL-daemon, then PL-ghostty |
+
+Key to frame (shared with PL-typing): key on main → `io_write_cb` on main (`gn:src/termio/Manual.zig:108-130`,
+the terminal lock taken 2-3 times on main for one key, `Surface.zig:3238-3264`) → writer task → JSON
+`send-input` → daemon → host → PTY → shell → host PTY thread → host client writer → daemon frames thread
+→ daemon surface thread (parse #2, G3) → attach-out thread (base64 JSON, G5) → line-out → app transport
+thread → **main actor (G4)** → output lane (parse #3) → renderer thread (waits for a display-link tick when
+the link already runs, `Thread.zig:574-588`) → Metal completion thread → `dispatch_async` main →
+`layer.contents`. About 12 thread handoffs, 2 of them on the app's main thread.
+
+## 3. Resize: what one frame costs today (code)
+
+Per resizing terminal, per display frame of a divider drag or layout spring:
+
+1. `setFrameSize` → `updateSurfaceSize` → `ghostty_surface_set_size` on main
+   (`gn:src/apprt/embedded.zig:1128-1153` → `Surface.resize`; in mirror mode no reflow,
+   `PageList.zig:1295-1300`), `ghostty_surface_size`, the reflow-preview toggle, and a grid report to
+   `ResizeCoordinator` (held while a layout spring runs, `TerminalSurfaceView+PaneMotion.swift`).
+   Side effect: `Terminal.resize` clears mode 2026 synchronized output on every call, even on a locked
+   grid (`gn:src/terminal/Terminal.zig:4197`).
+2. CA display pass: one synchronous `drawFrame(true)` on main with the previous cells, waiting for a
+   free swap-chain frame and for the GPU (`generic.zig:2049`, `Frame.zig:122-126`), plus up to 3 new
+   IOSurfaces per size (`generic.zig:2093-2103`).
+3. Renderer thread: rebuild cells, build the reflow preview (bounded: screen + newest history,
+   `gn:src/renderer/ReflowPreview.zig:125-305`), draw, present asynchronously; dropped if the size moved on.
+4. Once per grid step (one in flight): the G2 round trip, ending in a READY restore that holds frames for
+   a whole-history reflow.
+
+So the text a person reads during a drag is one grid behind the edge at best, and freezes for the length
+of a history reflow at each owner step. The fix order below targets exactly these: G1 makes step 2 draw
+the right text on the frame the size changes; G2 removes the frame hold in step 4.
+
+Seam with PL-motion-core (layout motion): their layer-driven motion resizes content once at landing
+(F4). For live resize every frame (a divider drag, a window resize, and any spring they choose to keep
+live) the terminal side offers: (a) `set_size` is cheap on main and returns at once; (b) the CA commit that
+carries a pane's new frame carries that terminal's frame at the new size and with its reflowed text,
+or the previous frame unchanged (never a frame with stale text at a new size, never a blank);
+(c) a terminal whose pane only moves (no size change) does no work. The pane side calls nothing new:
+`setFrameSize` stays the trigger.
+
+## 4. Order
+
+1. G1 size-synchronous frames (red: `bench-terminal-resize.py` stale-text frames and main ms per frame
+   in a 2-terminal drag and a 12-pane column drag; ghostty-next commit pushed to the manaflow fork's
+   main first, `docs/ghostty-fork.md`).
+2. G2 app half: no frame hold during a local-history restore (red: frames held per grid step with
+   50k lines of scrollback).
+3. G4 output off the main actor (red: main-thread wakes per second and key-to-frame p95 with 10 printing
+   terminals, `bench-typing.py`).
+4. G7 measure idle per process, then fix the named owner.
+5. G6 thread and atlas sharing.
+G3, G5, G8 and the daemon half of G2 go to PL-daemon with these citations.
+
+## 5. Measurements
+
+Filled in as fleet runs land: host, build sha, refresh rate, light and STRESS side by side.
+
+| Date | Row | Host / sha / Hz | Light | STRESS | Note |
+|---|---|---|---|---|---|
+| | | | | | |

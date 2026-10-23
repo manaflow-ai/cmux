@@ -279,6 +279,12 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_set_background_color(int browser_id, unsi
 // no background. 0 gives the page its background color back. Kept across
 // navigations and tab moves. Returns 0 when the fork lacks the call.
 CMUX_SHIM_EXPORT int cmux_shim_tab_set_transparent_background(int browser_id, int transparent);
+// Fork API 26: layer hosting. enabled 1 moves browser_id's page pixels into
+// a Core Animation context and returns its CAContextID (> 0), which the
+// embedder shows with a CALayerHost in the parent view's layer tree; the page
+// window stays as a transparent input target. 0 turns it off. Returns 0 when
+// off, when the fork lacks the call, or when the browser has no page window.
+CMUX_SHIM_EXPORT unsigned int cmux_shim_browser_set_layer_hosting(int browser_id, int enabled);
 // The page chrome://newtab shows when no extension overrides the New Tab
 // page (fork API 12); NULL or "" keeps Chromium's. Any time, also before
 // cmux_shim_initialize. The ADDRESS event reports "chrome://newtab/" for a

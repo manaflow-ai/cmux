@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextCompat
 
 /// The pane's input surface, over the video. It takes keyboard focus on
 /// click; while it is first responder in control mode, keys, pointer,
@@ -54,18 +55,18 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
         return true
     }
 
-    private var keyObservers: [any NSObjectProtocol] = []
+    private var keyObservers: [MainActorObservation] = []
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        for observer in keyObservers { NotificationCenter.default.removeObserver(observer) }
+        keyObservers.removeAll()
         keyObservers = []
         if window == nil, isFirstResponder { isFirstResponder = false }
         if let window {
             // A window that stops being key takes the keyboard with it: release held keys.
             keyObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
-                NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.updateActive() } // main-proof: observer on queue: .main
+                MainActorObservation(name, object: window) { [weak self] in
+                    self?.updateActive()
                 }
             }
         }

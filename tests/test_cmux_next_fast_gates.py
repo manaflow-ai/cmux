@@ -734,6 +734,16 @@ class WebviewsChecksGate(unittest.TestCase):
         self.assertEqual(self.module.added("Finished in 1ms on 2 files.ts (1ms)\n" + red, red),
                          ["Finished in 1ms on 2 files.ts (1ms)"])
 
+    def test_a_format_issue_the_change_fixes_adds_no_finding(self):
+        # The merge fixes one of the base's two misformatted files, so its count line reads "1 files" where the
+        # base's reads "2 files"; that line is the run's, not a finding the merge adds.
+        def fmt(*files: str) -> str:
+            return "".join(f"{name} (2ms)\n" for name in files) + (
+                f"Format issues found in above {len(files)} files. Run without `--check` to fix.\n"
+                "Finished in 5ms on 2481 files using 4 threads.\n")
+        self.assertEqual(self.module.added(fmt("src/a.ts"), fmt("src/a.ts", "src/b.ts")), [])
+        self.assertEqual(self.module.added(fmt("src/a.ts", "src/c.ts"), fmt("src/a.ts", "src/b.ts")), ["src/c.ts (2ms)"])
+
     def test_replay_of_24524_the_lint_file_count_is_not_a_finding(self):
         # #24524's fast gates: the base's `vp lint` was red with the same 4 findings as the merge, and the merge
         # (with the pull request's one new test file) closed on 2465 files. `vp lint`'s closing line names its rules

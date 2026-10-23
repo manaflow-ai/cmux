@@ -133,11 +133,18 @@ The rule for the rewrite:
 5. **One drop path.** Drop sends the slot to the document (one intent). The card lands on the frame step 4
    gives, the same function, so the landing does not jump. Cancel = slot back to the origin.
 6. **One drop mark: the gap.** There is no line, no outline and no dot over the rows.
+   Done Oct 23 (a588, landed by the owner): `SidebarNestedDropIndicatorView` is gone; a nested drop shows its
+   level by the gap's left edge only.
 7. Group drags reorder top-level blocks only (u9772): a group never drops into another group by drag.
 
 Delete what the rule replaces (`SidebarGroupReorder`'s shift and hysteresis, the group branch of
 `updateDocDrag`, `showGroupReorder`'s refused-keeps-gap, `SidebarNestedDropIndicatorView`). Do not keep them
 as a fallback.
+
+Status (Oct 23, owner): implemented as `SidebarGroupDragPlan` (pure: blocks, slot, cap, layout) and
+`SidebarListView+GroupDrag` (lift freezes the base, a move asks for the slot, drop sends the slot's move); the cut
+card's fade is `SidebarLiftCap`. A drop in the slot it came from sends nothing. Captures (fleet-built app,
+`debug.sidebar_group_drag` on the `tallGroup` fixture): ~/fun/cmux-galleries/group-drag-rewrite/{before,after}-strip.png.
 
 Tests: the slot function (monotonic in y, no state, both edges of every block), the capped card height, the
 layout function (rows above the slot unchanged, rows below shifted by the capped gap), and a real-app drag on
@@ -152,6 +159,7 @@ the gap, no row left out of place after drop or cancel).
   SidebarNavigation; a row, pinned or Cmd-1..9 pick acts in the clicked window. No look change.
 - Sidebar owner: the Oct 21 look (took over a585's X revert 31ad64e4dc4 and red tests 2b40f979ca2) and the
   group drag rewrite (took over a588's blue-line fix 41c8c60c5a5 and red test 42a1811bb6b).
+  Group drag rewrite landed b16f04f365e..58036f2c789 (see the design section's status).
 - a587: Home unread badge becomes the blue dot.
 - a576: terminal lag while the sidebar rearranges.
 
@@ -159,12 +167,20 @@ the gap, no row left out of place after drop or cancel).
 
 | Range | Change |
 | --- | --- |
-| this push | Row close back to the trailing x (takes back #23783's dog-ear); a row without an icon starts its title at the inset (takes back c779988d57d's empty slot); look gallery test |
+| [dcd4316ef5c](https://github.com/manaflow-ai/cmux/commit/dcd4316ef5c) | a595 scrollers (8de6f7f4ef9 red, dcd4316ef5c fix): sidebar list, bands, Priority and hover-card scrollbars fade 0.8 s after a scroll and grow 3 to 7 pt within 20 pt of the edge. Only sidebar file: `SidebarView+Reveal.swift` (pointer enter flashes the shared scroller). Reached the branch without a `Sidebar-Look:` trailer (an old hook copy; its CI run was cancelled); reviewed and logged by the owner. |
+| [b16f04f365e..b671d11b764](https://github.com/manaflow-ai/cmux/compare/b16f04f365e...b671d11b764) | Group drag rewrite: capped card, frozen base, the pointer alone picks the slot; no blue drop line |
+| [62c427ab5bd..a1af264c7a7](https://github.com/manaflow-ai/cmux/compare/62c427ab5bd...a1af264c7a7) | The Sidebar-Look gate and SidebarLookContractTests |
+| [89dbae323b5..30d164e1ec6](https://github.com/manaflow-ai/cmux/compare/89dbae323b5...30d164e1ec6) | Row close back to the trailing x (takes back #23783's dog-ear); a row without an icon starts its title at the inset (takes back c779988d57d's empty slot); look gallery test |
 
 ## Every sidebar package commit, Oct 19-23
 
 | Commit | Date | Who | Change |
 | --- | --- | --- | --- |
+| [58036f2c789](https://github.com/manaflow-ai/cmux/commit/58036f2c789739ff47703df9e9018fcc417660db) | 10-23 | Lawrence's Chief subagents (lawrencecchen) | cmux NEXT sidebar: debug.sidebar_group_drag holds a group drag for captures; a tallGroup fixture |
+| [c8959d9d772](https://github.com/manaflow-ai/cmux/commit/c8959d9d772746d0d4f0e305ba16623b1fbf21c7) | 10-23 | Lawrence's Chief subagents (lawrencecchen) | cmux NEXT sidebar: a group drags as a capped card over a frozen base; the pointer alone picks its slot |
+| [ac9c8c8196a](https://github.com/manaflow-ai/cmux/commit/ac9c8c8196a64c365680519725502b7231006d17) | 10-23 | Lawrence's Chief subagents (lawrencecchen) | cmux NEXT sidebar: tests that a tall group drags as a capped card, by the pointer alone (red) |
+| [2a8d5c6c250](https://github.com/manaflow-ai/cmux/commit/2a8d5c6c250e6769b264f0d25f629e2c7095172e) | 10-23 | Lawrence's Chief subagents (lawrencecchen) | cmux NEXT sidebar: a drag draws no blue line or outline; the gap is its one drop mark |
+| [b16f04f365e](https://github.com/manaflow-ai/cmux/commit/b16f04f365edf62dae3b11ab8d07d3ae577337b4) | 10-23 | Lawrence's Chief subagents (lawrencecchen) | cmux NEXT sidebar: tests that a drag draws no line or outline over the rows (red) |
 | [83c8d5b6104](https://github.com/manaflow-ai/cmux/commit/83c8d5b61040b6c8e2f39fd3c5f53b375c7b40d6) | 10-23 | Lawrence's Chief subagents (lawrencecchen) | cmux-next sidebar: Home's unread is a workspace row's blue dot, not a count |
 | [488ef6667db](https://github.com/manaflow-ai/cmux/commit/488ef6667dbfa443f217e7484c3d1de5ff0852f3) | 10-23 | Lawrence's Chief subagents (lawrencecchen) | test(sidebar): capture Home beside an unread workspace row at every density |
 | [b70369ea301](https://github.com/manaflow-ai/cmux/commit/b70369ea3014aa758a97774e8fc67c405054fbec) | 10-23 | Lawrence's Chief subagents (lawrencecchen) | test(sidebar): Home shows a blue unread dot, not a count (red) |

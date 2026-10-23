@@ -8,6 +8,7 @@ import CmuxNextMacScreen
 import CmuxNextNowPlaying
 import CmuxNextSettings
 import CmuxNextTabs
+import CmuxNextRemoteLocalhostService
 
 /// Tabs a page asks for: a link opened in a new tab (Cmd-click, middle
 /// click, `target=_blank` handled as a URL), a popup or `window.open` that
