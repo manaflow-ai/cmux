@@ -288,6 +288,8 @@ extension SidebarListViewComponents {
         case let (.group(id), view as GroupHeaderRowView):
             // The model's own group when the cache (rebuilt on reload) lags it: a held drag shows the live sections.
             guard var group = groups[id] ?? model.group(id) else { return }
+            // `sidebar.showColors` off: the header draws as a group with no color; its stored color stays.
+            if !model.showsColors { group.tint = .none }
             var details = model.groupHeaderDetails
             details.otherStates = model.detailedStatus
             // A collapsed group holding subgroups shows their unread and loading too (nested-groups prototype):
