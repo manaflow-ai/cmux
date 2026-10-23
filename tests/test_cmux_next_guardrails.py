@@ -234,6 +234,30 @@ class RuleTests(Fixture):
                 self.commit("named static")
                 self.assertEqual("singleton" in [r.id for r, _ in self.check()[0]], refused)
 
+    def test_a_named_static_holding_a_reference_instance_is_refused_in_any_container(self):
+        # The pushed tree's declarations decide: an extension takes its type's kind, and a value container (a
+        # namespace enum, a struct) that stores an instance of a class or actor holds runtime state too.
+        self.rebase_on({f"{KIT}/AppModel.swift": "final class AppModel {}\n",
+                        f"{KIT}/NotificationService.swift": "final class NotificationService {}\n",
+                        f"{KIT}/DaemonClient.swift": "public actor DaemonClient {}\n",
+                        f"{KIT}/Style.swift": "struct Style {\n    var size = 1\n}\n",
+                        f"{KIT}/Config.swift": "struct Config {}\n"}, "declarations")
+        cases = {
+            "extension AppModel {\n    static let current = AppModel()\n}\n": True,
+            "enum Env {\n    static let live = NotificationService()\n}\n": True,
+            "struct Deps {\n    static let live: DaemonClient = .init()\n}\n": True,
+            "extension Style {\n    static let compact = Style(size: 2)\n}\n": False,
+            "enum Env {\n    static let current = Config()\n}\n": False,
+            "extension Style {\n    static let standard = Self()\n}\n": False,
+        }
+        start = self.base
+        for text, refused in cases.items():
+            with self.subTest(text=text):
+                self.git("reset", "--quiet", "--hard", start)
+                self.write(f"{KIT}/Added.swift", text)
+                self.commit("named static")
+                self.assertEqual("singleton" in [r for r, _ in self.refused()], refused)
+
     def test_short_notification_names_in_a_name_extension_are_refused(self):
         for decl in ('Self("pagesChanged")', '.init("pagesChanged")'):
             with self.subTest(decl=decl):
