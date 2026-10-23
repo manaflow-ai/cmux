@@ -385,7 +385,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
     if (hiddenReleases.has(probe.id)) continue;
     models.push(probedModel(probe, harness.id, join));
   }
-  addSessionModels(models, live, harness.id, listed, join);
+  addSessionModels(models, live, harness.id, listed, join, hiddenReleases);
   const releases = models.filter((model) => listed.some((pinned) => pinned.id === model.id));
   const runs = chosen?.id === session?.harness ? runningModel(session, live) : undefined;
   const offered = foldAliases(models, releases, runs, reported, join, (release, alias) =>
@@ -430,7 +430,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   const models = entry.models
     .filter((probe) => !isHiddenByUser(entry.id, probe.id, join) && !hiddenReleases.has(probe.id))
     .map((probe) => probedModel(probe, entry.id, join));
-  addSessionModels(models, live, entry.id, listed, join);
+  addSessionModels(models, live, entry.id, listed, join, hiddenReleases);
   const releases = listed.map((model) => listedModel(model, entry.id, entry.models, join));
   const runs = entry.id === join.session?.harness ? runningModel(join.session, live) : undefined;
   const offered = kin
@@ -610,6 +610,7 @@ function addSessionModels(
   harnessId: string,
   listed: HarnessModel[],
   join: Join,
+  hiddenReleases: Set<string> = new Set(),
 ): void {
   const option = options?.find((candidate) => candidate.category === "model" || candidate.id === "model");
   if (!option) return;
@@ -621,6 +622,7 @@ function addSessionModels(
   for (const choice of choices) {
     if (!choice.id || models.some((model) => model.id === choice.id)) continue;
     if (isHiddenByUser(harnessId, choice.id, join)) continue;
+    if (hiddenReleases.has(choice.id)) continue;
     const pinned = listed.find((model) => model.id === choice.id);
     models.push(
       pinned

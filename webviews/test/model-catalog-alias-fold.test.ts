@@ -193,6 +193,16 @@ const fastAndEffort = [
   },
 ] as NonNullable<NonNullable<Parameters<typeof buildPickerCatalog>[0]["session"]>["configOptions"]>;
 
+const modelOption = [
+  {
+    id: "model",
+    name: "Model",
+    category: "model",
+    currentValue: "claude-opus-5-5",
+    options: [{ value: "claude-opus-5-5", name: "Opus 5.5" }],
+  },
+] as NonNullable<NonNullable<Parameters<typeof buildPickerCatalog>[0]["session"]>["configOptions"]>;
+
 const rowsFor = (
   harness: string,
   probe: { id: string; name: string }[],
@@ -232,6 +242,7 @@ for (const harness of ["claude-sr2", "claude"])
         { id: "claude-opus-5-5", name: "Opus 5.5" },
       ],
       { [`${harness}/opus`]: { hidden: true } },
+      { model: "claude-opus-5-5", configOptions: modelOption },
     );
     expect(
       opusRows(models).map((model) => model.id),
