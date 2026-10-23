@@ -12,7 +12,7 @@ what the two Macs' host logs show, what the rig reproduced, the root causes and 
 | The other MacBook | cmux NEXT (started 2026-10-21 14:50, never updated) | `331e2e901ce3` | **no** |
 
 Both Macs are on the same home network (the same public address, Cloudflare colo SJC). The
-phone is device `b553a6e0-…`.
+phone is device `913dfcf6-…`.
 
 ### Every WireGuard link today, from the hosts' logs (UTC)
 
@@ -57,9 +57,75 @@ What this says:
    TURN over UDP only) cannot work there at all, yet it is retried on a 1–30 s backoff.
 5. **Signaling resets** ("Connection reset without closing handshake"): see below.
 
-## Signaling resets
+## The two kinds of drop
 
-(Filled in below with the Worker and rig evidence.)
+The logs split the drops into two kinds, and they need different readings.
+
+- **"keepalive timed out" (the Mac's side), 35 to 66 s after link up.** boringtun's
+  `HANDSHAKE(KEEPALIVE + REKEY_TIMEOUT)` comes first: nothing at all arrived from the
+  phone for 15 s. On 05:48 and 05:51 the WebRTC media track (a separate UDP path and
+  separate sockets) stalled at the same moment as the tunnel (video moved back into the
+  tunnel at 05:49:15, the tunnel silent since about 05:49:12). Two independent paths
+  dying together means the phone stopped sending: the app was suspended (screen locked
+  or another app opened) or the phone lost its network. That is the Mac doing its job.
+  The cost is on the way back (below).
+- **"peer closed the link", 22 to 24 s after link up.** The phone closed the link. There
+  is **no** `HANDSHAKE(KEEPALIVE …)` line before any of them (20:00:47, 20:01:23,
+  20:01:53, 20:02:20, 14:48:31): the tunnel was delivering. 22 to 24 s is the phone's
+  first heartbeat (15 s after link up) plus its 8 s ping timeout. The ping is a control
+  frame, but on the Mac its pong is written after whatever already sits in the link's
+  TCP stream inside the tunnel (the workspace tree, a 69 KB terminal replay, Chief's
+  history, browser video). On a slow relay (TURN over TLS on a weak network) that queue
+  takes more than 8 s to drain, so **the phone closed live links and redialed for 4 to
+  9 s, over and over.** The same probe runs with 2 s after a foreground and 1.5 s when
+  presence changes (every signaling reset), so each reset could close a busy link too.
+
+The link's own keepalive (Rust, 15 s ping, 20 s timeout) already counts any inbound frame
+as life; only the app's probes did not.
+
+## Root causes and fixes
+
+| # | Cause | Evidence | Fix |
+| --- | --- | --- | --- |
+| 1 | The app's link probes (heartbeat 8 s, foreground 2 s, presence 1.5 s) failed a link whose pong was late behind a busy queue, and closed it | "peer closed the link" 22–24 s after link up, no WireGuard handshake timeout before it, five times on 2026-10-23 | `Link::probe(timeout)`: alive on the pong **or on any frame from the peer after the ping went out**; fails only on silence. FFI `LinkHandle.probe`, `MacLink.probe`; `LinkController` probes with it. Tests: `link::tests::a_probe_counts_any_inbound_frame_and_fails_only_on_silence` (Rust), `LinkProbeTests.aBusyLinkWithALatePongIsKept` (Swift: red on the old code, 2 dials and the link closed) |
+| 2 | Every WireGuard dial and roam waited for **every** STUN server, up to 1.5 s. Cloudflare lists STUN on 3478 and on 53; cellular networks often answer or drop UDP 53 | Code (`gather_endpoints`, `roam`); the test below measured 1.501 s | Once one server answered, the others get 150 ms (`STUN_GRACE`). Test `a_silent_stun_server_does_not_hold_the_gather`: red 1.501 s, green |
+| 3 | Signaling resets every 30 to 60 min | Prod Worker tail 20:30–22:53 UTC: the hub's sockets closed with 1006 and `Internal error in Durable Object storage caused object to be reset` (22:37:02); one prod deploy all day (04:20 UTC); the minute sweep ran 87 times and closed 0 sockets; the same reset times on both Macs and on the rig minis | Not ours: Cloudflare resets the Durable Object. Made harmless: the Mac reconnects in 1–2 s and moves its WireGuard sessions onto the new socket (rig 21:38:18, `moved=1`); the phone's presence probe no longer closes a busy link (fix 1). No Worker change, so no deploy |
+| 4 | The other MacBook's cmux NEXT runs cmux-mobile-host `331e2e901ce` (2026-10-21), without #23829 | Its link ups each wait out boringtun's 5 s `REKEY_TIMEOUT` (5.4–10.2 s) | Restart cmux NEXT on that Mac into a current build (not done here: the user's Macs are read only) |
+
+### What did not reproduce
+
+- **A link dying by itself.** On the rig a link lived 13 min with the phone in the
+  foreground and 8 to 12 min in the relay-only run; every drop had a cause (the app
+  killed or suspended, a rig Mac quitting).
+- **The media session failing.** On the rig it came up Direct in 80 ms and carried the
+  browser video up to 20 Mbit/s for 12 min. On the user's phone ICE fails after about
+  11 s on most links. Its failure never took the WireGuard link down: the Mac moves video
+  back into the tunnel at a keyframe, and links lived on after media failures (20:02:42
+  media up after two failures). On a network that blocks UDP it can never work
+  (webrtc-rs has no TURN over TCP or TLS); the phone retries it on a backoff.
+- **Chief stuck connecting for minutes.** Mac Chief on the rig, Chief open, app sent to
+  the background for 10 s, 60 s and 300 s, then back (`chief_foreground.py`): usable
+  0.7, 0.8 and 1.9 s after the foreground, a message round-trip each time. The same with
+  the app's process stopped while away (`--freeze`, as a device suspends it): 1.7 and
+  1.3 s. On the real phone the minutes come from the links themselves: each return
+  redials (4–9 s on the laptop, 5–10 s on the other Mac), and links the phone then closed
+  at 22–24 s (fix 1) sent Chief back to connecting again.
+
+## Direct path
+
+Every WireGuard link on the rig and on the user's Macs stayed relayed, while the WebRTC
+media session between the same two processes found a direct pair (14:49:23 on the
+laptop, 22:01:55 on the rig).
+
+- On the rig the hidden Mac app's hostd gets `No route to host (os error 65)` for the
+  phone's LAN address: macOS Local Network privacy, which a hidden rig app can never be
+  granted (wg-direct-rig-20261021.md). The phone's datagrams to the Mac's LAN address
+  never arrived either.
+- `CMUX_MOBILE_EXCLUDE_CGNAT=1` (set by the app) leaves Tailscale addresses out on both
+  sides. The phone's Info.plist has `NSLocalNetworkUsageDescription`.
+- Not explained yet: why WebRTC's direct pair has no WireGuard counterpart on the user's
+  network. It needs a phone-side WireGuard trace (`CMUX_MOBILE_LOG`, added here for
+  simulators) from the real phone on the same Wi-Fi. Not fixed in this PR.
 
 ## Rig
 
