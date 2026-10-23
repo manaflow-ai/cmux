@@ -8,10 +8,16 @@ import { HANG_REPORTS_PER_INSTALL_PER_DAY } from "../services/hangReports/ingest
 import { HangReportsRepository, HangReportsRepositoryLive, type HangReportRow } from "../services/hangReports/repository";
 import { pruneExpiredHangReports } from "../services/hangReports/retention";
 
+const databaseURL = process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL ?? "";
 const enabled = process.env.CMUX_DB_TEST === "1";
+// This suite deletes every hang_reports row. Refuse anything but a local
+// database so a stray DATABASE_URL can never point it at PlanetScale.
+if (enabled && !isLocalDatabase(databaseURL)) {
+  throw new Error("hang report DB tests run only against localhost, 127.0.0.1 or ::1");
+}
 const dbTest = enabled ? test : test.skip;
 const runtime = enabled ? makeDatabaseRuntime({
-  url: Redacted.make(process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL!),
+  url: Redacted.make(databaseURL),
   maxConnections: 4,
   applicationName: "cmux-hang-reports-test",
 }) : undefined;
@@ -82,3 +88,11 @@ describe("hang_reports repository", () => {
     expect(rows.map((value) => value.report_id)).toEqual([recent]);
   });
 });
+
+function isLocalDatabase(url: string): boolean {
+  try {
+    return ["localhost", "127.0.0.1", "[::1]", "::1"].includes(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}

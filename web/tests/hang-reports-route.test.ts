@@ -1,13 +1,15 @@
 import { afterAll, afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import type { checkRateLimit as checkVercelRateLimit } from "@vercel/firewall";
 import * as Effect from "effect/Effect";
 
 import { makeHangReportsHandler } from "../app/api/hang-reports/route";
 import { makeHangReportsRetentionHandler } from "../app/api/cron/hang-reports-retention/route";
-import { HangReportStorageUnavailable } from "../services/hangReports/errors";
+import { storageUnavailable, type HangReportFailureContext } from "../services/hangReports/errors";
 import { HANG_REPORTS_PER_INSTALL_PER_DAY } from "../services/hangReports/ingest";
 import { scanForLeaks } from "../services/hangReports/leakScan";
 import {
+  storage,
   HangReportsRepository,
   type HangReportRow,
   type HangReportsRepositoryShape,
@@ -49,7 +51,7 @@ let repository = new FakeRepository();
 let rateLimitResult: Awaited<ReturnType<typeof checkVercelRateLimit>> = { rateLimited: false };
 const rateLimitCalls: string[] = [];
 const missingRuleReports: Array<{ readonly route: string; readonly reason: string }> = [];
-const reportedFailures: unknown[] = [];
+const reportedFailures: HangReportFailureContext[] = [];
 
 const checkRateLimit: typeof checkVercelRateLimit = async (ruleId) => {
   rateLimitCalls.push(ruleId);
@@ -60,7 +62,7 @@ const POST = makeHangReportsHandler({
   checkRateLimit,
   reportMissingRateLimitRule: (input) => { missingRuleReports.push(input); },
   run: (program) => Effect.runPromiseExit(program.pipe(Effect.provideService(HangReportsRepository, repository))),
-  reportFailure: (error) => { reportedFailures.push(error); },
+  reportFailure: (context) => { reportedFailures.push(context); },
   now: () => NOW,
 });
 
@@ -216,14 +218,14 @@ describe("POST /api/hang-reports", () => {
     expect(response.status).toBe(413);
   });
 
-  test("rejects invalid JSON and a day outside two days of the server's UTC day", async () => {
+  test("rejects invalid JSON and a day outside server UTC today-15 ... today+1", async () => {
     const invalid = await POST(new Request("https://cmux.test/api/hang-reports", { method: "POST", body: "{nope" }));
     expect(invalid.status).toBe(400);
-    for (const day of ["2026-10-20", "2026-10-26", "2026-02-30", "26-10-23"]) {
+    for (const day of ["2026-10-07", "2026-10-25", "2026-02-30", "26-10-23"]) {
       const report = { ...realisticReport(), day };
       expect((await POST(reportRequest(report))).status).toBe(400);
     }
-    for (const day of ["2026-10-21", "2026-10-25"]) {
+    for (const day of ["2026-10-08", "2026-10-24"]) {
       const report = { ...realisticReport(), day, reportId: crypto.randomUUID() };
       expect((await POST(reportRequest(report))).status).toBe(204);
     }
@@ -275,12 +277,28 @@ describe("POST /api/hang-reports", () => {
     expect(repository.rows.size).toBe(0);
   });
 
-  test("reports an unset firewall rule on Vercel and still accepts", async () => {
+  test("answers 503 and reports it when the firewall rule is unset or not found on Vercel", async () => {
     process.env.VERCEL = "1";
     delete process.env.CMUX_HANG_REPORTS_RATE_LIMIT_ID;
-    expect((await POST(reportRequest(realisticReport()))).status).toBe(204);
-    expect(missingRuleReports).toEqual([{ route: "/api/hang-reports", reason: "unset" }]);
+    const unset = await POST(reportRequest(realisticReport()));
+    expect(unset.status).toBe(503);
+    expect(await unset.json()).toEqual({ error: "rate_limit_unavailable" });
     expect(rateLimitCalls).toEqual([]);
+
+    process.env.CMUX_HANG_REPORTS_RATE_LIMIT_ID = "hang-reports-test";
+    rateLimitResult = { rateLimited: false, error: "not-found" };
+    expect((await POST(reportRequest(realisticReport()))).status).toBe(503);
+    expect(missingRuleReports).toEqual([
+      { route: "/api/hang-reports", reason: "unset" },
+      { route: "/api/hang-reports", reason: "not-found" },
+    ]);
+    expect(repository.rows.size).toBe(0);
+  });
+
+  test("skips the firewall check off Vercel", async () => {
+    delete process.env.CMUX_HANG_REPORTS_RATE_LIMIT_ID;
+    expect((await POST(reportRequest(realisticReport()))).status).toBe(204);
+    expect(missingRuleReports).toEqual([]);
   });
 
   test("answers 503 for a storage failure and 500 for a defect, without echoing the body", async () => {
@@ -291,11 +309,11 @@ describe("POST /api/hang-reports", () => {
         insertWithinDailyCap,
         deleteReceivedBefore: () => Effect.succeed(0),
       }))),
-      reportFailure: (error) => { reportedFailures.push(error); },
+      reportFailure: (context) => { reportedFailures.push(context); },
       now: () => NOW,
     });
     const unavailable = await handlerWith(() =>
-      Effect.fail(new HangReportStorageUnavailable({ operation: "insert", cause: new Error("connection reset") })),
+      Effect.fail(storageUnavailable("insert", new Error("connection reset"))),
     )(reportRequest(realisticReport()));
     expect(unavailable.status).toBe(503);
     expect(await unavailable.text()).toBe(JSON.stringify({ error: "storage_unavailable" }));
@@ -303,7 +321,60 @@ describe("POST /api/hang-reports", () => {
     const defect = await handlerWith(() => Effect.die(new Error("bug")))(reportRequest(realisticReport()));
     expect(defect.status).toBe(500);
     expect(await defect.text()).toBe(JSON.stringify({ error: "internal_error" }));
-    expect(reportedFailures).toHaveLength(2);
+    expect(reportedFailures).toEqual([
+      { operation: "insert", tag: "Error", sqlstate: null },
+      { operation: "defect", tag: "Error", sqlstate: null },
+    ]);
+  });
+
+  test("reports a storage failure as operation, tag and SQLSTATE only, never the query parameters", async () => {
+    const installId = "0b8d4a51-6c9e-4f0f-8f53-3c2d7b4f9e20";
+    // The shape drizzle's EffectDrizzleQueryError has: the message and fields
+    // carry every parameter, and the driver error below it has the SQLSTATE.
+    const queryError = Object.assign(new Error(`Failed query: insert into "hang_reports"\nparams: ${installId},{"schema":1}`), {
+      _tag: "EffectDrizzleQueryError",
+      query: 'insert into "hang_reports"',
+      params: [installId, '{"schema":1}'],
+      cause: Object.assign(new Error(`duplicate key ${installId}`), { code: "53300" }),
+    });
+    const handler = makeHangReportsHandler({
+      checkRateLimit,
+      reportMissingRateLimitRule: () => {},
+      run: (program) => Effect.runPromiseExit(program.pipe(Effect.provideService(HangReportsRepository, {
+        insertWithinDailyCap: () => storage("insert", () => Effect.fail(queryError)),
+        deleteReceivedBefore: () => Effect.succeed(0),
+      }))),
+      reportFailure: (context) => { reportedFailures.push(context); },
+      now: () => NOW,
+    });
+    const logged: unknown[] = [];
+    const consoleSpies = (["log", "info", "warn", "error", "debug"] as const).map((method) =>
+      spyOn(console, method).mockImplementation((...args: unknown[]) => { logged.push(args); }));
+    let response: Response;
+    try {
+      response = await handler(reportRequest(realisticReport()));
+    } finally {
+      for (const spy of consoleSpies) spy.mockRestore();
+    }
+    expect(response.status).toBe(503);
+    expect(reportedFailures).toEqual([{ operation: "insert", tag: "EffectDrizzleQueryError", sqlstate: "53300" }]);
+    expect(JSON.stringify(reportedFailures).toLowerCase()).not.toContain(installId);
+    expect(JSON.stringify(logged).toLowerCase()).not.toContain(installId);
+    expect((await response.text()).toLowerCase()).not.toContain(installId);
+  });
+
+  test("stores the golden schema 1 fixture the Swift client round-trips", async () => {
+    const fixture = readFileSync(new URL("./fixtures/hang-report-schema1.json", import.meta.url), "utf8");
+    const body = fixture.replace('"day":"2026-10-23"', `"day":"${NOW.toISOString().slice(0, 10)}"`);
+    const response = await POST(new Request("https://cmux.test/api/hang-reports", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    }));
+    expect(response.status).toBe(204);
+    const row = repository.rows.get("5f1c7c1e-2b9b-4a8e-9c62-0f0d2b0b8a11");
+    expect(row).toMatchObject({ appBuild: "2123456789012", channel: "nightly", chip: "Apple M4 Pro" });
+    expect((row?.payload.intervals as Array<{ category: string }>)[0]?.category).toBe("motion");
   });
 
   test("never reads a client address header or the user agent, and never stores or logs one", async () => {
@@ -357,7 +428,11 @@ describe("hang report leak scan", () => {
     expect(scanForLeaks({ a: "10.0.0.12" })).toBe("ip_address");
     expect(scanForLeaks({ a: "fe80::1" })).toBe("ip_address");
     expect(scanForLeaks({ a: "0123456789abcdef0123456789abcdef" })).toBe("token");
-    expect(scanForLeaks({ a: "ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4" })).toBe("token");
+    expect(scanForLeaks({ a: "ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6" })).toBe("token");
+    // Same threshold as the Swift client: 31 mixed characters, or 40 letters only, pass.
+    expect(scanForLeaks({ a: "0123456789abcdef0123456789abcde" })).toBeNull();
+    expect(scanForLeaks({ a: "abcdefghijabcdefghijabcdefghijabcdefghij" })).toBeNull();
+    expect(scanForLeaks({ a: "8B1E5C0A-1D4F-3B2E-A6C7-9F8E7D6C5B4A" })).toBeNull();
   });
 });
 
@@ -367,6 +442,7 @@ describe("GET /api/cron/hang-reports-retention", () => {
     const handler = makeHangReportsRetentionHandler({
       run: (program) => Effect.runPromiseExit(program.pipe(Effect.provideService(HangReportsRepository, repository))),
       now: () => NOW,
+      reportFailure: (context) => { reportedFailures.push(context); },
     });
     const old = new Date(NOW.getTime() - 91 * 86_400_000);
     const recent = new Date(NOW.getTime() - 89 * 86_400_000);
@@ -385,6 +461,25 @@ describe("GET /api/cron/hang-reports-retention", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, deleted: RETENTION_BATCH_SIZE + 5, complete: true });
     expect([...repository.rows.keys()]).toEqual(["recent"]);
+  });
+
+  test("reports a failed run as operation, tag and SQLSTATE only", async () => {
+    process.env.CRON_SECRET = "cron-secret";
+    const installId = "0b8d4a51-6c9e-4f0f-8f53-3c2d7b4f9e20";
+    const handler = makeHangReportsRetentionHandler({
+      run: (program) => Effect.runPromiseExit(program.pipe(Effect.provideService(HangReportsRepository, {
+        insertWithinDailyCap: () => Effect.succeed("inserted"),
+        deleteReceivedBefore: () => storage("deleteReceivedBefore", () =>
+          Effect.fail(Object.assign(new Error(`params: ${installId}`), { code: "57014" }))),
+      }))),
+      now: () => NOW,
+      reportFailure: (context) => { reportedFailures.push(context); },
+    });
+    const response = await handler(new Request("https://cmux.test/api/cron/hang-reports-retention", {
+      headers: { authorization: "Bearer cron-secret" },
+    }));
+    expect(response.status).toBe(500);
+    expect(reportedFailures).toEqual([{ operation: "deleteReceivedBefore", tag: "Error", sqlstate: "57014" }]);
   });
 });
 
@@ -464,7 +559,7 @@ function realisticReport() {
       hitchMsPerS: null,
     },
     intervals: [
-      { category: "perf.motion", name: "frame", count: 1200, buckets: [{ lowMs: 0, highMs: 10, count: 1100 }], hitchMsPerS: 0.4 },
+      { category: "motion", name: "motion.frame", count: 1200, buckets: [{ lowMs: 0, highMs: 10, count: 1100 }], hitchMsPerS: 0.4 },
     ],
   };
 }

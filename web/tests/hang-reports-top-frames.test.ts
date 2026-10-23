@@ -74,13 +74,13 @@ describe("hang report top frames", () => {
     const reports = [
       report("a", "1", [], {
         stallHistogram: [{ lowMs: 50, highMs: 100, count: 3 }, { lowMs: 100, highMs: 250, count: 1 }],
-        intervals: [{ category: "perf.motion", name: "frame", count: 100, buckets: [{ lowMs: 0, highMs: 10, count: 90 }], hitchMsPerS: 1 }],
+        intervals: [{ category: "motion", name: "motion.frame", count: 100, buckets: [{ lowMs: 0, highMs: 10, count: 90 }], hitchMsPerS: 1 }],
       }),
       report("b", "1", [], {
         stallHistogram: [{ lowMs: 50, highMs: 100, count: 2 }],
         intervals: [
-          { category: "perf.motion", name: "frame", count: 300, buckets: [{ lowMs: 0, highMs: 10, count: 280 }, { lowMs: 10, highMs: 20, count: 20 }], hitchMsPerS: 3 },
-          { category: "perf.key", name: "turn", count: 5, hitchMsPerS: null },
+          { category: "motion", name: "motion.frame", count: 300, buckets: [{ lowMs: 0, highMs: 10, count: 280 }, { lowMs: 10, highMs: 20, count: 20 }], hitchMsPerS: 3 },
+          { category: "key", name: "key.turn", count: 5, hitchMsPerS: null },
         ],
       }),
     ];
@@ -89,10 +89,10 @@ describe("hang report top frames", () => {
       { lowMs: 100, highMs: 250, count: 1 },
     ]);
     expect(mergeIntervals(reports)).toEqual([
-      { category: "perf.key", name: "turn", count: 5, buckets: [], hitchMsPerS: null },
+      { category: "key", name: "key.turn", count: 5, buckets: [], hitchMsPerS: null },
       {
-        category: "perf.motion",
-        name: "frame",
+        category: "motion",
+        name: "motion.frame",
         count: 400,
         buckets: [{ lowMs: 0, highMs: 10, count: 370 }, { lowMs: 10, highMs: 20, count: 20 }],
         hitchMsPerS: 2.5,

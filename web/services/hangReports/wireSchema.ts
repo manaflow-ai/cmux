@@ -38,7 +38,8 @@ const INTERVAL_NAME_PATTERN = /^[a-z0-9_.-]{1,48}$/;
 
 const COUNT_BUCKETS = ["0", "1", "2-5", "6-10", "11-30", "31-100", "101+"] as const;
 const CHANNELS = ["nightly", "dev", "rc", "release"] as const;
-const INTERVAL_CATEGORIES = ["perf.motion", "perf.key", "perf.switch", "perf.create", "perf.cef"] as const;
+// The PL-arch signpost catalog raw values.
+const INTERVAL_CATEGORIES = ["action", "motion", "key", "switch", "create", "cef", "launch"] as const;
 
 const boundedInt = (max: number) => Schema.Number.pipe(Schema.int(), Schema.between(0, max));
 const msPerS = Schema.Number.pipe(Schema.finite(), Schema.between(0, MAX_MS_PER_S));
@@ -160,9 +161,13 @@ export function utcDay(instant: Date): string {
   return instant.toISOString().slice(0, 10);
 }
 
-/** Whether a report day is within two days of the server's UTC day. */
-export function dayWithinWindow(day: string, now: Date, windowDays = 2): boolean {
-  const reportMs = Date.parse(`${day}T00:00:00Z`);
-  const todayMs = Date.parse(`${utcDay(now)}T00:00:00Z`);
-  return Math.abs(reportMs - todayMs) <= windowDays * 86_400_000;
+/** Oldest accepted report day, in days before the server's UTC day (the client outbox keeps 14 days). */
+export const DAY_WINDOW_PAST = 15;
+/** Newest accepted report day, in days after the server's UTC day (client clock ahead of UTC midnight). */
+export const DAY_WINDOW_FUTURE = 1;
+
+/** Whether a report day is within server UTC today-15 ... today+1. */
+export function dayWithinWindow(day: string, now: Date): boolean {
+  const offsetDays = (Date.parse(`${day}T00:00:00Z`) - Date.parse(`${utcDay(now)}T00:00:00Z`)) / 86_400_000;
+  return offsetDays >= -DAY_WINDOW_PAST && offsetDays <= DAY_WINDOW_FUTURE;
 }

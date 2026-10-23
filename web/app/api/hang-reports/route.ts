@@ -6,7 +6,12 @@ import * as Option from "effect/Option";
 
 import { readBoundedJsonObject } from "../../../services/apns/routePolicy";
 import { runWithHangReportsDatabase } from "../../../services/hangReports/database";
-import type { HangReportError, HangReportStorageUnavailable } from "../../../services/hangReports/errors";
+import {
+  errorTag,
+  type HangReportError,
+  type HangReportFailureContext,
+  type HangReportStorageUnavailable,
+} from "../../../services/hangReports/errors";
 import { ingestHangReport } from "../../../services/hangReports/ingest";
 import type { HangReportsRepository } from "../../../services/hangReports/repository";
 import { HANG_REPORT_MAX_BYTES } from "../../../services/hangReports/wireSchema";
@@ -21,6 +26,8 @@ import { jsonResponse } from "../../../services/vms/routeHelpers";
  * Privacy: this handler never reads a client address header
  * (x-forwarded-for, x-real-ip, or similar) or the user agent, never logs or
  * reports the body, and puts only the route, status and counts in its span.
+ * A failure is reported as a fixed context (operation, error tag, SQLSTATE),
+ * never as the underlying error, whose message can carry query parameters.
  */
 
 const ROUTE = "/api/hang-reports";
@@ -34,7 +41,7 @@ export type HangReportsRouteDependencies = {
   readonly run: (
     program: Effect.Effect<IngestResult, HangReportError, HangReportsRepository>,
   ) => Promise<Exit.Exit<IngestResult, HangReportError | HangReportStorageUnavailable>>;
-  readonly reportFailure: (error: unknown, operation: string) => void;
+  readonly reportFailure: (context: HangReportFailureContext) => void;
   readonly now: () => Date;
 };
 
@@ -42,7 +49,11 @@ const defaultDependencies: HangReportsRouteDependencies = {
   checkRateLimit: checkVercelRateLimit,
   reportMissingRateLimitRule,
   run: runWithHangReportsDatabase,
-  reportFailure: (error, operation) => reportError(error, { subsystem: "hang-reports", operation }),
+  reportFailure: (context) => reportError(
+    new Error(`hang report ${context.operation} failed: ${context.tag}`),
+    { subsystem: "hang-reports", ...context },
+    { fingerprint: ["hang-reports", context.operation, context.tag] },
+  ),
   now: () => new Date(),
 };
 
@@ -80,8 +91,9 @@ function failureResponse(
 ): Response {
   const failure = Cause.failureOption(cause);
   if (Option.isNone(failure)) {
-    // A defect is a server bug. Report the defect itself, never the body.
-    dependencies.reportFailure(Cause.squash(cause), "defect");
+    // A defect is a server bug. Report only its tag: a thrown error's message
+    // can carry the body or query parameters.
+    dependencies.reportFailure({ operation: "defect", tag: errorTag(Cause.squash(cause)), sqlstate: null });
     return jsonResponse({ error: "internal_error" }, 500, NO_STORE);
   }
   const error = failure.value;
@@ -95,7 +107,7 @@ function failureResponse(
         { ...NO_STORE, "retry-after": String(error.retryAfterSeconds) },
       );
     case "HangReportStorageUnavailable":
-      dependencies.reportFailure(error.cause, error.operation);
+      dependencies.reportFailure({ operation: error.operation, tag: error.causeTag, sqlstate: error.sqlstate });
       return jsonResponse({ error: "storage_unavailable" }, 503, NO_STORE);
   }
 }
@@ -107,9 +119,10 @@ async function enforceRateLimit(
   if (process.env.VERCEL !== "1") return null;
   const ruleId = process.env.CMUX_HANG_REPORTS_RATE_LIMIT_ID?.trim();
   if (!ruleId) {
-    // Accept without the edge limit; the per-install daily cap still bounds rows.
+    // Fail closed: without the edge rule nothing bounds a flood of fresh
+    // install ids. The client keeps the report and retries later.
     dependencies.reportMissingRateLimitRule({ route: ROUTE, reason: "unset" });
-    return null;
+    return jsonResponse({ error: "rate_limit_unavailable" }, 503, NO_STORE);
   }
   try {
     const { error, rateLimited } = await dependencies.checkRateLimit(ruleId, { request });
@@ -118,7 +131,7 @@ async function enforceRateLimit(
     }
     if (error === "not-found") {
       dependencies.reportMissingRateLimitRule({ route: ROUTE, reason: "not-found" });
-      return null;
+      return jsonResponse({ error: "rate_limit_unavailable" }, 503, NO_STORE);
     }
     if (error) return jsonResponse({ error: "rate_limit_unavailable" }, 503, NO_STORE);
   } catch {

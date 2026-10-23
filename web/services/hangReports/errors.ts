@@ -20,10 +20,18 @@ export class HangReportDailyCapExceeded extends Data.TaggedError("HangReportDail
   readonly retryAfterSeconds: number;
 }> {}
 
-/** The hang report store could not be reached or failed (HTTP 503). */
+/**
+ * The hang report store could not be reached or failed (HTTP 503).
+ *
+ * Holds only the failed operation, the underlying error's tag or class name,
+ * and its Postgres SQLSTATE. The underlying error is dropped on purpose: a
+ * drizzle query error's message and fields carry the statement parameters,
+ * which are the report payload and the install id.
+ */
 export class HangReportStorageUnavailable extends Data.TaggedError("HangReportStorageUnavailable")<{
   readonly operation: string;
-  readonly cause: unknown;
+  readonly causeTag: string;
+  readonly sqlstate: string | null;
 }> {}
 
 export type HangReportError = HangReportInvalid | HangReportDailyCapExceeded | HangReportStorageUnavailable;
@@ -33,3 +41,40 @@ export function isHangReportError(value: unknown): value is HangReportError {
     || value instanceof HangReportDailyCapExceeded
     || value instanceof HangReportStorageUnavailable;
 }
+
+const SQLSTATE = /^[0-9A-Z]{5}$/;
+const TAG = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
+
+/** An error's tag or class name, never its message. */
+export function errorTag(error: unknown): string {
+  if (error !== null && typeof error === "object") {
+    const tag = (error as { _tag?: unknown })._tag;
+    if (typeof tag === "string" && TAG.test(tag)) return tag;
+    const name = (error as { name?: unknown }).name;
+    if (typeof name === "string" && TAG.test(name)) return name;
+  }
+  return "unknown";
+}
+
+/** The first Postgres SQLSTATE along an error's `cause` chain. */
+export function sqlstateOf(error: unknown): string | null {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current !== null && typeof current === "object"; depth += 1) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === "string" && SQLSTATE.test(code)) return code;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return null;
+}
+
+/** A ``HangReportStorageUnavailable`` that keeps only the tag and SQLSTATE of `cause`. */
+export function storageUnavailable(operation: string, cause: unknown): HangReportStorageUnavailable {
+  return new HangReportStorageUnavailable({ operation, causeTag: errorTag(cause), sqlstate: sqlstateOf(cause) });
+}
+
+/** The fields safe to log or report for a hang report failure. */
+export type HangReportFailureContext = {
+  readonly operation: string;
+  readonly tag: string;
+  readonly sqlstate: string | null;
+};

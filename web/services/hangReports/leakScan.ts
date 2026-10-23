@@ -11,8 +11,9 @@ export type LeakReason = "path" | "email" | "url" | "ip_address" | "token";
 const UUID_RUN = /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/g;
 const IPV4 = /(?:^|[^0-9.])\d{1,3}(?:\.\d{1,3}){3}(?![0-9.])|^\d{1,3}(?:\.\d{1,3}){3}$/;
 const IPV6 = /(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}/;
-const HEX_RUN = /[0-9A-Fa-f]{24,}/;
-const BASE64_RUN = /[A-Za-z0-9+/_=-]{24,}/g;
+// Same rule as the Swift client's PrivacyLeakScanner: a run of 32 or more
+// ASCII letters and digits that mixes both.
+const ALNUM_RUN = /[A-Za-z0-9]{32,}/g;
 
 /** The first leak shape found in any string of `value`, or null. */
 export function scanForLeaks(value: unknown): LeakReason | null {
@@ -30,11 +31,7 @@ function leakIn(text: string): LeakReason | null {
   if (IPV4.test(text) || IPV6.test(text)) return "ip_address";
   // A UUID is the only long hex-like value a report may carry.
   const withoutUuids = text.replace(UUID_RUN, " ");
-  if (HEX_RUN.test(withoutUuids)) return "token";
-  for (const run of withoutUuids.match(BASE64_RUN) ?? []) {
-    // Long Apple framework names ("LocalAuthenticationEmbeddedUI") are a
-    // single letter run; a random token of this length almost always mixes
-    // letters and digits.
+  for (const run of withoutUuids.match(ALNUM_RUN) ?? []) {
     if (/\d/.test(run) && /[A-Za-z]/.test(run)) return "token";
   }
   return null;

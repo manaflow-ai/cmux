@@ -5,7 +5,7 @@ import * as Layer from "effect/Layer";
 
 import { Database } from "../../db/effect";
 import { hangReports } from "../../db/schema";
-import { HangReportStorageUnavailable } from "./errors";
+import { HangReportStorageUnavailable, storageUnavailable } from "./errors";
 
 /** One row of `hang_reports`, built from a validated report. Holds no IP or user agent. */
 export type HangReportRow = {
@@ -48,9 +48,13 @@ export class HangReportsRepository extends Context.Tag("cmux/HangReportsReposito
   HangReportsRepositoryShape
 >() {}
 
-function storage<A, E>(operation: string, run: () => Effect.Effect<A, E>) {
+/**
+ * Run one storage operation. A failure keeps only its tag and SQLSTATE (see
+ * ``HangReportStorageUnavailable``), so query parameters never leave here.
+ */
+export function storage<A, E>(operation: string, run: () => Effect.Effect<A, E>): Effect.Effect<A, HangReportStorageUnavailable> {
   return Effect.suspend(run).pipe(
-    Effect.mapError((cause) => new HangReportStorageUnavailable({ operation, cause })),
+    Effect.mapError((cause) => cause instanceof HangReportStorageUnavailable ? cause : storageUnavailable(operation, cause)),
     Effect.withSpan(`hang_reports.database.${operation}`),
   );
 }
@@ -80,7 +84,9 @@ export const makeHangReportsRepository = Effect.gen(function* () {
         .onConflictDoNothing({ target: hangReports.reportId })
         .returning({ reportId: hangReports.reportId });
       return inserted.length > 0 ? "inserted" as const : "duplicate" as const;
-    }))),
+    // Sanitize inside the transaction: its `sql.transaction` span records the
+    // failure it sees, and a drizzle query error's message lists the params.
+    }).pipe(Effect.mapError((cause) => storageUnavailable("insert", cause))))),
     deleteReceivedBefore: (cutoff, limit) => storage("deleteReceivedBefore", () => Effect.gen(function* () {
       const deleted = yield* db
         .delete(hangReports)
