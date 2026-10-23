@@ -417,19 +417,31 @@ impl Hub {
         let needs_person = super::questions::needs_person(&request);
         // A shell command that only reads (`shell_readonly.rs`), judged before the lock and off
         // the async workers: its git reads look at the repositories on disk.
+        // Only under approve-reads: approve-edits writes files unasked, so a command's own
+        // program could be one the agent wrote.
         let reads_policy = {
             let cfg = self.config.read().await;
-            matches!(
-                self.policy_for(session, cfg.permission_policy),
-                PermissionPolicy::ApproveReads | PermissionPolicy::ApproveEdits
-            )
+            self.policy_for(session, cfg.permission_policy) == PermissionPolicy::ApproveReads
         };
         let shell_reads = reads_policy
             && request.pointer("/toolCall/kind").and_then(Value::as_str) == Some("execute")
             && {
-                let (request, cwd) = (request.clone(), session.meta().cwd);
+                // Judged in the environment the harness runs it with: the daemon's, the
+                // allow-listed login values, then the profile, preset and session env.
+                let meta = session.meta();
+                let (_, mut own) = self.harness_env(&meta).await;
+                own.extend(meta.session_env.clone());
+                let family = self.config.read().await.family(&meta.harness);
+                let mut env = crate::login_env::effective_for(family.as_deref(), &own);
+                // The agent's PATH, unless its own env names one (`apply_tokio_for`).
+                if let Some(path) = crate::login_env::agent_path()
+                    && !own.contains_key("PATH")
+                {
+                    env.insert("PATH".to_owned(), path.to_string_lossy().into_owned());
+                }
+                let (request, cwd) = (request.clone(), meta.cwd);
                 tokio::task::spawn_blocking(move || {
-                    super::shell_readonly::request_is_read_only(&request, &cwd)
+                    super::shell_readonly::request_is_read_only(&request, &cwd, &env)
                 })
                 .await
                 .unwrap_or(false)

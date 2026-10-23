@@ -1,4 +1,4 @@
-//! Read-only shell commands under approve-reads and approve-edits. Leo: "Read-only commands (rg,
+//! Read-only shell commands under approve-reads. Leo: "Read-only commands (rg,
 //! git status/diff/rev-parse, pwd) under approve-reads must auto-approve and never prompt."
 //!
 //! Claude Code's Bash and Codex's shell commands both ask as tool kind `execute`, which the
@@ -19,8 +19,16 @@
 //! every submodule checked out in it, names none (`repository_runs_nothing`). `cd` asks:
 //! Claude Code's shell keeps the directory for its next command, whose git reads would then
 //! look at a repository this never checked.
+//!
+//! The commands run with the harness's environment, not the daemon's, so they are judged in it
+//! (`permissions.rs` passes `login_env::effective_for` of the session's profile, preset and
+//! session env): a bare name passes only when that PATH finds it in a system directory first,
+//! an environment that points these programs elsewhere (`GIT_*`, `LD_PRELOAD`, `BASH_ENV`, ...)
+//! asks, and the repository probe runs that git with that environment. Not under approve-edits:
+//! an agent that writes files unasked could put its own `rg` in one of those directories.
 
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -35,6 +43,75 @@ const PLAIN: &[&str] = &[
     "stat", "du", "df", "basename", "dirname", "realpath", "readlink", "cut", "tr", "nl", "cmp",
     "comm", "diff", "grep", "egrep", "fgrep", "column", "whoami", "id", "uname", "test", "[", "jq",
 ];
+
+/// Shell builtins: they run in the shell, whatever PATH holds.
+const BUILTINS: &[&str] = &["pwd", "echo", "printf", "true", "false", "test", "[", "type"];
+
+/// `GIT_*` variables that make no read run another program (identity, editors for commands that
+/// edit, the prompt switch); every other one asks (`GIT_EXTERNAL_DIFF`, `GIT_CONFIG_COUNT`, ...).
+const HARMLESS_GIT_ENV: &[&str] = &[
+    "GIT_AUTHOR_NAME",
+    "GIT_AUTHOR_EMAIL",
+    "GIT_AUTHOR_DATE",
+    "GIT_COMMITTER_NAME",
+    "GIT_COMMITTER_EMAIL",
+    "GIT_COMMITTER_DATE",
+    "GIT_EDITOR",
+    "GIT_SEQUENCE_EDITOR",
+    "GIT_TERMINAL_PROMPT",
+];
+
+/// Variables that make the shell or these programs load or run something else.
+const RUNS_ENV: &[&str] = &[
+    "BASH_ENV",
+    "ENV",
+    "SHELLOPTS",
+    "BASHOPTS",
+    "PROMPT_COMMAND",
+    "IFS",
+    "PS4",
+    "RIPGREP_CONFIG_PATH",
+    "GREP_OPTIONS",
+    "JQ_LIBRARY_PATH",
+    "PAGER",
+    "LESSOPEN",
+    "LESSCLOSE",
+];
+
+/// The environment the harness runs its shell commands with.
+pub(crate) type Env = BTreeMap<String, String>;
+
+/// Whether `env` points none of these programs at another program. A library search path
+/// (`LD_LIBRARY_PATH`, which cargo sets for its tests) passes: it only finds libraries already
+/// on disk, and putting one there takes an edit, which asks. A library to load first does not.
+fn env_runs_nothing(env: &Env) -> bool {
+    env.keys().all(|k| {
+        !(RUNS_ENV.contains(&k.as_str())
+            || matches!(k.as_str(), "LD_PRELOAD" | "LD_AUDIT" | "DYLD_INSERT_LIBRARIES")
+            || (k.starts_with("GIT_") && !HARMLESS_GIT_ENV.contains(&k.as_str())))
+    })
+}
+
+/// Where the shell finds the bare command `name` with `env`'s PATH: the first executable
+/// `DIR/name`, when DIR is a system directory. None when it is found elsewhere first, or not at all.
+fn resolve(name: &str, env: &Env) -> Option<PathBuf> {
+    #[cfg(unix)]
+    let runs = |m: &std::fs::Metadata| {
+        use std::os::unix::fs::PermissionsExt;
+        m.permissions().mode() & 0o111 != 0
+    };
+    #[cfg(not(unix))]
+    let runs = |_: &std::fs::Metadata| false;
+    let path = env.get("PATH")?;
+    let found = std::env::split_paths(path)
+        .map(|dir| dir.join(name))
+        .find(|p| p.metadata().is_ok_and(|m| m.is_file() && runs(&m)))?;
+    found
+        .parent()
+        .and_then(Path::to_str)
+        .is_some_and(|d| TRUSTED_DIRS.contains(&d))
+        .then_some(found)
+}
 
 const GIT_READS: &[&str] = &[
     "status",
@@ -59,10 +136,11 @@ const GIT_READS: &[&str] = &[
     "version",
 ];
 
-/// Whether the toolCall of `request` is a shell command (`execute`) that only reads, run from
-/// the request's own `cwd` (or `workdir`) when it names one, else from `session_cwd`. Its git
-/// reads look at the repositories on disk, so call this off the async workers.
-pub(crate) fn request_is_read_only(request: &Value, session_cwd: &Path) -> bool {
+/// Whether the toolCall of `request` is a shell command (`execute`) that only reads, run with
+/// `env` from the request's own `cwd` (or `workdir`) when it names one, else from
+/// `session_cwd`. Its git reads look at the repositories on disk, so call this off the async
+/// workers.
+pub(crate) fn request_is_read_only(request: &Value, session_cwd: &Path, env: &Env) -> bool {
     let Some(call) = request.get("toolCall") else { return false };
     if call.get("kind").and_then(Value::as_str) != Some("execute") {
         return false;
@@ -83,33 +161,48 @@ pub(crate) fn request_is_read_only(request: &Value, session_cwd: &Path) -> bool 
         },
         _ => return false,
     };
-    let Some(git_dirs) = git_dirs(script) else { return false };
+    if !env_runs_nothing(env) {
+        return false;
+    }
+    let found = |name: &str| BUILTINS.contains(&name) || resolve(name, env).is_some();
+    let Some(git_dirs) = git_dirs(script, &found) else { return false };
+    if git_dirs.is_empty() {
+        return true;
+    }
+    let Some(git) = resolve("git", env) else { return false };
     let raw = call.get("rawInput");
     let base = ["cwd", "workdir"]
         .iter()
         .find_map(|k| raw.and_then(|r| r.get(*k)).and_then(Value::as_str))
         .map_or_else(|| session_cwd.to_path_buf(), |d| session_cwd.join(d));
     git_dirs.iter().all(|dir| {
-        repository_runs_nothing(&dir.as_deref().map_or_else(|| base.clone(), |d| base.join(d)), 0)
+        let dir = dir.as_deref().map_or_else(|| base.clone(), |d| base.join(d));
+        repository_runs_nothing(&git, env, &dir, 0)
     })
 }
 
 /// Whether shell `script` only reads, as far as its text shows: every command in it passes
-/// the allowlist. Its git reads still need `repository_runs_nothing`.
+/// the allowlist. Its bare names still need `resolve`, and its git reads `repository_runs_nothing`.
 #[cfg(test)]
 pub(crate) fn is_read_only(script: &str) -> bool {
-    git_dirs(script).is_some()
+    git_dirs(script, &|_| true).is_some()
 }
 
 /// The `-C` directory of each git command in `script` (None: git's own directory), when every
-/// command passes the allowlist; None otherwise.
-fn git_dirs(script: &str) -> Option<Vec<Option<String>>> {
+/// command passes the allowlist and `found` passes each bare command name; None otherwise.
+fn git_dirs(script: &str, found: &dyn Fn(&str) -> bool) -> Option<Vec<Option<String>>> {
     let segments = segments(script)?;
     if segments.iter().all(Vec::is_empty) {
         return None;
     }
     let mut git = Vec::new();
     for s in &segments {
+        if let Some(first) = s.first()
+            && !first.contains('/')
+            && !found(first)
+        {
+            return None;
+        }
         if let Reads::Git(dir) = segment_ok(s)? {
             git.push(dir);
         }
@@ -412,9 +505,11 @@ fn git_config_ok(rest: &[String]) -> bool {
 /// config are the person's own), no `post-index-change` hook is installed (`git status` and
 /// `git diff` run it when they refresh the index), and every submodule checked out in it passes
 /// too (`git status` reads them). A directory git cannot read as a repository asks.
-fn repository_runs_nothing(dir: &Path, depth: u8) -> bool {
+fn repository_runs_nothing(git_bin: &Path, env: &Env, dir: &Path, depth: u8) -> bool {
     let git = |dir: &Path, args: &[&str]| -> Option<Vec<u8>> {
-        let out = Command::new("git")
+        let out = Command::new(git_bin)
+            .env_clear()
+            .envs(env)
             .arg("-C")
             .arg(dir)
             .args(args)
@@ -462,7 +557,8 @@ fn repository_runs_nothing(dir: &Path, depth: u8) -> bool {
         let Some(path) = e.splitn(2, |b| *b == b'\t').nth(1) else { return false };
         let Ok(path) = std::str::from_utf8(path) else { return false };
         let sub = top.join(path);
-        sub.join(".git").symlink_metadata().is_err() || repository_runs_nothing(&sub, depth + 1)
+        sub.join(".git").symlink_metadata().is_err()
+            || repository_runs_nothing(git_bin, env, &sub, depth + 1)
     })
 }
 
@@ -665,6 +761,11 @@ mod tests {
         assert!(status.success(), "git {args:?}");
     }
 
+    /// Only the system directories on PATH, and nothing else set.
+    fn system_env() -> Env {
+        Env::from([("PATH".to_owned(), TRUSTED_DIRS.join(":"))])
+    }
+
     fn execute(command: Value) -> Value {
         json!({"toolCall": {"kind": "execute", "rawInput": {"command": command}}})
     }
@@ -673,7 +774,7 @@ mod tests {
     fn request_needs_an_execute_with_a_command() {
         let dir = repo(&[]);
         let req = |kind: &str, command: Value| json!({"toolCall": {"kind": kind, "rawInput": {"command": command}}});
-        let reads = |r: &Value| request_is_read_only(r, &dir);
+        let reads = |r: &Value| request_is_read_only(r, &dir, &system_env());
         assert!(reads(&req("execute", json!("git status"))));
         assert!(reads(&req("execute", json!(["/bin/bash", "-lc", "git status"]))));
         assert!(reads(&req("execute", json!(["zsh", "-c", "pwd"]))));
@@ -704,13 +805,22 @@ mod tests {
             &[("remote.origin.uploadpack", "/tmp/x")],
         ] {
             let dir = repo(config);
-            assert!(!request_is_read_only(&execute(json!("git status")), &dir), "{config:?}");
-            assert!(!request_is_read_only(&execute(json!("git diff")), &dir), "{config:?}");
-            assert!(request_is_read_only(&execute(json!("pwd")), &dir), "{config:?}");
+            assert!(
+                !request_is_read_only(&execute(json!("git status")), &dir, &system_env()),
+                "{config:?}"
+            );
+            assert!(
+                !request_is_read_only(&execute(json!("git diff")), &dir, &system_env()),
+                "{config:?}"
+            );
+            assert!(
+                request_is_read_only(&execute(json!("pwd")), &dir, &system_env()),
+                "{config:?}"
+            );
             std::fs::remove_dir_all(dir).unwrap();
         }
         let dir = repo(&[("core.fsmonitor", "false"), ("remote.origin.url", "/x")]);
-        assert!(request_is_read_only(&execute(json!("git status")), &dir));
+        assert!(request_is_read_only(&execute(json!("git status")), &dir, &system_env()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -720,15 +830,15 @@ mod tests {
         let dir = repo(&[("core.hooksPath", ".git/hooks")]);
         let hook = dir.join(".git/hooks/post-index-change");
         std::fs::write(&hook, "#!/bin/sh\n").unwrap();
-        assert!(!request_is_read_only(&execute(json!("git status")), &dir));
+        assert!(!request_is_read_only(&execute(json!("git status")), &dir, &system_env()));
         std::fs::remove_file(&hook).unwrap();
         // Through core.hooksPath too, and only that hook counts.
         std::fs::create_dir(dir.join("hooks")).unwrap();
         std::fs::write(dir.join("hooks/pre-commit"), "#!/bin/sh\n").unwrap();
         git(&dir, &["config", "core.hooksPath", "hooks"]);
-        assert!(request_is_read_only(&execute(json!("git status")), &dir));
+        assert!(request_is_read_only(&execute(json!("git status")), &dir, &system_env()));
         std::fs::write(dir.join("hooks/post-index-change"), "#!/bin/sh\n").unwrap();
-        assert!(!request_is_read_only(&execute(json!("git status")), &dir));
+        assert!(!request_is_read_only(&execute(json!("git status")), &dir, &system_env()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -760,9 +870,9 @@ mod tests {
             &dir,
             &["update-index", "--add", "--cacheinfo", &format!("160000,{},sub", head.trim())],
         );
-        assert!(request_is_read_only(&execute(json!("git status")), &dir));
+        assert!(request_is_read_only(&execute(json!("git status")), &dir, &system_env()));
         git(&sub, &["config", "diff.x.textconv", "cat"]);
-        assert!(!request_is_read_only(&execute(json!("git status")), &dir));
+        assert!(!request_is_read_only(&execute(json!("git status")), &dir, &system_env()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -777,7 +887,7 @@ mod tests {
             if let Some(d) = raw_cwd {
                 r["toolCall"]["rawInput"]["cwd"] = json!(d);
             }
-            request_is_read_only(&r, &clean)
+            request_is_read_only(&r, &clean, &system_env())
         };
         assert!(at("git status", None));
         assert!(!at(&format!("git -C {} status", hostile.display()), None));
@@ -789,6 +899,57 @@ mod tests {
         std::fs::create_dir(&plain).unwrap();
         assert!(!at("git status", Some(&plain)));
         for d in [clean, hostile, plain] {
+            std::fs::remove_dir_all(d).unwrap();
+        }
+    }
+
+    /// Codex review of #24155 at 7e312f83: the command runs with the harness's PATH and env, so
+    /// a bare `ls` found first in another directory, or an env that points git at a program,
+    /// asks.
+    #[cfg(unix)]
+    #[test]
+    fn the_harness_environment_decides() {
+        let dir = repo(&[]);
+        let tools = std::env::temp_dir().join(format!("acpmux-tools-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir(&tools).unwrap();
+        let with_path = |first: &Path| {
+            Env::from([(
+                "PATH".to_owned(),
+                format!("{}:{}", first.display(), TRUSTED_DIRS.join(":")),
+            )])
+        };
+        let reads =
+            |command: &str, env: &Env| request_is_read_only(&execute(json!(command)), &dir, env);
+        assert!(reads("ls", &with_path(&tools)));
+        assert!(reads("pwd", &Env::new()), "a builtin needs no PATH");
+        assert!(!reads("ls", &Env::new()), "no PATH finds no ls");
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let fake = tools.join("ls");
+            std::fs::write(&fake, "#!/bin/sh\n").unwrap();
+            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        assert!(!reads("ls", &with_path(&tools)));
+        assert!(!reads("git status; ls", &with_path(&tools)));
+        assert!(reads("/bin/ls", &with_path(&tools)) || !Path::new("/bin/ls").exists());
+        for key in [
+            "GIT_EXTERNAL_DIFF",
+            "GIT_CONFIG_COUNT",
+            "GIT_DIR",
+            "LD_PRELOAD",
+            "BASH_ENV",
+            "PAGER",
+            "RIPGREP_CONFIG_PATH",
+        ] {
+            let mut env = system_env();
+            env.insert(key.to_owned(), "/tmp/x".to_owned());
+            assert!(!reads("git diff", &env), "{key}");
+            assert!(!reads("pwd", &env), "{key}");
+        }
+        let mut env = system_env();
+        env.insert("GIT_TERMINAL_PROMPT".to_owned(), "0".to_owned());
+        assert!(reads("git diff", &env));
+        for d in [dir, tools] {
             std::fs::remove_dir_all(d).unwrap();
         }
     }
