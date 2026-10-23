@@ -3,10 +3,9 @@
 // version rendered. The code view draws only diffs, so a previewed file becomes a one-line file
 // item whose line annotation holds the preview, and the viewer's CSS hides that line
 // (pierre-options.ts `pre[data-file]`). Both sides come from the host's `fileContents`.
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import type { DiffItem } from "../diff-stream";
 import type { DiffViewerLabelResolver } from "../labels";
-import { MarkdownPreview } from "./MarkdownPreview";
 import {
   imageDataURL,
   markdownText,
@@ -34,6 +33,10 @@ export type PreviewItem = {
 };
 
 const previewItems = new WeakMap<DiffItem, PreviewItem>();
+
+// The Markdown renderer (and its lexer) loads with the first rendered Markdown file, not with
+// the diff page: scripts/check-webviews-diff-budget.mjs keeps the page's eager JS in budget.
+const MarkdownPreview = lazy(() => import("./MarkdownPreview").then((module) => ({ default: module.MarkdownPreview })));
 
 /** An SVG is text too: its diff stays (with hunk Stage and Revert) unless Rich preview is on. */
 const isTextImage = (path: string) => path.toLowerCase().endsWith(".svg");
@@ -127,9 +130,11 @@ export function InlinePreview({
     return text === undefined ? (
       status(label("previewNoFile"))
     ) : (
-      <div className="inline-preview">
-        <MarkdownPreview source={text} />
-      </div>
+      <Suspense fallback={status(label("previewLoading"))}>
+        <div className="inline-preview">
+          <MarkdownPreview source={text} />
+        </div>
+      </Suspense>
     );
   }
   const name = path.slice(path.lastIndexOf("/") + 1);
