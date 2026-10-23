@@ -3,6 +3,7 @@ import type { ComposerAttachment } from "./attachments";
 import { agentName } from "./agents";
 import { harnessProfiles, type HarnessProfiles } from "./harnessProfiles";
 import { lastModel } from "./lastPick";
+import { heldOptionPick } from "./heldOptions";
 import { isTrustRefusal } from "./direct";
 // Outside render: the store reads the pane language when it builds a string.
 import { translate as t } from "./i18n";
@@ -42,9 +43,23 @@ type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 export type SwitchPort = {
   /// A turn is running in the session the pane shows.
   turnRunning(): boolean;
-  /// The shown session: its id, its harness, whether it has nothing in it yet, and its folder
-  /// when a new chat can start there.
-  shown(): { sessionId: string; harness?: string; model?: string; empty: boolean; cwd?: string } | undefined;
+  /// The shown session: its id, its harness, whether it has nothing in it yet, its folder when a
+  /// new chat can start there, and the config options it names (once attached).
+  shown():
+    | {
+        sessionId: string;
+        harness?: string;
+        model?: string;
+        empty: boolean;
+        cwd?: string;
+        configOptions?: readonly {
+          id: string;
+          name?: string | null;
+          category?: string | null;
+          options?: readonly { value: string }[];
+        }[];
+      }
+    | undefined;
   /// `session/new` on `harness`; does not show it.
   create(harness: string, cwd?: string): Promise<string | undefined>;
   /// Stops showing the current session (the pane draws the new chat meanwhile).
@@ -568,6 +583,10 @@ export class HarnessSwitch {
       if (isHostRefusal(error)) this.handlers.notice?.(errorMessage(error));
     };
     const ticket = (key: string) => intent.tickets.get(key) ?? Promise.resolve(undefined);
+    // A pick held before the session named its options (a New Tab combo's effort or Fast) goes under
+    // the opened session's own option id and value; one it offers no option for is not sent. A
+    // session that names none yet takes the picks as they were held.
+    const offered = port.shown()?.configOptions;
     // A held mode the agent refuses always says so: a company-managed Mac's Claude Code settings can
     // disable a mode, and the chat would otherwise run on another one with no reason given.
     if (mode)
@@ -576,12 +595,17 @@ export class HarnessSwitch {
           .then((t) => port.setMode(mode, t))
           .catch((error) => this.handlers.notice?.(t("switch.modeFailed", { mode, reason: errorText(error) || "?" }))),
       );
-    for (const [configId, value] of Object.entries(options))
+    for (const [configId, value] of Object.entries(options)) {
+      const pick = offered?.length ? heldOptionPick(configId, value, offered) : { configId, value };
+      if (!pick) continue;
+      // The pick's ticket is bound to the frame it was taken for: a renamed pick goes without it.
+      const same = pick.configId === configId && pick.value === value;
       applied.push(
         ticket(`config:${configId}`)
-          .then((t) => port.setConfig(configId, value, t))
+          .then((t) => port.setConfig(pick.configId, pick.value, same ? t : undefined))
           .catch(pickRefused),
       );
+    }
     // Prompts go out after the picks, so the first turn runs on what the user chose.
     await Promise.all(applied);
     if (this.intent !== intent) return;

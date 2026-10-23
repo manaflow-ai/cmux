@@ -24,6 +24,7 @@ import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
 import { catalogRow } from "./catalogRow";
 import { harnessProfiles } from "./harnessProfiles";
+import { HELD_EFFORT_ID, HELD_FAST_ID, HELD_FAST_ON, isEffortOption, isFastModeOption } from "./heldOptions";
 import { useStartMode } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
 import { useModelCatalogState } from "./modelCatalogHost";
@@ -358,9 +359,7 @@ export function ComposerPickers({
           onPick: (value) => onEffort(effort?.id ?? "effort", value === "on" ? "ultracode" : "xhigh"),
         }
       : undefined;
-  const fastOption = snapshot.summary?.configOptions?.find(
-    (option) => option.id === "fast-mode" || /fast[ _-]?mode/i.test(option.name ?? ""),
-  );
+  const fastOption = snapshot.summary?.configOptions?.find(isFastModeOption);
   const fastOn =
     fastOption?.options.find((option) => /^(on|true|enabled)$/i.test(option.value)) ?? fastOption?.options[1];
   const fastOff =
@@ -423,26 +422,20 @@ export function ComposerPickers({
   // A combo for another model sends the model first, then its effort once the
   // agent reports that model and offers the effort; anything else drops it.
   const pending = useRef<
-    { sessionId?: string; early?: boolean; from?: string; model: string; effort: string; reached?: boolean } | undefined
+    { sessionId?: string; from?: string; model: string; effort: string; reached?: boolean } | undefined
   >(undefined);
   const effortId = effort?.id;
   const effortValues = (effort?.options ?? []).map((option) => option.value).join("\u0000");
   useEffect(() => {
     const wanted = pending.current;
     if (!wanted) return;
-    const sessionId = summary?.sessionId || undefined;
-    // A pick made before the chat had a session (a New Tab's deferred chat, whose id is empty until
-    // acpmux reports it) belongs to the session that chat reports first; a later change still drops it.
-    wanted.sessionId ??= sessionId;
     // Dropped on a session switch, or once the session moves off the picked model (or never reaches it).
-    // Before its session a chat draws the pick back as its model, and the session can first report
-    // the model the agent started on: an early pick is away only once the session reached it.
-    const away = current !== wanted.model && (wanted.reached || (!wanted.early && current !== wanted.from));
-    if (wanted.sessionId !== sessionId || away) {
+    const away = current !== wanted.model && (current !== wanted.from || wanted.reached);
+    if (wanted.sessionId !== summary?.sessionId || away) {
       pending.current = undefined;
       return;
     }
-    if (current === wanted.model && sessionId) wanted.reached = true;
+    if (current === wanted.model) wanted.reached = true;
     if (current !== wanted.model || !effortId || !effortValues.split("\u0000").includes(wanted.effort)) return;
     pending.current = undefined;
     if (wanted.effort !== currentEffort) onEffort(effortId, wanted.effort);
@@ -451,28 +444,29 @@ export function ComposerPickers({
   // that model offering it (the effect above); the same model only changes the effort.
   // A pick in a chat on another machine names that machine's models: this one's new chats keep theirs.
   const remembers = !summary?.host && summary?.hostKind !== "cloud";
+  // Before the chat has a session (a New Tab's deferred chat, a harness still starting) the switch
+  // holds every pick and applies it before the first prompt (harnessSwitch.ts): a combo's effort and
+  // Fast go to it at once, so a prompt sent right after the pick runs on the whole combo. An option
+  // the chat shows no row for yet goes under its kind's id, which the switch maps onto the option
+  // the session names once it opens (heldOptions.ts), or drops when it offers none.
+  const presession = holdsModePick && !summary?.sessionId;
   const land = (pickedModel: string, pickedEffort?: string) => {
     // Any new pick replaces a combo still waiting on its effort.
     pending.current = undefined;
     if (harness && remembers) rememberPick({ harness, model: pickedModel }, folder ?? summary?.cwd);
     if (pickedModel !== shown) {
-      pending.current = pickedEffort
-        ? {
-            sessionId: summary?.sessionId || undefined,
-            early: !summary?.sessionId,
-            from: current,
-            model: pickedModel,
-            effort: pickedEffort,
-          }
-        : undefined;
+      pending.current =
+        pickedEffort && !presession
+          ? { sessionId: summary?.sessionId, from: current, model: pickedModel, effort: pickedEffort }
+          : undefined;
       onModel(pickedModel);
+      if (pickedEffort && presession) onEffort(effort?.id ?? HELD_EFFORT_ID, pickedEffort);
     } else if (
-      effort &&
       pickedEffort &&
       pickedEffort !== currentEffort &&
-      efforts.some((choice) => choice.id === pickedEffort)
+      (effort ? efforts.some((choice) => choice.id === pickedEffort) : presession)
     )
-      onEffort(effort.id, pickedEffort);
+      onEffort(effort?.id ?? HELD_EFFORT_ID, pickedEffort);
   };
   // A typed combo ("gpt medium fast", ModelPicker): its model and effort land as a pick does, and
   // fast mode turns on once the agent reports the model and offers it. A combo for another harness
@@ -495,7 +489,8 @@ export function ComposerPickers({
     // The model already runs: fast mode changes now; else once the agent reports the model.
     if (picked.model === current && fastMode) {
       if (fastMode.currentValue !== fastMode.onValue) fastMode.onPick(fastMode.onValue);
-    } else fastWanted.current = { sessionId: summary?.sessionId || undefined, model: picked.model };
+    } else if (presession) onEffort(fastOption?.id ?? HELD_FAST_ID, fastMode?.onValue ?? HELD_FAST_ON);
+    else fastWanted.current = { sessionId: summary?.sessionId, model: picked.model };
   };
   const switchFailed = snapshot.switching?.phase === "failed";
   useEffect(() => {
@@ -521,10 +516,7 @@ export function ComposerPickers({
   useEffect(() => {
     const wanted = fastWanted.current;
     if (!wanted) return;
-    // As with the effort, a pick made before the session binds to the first one its chat reports.
-    const sessionId = summary?.sessionId || undefined;
-    wanted.sessionId ??= sessionId;
-    if (wanted.sessionId !== sessionId) {
+    if (wanted.sessionId !== summary?.sessionId) {
       fastWanted.current = undefined;
       return;
     }
@@ -1876,11 +1868,6 @@ export function shortModelName(name: string, short?: string, harnessName?: strin
 export function modelFamily(name: string): string | undefined {
   const first = name.trim().split(/\s+/)[0] ?? "";
   return first !== name.trim() && /\p{L}{3,}/u.test(first) ? first : undefined;
-}
-
-/// The session's reasoning option, whatever the harness calls it.
-function isEffortOption(option: { id: string; category?: string | null }): boolean {
-  return option.category === "thought_level" || option.id === "effort" || option.id === "reasoning_effort";
 }
 
 /// The plain levels a catalog row can list (`PickerModel.efforts`).
