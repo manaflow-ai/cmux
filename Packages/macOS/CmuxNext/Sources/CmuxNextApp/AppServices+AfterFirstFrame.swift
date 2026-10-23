@@ -11,7 +11,7 @@ extension AppServices {
         serverReach.start()
         updater.start()
         // Needs you's marked tabs (tab-attention-v1) for every agent page and the palette.
-        AttentionTabsWatch.start(self)
+        attentionTabsWatch = AttentionTabsWatch(self)
         DebugTimings.markLaunch("launch.non_paint_services")
     }
 
