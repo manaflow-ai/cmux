@@ -413,7 +413,7 @@ class RunPartTests(unittest.TestCase):
         self.assertTrue(any(c.startswith("artifact abcdef1234567890") for c in calls))
         self.assertTrue(os.path.exists(os.path.join(out, "report.json")))
         run = next(c for c in calls if c.startswith("run "))
-        for flag in ("--background", "--measurement", f"--target-worker {cron.BENCH_WORKER}", f"--ref {sha(5)}", "--arg=--suite=budgets"):
+        for flag in ("--background", "--measurement", "--reroute-target", f"--target-worker {cron.BENCH_WORKER}", f"--ref {sha(5)}", "--arg=--suite=budgets"):
             self.assertIn(flag, run)
 
     def test_fleet_exits_yield_and_a_timeout_fails(self):
