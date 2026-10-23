@@ -97,7 +97,10 @@ export function useNeedsYou({
   const last = useRef<string | undefined>(undefined);
   // The pill speaks for this chat and the chats it started only (JumpPill.tsx `pillAsks`); the
   // header's list keeps every ask.
-  const ours = useMemo(() => (pillOn ? pillAsks(items, sessions, sessionId) : []), [pillOn, items, sessions, sessionId]);
+  const ours = useMemo(
+    () => (pillOn ? pillAsks(items, sessions, sessionId) : []),
+    [pillOn, items, sessions, sessionId],
+  );
   const elsewhere = ours.filter((item) => item.sessionId !== sessionId).length;
   const pill: TranscriptNeedsYou | undefined =
     pillOn && ours.length > 0

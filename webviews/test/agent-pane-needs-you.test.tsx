@@ -17,7 +17,12 @@ import type { AgentQuestion } from "../src/agent-session/acpmux/question/model";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 import { needsYouItems, type NeedsYouItem, type WatchedAsk } from "../src/agent-session/acpmux/needsYou/model";
 import { needsYouLink, needsYouTarget, onOpenNeedsYou, openNeedsYou } from "../src/agent-session/acpmux/needsYou/links";
-import { nextAsk, NeedsYouPill, pillAsks, type TranscriptNeedsYou } from "../src/agent-session/acpmux/needsYou/JumpPill";
+import {
+  nextAsk,
+  NeedsYouPill,
+  pillAsks,
+  type TranscriptNeedsYou,
+} from "../src/agent-session/acpmux/needsYou/JumpPill";
 import { answerParams, useNeedsYou } from "../src/agent-session/acpmux/needsYou/useNeedsYou";
 import {
   NeedsYouPanel,
