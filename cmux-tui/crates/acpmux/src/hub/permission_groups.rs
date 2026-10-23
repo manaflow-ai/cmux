@@ -21,11 +21,6 @@ pub(super) struct PermissionState {
     pub pending: HashMap<String, PendingPermission>,
     groups: VecDeque<Group>,
     pub chat_allowed: bool,
-    /// Agent request ids the agent withdrew (`$/cancel_request`) before
-    /// their prompt was recorded: its task is spawned, so the withdrawal can
-    /// come first. The prompt is then cancelled instead of shown
-    /// (`withdraw_permission`). Bounded; cleared with the agent's prompts.
-    pub withdrawn: VecDeque<Value>,
 }
 
 #[derive(Debug)]

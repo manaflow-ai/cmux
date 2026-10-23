@@ -15,7 +15,8 @@
 //! it (a choice not offered, a number that does not parse): the server never
 //! gets content the person did not give. URL mode and any other schema keep
 //! the error reply that tells Claude Code acpmux does not support the request.
-//! A form Claude Code withdraws (`control_cancel_request`) takes its card back.
+//! A form Claude Code withdraws (`control_cancel_request`) is forgotten, so a
+//! late answer sends it nothing.
 
 use super::*;
 use serde_json::Map;
@@ -108,17 +109,16 @@ impl Translator {
         }));
     }
 
-    /// Claude Code withdrew its control request `rid` (`control_cancel_request`:
-    /// the turn was interrupted, or the tool call that asked ended): nothing
-    /// answers it any more, and the hub takes back the card it raised
-    /// (`$/cancel_request` with that card's id), so no one answers a form
-    /// that is gone. A request not waiting on the hub is ignored.
-    pub(super) async fn withdraw_control(&self, rid: &str) -> Vec<Message> {
-        let Some(acp_id) = self.control_out.lock().await.remove(rid) else { return Vec::new() };
-        self.elicitations.lock().await.remove(rid);
-        self.inputs.lock().await.remove(rid);
-        self.suggestions.lock().await.remove(rid);
-        vec![Message::notification(method::CANCEL_REQUEST, json!({"requestId": acp_id}))]
+    /// Claude Code withdrew its elicitation `rid` (`control_cancel_request`:
+    /// the turn was interrupted, or the tool call that asked ended), so it
+    /// reads no answer to it any more. The form is forgotten: a late answer to
+    /// its card sends Claude Code nothing (`outbound.rs` finds no request).
+    /// The card itself stays until it is answered or the turn is stopped;
+    /// taking it back from the hub is a follow-up. Other requests are untouched.
+    pub(super) async fn forget_elicitation(&self, rid: &str) {
+        if self.elicitations.lock().await.remove(rid).is_some() {
+            self.control_out.lock().await.remove(rid);
+        }
     }
 }
 
@@ -244,8 +244,14 @@ fn form(req: &Value) -> Option<(Form, Vec<Value>)> {
             (Some(m), false, 0) => format!("{m} — {own}"),
             _ => own,
         };
-        if fields.iter().any(|f: &Field| f.prompt == prompt) {
+        // Answers are keyed by prompt, so each must be distinct: a repeat gets
+        // its key, and a form where even that repeats is not asked.
+        let taken = |prompt: &str, fields: &[Field]| fields.iter().any(|f| f.prompt == prompt);
+        if taken(&prompt, &fields) {
             prompt = format!("{prompt} ({key})");
+            if taken(&prompt, &fields) {
+                return None;
+            }
         }
         let is_required = required.contains(&key.as_str());
         // "No answer" leaves an optional field out, so it is no choice of one.

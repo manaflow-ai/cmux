@@ -742,7 +742,6 @@ impl Hub {
                 decision_nonce: decision_nonce.clone(),
                 // Settled by the task below, from a turn or none (`status_after_ask`).
                 prev_status: SessionStatus::Waiting,
-                agent_request: Some(agent_request_id.clone()),
             },
         );
         // The prompt's new nonce under this daemon run, for a relayed allow

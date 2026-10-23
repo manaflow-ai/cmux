@@ -149,19 +149,15 @@ async fn an_answer_the_form_does_not_offer_cancels() {
     }
 }
 
-/// Claude Code withdrew the form (its tool call ended): the hub takes the card
-/// back, and an answer that still comes sends Claude Code nothing.
+/// Claude Code withdrew the form (its tool call ended): the form is
+/// forgotten, the hub is sent nothing, and an answer that still comes to its
+/// card sends Claude Code nothing, so nothing waits on it.
 #[tokio::test]
-async fn a_withdrawn_form_takes_its_card_back() {
+async fn a_withdrawn_form_is_forgotten() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
     let (id, _) = asked(&t, &deploy_form()).await.expect("a question");
     let withdraw = json!({"type": "control_cancel_request", "request_id": "e1"});
-    let out = t.inbound(&withdraw).await;
-    assert!(
-        out.iter().any(|m| matches!(m, Message::Notification { method: m, params: Some(p) }
-            if m == method::CANCEL_REQUEST && p["requestId"] == id)),
-        "a $/cancel_request for the card"
-    );
+    assert!(t.inbound(&withdraw).await.is_empty());
     let late = Message::Response {
         id,
         result: Some(json!({"outcome": {"outcome": "selected", "optionId": "reject_once"}})),
@@ -169,8 +165,29 @@ async fn a_withdrawn_form_takes_its_card_back() {
     };
     let Outbound::Lines(lines) = t.outbound(&late).await else { panic!("expected lines") };
     assert!(lines.is_empty(), "{lines:?}");
-    // A request not waiting on the hub is ignored.
+    assert!(t.take_stdin_replies().await.is_empty());
+    // A withdrawal of a request it does not know is ignored.
     assert!(t.inbound(&withdraw).await.is_empty());
+}
+
+/// Answers are keyed by prompt: a repeated prompt gets its field's key, and a
+/// form where even that repeats is not asked (it could never be submitted).
+#[tokio::test]
+async fn every_prompt_is_distinct() {
+    let titled = |titles: [&str; 3]| {
+        let property = |title: &str| json!({"type": "string", "title": title});
+        ask(json!({"mcp_server_name": "s", "property_order": ["a", "b", "c"],
+            "requested_schema": {"type": "object", "properties": {
+                "a": property(titles[0]), "b": property(titles[1]), "c": property(titles[2])}}}))
+    };
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let (_, p) = asked(&t, &titled(["P", "P", "Q"])).await.expect("a question");
+    let items = p["toolCall"]["_meta"]["acpmux"]["question"]["items"].as_array().cloned();
+    let prompts: Vec<Value> = items.into_iter().flatten().map(|i| i["prompt"].clone()).collect();
+    assert_eq!(prompts, [json!("P"), json!("P (b)"), json!("Q")]);
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    assert!(asked(&t, &titled(["P (c)", "P", "P"])).await.is_none());
+    assert_eq!(t.take_stdin_replies().await[0]["response"]["subtype"], "error");
 }
 
 /// A form whose answers could not be read back exactly is not asked.
