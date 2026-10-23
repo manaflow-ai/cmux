@@ -115,7 +115,7 @@ struct SignpostsTests {
         #expect(audit.late.isEmpty, "observers after the boundary: \(audit.late)")
     }
 
-    @Test("The audit reads observers from a run loop dump, once each, and flags late display observers")
+    @Test("The audit reads every observer from a run loop dump, once each, and flags the late ones")
     func auditReadsADump() {
         let dump = """
         observers = (
@@ -127,7 +127,7 @@ struct SignpostsTests {
         )
         """
         let audit = CommitBoundaryAudit(description: dump)
-        #expect(audit.observers.map(\.order) == [2_000_000, 2_001_000, 2_500_000], "\(audit.observers)")
+        #expect(audit.observers.map(\.order) == [-2_147_483_647, 2_000_000, 2_001_000, 2_500_000], "\(audit.observers)")
         #expect(audit.coreAnimation.map(\.activities) == [0xa0])
         // The display cycle observer after the boundary, at before-waiting, makes action.commit end
         // too early; the layout one fires only before timers, where the boundary never does.
