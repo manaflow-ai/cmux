@@ -433,13 +433,6 @@
    "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
   },
   {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/WebAuth/WebAuthSessionWindows.swift",
-   "class": "swift.unowned",
-   "count": 2,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
    "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DividerMouseCatchers.swift",
    "class": "swift.unowned",
    "count": 1,
