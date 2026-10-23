@@ -251,6 +251,46 @@ import Testing
         #expect(h.sparkle.cancels == 0, "a Dev build replaced the staged one after Nightly was picked")
     }
 
+    /// Away and back while a probe runs: the probe read the ring before the first pick, so the ring
+    /// is read again when it ends instead of taking that older answer.
+    @Test func aRingPickedAwayAndBackWhileAProbeRunsIsReadAgain() async throws {
+        let h = Self.make(ring: "nightly", held: true)
+        h.updater.checkForUpdates()
+        try #require(await eventually { h.feed.fetches == 1 })
+        h.updater.follow(ring: "dev")
+        h.updater.follow(ring: "nightly")
+        h.feed.release()
+        try #require(await eventually { h.feed.fetches == 2 }, "the probe from before the picks answered for Nightly")
+        h.feed.release()
+        try await settle(h, fetches: 2)
+        #expect(h.sparkle.cancels == 0)
+    }
+
+    /// A click on Install while a probe runs: the probe's newer build does not cancel the
+    /// installer the click is using.
+    @Test func anInstallClickedWhileAProbeRunsKeepsItsInstaller() async throws {
+        let h = Self.make(ring: "dev", held: true)
+        h.updater.checkForUpdates()
+        try #require(await eventually { h.feed.fetches == 1 })
+        h.updater.installClicked()
+        h.feed.release()
+        try #require(await eventually { h.updater.stagedRefresh.task == nil })
+        #expect(h.sparkle.cancels == 0, "the probe cancelled the installer the person clicked")
+        #expect(h.sparkle.backgroundChecks == 0)
+    }
+
+    /// After a click on Install no scheduled probe runs, and none is armed again.
+    @Test func anInstallClickEndsTheScheduledProbes() async throws {
+        let h = Self.make(ring: "dev")
+        try await h.clock.waitForSleeper()
+        h.updater.installClicked()
+        h.clock.advance(by: .seconds(Self.interval))
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(h.feed.fetches == 0, "a scheduled probe ran after the click on Install")
+        #expect(!h.updater.stagedRefresh.timer.isScheduled, "a probe was armed again after the click on Install")
+        #expect(h.sparkle.cancels == 0)
+    }
+
     /// The person's check while an update waits ends with its probe when nothing newer is out: the
     /// next check nobody asked for (a scheduled one, or a later swap's) shows nothing.
     @Test func aCheckThatFindsNothingNewerLeavesNoAskBehind() async throws {
