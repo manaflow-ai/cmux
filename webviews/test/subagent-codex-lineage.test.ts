@@ -134,20 +134,38 @@ function fakeDaemon(thread: string | undefined, from = 1) {
 
 async function connect(daemon: ReturnType<typeof fakeDaemon>) {
   let rows: AcpmuxRow[] = [];
+  const waiters = new Set<() => void>();
   const client = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
-    (snapshot: any) => (rows = snapshot.rows),
+    (snapshot: any) => {
+      rows = snapshot.rows;
+      for (const wake of waiters) wake();
+    },
     undefined,
     daemon.open,
   );
   await new Promise((resolve) => setTimeout(resolve, 0));
-  return { client, rows: () => rows };
+  /// Resolves on the first snapshot (or the current one) whose rows satisfy `holds`.
+  const until = (holds: (rows: AcpmuxRow[]) => boolean) =>
+    new Promise<void>((resolve) => {
+      const wake = () => {
+        if (!holds(rows)) return;
+        waiters.delete(wake);
+        resolve();
+      };
+      waiters.add(wake);
+      wake();
+    });
+  return { client, rows: () => rows, until };
 }
 
 const lineage = (rows: AcpmuxRow[]) =>
   rows
     .filter((row) => row.kind === SUBAGENTS)
     .flatMap((row) => row.subagents!.map((agent) => [agent.name, agent.parent]));
+/// The prior_art subagent reads as the chat's own, not nested under the chat.
+const sideBySide = (rows: AcpmuxRow[]) =>
+  lineage(rows).some(([name, parent]) => name === "needs_you_prior_art" && parent === null);
 const said = (rows: AcpmuxRow[]) => rows.filter((row) => row.kind === "assistant").map((row) => row.text);
 
 test("the chat's thread is never its own subagent: its children sit side by side and its words stay", async () => {
@@ -162,11 +180,11 @@ test("the chat's thread is never its own subagent: its children sit side by side
 
 test("a thread learned after the fold folds the records again by lineage", async () => {
   const daemon = fakeDaemon(undefined);
-  const { client, rows } = await connect(daemon);
+  const { client, rows, until } = await connect(daemon);
   // Not yet known: the records read as the older acpmux wrote them.
   expect(lineage(rows()).map(([name]) => name)).toEqual(["needs_you_review"]);
   daemon.changed({ agentSessionId: THREAD });
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await until(sideBySide);
   expect(lineage(rows())).toEqual([
     ["needs_you_review", null],
     ["needs_you_prior_art", null],
@@ -178,9 +196,9 @@ test("a thread learned after the fold folds the records again by lineage", async
 test("a page that starts after the record that made the chat a subagent folds again too", async () => {
   // From the prior_art spawn on: the chat is named only as that spawn's parent and as an owner.
   const daemon = fakeDaemon(undefined, 6);
-  const { client, rows } = await connect(daemon);
+  const { client, rows, until } = await connect(daemon);
   daemon.changed({ agentSessionId: THREAD });
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await until(sideBySide);
   expect(lineage(rows())).toEqual([["needs_you_prior_art", null]]);
   expect(said(rows()).join(" ")).toContain("Both reviewers are running.");
   client.close?.();
@@ -188,9 +206,9 @@ test("a page that starts after the record that made the chat a subagent folds ag
 
 test("a thread learned from a reread of the session list folds the records again", async () => {
   const daemon = fakeDaemon(undefined);
-  const { client, rows } = await connect(daemon);
+  const { client, rows, until } = await connect(daemon);
   daemon.lagged({ agentSessionId: THREAD });
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await until(sideBySide);
   expect(lineage(rows())).toEqual([
     ["needs_you_review", null],
     ["needs_you_prior_art", null],
