@@ -119,6 +119,13 @@ function choicesFor(entry: HarnessChoice | undefined): ModelChoice[] {
   return [...latest, ...older];
 }
 
+/// The harness the picker's face draws when the chat names none: its first installed, pickable
+/// harness (a bundled catalog harness acpmux does not have is not one), as `current` below picks it.
+/// The composer's other chips and the footer's harness item draw the same one (ComposerPickers).
+export function pickerFaceHarness(catalog: ModelPickerProps["catalog"]): string | undefined {
+  return uniqueHarnesses(catalog)[0]?.id;
+}
+
 function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] {
   const profiles: HarnessChoice[] = catalog
     .filter((entry) => entry.folder)
