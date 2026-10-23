@@ -74,8 +74,9 @@ struct CloudHubLoopbackTests {
     func theMachinesLocalhostGoesToItsPrivateAddressThroughTheHub() async throws {
         let hub = try FakeHub(reply: 0x00)
         let path = hub.path
-        let opener = try #require(HubLoopbackOpener(socketPath: { path }, address: "10.149.25.1"))
-        let tunnel = try await opener.openTunnel(host: "127.0.0.1", port: 6901)
+        let made = HubLoopbackOpener(socketPath: { path }, address: "10.149.25.1")
+        let opener = try #require(made)
+        let tunnel = try await opener.openTunnel(host: "vm-test.cloud-desktop.localhost", port: 6901)
         // CONNECT, IPv4 10.149.25.1, port 6901: the machine's noVNC on its Cloud network.
         #expect(hub.connectRequest == Data([0x05, 0x01, 0x00, 0x01, 10, 149, 25, 1, 0x1A, 0xF5]))
         try await tunnel.write(Data("ping".utf8))
@@ -92,13 +93,16 @@ struct CloudHubLoopbackTests {
     func aRefusalFromTheHubIsRefused() async throws {
         let hub = try FakeHub(reply: 0x05)
         let path = hub.path
-        let opener = try #require(HubLoopbackOpener(socketPath: { path }, address: "10.149.25.1"))
+        let made = HubLoopbackOpener(socketPath: { path }, address: "10.149.25.1")
+        let opener = try #require(made)
         await #expect(throws: LoopbackTunnelFailure.refused) { _ = try await opener.openTunnel(host: "localhost", port: 6901) }
     }
 
     @Test func onlyTheMachinesLocalhostGoesThroughTheHub() async throws {
-        let opener = try #require(HubLoopbackOpener(socketPath: { Issue.record("dialed the hub"); return "/nonexistent" }, address: "10.149.25.1"))
+        let made = HubLoopbackOpener(socketPath: { Issue.record("dialed the hub"); return "/nonexistent" }, address: "10.149.25.1")
+        let opener = try #require(made)
         await #expect(throws: LoopbackTunnelFailure.self) { _ = try await opener.openTunnel(host: "example.com", port: 443) }
-        #expect(HubLoopbackOpener(socketPath: { "/nonexistent" }, address: "not-an-address") == nil)
+        let refused = HubLoopbackOpener(socketPath: { "/nonexistent" }, address: "not-an-address")
+        #expect(refused == nil)
     }
 }

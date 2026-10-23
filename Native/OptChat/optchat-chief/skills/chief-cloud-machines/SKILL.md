@@ -19,8 +19,8 @@ arguments. With `--json`, an action's fields are under `.result`.
 To show the user a machine's desktop live (they ask to see it, or you start
 working on it so they can watch): `cmux cloud open-desktop --target machine:<id>`.
 It opens a "<machine> Desktop" workspace whose cmux browser shows the
-machine's screen through the app's own Cloud tunnel; nothing else on this Mac
-can reach it. Run it once; say it is in the sidebar.
+machine's screen through the app's own Cloud tunnel, with no port opened on
+this Mac. Run it once; say it is in the sidebar.
 
 Never build your own way into a machine: no `cmux-tui wg hub`, no SSH or
 port tunnel, no local port bridge, and never a copy of the app's WireGuard

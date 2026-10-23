@@ -20,12 +20,9 @@ public final class RemoteLocalhostService {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "remote-localhost")
     /// cmux.json `browser.remoteLocalhost*`, live.
     public var setting: RemoteLocalhostSetting = .fallback
-    /// The app's WireGuard tunnel socket (`CloudTunnelHub.socketPath()`): the route to a Cloud
-    /// machine's localhost when its cmux-tui has no loopback forward, as cmux Classic reaches a
-    /// machine's desktop. Nil until the app sets it.
+    /// The app's WireGuard tunnel socket (`CloudTunnelHub.socketPath()`): Open Desktop's route
+    /// to a Cloud machine, as cmux Classic reaches a machine's desktop. Nil until the app sets it.
     public var cloudTunnelSocket: (@Sendable () async throws -> String)?
-    /// Panes of this Mac that show a Cloud machine's localhost (Open Desktop): pane -> machine id.
-    private var desktopPanes: [PaneID: String] = [:]
     @ObservationIgnored private var observation: Task<Void, Never>?
 
     /// DEBUG builds: `CMUX_NEXT_REMOTE_LOCALHOST_DEBUG_SOCKET` names a second
@@ -59,12 +56,14 @@ public final class RemoteLocalhostService {
     /// The route of `tab` for `engine`. A page cannot influence it: it
     /// depends only on which daemon holds the tab, the settings and the
     /// daemon's capabilities.
-    public func route(for tab: TabModel, engine: BrowserEngineKind) -> RemoteLocalhostRoute {
-        let daemon = machines.daemon(forTab: tab)
-        if daemon.isLocal, let machine = desktopMachine(of: tab, on: daemon) {
+    /// An Open Desktop page (`url` names its Cloud machine, ``cloudDesktopURL(machine:)``)
+    /// routes to that machine whatever daemon holds the tab, and never to this Mac.
+    public func route(for tab: TabModel, engine: BrowserEngineKind, url: URL? = nil) -> RemoteLocalhostRoute {
+        if let machine = Self.desktopMachine(url: url) {
             let name = machines.machineBadge(machine) ?? machine
             return engine == .cef ? .machine(name) : .thisMacInstead(name, .webKit)
         }
+        let daemon = machines.daemon(forTab: tab)
         if daemon.isLocal, debugSocket != nil {
             return engine == .cef ? .machine(Self.debugMachineName) : .thisMacInstead(Self.debugMachineName, .webKit)
         }
@@ -72,9 +71,7 @@ public final class RemoteLocalhostService {
         let name = machineName(of: daemon)
         let workspace = daemon.store.pane(containing: tab.surface).flatMap { daemon.store.workspace(containing: $0.handle) }
         guard isEnabled(workspace: workspace?.id) else { return .thisMacInstead(name, .turnedOff) }
-        guard daemon.supports(DaemonCapabilities.shared.loopbackForward) || tunnelAddress(machine: daemon.machineID) != nil else {
-            return .thisMacInstead(name, .updateMachine)
-        }
+        guard daemon.supports(DaemonCapabilities.shared.loopbackForward) else { return .thisMacInstead(name, .updateMachine) }
         guard engine == .cef else { return .thisMacInstead(name, .webKit) }
         return .machine(name)
     }
@@ -98,7 +95,7 @@ public final class RemoteLocalhostService {
     /// start (the caller shows the failure instead of loading).
     public func configuration(for tab: TabModel, url: URL?, base: BrowserTabConfiguration) async -> BrowserTabConfiguration? {
         var configuration = base
-        let route = route(for: tab, engine: .cef)
+        let route = route(for: tab, engine: .cef, url: url)
         let plan = RemoteLocalhostStorePlan.plan(route: route, url: url)
         if case .thisMac = route {} else {
             plans[tab.id] = "\(plan) \(url?.host(percentEncoded: false) ?? "-")"
@@ -114,10 +111,10 @@ public final class RemoteLocalhostService {
         guard case .machine(let name) = route else { return configuration }
         let daemon = machines.daemon(forTab: tab)
         let key: String, opener: any LoopbackTunnelOpening
-        if let machine = tunnelMachine(of: tab, on: daemon) {
-            // Over the app's WireGuard tunnel (an Open Desktop pane, or a Cloud machine whose
-            // cmux-tui has no loopback forward): its own store, apart from the daemon route's.
-            guard let socket = cloudTunnelSocket, let address = tunnelAddress(machine: machine),
+        if let machine = Self.desktopMachine(url: url) {
+            // Open Desktop: over the app's WireGuard tunnel, in its own store. No tunnel (signed
+            // out, the machine gone or without an address) is nil: a blank page, never this Mac.
+            guard let socket = cloudTunnelSocket, let address = machines.cloudTunnelAddress(machine: machine),
                   let hub = HubLoopbackOpener(socketPath: socket, address: address) else { return nil }
             key = Self.machineKey(registryID: "cloud-tunnel:" + machine)
             opener = hub
@@ -138,31 +135,32 @@ public final class RemoteLocalhostService {
         return configuration
     }
 
-    // MARK: Cloud tunnel
+    // MARK: Open Desktop
 
-    /// Marks `pane` (of this Mac) as Cloud machine `machine`'s desktop: its browser tabs' localhost
-    /// is that machine's, over the app's WireGuard tunnel. Set before the pane's first tab loads.
-    public func markCloudDesktop(pane: PaneID, machine: String) {
-        desktopPanes[pane] = machine
+    /// The host suffix of an Open Desktop page: `<machine id>.cloud-desktop.localhost`, a name
+    /// under `.localhost` (loopback by the remote-localhost rule) that carries its machine, so the
+    /// route follows the page's own URL through relaunches, moves and hibernation.
+    static let desktopHostSuffix = ".cloud-desktop.localhost"
+
+    /// Cloud machine `machine`'s desktop: its noVNC (6901 on the machine's loopback) at a host
+    /// that names the machine; it connects at once, scales to the tab and reconnects by itself.
+    /// Nil for an id that is not one DNS label.
+    public static func cloudDesktopURL(machine: String) -> URL? {
+        let label = machine.lowercased()
+        guard isLabel(label) else { return nil }
+        return URL(string: "http://\(label)\(desktopHostSuffix):6901/vnc.html?autoconnect=1&resize=scale&reconnect=1")
     }
 
-    /// The Cloud machine whose desktop `tab`'s pane shows, for a tab of this Mac.
-    private func desktopMachine(of tab: TabModel, on daemon: DaemonService) -> String? {
-        guard !desktopPanes.isEmpty, let pane = daemon.store.pane(containing: tab.surface) else { return nil }
-        return desktopPanes[pane.handle]
+    /// The Cloud machine an Open Desktop page names; nil for any other URL.
+    public static func desktopMachine(url: URL?) -> String? {
+        guard let host = url?.host(percentEncoded: false)?.lowercased(), host.hasSuffix(desktopHostSuffix) else { return nil }
+        let label = String(host.dropLast(desktopHostSuffix.count))
+        return isLabel(label) ? label : nil
     }
 
-    /// The machine `tab` reaches over the tunnel: its desktop pane's machine, or a Cloud machine
-    /// whose cmux-tui lacks the loopback forward. Nil when the daemon route serves it.
-    private func tunnelMachine(of tab: TabModel, on daemon: DaemonService) -> String? {
-        if daemon.isLocal { return desktopMachine(of: tab, on: daemon) }
-        guard !daemon.supports(DaemonCapabilities.shared.loopbackForward) else { return nil }
-        return tunnelAddress(machine: daemon.machineID) == nil ? nil : daemon.machineID
-    }
-
-    /// Cloud machine `machine`'s private address, when the app has its tunnel to reach it.
-    private func tunnelAddress(machine: String) -> String? {
-        cloudTunnelSocket == nil ? nil : machines.cloudTunnelAddress(machine: machine)
+    private static func isLabel(_ text: String) -> Bool {
+        !text.isEmpty && text.utf8.count <= 63 && text.first != "-" && text.last != "-"
+            && text.utf8.allSatisfy { ($0 >= 0x61 && $0 <= 0x7A) || ($0 >= 0x30 && $0 <= 0x39) || $0 == 0x2D }
     }
 
     /// 16 hex digits of SHA-256 over the daemon `registry_id`.
@@ -182,7 +180,7 @@ public final class RemoteLocalhostService {
     /// loopback page of a tab whose machine is not this Mac.
     public func badge(for tab: TabModel, url: URL?, engine: BrowserEngineKind) -> (text: String, help: String)? {
         guard let url, LoopbackHost(url: url)?.isLoopback == true else { return nil }
-        switch route(for: tab, engine: engine) {
+        switch route(for: tab, engine: engine, url: url) {
         case .thisMac:
             return nil
         case .machine(let name):
