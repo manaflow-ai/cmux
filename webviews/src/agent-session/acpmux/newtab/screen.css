@@ -111,7 +111,9 @@
    no fill, a small gap, the card's rim whole (Lucas #21133, Lawrence's pick 2026-10-16). The
    variants keep the filled strip above as their base. */
 :root:not([data-top-strip]) .nt-screen .nt-composer {
-  gap: 6px;
+  /* Read by the Codex tray's mask too (composerStates.css). */
+  --nt-composer-gap: 6px;
+  gap: var(--nt-composer-gap);
 }
 :root:not([data-top-strip]) .nt-screen .nt-composer .acpmux-composer-strip {
   --acpmux-strip-height: 26px;
