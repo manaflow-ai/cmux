@@ -65,7 +65,7 @@ import Testing
 
         func note(_ parts: ControlSnapshotPublisher.Parts) {
             if parts.contains(.topology) { topology += 1 }
-            if parts.contains(.tabSearch) { closedTabs += 1 }
+            if parts.contains(.closedTabs) { closedTabs += 1 }
         }
     }
 
