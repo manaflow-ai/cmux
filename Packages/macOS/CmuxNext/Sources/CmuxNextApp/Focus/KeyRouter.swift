@@ -109,6 +109,9 @@ final class KeyRouter: BrowserKeyRouting {
         case typeAhead
         /// A panel or sheet over the window (or no cmux window) has it.
         case panel
+        /// The page gets the key first; this action runs only when the page
+        /// reports it did not handle the key (``KeyRouter/runUnhandledPageKey(_:)``).
+        case offerToPage(Candidate)
     }
 
     /// Steps 1 and 3-5 for a key-down in a window with `focus` (step 2, the
@@ -256,6 +259,9 @@ final class KeyRouter: BrowserKeyRouting {
             return true
         case .consume:
             return true
+        case .offerToPage(let candidate):
+            offerToPage(event, candidate: candidate, context: context, window: controller.state.id)
+            return false
         case .deliver, .panel, .primaryInput, .typeAhead:
             return runExtensionShortcut(event, focus: focus)
         }
@@ -349,6 +355,9 @@ final class KeyRouter: BrowserKeyRouting {
     // MARK: Chords
 
     var chords = ChordTracker()
+
+    /// The key-down a page has first, with the action to run if it reports the key unhandled.
+    var pageFirstOffer = PageFirstKeyOffer()
 
     /// Whether a chord, the Cmd-J leader included, may arm in `focus`:
     /// where content shortcuts run (a terminal, a page, an agent chat, the
