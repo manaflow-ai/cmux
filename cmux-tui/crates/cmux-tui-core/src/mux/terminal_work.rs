@@ -290,23 +290,6 @@ impl Mux {
         let _ = terminal_hex;
     }
 
-    /// The spare host process for a terminal spawn that did not prelaunch
-    /// (new workspace, new screen, an unsized split), so it skips starting a
-    /// process as a prelaunched `new-tab` does (R81); the next spare starts
-    /// in the background. `None` without hosts or without a live spare.
-    #[cfg(any(unix, windows))]
-    pub(crate) fn take_spare_terminal_host(
-        &self,
-        opts: &SurfaceOptions,
-    ) -> Option<crate::terminal_host_runtime::StandbyTerminalHost> {
-        if !self.uses_terminal_host_runtime() || opts.terminal_host_root.is_none() {
-            return None;
-        }
-        let spare = self.terminal_work.standby.take();
-        self.terminal_work.standby.refill(&self.terminal_work);
-        spare
-    }
-
     /// Whether new terminals run in durable host processes (tests may use
     /// in-process surfaces).
     #[cfg(any(unix, windows))]

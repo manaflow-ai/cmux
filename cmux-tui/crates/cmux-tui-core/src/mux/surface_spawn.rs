@@ -142,9 +142,6 @@ impl Mux {
             let launched =
                 prelaunched.as_ref().map_or(&opts, |prelaunched| prelaunched.launch_opts());
             self.record_terminal_relaunch(&terminal_hex, launched);
-            // The spare host process (R81), as a prelaunch takes.
-            let spare =
-                if prelaunched.is_none() { self.take_spare_terminal_host(&opts) } else { None };
             let spawned = match prelaunched {
                 Some(prelaunched) => Surface::spawn_prelaunched(
                     prelaunched.into_host().with_tab_id(tab_id),
@@ -161,7 +158,7 @@ impl Mux {
                         // Its first record names the workspace, so the
                         // recovery mirror below needs no second synced write.
                         workspace_key,
-                        standby: spare,
+                        standby: None,
                     },
                     Some(terminal_identity(tab_id)?),
                     crate::surface::PtyLifetime::SessionOwned,
