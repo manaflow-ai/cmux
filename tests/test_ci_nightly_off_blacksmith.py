@@ -152,14 +152,13 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
                 self.assertNotRegex(runs_on, SHARED_RUNNER_VARIABLES)
 
     @unittest.skipUnless((WORKFLOWS / "cmux-next.yml").exists(), "no cmux-next on this branch")
-    def test_finished_push_runs_start_a_nightly_next_without_a_clock(self) -> None:
-        """Every finished feat-cmux-next push run asks for a NEXT nightly; no cron does.
+    def test_finished_push_runs_start_a_nightly_next_with_a_thirty_minute_catch_up(self) -> None:
+        """Every finished feat-cmux-next push run asks for a NEXT nightly.
 
         A push whose own request was cancelled by the next push, or whose
         request waited on a stalled pool, asked for nothing. The tick closes
-        that gap from events, not a clock (user decision 2026-10-20: no GitHub
-        cron on the nightly path; the dedicated builder is cmux22,
-        plans/cmux-next/nightly-builder-DESIGN.md). It starts when a
+        that gap from events and every 30 minutes (the dedicated builder is
+        cmux22, plans/cmux-next/nightly-builder-DESIGN.md). It starts when a
         cmux-next or cmux-tui artifacts push run on feat-cmux-next completes,
         whatever its conclusion, and can be started by hand. GitHub runs
         `workflow_run` only from the default branch, so the file must exist
@@ -168,8 +167,8 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
         path = WORKFLOWS / "nightly-next-tick.yml"
         self.assertTrue(path.exists(), "nightly-next-tick.yml must exist")
         text = path.read_text(encoding="utf-8")
-        self.assertNotRegex(text, r"(?m)^\s+schedule:")
-        self.assertNotRegex(text, r"(?m)^\s+- cron:")
+        self.assertRegex(text, r"(?m)^\s+schedule:\s*$")
+        self.assertRegex(text, r'(?m)^\s+- cron: "7,37 \* \* \* \*"$')
         self.assertIn("workflow_run:", text)
         workflows = re.search(r"(?m)^\s+workflows: \[(.+)\]$", text)
         self.assertIsNotNone(workflows, "workflow_run must name its workflows")

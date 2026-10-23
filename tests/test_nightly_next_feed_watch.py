@@ -212,6 +212,48 @@ class FeedTests(unittest.TestCase):
         self.assertEqual(watch.FEED_URL, "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml")
 
 
+class StarvationGuardTests(unittest.TestCase):
+    class GitHub:
+        def __init__(self, active=()):
+            self.active = list(active)
+            self.dispatched = []
+
+        def ref_sha(self, branch):
+            assert branch == "feat-cmux-next"
+            return "b" * 40
+
+        def workflow_runs(self, workflow, branch):
+            return self.active
+
+        def dispatch(self, workflow, ref, inputs):
+            self.dispatched.append((workflow, ref, inputs))
+
+    def test_stale_feed_dispatches_current_tip_when_no_build_runs(self):
+        gh = self.GitHub()
+        result = watch.starvation_dispatch(
+            gh, NOW, feed=NOW - dt.timedelta(minutes=26), published_sha="a" * 40,
+            branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main",
+            inputs={"sha": "b" * 40})
+        self.assertIn("dispatched", result)
+        self.assertEqual(gh.dispatched, [("nightly-next-tick.yml", "main", {"sha": "b" * 40})])
+
+    def test_running_build_is_never_cancelled_or_replaced(self):
+        gh = self.GitHub([{"id": 9, "status": "in_progress", "html_url": "run/9"}])
+        result = watch.starvation_dispatch(
+            gh, NOW, feed=NOW - dt.timedelta(minutes=26), published_sha="a" * 40,
+            branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main")
+        self.assertIn("running", result)
+        self.assertEqual(gh.dispatched, [])
+
+    def test_unchanged_tip_is_not_rebuilt(self):
+        gh = self.GitHub()
+        result = watch.starvation_dispatch(
+            gh, NOW, feed=NOW - dt.timedelta(minutes=26), published_sha="b" * 40,
+            branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main")
+        self.assertEqual(result, "unchanged")
+        self.assertEqual(gh.dispatched, [])
+
+
 class FakeGitHub:
     def __init__(self, issues):
         self.issues = issues
