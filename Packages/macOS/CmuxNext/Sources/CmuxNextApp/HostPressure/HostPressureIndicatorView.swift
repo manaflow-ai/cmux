@@ -237,7 +237,9 @@ final class HostPressureIndicatorView: NSView {
             switch reason {
             // The close button, Show Details, or this window closing (which also ends with .closed):
             // only this window remembers it, so a closing window never keeps other windows' banners shut.
-            case .action, .closed: closedSpell = spell
+            // The spell now, not the one it was shown in: a toast still up across a quick
+            // critical-warning-critical belongs to the newer spell.
+            case .action, .closed: closedSpell = service.map { $0.level == .critical ? $0.criticalSpell : spell } ?? spell
             case .replaced, .timeout: break
             }
         }
