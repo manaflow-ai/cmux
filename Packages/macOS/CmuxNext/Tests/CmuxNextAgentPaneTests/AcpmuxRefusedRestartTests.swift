@@ -55,7 +55,15 @@ struct AcpmuxRefusedRestartTests {
     /// A daemon without agent hosts would end its agents with it: Restart acpmux keeps it running.
     @Test func restartAcpmuxNeverStopsADaemonWithoutAgentHosts() async throws {
         try await withFakeDaemon(agentHosts: false) { environment in
-            #expect(await AcpmuxSocketOwner.takeOver(environment: environment) == false)
+            #expect(await AcpmuxSocketOwner.takeOver(environment: environment, owner: AcpmuxSocketOwner(path: ownPath, team: nil)) == false)
+        }
+    }
+
+    /// Restart acpmux stops only the binary the refusal named: a daemon of another binary that
+    /// took the socket since keeps running.
+    @Test func restartAcpmuxNeverStopsADaemonTheRefusalDidNotName() async throws {
+        try await withFakeDaemon { environment in
+            #expect(await AcpmuxSocketOwner.takeOver(environment: environment, owner: AcpmuxSocketOwner(path: "/elsewhere/acpmux", team: nil)) == false)
         }
     }
 

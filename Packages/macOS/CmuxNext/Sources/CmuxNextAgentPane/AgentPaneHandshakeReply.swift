@@ -67,7 +67,7 @@ enum AgentPaneHandshakeReply {
                 (model.handedWake, model.pendingWake) = (model.pendingWake, nil)
             }
             model.hasHandshake = true
-            model.acpmuxRestartOffered = false
+            model.acpmuxRestartOffered = nil
             // A filled-in folder stays the workspace's, no root of its own (cx-9aps).
             if let cwd = handshake.cwd, !filled { model.handshakeCwd = cwd }
             if let session = handshake.sessionId { model.transport.sessions.add(session) }
@@ -86,11 +86,11 @@ enum AgentPaneHandshakeReply {
             if let machine = (error as? any AgentPaneHostRefusal)?.machineName { details["machineName"] = machine }
             // A daemon another binary runs holds this app's socket: asking again cannot help, so
             // the page stops retrying on its own and offers Restart acpmux (`acpmux.restart`).
-            if case .daemonRefused(_, _, _, _, _?) = error as? AgentPaneHostError {
+            if case .daemonRefused(_, _, _, _, let owner?) = error as? AgentPaneHostError {
                 details["restartAcpmux"] = true
-                model.acpmuxRestartOffered = true
+                model.acpmuxRestartOffered = owner
             } else {
-                model.acpmuxRestartOffered = false
+                model.acpmuxRestartOffered = nil
             }
             if !details.isEmpty, var failure = reply["error"] as? [String: Any] {
                 failure["details"] = details
@@ -108,8 +108,8 @@ enum AgentPaneHandshakeReply {
         guard model.transport.gestures.consume() else {
             return AgentPaneReply.failure(code: "acpmux.gesture_required", message: AgentPaneModel.shellGestureMessage)
         }
-        guard model.acpmuxRestartOffered else { return AgentPaneModel.unsupported("acpmux.restart") }
-        model.acpmuxRestartOffered = false
-        return AgentPaneReply.success(["stopped": await model.host.restartAcpmux()])
+        guard let owner = model.acpmuxRestartOffered else { return AgentPaneModel.unsupported("acpmux.restart") }
+        model.acpmuxRestartOffered = nil
+        return AgentPaneReply.success(["stopped": await model.host.restartAcpmux(owner: owner)])
     }
 }

@@ -22,8 +22,9 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// A person asked to restart acpmux from this app's own binary after a refusal named another
     /// binary on the socket (``AgentPaneHostError/daemonRefused(holder:socketPath:reason:executable:owner:)``
     /// with an owner): stops that daemon, keeping its sessions, so the next handshake starts this
-    /// app's. True when it stopped.
-    func restartAcpmux() async -> Bool
+    /// app's. Only while `owner`, the binary the refusal named, still holds the socket. True when
+    /// it stopped.
+    func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool
 }
 
 extension AgentPaneHostProviding {
@@ -38,7 +39,7 @@ extension AgentPaneHostProviding {
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? { nil }
 
     /// Hosts without a daemon have none to restart.
-    public func restartAcpmux() async -> Bool { false }
+    public func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool { false }
 
     /// Hosts without a daemon take no files.
     public func putFile(sessionId: String, name: String, data: Data) async throws -> String {
@@ -81,7 +82,7 @@ public nonisolated enum AgentPaneHostError: Error, Equatable, Sendable {
     /// for `reason`. Its log says nothing, since the daemon itself never saw a failure.
     /// `executable` is this app's own acpmux: the message's shutdown command runs it. `owner`:
     /// the binary that holds the socket, when this app may stop it and start its own
-    /// (``AgentPaneHostProviding/restartAcpmux()``); nil when it may not.
+    /// (``AgentPaneHostProviding/restartAcpmux(owner:)``); nil when it may not.
     case daemonRefused(holder: String?, socketPath: String, reason: String, executable: String = "acpmux",
                        owner: AcpmuxSocketOwner? = nil)
     case timedOut
@@ -189,11 +190,11 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     }
 
     /// Only a host that starts daemons restarts one: never the Chief home's (cx-ebm.54).
-    public func restartAcpmux() async -> Bool {
+    public func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool {
         guard startsDaemons else { return false }
         if environment == nil { environment = resolveEnvironment() }
         guard let environment else { return false }
-        return await AcpmuxSocketOwner.takeOver(environment: environment)
+        return await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner)
     }
 
     private func endpoint(startsDaemon asked: Bool) async throws -> AcpmuxWebEndpoint {
@@ -243,7 +244,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// The pane's error for a peer check that refused the daemon on `environment`'s socket,
     /// logged with who holds it, so "acpmux did not start" never hides a running daemon.
     /// `reason` replaces the refusal's own description (a replaced bundle names itself).
-    /// `startsDaemons`: whether this host may replace the daemon (``restartAcpmux()``); the refusal
+    /// `startsDaemons`: whether this host may replace the daemon (``restartAcpmux(owner:)``); the refusal
     /// then names the binary on the socket as its owner.
     static func refused(_ refusal: AcpmuxServerPeer.Refusal, _ environment: AcpmuxEnvironment,
                         reason: String? = nil, startsDaemons: Bool = true) -> AgentPaneHostError {

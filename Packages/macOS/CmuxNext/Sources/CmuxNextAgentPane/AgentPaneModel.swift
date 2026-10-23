@@ -107,9 +107,10 @@ public final class AgentPaneModel {
     /// Whether the page has asked for a handshake, so its bridge is up and
     /// a turn can be revealed through it directly.
     @ObservationIgnored public internal(set) var hasHandshake = false
-    /// The last handshake was refused with a daemon this app may replace on its socket: only then
-    /// does `acpmux.restart` stop it (``AgentPaneHandshakeReply/restartAcpmux(in:)``).
-    @ObservationIgnored var acpmuxRestartOffered = false
+    /// The binary on the socket when the last handshake was refused with a daemon this app may
+    /// replace: only then does `acpmux.restart` stop it, and only while that same binary holds
+    /// the socket (``AgentPaneHandshakeReply/restartAcpmux(in:)``).
+    @ObservationIgnored var acpmuxRestartOffered: AcpmuxSocketOwner?
     /// Runs a git read on the session host and returns its JSON result.
     /// Throws an ``AgentPaneGitFailure`` saying who failed; any other error
     /// reaches the page as `native.failed`.

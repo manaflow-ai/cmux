@@ -42,17 +42,18 @@ public nonisolated struct AcpmuxSocketOwner: Equatable, Sendable {
     /// Everything is decided and sent on ONE connection whose peer was read on that very
     /// descriptor, never on a fresh one (a daemon that took the socket between two connections is
     /// never stopped in another's name). It stops only a daemon that:
-    /// - runs as this user and not from this app's own acpmux;
+    /// - runs as this user, not from this app's own acpmux, and from `owner`'s binary, the one the
+    ///   refusal named (a daemon that took the socket since is never stopped in its name);
     /// - reports, on that connection, the peer's own pid, this app's home, and agent hosts (an
     ///   older daemon without them would end its agents, so it keeps running).
-    /// A launchd job that runs that pid is booted out first so KeepAlive does not start it again;
-    /// the lookup runs while the connection shows the process alive, so its pid is not reused.
-    @concurrent static func takeOver(environment: AcpmuxEnvironment) async -> Bool {
+    /// A launchd job that runs that pid is booted out first so KeepAlive does not start it again,
+    /// and only while that pid still runs the peer's binary (a reused pid is left alone).
+    @concurrent static func takeOver(environment: AcpmuxEnvironment, owner: AcpmuxSocketOwner) async -> Bool {
         guard let descriptor = try? AcpmuxServerPeer.connect(environment.socketPath) else { return false }
         var open = true
         defer { if open { Darwin.close(descriptor) } }
         guard let peer = UnixSocketPeer(descriptor: descriptor), peer.uid == getuid(),
-              !peer.runs(environment.executable) else { return false }
+              !peer.runs(environment.executable), peer.executablePath == owner.path else { return false }
         let pid = peer.pid
         guard stopping.withLock({ $0.insert(pid).inserted }) else { return false }
         defer { _ = stopping.withLock { $0.remove(pid) } }
@@ -73,7 +74,7 @@ public nonisolated struct AcpmuxSocketOwner: Equatable, Sendable {
             return false
         }
         logger.info("acpmux \(pid) at \(peer.executablePath, privacy: .public) is not this app's; a person asked to restart it from \(environment.executable.path, privacy: .public)")
-        if await AcpmuxStrayDaemon.bootOutLaunchdJob(runningPID: pid) {
+        if await AcpmuxStrayDaemon.bootOutLaunchdJob(runningPID: pid, executablePath: peer.executablePath) {
             return await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
         }
         do {
