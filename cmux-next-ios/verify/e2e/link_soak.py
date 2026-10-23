@@ -37,6 +37,7 @@ from sim import Sim, sh  # noqa: E402
 
 DEVICE = "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro"
 STREAM = "while :; do date +lrsoak-%H:%M:%S; sleep 0.2; done"
+RELAY_LOCK = __import__("threading").Lock()
 TS = r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d+)Z"
 
 
@@ -56,6 +57,14 @@ class Rig:
         self.terminal = None
 
     def ssh(self, cmd, timeout=90):
+        if os.environ.get("LINKSOAK_RELAY"):
+            # The simulator mini has no ssh to the rig minis: the laptop that started this
+            # (link_soak_relay.py) runs the command and answers on stdin.
+            with RELAY_LOCK:
+                sys.stdout.write("@@RIG " + json.dumps({"host": self.host, "cmd": cmd, "timeout": timeout}) + "\n")
+                sys.stdout.flush()
+                reply = json.loads(sys.stdin.readline() or '{"rc": 255, "out": "", "err": "relay gone"}')
+            return subprocess.CompletedProcess(cmd, reply["rc"], reply["out"], reply["err"])
         return subprocess.run(["ssh", "-o", "ConnectTimeout=10", self.host, cmd], capture_output=True, text=True, timeout=timeout)
 
     def rig(self, *args, timeout=90):
