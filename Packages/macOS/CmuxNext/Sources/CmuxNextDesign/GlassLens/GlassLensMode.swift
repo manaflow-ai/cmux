@@ -1,4 +1,3 @@
-public import CmuxNextDesignTokens
 /// How web glass surfaces bend the wallpaper behind them (plans/cmux-next/glass-lens-DESIGN.md):
 /// the Debug Settings choice `glass.lens` (DEV and NIGHTLY), outside the settings schema until the
 /// lens is promoted. `plain` (the default, the look before the lens) only blurs it, `lens` refracts

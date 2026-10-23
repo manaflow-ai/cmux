@@ -28,9 +28,6 @@ pub(crate) struct LocalLaunch {
     pub command: Vec<String>,
     pub cwd: Option<String>,
     pub supports_clear_history_key_fallback: bool,
-    /// The holder terminal this launch runs on, if any (`holder_runtime`).
-    #[cfg(unix)]
-    pub holder: Option<Arc<crate::holder_runtime::HolderTerminal>>,
 }
 
 /// The surface-side inputs of [`Surface::spawn_local`].
@@ -45,8 +42,6 @@ pub(crate) struct LocalSpawn {
     pub lifetime: PtyLifetime,
     pub cell_pixels: (u16, u16),
     pub initial_geometry: PtyGeometry,
-    /// The registry identity a holder terminal carries; `None` otherwise.
-    pub host_identity: Option<crate::terminal_host_runtime::TerminalHostIdentity>,
 }
 
 impl Surface {
@@ -67,7 +62,6 @@ impl Surface {
             lifetime,
             cell_pixels,
             initial_geometry,
-            host_identity,
         } = spawn;
         let LocalLaunch {
             master,
@@ -79,8 +73,6 @@ impl Surface {
             command: argv,
             cwd,
             supports_clear_history_key_fallback,
-            #[cfg(unix)]
-            holder,
         } = launch;
         // Query responses generated while parsing pty output are queued
         // here and flushed to the pty after each vt_write (the callback
@@ -162,19 +154,13 @@ impl Surface {
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",
-                    PtyRuntime::Local {
-                        writer,
-                        master: Some(master),
-                        killer,
-                        #[cfg(unix)]
-                        holder,
-                    },
+                    PtyRuntime::Local { writer, master: Some(master), killer },
                 ),
                 lifetime,
                 supports_clear_history_key_fallback: AtomicBool::new(
                     supports_clear_history_key_fallback,
                 ),
-                host_identity,
+                host_identity: None,
                 #[cfg(any(unix, windows))]
                 pending_host_binding: Mutex::new(None),
                 #[cfg(any(unix, windows))]
@@ -509,8 +495,6 @@ impl Surface {
             command,
             cwd: None,
             supports_clear_history_key_fallback: false,
-            #[cfg(unix)]
-            holder: None,
         };
         let spawn = LocalSpawn {
             id,
@@ -523,7 +507,6 @@ impl Surface {
             lifetime: PtyLifetime::DaemonOwned,
             cell_pixels,
             initial_geometry,
-            host_identity: None,
         };
         Self::spawn_local(spawn, launch)
     }

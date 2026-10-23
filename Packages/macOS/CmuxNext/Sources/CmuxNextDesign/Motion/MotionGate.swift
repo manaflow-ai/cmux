@@ -1,6 +1,5 @@
 public import AppKit
 public import QuartzCore
-public import CmuxNextDesignTokens
 
 /// The motion gate of one ``MotionCategory``: the only way cmux-next code
 /// animates. Every timing read and every animation helper lives here, so an

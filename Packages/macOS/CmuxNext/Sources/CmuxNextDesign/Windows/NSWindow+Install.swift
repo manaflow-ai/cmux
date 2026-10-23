@@ -1,5 +1,4 @@
 public import AppKit
-public import CmuxNextDesignTokens
 
 /// A content view that paints its window's one backdrop (material, tint,
 /// window opacity and blur: `WindowBackdrop`): ``WindowSurfaceView`` and

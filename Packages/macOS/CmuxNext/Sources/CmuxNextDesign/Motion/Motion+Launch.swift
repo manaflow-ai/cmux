@@ -1,5 +1,4 @@
 public import QuartzCore
-public import CmuxNextDesignTokens
 
 /// The launch mark's entrance and exit (`LaunchMarkView`), here so their
 /// timing stays with the other Motion tokens.

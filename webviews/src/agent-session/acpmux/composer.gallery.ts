@@ -520,43 +520,6 @@ export default agentPaneEntry({
       note: "Full access keeps its name in the bar: a mode that is not the default always says what it is.",
       snapshot: footerChat("full-access"),
     },
-    // Leo 2026-10-21: "why is there no harness at the left" (ComposerHarness.tsx). The quiet row
-    // starts with the harness, its mark and name, before the mode, as Claude Code's footer starts
-    // with its project. test/composer-footer-harness.test.ts measures these.
-    "footer-harness": {
-      note: "A started Claude chat: the quiet row starts with Claude Code's mark and name, then the mode. The harness is fixed once a chat has a message, so the item is quiet text with no pill on hover.",
-      snapshot: footerChat("full-access"),
-    },
-    "footer-harness-codex": {
-      note: "A started Codex chat: the quiet row starts with Codex's mark and name.",
-      snapshot: withSummary(chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex chat" }), {
-        modes: {
-          currentModeId: "full-access",
-          availableModes: [
-            { id: "auto", name: "Auto", description: "Ask before commands outside the workspace." },
-            { id: "full-access", name: "Full access", description: "Run commands without asking." },
-          ],
-        },
-      }),
-    },
-    "footer-harness-new-chat": {
-      note: "Play: a new chat can still switch harness, so the harness item takes the soft pill on hover and a click opens the model button's menu, whose rail switches harness.",
-      ready: { newSession: true, cwd: CWD },
-      snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
-        summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
-      }),
-      play: async (ctx) => {
-        const item = { selector: ".acpmux-composer-foot .acpmux-foot-harness button" };
-        await ctx.waitFor(() => ctx.document.querySelector(item.selector));
-        await ctx.click(item);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu"));
-      },
-    },
-    "footer-harness-unpicked": {
-      note: "A new chat with harnesses installed and none picked yet: the row names the installed harness the model button draws, never another.",
-      ready: { newSession: true, cwd: CWD },
-      snapshot: noChat([session({ sessionId: "older", title: "An older chat" })]),
-    },
     // Leo 2026-10-19: no composer button draws a pill at rest (test/composer-quiet-chips.test.ts).
     // Fast mode is on, and shows only in the model button's menu (Leo 2026-10-20: no bolt).
     // The + is a bare glyph: its tooltip is Codex's short "Add files and more" (Leo, 2026-10-21).

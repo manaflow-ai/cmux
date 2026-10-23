@@ -193,10 +193,8 @@ enum NewTabPage {
             home: machine.home,
             template: services.settings?.snapshot.newTabTemplate?.rawValue, pageWidgets: services.settings?.snapshot.newTabWidgets.ids
         ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
-            .turningHeadlineOff(services.settings?.snapshot.newTabWidgets)
             .startingIn(machine.remoteFolders == nil ? services.newTabChoices.startedProject : nil)
             .warmedOnThisMac(machine.remoteFolders == nil)
-            .withWeather(services)
     }
 
     /// What a prewarmed spare page loads with before Cmd-T adopts it
@@ -208,9 +206,7 @@ enum NewTabPage {
             lastPicks: services.newTabChoices.picks, home: NSHomeDirectory(),
             template: services.settings?.snapshot.newTabTemplate?.rawValue, pageWidgets: services.settings?.snapshot.newTabWidgets.ids
         ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
-            .turningHeadlineOff(services.settings?.snapshot.newTabWidgets)
             .startingIn(services.newTabChoices.startedProject).warmedOnThisMac()
-            .withWeather(services)
     }
 
     /// Show All Chats on New Tab (`sidebar.showChats`; All chats left the sidebar for this page, cx-n0i9).
@@ -333,13 +329,6 @@ extension AgentPaneNewTab {
     func listingAllChats(_ shown: Bool) -> AgentPaneNewTab {
         var page = self
         page.allChats = shown ? nil : false
-        return page
-    }
-
-    /// The page told that `tabs.newTabWidgets.greeting` is set to false (``AgentPaneNewTab/headlineOff``).
-    func turningHeadlineOff(_ widgets: NewTabWidgetSettings?) -> AgentPaneNewTab {
-        var page = self
-        page.headlineOff = widgets?.greetingTurnedOff == true ? true : nil
         return page
     }
 }

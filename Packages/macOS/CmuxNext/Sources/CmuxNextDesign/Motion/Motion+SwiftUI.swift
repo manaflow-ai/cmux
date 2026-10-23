@@ -1,5 +1,4 @@
 public import SwiftUI
-public import CmuxNextDesignTokens
 
 extension MotionGate {
     /// A SwiftUI animation for a fade token, ease-out, nil when fades do not

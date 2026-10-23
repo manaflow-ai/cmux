@@ -31,7 +31,6 @@ import {
 } from "./sessionList";
 import { type StringKey, type Translate, translate, useT } from "./i18n";
 import { parsePageWidgets, type PageWidget } from "./newtab/pageWidgets";
-import { parseWeather, type NewTabWeather } from "./newtab/ambient";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 import { isStartableProject, rememberedStartedProject } from "./newtab/startedProject";
 import { seedWarmNewTab } from "./newtab/warmSnapshot";
@@ -121,14 +120,8 @@ export type NewTabHost = {
   /// The widget view under the composer (Debug Settings `newTab.widgets`, newtab/WidgetCards.tsx).
   widgets?: boolean;
   /// The Minimal layout's widgets the user turned on (`tabs.newTabWidgets.*`, newtab/pageWidgets.ts);
-  /// unset is Settings' defaults (none: the composer alone).
+  /// unset is Settings' defaults (the greeting).
   pageWidgets?: PageWidget[];
-  /// The weather widget's last reading (`tabs.newTabWidgets.weather`, newtab/ambient.ts).
-  weather?: NewTabWeather;
-  /// `tabs.newTabWidgets.greeting` is set to false in cmux.json, not left to the default: Minimal
-  /// keeps no room for the headline over the composer, which stays where it sat with the greeting
-  /// off (newtab/screen.css .nt-headline-slot).
-  headlineOff?: true;
   /// The page lists only its own connection's chats, not the store every page shares (Debug
   /// Settings `newTab.privateChatLists`, newtab/chatStore.ts).
   privateChatLists?: boolean;
@@ -159,7 +152,6 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const openTabs = Array.isArray(object.openTabs) ? omnibarContext({ tabs: object.openTabs })?.tabs : undefined;
   const template = parseNewTabTemplate(object.template);
   const pageWidgets = parsePageWidgets(object.pageWidgets);
-  const weather = parseWeather(object.weather);
   return {
     hotkeys,
     initialKind,
@@ -187,8 +179,6 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(object.history === true ? { history: true } : {}),
     ...(object.widgets === true ? { widgets: true } : {}),
     ...(pageWidgets ? { pageWidgets } : {}),
-    ...(weather ? { weather } : {}),
-    ...(object.headlineOff === true ? { headlineOff: true as const } : {}),
     ...(object.privateChatLists === true ? { privateChatLists: true } : {}),
     ...(object.allChats === false ? { allChats: false as const } : {}),
   };

@@ -1,530 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "settings.group.hangReports": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تقارير التجمّد"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Izvještaji o zastojima"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hængningsrapporter"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hänger-Berichte"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hang Reports"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Informes de bloqueos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rapports de blocages"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rapporti sui blocchi"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ハングレポート"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "របាយការណ៍​គាំង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "멈춤 보고서"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hengerapporter"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Raporty o zawieszeniach"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Relatórios de travamentos"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Отчёты о зависаниях"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "รายงานการค้าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Donma raporları"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Звіти про зависання"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Báo cáo treo"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "卡顿报告"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "卡頓報告"
-          }
-        }
-      }
-    },
-    "settings.diagnostics.hangReports": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إرسال تقارير التجمّد"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Šalji izvještaje o zastojima"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Send hængningsrapporter"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hänger-Berichte senden"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Send Hang Reports"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enviar informes de bloqueos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Envoyer les rapports de blocages"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invia rapporti sui blocchi"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ハングレポートを送信"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ផ្ញើ​របាយការណ៍​គាំង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "멈춤 보고서 보내기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Send hengerapporter"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wysyłaj raporty o zawieszeniach"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enviar relatórios de travamentos"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Отправлять отчёты о зависаниях"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ส่งรายงานการค้าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Donma raporlarını gönder"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Надсилати звіти про зависання"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gửi báo cáo treo"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "发送卡顿报告"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "傳送卡頓報告"
-          }
-        }
-      }
-    },
-    "settings.diagnostics.hangReports.summary": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "في Nightly فقط. بلا أسماء ملفات أو نصوص أو عناوين."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Samo Nightly. Bez imena datoteka, teksta i adresa."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kun Nightly. Ingen filnavne, tekst eller adresser."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nur Nightly. Keine Dateinamen, Texte oder Adressen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightly only. No file names, text or addresses."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Solo Nightly. Sin nombres de archivo, texto ni direcciones."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightly uniquement. Aucun nom de fichier, texte ni adresse."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Solo Nightly. Nessun nome di file, testo o indirizzo."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightlyのみ。ファイル名、テキスト、アドレスは含みません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សម្រាប់ Nightly ប៉ុណ្ណោះ។ គ្មាន​ឈ្មោះ​ឯកសារ អត្ថបទ ឬ​អាសយដ្ឋាន។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightly 전용. 파일 이름, 텍스트, 주소는 포함하지 않습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bare Nightly. Ingen filnavn, tekst eller adresser."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tylko Nightly. Bez nazw plików, tekstu i adresów."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Somente Nightly. Sem nomes de arquivos, texto ou endereços."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Только Nightly. Без имён файлов, текста и адресов."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เฉพาะ Nightly ไม่มีชื่อไฟล์ ข้อความ หรือที่อยู่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yalnızca Nightly. Dosya adı, metin veya adres yok."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Лише Nightly. Без назв файлів, тексту й адрес."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chỉ Nightly. Không có tên tệp, văn bản hay địa chỉ."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "仅限 Nightly。不含文件名、文本或地址。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "僅限 Nightly。不含檔案名稱、文字或位址。"
-          }
-        }
-      }
-    },
-    "settings.diagnostics.hangReports.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ترسل إصدارات Nightly تقريرًا يوميًا عن حالات التجمّد والإطارات البطيئة: مكدسات الاستدعاء لشيفرة cmux وmacOS، والتوقيتات، وإصداري التطبيق وmacOS، وشريحة جهاز Mac وحجم ذاكرته، وأعدادًا تقريبية للنوافذ وعلامات التبويب المفتوحة. لا يتضمن أبدًا أسماء ملفات أو عناوين ويب أو نص الطرفية أو أسماء أو أي شيء تكتبه. يعرض «عرض تقرير التجمّد» ما يُرسل بالضبط."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightly verzije šalju dnevni izvještaj o zastojima i sporim kadrovima: stekove poziva koda cmuxa i macOS-a, vremena, verzije aplikacije i macOS-a, čip i veličinu memorije vašeg Maca te zaokružen broj otvorenih prozora i kartica. Nikada ne sadrži imena datoteka, web adrese, tekst terminala, imena ni bilo šta što kucate. Prikaži izvještaj o zastoju pokazuje tačno šta se šalje."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightly-builds sender en daglig rapport om hængninger og langsomme billeder: kaldestakke fra cmux- og macOS-kode, tider, app- og macOS-version, din Macs chip og hukommelsesstørrelse samt afrundede antal åbne vinduer og faner. Den indeholder aldrig filnavne, webadresser, terminaltekst, navne eller noget, du skriver. Vis hængningsrapport viser præcis, hvad der sendes."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightly-Builds senden täglich einen Bericht über Hänger und langsame Frames: Aufrufstapel aus cmux- und macOS-Code, Zeiten, App- und macOS-Version, Chip und Arbeitsspeichergröße deines Mac sowie gerundete Anzahlen offener Fenster und Tabs. Er enthält nie Dateinamen, Webadressen, Terminaltext, Namen oder etwas, das du tippst. „Hänger-Bericht anzeigen“ zeigt genau, was gesendet wird."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Las versiones Nightly envían un informe diario de bloqueos y fotogramas lentos: pilas de llamadas del código de cmux y macOS, tiempos, las versiones de la app y de macOS, el chip y la memoria de tu Mac, y recuentos redondeados de ventanas y pestañas abiertas. Nunca incluye nombres de archivo, direcciones web, texto del terminal, nombres ni nada de lo que escribes. Ver informe de bloqueos muestra exactamente lo que se envía."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les versions Nightly envoient chaque jour un rapport sur les blocages et les images lentes : piles d’appels du code de cmux et de macOS, durées, versions de l’app et de macOS, puce et taille de mémoire de votre Mac, et nombres arrondis de fenêtres et d’onglets ouverts. Il ne contient jamais de noms de fichiers, d’adresses web, de texte du terminal, de noms ni rien de ce que vous tapez. Afficher le rapport de blocages montre exactement ce qui est envoyé."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le build Nightly inviano ogni giorno un rapporto su blocchi e fotogrammi lenti: stack di chiamate del codice di cmux e macOS, tempi, versioni dell’app e di macOS, chip e memoria del tuo Mac e numeri arrotondati di finestre e schede aperte. Non include mai nomi di file, indirizzi web, testo del terminale, nomi o qualsiasi cosa tu digiti. Mostra rapporto sui blocchi mostra esattamente cosa viene inviato."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightlyビルドは、ハングと遅いフレームのレポートを1日1回送信します。内容は、cmuxとmacOSのコードのコールスタック、所要時間、アプリとmacOSのバージョン、Macのチップとメモリ容量、開いているウインドウとタブのおおよその数です。ファイル名、Webアドレス、ターミナルのテキスト、名前、入力した内容は一切含みません。「ハングレポートを表示」で送信内容をそのまま確認できます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "កំណែ Nightly ផ្ញើ​របាយការណ៍​ប្រចាំថ្ងៃ​អំពី​ការ​គាំង និង​ស៊ុម​យឺត៖ ជង់​ការ​ហៅ​នៃ​កូដ cmux និង macOS ពេលវេលា កំណែ​កម្មវិធី និង macOS បន្ទះ​សៀគ្វី និង​ទំហំ​អង្គចងចាំ​នៃ Mac របស់​អ្នក និង​ចំនួន​ប្រហាក់ប្រហែល​នៃ​បង្អួច និង​ផ្ទាំង​ដែល​បើក។ វា​មិន​ដែល​រួម​បញ្ចូល​ឈ្មោះ​ឯកសារ អាសយដ្ឋាន​បណ្ដាញ អត្ថបទ​ក្នុង​ទែមីណាល់ ឈ្មោះ ឬ​អ្វី​ដែល​អ្នក​វាយ​ឡើយ។ «មើល​របាយការណ៍​គាំង» បង្ហាញ​យ៉ាង​ពិតប្រាកដ​នូវ​អ្វី​ដែល​ត្រូវ​ផ្ញើ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightly 빌드는 멈춤과 느린 프레임에 대한 보고서를 하루에 한 번 보냅니다. cmux와 macOS 코드의 호출 스택, 소요 시간, 앱과 macOS 버전, Mac의 칩과 메모리 크기, 열려 있는 윈도우와 탭의 대략적인 수가 포함됩니다. 파일 이름, 웹 주소, 터미널 텍스트, 이름, 입력한 내용은 절대 포함하지 않습니다. 멈춤 보고서 보기에서 보내는 내용을 그대로 확인할 수 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightly-bygg sender en daglig rapport om henginger og trege bilder: kallstabler fra cmux- og macOS-kode, tider, app- og macOS-versjon, Mac-ens brikke og minnestørrelse og avrundede antall åpne vinduer og faner. Den inneholder aldri filnavn, nettadresser, terminaltekst, navn eller noe du skriver. Vis hengerapport viser nøyaktig hva som sendes."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wersje Nightly wysyłają codzienny raport o zawieszeniach i wolnych klatkach: stosy wywołań kodu cmux i macOS, czasy, wersje aplikacji i macOS, układ i ilość pamięci Twojego Maca oraz zaokrągloną liczbę otwartych okien i kart. Nigdy nie zawiera nazw plików, adresów stron, tekstu terminala, nazwisk ani niczego, co wpisujesz. Pokaż raport o zawieszeniu pokazuje dokładnie, co jest wysyłane."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "As versões Nightly enviam um relatório diário de travamentos e quadros lentos: pilhas de chamadas do código do cmux e do macOS, tempos, versões do app e do macOS, chip e memória do seu Mac e contagens arredondadas de janelas e abas abertas. Nunca inclui nomes de arquivos, endereços web, texto do terminal, nomes ou qualquer coisa que você digite. Ver relatório de travamentos mostra exatamente o que é enviado."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сборки Nightly раз в день отправляют отчёт о зависаниях и медленных кадрах: стеки вызовов кода cmux и macOS, длительности, версии приложения и macOS, чип и объём памяти вашего Mac и округлённое число открытых окон и вкладок. В нём никогда нет имён файлов, веб-адресов, текста терминала, имён и того, что вы вводите. «Показать отчёт о зависаниях» показывает, что именно отправляется."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "รุ่น Nightly จะส่งรายงานการค้างและเฟรมที่ช้าวันละครั้ง ได้แก่ call stack ของโค้ด cmux และ macOS เวลาที่ใช้ เวอร์ชันของแอปและ macOS ชิปและขนาดหน่วยความจำของ Mac และจำนวนหน้าต่างกับแท็บที่เปิดอยู่แบบปัดเศษ รายงานไม่มีชื่อไฟล์ ที่อยู่เว็บ ข้อความในเทอร์มินัล ชื่อ หรือสิ่งที่คุณพิมพ์เลย \"ดูรายงานการค้าง\" จะแสดงสิ่งที่ส่งอย่างตรงตัว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightly sürümleri her gün donmalar ve yavaş kareler hakkında bir rapor gönderir: cmux ve macOS kodunun çağrı yığınları, süreler, uygulama ve macOS sürümleri, Mac’inizin yongası ve bellek boyutu ile açık pencere ve sekmelerin yuvarlanmış sayıları. Asla dosya adı, web adresi, terminal metni, ad veya yazdığınız herhangi bir şey içermez. Donma raporunu görüntüle, tam olarak neyin gönderildiğini gösterir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Збірки Nightly щодня надсилають звіт про зависання й повільні кадри: стеки викликів коду cmux і macOS, тривалості, версії застосунку й macOS, чип і обсяг пам’яті вашого Mac та округлену кількість відкритих вікон і вкладок. Він ніколи не містить назв файлів, вебадрес, тексту термінала, імен чи будь-чого, що ви вводите. «Показати звіт про зависання» показує, що саме надсилається."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bản Nightly gửi báo cáo hằng ngày về các lần treo và khung hình chậm: ngăn xếp lệnh gọi của mã cmux và macOS, thời gian, phiên bản ứng dụng và macOS, chip và dung lượng bộ nhớ của máy Mac, cùng số cửa sổ và tab đang mở đã làm tròn. Báo cáo không bao giờ chứa tên tệp, địa chỉ web, văn bản terminal, tên hay bất kỳ nội dung nào bạn gõ. Xem báo cáo treo cho thấy chính xác nội dung được gửi."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightly 版本每天发送一份卡顿与慢帧报告：cmux 和 macOS 代码的调用栈、耗时、App 与 macOS 版本、Mac 的芯片和内存大小，以及打开的窗口和标签页的大致数量。报告绝不包含文件名、网址、终端文本、姓名或你输入的任何内容。“查看卡顿报告”会显示实际发送的内容。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightly 版本每天傳送一份卡頓與慢影格報告：cmux 和 macOS 程式碼的呼叫堆疊、耗時、App 與 macOS 版本、Mac 的晶片和記憶體大小，以及開啟中視窗和分頁的大約數量。報告絕不包含檔案名稱、網址、終端機文字、姓名或你輸入的任何內容。「檢視卡頓報告」會顯示實際傳送的內容。"
-          }
-        }
-      }
-    },
     "settings.sidebar.showColors.help": {
       "extractionState": "manual",
       "localizations": {
@@ -78555,265 +78031,265 @@
       }
     },
     "settings.tabs.newTabWidgets.greeting": {
-      "comment": "Settings: toggle that shows a headline over the New Tab page's composer asking what to work on, with the project as an inline picker.",
+      "comment": "Settings: toggle that shows a short greeting by the time of day over the New Tab page's composer.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "السؤال عمّا نعمل عليه في علامة التبويب الجديدة"
+            "value": "إظهار التحية في علامة التبويب الجديدة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pitaj na čemu radimo na novoj kartici"
+            "value": "Prikaži pozdrav na novoj kartici"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Spørg, hvad vi skal arbejde på, på ny fane"
+            "value": "Vis hilsen på ny fane"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Im neuen Tab fragen, woran wir arbeiten"
+            "value": "Begrüßung im neuen Tab anzeigen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ask What to Work On on New Tab"
+            "value": "Show Greeting on New Tab"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Preguntar en qué trabajar en la nueva pestaña"
+            "value": "Mostrar saludo en la nueva pestaña"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Demander sur quoi travailler dans le nouvel onglet"
+            "value": "Afficher le message d’accueil dans le nouvel onglet"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chiedi su cosa lavorare nella nuova scheda"
+            "value": "Mostra saluto nella nuova scheda"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新規タブで取り組む内容を尋ねる"
+            "value": "新規タブに挨拶を表示"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "សួរថាត្រូវធ្វើការលើអ្វីនៅលើផ្ទាំងថ្មី"
+            "value": "បង្ហាញ​ការ​ស្វាគមន៍​នៅ​លើ​ផ្ទាំង​ថ្មី"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 탭에서 무엇을 작업할지 묻기"
+            "value": "새 탭에 인사말 보기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Spør hva vi skal jobbe med på ny fane"
+            "value": "Vis hilsen på ny fane"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pytaj, nad czym pracujemy, na nowej karcie"
+            "value": "Pokaż powitanie na nowej karcie"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Perguntar no que trabalhar na nova aba"
+            "value": "Mostrar saudação na nova aba"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Спрашивать, над чем работаем, на новой вкладке"
+            "value": "Показывать приветствие на новой вкладке"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ถามว่าจะทำงานอะไรบนแท็บใหม่"
+            "value": "แสดงคำทักทายบนแท็บใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yeni sekmede ne üzerinde çalışacağımızı sor"
+            "value": "Yeni sekmede selamlamayı göster"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Питати, над чим працюємо, на новій вкладці"
+            "value": "Показувати привітання на новій вкладці"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hỏi sẽ làm gì trên thẻ mới"
+            "value": "Hiện lời chào trên tab mới"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在新标签页询问要做什么"
+            "value": "在新标签页显示问候语"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在新分頁詢問要做什麼"
+            "value": "在新分頁顯示問候語"
           }
         }
       }
     },
     "settings.tabs.newTabWidgets.greeting.help": {
-      "comment": "Settings: help for the toggle that shows a headline over the New Tab page's composer asking what to work on.",
+      "comment": "Settings: help for the toggle that shows a greeting on the New Tab page.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عنوان فوق محرر الرسائل يسأل عمّا نعمل عليه، مع المشروع كأداة اختيار."
+            "value": "تحية قصيرة فوق مربع الكتابة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Naslov iznad polja za unos koji pita na čemu radimo, s projektom kao biračem."
+            "value": "Kratak pozdrav iznad polja za pisanje."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "En overskrift over skrivefeltet, der spørger, hvad vi skal arbejde på, med projektet som vælger."
+            "value": "En kort hilsen over skrivefeltet."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eine Überschrift über dem Eingabefeld, die fragt, woran wir arbeiten, mit dem Projekt als Auswahl."
+            "value": "Eine kurze Begrüßung über dem Eingabefeld."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A headline over the composer that asks what to work on, with the project as a picker."
+            "value": "A short greeting over the composer."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un titular sobre el editor que pregunta en qué trabajar, con el proyecto como selector."
+            "value": "Un breve saludo sobre el compositor."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un titre au-dessus de la zone de saisie qui demande sur quoi travailler, avec le projet comme sélecteur."
+            "value": "Un court message d’accueil au-dessus du champ de saisie."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un titolo sopra il campo di composizione che chiede su cosa lavorare, con il progetto come selettore."
+            "value": "Un breve saluto sopra il compositore."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンポーザーの上に、何に取り組むかを尋ねる見出しを表示します。プロジェクトはその場で選べます。"
+            "value": "入力欄の上に短い挨拶を表示します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ចំណងជើងនៅពីលើប្រអប់សរសេរ ដែលសួរថាត្រូវធ្វើការលើអ្វី ដោយមានគម្រោងជាអ្នកជ្រើសរើស។"
+            "value": "ការ​ស្វាគមន៍​ខ្លី​នៅ​ពី​លើ​ប្រអប់​សរសេរ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작성기 위에 무엇을 작업할지 묻는 제목을 표시하며, 프로젝트를 바로 고를 수 있습니다."
+            "value": "입력창 위에 짧은 인사말을 보여 줍니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "En overskrift over skrivefeltet som spør hva vi skal jobbe med, med prosjektet som velger."
+            "value": "En kort hilsen over skrivefeltet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nagłówek nad polem tekstowym, który pyta, nad czym pracujemy, z projektem do wybrania."
+            "value": "Krótkie powitanie nad polem tekstowym."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Um título acima do editor que pergunta no que trabalhar, com o projeto como seletor."
+            "value": "Uma saudação curta acima do compositor."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Заголовок над полем ввода, который спрашивает, над чем работаем, с выбором проекта."
+            "value": "Короткое приветствие над полем ввода."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "หัวข้อเหนือช่องเขียนข้อความที่ถามว่าจะทำงานอะไร พร้อมตัวเลือกโปรเจกต์"
+            "value": "คำทักทายสั้น ๆ เหนือช่องเขียน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Oluşturucunun üstünde ne üzerinde çalışacağımızı soran bir başlık; proje bir seçici olarak gösterilir."
+            "value": "Yazma alanının üstünde kısa bir selamlama."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Заголовок над полем введення, який питає, над чим працюємо, з вибором проєкту."
+            "value": "Коротке привітання над полем введення."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Một tiêu đề phía trên ô soạn thảo hỏi sẽ làm gì, với dự án là một bộ chọn."
+            "value": "Một lời chào ngắn phía trên ô soạn thảo."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在输入框上方显示询问要做什么的标题，项目可直接选择。"
+            "value": "在输入框上方显示简短的问候语。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在輸入框上方顯示詢問要做什麼的標題，專案可直接選擇。"
+            "value": "在輸入框上方顯示簡短的問候語。"
           }
         }
       }
@@ -117143,798 +116619,6 @@
         }
       }
     },
-    "settings.tabs.newTabWidgets.weather": {
-      "comment": "Settings: toggle that shows the weather widget on the New Tab page.",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار الطقس في علامة التبويب الجديدة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži vrijeme na novoj kartici"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis vejret på ny fane"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wetter im neuen Tab anzeigen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Weather on New Tab"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar el tiempo en la nueva pestaña"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher la météo dans le nouvel onglet"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra il meteo nella nuova scheda"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新規タブに天気を表示"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បង្ហាញ​អាកាសធាតុ​នៅ​លើ​ផ្ទាំង​ថ្មី"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "새 탭에 날씨 보기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis været på ny fane"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokaż pogodę na nowej karcie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar o tempo na nova aba"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывать погоду в новой вкладке"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงสภาพอากาศในแท็บใหม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yeni sekmede hava durumunu göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показувати погоду в новій вкладці"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hiện thời tiết trên thẻ mới"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在新标签页上显示天气"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在新分頁上顯示天氣"
-          }
-        }
-      }
-    },
-    "settings.tabs.newTabWidgets.weather.help": {
-      "comment": "Settings: help for the New Tab weather widget toggle. 'The city below' is the Weather City setting.",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الطقس الحالي وأعلى وأدنى درجة اليوم، للمدينة أدناه أو لمدينة منطقتك الزمنية."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Trenutno vrijeme i današnja najviša i najniža temperatura, za grad ispod ili grad vaše vremenske zone."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Det aktuelle vejr og dagens høje og lave temperatur for byen nedenfor eller din tidszones by."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Das aktuelle Wetter und die heutige Höchst- und Tiefsttemperatur für die Stadt unten oder die Stadt deiner Zeitzone."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The current weather and today's high and low, for the city below or your time zone's city."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "El tiempo actual y la máxima y mínima de hoy, para la ciudad de abajo o la ciudad de tu zona horaria."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La météo actuelle et les températures maximale et minimale du jour, pour la ville ci-dessous ou celle de votre fuseau horaire."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il meteo attuale e la massima e minima di oggi, per la città qui sotto o la città del tuo fuso orario."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "下の都市、またはタイムゾーンの都市の現在の天気と今日の最高・最低気温。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "អាកាសធាតុ​បច្ចុប្បន្ន និង​សីតុណ្ហភាព​ខ្ពស់​និង​ទាប​ថ្ងៃ​នេះ សម្រាប់​ទីក្រុង​ខាង​ក្រោម ឬ​ទីក្រុង​នៃ​តំបន់​ម៉ោង​របស់​អ្នក។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "아래 도시 또는 시간대 도시의 현재 날씨와 오늘의 최고·최저 기온입니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Været nå og dagens høyeste og laveste temperatur for byen nedenfor eller byen i tidssonen din."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bieżąca pogoda oraz dzisiejsza najwyższa i najniższa temperatura dla miasta poniżej lub miasta Twojej strefy czasowej."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O tempo atual e a máxima e mínima de hoje, para a cidade abaixo ou a cidade do seu fuso horário."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Текущая погода и сегодняшние максимум и минимум для города ниже или города вашего часового пояса."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สภาพอากาศปัจจุบันและอุณหภูมิสูงสุดต่ำสุดของวันนี้ สำหรับเมืองด้านล่างหรือเมืองในเขตเวลาของคุณ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aşağıdaki şehir veya saat diliminizin şehri için şu anki hava durumu ve bugünün en yüksek ve en düşük sıcaklığı."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Поточна погода й сьогоднішні максимум і мінімум для міста нижче або міста вашого часового поясу."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Thời tiết hiện tại và nhiệt độ cao nhất, thấp nhất hôm nay cho thành phố bên dưới hoặc thành phố theo múi giờ của bạn."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "下方城市或你所在时区城市的当前天气及今日最高和最低气温。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "下方城市或你所在時區城市的目前天氣及今日最高和最低氣溫。"
-          }
-        }
-      }
-    },
-    "settings.tabs.newTabWidgets.weatherCity": {
-      "comment": "Settings: text field naming the city the New Tab weather widget shows.",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مدينة الطقس"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Grad za vremensku prognozu"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "By for vejret"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stadt für das Wetter"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Weather City"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ciudad del tiempo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ville pour la météo"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Città per il meteo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "天気の都市"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ទីក្រុង​សម្រាប់​អាកាសធាតុ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "날씨 도시"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "By for været"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Miasto pogody"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cidade do tempo"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Город для погоды"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เมืองสำหรับสภาพอากาศ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hava durumu şehri"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Місто для погоди"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Thành phố thời tiết"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "天气城市"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "天氣城市"
-          }
-        }
-      }
-    },
-    "settings.tabs.newTabWidgets.weatherCity.help": {
-      "comment": "Settings: help for the Weather City text field.",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مدينة لأداة الطقس. إذا تُركت فارغة تُستخدم مدينة منطقتك الزمنية."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Grad za widget vremena. Prazno koristi grad vaše vremenske zone."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "En by til vejr-widgetten. Tom bruger din tidszones by."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eine Stadt für das Wetter-Widget. Leer verwendet die Stadt deiner Zeitzone."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A city for the weather widget. Empty uses your time zone's city."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Una ciudad para el widget del tiempo. Vacío usa la ciudad de tu zona horaria."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Une ville pour le widget météo. Vide utilise la ville de votre fuseau horaire."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Una città per il widget meteo. Vuoto usa la città del tuo fuso orario."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "天気ウィジェットの都市。空欄ならタイムゾーンの都市を使います。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ទីក្រុង​សម្រាប់​វិដជិត​អាកាសធាតុ។ ទទេ​ប្រើ​ទីក្រុង​នៃ​តំបន់​ម៉ោង​របស់​អ្នក។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "날씨 위젯의 도시입니다. 비워 두면 시간대 도시를 사용합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "En by for vær-widgeten. Tom bruker byen i tidssonen din."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Miasto dla widżetu pogody. Puste pole używa miasta Twojej strefy czasowej."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uma cidade para o widget do tempo. Vazio usa a cidade do seu fuso horário."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Город для виджета погоды. Если пусто, используется город вашего часового пояса."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เมืองสำหรับวิดเจ็ตสภาพอากาศ หากว่างจะใช้เมืองในเขตเวลาของคุณ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hava durumu widget'ı için bir şehir. Boş bırakılırsa saat diliminizin şehri kullanılır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Місто для віджета погоди. Якщо порожньо, використовується місто вашого часового поясу."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Thành phố cho tiện ích thời tiết. Để trống sẽ dùng thành phố theo múi giờ của bạn."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "天气小组件的城市。留空则使用你所在时区的城市。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "天氣小工具的城市。留空則使用你所在時區的城市。"
-          }
-        }
-      }
-    },
-    "settings.tabs.newTabWidgets.machines": {
-      "comment": "Settings: toggle that shows the machines widget on the New Tab page.",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار الأجهزة في علامة التبويب الجديدة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži računare na novoj kartici"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis maskiner på ny fane"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rechner im neuen Tab anzeigen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Machines on New Tab"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar equipos en la nueva pestaña"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher les machines dans le nouvel onglet"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra le macchine nella nuova scheda"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新規タブにマシンを表示"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បង្ហាញ​ម៉ាស៊ីន​នៅ​លើ​ផ្ទាំង​ថ្មី"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "새 탭에 머신 보기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis maskiner på ny fane"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokaż maszyny na nowej karcie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar máquinas na nova aba"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывать компьютеры в новой вкладке"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงเครื่องในแท็บใหม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yeni sekmede makineleri göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показувати комп’ютери в новій вкладці"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hiện các máy trên thẻ mới"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在新标签页上显示机器"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在新分頁上顯示機器"
-          }
-        }
-      }
-    },
-    "settings.tabs.newTabWidgets.machines.help": {
-      "comment": "Settings: help for the New Tab machines widget toggle.",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أجهزتك وما إذا كان كل منها متصلاً."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vaši računari i da li je svaki na mreži."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dine maskiner, og om hver er online."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deine Rechner und ob jeder online ist."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your machines and whether each is online."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tus equipos y si cada uno está conectado."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vos machines et l'état en ligne de chacune."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le tue macchine e se ognuna è online."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "お使いのマシンと、各マシンがオンラインかどうか。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ម៉ាស៊ីន​របស់​អ្នក និង​ថា​ម៉ាស៊ីន​នីមួយៗ​កំពុង​អនឡាញ​ឬ​អត់។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "내 머신과 각 머신의 온라인 여부입니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maskinene dine og om hver er tilkoblet."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Twoje maszyny i to, czy każda jest online."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Suas máquinas e se cada uma está online."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ваши компьютеры и то, какие из них в сети."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เครื่องของคุณและสถานะออนไลน์ของแต่ละเครื่อง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Makineleriniz ve her birinin çevrimiçi olup olmadığı."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ваші комп’ютери та чи кожен у мережі."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Các máy của bạn và máy nào đang trực tuyến."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你的机器以及每台是否在线。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你的機器以及每台是否在線。"
-          }
-        }
-      }
-    },
     "settings.sidebar.showLocalMachine": {
       "extractionState": "manual",
       "localizations": {
@@ -142076,270 +140760,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "網頁圖片網站可以看到你的位址和開啟文件的時間。關閉時，每份文件都會在載入網頁圖片前詢問。"
-          }
-        }
-      }
-    },
-    "settings.ui.reducedBackgrounds": {
-      "comment": "Settings row title: draw windows in the plain theme color, without background pictures or glass.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Plain Backgrounds"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "خلفيات بسيطة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Obične pozadine"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enkle baggrunde"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Schlichte Hintergründe"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fondos sencillos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Arrière-plans unis"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sfondi semplici"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "シンプルな背景"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ផ្ទៃខាងក្រោយធម្មតា"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "단순한 배경"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enkle bakgrunner"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zwykłe tła"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fundos simples"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Простые фоны"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "พื้นหลังแบบเรียบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sade Arka Planlar"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Прості тла"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nền đơn giản"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "纯色背景"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "純色背景"
-          }
-        }
-      }
-    },
-    "settings.ui.reducedBackgrounds.help": {
-      "comment": "Settings row help for Plain Backgrounds.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Draws windows in the plain theme color, without paintings, wallpapers or glass. Your background choices stay as they are and come back when you turn it off."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ترسم النوافذ بلون السمة البسيط، بلا لوحات أو خلفيات أو زجاج. تبقى اختياراتك للخلفية كما هي وتعود عند إيقاف هذا الخيار."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prozori se crtaju u običnoj boji teme, bez slika, pozadina ili stakla. Vaši izbori pozadine ostaju kakvi jesu i vraćaju se kada ovo isključite."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tegner vinduer i temaets ensfarvede baggrund uden malerier, skrivebordsbaggrunde eller glas. Dine baggrundsvalg forbliver som de er og vender tilbage, når du slår det fra."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zeichnet Fenster in der schlichten Themenfarbe, ohne Gemälde, Hintergrundbilder oder Glas. Deine Hintergrundauswahl bleibt erhalten und kehrt zurück, wenn du es ausschaltest."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dibuja las ventanas con el color liso del tema, sin pinturas, fondos de pantalla ni cristal. Tus elecciones de fondo se conservan y vuelven al desactivarlo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dessine les fenêtres dans la couleur unie du thème, sans peintures, fonds d'écran ni verre. Vos choix d'arrière-plan restent tels quels et reviennent quand vous le désactivez."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Disegna le finestre con il colore semplice del tema, senza dipinti, sfondi o vetro. Le tue scelte di sfondo restano invariate e tornano quando lo disattivi."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ウインドウをテーマの単色で描画し、絵画・壁紙・ガラスを使いません。背景の選択はそのまま残り、オフにすると元に戻ります。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "គូរបង្អួចដោយពណ៌ធម្មតារបស់រូបរាង ដោយគ្មានគំនូរ រូបផ្ទៃតុ ឬកញ្ចក់។ ជម្រើសផ្ទៃខាងក្រោយរបស់អ្នកនៅដដែល ហើយត្រឡប់មកវិញនៅពេលអ្នកបិទវា។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "창을 그림, 배경 화면, 유리 효과 없이 테마의 단색으로 그립니다. 배경 선택은 그대로 유지되며 끄면 다시 돌아옵니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tegner vinduer i temaets ensfargede bakgrunn, uten malerier, skrivebordsbakgrunner eller glass. Bakgrunnsvalgene dine blir som de er og kommer tilbake når du slår det av."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rysuje okna w jednolitym kolorze motywu, bez obrazów, tapet i szkła. Twoje wybory tła pozostają bez zmian i wracają po wyłączeniu tej opcji."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Desenha as janelas na cor lisa do tema, sem pinturas, papéis de parede ou vidro. Suas escolhas de fundo continuam como estão e voltam quando você desativa."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Рисует окна однотонным цветом темы, без картин, обоев и стекла. Выбранные фоны сохраняются и вернутся, когда вы выключите этот параметр."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "วาดหน้าต่างด้วยสีพื้นของธีม โดยไม่มีภาพวาด ภาพพื้นหลัง หรือกระจก ตัวเลือกพื้นหลังของคุณยังคงอยู่และจะกลับมาเมื่อคุณปิดตัวเลือกนี้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pencereleri tablolar, duvar kâğıtları veya cam olmadan temanın düz renginde çizer. Arka plan seçimleriniz olduğu gibi kalır ve bunu kapattığınızda geri gelir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Малює вікна однотонним кольором теми, без картин, шпалер і скла. Вибрані тла зберігаються й повернуться, коли ви вимкнете цей параметр."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vẽ cửa sổ bằng màu trơn của chủ đề, không có tranh, hình nền hay hiệu ứng kính. Các lựa chọn nền của bạn vẫn giữ nguyên và trở lại khi bạn tắt tùy chọn này."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "以主题的纯色绘制窗口，不显示画作、墙纸或玻璃效果。你的背景选择保持不变，关闭后即恢复。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "以主題的純色繪製視窗，不顯示畫作、桌布或玻璃效果。你的背景選擇保持不變，關閉後即恢復。"
           }
         }
       }

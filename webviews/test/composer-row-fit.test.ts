@@ -24,15 +24,14 @@ describe("composer row fit", () => {
 
   test("the composer's width shortens labels first and drops controls last; the mic stays", () => {
     const at = (width: number) => fitForms(width);
-    expect(at(760)).toEqual({ access: "full", effort: "full", harness: "full", mic: "full", model: "full" });
-    expect(at(470)).toEqual({ access: "full", effort: "short", harness: "full", mic: "full", model: "full" });
-    expect(at(460)).toEqual({ access: "full", effort: "short", harness: "icon", mic: "full", model: "full" });
-    expect(at(440)).toEqual({ access: "full", effort: "short", harness: "icon", mic: "full", model: "family" });
-    expect(at(420)).toEqual({ access: "icon", effort: "short", harness: "icon", mic: "full", model: "family" });
-    expect(at(371)).toEqual({ access: "icon", effort: "short", harness: "icon", mic: "full", model: "family" });
-    expect(at(370)).toEqual({ access: "icon", effort: "short", harness: "icon", mic: "full", model: "icon" });
-    expect(at(340)).toEqual({ access: "icon", effort: "short", harness: "icon", mic: "full", model: "icon" });
-    expect(at(240)).toEqual({ access: "icon", effort: "short", harness: "icon", mic: "full", model: "icon" });
+    expect(at(760)).toEqual({ access: "full", effort: "full", mic: "full", model: "full" });
+    expect(at(470)).toEqual({ access: "full", effort: "short", mic: "full", model: "full" });
+    expect(at(440)).toEqual({ access: "full", effort: "short", mic: "full", model: "family" });
+    expect(at(420)).toEqual({ access: "icon", effort: "short", mic: "full", model: "family" });
+    expect(at(371)).toEqual({ access: "icon", effort: "short", mic: "full", model: "family" });
+    expect(at(370)).toEqual({ access: "icon", effort: "short", mic: "full", model: "icon" });
+    expect(at(340)).toEqual({ access: "icon", effort: "short", mic: "full", model: "icon" });
+    expect(at(240)).toEqual({ access: "icon", effort: "short", mic: "full", model: "icon" });
   });
 
   test("a row too long for its width gives up the model's name last and never the mic", () => {

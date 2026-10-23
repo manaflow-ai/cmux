@@ -1,5 +1,4 @@
 public import AppKit
-public import CmuxNextDesignTokens
 
 /// What a user customization draws in the sidebar (the sidebar hosts it; the app platform
 /// renders it) (cx-swovq.1, cx-swovq.2; Lawrence 2026-10-14:

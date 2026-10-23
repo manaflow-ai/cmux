@@ -213,6 +213,7 @@ public final class BrowserPopupWindow: NSWindow {
         observation?.cancel()
         observation = nil
         fullscreenObservers.removeAll()
+        fullscreenObservers = []
         omnibar.stop()
         let closed = onClose
         onClose = nil

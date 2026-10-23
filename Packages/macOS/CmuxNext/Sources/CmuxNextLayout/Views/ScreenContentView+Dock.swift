@@ -75,23 +75,15 @@ extension ScreenContentView {
     /// whole side narrows the clip; one over a corner or the middle (a zoom growing over a grid) is a
     /// cutout the mask leaves out (the pane in front has transparent padding) and a Chromium page
     /// reads (its child window draws above every view).
-    /// Returns true when the host's clip changed. A host whose frame, clip range, area window and
-    /// covers are what they were last time keeps its clip without recomputing it (`force` recomputes).
-    @discardableResult
-    func clipToStrip(_ host: PaneHostView, scrolls: Bool, clip: CGRect?, above: [ObjectIdentifier: [CGRect]], force: Bool = false) -> Bool {
+    func clipToStrip(_ host: PaneHostView, scrolls: Bool, clip: CGRect?, above: [ObjectIdentifier: [CGRect]]) {
+        var visible = host.frame
+        if scrolls, let clip { visible = visible.intersection(clip) }
         // A pane scrolled partly out of its scroll area shows only inside the area's window.
         let areaWindow = displayedAreaWindow(of: host.pane)
-        let input = StripClipInput(frame: host.frame, clip: scrolls ? clip : nil, areaWindow: areaWindow,
-                                   covers: above[ObjectIdentifier(host)] ?? [])
-        guard force || host.stripClipInput != input else { return false }
-        host.stripClipInput = input
-        stripClipsComputed += 1
-        var visible = host.frame
-        if let clip = input.clip { visible = visible.intersection(clip) }
         if let areaWindow { visible = visible.intersection(areaWindow) }
         host.areaHitClip = areaWindow.map { $0.intersection(host.frame).offsetBy(dx: -host.frame.minX, dy: -host.frame.minY) }
         var cutouts: [CGRect] = []
-        for cover in input.covers {
+        for cover in above[ObjectIdentifier(host)] ?? [] {
             let rest = visible.remainder(outside: cover), shared = visible.intersection(cover)
             if rest == visible, !shared.isNull, shared.width > 0.5, shared.height > 0.5 {
                 cutouts.append(shared.offsetBy(dx: -host.frame.minX, dy: -host.frame.minY))
@@ -105,7 +97,6 @@ extension ScreenContentView {
         // A clip can change while the pane stays put (a dock growing over it): the window's
         // Chromium pages re-read their clip shapes, which carry this mask.
         if changed { context.stripClipsDidChange() }
-        return changed
     }
 
     /// Glass backdrops for overlay columns and the stacking order: strip

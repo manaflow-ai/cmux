@@ -54,46 +54,31 @@ extension LayoutRootView {
     /// Places every displayed pane's ring and dim over its host, in this
     /// view's (= the plane's) coordinates, and reports interactive rects.
     /// Callers mark it stale and flush (`setNeedsOverlaySync`).
-    ///
-    /// O(what moved): a host whose frame, screen placement, covers, alpha and visibility, and this
-    /// view's place in the window, are what they were at the last sync keeps its ring, dim and
-    /// window frame as they are (no conversion, no strip notice). The hosts that changed are
-    /// ``panesMovedInLastOverlaySync`` for the observers (`observeOverlaySync`).
     private func syncOverlay() {
         overlayIsStale = false
         let plane = overlayPlane
-        let inWindow = window == nil ? nil : convert(bounds, to: nil)
         var shown: Set<ObjectIdentifier> = []
-        var moved: Set<PaneID> = []
         for screen in screenViews.values where !screen.isHidden {
             let screenAlpha = screen.alphaValue
             let docks = screen.coverRects
             let above = screen.panesAbove()
             for host in screen.displayedHosts {
                 let chrome = host.chrome
-                shown.insert(ObjectIdentifier(chrome))
-                // A ring never draws over a docked column (strip panes) or a pane in front of it.
-                let covers = screen.ringCovers(of: host, docks: docks, above: above)
-                let alpha = host.alphaValue * screenAlpha
-                let key = PaneOverlaySyncKey(hostFrame: host.frame, screenFrame: screen.frame, screenBounds: screen.bounds,
-                                             rootInWindow: inWindow, covers: covers, alpha: alpha, hidden: host.isHidden)
-                if chrome.superview === plane, host.overlaySyncKey == key { continue }
-                host.overlaySyncKey = key
-                moved.insert(host.pane)
                 if chrome.superview !== plane { plane.addSubview(chrome, positioned: .below, relativeTo: highlight) }
                 let rect = convert(host.bounds, from: host)
                 if chrome.frame != rect { chrome.frame = rect }
-                chrome.setExcluded(covers.map { convert($0, from: screen).offsetBy(dx: -rect.minX, dy: -rect.minY) })
+                // A ring never draws over a docked column (strip panes) or a pane in front of it.
+                chrome.setExcluded(screen.ringCovers(of: host, docks: docks, above: above).map { convert($0, from: screen).offsetBy(dx: -rect.minX, dy: -rect.minY) })
+                let alpha = host.alphaValue * screenAlpha
                 if chrome.alphaValue != alpha { chrome.alphaValue = alpha }
                 if chrome.isHidden != host.isHidden { chrome.isHidden = host.isHidden }
                 host.noteWindowFrame()
-                overlayHostsPlaced += 1
+                shown.insert(ObjectIdentifier(chrome))
             }
         }
         for view in plane.subviews where view is PaneOverlayView && !shown.contains(ObjectIdentifier(view)) {
             view.removeFromSuperview()
         }
-        panesMovedInLastOverlaySync = moved
         reportInteractiveRects()
         notifyOverlaySync()
     }

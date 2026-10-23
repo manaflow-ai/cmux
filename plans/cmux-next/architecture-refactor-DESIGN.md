@@ -148,12 +148,9 @@ Host protocols, below 40k after Handlers/Pages/Control, and wiring only after th
 148 `shared` declarations, three kinds:
 
 1. **Name catalogs and stateless handles** (DaemonCapabilities 503 reads, ContextMenuCatalog,
-   OSSignposter holders): declarations, allowed by CLAUDE.md; the Mirror export test is the
-   derived list CLAUDE.md asks for. The 503-read rewrite is not perf work and is not scheduled;
-   if it happens later, use `enum DaemonCapability: String, CaseIterable` (`allCases` replaces
-   the Mirror) and a mechanical rewrite of the reads. Its one piece of state, the locked
-   `echoesPlacementShift` static, is gone (review 2): it is a `DaemonConnectionConfiguration`
-   field the composition root sets.
+   OSSignposter holders): declarations, allowed by CLAUDE.md. DaemonCapabilities becomes static
+   typed constants (`DaemonCapability.batchClose`) so the reads stop looking like a singleton;
+   no injection.
 2. **Process-wide state** (DesignSettings 170, CEFRuntime 70, ThemeStore 40, GhosttyRuntime 39,
    CmuxToastCenter 38, LinkRouter 36, CmuxDialogCenter 36, NewTerminalTrace, WakeupLedger,
    ExpectedActivity, TunableStore, KeepAwakeService, caches with mutable state): constructed once
@@ -210,20 +207,13 @@ unoptimized build. Plan:
   telemetry; PL-telemetry's reports are opt-in and its own design).
 - **Synchronous perform to the next commit.** `CommitBoundary` ends an interval at the end of the
   next Core Animation commit: a one-shot main run-loop observer at order 2,000,001, after Core
-  Animation's commit observer (2,000,000), installed only while an interval is open (a real
-  signal, no sleep). `CommitBoundaryAudit` reads the main run loop's display, layout and commit
-  observers (Core Animation's and AppKit's) and flags any after the boundary: `SignpostsTests` in
-  a bare process, `CommitBoundaryAppKitTests` with `NSApplication` and a window, and
-  `debug.commit_boundary` in the running app, on each macOS major. A boundary asked for inside the
-  turn's commit pass sees the wake first and ends with `commit=missed`; readers drop those.
-  `ActionRegistry` wraps every run that does work (handler, key window route, a preview revert it
-  needs) in `action.perform` (the handler's synchronous time) and `action.commit` (to that
-  commit), with `input_age_ms` of the OS event being dispatched for a `user` run, -1 otherwise.
-  A gate (confirmation presenter, the palette asking for an argument) is `action.gate`, never the
-  action's own interval and never enclosing the run it lets through; it stamps the press's
-  timestamp into the invocation (`inputTimestamp`), so a run confirmed in a later turn still
-  reports that press's age. The registry gets its timing at the composition root
-  (`AppServices` passes `SignpostActionRunTiming`); a test's registry records nothing. This is NOT input to the frame that
+  Animation's commit observer (2,000,000; `SignpostsTests` reads the main run loop's observers and
+  checks it on whichever macOS runs the tests), installed only while an interval is open (a real
+  signal, no sleep). A boundary asked for inside the turn's commit pass sees the wake first and
+  ends with `commit=missed`; readers drop those. `ActionRegistry` wraps every run that does work
+  (handler, key window route, argument collection, confirmation sheet) in `action.perform` (the
+  handler's synchronous time) and `action.commit` (to that commit), with `input_age_ms` of the OS
+  event being dispatched for a `user` run, -1 otherwise. This is NOT input to the frame that
   shows the result: work a handler defers (daemon replies, Chromium `CreateBrowser`, later
   SwiftUI updates, a frame client's next frame) commits later. Input-to-result numbers and the
   10 ms budget come from each action's own end signal (`create.*`, `switch.*`, reserved in the

@@ -32,8 +32,6 @@ type Props = ComponentProps<typeof ChatInspector> & {
   transcript?: boolean;
   /// Its own head with the close button, as the chat draws it.
   closable?: boolean;
-  /// Gallery-only chrome choices for the Session Info surface.
-  chrome?: "title" | "close" | "compact-close";
   /// A subagent's panel: whose it is, said the `header` way.
   scope?: Pick<SubagentScope, "agent" | "parent" | "onBack">;
   header?: SubagentHeaderVariant;
@@ -89,7 +87,6 @@ function GalleryInspector({
   placement = "overlay",
   transcript = false,
   closable = false,
-  chrome = "close",
   scope,
   header = "title",
   tones,
@@ -101,7 +98,6 @@ function GalleryInspector({
       <InspectorPanel
         width={320}
         placement={placement}
-        chrome={chrome}
         // The head draws only with a close: as in the chat pane.
         onClose={scope || closable ? () => undefined : undefined}
         title={scope && header === "title" ? <SubagentTitle scope={scope} /> : undefined}
@@ -485,18 +481,6 @@ export default componentEntry<Props>({
     "layout-groups": {
       note: "Alternative (not shipped): the same three blocks as the shipped layout, each one hairline card (three boxes in place of eight). Groups well, but it is still boxes in a box.",
       props: { ...full, layout: "groups" },
-    },
-    "chrome-close-only": {
-      note: "Chosen: the side panel has no title row, matching Codex and Claude desktop. Its close control floats at the top edge while the first Environment row starts below it, so the panel's content gets the space instead of repeating Session Info.",
-      props: { ...full, closable: true, chrome: "close" },
-    },
-    "chrome-title": {
-      note: "Alternative: the current titled treatment, with Session Info above the rows and the close control in that head. Clear, but it spends a full row repeating the panel name.",
-      props: { ...full, closable: true, chrome: "title" },
-    },
-    "chrome-compact-close": {
-      note: "Alternative: a compact control-only head keeps a close row without a title. It removes the repeated name, but still reserves a full strip before the Environment rows.",
-      props: { ...full, closable: true, chrome: "compact-close" },
     },
     "environment-folders": {
       note: "Environment for a chat in ~/Projects/cmux that worked across six projects: the machine with Save, its folder with its parent, each other project it touched (each opens in Files), the repository and the branch (each links to GitHub).",

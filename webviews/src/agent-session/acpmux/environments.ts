@@ -162,39 +162,3 @@ export function savedEnvironmentReady(draft: SavedEnvironmentDraft): boolean {
 export function withSavedEnvironment(list: readonly SavedEnvironment[], saved: SavedEnvironment): SavedEnvironment[] {
   return [saved, ...list.filter((environment) => environment.id !== saved.id)];
 }
-
-type Host = { peer?: string | undefined; host?: string | undefined; hostKind?: string | undefined };
-
-/// The machines besides this one, in order: acpmux's peers, then the hosts its chats ran on (a
-/// chat's peer, else a Cloud chat's host), then `extra`, each once, never this one (`local`). A peer's transport names its
-/// kind (`peerKinds`): an `ssh://` peer is SSH, any other, or a Cloud chat's host acpmux no longer
-/// lists, is Cloud. A peer carries what acpmux last said of its connection (`peerConnected`); a
-/// Cloud chat's host carries none. The composer's computers and the New Tab machines widget both
-/// list these.
-export function knownMachines(
-  peers: readonly string[],
-  chats: readonly Host[],
-  peerKinds: Record<string, "ssh" | "cloud">,
-  extra: readonly Host[] = [],
-  peerConnected: Record<string, boolean> = {},
-): Environment[] {
-  const machines: Environment[] = [];
-  const seen = new Set<string>();
-  const add = (id: string, label: string, cloudHost: boolean) => {
-    if (id === "local" || seen.has(id)) return;
-    seen.add(id);
-    const connected = cloudHost ? undefined : peerConnected[id];
-    machines.push({
-      id,
-      label,
-      kind: !cloudHost && peerKinds[id] === "ssh" ? "ssh" : "cloud",
-      ...(connected !== undefined ? { connected } : {}),
-    });
-  };
-  for (const peer of peers) add(peer, peer, false);
-  for (const chat of [...chats, ...extra]) {
-    const peer = chat.peer ?? (chat.hostKind === "cloud" ? chat.host : undefined);
-    if (peer) add(peer, chat.host ?? peer, !chat.peer);
-  }
-  return machines;
-}

@@ -1,5 +1,4 @@
 public import Foundation
-public import CmuxNextDesignTokens
 
 /// One work's catalog record, generated from `art/manifest.json` with
 /// `scripts/cmux-next/art/generate_backdrop_art.py` (cx-t2x.7).

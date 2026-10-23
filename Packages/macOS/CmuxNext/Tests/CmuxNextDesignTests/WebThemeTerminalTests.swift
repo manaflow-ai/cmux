@@ -2,7 +2,6 @@ import CmuxTheme
 @testable import CmuxNextDesign
 import Foundation
 import Testing
-import CmuxNextDesignTokens
 
 /// Every web page gets the terminal theme with each theme change (cx-wqn5): the diff viewer and
 /// the Markdown page color code from its ANSI palette, as the agent chat and Ghostty do.

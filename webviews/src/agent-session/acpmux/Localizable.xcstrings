@@ -187625,266 +187625,398 @@
         }
       }
     },
-    "newTab.headline": {
-      "comment": "Agent pane: the New Tab page's optional headline over the composer when no project is picked yet.",
+    "newTab.greeting.morning": {
+      "comment": "Agent pane: the New Tab page's quiet greeting over the composer, from 5 to 12 o'clock",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "على ماذا سنعمل؟"
+            "value": "صباح الخير"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Na čemu ćemo raditi?"
+            "value": "Dobro jutro"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvad skal vi arbejde på?"
+            "value": "Godmorgen"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Woran sollen wir arbeiten?"
+            "value": "Guten Morgen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "What should we work on?"
+            "value": "Good morning"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿En qué vamos a trabajar?"
+            "value": "Buenos días"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sur quoi voulez-vous travailler ?"
+            "value": "Bonjour"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Su cosa lavoriamo?"
+            "value": "Buongiorno"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "何に取り組みますか？"
+            "value": "おはようございます"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "តើយើងគួរធ្វើការលើអ្វី?"
+            "value": "អរុណសួស្តី"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "무엇을 작업할까요?"
+            "value": "좋은 아침이에요"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hva skal vi jobbe med?"
+            "value": "God morgen"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nad czym pracujemy?"
+            "value": "Dzień dobry"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "No que vamos trabalhar?"
+            "value": "Bom dia"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Над чем будем работать?"
+            "value": "Доброе утро"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เราจะทำงานอะไรกันดี"
+            "value": "สวัสดีตอนเช้า"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ne üzerinde çalışalım?"
+            "value": "Günaydın"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Над чим працюватимемо?"
+            "value": "Доброго ранку"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chúng ta nên làm gì?"
+            "value": "Chào buổi sáng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "我们来做什么？"
+            "value": "早上好"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "我們來做什麼？"
+            "value": "早安"
           }
         }
       }
     },
-    "newTab.headline.in": {
-      "comment": "Agent pane: the New Tab page's optional headline over the composer; {project} is the project's name, drawn as an inline project picker.",
+    "newTab.greeting.afternoon": {
+      "comment": "Agent pane: the New Tab page's quiet greeting over the composer, from 12 to 18 o'clock",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "على ماذا سنعمل في {project}؟"
+            "value": "مساء الخير"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Na čemu ćemo raditi u {project}?"
+            "value": "Dobar dan"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvad skal vi arbejde på i {project}?"
+            "value": "God eftermiddag"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Woran sollen wir in {project} arbeiten?"
+            "value": "Guten Tag"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "What should we work on in {project}?"
+            "value": "Good afternoon"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿En qué vamos a trabajar en {project}?"
+            "value": "Buenas tardes"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sur quoi voulez-vous travailler dans {project} ?"
+            "value": "Bon après-midi"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Su cosa lavoriamo in {project}?"
+            "value": "Buon pomeriggio"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "{project}で何に取り組みますか？"
+            "value": "こんにちは"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "តើយើងគួរធ្វើការលើអ្វីក្នុង {project}?"
+            "value": "ទិវាសួស្តី"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "{project}에서 무엇을 작업할까요?"
+            "value": "좋은 오후예요"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hva skal vi jobbe med i {project}?"
+            "value": "God ettermiddag"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nad czym pracujemy w projekcie {project}?"
+            "value": "Dzień dobry"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "No que vamos trabalhar em {project}?"
+            "value": "Boa tarde"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Над чем будем работать в {project}?"
+            "value": "Добрый день"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เราจะทำงานอะไรใน {project} ดี"
+            "value": "สวัสดีตอนบ่าย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "{project} içinde ne üzerinde çalışalım?"
+            "value": "İyi günler"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Над чим працюватимемо в {project}?"
+            "value": "Добрий день"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chúng ta nên làm gì trong {project}?"
+            "value": "Chào buổi chiều"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 {project} 中做什么？"
+            "value": "下午好"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "要在 {project} 做什麼？"
+            "value": "午安"
+          }
+        }
+      }
+    },
+    "newTab.greeting.evening": {
+      "comment": "Agent pane: the New Tab page's quiet greeting over the composer, from 18 to 5 o'clock",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساء الخير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dobro veče"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "God aften"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guten Abend"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Good evening"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buenas noches"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bonsoir"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buonasera"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "こんばんは"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សាយ័ណ្ហសួស្តី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "좋은 저녁이에요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "God kveld"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dobry wieczór"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boa noite"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добрый вечер"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สวัสดีตอนเย็น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İyi akşamlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добрий вечір"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chào buổi tối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "晚上好"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "晚上好"
           }
         }
       }
@@ -201421,798 +201553,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "剩餘"
-          }
-        }
-      }
-    },
-    "newTab.widgets.weather": {
-      "comment": "Agent pane: New Tab ambient widgets, the weather widget's accessibility label",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الطقس"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vrijeme"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vejr"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wetter"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Weather"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tiempo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Météo"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Meteo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "天気"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "អាកាសធាតុ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "날씨"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vær"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pogoda"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tempo"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Погода"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สภาพอากาศ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hava durumu"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Погода"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Thời tiết"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "天气"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "天氣"
-          }
-        }
-      }
-    },
-    "newTab.widgets.weatherRange": {
-      "comment": "Agent pane: New Tab weather widget, today's high and low temperatures ({high} and {low} are like 21°). H = high, L = low.",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "العظمى {high} · الصغرى {low}"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maks. {high} · Min. {low}"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "H {high} · L {low}"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "H {high} · T {low}"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "H {high} · L {low}"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Máx. {high} · Mín. {low}"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Max. {high} · Min. {low}"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Max {high} · Min {low}"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最高 {high} · 最低 {low}"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ខ្ពស់ {high} · ទាប {low}"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "최고 {high} · 최저 {low}"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "H {high} · L {low}"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maks. {high} · Min. {low}"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Máx. {high} · Mín. {low}"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Макс. {high} · Мин. {low}"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สูงสุด {high} · ต่ำสุด {low}"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Y {high} · D {low}"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Макс. {high} · Мін. {low}"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cao {high} · Thấp {low}"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最高 {high} · 最低 {low}"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最高 {high} · 最低 {low}"
-          }
-        }
-      }
-    },
-    "newTab.widgets.weatherStale": {
-      "comment": "Agent pane: New Tab weather widget tooltip when the reading could not be refreshed (offline). {place} is a city.",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{place}: آخر قراءة، تعذّر التحديث"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{place}: posljednje očitanje, osvježavanje nije uspjelo"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{place}: seneste måling, kunne ikke opdatere"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{place}: letzter Stand, Aktualisierung fehlgeschlagen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{place}: last reading, could not refresh"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{place}: última lectura, no se pudo actualizar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{place} : dernier relevé, actualisation impossible"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{place}: ultima lettura, impossibile aggiornare"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{place}: 最後の取得値(更新できませんでした)"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{place}៖ ការ​អាន​ចុងក្រោយ មិន​អាច​ធ្វើ​បច្ចុប្បន្នភាព​បាន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{place}: 마지막 값, 새로 고칠 수 없음"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{place}: siste måling, kunne ikke oppdatere"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{place}: ostatni odczyt, nie udało się odświeżyć"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{place}: última leitura, não foi possível atualizar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{place}: последние данные, обновить не удалось"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{place}: ค่าล่าสุด รีเฟรชไม่ได้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{place}: son ölçüm, yenilenemedi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{place}: останні дані, не вдалося оновити"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{place}: lần đọc gần nhất, không thể làm mới"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{place}:上次读数,无法刷新"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{place}:上次讀數,無法重新整理"
-          }
-        }
-      }
-    },
-    "newTab.widgets.machines": {
-      "comment": "Agent pane: New Tab ambient widgets, the machines widget's accessibility label",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الأجهزة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Računari"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maskiner"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rechner"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Machines"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Equipos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Machines"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Macchine"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マシン"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ម៉ាស៊ីន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "머신"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maskiner"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maszyny"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Máquinas"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Компьютеры"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เครื่อง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Makineler"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Комп’ютери"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Máy"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "机器"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "機器"
-          }
-        }
-      }
-    },
-    "newTab.widgets.online": {
-      "comment": "Agent pane: New Tab machines widget, a machine that is connected",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "متصل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Na mreži"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Online"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Online"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Online"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conectado"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "En ligne"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Online"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "オンライン"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "អនឡាញ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "온라인"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tilkoblet"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Online"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Online"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "В сети"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ออนไลน์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Çevrimiçi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "У мережі"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Trực tuyến"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在线"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在線"
-          }
-        }
-      }
-    },
-    "newTab.widgets.offline": {
-      "comment": "Agent pane: New Tab machines widget, a machine that is not connected",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "غير متصل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Van mreže"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Offline"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Offline"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Offline"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sin conexión"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hors ligne"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Offline"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "オフライン"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ក្រៅបណ្ដាញ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오프라인"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Frakoblet"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Offline"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Offline"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не в сети"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ออฟไลน์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Çevrimdışı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не в мережі"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ngoại tuyến"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "离线"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "離線"
           }
         }
       }
@@ -222881,134 +222221,134 @@
         }
       }
     },
-    "newTab.widget.headline": {
-      "comment": "Agent pane: the New Tab page's headline widget (the question over the composer), by name (edit mode).",
+    "newTab.widget.greeting": {
+      "comment": "Agent pane: the New Tab page's greeting widget, by name (edit mode).",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "العنوان"
+            "value": "التحية"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Naslov"
+            "value": "Pozdrav"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Overskrift"
+            "value": "Hilsen"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Überschrift"
+            "value": "Begrüßung"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Headline"
+            "value": "Greeting"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Titular"
+            "value": "Saludo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Titre"
+            "value": "Salutation"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Titolo"
+            "value": "Saluto"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "見出し"
+            "value": "あいさつ"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ចំណងជើង"
+            "value": "ការស្វាគមន៍"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "제목"
+            "value": "인사말"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Overskrift"
+            "value": "Hilsen"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nagłówek"
+            "value": "Powitanie"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Título"
+            "value": "Saudação"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Заголовок"
+            "value": "Приветствие"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "หัวข้อ"
+            "value": "คำทักทาย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Başlık"
+            "value": "Selamlama"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Заголовок"
+            "value": "Привітання"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tiêu đề"
+            "value": "Lời chào"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "标题"
+            "value": "问候语"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "標題"
+            "value": "問候語"
           }
         }
       }

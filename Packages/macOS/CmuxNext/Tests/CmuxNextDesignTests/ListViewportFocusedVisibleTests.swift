@@ -1,7 +1,6 @@
 import CoreGraphics
 @testable import CmuxNextDesign
 import Testing
-import CmuxNextDesignTokens
 
 /// The sidebar invariant (Lawrence 2026-10-19): when the focused row moves, it
 /// stays in view, whoever moved it; a user who scrolled away keeps the view

@@ -1,6 +1,5 @@
 public import AppKit
 public import CmuxTheme
-public import CmuxNextDesignTokens
 
 /// A workspace group's color (cx-25az): one of the group palette tokens, a
 /// custom color a person picked, or no color at all. The wire form is the

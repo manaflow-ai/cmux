@@ -16,10 +16,7 @@ import type { SpeedSection } from "./EffortPicker";
 import { type SpeedTiers, useSpeedToggle } from "./FastToggle";
 import { pendingSpeed } from "./pendingSpeed";
 import { type StringKey, useT } from "./i18n";
-import { ModelPicker, pickerFaceHarness } from "./ModelPicker";
-import { ComposerHarness } from "./ComposerHarness";
-import { knownMark } from "../shared/AgentMark";
-import { agentName } from "./agents";
+import { ModelPicker } from "./ModelPicker";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { extraConfigOptions } from "./agentOptions";
 import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
@@ -594,9 +591,8 @@ export function ComposerPickers({
     if (harness && resolvedNow) rememberResolvedDefault(harness, resolvedNow);
   }, [harness, resolvedNow]);
   // A new chat draws its chips for the harness its first prompt starts: the one named, else the
-  // picker's first installed, pickable one, the one the model picker's face draws (a bundled
-  // harness acpmux does not have can come first in `pickerEntries`); else the catalog's first.
-  const chipHarness = harness ?? pickerFaceHarness(pickerEntries) ?? pickerEntries[0]?.id;
+  // catalog's first, as the model picker's face does.
+  const chipHarness = harness ?? pickerEntries[0]?.id;
   const chipEntry = pickerCatalog?.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === chipHarness);
   const unreported = shown === undefined && chipHarness !== undefined && (!summary?.sessionId || switching);
   // A fresh chat on this Mac whose session has not reported its model yet names the one its New Tab
@@ -845,44 +841,10 @@ export function ComposerPickers({
       ? t(PICKER_LABELS.context, { percent: Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) })
       : undefined;
 
-  // The quiet row starts with the harness (ComposerHarness.tsx): the one a switch is starting, else
-  // the chat's, else the one the chips draw while acpmux lists it as installed, marked and named as
-  // the model button's rail names it. The chips' fallback is the picker's first installed harness;
-  // with none (none installed, or acpmux has not listed them yet) it is the catalog's first, a
-  // bundled harness acpmux may not have: then the row names none. With none installed the model
-  // button's place says Add harness instead (picksModel below), and no mode chip shows.
-  const switchTarget = snapshot.switching?.phase === "failed" ? undefined : snapshot.switching;
-  const footHarness =
-    switchTarget?.harness ??
-    harness ??
-    (chipHarness && snapshot.catalog.some((entry) => entry.id === chipHarness) ? chipHarness : undefined);
-  const footEntry = footHarness ? snapshot.catalog.find((entry) => entry.id === footHarness) : undefined;
-  const footPicker =
-    footHarness === chipHarness
-      ? chipEntry
-      : pickerCatalog?.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === footHarness);
-  const harnessMark = footHarness
-    ? knownMark(footEntry?.icon, footEntry?.family, footPicker?.brand ?? undefined, footHarness)
-    : undefined;
-  const harnessName = footHarness
-    ? (switchTarget?.name ?? footPicker?.name ?? agentName(footHarness, footEntry?.name))
-    : undefined;
-  // The model button's menu, which the harness item opens while the chat can still switch.
-  const switcher = useRef<(() => void) | undefined>(undefined);
-  const picksModel =
-    snapshot.catalog.length > 0 || Boolean(harness) || Boolean(pickerCatalog?.harnesses.length && !harnessesListed);
   const chips = (
     <div className="acpmux-chips">
-      {picksModel && harnessMark && harnessName && (
-        <ComposerHarness
-          mark={harnessMark}
-          name={harnessName}
-          {...(switchHarness && picksModel ? { openSwitcher: () => switcher.current?.() } : {})}
-        />
-      )}
-      {picksModel ? (
+      {snapshot.catalog.length > 0 || harness || Boolean(pickerCatalog?.harnesses.length && !harnessesListed) ? (
         <ModelPicker
-          opener={switcher}
           catalog={pickerEntries}
           harness={harness}
           model={shown}
@@ -930,23 +892,13 @@ export function ComposerPickers({
           </span>
         )
       )}
-      {/* With no harness installed (the Add harness chip above) there is nothing to set a mode for:
-          the start mode, its highest-level fallback and the inert "Mode" placeholder are the chips'
-          catalog fallback's, a harness acpmux does not have, so the row shows none of them. While
-          acpmux has not listed its harnesses yet, `picksModel` holds and the placeholder keeps its
-          place (#24517). */}
-      {picksModel &&
-        modes.length === 0 &&
-        !hasGrants &&
-        startMode &&
-        startModeName &&
-        pendingAccessModes.length === 0 && (
-          <PendingMode
-            label={startModeName}
-            modeId={startMode.borrowed ? undefined : startMode.modeId}
-            icon={startMode.borrowed ? undefined : pendingMenu?.rows.find((row) => row.id === startMode.modeId)?.icon}
-          />
-        )}
+      {modes.length === 0 && !hasGrants && startMode && startModeName && pendingAccessModes.length === 0 && (
+        <PendingMode
+          label={startModeName}
+          modeId={startMode.borrowed ? undefined : startMode.modeId}
+          icon={startMode.borrowed ? undefined : pendingMenu?.rows.find((row) => row.id === startMode.modeId)?.icon}
+        />
+      )}
       {/* Granted folder trust and chat allowance stay revocable when the harness offers no modes. */}
       {(modes.length > 0 || hasGrants || pendingAccessModes.length > 0) && (
         <AccessMenu

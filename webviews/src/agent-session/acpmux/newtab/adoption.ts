@@ -6,13 +6,10 @@ import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { newTabHost, type NewTabHost } from "../NewTabPage";
 import { omnibarContext } from "../omnibar";
-import { parseWeather } from "./ambient";
 
 export const NEW_TAB_ADOPT_EVENT = "acpmux-newtab-adopt";
 /// The host's open tabs and workspaces changed while the page shows (AgentPaneView.refreshNewTabPlaces).
 export const NEW_TAB_PLACES_EVENT = "acpmux-newtab-places";
-/// The weather widget's reading arrived or changed while the page shows (AgentPaneView.refreshNewTabWeather).
-export const NEW_TAB_WEATHER_EVENT = "acpmux-newtab-weather";
 
 /// The context the host gave as the document committed (AgentPaneNavigation), for the first
 /// render: the page draws New Tab with no round trip (cx-z9kz0). Undefined when it came too late
@@ -93,25 +90,5 @@ export function useNewTabPlaces(
     };
     window.addEventListener(NEW_TAB_PLACES_EVENT, handle);
     return () => window.removeEventListener(NEW_TAB_PLACES_EVENT, handle);
-  }, [update]);
-}
-
-/// Takes each weather event's reading into the shown page, in place (no remount): a page opened
-/// before the first reading, or with an old one, shows the refreshed reading when it arrives. A
-/// detail that is not a reading (null: the widget turned off) takes the reading away.
-export function useNewTabWeather(
-  update: (apply: (host: NewTabHost | undefined) => NewTabHost | undefined) => void,
-): void {
-  useEffect(() => {
-    const handle = (event: Event) => {
-      const weather = parseWeather((event as CustomEvent).detail);
-      update((host) => {
-        if (!host) return host;
-        const { weather: _old, ...rest } = host;
-        return weather ? { ...rest, weather } : rest;
-      });
-    };
-    window.addEventListener(NEW_TAB_WEATHER_EVENT, handle);
-    return () => window.removeEventListener(NEW_TAB_WEATHER_EVENT, handle);
   }, [update]);
 }

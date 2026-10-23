@@ -1,6 +1,5 @@
 public import CoreGraphics
 public import Foundation
-public import CmuxNextDesignTokens
 
 /// A density metric that Debug Settings can override. Its default is the
 /// density preset (or the user's `appearance.metrics.*` override in

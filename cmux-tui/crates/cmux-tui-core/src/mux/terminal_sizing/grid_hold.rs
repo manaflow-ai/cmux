@@ -168,46 +168,6 @@ impl Mux {
     }
 }
 
-impl Mux {
-    /// Ends the grid hold of the terminal shown at `placement` when it is the
-    /// hold a view that left at `left_at` set (or an older one): the hold
-    /// ends no later than `left_at` plus the grace. A later departure's hold
-    /// (a phone that reattached and dropped again) runs on. The size lease
-    /// calls this when a departed view's lease ends.
-    pub(crate) fn end_terminal_grid_hold_of_departure(
-        &self,
-        placement: SurfaceId,
-        left_at: Instant,
-    ) {
-        // A hold set while the departure was being recorded may end a moment later.
-        let latest = left_at + departed_grid_hold() + Duration::from_millis(250);
-        let _lifecycle = self.lock_client_sizing_lifecycle();
-        let sizing = self.client_sizing.lock().unwrap_or_else(PoisonError::into_inner);
-        let held = sizing
-            .terminal_sizing
-            .iter()
-            .filter(|(runtime, entry)| {
-                placement == **runtime
-                    || entry.placements.contains(&placement)
-                    || sizing.terminal_runtime_by_placement.get(&placement) == Some(*runtime)
-            })
-            .filter(|(_, entry)| match entry.hold.get() {
-                Some((_, until)) if until <= latest => {
-                    entry.hold.set(None);
-                    true
-                }
-                _ => false,
-            })
-            .map(|(runtime, _)| *runtime)
-            .collect::<Vec<_>>();
-        for runtime in held {
-            self.apply_terminal_grid(&sizing, runtime);
-        }
-        drop(sizing);
-        self.publish_size_states();
-    }
-}
-
 /// How long a departed view holds the grid from growing (see
 /// `Mux::terminal_grid_target`). Long enough for a phone's link drop,
 /// transport switch or brief app switch; short enough that a Mac whose phone

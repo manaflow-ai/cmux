@@ -1,5 +1,4 @@
 public import AppKit
-public import CmuxNextDesignTokens
 
 /// The one source of animation timing for cmux-next chrome
 /// (plans/cmux-next/motion.md). Every animation reads a token here; no

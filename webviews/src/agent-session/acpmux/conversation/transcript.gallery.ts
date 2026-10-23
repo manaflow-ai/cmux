@@ -1839,23 +1839,6 @@ export default agentPaneEntry({
       snapshot: collapsedRunChat(),
       play: openFoldedRun,
     },
-    "collapsed-run-spacing-tight": {
-      note: "Gallery comparison: the tool rows use a 20px line and 2px after the run.",
-      snapshot: collapsedRunChat(),
-      documentAttributes: { "transcript-tool-spacing": "tight" },
-      play: openFoldedRun,
-    },
-    "collapsed-run-spacing-selected": {
-      note: "Selected gallery rhythm: compact 22px tool rows and a 4px gap before the reply, matching the Codex reference.",
-      snapshot: collapsedRunChat(),
-      play: openFoldedRun,
-    },
-    "collapsed-run-spacing-roomy": {
-      note: "Gallery comparison: the prior 26px tool rows and 8px after-run gap.",
-      snapshot: collapsedRunChat(),
-      documentAttributes: { "transcript-tool-spacing": "roomy" },
-      play: openFoldedRun,
-    },
     "collapsed-run-failed": {
       note: "A failed call in the collapsed run is counted on its line.",
       snapshot: collapsedRunChat([

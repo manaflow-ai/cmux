@@ -2,8 +2,6 @@ package import Foundation
 
 /// Screen bar, prompt, and refusal strings (Screens.xcstrings, 21 languages).
 package nonisolated enum ScreenStrings {
-    /// The bundle that holds `Resources/Screens.xcstrings` (this module's), for tests.
-    package static var bundle: Bundle { .module }
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, table: "Screens", bundle: .module)
     }

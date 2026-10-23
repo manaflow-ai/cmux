@@ -19,12 +19,7 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "terminal")
 ///   fails) input goes on the attach channel.
 /// - Size: `resize-surface {surface, cols, rows}` with the phone's TUI grid,
 ///   on the attach channel (the daemon gives geometry authority to the
-///   attaching client), only while the terminal is on screen
-///   (``setClaimsSize(_:)``). Hidden, it sends `release-surface-size` and no
-///   size until it is shown again; stopped, it releases before the channel
-///   closes; while it claims, it refreshes the Mac's size lease
-///   (`size-lease-v1`) every ``sizeLeaseRefresh`` (PROTOCOL.md, "Terminal
-///   size claims").
+///   attaching client).
 ///
 /// The alternate screen flag is derived from the bytes (no event carries it).
 ///
@@ -81,22 +76,7 @@ public final class DaemonTerminalSession: TerminalSession {
 
     private enum Outgoing: Sendable {
         case size(columns: Int, rows: Int)
-        /// `release-surface-size`: the terminal left the screen.
-        case release
     }
-
-    /// Whether this phone's size should count on the Mac now (the terminal
-    /// is on screen in the foreground app). Set by ``setClaimsSize(_:)``.
-    private var claimsSize = true
-    /// The Mac holds a size of this session's now (a sized attach or a
-    /// `resize-surface` went out, and no release after it).
-    private var sizeClaimed = false
-    /// The daemon lists `size-lease-v1`: a claim lasts only while refreshed.
-    private var leased = false
-    /// How often a claimed size is sent again while the daemon leases it.
-    /// The daemon's lease is 45 s.
-    var sizeLeaseRefresh: Duration = .seconds(15)
-    private var leaseTask: Task<Void, Never>?
     private var draining = false
     private var pendingSize: (columns: Int, rows: Int)?
     /// The grid last asked for, put back after a reattach.
@@ -225,13 +205,6 @@ public final class DaemonTerminalSession: TerminalSession {
 
     public func resize(columns: Int, rows: Int) {
         guard columns > 0, rows > 0 else { return }
-        // Hidden: remembered for when the terminal is shown, never sent
-        // (it would make the Mac's pane the phone's size again).
-        guard claimsSize else {
-            lastSize = (columns, rows)
-            pendingSize = (columns, rows)
-            return
-        }
         // A no-op resize never reaches the Mac (each one makes it reset the
         // mirror and replay, and an inline TUI redraw its whole transcript).
         if attached, let last = lastSize, last.columns == columns, last.rows == rows { return }
@@ -244,30 +217,6 @@ public final class DaemonTerminalSession: TerminalSession {
         }
     }
 
-    /// The terminal is on screen in the foreground app (true), or it left
-    /// (false: another tab, the grid, a sheet over it, the app in the
-    /// background). Leaving releases the phone's size on the Mac at once, so
-    /// the Mac's pane gets its own size back; coming back claims the last
-    /// size again.
-    public func setClaimsSize(_ claims: Bool) {
-        guard claims != claimsSize else { return }
-        claimsSize = claims
-        outbox.removeAll { if case .size = $0 { true } else { false } }
-        if claims {
-            if attached, let size = lastSize {
-                log.notice("surface \(self.surface, privacy: .public): shown again, claiming \(size.columns, privacy: .public)x\(size.rows, privacy: .public)")
-                enqueue(.size(columns: size.columns, rows: size.rows))
-            }
-        } else {
-            stopLeaseRefresh()
-            if attached, sizeClaimed {
-                log.notice("surface \(self.surface, privacy: .public): left the screen, releasing its size")
-                enqueue(.release)
-            }
-            sizeClaimed = false
-        }
-    }
-
     public func stop() {
         eventTask?.cancel()
         eventTask = nil
@@ -275,24 +224,8 @@ public final class DaemonTerminalSession: TerminalSession {
         inbox = nil
         outputPaused = false
         handler = nil
-        stopLeaseRefresh()
-        // The Mac drops this attach (a tab cooled out of the warm set, or
-        // gone). The size is released first and answered, so the Mac never
-        // reads the close as a dropped link (which holds its grid for 30 s).
-        if let client {
-            // A claimed size, or a release still waiting behind another request.
-            let release = attached && (sizeClaimed || outbox.contains { if case .release = $0 { true } else { false } })
-            let surface = surface
-            Task {
-                if release {
-                    _ = try? await Self.within(.seconds(2)) {
-                        try await client.request("release-surface-size", params: ["surface": surface])
-                    }
-                }
-                await client.close()
-            }
-        }
-        sizeClaimed = false
+        // The Mac drops this attach (a tab cooled out of the warm set, or gone).
+        if let client { Task { await client.close() } }
         attached = false
         client = nil
         dropInputLane()
@@ -429,17 +362,13 @@ public final class DaemonTerminalSession: TerminalSession {
                 }
             }
             attachedWithSize = nil
-            sizeClaimed = false
-            // One write: the client info (it opts into the size lease) and identify.
-            var info: [String: Any] = clientInfo
-            info["capabilities"] = [Self.sizeLeaseCapability]
+            // One write: the client info (when given) and identify.
             let setup = await client.requests(
-                [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
+                (clientInfo.isEmpty ? [] : [(cmd: "set-client-info", params: clientInfo as [String: Any])])
+                    + [(cmd: "identify", params: [:])]
             )
             let identify = try? setup.last?.get()
-            // Hidden: attach without a size, so the attach claims none.
-            let initialSize = claimsSize && (identify.map(Self.acceptsInitialSize) ?? false)
-            leased = identify.map { Self.lists(Self.sizeLeaseCapability, $0) } ?? false
+            let initialSize = identify.map(Self.acceptsInitialSize) ?? false
             // The mirror is not reset yet: a reattach that fails (a Mac host
             // that just restarted answers "unknown surface" for a moment) keeps
             // the last frame on screen under the reconnecting badge, instead
@@ -496,18 +425,10 @@ public final class DaemonTerminalSession: TerminalSession {
             handler?(.connection(.attached))
             lastError = nil
             pendingSize = nil
-            outbox.removeAll { if case .release = $0 { true } else { false } }
-            if attachedWithSize != nil { sizeClaimed = true }
-            // Hidden while the attach was out: the size it carried goes back.
-            if !claimsSize, sizeClaimed {
-                outbox.insert(.release, at: 0)
-                sizeClaimed = false
-            }
-            if claimsSize, let size = lastSize, attachedWithSize.map({ $0.columns != size.columns || $0.rows != size.rows }) ?? true {
+            if let size = lastSize, attachedWithSize.map({ $0.columns != size.columns || $0.rows != size.rows }) ?? true {
                 outbox.removeAll { if case .size = $0 { true } else { false } }
                 outbox.insert(.size(columns: size.columns, rows: size.rows), at: 0)
             }
-            if sizeClaimed { startLeaseRefresh() }
             drain()
             drainInput()
             openInputLane(for: client)
@@ -549,7 +470,6 @@ public final class DaemonTerminalSession: TerminalSession {
         self.client = nil
         dropInputLane()
         attached = false
-        stopLeaseRefresh()
         markInputDetached()
         draining = false
         guard handler != nil, !ended else { return }
@@ -642,12 +562,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 case .size(let columns, let rows):
                     cmd = "resize-surface"
                     log.notice("surface \(surface, privacy: .public): resize-surface sent \(columns, privacy: .public)x\(rows, privacy: .public) cause=\(self.everAttached && self.attachRetries == 0 ? "requested" : "attach", privacy: .public)")
-                    sizeClaimed = true
-                    startLeaseRefresh()
                     reply = try await client.request(cmd, params: ["surface": surface, "cols": columns, "rows": rows])
-                case .release:
-                    cmd = "release-surface-size"
-                    reply = try await client.request(cmd, params: ["surface": surface])
                 }
                 if let error = Self.error(in: reply) {
                     lastError = error
@@ -818,46 +733,6 @@ public final class DaemonTerminalSession: TerminalSession {
         if tree.surfaces.values.contains(surface) { return true }
         guard let terminalID else { return false }
         return tree.terminals.values.contains { $0.resourceID == terminalID || $0.id == terminalID }
-    }
-
-    // MARK: Size lease
-
-    /// Listed in `set-client-info` and by the daemon in `identify`.
-    static let sizeLeaseCapability = "size-lease-v1"
-
-    /// While the size is claimed and the daemon leases it: the same size
-    /// again every `sizeLeaseRefresh` (a same-size `resize-surface` renews
-    /// the lease and never resizes the terminal). One refresher at a time.
-    private func startLeaseRefresh() {
-        guard leased, claimsSize, leaseTask == nil else { return }
-        let interval = sizeLeaseRefresh
-        // The lease's own cadence (an intentional bounded delay), not a sync wait.
-        leaseTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: interval)
-                guard !Task.isCancelled, let self else { return }
-                self.refreshLease()
-            }
-        }
-    }
-
-    private func stopLeaseRefresh() {
-        leaseTask?.cancel()
-        leaseTask = nil
-    }
-
-    private func refreshLease() {
-        guard attached, claimsSize, sizeClaimed, let size = lastSize else { return }
-        // A refresh already queued, or a resize on its way, renews it too.
-        guard !outbox.contains(where: { if case .size = $0 { true } else { false } }) else { return }
-        enqueue(.size(columns: size.columns, rows: size.rows))
-    }
-
-    nonisolated static func lists(_ capability: String, _ identify: Data) -> Bool {
-        guard let object = try? JSONSerialization.jsonObject(with: identify) as? [String: Any],
-              let data = object["data"] as? [String: Any],
-              let capabilities = data["capabilities"] as? [String] else { return false }
-        return capabilities.contains(capability)
     }
 
     /// Whether the daemon takes the viewer's size in `attach-surface`.

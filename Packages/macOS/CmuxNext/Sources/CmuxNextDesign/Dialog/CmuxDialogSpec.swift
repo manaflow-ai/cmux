@@ -1,5 +1,4 @@
 public import Foundation
-public import CmuxNextDesignTokens
 
 /// What a cmux dialog asks (R96: every dialog is a cmux dialog, no system
 /// alerts). A spec is plain data: the title, one short sentence per line,

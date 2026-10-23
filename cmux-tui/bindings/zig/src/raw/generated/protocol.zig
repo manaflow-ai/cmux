@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "703393e4b4e99f70fa8b7761ae54eebd46dc54b8ed3ce9b83a597216d6f75cb1";
+pub const ir_sha256 = "655baaa1d0f11bd63754ffcda70267c4b8f07a2d8d415bf0c302c2ccab838a96";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1318,16 +1318,12 @@ pub const NameSource = enum {
 
 pub const NewRowResult = struct {
     pane: Id,
-    pane_id: ?[]const u8 = null,
     surface: Id,
-    tab_id: ?[]const u8 = null,
     terminal_id: wire.Field([]const u8) = .absent,
     terminal_incarnation: wire.Field([]const u8) = .absent,
     transaction: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "pane_id",
-        "tab_id",
         "transaction",
     };
 };
@@ -7270,10 +7266,8 @@ pub const NewRowRequest = struct {
     height_permille: u64,
     keep: ?bool = null,
     pane: Id,
-    pane_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
     shell_args: wire.Field([]const []const u8) = .absent,
-    tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     transaction: wire.Field([]const u8) = .absent,
 
@@ -7290,10 +7284,6 @@ pub fn newRow(client: anytype, request: NewRowRequest) !wire.Decoded(NewRowResul
             .authority = "control",
             .since = 12,
             .capability = "rows-v1",
-            .fields = &.{
-                .{ .name = "pane_id", .since = null, .capability = "row-client-keys-v1" },
-                .{ .name = "tab_id", .since = null, .capability = "row-client-keys-v1" },
-            },
         },
         request,
     );

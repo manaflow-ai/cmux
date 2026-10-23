@@ -1,6 +1,5 @@
 public import AppKit
 import CmuxTheme
-public import CmuxNextDesignTokens
 
 /// Chrome colors, all derived from the terminal theme (`ThemeTokens`).
 ///

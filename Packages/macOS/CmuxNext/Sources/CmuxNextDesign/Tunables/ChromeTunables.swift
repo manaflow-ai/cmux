@@ -1,6 +1,5 @@
 public import CoreGraphics
 public import Foundation
-public import CmuxNextDesignTokens
 
 /// Fixed chrome constants (the 2 pt spacing grid, divider widths, insets)
 /// and the glass and scroll-fade parameters, as Debug Settings tunables.

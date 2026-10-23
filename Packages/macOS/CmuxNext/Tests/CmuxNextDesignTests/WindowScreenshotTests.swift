@@ -3,7 +3,6 @@ import AppKit
 import Metal
 import QuartzCore
 import Testing
-import CmuxNextDesignTokens
 
 /// `cmux window|pane|tab screenshot` reads the app's own window without the
 /// Screen Recording grant (`NSWindow.screenshotImage`). The window here has

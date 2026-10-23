@@ -115,6 +115,7 @@ final class RestartNoticePanel {
 
     @objc func dismiss() {
         observers.removeAll()
+        observers.removeAll()
         parent?.removeChildWindow(panel)
         panel.orderOut(nil)
     }

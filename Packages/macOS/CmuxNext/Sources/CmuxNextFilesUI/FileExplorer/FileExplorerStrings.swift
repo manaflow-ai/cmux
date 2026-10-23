@@ -3,8 +3,6 @@ package import Foundation
 /// The file explorer's and the Find section's text. Keys live in
 /// Resources/FileExplorer.xcstrings.
 package nonisolated enum FileExplorerStrings {
-    /// The bundle that holds `Resources/FileExplorer.xcstrings` (this module's), for tests.
-    package static var bundle: Bundle { .module }
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, table: "FileExplorer", bundle: .module)
     }

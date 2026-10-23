@@ -1,5 +1,4 @@
 public import AppKit
-public import CmuxNextDesignTokens
 
 /// The single owner of every open cmux dialog. Callers present a spec in a
 /// scope and get exactly one answer; automation (the debug socket, the

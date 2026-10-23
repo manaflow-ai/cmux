@@ -1,5 +1,4 @@
 import AppKit
-public import CmuxNextDesignTokens
 
 /// A find pill's round button: borderless, ``FindPillMetrics/buttonSize`` square, with a
 /// circular hover fill (and the accent tint while a toggle is on), the way Safari's find

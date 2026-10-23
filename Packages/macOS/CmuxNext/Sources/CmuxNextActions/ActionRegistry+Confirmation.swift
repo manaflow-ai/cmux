@@ -27,12 +27,7 @@ extension ActionRegistry {
 
     /// Runs the gate for an unconfirmed destructive invocation. Returns
     /// whether the request was handled (asked, or refused).
-    ///
-    /// The presenter runs inside an `action.gate` interval (`gated`), not the action's own: most
-    /// presenters confirm in a later turn (a `Task`, a daemon round trip, a sheet), and the
-    /// confirmed run is timed by itself with the age of the press carried in the invocation.
-    /// `settle` puts a preview of another action back first.
-    func gateDestructive(_ id: ActionID, _ invocation: ActionInvocation, settle: () -> Void) -> Bool {
+    func gateDestructive(_ id: ActionID, _ invocation: ActionInvocation) -> Bool {
         let canonical = canonicalID(for: id)
         if isCapturingRefusal {
             refuse(Self.confirmationRequiredReason(for: canonical))
@@ -42,10 +37,9 @@ extension ActionRegistry {
             refuse(Self.confirmationRequiredReason(for: canonical))
             return false
         }
-        gated(id, invocation) { stamped in
-            settle()
-            confirmationPresenter(canonical, stamped) { [weak self] in
-                self?.perform(canonical, invocation: stamped.confirmed())
+        signposted(id, invocation) {
+            confirmationPresenter(canonical, invocation) { [weak self] in
+                self?.perform(canonical, invocation: invocation.confirmed())
             }
         }
         return true

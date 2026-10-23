@@ -82,9 +82,6 @@ final class InternalPageTabStore {
 
     func tabIDs(in paneKey: String) -> [String] { tabsByPane[paneKey] ?? [] }
 
-    /// The panes that have page tabs (observes the pane set).
-    var paneKeys: [String] { tabsByPane.keys }
-
     /// The first tab of `page` among `paneKeys`, with its pane.
     func tab(of page: InternalPageID, inPanes paneKeys: some Sequence<String>) -> (pane: String, key: String)? {
         for pane in paneKeys {

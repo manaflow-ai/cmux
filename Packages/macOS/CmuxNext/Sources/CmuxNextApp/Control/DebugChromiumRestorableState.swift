@@ -19,8 +19,7 @@ enum DebugChromiumRestorableState {
 
     private static func install() {
         guard !installed, let cls = NSClassFromString("NativeWidgetMacNSWindow") else { return }
-        // A typed selector (`encodeRestorableStateWithCoder:`), which NativeWidgetMacNSWindow inherits.
-        let selector = #selector(NSWindow.encodeRestorableState(with:))
+        let selector = NSSelectorFromString("encodeRestorableStateWithCoder:")
         guard let method = class_getInstanceMethod(cls, selector) else { return }
         installed = true
         typealias Encode = @convention(c) (AnyObject, Selector, NSCoder) -> Void

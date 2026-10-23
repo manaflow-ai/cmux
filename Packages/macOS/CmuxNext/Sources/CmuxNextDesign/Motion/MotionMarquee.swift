@@ -1,5 +1,4 @@
 public import QuartzCore
-public import CmuxNextDesignTokens
 
 /// Hover marquee of a truncated title (tabs, sidebar rows): after the
 /// pointer rests for `delay`, the title scrolls at a reading pace to show

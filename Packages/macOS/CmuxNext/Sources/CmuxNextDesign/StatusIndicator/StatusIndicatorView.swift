@@ -1,6 +1,5 @@
 public import AppKit
 import CmuxNextCompat
-public import CmuxNextDesignTokens
 
 /// `StatusIndicatorLayer` in an NSView, for view-based hosts (sidebar rows,
 /// group headers, section items, Home, pane headers). Follows the shared

@@ -119,8 +119,7 @@ test("a pick sets the look and turns the actions on or off only when they differ
 });
 
 test("a shown widget joins the page's list in its place; a shown one stays once", () => {
-  // No list is Settings' defaults: nothing on Minimal (no headline, Leo 2026-10-22).
-  expect(editedPageWidgets(undefined, { edit: "show", widget: "actions" })).toEqual(["actions"]);
+  expect(editedPageWidgets(undefined, { edit: "show", widget: "actions" })).toEqual(["greeting", "actions"]);
   expect(editedPageWidgets(["greeting", "chats"], { edit: "show", widget: "actions" })).toEqual([
     "greeting",
     "chats",
@@ -217,7 +216,7 @@ for (const template of ["default", "cards"] as const) {
     test(`on ${template} (${sent ? "the host's list" : "no list"}), each dot keeps the page's other widgets`, async () => {
       const { root, state } = await renderPage(template, sent);
       try {
-        const others = (sent ?? []).filter((widget) => widget !== "actions");
+        const others = (sent ?? ["greeting"]).filter((widget) => widget !== "actions");
         for (const [index, dot] of [
           [1, "claudeActions"],
           [0, "claude"],

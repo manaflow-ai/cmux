@@ -280,20 +280,18 @@ final class HomeHostView: NSView {
         message.lineBreakMode = .byWordWrapping
         message.wraps = true
         message.stringValue = HomeStrings.unavailable
-        // Hidden until the owner answers: a daemon still connecting is not one too old (the launch's fill shows).
-        message.isHidden = true
         addSubview(transcript)
         addSubview(message)
         // task-owner: lives as long as this view; event-driven (Observation)
         availability = Task { [weak self] in
             // Usable when its own owner answers: a cloud conversation (a Chief
             // placed on a server) needs no local Chief owner.
-            for await (available, explained, online, why, notice) in ObservationStream({
-                (service.isAvailable || service.isCloudConversation(id), service.isRefused || service.migrationNotice != nil,
-                 service.homeStore.isOnline, service.unavailableMessage, service.conversationNotice(for: id))
+            for await (available, online, why, notice) in ObservationStream({
+                (service.isAvailable || service.isCloudConversation(id), service.homeStore.isOnline, service.unavailableMessage,
+                 service.conversationNotice(for: id))
             }) {
                 self?.transcript.isHidden = !available
-                self?.message.isHidden = available || !explained
+                self?.message.isHidden = available
                 self?.message.stringValue = why
                 self?.transcript.showConversationNotice(notice)
                 self?.needsLayout = true

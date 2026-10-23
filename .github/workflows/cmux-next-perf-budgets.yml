@@ -45,24 +45,12 @@ name: cmux-next perf cron
 # plan records every Mac part as not run (the measurement is incomplete: it is neither the last good run nor
 # a reset of the 24 h stale clock), the measure job is skipped, and the issue says "Mac parts disabled". The Mac rows come from one bench host, cmux20-bench, on macOS 27 only: macOS 14, 15 and 26 are
 # not measured by this cron.
-#
-# The controller route takes no runner at all (the default once vars.CMUX_NEXT_PERF_CRON_CONTROLLER=1 and no
-# gateway label is set): the job `perf cron request <sha> <part>` is the request. The build controller
-# (cmuxterm-hq build-fleet/cmd/controller/perf_cron.go, CMUX_CI_PERF_CRON=1) reads it from the workflow_job
-# webhook, checks this workflow, branch and event, takes the part's args from its own allowlist, and queues one
-# background measurement step on cmux20-bench, only while that host is idle and no foreground build waits. A
-# foreground step for the host preempts it. When the step ends, the controller dispatches this workflow with
-# perf_result; that run plans nothing, and its report job stores the part and starts the next tick at once.
 
 on:
   workflow_dispatch:
     inputs:
       yield_mode:
         description: "queued: yield while a nightly or dev build waits for a runner (default); running: also while one runs"
-        required: false
-        default: ""
-      perf_result:
-        description: "set by the build controller (perf_cron.go): a Mac part's result; the run stores it and plans nothing"
         required: false
         default: ""
 
@@ -94,7 +82,6 @@ jobs:
       run_seconds: ${{ steps.plan.outputs.run_seconds }}
       step_minutes: ${{ steps.plan.outputs.step_minutes }}
       job_minutes: ${{ steps.plan.outputs.job_minutes }}
-      frame_pacing: ${{ steps.plan.outputs.frame_pacing }}
     steps:
       # The branch tip with the trees of its recent commits (the cmux-tui tree key of each candidate)
       # and no blobs beyond the scripts.
@@ -112,17 +99,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           MAC_GATEWAY: ${{ vars.CI_PERF_CRON_GATEWAY }}
-          MAC_CONTROLLER: ${{ vars.CMUX_NEXT_PERF_CRON_CONTROLLER }}
-          PERF_RESULT: ${{ inputs.perf_result }}
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/perf-cron"
           no_mac=()
-          [ -n "$MAC_GATEWAY" ] || [ "$MAC_CONTROLLER" = 1 ] || no_mac=(--no-mac)
+          [ -n "$MAC_GATEWAY" ] || no_mac=(--no-mac)
           python3 -I scripts/cmux-next/perf-cron.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$dir"
           python3 -I scripts/cmux-next/perf-cron.py plan --repo "$GITHUB_REPOSITORY" --dir "$dir" \
-            --yield-mode "$YIELD_MODE" ${no_mac[@]+"${no_mac[@]}"} --perf-result "$PERF_RESULT" \
-            --output "$GITHUB_OUTPUT" | tee "$RUNNER_TEMP/plan.log"
+            --yield-mode "$YIELD_MODE" ${no_mac[@]+"${no_mac[@]}"} --output "$GITHUB_OUTPUT" | tee "$RUNNER_TEMP/plan.log"
           { echo "### perf cron plan"; echo; sed -n 's/^perf-cron plan: //p' "$RUNNER_TEMP/plan.log"; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the working state for the report
@@ -138,7 +122,7 @@ jobs:
     name: perf cron part (fleet, background)
     needs: plan
     # Its own gateway label only (see the top of this file); unset, this job is skipped.
-    if: ${{ needs.plan.outputs.action == 'part' && needs.plan.outputs.part != '' && vars.CI_PERF_CRON_GATEWAY != '' }}
+    if: ${{ needs.plan.outputs.part != '' && vars.CI_PERF_CRON_GATEWAY != '' }}
     runs-on: ${{ vars.CI_PERF_CRON_GATEWAY }}
     permissions:
       contents: read
@@ -196,15 +180,8 @@ jobs:
         env:
           WHY: ${{ steps.part.outcome }}
         run: |
-          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          if ! [[ -x "$client" ]]; then
-            # No client, so no fleet step was started: record the attempt only (part-cleanup cancels nothing).
-            python3 -I scripts/cmux-next/perf-cron.py part-cleanup --out "$RUNNER_TEMP/perf-cron-part" \
-              --client /usr/bin/false --why "run step ${WHY:-not run}; no build-fleet client on $RUNNER_NAME"
-            exit 0
-          fi
           python3 -I scripts/cmux-next/perf-cron.py part-cleanup --out "$RUNNER_TEMP/perf-cron-part" \
-            --client "$client" --why "run step ${WHY:-not run}"
+            --client "${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}" --why "run step ${WHY:-not run}"
 
       - name: Keep the part's result
         if: always()
@@ -216,51 +193,10 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
-  # The controller route (cmuxterm-hq build-fleet/cmd/controller/perf_cron.go): with no gateway runner and
-  # vars.CMUX_NEXT_PERF_CRON_CONTROLLER=1, this job's name is the request. When it finishes, the controller queues the
-  # part as a background measurement step on cmux20-bench, but only while that host is idle and no foreground build
-  # waits, and dispatches this workflow with perf_result when the step ends. It takes no Mac and holds no runner.
-  request:
-    name: perf cron request ${{ needs.plan.outputs.sha }} ${{ needs.plan.outputs.part }}
-    needs: plan
-    if: ${{ needs.plan.outputs.action == 'part' && needs.plan.outputs.part != '' && vars.CI_PERF_CRON_GATEWAY == '' && vars.CMUX_NEXT_PERF_CRON_CONTROLLER == '1' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
-    permissions: {}
-    timeout-minutes: 5
-    steps:
-      - name: Ask the build controller for the part
-        env:
-          SHA: ${{ needs.plan.outputs.sha }}
-          PART: ${{ needs.plan.outputs.part }}
-        run: |
-          { echo "### perf cron request"; echo
-            echo "Asked the build controller for part \`$PART\` at \`${SHA:0:12}\`. It runs only while cmux20-bench is idle;"
-            echo "its result starts a new run of this workflow."; } >> "$GITHUB_STEP_SUMMARY"
-
-  # The frame-pacing bench (fling and golden interactions, 120 Hz virtual display, owned mini) left its fixed
-  # daily schedule: the plan starts it at most once in 24 h, and only when no nightly or dev build waits for a
-  # Mac. Its own gate still runs it only while an owned Mac is free.
-  frame-pacing:
-    name: perf cron starts frame pacing
-    needs: plan
-    if: ${{ needs.plan.outputs.frame_pacing == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    permissions:
-      actions: write
-    timeout-minutes: 5
-    steps:
-      - name: Start the frame-pacing bench on feat-cmux-next
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh workflow run cmux-next-frame-pacing.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f ref=feat-cmux-next
-          echo "Started the frame-pacing bench on feat-cmux-next." >> "$GITHUB_STEP_SUMMARY"
-
   linux:
     name: perf cron part (Linux)
     needs: plan
-    if: ${{ needs.plan.outputs.action == 'part' && needs.plan.outputs.linux_part != '' }}
+    if: ${{ needs.plan.outputs.linux_part != '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -347,12 +283,6 @@ jobs:
           name: perf-cron-part-${{ github.run_id }}
           path: ${{ runner.temp }}/perf-cron-part
 
-      - name: Read the controller's result
-        if: ${{ needs.plan.outputs.action == 'result' }}
-        env:
-          PERF_RESULT: ${{ inputs.perf_result }}
-        run: python3 -I scripts/cmux-next/perf-cron.py fetch-result --result "$PERF_RESULT" --out "$RUNNER_TEMP/perf-cron-part"
-
       - name: Download the Linux part's result
         if: ${{ needs.linux.result != 'skipped' }}
         continue-on-error: true
@@ -365,7 +295,7 @@ jobs:
         id: report
         env:
           GH_TOKEN: ${{ github.token }}
-          PART: ${{ (needs.measure.result != 'skipped' || needs.plan.outputs.action == 'result') && needs.plan.outputs.part || '' }}
+          PART: ${{ needs.measure.result != 'skipped' && needs.plan.outputs.part || '' }}
           LINUX_PART: ${{ needs.linux.result != 'skipped' && needs.plan.outputs.linux_part || '' }}
           FINISH: ${{ needs.plan.outputs.action == 'finish' && '--finish' || '' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

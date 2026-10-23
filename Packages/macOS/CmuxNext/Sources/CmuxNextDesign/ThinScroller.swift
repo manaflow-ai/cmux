@@ -1,5 +1,4 @@
 public import AppKit
-public import CmuxNextDesignTokens
 
 /// The one thin scroller of cmux NEXT's native scroll views: the sidebar's list and pinned bands,
 /// the Priority view, every scrollable card (hover cards, the update card's popover) and the

@@ -1,5 +1,4 @@
 public import AppKit
-public import CmuxNextDesignTokens
 
 /// The tab drop outline's look, shared by every surface that previews a
 /// drop (the layout overlay, the sidebar). Debug Settings tunables.

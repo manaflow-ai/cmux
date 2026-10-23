@@ -34794,34 +34794,6 @@
       "title" : "Import from Other Apps…",
       "title_key" : "action.import.open",
       "title_table" : "ImportActions"
-    },
-    {
-      "cli" : "offered",
-      "cli_name" : "settings view-hang-report",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "diagnostics.viewHangReport",
-      "main_menu" : null,
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "View Hang Report",
-      "title_key" : "action.diagnostics.viewHangReport",
-      "title_table" : "HangReportsActions"
     }
   ],
   "context_menu_rules" : [

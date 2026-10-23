@@ -14,6 +14,7 @@ import CmuxNextCompat
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         occlusion = nil
+        occlusion = nil
         if let window {
             occlusion = MainActorObservation(NSWindow.didChangeOcclusionStateNotification, object: window) { [weak self] in
                 self?.onChange?()

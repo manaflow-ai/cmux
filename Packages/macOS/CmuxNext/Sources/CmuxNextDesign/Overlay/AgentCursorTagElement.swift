@@ -1,5 +1,4 @@
 import AppKit
-public import CmuxNextDesignTokens
 
 /// VoiceOver's button for one agent cursor tag (`AgentCursorCarrierView`).
 /// AppKit calls accessibility on the main thread, but `NSAccessibilityElement`

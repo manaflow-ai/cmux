@@ -2,11 +2,6 @@
 
 use super::*;
 
-// Holder terminals re-attach in the same startup pass (mux::holder_adoption).
-#[cfg(any(unix, windows))]
-#[path = "holder_adoption.rs"]
-mod holder_adoption;
-
 impl Mux {
     pub(super) fn transition_terminal_lifecycle(
         &self,

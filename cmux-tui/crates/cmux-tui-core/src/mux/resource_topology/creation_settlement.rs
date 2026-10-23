@@ -28,12 +28,7 @@ impl Mux {
         );
         drop(deferred);
         // Also after a failure: its settlement commits must be durable too.
-        // A poisoned registry lock still flushes: the settlement commits must reach disk.
-        let flushed = self
-            .workspace_registry
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .flush_deferred_commits();
+        let flushed = self.workspace_registry.lock().unwrap().flush_deferred_commits();
         crate::debug_spans::mark("creation.durable");
         let created = created?;
         flushed?;

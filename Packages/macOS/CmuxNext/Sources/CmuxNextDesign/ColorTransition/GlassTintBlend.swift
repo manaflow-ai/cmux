@@ -1,5 +1,4 @@
 import AppKit
-public import CmuxNextDesignTokens
 
 /// The Liquid Glass tint of a window backdrop moving to a new color with the color transition
 /// (`appearance.colorTransition`, cx-3rf4z). `NSGlassEffectView.tintColor` is not a layer

@@ -14,7 +14,7 @@ export function useWidgetName(): (widget: PageWidget) => string {
   const nt = useNt();
   return (widget) =>
     widget === "greeting"
-      ? nt("widget.headline")
+      ? nt("widget.greeting")
       : widget === "projects"
         ? nt("widget.projects")
         : widget === "actions"
@@ -63,7 +63,7 @@ export function WidgetFrame({
 }: {
   widget: PageWidget;
   editing: WidgetEditing;
-  /// The movable widgets shown, in order; a widget not in it (the headline) stays where it is.
+  /// The movable widgets shown, in order; a widget not in it (the greeting) stays where it is.
   order: readonly MovableWidget[];
   onEdit?(edit: WidgetEdit): void;
   className?: string;

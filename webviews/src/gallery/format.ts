@@ -72,11 +72,7 @@ export type PasswordsPageVariant = VariantBase & {
 export type ChipHostFixture = {
   paths?: Record<string, { place: "root" | "outside" | "denied" | "missing"; folder: boolean }>;
   sites?: Record<string, { icon?: string; title?: string }>;
-  policy?: {
-    outsideRoots?: "confirm" | "text" | "open";
-    remoteImages?: "click" | "never" | "always";
-    clickFreeImageHosts?: string[];
-  };
+  policy?: { outsideRoots?: "confirm" | "text" | "open"; remoteImages?: "click" | "never" | "always" };
   images?: Record<string, string | null>;
   /** `media.load` answers: the URL the player plays for each path. */
   media?: Record<string, string>;

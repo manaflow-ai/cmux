@@ -1,5 +1,4 @@
 import QuartzCore
-public import CmuxNextDesignTokens
 
 /// The agent working mark (WORKING-AND-LOADING-INDICATORS): three dots in a
 /// row, drawn by one `CAReplicatorLayer` around one dot, so it costs one

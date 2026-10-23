@@ -1,7 +1,6 @@
 import CmuxNextWakeups
 import Foundation
 import os
-public import CmuxNextDesignTokens
 
 /// The one quit hook for unsaved state (R96). The registry holds every
 /// participant weakly; `save` runs every save concurrently, each bounded by

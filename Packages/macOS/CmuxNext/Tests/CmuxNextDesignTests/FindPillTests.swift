@@ -1,7 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
 import Testing
-import CmuxNextDesignTokens
 
 /// Lawrence, 2026-10-20: every Cmd-F bar (terminal, browser, Agent chat, diff viewer) is one
 /// Liquid Glass capsule that looks and behaves the same (plans/cmux-next/find-pill-gallery.html,

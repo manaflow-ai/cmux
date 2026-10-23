@@ -1,7 +1,4 @@
-import React, { createContext } from "react";
-
-/// True inside the quiet row: what draws only there (ComposerHarness.tsx) renders nothing elsewhere.
-export const InQuietRow = createContext(false);
+import React from "react";
 
 // The quiet row under a composer box, as Claude Code draws it (Leo 2026-10-19: "stick it to the
 // bottom"): the permission mode on the left as plain text, and on the right one model button
@@ -13,7 +10,7 @@ export const InQuietRow = createContext(false);
 export function ComposerFoot({ ref, children }: { ref?: React.Ref<HTMLDivElement>; children: React.ReactNode }) {
   return (
     <div ref={ref} className="acpmux-composer-bar acpmux-composer-foot" data-footer-look="plain">
-      <InQuietRow.Provider value={true}>{children}</InQuietRow.Provider>
+      {children}
     </div>
   );
 }

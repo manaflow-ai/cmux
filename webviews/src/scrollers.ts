@@ -243,16 +243,6 @@ export const NEAR_ATTRIBUTE = "data-cmux-scroller-near";
 /** How close to a scroller's trailing edge the pointer counts as near (ThinScroller.nearDistance). */
 export const NEAR_PX = 20;
 
-/** Whether a point at `x`, `y` is near the bottom edge of a box with `rect`'s bounds (a sideways
-    scroller's bar). */
-export function nearBottomEdge(
-  rect: { left: number; right: number; top: number; bottom: number },
-  x: number,
-  y: number,
-): boolean {
-  return y <= rect.bottom && y >= Math.max(rect.top, rect.bottom - NEAR_PX) && x >= rect.left && x <= rect.right;
-}
-
 /** Whether a point at `x`, `y` is near the trailing edge of a box with `rect`'s bounds. */
 export function nearTrailingEdge(
   rect: { left: number; right: number; top: number; bottom: number },
@@ -262,36 +252,32 @@ export function nearTrailingEdge(
   return x <= rect.right && x >= Math.max(rect.left, rect.right - NEAR_PX) && y >= rect.top && y <= rect.bottom;
 }
 
-function overflows(element: Element, axis: "x" | "y"): boolean {
-  const past =
-    axis === "y" ? element.scrollHeight > element.clientHeight : element.scrollWidth > element.clientWidth + 0.5;
-  if (!past) return false;
+function overflowsVertically(element: Element): boolean {
+  if (element.scrollHeight <= element.clientHeight) return false;
   const style = element.ownerDocument.defaultView?.getComputedStyle(element);
   if (!style) return false;
-  const value = axis === "y" ? style.overflowY : style.overflowX;
   const root = element === element.ownerDocument.documentElement;
-  return root ? value !== "hidden" && value !== "clip" : ["auto", "scroll", "overlay"].includes(value);
+  return root
+    ? style.overflowY !== "hidden" && style.overflowY !== "clip"
+    : ["auto", "scroll", "overlay"].includes(style.overflowY);
 }
 
 /**
  * The scroller the pointer is near: the first element on `path` (the pointer event's composed path,
- * innermost first, shadow roots included, so a diff's code rows count) that scrolls vertically with
- * its trailing edge within `NEAR_PX` of the pointer, or sideways with its bottom edge (its bar)
- * that close; the page's own scroller as <html>, whose edges are the viewport's.
+ * innermost first) that scrolls vertically and whose trailing edge is within `NEAR_PX` of the
+ * pointer; the page's own scroller as <html>, whose edge is the viewport's.
  */
 export function nearScroller(path: readonly EventTarget[], x: number, y: number): Element | null {
   for (const node of path) {
     const element = node as Element;
     if (typeof element.getBoundingClientRect !== "function" || typeof element.scrollHeight !== "number") continue;
-    const vertical = overflows(element, "y");
-    const sideways = overflows(element, "x");
-    if (!vertical && !sideways) continue;
+    if (!overflowsVertically(element)) continue;
     const view = element.ownerDocument.defaultView;
     const rect =
       element === element.ownerDocument.documentElement && view
         ? { left: 0, top: 0, right: view.innerWidth, bottom: view.innerHeight }
         : element.getBoundingClientRect();
-    if ((vertical && nearTrailingEdge(rect, x, y)) || (sideways && nearBottomEdge(rect, x, y))) return element;
+    if (nearTrailingEdge(rect, x, y)) return element;
   }
   return null;
 }
@@ -372,11 +358,7 @@ export const MONACO_SCROLLER_CSS = `
  * Shell block or call output; conversation/sideways.ts `watchSideways` keeps it current). Such a
  * block keeps its thin thumb at rest, on no track, whatever the macOS setting: a line cut at the
  * edge with nothing at rest to say it scrolls read as clipped (Leo 2026-10-21, ask-d900f5acf9:
- * "doesn't really display properly or even show that there's a horizontal scrollbar"). Under the
- * scrollbar fade (`SCROLLER_FADE_ATTRIBUTE`, the agent pane's default since Lawrence 2026-10-23,
- * msg 11494: "auto-fades away") it fades like every other scroller instead: none at rest (the
- * right-edge fade still says the lines go on), shown while the box scrolls, and wide while the
- * pointer is near its bar (`NEAR_ATTRIBUTE`). The thumb
+ * "doesn't really display properly or even show that there's a horizontal scrollbar"). The thumb
  * is the root rule's color (`--cmux-scroller-thumb`), in a lane `--cmux-sideways-lane` tall that
  * the block makes room for (conversation.css `--cv-lane`).
  */
@@ -389,10 +371,7 @@ const SIDEWAYS_THUMB = "var(--cmux-scroller-thumb, color-mix(in srgb, currentCol
  * Appended to every @pierre/diffs `unsafeCSS`. The library's code rows have a custom horizontal
  * scrollbar whose thumb shows on hover; here it shows only while the row scrolls
  * (`--cmux-scroller-rest` is unset: nothing at rest), except in a transcript block whose rows run
- * past its edge (`SIDEWAYS_ATTRIBUTE`), where it stays, in the same color while it scrolls, unless
- * the page's scrollbar fade sets `--cmux-sideways-rest` (it inherits into Pierre's shadow root:
- * `SIDEWAYS_SCROLLER_CSS`). Near the pointer it widens and darkens: through the rest color, which
- * the library's own hover rule reads, since that rule outranks a plain near selector.
+ * past its edge (`SIDEWAYS_ATTRIBUTE`), where it stays, in the same color while it scrolls.
  */
 export const PIERRE_DIFFS_SCROLLER_CSS = `
 [data-code]::-webkit-scrollbar-thumb,
@@ -403,17 +382,9 @@ export const PIERRE_DIFFS_SCROLLER_CSS = `
   background-color: var(--diffs-bg-context);
 }
 [data-code][${SIDEWAYS_ATTRIBUTE}] {
-  --cmux-scroller-rest: var(--cmux-sideways-rest, ${SIDEWAYS_THUMB});
+  --cmux-scroller-rest: ${SIDEWAYS_THUMB};
 }
 [data-code][${SIDEWAYS_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb {
-  background-color: ${SIDEWAYS_THUMB};
-}
-[data-code][${NEAR_ATTRIBUTE}] {
-  --cmux-scroller-rest: var(--cmux-scroller-thumb-near, color-mix(in srgb, currentColor 55%, transparent));
-}
-[data-code][${NEAR_ATTRIBUTE}]::-webkit-scrollbar-thumb,
-[data-code][${NEAR_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb {
-  border-width: 0;
   background-color: var(--cmux-scroller-rest);
 }
 `;
@@ -429,7 +400,7 @@ export const SIDEWAYS_SCROLLER_ATTRIBUTE = "data-cmux-sideways-scroller";
 /**
  * The page side of `SIDEWAYS_ATTRIBUTE`: such a box's scrollbar is a thin thumb on no track, drawn
  * whenever it has one (an `overflow: auto` box has one only while its lines run past it), at rest
- * too, or under the scrollbar fade only while it scrolls or the pointer is near it (wide then). `--cmux-sideways-lane` is its lane's height while it has one. The `:root` prefix outranks
+ * too. `--cmux-sideways-lane` is its lane's height while it has one. The `:root` prefix outranks
  * the "Always" rule's hidden thumb (`SCROLLER_ROOT_CSS`).
  */
 export const SIDEWAYS_SCROLLER_CSS = `
@@ -449,19 +420,7 @@ export const SIDEWAYS_SCROLLER_CSS = `
   min-width: 24px;
   border: 2px solid transparent;
   border-radius: var(--cmux-scroller-size, 8px);
-  background: var(--cmux-sideways-rest, ${SIDEWAYS_THUMB}) padding-box;
-}
-:root[${SCROLLER_FADE_ATTRIBUTE}] {
-  --cmux-sideways-rest: transparent;
-}
-:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb,
-:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:hover,
-:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:active {
-  background-color: ${SIDEWAYS_THUMB};
-}
-:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}]::-webkit-scrollbar-thumb {
-  border-width: var(--cmux-scroller-near-border, 1px);
-  background-color: var(--cmux-scroller-thumb-near, color-mix(in srgb, currentColor 55%, transparent));
+  background: ${SIDEWAYS_THUMB} padding-box;
 }
 `;
 

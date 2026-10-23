@@ -13,8 +13,6 @@ import Observation
 /// as Ghostty overrides (`GhosttyRuntime.themeOverride`, `fontOverride`,
 /// `backgroundOverride`) and a config reload, so terminals and chrome
 /// follow live. The Ghostty config file itself never changes.
-/// `ui.reducedBackgrounds` overrides the window background and hides the
-/// pictures here, the one place both are applied.
 @MainActor
 final class TerminalThemeSetting {
     static let path = AppThemeSetting().configPath
@@ -38,8 +36,7 @@ final class TerminalThemeSetting {
         init(_ snapshot: CmuxConfigSnapshot) {
             self.init(theme: snapshot.appTheme,
                       font: GhosttyRuntime.FontOverride(family: snapshot.terminalFontFamily, size: snapshot.terminalFontSize),
-                      background: ReducedBackgroundsSetting.drawn(snapshot.windowBackground, reduced: snapshot.reducedBackgrounds),
-                      terminalOverridden: snapshot.surfaceBackgrounds.overridesTerminal)
+                      background: snapshot.windowBackground, terminalOverridden: snapshot.surfaceBackgrounds.overridesTerminal)
             edits = snapshot.themeEdits
         }
     }
@@ -88,8 +85,7 @@ final class TerminalThemeSetting {
         // repaints at once and reloads Ghostty after the steps stop (`apply`).
         take(settings.snapshot, theme: settings.applied.appTheme, edits: settings.applied.themeEdits,
              background: settings.applied.windowBackground, art: settings.applied.backdropSelection,
-             shuffle: BackdropSelectionSetting.shuffle(settings.applied.root), tuning: settings.applied.windowTuning,
-             reduced: settings.applied.reducedBackgrounds)
+             shuffle: BackdropSelectionSetting.shuffle(settings.applied.root), tuning: settings.applied.windowTuning)
         // A time zone or clock change moves local midnight, which the armed timer cannot see.
         for name in [Notification.Name.NSCalendarDayChanged, .NSSystemTimeZoneDidChange, .NSSystemClockDidChange] {
             dayObservers.append(notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -100,23 +96,18 @@ final class TerminalThemeSetting {
             })
         }
         observation = Task { [weak self] in
-            for await (snapshot, theme, edits, background, art, shuffle, tuning, reduced) in ObservationStream({
+            for await (snapshot, theme, edits, background, art, shuffle, tuning) in ObservationStream({
                 (settings.snapshot, settings.applied.appTheme, settings.applied.themeEdits, settings.applied.windowBackground,
-                 settings.applied.backdropSelection, BackdropSelectionSetting.shuffle(settings.applied.root), settings.applied.windowTuning,
-                 settings.applied.reducedBackgrounds)
+                 settings.applied.backdropSelection, BackdropSelectionSetting.shuffle(settings.applied.root), settings.applied.windowTuning)
             }) {
-                self?.take(snapshot, theme: theme, edits: edits, background: background, art: art, shuffle: shuffle, tuning: tuning,
-                           reduced: reduced)
+                self?.take(snapshot, theme: theme, edits: edits, background: background, art: art, shuffle: shuffle, tuning: tuning)
             }
         }
     }
 
     private func take(_ snapshot: CmuxConfigSnapshot, theme: String?, edits: ThemeEdits, background: WindowBackgroundOverride,
-                      art: BackdropSelection?, shuffle: BackdropShuffle?, tuning: AppearanceTuning, reduced: Bool) {
+                      art: BackdropSelection?, shuffle: BackdropShuffle?, tuning: AppearanceTuning) {
         shuffling = shuffle
-        // `reduced` (`ui.reducedBackgrounds`, from `applied` so a preview of it repaints): the plain
-        // theme background; the person's picks are kept.
-        backdropScope.setBackdropsHidden(reduced)
         if shuffle != nil {
             showShuffledArt()
         } else {
@@ -127,11 +118,11 @@ final class TerminalThemeSetting {
         // Per-surface backgrounds (R55): every owner repaints from them.
         backdropScope.setSurfaceBackgrounds(snapshot.surfaceBackgrounds)
         // Over a picture the Opacity the user set is the window's tint (unset: the work's own).
-        backdropScope.setWindowBackdropTint(reduced ? nil : background.opacity)
+        backdropScope.setWindowBackdropTint(background.opacity)
         var state = State(snapshot)
         state.theme = theme
         state.edits = edits
-        state.background = ReducedBackgroundsSetting.drawn(background, reduced: reduced)
+        state.background = background
         apply(state)
     }
 

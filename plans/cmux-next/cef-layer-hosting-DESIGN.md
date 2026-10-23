@@ -46,19 +46,6 @@ Fork API 26, `uint32_t cmux_browser_set_layer_hosting(int browser_id, int enable
    gets adopted at the next update.
 3. It returns the context id. The app's `CEFHostedPageView` (a layer-hosting subview at the bottom of
    `CEFHostView`, `masksToBounds`, `hitTest` nil) hosts it with its own `CALayerHost`.
-   `CEFLayerHosting` (one per `CEFHostView`) owns the app side:
-   - A new page window (`CEFPaneHost.windowCreated`, `CEFDevToolsController.opened`) asks at the end of the
-     run-loop turn, not inside `OnAfterCreated`: Chromium adds the WebContents to its window later in that
-     stack, and the fork returns 0 while the browser has no page window.
-   - A refusal arms one retry at the tracker's next read of the host view (`-cmuxClipPath`, proof that the
-     tracker is attached), again at the end of that turn. A second refusal waits for the next show.
-     `debug.cef` `tracker.hosting_refused` counts refusals.
-   - The context belongs to the page window, so a tab switch inside a hosted pane makes no fork call; a
-     tunable change applies at the next show. A new page window drops the old window's context.
-   - When no `CALayerHost` can show the context, hosting is turned off at once and the page keeps its window
-     (never a blank page over a see-through window).
-   - Teardown (DevTools closed, the pane's last tab closed) turns hosting off and removes the hosted view.
-     `tracker.hosted_pages` counts the hosted views in a window, live.
 4. The page window stays as a transparent input target over the host view. Its
    `ignoresMouseEvents` is set explicitly: a non-opaque window with no pixels takes the mouse only
    because of that. The tracker skips its mask while the page is hosted, but still computes
@@ -92,7 +79,8 @@ this branch.
 | Keyboard, IME, focus | page window is key, as today | open |
 | Context menus, select popups, bubbles | own windows, as today | open |
 | Accessibility | page window AX tree; `CmuxApplication` maps windows | open |
-| DevTools docked or in its own cmux window | its own page window over its own `CEFHostView` (`CEFDevToolsController.views.host`), so its own context: hosted from `opened` (end of that turn); a tunable change applies at the next open; close turns it off (`removeViews`) | code in, not run (fork API 26 build pending) |
+| DevTools docked | same Views widget, same context | open |
+| DevTools in pane (`CEFDevToolsController` host) | not hosted in slice 1 (child window) | open |
 | Drag and drop | page window is the drag destination and source | open |
 | Full screen | host layer moves with the cmux window; tracker follows | open |
 | Popup windows (API 13 trackers) | not hosted in slice 1 | open |

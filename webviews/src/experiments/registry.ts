@@ -4,7 +4,6 @@
 import { diffTreeDisclosure, treeNameFade } from "../agent-session/acpmux/changes/treeMotion.experiment";
 import { sessionReplay } from "../agent-session/acpmux/replay/replay.experiment";
 import { chiefDock } from "../agent-session/acpmux/chiefDock.experiment";
-import { newTabHeadline } from "../agent-session/acpmux/newtab/headline.experiment";
 import { hoverActions } from "../ui/hoverActions.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
@@ -24,7 +23,6 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hoverActions,
   startedSessionCards,
   threadMinimapLayout,
-  newTabHeadline,
   threadMinimapLit,
   turnErrorCard,
   codeRouterOffer,

@@ -2,7 +2,6 @@ public import AppKit
 import CmuxNextCompat
 import Observation
 import CmuxNextWakeups
-public import CmuxNextDesignTokens
 
 /// Every input that shapes how indicators look, resolved once: the
 /// `appearance.statusIndicator.*` settings plus the Debug Settings

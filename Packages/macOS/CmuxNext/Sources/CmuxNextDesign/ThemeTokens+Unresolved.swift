@@ -1,6 +1,5 @@
 public import CmuxTheme
 public import SwiftUI
-public import CmuxNextDesignTokens
 
 extension ThemeTokens {
     /// The app theme's tokens now (`ThemeTokens.fallback` until the Ghostty config is read), from

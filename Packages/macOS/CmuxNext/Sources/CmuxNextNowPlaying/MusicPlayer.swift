@@ -182,6 +182,7 @@ public final class MusicPlayer: NowPlayingSource {
     private func unobserveItem() {
         itemObservation = nil
         itemObservers.removeAll()
+        itemObservers = []
     }
 
     /// The current item's status: its length once ready; a failed one ends as a song does.

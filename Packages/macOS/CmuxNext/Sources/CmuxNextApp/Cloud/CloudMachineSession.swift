@@ -1,6 +1,5 @@
 import CmuxNextCloud
 import CmuxNextDaemon
-import CmuxNextSidebar
 import CmuxNextWorkspaceRepair
 import Foundation
 import Observation
@@ -76,7 +75,7 @@ final class CloudMachineSession {
         self.link = link
         self.appLink = appLink
         self.localIdentity = localIdentity
-        daemon = DaemonService(machineID: machine.id, echoesPlacementShift: SidebarMirror.isLinked)
+        daemon = DaemonService(machineID: machine.id)
         emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
     }
 

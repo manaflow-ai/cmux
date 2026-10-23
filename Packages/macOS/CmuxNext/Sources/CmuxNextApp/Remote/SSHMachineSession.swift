@@ -1,7 +1,6 @@
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
-import CmuxNextSidebar
 import CmuxNextWorkspaceRepair
 import Foundation
 import Observation
@@ -51,7 +50,7 @@ final class SSHMachineSession {
          machineID: String? = nil) {
         self.host = host
         self.machineID = machineID ?? host.machineID
-        daemon = DaemonService(machineID: self.machineID, echoesPlacementShift: SidebarMirror.isLinked)
+        daemon = DaemonService(machineID: self.machineID)
         // The actor reports each status change; only the latest matters.
         let (statuses, continuation) = AsyncStream.makeStream(of: SSHConnectionMachine.Status.self, bufferingPolicy: .bufferingNewest(8))
         link = SSHMachineLink(host: host, binary: binary, paths: paths, environment: environment) { continuation.yield($0) }

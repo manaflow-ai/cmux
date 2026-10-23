@@ -666,7 +666,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         intents?.send()
     }
 
-    func textDidChange(_ notification: Notification) { // perf-hot: 2ms home-key (every key typed into the Home composer)
+    func textDidChange(_ notification: Notification) {
         guard let demo else { return }
         let tv = demo.compose.textView.view
         voice.fieldChanged()  // cmux: the person typed while dictating: the words stay, the session stops

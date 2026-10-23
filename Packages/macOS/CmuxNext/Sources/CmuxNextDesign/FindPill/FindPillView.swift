@@ -1,5 +1,4 @@
 public import AppKit
-public import CmuxNextDesignTokens
 
 /// The one Cmd-F find pill: a Liquid Glass capsule (frosted before macOS 26, solid under Reduce
 /// Transparency) with a magnifier, a field that searches as you type, the match count, an optional

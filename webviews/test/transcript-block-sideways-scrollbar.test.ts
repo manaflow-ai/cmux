@@ -1,4 +1,4 @@
-// cmux-web-test-timeout: 420
+// cmux-web-test-timeout: 300
 // l10n-allow-file: test fixture paths and selectors, not shipped UI.
 // A tool-call block whose lines run past its right edge shows that it scrolls sideways (Leo
 // 2026-10-21, ask-d900f5acf9, an "Edited codex-excursions.md" diff and Shell blocks: "this doesn't
@@ -14,12 +14,6 @@
 // without it; a running command keeps it while it runs, so a streamed line that starts or stops
 // running past the edge does not move what is under it; a settled block whose lines fit, and any
 // wrapped one, has none.
-//
-// Under the scrollbar fade (Lawrence 2026-10-23, msg 11494: "auto-fades away, and grows bigger on
-// near-hover so it's easier to grab"; the agent pane's default, `data-cmux-scroller-fade` on
-// <html>), the same thumb fades like every other scroller: none at rest, shown while the lines
-// scroll sideways, and thicker while the pointer is near the block's bottom edge. Without the fade
-// (Debug Settings agentPane.debug.scrollerFade off) it stays at rest, as above.
 //
 // Before: the diff's thumb was transparent until the rows scrolled, the output had the engine's
 // own scroller (an overlay that shows only while it scrolls, or a 15px classic bar), and a cut
@@ -221,55 +215,6 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
     return { thumb: columns >= 16, track: columns > end - CORNER - 8, columns, width: end - CORNER };
   }
 
-  /// The fade's blocks: a diff (Pierre's rows in a shadow root) and a command's output (the page's
-  /// own box), both whole.
-  const fading: Block[] = [diff("edit-long-line-code", false), shell("shell-unwrapped-long-line", false)];
-
-  /// How many rows of the lane's left part have thumb ink: the thumb's thickness. The lane's right
-  /// end (past `CORNER`) is the reference, as in `thumb`.
-  async function thickness(page: Page, box: Awaited<ReturnType<typeof measure>>) {
-    if (box.lane <= 0) return 0;
-    const clip = {
-      x: Math.ceil(box.left),
-      y: Math.round(box.bottom - box.lane),
-      width: Math.floor(box.width) - 1,
-      height: box.lane,
-    };
-    const png = PNG.sync.read(await page.screenshot({ clip }));
-    const reference = png.width - CORNER - 1;
-    let rows = 0;
-    for (let y = 0; y < png.height; y++)
-      for (let x = CORNER; x < CORNER + 24 && x < reference; x++) {
-        const at = (y * png.width + x) * 4;
-        const ref = (y * png.width + reference) * 4;
-        const delta =
-          Math.abs(png.data[at]! - png.data[ref]!) +
-          Math.abs(png.data[at + 1]! - png.data[ref + 1]!) +
-          Math.abs(png.data[at + 2]! - png.data[ref + 2]!);
-        if (delta > 24) {
-          rows++;
-          break;
-        }
-      }
-    return rows;
-  }
-
-  /// Waits until the block's sideways box has (`on`) or lacks `attribute`.
-  const boxMark = (page: Page, block: Block, attribute: string, on: boolean) =>
-    page.waitForFunction(
-      ({ scroller, shadow, attribute, on }) => {
-        const body = document.querySelector(scroller)!;
-        const box = shadow
-          ? [...body.querySelectorAll("*")]
-              .map((element) => element.shadowRoot?.querySelector("[data-code]"))
-              .find(Boolean)
-          : body;
-        return box?.hasAttribute(attribute) === on;
-      },
-      { ...block, attribute, on },
-      { timeout: 10_000 },
-    );
-
   const painted = (page: Page) =>
     page.evaluate(async () => {
       for (let left = 2; left > 0; left--) await window.cmuxPaintFrame();
@@ -379,45 +324,6 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
             console.log(`${engine} ${block.variant}: ${JSON.stringify({ ...box, ...drawn })}`);
             expect({ thumb: drawn.thumb, track: drawn.track }).toEqual({ thumb: true, track: false });
             expect(await resizeCursors(page, `${block.card}, .acpmux-edited-toggle, .cv-tool`)).toEqual([]);
-          } finally {
-            await page.close();
-          }
-        });
-
-      for (const block of fading)
-        test(`${block.variant}: under the scrollbar fade, no thumb at rest, one while it scrolls, thicker near its bar`, async () => {
-          const page = await open(engine, block);
-          try {
-            await page.evaluate(() => document.documentElement.setAttribute("data-cmux-scroller-fade", ""));
-            await painted(page);
-            const box = await measure(page, block);
-            const rest = await thumb(page, box);
-            // A sideways wheel over the lines, clear of the bar.
-            await page.mouse.move(box.left + box.width / 2, box.bottom - box.lane - 24);
-            await page.mouse.wheel(40, 0);
-            await boxMark(page, block, "data-cmux-scrolling", true);
-            await painted(page);
-            const scrolling = await thumb(page, await measure(page, block));
-            const thin = await thickness(page, await measure(page, block));
-            await boxMark(page, block, "data-cmux-scrolling", false);
-            await painted(page);
-            const rested = await thumb(page, await measure(page, block));
-            // The pointer comes down to the bar.
-            await page.mouse.move(box.left + box.width / 2, box.bottom - 3, { steps: 4 });
-            await boxMark(page, block, "data-cmux-scroller-near", true);
-            await painted(page);
-            const near = await thumb(page, await measure(page, block));
-            const wide = await thickness(page, await measure(page, block));
-            console.log(
-              `${engine} ${block.variant} fade: ${JSON.stringify({ rest, scrolling, rested, near, thin, wide })}`,
-            );
-            expect({
-              rest: rest.thumb,
-              scrolling: scrolling.thumb,
-              rested: rested.thumb,
-              near: near.thumb,
-              thicker: wide > thin,
-            }).toEqual({ rest: false, scrolling: true, rested: false, near: true, thicker: true });
           } finally {
             await page.close();
           }

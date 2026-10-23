@@ -79,8 +79,9 @@ It is `scripts/smoke-signed-app-cli.sh <app> --canary`, an extension of the
 signed-app CLI smoke. The checks
 (`scripts/cmux-next/signed-app-canary-checks.py`) use only what a Release
 control socket serves, plus the readiness soak's control and acpmux clients.
-Release builds have no `debug.*` methods, so the canary checks the app's model
-through its Release control socket.
+Release builds have no `debug.*` methods, so the canary can't take a pixel
+capture. "Renders" here means the app's own model has the New Tab. The
+[visual smoke](#visual-smoke) looks at the pixels.
 
 ### Before publication (Mac writer)
 
@@ -181,8 +182,81 @@ The train (train design, PRs 1 and 2) builds the tip without the suspect;
 the higher build it publishes is what moves every Mac forward.
 
 Before publication, a recovered build (one whose notarization finished in a
-later run) gets `verify-recovered-nightly-next`'s DMG check. The
-post-publication canary checks it.
+later run) gets only `verify-recovered-nightly-next`'s DMG launch smoke and
+the visual smoke. The post-publication canary checks it.
+
+## Visual smoke
+
+The canary proves the app's model works; the visual smoke proves the window
+looks right. It is the gate for "visibly broken": a build that fails it is
+never published. `scripts/smoke-signed-app-cli.sh <app> --visual <dir>`
+launches the signed app with its window at 1000x640 and the same test agent
+as the canary. `scripts/cmux-next/visual-smoke/drive.py` then captures the
+app's window (only the window, with `screencapture -l`) in three scenes:
+
+| Scene | How it gets there | What must be drawn |
+| --- | --- | --- |
+| `home` | `home.show` | the sidebar, the Chief chat and the Home composer under it, Home's New Tab |
+| `transcript` | a test-agent turn, `agent.openSessionWorkspace`, then `tab.focus` on its tab | the sidebar, the prompt's bubble, the reply, the composer |
+| `composer` | `palette.newAgentChat` in the transcript's workspace, its pane zoomed (`toggleSplitZoom`) | the sidebar, the new chat's heading and its composer |
+
+The driver captures them in that order. The transcript waits until the window
+shows the session's workspace and that pane's selected tab is the session's,
+no longer pending (`agent.openSessionWorkspace` itself switches nothing). A
+new chat docks at the left of the screen at half its width, so the driver
+zooms its pane and waits until the snapshot shows it zoomed. Both chats are in
+a workspace that is not Home, so no Chief column sits beside them. The smoke
+gives the app a scratch settings file (`CMUX_NEXT_CONFIG_FILE`) where a chat's
+Inspector pushes the chat aside instead of lying over it, and the boxes stop
+left of the Inspector: each box covers only the pane under test, so content
+beside an empty pane cannot pass it.
+
+A web page paints after it loads, so each scene is captured again every 2 s
+until the structural checks pass, for at most 20 s (`--paint-timeout`); the
+last capture is the one judged. A scene whose capture matches a scene it is
+`distinct_from` (the area right of the sidebar, 32x20 SSIM at or above
+`max_scene_ssim`, 0.9) fails: the driver captured the previous scene again.
+
+`visual_check.py` judges each capture against `scenes.json`. It fails a scene
+when the window is smaller than 600x400, blank, one flat tone or mostly black,
+or when a named region (the sidebar column, the transcript, the composer band)
+holds no drawn content. It measures edge density on a grayscale copy, so other
+text, a new timestamp or a renamed button does not fail it, and an empty pane
+does. When `visual-smoke/references/<scene>.png` exists it also compares the
+layout: SSIM on a 32x20 copy must be at least `min_ssim` (0.75). Other text in
+the same layout scores about 0.97, and another scene or a large layout shift
+scores below 0.75. With no reference, only the structural checks run.
+
+`gate.sh` runs the smoke twice and fails when both attempts fail. It runs in:
+
+- `nightly.yml`'s `verify-signed-nightly`, on the exact signed app it then
+  publishes, and `verify-recovered-nightly-next`, on the app in a recovered
+  DMG. `publish-nightly` needs both jobs, so a failure publishes nothing. No
+  variable skips it.
+- `nightly-next-canary.yml`, after publication, on every feed build once this
+  workflow's copy on main has it (a schedule runs main's copy). There it only
+  reports; the canary's verdict decides a pull. A pull request that changes
+  the visual smoke must pass it on the newest feed build.
+
+Every run uploads the captures, `drive.json` and the judge's `report.md` as a
+`nightly-next-visual-smoke-*` artifact. When the driver could not reach a
+scene it also leaves `screen.png`, the whole display.
+
+### Changing the gate
+
+A limit or a reference changes only in a reviewed pull request to
+`scripts/cmux-next/visual-smoke/`:
+
+- When a deliberate UI change fails a reference, copy that scene's capture from
+  the newest feed build's `nightly-next-visual-smoke-<build>` artifact (or from
+  the pull request's own run) to `references/<scene>.png`.
+- To add or loosen a check, edit `scenes.json`. The pull request's canary run
+  checks the newest feed build against the new limits before it lands.
+
+`tests/test_nightly_next_visual_smoke.py` checks the judge on drawn, blank,
+black, collapsed, sidebar-less, transcript-less and shifted windows, on a scene
+that repeats another and on an empty chat beside a drawn Inspector, and that
+`nightly.yml` runs the gate before publication.
 
 ## How a cmux NEXT nightly is built and published
 
@@ -191,7 +265,7 @@ post-publication canary checks it.
 | Promote | main's `nightly.yml` `promote-nightly-next` | Moves branch `nightly-next` to a green `feat-cmux-next` head. `cmux-next.yml` requests it after a green push run. |
 | Decide | `nightly.yml` `decide`, on the `nightly-next` push | Reads the holds below and picks the track (`nightly-next`), the `release-next` environment, and the feed. |
 | Build, sign, notarize | `build-nightly-app`, `build-sign-notarize-nightly` | Release build, Developer ID signing, Apple notary. A submission still in Apple's queue leaves a recovery artifact, which a later run (`recover-nightly-next-notarization`) continues. |
-| Verify | `verify-signed-nightly` and `verify-final-dmg-nightly` (no secrets; they run at the same time on two runners) | Signature, sidecar and SSH daemon contracts, the canary; the other job verifies the final DMG bytes and size budget. The tested DMG digests go to publication. |
+| Verify | `verify-signed-nightly` and `verify-final-dmg-nightly` (no secrets; they run at the same time on two runners) | Signature, sidecar and SSH daemon contracts, the 15 s launch smoke with a crash-report check, the bundled-CLI smoke and the canary; the other job runs the final DMG smoke and the size budget. The tested DMG digests go to publication. |
 | Publish | `publish-nightly` (`release-next`) | Uploads only the tested DMG bytes to the `nightly-next` GitHub release, reads `NIGHTLY_NEXT_WRITER` and `NIGHTLY_NEXT_HOLD` live, runs `nightly-next-guard.py` on every appcast and R2 key, then writes `appcast-arm64.xml` to R2 bucket `cmux-nightly-next` and moves the `nightly-next` tag. |
 | Deltas | `generate-nightly-deltas` | Adds a delta from the previous build and rewrites the feed, unless the live feed already serves a different build. |
 | Old identity | `publish-nightly-identity-legacy` | Re-signs the build as cmux NIGHTLY for installs from before cmux NEXT (`NIGHTLY_NEXT_LEGACY_FEED_BASE`). |

@@ -1,5 +1,4 @@
 public import AppKit
-public import CmuxNextDesignTokens
 
 /// The two constraint sets that place an omnibar row and the content beside
 /// it at the top or at the bottom of a view (`browser.toolbarPosition`); one

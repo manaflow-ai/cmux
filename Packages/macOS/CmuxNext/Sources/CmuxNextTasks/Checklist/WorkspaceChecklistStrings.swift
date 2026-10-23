@@ -2,8 +2,6 @@ package import Foundation
 
 /// The Todo page and the checklist refusals (Resources/WorkspaceChecklist.xcstrings).
 package nonisolated enum WorkspaceChecklistStrings {
-    /// The bundle that holds `Resources/WorkspaceChecklist.xcstrings` (this module's), for tests.
-    package static var bundle: Bundle { .module }
     package static var pageTitle: String { text("workspaceChecklist.page.title", "Todo") }
     package static var addPlaceholder: String { text("workspaceChecklist.page.addPlaceholder", "Add an item") }
     package static var empty: String { text("workspaceChecklist.page.empty", "No items yet. Add one above, or run cmux workspace checklist add.") }

@@ -14,8 +14,6 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var failNextAttaches = 0
     /// `identify` advertises attach-initial-size.
     var initialSize = false
-    /// `identify` advertises size-lease-v1.
-    var sizeLease = false
     /// The surface the terminal is on now (a daemon restart renumbers it).
     var liveSurface = 7
     /// `resolve-terminal` answers: terminal id to its surface (nil: the
@@ -49,8 +47,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             Self.line(["id": id, "ok": true, "data": data])
         }
         switch cmd {
-        case "identify" where initialSize || sizeLease:
-            return [reply(["capabilities": (initialSize ? ["attach-initial-size"] : []) + (sizeLease ? ["size-lease-v1"] : [])])]
+        case "identify" where initialSize:
+            return [reply(["capabilities": ["attach-initial-size"]])]
         case "resolve-terminal":
             guard let terminals = lock.withLock({ self.terminals }) else {
                 return [Self.line(["id": id, "ok": false, "error": "unknown command resolve-terminal"])]

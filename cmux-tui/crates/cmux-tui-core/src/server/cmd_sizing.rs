@@ -242,9 +242,6 @@ pub(super) fn resize_surface(
             "outcome": "superseded",
         }));
     }
-    // A size report renews its lease first: an expiry that runs before
-    // this resize applies then releases only the old size (size_lease.rs).
-    super::size_lease::renew_size_lease(mux, client, surface);
     // Every live control connection participates through the same
     // client-size reducer. An unattached one-shot resize is removed
     // when its connection closes, so it cannot bypass visible viewers.
@@ -385,18 +382,6 @@ pub(super) fn release_surface_size(
     surface: SurfaceId,
 ) -> anyhow::Result<Value> {
     let _lifecycle = mux.lock_client_sizing_lifecycle();
-    // Released on purpose: no lease is left to end it again.
-    mux.control_clients.size_leases.end(client, surface);
-    release_surface_size_locked(mux, client, surface)
-}
-
-/// `release-surface-size` with the sizing lifecycle lock already held (the
-/// size lease's expiry takes it to expire and release in one step).
-pub(super) fn release_surface_size_locked(
-    mux: &Arc<Mux>,
-    client: u64,
-    surface: SurfaceId,
-) -> anyhow::Result<Value> {
     if mux.control_clients.surface_attachment_is_retired_without_current(client, surface)
         || (!accepts_view_sizing(mux, surface)
             && mux.control_clients.surface_attachment_is_current_or_retired(client, surface))

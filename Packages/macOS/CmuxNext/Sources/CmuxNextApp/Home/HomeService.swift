@@ -39,8 +39,6 @@ final class HomeService {
     @ObservationIgnored private let replyTimer = DemandTimer(owner: "HomeService.replyWatchdog")
     /// The Chief home's conversation owner serves `local-conversations-v1`.
     var isAvailable: Bool { chief.supports(DaemonCapabilities.localConversations) }
-    /// The owner answered and its build is too old: Home shows why only then.
-    var isRefused: Bool { chief.refusal != nil }
     /// The owner of every Home conversation: this build's Chief home's (one Chief per build).
     @ObservationIgnored let chief: ChiefConversationOwner
     /// Keeps the Chief home's brain host running (ChiefBrainKeeper).

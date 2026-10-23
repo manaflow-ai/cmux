@@ -1,4 +1,3 @@
-public import CmuxNextDesignTokens
 
 public extension WindowBackdrop {
     /// The backdrop a pane or page decides its own painting from: `tokens` with the active

@@ -111,7 +111,7 @@ export default agentPaneEntry({
   },
   variants: {
     rest: {
-      note: "At rest mid-thread. Compact (the default, the wave): every unbookmarked tick stays a quiet 6 px and the prompts on screen are brighter; only a bookmarked prompt has a white dot. Full height: the rail spans the transcript, each prompt a longer tick and each reply a shorter one set in, at its place in the chat, under a bar for the view. Off: no minimap, the left edge empty.",
+      note: "At rest mid-thread. Compact (the default, the wave): every tick the same 6 px, the prompts on screen brighter. Full height: the rail spans the transcript, each prompt a longer tick and each reply a shorter one set in, at its place in the chat, under a bar for the view. Off: no minimap, the left edge empty.",
       snapshot: chat(rows, { title: "Thread minimap at rest" }),
       play: async (ctx) => {
         if (!ctx.document.querySelector('[data-tick="8"]')) return;
@@ -164,15 +164,6 @@ export default agentPaneEntry({
         if (!ctx.document.querySelector('[data-tick="8"]')) return;
         await ctx.hover({ selector: '[data-tick="8"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card"));
-      },
-    },
-    hovered: {
-      note: "Hovering the rail keeps the default cursor and turns only the highlighted tick white; unbookmarked rows do not grow a dot.",
-      snapshot: chat(rows, { title: "Thread minimap hover" }),
-      play: async (ctx) => {
-        if (!ctx.document.querySelector('[data-tick="8"]')) return;
-        await ctx.hover({ selector: '[data-tick="8"]' });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__rail[data-hovering]"));
       },
     },
     landing: {

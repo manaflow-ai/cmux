@@ -191,8 +191,6 @@ impl Surface {
                             control: test_master_control.clone(),
                         })),
                         killer: Box::new(TestChildKiller),
-                        #[cfg(unix)]
-                        holder: None,
                     },
                 ),
                 lifetime,

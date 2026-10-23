@@ -19,12 +19,9 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     public var clipSeconds: Double = 0
     /// `CmuxParentViewGeometryDidChange` posts (each makes the fork update one page).
     public var geometryPosts = 0
-    /// Hosted page views in a window now (`CEFHostedPageView`, fork API 26):
-    /// pages that draw in a cmux window's layer tree. Live: a hosted view
-    /// leaving its window (DevTools closed, a pane closed) is no longer counted.
+    /// Host views whose page draws in this window's layer tree now (fork API 26).
     public var hostedPages = 0
-    /// Layer hosting requests that left the page on its own window: the fork
-    /// refused (no page window yet), or nothing could show its context.
+    /// Layer hosting requests the fork refused (no page window yet, or no API).
     public var hostingRefused = 0
 
     public init() {}

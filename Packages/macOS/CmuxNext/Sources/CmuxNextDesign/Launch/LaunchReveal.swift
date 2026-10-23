@@ -1,7 +1,6 @@
 public import AppKit
 import CmuxNextWakeups
 import Observation
-public import CmuxNextDesignTokens
 
 /// Launch load-in, region by region: a view held for a region stays clear
 /// on the window glass until that region's data is ready, then fades in

@@ -152,6 +152,7 @@ public final class RemoteBrowserSurfaces {
         // that went away leaves observers with a nil `observedWindow`.)
         guard !(window === observedWindow && (window == nil) == windowObservers.isEmpty) else { return }
         windowObservers.removeAll()
+        windowObservers.removeAll()
         observedWindow = window
         guard let window else { return }
         let center = NotificationCenter.default

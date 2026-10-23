@@ -104,18 +104,13 @@ Swift/Rust builds and tests stay on the fleet.
 ## Before you touch hot paths
 
 - Budget: every action reaches its committed frame in < 10 ms p95; motion runs at full refresh, 0 drops.
-  Measure on the fleet yourself, light and STRESS ([perf-lead.md](plans/cmux-next/perf-lead.md)), before and after.
-- Never add CI gates, perf-gate rows or budgets, CI jobs or steps, or CI tests (Lawrence 2026-10-23: "not to
-  add gates/tests in CI, but you have to run them yourself"). This rule is about CI only; it does not remove
-  regression tests. Each fix still gets a regression test that fails without it; each agent runs its own
-  regression tests itself on the fleet (cmux-ci, nx-remote) before and after the fix, and says the result in
-  the commit. Do not move a test into CI to have it run for you.
+  Measure on the fleet yourself, light and STRESS ([perf-lead.md](plans/cmux-next/perf-lead.md)), before and after. Never add CI gates, perf-gate rows or CI tests
+  (Lawrence 2026-10-23: "not to add gates/tests in CI, but you have to run them yourself"): each agent runs its own regression tests and benches on the fleet.
 - `// perf-hot: <budget> <path-id>` marks a per-frame, per-key or per-switch function; the pre-push hook names
   its bench ([perf-hot-benches.json](scripts/cmux-next/perf-hot-benches.json)). Mark new hot paths the same way.
 - Read [OWNERS.md](plans/cmux-next/OWNERS.md) before you change an owned area, and tell the owner.
-- The hook's guardrails refuse new debt in added lines (`scripts/cmux-next/guardrails.py --list`). When the
-  hook warns that its installed copy is not origin/feat-cmux-next's, run `scripts/install-git-hooks.sh` from a
-  checkout at origin/feat-cmux-next. The hooks are per clone: every worktree of it, main-based ones too, runs them.
+- The hook's guardrails refuse new debt in added lines (`scripts/cmux-next/guardrails.py --list`). Rules
+  change: after a rebase, run `scripts/install-git-hooks.sh` from a checkout at origin/feat-cmux-next.
 
 ## Swift namespace convention
 

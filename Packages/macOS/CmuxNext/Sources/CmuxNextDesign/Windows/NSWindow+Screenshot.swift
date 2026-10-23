@@ -1,6 +1,5 @@
 public import AppKit
 import ScreenCaptureKit
-public import CmuxNextDesignTokens
 
 /// Screenshots of the app's own windows for `cmux window|pane|tab
 /// screenshot`. Neither path needs the Screen Recording grant, moves focus,

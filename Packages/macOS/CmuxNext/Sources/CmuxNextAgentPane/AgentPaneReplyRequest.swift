@@ -8,9 +8,8 @@ public import Foundation
 /// - `link.inspect {paths, urls}`: where each path is (``AgentPaneReplyPaths``) and the favicon
 ///   and title cmux already has for each URL (no fetch). Passive: no gesture, no effect.
 /// - `link.openPath {path}`: open a path chip. Spends a user gesture.
-/// - `image.load {src, auto?}`: a reply image, a file inside the roots or an https URL (host
-///   fetch). A web image spends a gesture unless `agentPane.images.remote` is `always` or it is
-///   from a click-free site; `auto: true` (the page loading it without a click) never spends one.
+/// - `image.load {src}`: a reply image, a file inside the roots or an https URL (host fetch).
+///   A web image spends a gesture unless `agentPane.images.remote` is `always`.
 /// - `media.load {src}`: a video or audio file inside the roots, as a URL the pane plays
 ///   (``AgentPaneMediaGrants``). Passive.
 /// - `browser.list {}`: the installed browsers, by opaque id. Passive.
@@ -33,7 +32,7 @@ public import Foundation
 public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case inspect(paths: [String], urls: [String])
     case openPath(String)
-    case loadImage(String, auto: Bool)
+    case loadImage(String)
     case loadMedia(String)
     case listBrowsers
     case openIn(url: URL, browserId: String)
@@ -52,12 +51,11 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         "image.openInPane", "image.copy", "image.save", "image.quickLook", "image.drag", "file.drag", "pr.inspect",
     ]
 
-    /// Each method's exact param keys (all required; `link.inspect` takes either list, and
-    /// `image.load`'s `auto` may be left out).
+    /// Each method's exact param keys (all required; `link.inspect` takes either list).
     static let knownParams: [String: Set<String>] = [
         "link.inspect": ["paths", "urls"],
         "link.openPath": ["path"],
-        "image.load": ["src", "auto"],
+        "image.load": ["src"],
         "media.load": ["src"],
         "browser.list": [],
         "browser.openIn": ["url", "browserId"],
@@ -133,9 +131,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
             self = .openPath(path)
         case "image.load":
             guard let src = text("src", Self.maximumURL) else { return nil }
-            let auto = params["auto"]
-            guard auto == nil || auto is Bool else { return nil }
-            self = .loadImage(src, auto: auto as? Bool ?? false)
+            self = .loadImage(src)
         case "media.load":
             guard let src = text("src", Self.maximumURL) else { return nil }
             self = .loadMedia(src)

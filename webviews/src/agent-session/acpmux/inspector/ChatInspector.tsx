@@ -110,18 +110,6 @@ export const pushes = (placement: InspectorPlacement, paneWidth: number, width: 
 export const pushedWidth = (paneWidth: number, width: number) =>
   paneWidth <= 0 ? width : Math.min(width, Math.max(INSPECTOR_WIDTH.min, paneWidth - PUSH_MIN_CHAT - FLOAT_MARGIN));
 
-/// The overlay handoff starts moving the chat before the panel reaches the transcript column. This
-/// keeps a resize across the float/push boundary continuous: at the boundary the overlay's shift is
-/// exactly the room the pushed panel will take, so the pushed layout lands on the same chat center.
-export const CHAT_SHIFT_RANGE = 64;
-export const inspectorChatShift = (paneWidth: number, width: number, column?: ChatColumn) => {
-  if (paneWidth <= 0 || width <= 0) return 0;
-  const inset = transcriptColumn(paneWidth, column).inset;
-  const boundary = width + 2 * FLOAT_MARGIN;
-  const progress = Math.max(0, Math.min(1, (boundary + CHAT_SHIFT_RANGE - inset) / CHAT_SHIFT_RANGE));
-  return progress * ((width + FLOAT_MARGIN) / 2);
-};
-
 /// Whether the Inspector shows: on (Debug Settings `agent.inspector`), open (the viewer's, in every
 /// chat tab), not stepped aside for a diff split, and only over the chat: never while a view takes
 /// the pane in its place (`covered`: a turn's diff in place hides the header, and the toggle with it).
@@ -453,28 +441,7 @@ function InspectorPresence({
   // panel keeps clear of, so it never lies over the document.
   const { width: paneWidth, side } = usePaneRoom(shell, drawn, beside);
   const push = pushes(wide ? "push" : display.inspector, paneWidth, width, column);
-  const chatShift = push ? 0 : inspectorChatShift(paneWidth, width, column);
   const tabRowHeight = useTabRow().height;
-  // The overlay handoff is a layout assist, not panel motion. Set the placement marker before the
-  // shift so the overlay transition is disabled for the one frame where flex layout takes the panel's
-  // room; otherwise the old overlay shift would animate back and briefly move the chat right again.
-  useLayoutEffect(() => {
-    if (!shell) return;
-    if (!drawn) {
-      delete shell.dataset.inspectorChatPlacement;
-      shell.style.removeProperty("--acpmux-chat-shift");
-      return;
-    }
-    shell.dataset.inspectorChatPlacement = push ? "push" : "overlay";
-    shell.style.setProperty("--acpmux-chat-shift", `${chatShift}px`);
-  }, [shell, drawn, push, chatShift]);
-  useLayoutEffect(() => {
-    if (!shell) return;
-    return () => {
-      delete shell.dataset.inspectorChatPlacement;
-      shell.style.removeProperty("--acpmux-chat-shift");
-    };
-  }, [shell]);
   // A subagent's panel reads its own rows only: its replies, thoughts and tool calls.
   const rows = scope?.rows ?? snapshot.rows;
   const made = useMemo(() => (drawn ? sessionSummary(rows, repository ?? null) : undefined), [drawn, rows, repository]);
@@ -576,9 +543,8 @@ function InspectorPresence({
 
 /// The panel's frame: its width, its place beside the chat (push) or floating in the chat's right
 /// gutter (overlay), and the drag handle on its left edge (a double-click puts the width back). With
-/// `presence`, it enters from and leaves toward the pane's right edge. The main panel keeps only a
-/// floating close control; a scoped subagent may supply a title as its own breadcrumb. Either way,
-/// it starts `under` (a CSS length: the chat header's height) below the pane's top, at the top by default.
+/// `presence`, it enters from and leaves toward the pane's right edge. Either way, it starts `under` (a
+/// CSS length: the chat header's height) below the pane's top, at the top by default.
 export function InspectorPanel({
   width,
   placement,
@@ -587,7 +553,6 @@ export function InspectorPanel({
   presence,
   onClose,
   title,
-  chrome = "close",
   children,
 }: {
   width: number;
@@ -597,13 +562,11 @@ export function InspectorPanel({
   /// floats in the chat's gutter, left of the side panel.
   side?: number;
   presence?: Presence;
-  /// Its own close button: over a diff in place the chat header, with the toggle, is out of reach.
+  /// Its own close button, at its top right: over a diff in place the chat header, with the toggle,
+  /// is out of reach.
   onClose?: () => void;
   /// Its head's title in place of "Inspector": a subagent's panel names the subagent (SubagentTitle).
   title?: ReactNode;
-  /// The main panel uses a close-only control, while the gallery compares it with the old title row
-  /// and a compact close-only row. A scoped subagent supplies its own title.
-  chrome?: "title" | "close" | "compact-close";
   children: ReactNode;
 }) {
   const t = useT();
@@ -619,7 +582,6 @@ export function InspectorPanel({
       inert={presence?.leaving}
       className="ui-glass ui-glass-floats acpmux-chat-inspector"
       data-placement={placement}
-      data-chrome={onClose ? (title ? "title" : chrome) : "none"}
       style={
         {
           width,
@@ -656,34 +618,20 @@ export function InspectorPanel({
         }}
         onDoubleClick={() => setInspectorWidth(INSPECTOR_WIDTH.fallback)}
       />
-      {onClose &&
-        (title || chrome === "title" || chrome === "compact-close" ? (
-          <div className="acpmux-chat-inspector__head">
-            {title ??
-              (chrome === "title" ? (
-                <span className="acpmux-chat-inspector__title">{t("chatInspector.title")}</span>
-              ) : null)}
-            <button
-              type="button"
-              className="acpmux-chat-inspector-icon-button acpmux-chat-inspector__close"
-              aria-label={t("chatInspector.close")}
-              {...tooltipProps(t("chatInspector.close"), undefined)}
-              onClick={onClose}
-            >
-              <Icon name="action.close" size={12} />
-            </button>
-          </div>
-        ) : (
+      {onClose && (
+        <div className="acpmux-chat-inspector__head">
+          {title ?? <span className="acpmux-chat-inspector__title">{t("chatInspector.title")}</span>}
           <button
             type="button"
-            className="acpmux-chat-inspector-icon-button acpmux-chat-inspector__close acpmux-chat-inspector__close--floating"
+            className="acpmux-chat-inspector-icon-button acpmux-chat-inspector__close"
             aria-label={t("chatInspector.close")}
             {...tooltipProps(t("chatInspector.close"), undefined)}
             onClick={onClose}
           >
             <Icon name="action.close" size={12} />
           </button>
-        ))}
+        </div>
+      )}
       {children}
     </aside>
   );

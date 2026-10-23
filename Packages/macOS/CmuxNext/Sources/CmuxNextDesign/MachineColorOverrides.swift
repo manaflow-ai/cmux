@@ -1,5 +1,4 @@
 public import CmuxTheme
-public import CmuxNextDesignTokens
 
 /// The colors people picked for machines (`appearance.machineColors` in cmux.json): a machine's
 /// color key (`MachineColor.key`) to `#RRGGBB`, or to one of the accents MachineColor picks from

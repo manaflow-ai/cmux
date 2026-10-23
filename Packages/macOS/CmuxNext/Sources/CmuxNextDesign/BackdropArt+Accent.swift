@@ -1,6 +1,5 @@
 public import CmuxTheme
 import Foundation
-public import CmuxNextDesignTokens
 
 extension BackdropArt {
     /// The hue Art Color (`appearance.accent: "art"`) takes from this work: the most colorful of its

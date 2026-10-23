@@ -3,7 +3,7 @@
 // like the Dock and, after the app's hover delay (ui/hoverIntent.ts), opens a preview card (the prompt, its bookmark and
 // the start of the reply) beside the hovered row. A click scrolls the transcript so the prompt
 // lands near the top and flashes its bubble; dragging scrubs; Tab walks the rows. Bookmarks show
-// as a dot past the tick, and the row's right spot toggles one. Geometry comes from the
+// as a dot past the tick, and clicking the dot's spot toggles one. Geometry comes from the
 // transcript's layout (`tops`), so nothing here measures a transcript row; the rail reads only its
 // own list (during a scrub) and the card's height. Motion is transform only (threadMinimap.css);
 // the numbers are in model.ts.
@@ -774,7 +774,7 @@ type TickActions = {
   click(index: number, target: EventTarget): void;
 };
 
-/// One prompt's row: a 10 px by 36 px button with its tick and, when marked, the bookmark dot.
+/// One prompt's row: a 10 px by 36 px button with its tick and, past the tick, the bookmark dot.
 const Tick = memo(function Tick({
   index,
   last,
@@ -834,7 +834,7 @@ const Tick = memo(function Tick({
       }}
     >
       <span className="acpmux-minimap__bar" style={{ transform: `scaleX(${length / TICK_BOX})` }} />
-      {marked && <span className="acpmux-minimap__dot" style={{ transform: `translateX(${length}px)` }} />}
+      <span className="acpmux-minimap__dot" style={{ transform: `translateX(${length}px)` }} />
       <span className="acpmux-minimap__dot-hit" data-dot-hit="" />
     </MinimapTick>
   );

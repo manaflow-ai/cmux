@@ -5,7 +5,7 @@
 /// strings. Add a case here, with what its interval spans, before a call site uses it. The cases
 /// are the catalog: `allCases` is the list tests and readers enumerate, so no second list exists.
 ///
-/// Only ``actionPerform``, ``actionCommit`` and ``actionGate`` have an emitter today. The other cases are
+/// Only ``actionPerform`` and ``actionCommit`` have an emitter today. The other cases are
 /// **reserved**: the lane named on each adds the emitter (plans/cmux-next/architecture-refactor-DESIGN.md
 /// section 7). Until then no build records them, and no bench or report may quote them.
 ///
@@ -27,14 +27,6 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
     /// for that. Same begin message as ``actionPerform``; the end message is `commit=missed` when
     /// the boundary missed the turn's commit (see ``CommitBoundary/Outcome/missed``).
     case actionCommit
-    /// A gate before an action runs: the confirmation presenter of a destructive action, or the
-    /// palette opening to collect a missing argument, from `ActionRegistry` handing over to the
-    /// gate until the gate returns (or starts a timed run itself). Not a run of the action: the
-    /// run the gate lets through (often in a later turn, after a sheet or a daemon round trip)
-    /// has its own ``actionPerform`` and ``actionCommit`` with the age of the gesture that
-    /// started it, so readers keep gates out of the action's rows. Same begin message as
-    /// ``actionPerform``.
-    case actionGate
 
     // MARK: motion (reserved: PL-motion-core, DisplayLinkDriver)
 
@@ -76,7 +68,6 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
         switch self {
         case .actionPerform: "action.perform"
         case .actionCommit: "action.commit"
-        case .actionGate: "action.gate"
         case .motionFrame: "motion.frame"
         case .motionRun: "motion.run"
         case .keyToFrame: "key.frame"

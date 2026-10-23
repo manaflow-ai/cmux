@@ -17,19 +17,10 @@ public nonisolated struct Signposter: Sendable {
     /// The category this signposter emits.
     public let category: SignpostCategory
     private let signposter: OSSignposter
-    /// The MetricKit mirror this signposter repeats intervals to (the app's: ``SignpostMetricKitMirror/shared``).
-    private let mirror: SignpostMetricKitMirror
 
     /// A signposter for `category` under ``SignpostCategory/subsystem``.
     public init(category: SignpostCategory) {
-        self.init(category: category, mirror: .shared)
-    }
-
-    /// - Parameter mirror: The MetricKit mirror (tests pass their own, so they never switch the
-    ///   process-wide one that other suites running in parallel read).
-    init(category: SignpostCategory, mirror: SignpostMetricKitMirror) {
         self.category = category
-        self.mirror = mirror
         signposter = OSSignposter(subsystem: SignpostCategory.subsystem, category: category.rawValue)
     }
 
@@ -66,8 +57,7 @@ public nonisolated struct Signposter: Sendable {
     public func begin(_ name: SignpostName, _ message: String = "") -> SignpostInterval {
         assert(name.category == category, "\(name) is not in category \(category)")
         let id = signposter.makeSignpostID()
-        return SignpostInterval(state: signposter.beginInterval(name.staticName, id: id, "\(message, privacy: .public)"),
-                                metricKitID: mirror.begin(name))
+        return SignpostInterval(state: signposter.beginInterval(name.staticName, id: id, "\(message, privacy: .public)"))
     }
 
     /// Begins an interval named `name` with an action's fields, formatted by the log system only
@@ -84,26 +74,20 @@ public nonisolated struct Signposter: Sendable {
             name.staticName, id: id,
             "id=\(message.id, privacy: .public) origin=\(message.origin, privacy: .public) input_age_ms=\(message.inputAgeMilliseconds, format: .fixed(precision: 2), privacy: .public)"
         )
-        return SignpostInterval(state: state, metricKitID: mirror.begin(name))
+        return SignpostInterval(state: state)
     }
 
     /// Ends an interval begun with ``begin(_:_:)`` under the same name.
     public func end(_ name: SignpostName, _ interval: SignpostInterval) {
         signposter.endInterval(name.staticName, interval.state)
-        if let id = interval.metricKitID { mirror.end(name, id: id) }
     }
 
     /// Ends an interval that ``CommitBoundary`` closed: a ``CommitBoundary/Outcome/missed`` end
-    /// carries the message `commit=missed`, so readers drop it instead of counting idle time. The
-    /// MetricKit mirror ends only a committed interval: a missed one's begin stays unmatched, so
-    /// MetricKit leaves it out of the histogram.
+    /// carries the message `commit=missed`, so readers drop it instead of counting idle time.
     public func end(_ name: SignpostName, _ interval: SignpostInterval, _ outcome: CommitBoundary.Outcome) {
         switch outcome {
-        case .committed:
-            signposter.endInterval(name.staticName, interval.state)
-            if let id = interval.metricKitID { mirror.end(name, id: id) }
-        case .missed:
-            signposter.endInterval(name.staticName, interval.state, "commit=missed")
+        case .committed: signposter.endInterval(name.staticName, interval.state)
+        case .missed: signposter.endInterval(name.staticName, interval.state, "commit=missed")
         }
     }
 

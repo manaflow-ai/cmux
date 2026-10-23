@@ -26,6 +26,7 @@ final class ThemedMenuKeyWaiter {
 
     private func fire() {
         observers.removeAll()
+        observers = []
         let body = then
         then = nil
         body?()

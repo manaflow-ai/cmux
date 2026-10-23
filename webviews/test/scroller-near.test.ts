@@ -9,7 +9,6 @@ import {
   SCROLLING_HIDE_MS,
   SHOWN_SCROLLER_ATTRIBUTE,
   isUserScroll,
-  nearBottomEdge,
   nearTrailingEdge,
 } from "../src/scrollers";
 
@@ -29,17 +28,6 @@ describe("near the trailing edge", () => {
   });
   test("a box narrower than NEAR_PX is near only inside itself", () => {
     expect(nearTrailingEdge({ left: 290, right: 300, top: 0, bottom: 10 }, 285, 5)).toBe(false);
-  });
-});
-
-describe("near the bottom edge (a sideways bar)", () => {
-  const box = { left: 0, right: 400, top: 100, bottom: 300 };
-  test("within NEAR_PX above the bottom edge, inside the box, is near", () => {
-    expect(nearBottomEdge(box, 200, 300)).toBe(true);
-    expect(nearBottomEdge(box, 200, 300 - NEAR_PX)).toBe(true);
-    expect(nearBottomEdge(box, 200, 300 - NEAR_PX - 1)).toBe(false);
-    expect(nearBottomEdge(box, 200, 301)).toBe(false);
-    expect(nearBottomEdge(box, 401, 295)).toBe(false);
   });
 });
 

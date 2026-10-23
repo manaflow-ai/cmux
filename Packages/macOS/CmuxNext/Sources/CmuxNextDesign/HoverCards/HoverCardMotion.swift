@@ -1,5 +1,4 @@
 public import AppKit
-public import CmuxNextDesignTokens
 
 /// The one entrance and exit every hover card plays: the workspace and tab cards
 /// (`HoverCardPanel`) and the sidebar's Update Ready highlights card.

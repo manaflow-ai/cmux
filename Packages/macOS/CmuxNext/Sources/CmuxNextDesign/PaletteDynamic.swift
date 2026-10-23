@@ -1,5 +1,4 @@
 public import AppKit
-public import CmuxNextDesignTokens
 
 /// The app-theme (Ghostty config) dynamic colors behind `Palette`, used
 /// outside a scope context. Each resolves against `ThemeSnapshot` whenever

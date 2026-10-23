@@ -1,5 +1,4 @@
 public import AppKit
-public import CmuxNextDesignTokens
 
 /// The one scrim under a modal: native window dialogs (`OverlayScrimView`) and the web pages'
 /// sheets (`--cmux-scrim`, ``WebTheme``). Light, about the Codex desktop app's: the window stays

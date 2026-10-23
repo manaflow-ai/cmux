@@ -58,26 +58,6 @@
   /* The card is as tall as its sections; past its max-height, the body scrolls. */
   flex: 0 1 auto;
 }
-/* As the overlay approaches the transcript column, ChatInspector.tsx shifts the chat toward the
-   room left of the card. The quick transition follows ResizeObserver's measured width; it ends when
-   the handoff reaches the push boundary. A pushed layout disables it for that boundary frame so the
-   flex reflow and the overlay shift describe the same center. */
-.acpmux-main > .acpmux-stage {
-  translate: calc(-1 * var(--acpmux-chat-shift, 0px)) 0;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage {
-    transition: translate var(--agent-motion-move, var(--cmux-motion-quick, 80ms))
-      var(--acpmux-motion-ease, ease-out);
-  }
-}
-:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage,
-:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage {
-  transition: none;
-}
-.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage {
-  transition: none;
-}
 /* It slides in from the pane's right edge and back out (ui/presence.ts, data-presence). Over the chat
    it travels the panel's few points. Pushing, the room it takes travels with it: entering, its right
    margin runs from minus its width (it takes no room, just past the pane's edge, which the shell
@@ -138,15 +118,6 @@
   gap: 6px;
   height: 28px;
   padding: 6px 10px 0 14px;
-}
-.acpmux-chat-inspector[data-chrome="close"] .acpmux-chat-inspector__body {
-  padding-top: 34px;
-}
-.acpmux-chat-inspector__close--floating {
-  position: absolute;
-  z-index: var(--layer-raised);
-  top: 8px;
-  right: 10px;
 }
 .acpmux-chat-inspector__title {
   flex: 1 1 auto;

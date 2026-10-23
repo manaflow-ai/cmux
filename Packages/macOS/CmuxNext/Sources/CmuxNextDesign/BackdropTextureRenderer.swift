@@ -1,5 +1,4 @@
 import CoreImage
-public import CmuxNextDesignTokens
 
 /// Applies one Core Image texture pass to a decoded backdrop, off the main actor
 /// (``BackdropImageStore``).

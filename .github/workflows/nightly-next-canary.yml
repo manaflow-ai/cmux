@@ -19,8 +19,12 @@ name: nightly-next canary
 # A schedule runs only from the default branch, so this file lives on main. A pull request that changes the canary runs it on
 # the newest feed build with the pull request's own harness and pulls nothing.
 #
-# The canary is the only post-publication runtime check. It uses the harness
-# from the build's own commit so the control protocol matches the app.
+# It also runs the visual smoke (smoke-signed-app-cli.sh --visual, the gate
+# nightly.yml's verify-signed-nightly runs before publication) on the same
+# app and uploads the captures. A pull request that changes the visual smoke
+# fails when the newest feed build fails it with the pull request's limits and
+# references; on the schedule it only reports, and its captures are what a
+# reference update copies (docs/ci/nightly-next-canary.md, "Visual smoke").
 on:
   schedule:
     - cron: "3,18,33,48 * * * *"
@@ -36,6 +40,7 @@ on:
       - .github/workflows/nightly-next-canary.yml
       - scripts/smoke-signed-app-cli.sh
       - scripts/cmux-next/signed-app-canary-checks.py
+      - scripts/cmux-next/visual-smoke/**
       - scripts/ci/nightly_next_canary_mode.py
 
 permissions: {}
@@ -214,6 +219,32 @@ jobs:
           echo "### cmux NEXT build $BUILD failed the canary twice" >> "$GITHUB_STEP_SUMMARY"
           echo "::error title=nightly-next canary::build $BUILD failed the canary twice"
           exit 1
+
+      # Report-only on the schedule (the canary's verdict above decides a
+      # pull); a pull request's change to the visual smoke must pass it.
+      - name: Visual smoke
+        if: steps.app.outcome == 'success' && !cancelled()
+        continue-on-error: ${{ github.event_name != 'pull_request' }}
+        env:
+          APP: ${{ steps.app.outputs.app }}
+          HARNESS: ${{ steps.harness.outputs.dir || github.workspace }}
+        run: |
+          set -uo pipefail
+          gate="$HARNESS/scripts/cmux-next/visual-smoke/gate.sh"
+          if [ ! -x "$gate" ]; then
+            echo "::notice title=nightly-next visual smoke::build $BUILD predates the visual smoke; nothing checked"
+            exit 0
+          fi
+          "$gate" "$APP" "$RUNNER_TEMP/visual-smoke" "cmux NEXT build $BUILD"
+
+      - name: Upload the visual smoke captures
+        if: always() && steps.app.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-next-visual-smoke-${{ env.BUILD }}
+          path: ${{ runner.temp }}/visual-smoke
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Record a broken DMG
         id: broken

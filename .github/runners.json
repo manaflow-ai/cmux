@@ -217,6 +217,7 @@
     "nightly.yml#build-nightly-ghostty-cli-helper": "apple-app-build",
     "nightly.yml#build-sign-notarize-nightly": "apple-signing-release",
     "nightly.yml#generate-nightly-deltas": "apple-signing-release",
+    "nightly.yml#nightly-next-macos15-launch": "macos-runtime-tests",
     "nightly.yml#prepare-nightly-variant": "apple-app-build",
     "nightly.yml#publish-nightly-identity-legacy": "apple-signing-release",
     "nightly.yml#recover-nightly-next-notarization": "apple-signing-release",

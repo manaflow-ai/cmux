@@ -54,6 +54,7 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         keyObservers.removeAll()
+        keyObservers = []
         if window == nil, isFirstResponder { isFirstResponder = false }
         if let window {
             // A window that stops being key takes the keyboard with it: release held keys.

@@ -1,5 +1,4 @@
 public import AppKit
-public import CmuxNextDesignTokens
 
 /// The theme one part of the UI draws in (plans/cmux-next/data-model.md 6).
 ///
@@ -27,7 +26,6 @@ public final class ThemeScope {
     /// A room shows the background its shown workspace pinned (cx-t2x.5),
     /// so a top page (`show(nil)`) is back on the app's.
     public var backdropSelection: BackdropSelection? {
-        if hidesBackdrops { return nil }
         if let shown, shown.pinsBackdrop { return shown.backdropSelection }
         return pinsNoBackdrop ? nil : selectedBackdropSelection ?? parent?.backdropSelection
     }
@@ -42,10 +40,6 @@ public final class ThemeScope {
     private var inheritedWindowTint: Double? { windowTint ?? parent?.inheritedWindowTint }
     /// Whether ``pinBackdrop(_:)`` gave this scope a background of its own.
     private var pinsBackdrop: Bool { pinsNoBackdrop || isPinned }
-    /// `ui.reducedBackgrounds`: no picture here or in any descendant, whatever they picked
-    /// (``setBackdropsHidden(_:)``); their picks stay and draw again when it is off.
-    private var hidesBackdrops: Bool { backdropsHidden || parent?.hidesBackdrops == true }
-    private var backdropsHidden = false
     private var isPinned = false
     public var backdropArt: BackdropArt? {
         if case .art(let art) = backdropSelection { return art }
@@ -81,17 +75,6 @@ public final class ThemeScope {
             // finds it ready.
             BackdropImageStore.shared.prewarm(selection)
             repaintBackdropArt()
-        }
-    }
-
-    /// Hides every picture of this scope and its descendants (`ui.reducedBackgrounds`), so their
-    /// windows draw the plain theme background; their own picks are kept for when it is off.
-    public func setBackdropsHidden(_ hidden: Bool) {
-        ThemeRepaint.batch {
-            guard backdropsHidden != hidden else { return }
-            backdropsHidden = hidden
-            repaintBackdropArt()
-            for viewer in viewers.allObjects { viewer.repaintBackdropArt() }
         }
     }
 

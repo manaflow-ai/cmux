@@ -108,9 +108,6 @@ public struct DaemonCapabilities: Sendable {
     public static let splitClientKeys = "split-client-keys-v1"
     /// `split` takes a client-minted `split_id` and layout split nodes carry `split_id`.
     public static let splitClientSplitID = "split-client-split-id-v1"
-    /// Client-minted `pane_id` / `tab_id` on `new-row` (New Row in the key's turn), as
-    /// ``splitClientKeys`` on `split`.
-    public static let rowClientKeys = "row-client-keys-v1"
     /// `new-conversation-tab {pane, split}`: a chat or New Tab page tab in a new split, in one
     /// daemon commit and one `pane-added` delta (a person's Cmd-D, atomically).
     public static let conversationTabSplit = "conversation-tab-split-v1"
@@ -383,10 +380,17 @@ public struct DaemonCapabilities: Sendable {
     public static let sidebarDoc = "sidebar-doc-v1"
     /// The client orders rows from the sidebar document only, so the daemon
     /// sends no `workspace_placement` restatement (cmux-tui
-    /// state/placement_shift.rs). Echoed only by a connection whose
-    /// configuration says this build orders rows from the document
-    /// (``DaemonConnectionConfiguration/echoesPlacementShift``), never advertised alone.
+    /// state/placement_shift.rs). Echoed only when this build orders rows
+    /// from the document (`echoesPlacementShift`), never advertised alone.
     public static let placementShift = "placement-shift-v1"
+    /// Set once at launch, before the first connection, by the App when this
+    /// build has the sidebar document mirror (its rows come from the document,
+    /// never from `workspace_placement`).
+    public static var echoesPlacementShift: Bool {
+        get { placementShiftEcho.withLock { $0 } }
+        set { placementShiftEcho.withLock { $0 = newValue } }
+    }
+    private static let placementShiftEcho = OSAllocatedUnfairLock(initialState: false)
     /// `palette_usage.get|record|import`: the user's palette usage history
     /// and learned picks, owned by the daemon (plans/cmux-next/palette-ranking.md 5.3).
     public static let paletteUsage = "palette-usage-v1"
@@ -479,7 +483,7 @@ public struct DaemonCapabilities: Sendable {
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionObserve, agentSessionStart, agentSessionStartKeyedReason, agentSessionTrust, agentSessionChildren, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, conversationInboxState, homeInbox, chiefEvents, cloudConversations, cloudHostReplica, cloudAttachments, cloudSelfHost, pageCredential, scopedPageCredential, wsListen, wsListenOrigins, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
-                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, placementShift, paletteUsage, browserDevices, browserFit, browserFitWidth, projectList, splitClientKeys, splitClientSplitID, rowClientKeys, conversationTabSplit, terminalInputWhileCreating,
+                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, placementShift, paletteUsage, browserDevices, browserFit, browserFitWidth, projectList, splitClientKeys, splitClientSplitID, conversationTabSplit, terminalInputWhileCreating,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart, tabRestartKeptLayout, tabPark,
                                             originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview, sharedSizing,
                                             machineIdentity, agentCLIAppProvider, agentCLIAppInvalidation, agentInventoryWatchAdmission, sendExpectForeground, stash, stashWorkspaces] }
@@ -509,16 +513,9 @@ public struct DaemonCapabilities: Sendable {
     }
 
     /// What a connection echoes in `set-client-info`.
-    ///
-    /// - Parameters:
-    ///   - advertised: The capabilities the connection advertises.
-    ///   - resolvesShellIntegration: The connection resolves Ghostty's shell integration itself.
-    ///   - echoesPlacementShift: This build orders sidebar rows from the sidebar document only
-    ///     (the App passes `SidebarMirror.isLinked` from its composition root).
-    public static func handshakeCapabilities(_ advertised: [String], resolvesShellIntegration: Bool,
-                                             echoesPlacementShift: Bool = false) -> [String] {
+    public static func handshakeCapabilities(_ advertised: [String], resolvesShellIntegration: Bool) -> [String] {
         // The document path echoes `placement-shift-v1` together with `sidebar-doc-v1`.
-        let document = echoesPlacementShift && advertised.contains(sidebarDoc) ? [placementShift] : []
+        let document = Self.echoesPlacementShift && advertised.contains(sidebarDoc) ? [placementShift] : []
         return (resolvesShellIntegration ? advertised + [terminalFrontendShellIntegration] : advertised) + document
     }
 }

@@ -1,7 +1,6 @@
 public import AppKit
 import CmuxNextWakeups
 import CmuxNextCompat
-public import CmuxNextDesignTokens
 
 /// Feeds one web view's page the wallpaper still its glass lenses (`window.cmuxTheme.backdrop`,
 /// plans/cmux-next/glass-lens-DESIGN.md): the art of the backdrop behind the view, where it lies

@@ -66,21 +66,14 @@ public final class ActionRegistry {
     /// conflicts are the shipped ones.
     @ObservationIgnored public var includesWorkspaceTabKeys: @MainActor () -> Bool = { false }
     /// True while AppKit dispatches a key-down (a menu key equivalent), not
-    /// a click in an open menu. The App installs it from `CmuxApplication.dispatchingEvent`, as
-    /// ``dispatchingInputEvent``: `NSApp.currentEvent` keeps the last key after its dispatch, so a
-    /// socket or CLI run after a key press would pass for one. False (the default) outside the App;
-    /// replaceable in tests.
-    @ObservationIgnored public var isDispatchingKeyDown: @MainActor () -> Bool = { false }
+    /// a click in an open menu. Replaceable in tests.
+    @ObservationIgnored public var isDispatchingKeyDown: @MainActor () -> Bool = { NSApp.currentEvent?.type == .keyDown }
     /// The OS input event AppKit is dispatching now (inside `NSApplication.sendEvent`), nil
     /// between dispatches. The App installs it (`CmuxApplication.dispatchingEvent`); the action
     /// signposts read it for a `user` run's `input_age_ms`. Nil (the default) records -1.
     @ObservationIgnored public var dispatchingInputEvent: @MainActor () -> NSEvent? = { nil }
-    /// Times each run that does work (``ActionRunTiming``; `action.perform` / `action.commit`), and
-    /// each gate (`action.gate`).
+    /// Times each run that does work (``ActionRunTiming``; `action.perform` / `action.commit`).
     let runTiming: any ActionRunTiming
-    /// The end of the gate interval open now (`ActionRegistry+Signposts`), ended before anything
-    /// else is timed so a gate never encloses the run it lets through.
-    @ObservationIgnored var openGateEnd: (@MainActor () -> Void)?
 
     /// Collects missing required arguments (the palette installs itself
     /// here) and then calls `perform(_:invocation:)` again. When nil, the
@@ -144,33 +137,18 @@ public final class ActionRegistry {
     @ObservationIgnored var descriptorIndexByID: [ActionID: Int] = [:]
     @ObservationIgnored var shortcutIndex: ShortcutIndex?
 
-    /// An empty registry with no catalog whose runs are not timed.
+    /// An empty registry with no catalog.
     public convenience init() {
-        self.init(catalog: [])
+        self.init(catalog: [], runTiming: SignpostActionRunTiming())
     }
 
-    /// A registry seeded with `catalog` whose runs are not timed (``NoActionRunTiming``): a
-    /// test's registry writes no signposts and adds no run-loop observer.
-    ///
-    /// A separate symbol, not a default argument of ``init(catalog:aliases:runTiming:)``: objects
-    /// compiled before the timing was injected call this one (warm fleet build trees link them).
-    ///
-    /// - Parameters:
-    ///   - catalog: The descriptors.
-    ///   - aliases: Old ids folded into canonical ids.
+    /// A registry seeded with `catalog`.
     public convenience init(catalog: [ActionDescriptor], aliases: [ActionID: ActionID] = [:]) {
-        self.init(catalog: catalog, aliases: aliases, runTiming: NoActionRunTiming())
+        self.init(catalog: catalog, aliases: aliases, runTiming: SignpostActionRunTiming())
     }
 
-    /// A registry seeded with `catalog` whose runs `runTiming` times.
-    ///
-    /// - Parameters:
-    ///   - catalog: The descriptors (``ActionCatalog/all`` in the App).
-    ///   - aliases: Old ids folded into canonical ids.
-    ///   - runTiming: Times every run that does work. The App passes ``SignpostActionRunTiming``
-    ///     at its composition root; tests pass a recorder.
-    public init(catalog: [ActionDescriptor], aliases: [ActionID: ActionID] = [:],
-                runTiming: any ActionRunTiming) {
+    /// A registry seeded with `catalog` whose runs are timed by `runTiming` (tests pass a recorder).
+    init(catalog: [ActionDescriptor], aliases: [ActionID: ActionID] = [:], runTiming: any ActionRunTiming) {
         self.aliases = aliases
         self.runTiming = runTiming
         seed(catalog)
@@ -332,6 +310,54 @@ public final class ActionRegistry {
     public func canPerform(_ id: ActionID, in context: ActionContext? = nil) -> Bool {
         guard let action = action(for: id), isAvailable(id, in: context) else { return false }
         return action.isEnabled()
+    }
+
+    // MARK: - Performing
+
+    /// Performs the action if it is bound, available, and enabled. Returns
+    /// whether it ran.
+    @discardableResult
+    public func perform(_ id: ActionID) -> Bool {
+        perform(id, invocation: ActionInvocation())
+    }
+
+    /// Performs an action that takes one argument. The text is parsed with
+    /// the descriptor's first argument; handlers without a schema get it
+    /// through `argumentHandler`.
+    @discardableResult
+    public func perform(_ id: ActionID, argument: String) -> Bool {
+        let schema = descriptor(for: id)?.arguments.first
+        let name = schema?.name ?? "value"
+        let value = schema?.parse(argument) ?? .string(argument)
+        return perform(id, invocation: ActionInvocation(arguments: [name: value]))
+    }
+
+    /// Performs with a target and typed arguments (palette, CLI, context menus). Fails when a required argument is missing.
+    @discardableResult
+    public func perform(_ id: ActionID, invocation: ActionInvocation) -> Bool {
+        settlingPreview(for: id) { performNow(id, invocation: invocation) }
+    }
+
+    private func performNow(_ id: ActionID, invocation: ActionInvocation) -> Bool {
+        if disabledFeature(for: id) != nil { return false }
+        if let route = keyWindowRoute?(canonicalID(for: id), invocation) {
+            guard case .run = route else { return route.perform { refuse($0) } }
+            return signposted(id, invocation) { route.perform { refuse($0) } }
+        }
+        guard let action = action(for: id), isAvailable(id, for: invocation), action.isEnabled() else { return false }
+        if ActionTargetReasons.refuses(action, invocation, in: self) { return false }
+        let missing = descriptor(for: id).map { descriptor in
+            descriptor.arguments.contains { $0.isRequired && invocation.arguments[$0.name] == nil && !Self.target(of: invocation, supplies: $0, for: descriptor) }
+        } ?? false
+        if missing, let argumentCollector {
+            // A menu item or shortcut for an argument-taking action: let the
+            // palette ask for the rest, then run with the full invocation.
+            signposted(id, invocation) { argumentCollector(id, invocation) }
+            return true
+        }
+        if needsConfirmation(id, invocation) { return gateDestructive(id, invocation) }
+        signposted(id, invocation) { runScoped(action, id, invocation) }
+        return true
     }
 
     /// IDs of catalog actions without a handler. The App's conformance test

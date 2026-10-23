@@ -38,28 +38,20 @@ extension SettingsController {
         if descriptor.path == DensitySetting().configPath, try await file.value(at: customDensity) != nil {
             linked.append((path: customDensity, value: nil))
         }
-        if let value, !descriptor.accepts(value) { throw SettingRefused(key: descriptor.id, value: value) }
-        // Before the write, so an observer of the new value already sees what the hook recorded;
-        // the hook's undo runs if the write fails.
-        let undo = writer == .user ? userWillWrite?(descriptor, value) : nil
-        do {
-            if let value {
-                if legacy != nil || !linked.isEmpty {
-                    try await file.apply([(path: descriptor.path, value: value)] + (legacy.map { [(path: $0, value: nil)] } ?? []) + linked)
-                } else {
-                    try await file.set(value, at: descriptor.path)
-                }
-                if descriptor.kind == .fontFamily, let family = value.stringValue { recentFonts.record(family) }
-                await reloadAfterWrite()
+        if let value {
+            guard descriptor.accepts(value) else { throw SettingRefused(key: descriptor.id, value: value) }
+            if legacy != nil || !linked.isEmpty {
+                try await file.apply([(path: descriptor.path, value: value)] + (legacy.map { [(path: $0, value: nil)] } ?? []) + linked)
             } else {
-                if let legacy { try await file.remove(legacy) }
-                // One publish removes the pair; removePruning then drops the emptied parents.
-                if !linked.isEmpty { try await file.apply([(path: descriptor.path, value: nil)] + linked) }
-                try await removePruning(descriptor.path)
+                try await file.set(value, at: descriptor.path)
             }
-        } catch {
-            undo?()
-            throw error
+            if descriptor.kind == .fontFamily, let family = value.stringValue { recentFonts.record(family) }
+            await reloadAfterWrite()
+        } else {
+            if let legacy { try await file.remove(legacy) }
+            // One publish removes the pair; removePruning then drops the emptied parents.
+            if !linked.isEmpty { try await file.apply([(path: descriptor.path, value: nil)] + linked) }
+            try await removePruning(descriptor.path)
         }
         validatedWrites[descriptor.id, default: 0] += 1
     }

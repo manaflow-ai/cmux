@@ -48,9 +48,6 @@
               "tabs.newTabWidgets.actions",
               "tabs.newTabWidgets.chats",
               "tabs.newTabWidgets.styleDots",
-              "tabs.newTabWidgets.weather",
-              "tabs.newTabWidgets.weatherCity",
-              "tabs.newTabWidgets.machines",
               "tabs.newTabWidgets.order",
               "sidebar.showChats"
             ],
@@ -404,7 +401,6 @@
               "appearance.background",
               "appearance.backgroundRotation",
               "appearance.paneBackgrounds",
-              "ui.reducedBackgrounds",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur",
               "appearance.inactiveWindowDim"
@@ -1310,16 +1306,6 @@
             "title" : {
               "key" : "settings.pageGroup.network",
               "text" : "Network Requests"
-            }
-          },
-          {
-            "key" : "settings.group.hangReports",
-            "rows" : [
-              "diagnostics.hangReports"
-            ],
-            "title" : {
-              "key" : "settings.group.hangReports",
-              "text" : "Hang Reports"
             }
           }
         ],
@@ -11146,61 +11132,6 @@
       "title" : {
         "key" : "settings.appearance.paneBackgrounds",
         "text" : "Pane Backgrounds"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.windowBackground",
-        "text" : "Window Background"
-      },
-      "help" : {
-        "key" : "settings.ui.reducedBackgrounds.help",
-        "text" : "Draws windows in the plain theme color, without paintings, wallpapers or glass. Your background choices stay as they are and come back when you turn it off."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "ui.reducedBackgrounds",
-      "keywords" : [
-        "background",
-        "plain",
-        "reduce",
-        "reduced",
-        "painting",
-        "wallpaper",
-        "glass",
-        "transparency",
-        "backdrop",
-        "art",
-        "simple",
-        "performance"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "ui",
-        "reducedBackgrounds"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.ui.reducedBackgrounds",
-        "text" : "Plain Backgrounds"
       },
       "validation" : "portable"
     },
@@ -24096,7 +24027,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -24104,17 +24035,15 @@
       },
       "help" : {
         "key" : "settings.tabs.newTabWidgets.greeting.help",
-        "text" : "A headline over the composer that asks what to work on, with the project as a picker."
+        "text" : "A short greeting over the composer."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.newTabWidgets.greeting",
       "keywords" : [
         "new tab",
         "widget",
-        "headline",
         "greeting",
-        "project",
-        "question"
+        "hello"
       ],
       "kind" : "toggle",
       "page_hidden" : false,
@@ -24132,7 +24061,7 @@
       "summary" : null,
       "title" : {
         "key" : "settings.tabs.newTabWidgets.greeting",
-        "text" : "Ask What to Work On on New Tab"
+        "text" : "Show Greeting on New Tab"
       },
       "validation" : "portable"
     },
@@ -24332,155 +24261,6 @@
       "title" : {
         "key" : "settings.tabs.newTabWidgets.styleDots",
         "text" : "Show Template Dots on New Tab"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "network",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.newTabWidgets.weather.help",
-        "text" : "The current weather and today's high and low, for the city below or your time zone's city."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.newTabWidgets.weather",
-      "keywords" : [
-        "new tab",
-        "widget",
-        "weather",
-        "temperature",
-        "forecast",
-        "location"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "tabs",
-        "newTabWidgets",
-        "weather"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.tabs.newTabWidgets.weather",
-        "text" : "Show Weather on New Tab"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-
-      ],
-      "agent_refusal" : "network",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.newTabWidgets.weatherCity.help",
-        "text" : "A city for the weather widget. Empty uses your time zone's city."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.newTabWidgets.weatherCity",
-      "keywords" : [
-        "new tab",
-        "widget",
-        "weather",
-        "city",
-        "location"
-      ],
-      "kind" : "text",
-      "page_hidden" : false,
-      "path" : [
-        "tabs",
-        "newTabWidgets",
-        "weatherCity"
-      ],
-      "refuses" : [
-        1,
-        true,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.tabs.newTabWidgets.weatherCity",
-        "text" : "Weather City"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.newTabWidgets.machines.help",
-        "text" : "Your machines and whether each is online."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.newTabWidgets.machines",
-      "keywords" : [
-        "new tab",
-        "widget",
-        "machines",
-        "computers",
-        "ssh",
-        "cloud",
-        "online"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "tabs",
-        "newTabWidgets",
-        "machines"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.tabs.newTabWidgets.machines",
-        "text" : "Show Machines on New Tab"
       },
       "validation" : "portable"
     },
@@ -35137,61 +34917,6 @@
       "title" : {
         "key" : "settings.agents.defaultPermissionMode",
         "text" : "Permission Mode for New Chats"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "privacy",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.hangReports",
-        "text" : "Hang Reports"
-      },
-      "help" : {
-        "key" : "settings.diagnostics.hangReports.help",
-        "text" : "Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "diagnostics.hangReports",
-      "keywords" : [
-        "hang",
-        "lag",
-        "slow",
-        "performance",
-        "diagnostics",
-        "telemetry",
-        "privacy",
-        "metrickit",
-        "report"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "diagnostics",
-        "hangReports"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "home",
-      "summary" : {
-        "key" : "settings.diagnostics.hangReports.summary",
-        "text" : "Nightly only. No file names, text or addresses."
-      },
-      "title" : {
-        "key" : "settings.diagnostics.hangReports",
-        "text" : "Send Hang Reports"
       },
       "validation" : "portable"
     },

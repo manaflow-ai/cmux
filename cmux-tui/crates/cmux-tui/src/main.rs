@@ -1758,17 +1758,6 @@ fn run_main() {
     // before installing the interactive daemon's signal handlers: the host
     // owns its own lifecycle and must not inherit "request mux shutdown"
     // semantics.
-    // The one process that holds every PTY of this install (cmux-holder,
-    // terminal-host-model-DESIGN.md). Same rule as the host: before any
-    // daemon signal handler.
-    #[cfg(unix)]
-    if raw_args.first().map(String::as_str) == Some("__holder") {
-        if let Err(error) = cmux_holder::serve(&raw_args[1..]) {
-            crate::client_log::stderr_log!("startup", "cmux-tui holder: {error}");
-            client_log::exit(1);
-        }
-        return;
-    }
     if raw_args.first().map(String::as_str) == Some("__terminal-host") {
         if let Err(error) = run_terminal_host_process(&raw_args[1..]) {
             crate::client_log::stderr_log!("startup", "cmux-tui terminal host: {error}");

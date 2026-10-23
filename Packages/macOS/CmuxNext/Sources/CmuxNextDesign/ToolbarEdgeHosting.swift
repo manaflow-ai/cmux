@@ -1,5 +1,4 @@
 public import AppKit
-public import CmuxNextDesignTokens
 
 /// A pane content view with an omnibar row it can put at its top or bottom
 /// edge (`browser.toolbarPosition`): the browser chrome and a page tab with a

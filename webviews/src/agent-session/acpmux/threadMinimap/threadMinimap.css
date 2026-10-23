@@ -73,8 +73,7 @@
   border: 0;
   background: none;
   color: var(--acpmux-minimap-rest);
-  /* The rail reads like a scrollbar: it remains usable without turning the pointer into a hand. */
-  cursor: default;
+  cursor: pointer;
   outline: none;
   contain: layout paint;
 }
@@ -163,8 +162,15 @@
 .acpmux-minimap__rail[data-hovering] .acpmux-minimap__tick[data-bookmarked] .acpmux-minimap__bar {
   opacity: 1;
 }
-/* The dot's hit area: the row's right end past the tick (26 px), so the tick keeps its click. It
-   remains invisible until the prompt is bookmarked. */
+/* No bookmark yet: the hovered row shows a faint dot where a click would set one, a little
+   stronger over the spot itself. */
+.acpmux-minimap__tick[data-tone="active"]:hover:not([data-bookmarked]) .acpmux-minimap__dot {
+  opacity: 0.3;
+}
+.acpmux-minimap__tick[data-tone="active"]:not([data-bookmarked]):has(.acpmux-minimap__dot-hit:hover) .acpmux-minimap__dot {
+  opacity: 0.6;
+}
+/* The dot's hit area: the row's right end past a hovered tick (26 px), so the tick keeps its click. */
 .acpmux-minimap__dot-hit {
   position: absolute;
   top: 0;

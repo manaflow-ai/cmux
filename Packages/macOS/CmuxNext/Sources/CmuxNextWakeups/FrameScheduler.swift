@@ -160,6 +160,7 @@ public final class FrameScheduler: NSObject {
         link?.invalidate()
         link = nil
         closeObserver = nil
+        closeObserver = nil
     }
 
     // MARK: Frames

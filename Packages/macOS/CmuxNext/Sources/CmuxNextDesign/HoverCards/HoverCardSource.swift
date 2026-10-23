@@ -1,5 +1,4 @@
 public import AppKit
-public import CmuxNextDesignTokens
 
 /// What a hit test found: a target and its frame on screen.
 public struct HoverCardHit {

@@ -14,6 +14,7 @@ final class WindowVisibilityObserver {
     /// Starts following `window` (nil stops) and reports its current state.
     func observe(_ window: NSWindow?, onChange: @escaping (Bool) -> Void) {
         observer = nil
+        observer = nil
         self.window = window
         self.onChange = onChange
         guard let window else { return }

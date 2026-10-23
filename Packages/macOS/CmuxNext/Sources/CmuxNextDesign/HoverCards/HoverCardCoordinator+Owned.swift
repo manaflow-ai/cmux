@@ -1,5 +1,4 @@
 public import AppKit
-public import CmuxNextDesignTokens
 
 /// A card its owner shows and closes (the sidebar's Update Ready highlights), in the app's one
 /// card window: the owner keeps its own open and close rules (its card takes clicks and scrolls),

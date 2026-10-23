@@ -1,7 +1,6 @@
 import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextRemote
-import CmuxNextSidebar
 import CmuxNextWorkspaceRepair
 import Foundation
 import Observation
@@ -46,10 +45,10 @@ final class ServerMachineSession {
         case .ssh(let host):
             let link = binary.map { SSHMachineSession(host: host, binary: $0, paths: paths, environment: environment, machineID: reach.machineID) }
             self.link = link
-            daemon = link?.daemon ?? DaemonService(machineID: reach.machineID, echoesPlacementShift: SidebarMirror.isLinked)
+            daemon = link?.daemon ?? DaemonService(machineID: reach.machineID)
         case .unix, .overlay:
             link = nil
-            daemon = DaemonService(machineID: reach.machineID, echoesPlacementShift: SidebarMirror.isLinked)
+            daemon = DaemonService(machineID: reach.machineID)
         }
         emptyWorkspaces = link?.emptyWorkspaces ?? EmptyWorkspaceRepair(daemon: daemon)
     }
