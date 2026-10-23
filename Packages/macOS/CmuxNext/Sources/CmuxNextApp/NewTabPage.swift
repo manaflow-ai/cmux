@@ -193,6 +193,7 @@ enum NewTabPage {
             home: machine.home,
             template: services.settings?.snapshot.newTabTemplate?.rawValue, pageWidgets: services.settings?.snapshot.newTabWidgets.ids
         ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
+            .startingIn(machine.remoteFolders == nil ? services.newTabChoices.startedProject : nil)
             .warmedOnThisMac(machine.remoteFolders == nil)
     }
 
@@ -204,7 +205,8 @@ enum NewTabPage {
             layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent,
             lastPicks: services.newTabChoices.picks, home: NSHomeDirectory(),
             template: services.settings?.snapshot.newTabTemplate?.rawValue, pageWidgets: services.settings?.snapshot.newTabWidgets.ids
-        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services)).warmedOnThisMac()
+        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
+            .startingIn(services.newTabChoices.startedProject).warmedOnThisMac()
     }
 
     /// Show All Chats on New Tab (`sidebar.showChats`; All chats left the sidebar for this page, cx-n0i9).
@@ -312,6 +314,13 @@ extension AgentPaneNewTab {
     func dismissingHarnessHint(_ dismissed: Bool) -> AgentPaneNewTab {
         var page = self
         page.harnessHintDismissed = dismissed ? true : nil
+        return page
+    }
+
+    /// The page with the project of the chat the person last picked and started, if any.
+    func startingIn(_ startedProject: String?) -> AgentPaneNewTab {
+        var page = self
+        page.startedProject = startedProject
         return page
     }
 

@@ -51,10 +51,6 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 # The four fingerprint words, the same list and derivation the app shows.
 cmux-server-core = { path = "../../../cmux-tui/crates/cmux-server-core" }
 
-# The acpmux socket peer's Team signature (acpmux_peer, cx-ggai).
-[target.'cfg(target_os = "macos")'.dependencies]
-core-foundation-sys = "0.8"
-
 [features]
 # Only the tests' in-process fake acpmux daemons: a socket peer that is this
 # process passes the peer check (acpmux_peer). Never in a shipped build; the
