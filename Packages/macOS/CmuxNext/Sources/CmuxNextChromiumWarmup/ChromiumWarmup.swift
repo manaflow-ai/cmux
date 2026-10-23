@@ -103,9 +103,9 @@ public final class ChromiumWarmup {
         guard !launchTimer.isScheduled, isAvailable else { return }
         self.defaultIsChromium = defaultIsChromium
         self.pagesPending = pagesPending
-        // Every take of the spare window makes the next one at the next idle moment, so each
-        // pane's first Chromium tab joins a live window (CEFSpareWindow, PL-cef-tab).
-        engine.onSpareWindowTaken = { [weak self] in self?.spareTaken() }
+        // Whenever no spare window is ready (taken, or a tab started Chromium itself), the next
+        // idle moment makes one, so a new Chromium tab joins a live window (CEFSpareWindow, PL-cef-tab).
+        engine.onSpareWindowNeeded = { [weak self] in self?.spareNeeded() }
         launchTimer.schedule(after: policy.launchPreloadDelay) { @MainActor [weak self] in
             guard let self, !stopped else { return }
             // While new browser tabs open in Chromium, any browser tab is a Chromium tab: start it
@@ -119,9 +119,9 @@ public final class ChromiumWarmup {
         }
     }
 
-    /// A pane took the spare Chromium window: the next idle moment makes another, unless a
-    /// warm start already waits for one (it ends with the spare).
-    private func spareTaken() {
+    /// No spare Chromium window is ready: the next idle moment makes one, unless a warm start
+    /// already waits for one (it ends with the spare).
+    private func spareNeeded() {
         guard !stopped, engine.isRunning, !waiting else { return }
         warmStarted()
     }

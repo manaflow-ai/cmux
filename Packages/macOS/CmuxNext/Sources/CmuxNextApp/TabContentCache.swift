@@ -346,10 +346,19 @@ final class TabContentCache {
         let incognito = OffTheRecordProfiles.shared.isOffTheRecord(page.profileID) ? incognitoMemory : nil
         let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine(forPage: page),
                                  history: incognito?.history ?? history(for: page.profileID))
+        pageRequests.routeOmnibarOpens(of: entry.chrome, page: page)
+        mount(entry, as: key)
+        return entry
+    }
+
+    /// Binds `entry` to tab id `key`: everything of the chrome and the cache that names the tab,
+    /// the app's hooks (`onBrowserEntryCreated`, which capture the tab) included. Runs again when a
+    /// stand-in's entry moves to its daemon tab (`moveBrowser`): each hook replaces what it set.
+    private func mount(_ entry: BrowserEntry, as key: String) {
+        let page = entry.tab
         entry.chrome.addressBar.tabKey = key
         showPendingNotice(on: entry, key: key); MachineBrowserPages(cache: self).wireChip(entry, page: page, key: key)
         entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
-        pageRequests.routeOmnibarOpens(of: entry.chrome, page: page)
         serveAppPages(entry, key: key)
         entry.chrome.addressBar.setProfileBadge(profileBadge?(key))
         entry.chrome.addressBar.profileBadgeMenu = { [weak self] in self?.profileBadgeMenu?(key) }
@@ -365,18 +374,19 @@ final class TabContentCache {
         // Pages are kept by hibernation, never by the terminal warm set.
         ledger.setRetained(key, false)
         contentDidMount(key)
-        return entry
     }
 
-    /// The page of stand-in tab `key` (`BrowserTabStandIn`), taken out of the cache without closing
-    /// it, for the daemon's tab to adopt (`BrowserPageRequests.adopt`). Everything else the key
-    /// held is released as for a closed tab; the pane showing it lets go of its view. Nil when the
-    /// stand-in has no page (yet): the daemon's tab then makes its own.
-    func handOverBrowser(_ key: String) -> (any BrowserTab)? {
-        guard !pendingBrowsers.contains(key), let entry = browsers.removeValue(forKey: key) else { return nil }
-        release(key)
-        entry.chrome.removeFromSuperview()
-        return entry.tab
+    /// Stand-in tab `key`'s page and chrome become daemon tab `tab`'s (`BrowserTabStandIn`), in the
+    /// turn the store swaps the two: nothing is rebuilt or reloaded, and the pane that shows the
+    /// stand-in keeps the same view when it moves to `tab`. False when the stand-in has no page
+    /// (yet) or `tab` has one: `tab` then makes its own.
+    func moveBrowser(_ key: String, to tab: TabModel) -> Bool {
+        guard !pendingBrowsers.contains(key), browsers[tab.id] == nil, let entry = browsers.removeValue(forKey: key) else { return false }
+        release(key, displacing: false)
+        mount(entry, as: tab.id)
+        goneTabs.track(tab.id, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
+        _ = tracked(entry, tab)
+        return true
     }
 
     /// Swaps `tab`'s page for `page` (an adopted popup that arrived after
@@ -411,9 +421,10 @@ final class TabContentCache {
     }
 
     /// The tab closed: free everything it held (a conversation tab's view: `onRelease`).
-    func release(_ key: String) {
+    /// `displacing` false: the pane showing `key` keeps its view (a stand-in's moved to its daemon tab).
+    func release(_ key: String, displacing: Bool = true) {
         onRelease?(key)
-        if let owner = ledger.remove(key) { presenters[owner]?.value?.surfaceWasDisplaced(key) }
+        if let owner = ledger.remove(key), displacing { presenters[owner]?.value?.surfaceWasDisplaced(key) }
         applyLifecycle(lifecycle.send(.removed(key)))
         pendingMounts[key] = nil
         hibernation?.forget(key)

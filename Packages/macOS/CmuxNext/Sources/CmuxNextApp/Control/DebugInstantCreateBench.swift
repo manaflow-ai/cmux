@@ -53,7 +53,7 @@ enum DebugInstantCreateBench {
         let (key, modifiers) = command.key
         frames.start()
         BenchSpans.begin()
-        services.cache.cef.benchMarks.arm { name, milliseconds in BenchSpans.record(name, milliseconds: milliseconds) }
+        services.cache.cef.benchMarks.arm { name, milliseconds in BenchSpans.mark(name, milliseconds: milliseconds) }
         defer { services.cache.cef.benchMarks.arm(nil) }
         let start = ContinuousClock.now
         if let action = params["run"]?.stringValue {

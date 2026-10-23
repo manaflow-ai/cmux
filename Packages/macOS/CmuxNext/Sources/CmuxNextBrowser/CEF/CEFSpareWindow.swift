@@ -17,8 +17,8 @@ import Foundation
 /// spare again (`giveBack`). Another profile, a remote machine's store or an
 /// incognito window gets a window of its own as before. At most one untaken
 /// spare at a time, made only while no other Chromium window is being built;
-/// each take reports `onTaken`, so the warmup makes the next spare at the
-/// next idle moment (`ChromiumWarmup`).
+/// each take, and any window that comes up while none is ready, reports
+/// `onNeeded`, so the warmup makes the next spare at the next idle moment (`ChromiumWarmup`).
 ///
 /// The spare is no window request's target (`CEFWindowRequests`): a page
 /// or extension that asks for a tab with no window of its own still opens a
@@ -36,8 +36,9 @@ final class CEFSpareWindow {
     private(set) var host: CEFPaneHost?
     /// Whether a spare was made in this process (`state` says `taken` after its take).
     private var made = false
-    /// A pane took the spare: the next idle moment may make another (`ChromiumWarmup`).
-    var onTaken: (@MainActor () -> Void)?
+    /// No spare is ready (a pane took it, or a tab's own window came up first): the next idle
+    /// moment may make one (`ChromiumWarmup`).
+    var onNeeded: (@MainActor () -> Void)?
     /// Tabs Chromium created in the spare's window before a tab took it.
     private var parked: [(browser: Int32, disposition: BrowserNewTabDisposition, bounds: CGRect?)] = []
 
@@ -84,7 +85,7 @@ final class CEFSpareWindow {
         runtime.hosts[spare.key] = nil
         spare.rekey(key)
         runtime.hosts[key] = spare
-        onTaken?()
+        onNeeded?()
         return spare
     }
 
@@ -120,6 +121,12 @@ final class CEFSpareWindow {
         spare.removed(blank)
         blank.close()
         runtime.hosts[spare.key] = nil
+    }
+
+    /// A Chromium window came up (`CEFPaneHost.windowCreated`): with no spare ready, ask for one,
+    /// so a Chromium a tab started, not the warm start, gets a spare too.
+    func windowCameUp(_ live: CEFPaneHost) {
+        if host == nil, !live.isPopupHost { onNeeded?() }
     }
 
     /// Chromium put `browser` into the spare's window before a tab took it.
