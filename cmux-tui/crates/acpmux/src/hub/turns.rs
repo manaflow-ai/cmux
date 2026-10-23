@@ -340,6 +340,9 @@ impl Hub {
         let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
         let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
         self.append_prompt(session, msg, &blocks);
+        // The first-message title request starts after the fallback prompt line is published, so
+        // the tab and workspace show an instant placeholder while the cheap model runs.
+        self.title_after_prompt(session);
         if !waiting {
             // Started at once: only prompts a failed turn holds can wait under its key.
             if let Some(key) = supersede.as_deref() {
