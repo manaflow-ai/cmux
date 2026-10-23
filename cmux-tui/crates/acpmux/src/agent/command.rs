@@ -213,6 +213,15 @@ pub(crate) fn harness_command(
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
     }
+    // Claude Code's question previews in the format the hub labels them with
+    // (`preview_format`, which the hub records at this launch): set last, so a
+    // login or daemon value can never make the agent write HTML the hub would
+    // show as text, or the reverse. `markdown` is Claude Code's own default
+    // for this entrypoint.
+    if profile.kind == crate::config::HarnessKind::ClaudeStdio {
+        let format = preview_format(profile).claude_value();
+        cmd.env(crate::hub::questions::PREVIEW_FORMAT_ENV, format);
+    }
     // A Claude agent's sign-in inputs, for a clear message if it has none.
     match (family == Some("claude"), session) {
         (true, Some((id, _))) => {
@@ -242,6 +251,35 @@ fn ask_opencode(cmd: &mut Command, name: &str, inherit_ambient: bool) {
             harness = %name,
             "{CONFIG_ENV} is not a JSON object: kept as it is, so OpenCode is not asked to ask before each tool"
         ),
+    }
+}
+
+/// How Claude Code started from `profile` writes its question previews
+/// (`hub/questions.rs` `PreviewFormat`): its own
+/// `CLAUDE_CODE_QUESTION_PREVIEW_FORMAT`, a reference resolved as the launch
+/// resolves it. The hub labels the questions with it (`hub/tools.rs`) and
+/// `harness_command` pins the agent to it, so the two never disagree.
+pub(crate) fn preview_format(profile: &HarnessProfile) -> crate::hub::questions::PreviewFormat {
+    use crate::hub::questions::{PREVIEW_FORMAT_ENV, PreviewFormat};
+    let claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
+    let Some(value) = profile.env.get(PREVIEW_FORMAT_ENV).filter(|_| claude) else {
+        return PreviewFormat::Monospace;
+    };
+    let env = [(PREVIEW_FORMAT_ENV.to_owned(), value.clone())].into();
+    let only = HarnessProfile { env, ..profile.clone() };
+    resolved_profile_env(&only).map(|env| PreviewFormat::of(claude, &env)).unwrap_or_default()
+}
+
+/// The preview format `harness_command` pinned on `cmd`: what the agent it starts writes. The hub
+/// records this one (`Hub::record_preview_format`), never a second resolution of the profile,
+/// which a pooled agent started minutes earlier could disagree with.
+pub(crate) fn pinned_preview_format(cmd: &Command) -> crate::hub::questions::PreviewFormat {
+    use crate::hub::questions::{PREVIEW_FORMAT_ENV, PreviewFormat};
+    let mut envs = cmd.as_std().get_envs();
+    let pinned = envs.find(|(name, _)| *name == PREVIEW_FORMAT_ENV).and_then(|(_, value)| value);
+    match pinned {
+        Some(value) if value == PreviewFormat::Html.claude_value() => PreviewFormat::Html,
+        _ => PreviewFormat::Monospace,
     }
 }
 
@@ -383,6 +421,43 @@ mod tests {
             !env.iter().any(|(key, _)| key == "CARGO_MANIFEST_DIR"),
             "hosted projection recovered the daemon environment"
         );
+    }
+
+    /// Claude Code is pinned to the preview format the hub records for its
+    /// launch (`preview_format`); another harness is neither pinned nor HTML.
+    #[test]
+    fn claude_code_is_pinned_to_the_preview_format_the_hub_records() {
+        use crate::config::HarnessKind;
+        use crate::hub::questions::{PREVIEW_FORMAT_ENV, PreviewFormat};
+        let profile = |kind, value: &str| {
+            let mut p: HarnessProfile =
+                serde_json::from_value(serde_json::json!({"argv": ["/usr/bin/true"]})).unwrap();
+            p.kind = kind;
+            p.env.insert(PREVIEW_FORMAT_ENV.into(), value.into());
+            p
+        };
+        let pinned = |p: &HarnessProfile| {
+            let command = harness_command("local", p, &std::env::temp_dir(), None, None).unwrap();
+            let env = command_env(&command);
+            env.into_iter().find(|(k, _)| k == PREVIEW_FORMAT_ENV).map(|(_, v)| v)
+        };
+        let html = profile(HarnessKind::ClaudeStdio, " html ");
+        assert_eq!(preview_format(&html), PreviewFormat::Html);
+        assert_eq!(pinned(&html).as_deref(), Some("html"));
+        let command = |p: &HarnessProfile| {
+            pinned_preview_format(
+                &harness_command("local", p, &std::env::temp_dir(), None, None).unwrap(),
+            )
+        };
+        assert_eq!(command(&html), PreviewFormat::Html);
+        let text = profile(HarnessKind::ClaudeStdio, "markdown");
+        assert_eq!(preview_format(&text), PreviewFormat::Monospace);
+        assert_eq!(pinned(&text).as_deref(), Some("markdown"));
+        assert_eq!(command(&text), PreviewFormat::Monospace);
+        // A reference that does not resolve starts no agent, and labels nothing HTML.
+        let missing = profile(HarnessKind::ClaudeStdio, "${env:ACPMUX_TEST_NO_SUCH_FORMAT}");
+        assert_eq!(preview_format(&missing), PreviewFormat::Monospace);
+        assert_eq!(preview_format(&profile(HarnessKind::Acp, "html")), PreviewFormat::Monospace);
     }
 
     #[test]
