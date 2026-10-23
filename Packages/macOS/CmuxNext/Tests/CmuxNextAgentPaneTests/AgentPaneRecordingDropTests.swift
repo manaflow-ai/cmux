@@ -155,4 +155,21 @@ struct AgentPaneRecordingDropTests {
         rig.model.droppedPaths.stash([source], kind: .drop)
         #expect(Self.paths(await rig.ask([source.lastPathComponent])).isEmpty)
     }
+
+    @Test func aRetainedRecordingCannotCrossChatsWhenThePaneAdoptsAnotherSession() async throws {
+        let source = try Self.preview(data: Data("movie".utf8))
+        let saved = try Self.folder("recording-session-scope")
+        defer {
+            try? FileManager.default.removeItem(at: source.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: saved)
+        }
+        let rig = Rig(saved: saved)
+        rig.model.adoptSession("chat-a")
+        rig.model.droppedPaths.stash([source], kind: .drop)
+        let kept = URL(fileURLWithPath: try #require(Self.paths(await rig.ask([source.lastPathComponent])).first))
+        rig.model.adoptSession("chat-b")
+        let refused = await rig.model.respond(to: AgentPaneRequest(body: ["method": "file.drag", "params": ["path": kept.path]]))
+        #expect(refused["ok"] as? Bool == false)
+        #expect(rig.dragged.isEmpty)
+    }
 }
