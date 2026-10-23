@@ -7,7 +7,13 @@ import { expect, test } from "bun:test";
 import table from "./fixtures/new-tab-intents.json";
 import { classifyNewTabInput, type NewTabIntent } from "../src/agent-session/acpmux/newTabIntent";
 import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
-import { defaultSelection, screenRows } from "../src/agent-session/acpmux/newtab/screenModel";
+import { omniboxAction } from "../src/agent-session/acpmux/omniboxAction";
+import {
+  defaultSelection,
+  isAddress,
+  pairingLinkRefused,
+  screenRows,
+} from "../src/agent-session/acpmux/newtab/screenModel";
 
 const rows = table.rows as { input: string; intent: NewTabIntent }[];
 
@@ -30,4 +36,19 @@ test("go/gday opens http://go/gday first, with the web search and Ask still offe
 test("a bare single word stays a prompt", () => {
   const list = screenRows("go", { omnibar: EMPTY_OMNIBAR, ask });
   expect(list.some((row) => row.type === "open")).toBe(false);
+});
+
+// H7 walkthrough (2026-10-20): a pasted Mac Screen pairing link offered "Search the web for
+// cmux-vnc://pair?…" and Return asked Codex. The link carries a room secret: no row may search it,
+// ask an agent with it or open it, and Return shows the address bar's refusal instead.
+test("a pairing link offers no web search, no Ask and no address", () => {
+  const link = "cmux-vnc://pair?room=h7dummyroom0000&secret=h7dummysecret0000";
+  const list = screenRows(link, { omnibar: EMPTY_OMNIBAR, ask, create: ["terminal", "browser", "chat"] });
+  // Not even New chat or New browser tab: both would carry the field's text.
+  expect(list).toEqual([]);
+  expect(isAddress(link)).toBe(false);
+  expect(omniboxAction(link)).toEqual({ kind: "none" });
+  expect(pairingLinkRefused(link)).toBe(true);
+  expect(pairingLinkRefused(`please open ${link}`)).toBe(true);
+  expect(pairingLinkRefused("github.com")).toBe(false);
 });

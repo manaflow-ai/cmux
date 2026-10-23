@@ -59,6 +59,8 @@ public final class RemoteDesktopPane {
 
     public let presenterKind: RemotePresenterKind
     private let source: any RemoteViewStreamSource
+    /// The input controller holds its sink weakly; the pane owns it.
+    private let inputSink: (any RemoteViewInputSink)?
     private let presenter: any RemoteFramePresenter
     private var tasks: [Task<Void, Never>] = []
     private var pipeline: RemoteDecodePipeline?
@@ -72,14 +74,17 @@ public final class RemoteDesktopPane {
         inputSink: (any RemoteViewInputSink)?,
         settings: RemoteDesktopSettings = RemoteDesktopSettings(),
         presenter: RemotePresenterKind = RemoteViewTunables().presenter.value,
-        initialMode: RemoteControlMode = .control
+        initialMode: RemoteControlMode = .control,
+        scaling: RemoteViewGeometry.Scaling = .native
     ) {
         self.source = source
+        self.inputSink = inputSink
         self.settings = settings
         state = RemotePaneState(hostName: hostName, requestedMode: initialMode, interactiveMaxRttMs: settings.interactiveMaxRttMs)
         self.presenter = RemoteFramePresenters().make(presenter)
         presenterKind = self.presenter.kind
         view.video.install(self.presenter)
+        view.video.scaling = scaling
         view.capture.controller.sink = inputSink
         view.capture.controller.onReleaseKeyboard = { [weak view] in view?.capture.releaseKeyboard() }
         self.presenter.onFrameSize = { [weak self] size in
@@ -94,13 +99,21 @@ public final class RemoteDesktopPane {
         guard tasks.isEmpty else { return }
         let presenter = self.presenter
         let firstFrame = self.firstFrame
-        let pipeline = RemoteDecodePipeline(source: source) { [weak self] frame in
+        let deliver: @Sendable (RemoteDecodedFrame) -> Void = { [weak self] frame in
             presenter.present(frame)
             guard firstFrame.consume() else { return }
             Task { @MainActor in self?.apply(.frameShown) }
         }
-        self.pipeline = pipeline
-        tasks.append(Task.detached(priority: .userInitiated) { await pipeline.run() })
+        if let frameSource = source as? any RemoteViewFrameSource {
+            let frames = frameSource.decodedFrames()
+            tasks.append(Task.detached(priority: .userInitiated) {
+                for await frame in frames { deliver(frame) }
+            })
+        } else {
+            let pipeline = RemoteDecodePipeline(source: source, deliver: deliver)
+            self.pipeline = pipeline
+            tasks.append(Task.detached(priority: .userInitiated) { await pipeline.run() })
+        }
         let statuses = source.statusUpdates()
         tasks.append(Task { [weak self] in
             for await status in statuses { self?.apply(.status(status)) }
@@ -125,6 +138,9 @@ public final class RemoteDesktopPane {
     public func decodeStats() async -> RemoteDecodePipeline.Stats? {
         await pipeline?.stats
     }
+
+    /// The size of the last presented frame, in stream pixels (debug surfaces, tests).
+    public var framePixels: CGSize { view.video.framePixels }
 
     /// Frames replaced before display by the latest-frame-wins presenter.
     public var discardedFrames: Int { presenter.discardedFrames }
