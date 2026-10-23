@@ -207,6 +207,8 @@ private final class RunTimingRecorder: ActionRunTiming {
     /// reports an age.
     @Test func aCarriedStampCountsOnlyForAPersonsRun() {
         #expect(ActionRegistry.inputAgeMilliseconds(origin: .user, event: nil, carried: 100, now: 100.5) == 500)
+        // No cap: a carried press a second or more old keeps its age (3f9a1c0c4ce dropped the 1 s cap).
+        #expect(ActionRegistry.inputAgeMilliseconds(origin: .user, event: nil, carried: 100, now: 101) == 1_000)
         #expect(ActionRegistry.inputAgeMilliseconds(origin: .cli, event: nil, carried: 100, now: 100.5) == -1)
     }
 
@@ -240,6 +242,53 @@ private final class RunTimingRecorder: ActionRunTiming {
         #expect(closes.count == 2)
         let confirmed = closes.filter { $0.isConfirmed }
         #expect(confirmed.count == 2)
+    }
+
+    /// A confirmation that asked nothing (a slow TabCloseGuard or process-info round trip) and
+    /// comes back more than a second later, outside any dispatch, still reports the press's age:
+    /// that wait is the person's latency. Before 3f9a1c0c4ce a 1 s cap reported -1.
+    @Test func aSlowUnaskedConfirmationKeepsThePressesAgePastOneSecond() throws {
+        let recorder = RunTimingRecorder()
+        let registry = Self.gatedRegistry(recorder) { _, _ in }
+        var pending: (@MainActor (Bool) -> Void)?
+        registry.confirmationPresenter = { _, _, proceed in pending = proceed }
+        var dispatching: NSEvent? = try Self.key(at: ProcessInfo.processInfo.systemUptime - 1.5)
+        registry.dispatchingInputEvent = { dispatching }
+        #expect(registry.perform("tabGroup.close"))
+        dispatching = nil  // the guard's round trip answered in a later turn
+        let proceed = try #require(pending)
+        proceed(false)
+        let age: Double = try #require(recorder.runs.last?.inputAge)
+        #expect(age >= 1_500, "the unasked confirmation reported \(age) ms, not the 1.5 s press's age")
+    }
+
+    /// The palette collecting a missing argument asked a question: the run with the collected
+    /// invocation outside any dispatch reports -1, never the opening shortcut's age with the
+    /// person's typing and browsing in it; inside the palette's Return it reports that Return.
+    @Test func aPaletteCollectedRunReportsTheAnswerNotTheOpeningPress() throws {
+        let recorder = RunTimingRecorder()
+        var ran: [ActionID] = []
+        let registry = Self.gatedRegistry(recorder) { id, _ in ran.append(id) }
+        var collected: [ActionInvocation] = []
+        registry.argumentCollector = { _, invocation in collected.append(invocation) }
+        let now = ProcessInfo.processInfo.systemUptime
+        var dispatching: NSEvent? = try Self.key(at: now - 3)  // the shortcut that opened the palette
+        registry.dispatchingInputEvent = { dispatching }
+        #expect(registry.perform("test.ask"))
+        #expect((recorder.gates.first?.inputAge ?? -1) >= 3_000, "the gate lost the shortcut's age")
+        var full = try #require(collected.first)
+        #expect(full.inputTimestamp == nil, "the palette got the shortcut's stamp")
+        full.arguments["name"] = .string("x")
+
+        dispatching = nil  // VoiceOver presses the row, or the run happens in a later turn
+        #expect(registry.perform("test.ask", invocation: full))
+        #expect(recorder.runs.last?.inputAge == -1)
+
+        dispatching = try Self.key(at: now - 0.002)  // the palette's Return
+        #expect(registry.perform("test.ask", invocation: full))
+        let answered: Double = try #require(recorder.runs.last?.inputAge)
+        #expect(answered >= 1 && answered < 1_000, "the run reported \(answered) ms, not the Return's age")
+        #expect(ran == ["test.ask", "test.ask"])
     }
 
     /// The main run loop waking while a run watches (a nested loop that waited inside a handler)
