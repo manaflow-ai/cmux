@@ -120,30 +120,37 @@ enum AgentSessionWorkspace {
     /// Closes workspace `key` that a failed adopt made on `daemon`, with `terminals` and any tab, kept
     /// out of Recently Closed. Always on `daemon`'s live connection, never the one the adopt started
     /// on (it may be dead): while the link is down (the adopt may have failed on that drop) it waits
-    /// for the next connect, and a close the link drops under is sent again once it is back. It ends
-    /// on a close the daemon answers, or when `present` turns false (the machine left the app).
+    /// for the next connect. A late reply is asked again within the late-reply budget
+    /// (`retryingLateReplies`, so a daemon that never answers ends it); a close the link drops under
+    /// is sent again only on a NEW connection, so each pass needs a reconnect and none spins. It ends
+    /// on a close the daemon answers, a reply past the budget, or `present` turning false (the
+    /// machine left the app).
     @MainActor
     static func closeFailedAdopt(_ key: WorkspaceKey, terminals: [WorkspaceClose.Terminal] = [], on daemon: DaemonService,
                                  present: @escaping @MainActor @Sendable () -> Bool) async throws {
-        // wakeup-allow: each pass waits on observation for a connect, then sends once; a drop is the only way round
+        var dropped: DaemonConnection?
+        // wakeup-allow: each pass waits on observation for a live connection other than the one that dropped, then sends once
         while true {
-            for await done in ObservationStream({ daemon.isLive || !present() }) where done { break }
+            for await done in ObservationStream({ (daemon.isLive && daemon.connection !== dropped) || !present() }) where done { break }
             guard present(), let connection = daemon.connection else { throw DaemonError.notConnected }
             do {
-                try await WorkspaceClose.close(key, terminals: terminals, on: connection, reason: .sessionEnd)
+                try await DaemonConnection.retryingLateReplies("close-workspace") {
+                    try await WorkspaceClose.close(key, terminals: terminals, on: connection, reason: .sessionEnd)
+                }
                 return
             } catch let error as DaemonError where closeRetries(after: error) && present() && !Task.isCancelled {
-                daemon.logger.info("agent.openSessionWorkspace: closing a failed adopt's workspace lost its link (\(String(describing: error), privacy: .public)); again once connected")
+                dropped = connection
+                daemon.logger.info("agent.openSessionWorkspace: closing a failed adopt's workspace lost its link (\(String(describing: error), privacy: .public)); again on the next connection")
             }
         }
     }
 
     /// Whether a failed adopt's close that failed with `error` is sent again on the next connection: the
-    /// link dropped or the reply never came. A daemon's answer (`command`: refused, or the workspace is
-    /// already gone) ends it.
+    /// link dropped under it. A daemon's answer (`command`: refused, or the workspace is already gone)
+    /// and a reply still missing past the late-reply budget (`timedOut`) end it.
     nonisolated static func closeRetries(after error: DaemonError) -> Bool {
         switch error {
-        case .notConnected, .connectionClosed, .daemonShutdown, .connectFailed, .timedOut: true
+        case .notConnected, .connectionClosed, .daemonShutdown, .connectFailed: true
         default: false
         }
     }
