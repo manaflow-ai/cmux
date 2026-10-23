@@ -69,9 +69,9 @@ jobs:
     strategy:
       fail-fast: false
       # Each matrix entry has its own checkout and branch, so entries do not
-      # contend on a workspace. Eight 2-vCPU Blacksmith jobs fill one 16-vCPU
+      # contend on a workspace. Sixteen 2-vCPU Blacksmith jobs fill a 32-vCPU
       # pool instead of serializing a populated selector into four-job waves.
-      max-parallel: 8
+      max-parallel: 16
       matrix:
         pr: ${{ fromJSON(needs.select.outputs.prs) }}
     steps:
