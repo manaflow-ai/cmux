@@ -58,7 +58,8 @@ await requireBrowserLane("new-tab-no-chat-before-context.test.ts", async () => {
           let result: unknown = null;
           if (message.method === "initialize")
             result = { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
-          else if (message.method === "_acpmux/watch" || message.method === "_acpmux/sessions") result = { sessions: [] };
+          else if (message.method === "_acpmux/watch" || message.method === "_acpmux/sessions")
+            result = { sessions: [] };
           ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
         },
       },
