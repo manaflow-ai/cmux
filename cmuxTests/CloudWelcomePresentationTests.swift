@@ -74,6 +74,20 @@ struct CloudWelcomePresentationTests {
     }
 
     #if DEBUG
+    @Test("debug launches do not present or consume the automatic welcome")
+    func debugLaunchSkipsAutomaticPresentation() throws {
+        let suite = "CloudWelcomePresentationTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let controller = CloudWelcomeWindowController(defaults: defaults, performNextStep: { _, _ in })
+        defer { controller.dismiss() }
+
+        controller.presentIfNeeded(over: nil)
+
+        #expect(!isVisible)
+        #expect(!CloudWelcomeWindowController.hasSeenWelcome(in: defaults))
+    }
+
     @Test("debug force-show marks seen and reset permits another first presentation")
     func debugForceAndReset() throws {
         let suite = "CloudWelcomePresentationTests.\(UUID().uuidString)"
