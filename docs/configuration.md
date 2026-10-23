@@ -561,3 +561,29 @@ Behavior notes:
 - Declarations fail closed. A missing detection entry, an empty `resumeArgvPrefix`, a blank `kinds` array, or a value of the wrong type makes that one declaration unusable — the session then resumes exactly as it did before, without the wrapper. The rest of the file still applies.
 - Removing a declaration is safe, and has the same effect: the capture keeps the recorded id, but nothing is re-supplied.
 - Hooks keep working for the wrapped agent. When the prefix replaces the agent executable, cmux puts its per-surface agent shim first on `PATH` for the restored process, so the wrapper's own `claude` lookup still finds the hook-injecting shim. A wrapper that ignores `PATH` (an absolute path to the real binary, for example) needs the global fallback instead: `cmux hooks setup --agent claude`.
+
+## `agents.claudeAccounts`
+
+Register several Claude Code accounts, each a separate config directory (`CLAUDE_CONFIG_DIR`), so a running Claude pane can be switched between them.
+
+```json
+{
+  "agents": {
+    "claudeAccounts": [
+      { "name": "work", "configDir": "~/.claude-work" },
+      { "name": "personal", "configDir": "~/.claude-personal" }
+    ]
+  }
+}
+```
+
+- `name`: what menus and the CLI show. Letters, numbers, dots, underscores, and hyphens, up to 64 characters. The sidebar label is derived from the config directory name, so name each account after its directory suffix (`~/.claude-work` → `work`) to keep the two consistent. `default` is reserved for `~/.claude`.
+- `configDir`: absolute path or a path starting with `~/`.
+
+Behavior notes:
+
+- The default `~/.claude` account is always available, listed first, and never sets `CLAUDE_CONFIG_DIR`. Declare `~/.claude` yourself only to give it another name.
+- Entries with an invalid name or a `configDir` that is neither absolute nor `~/`-relative are ignored. Equivalent spellings of one directory (`~/.claude-work`, `/Users/me/.claude-work/`) are the same account; the first declaration of a directory wins.
+- A project-level `cmux.json` (or `.cmux/cmux.json`) overrides a user-level declaration with the same `name`.
+
+Default: `[]`
