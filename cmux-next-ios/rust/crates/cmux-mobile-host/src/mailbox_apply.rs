@@ -229,7 +229,7 @@ pub async fn reply_to_notification(
     // waits at its prompt in its own session (`send-expect-agent-v1`, #24205), so a Return
     // never lands on an approval dialog. Without the capability or the session, nothing
     // is typed (review 2, N1, N2). A plain program's terminal takes the two writes below.
-    let agents = lines.call_daemon(&policy, &json!({"id": "mailbox-agents", "cmd": "list-agents"})).await?;
+    let agents = lines.call_daemon(&policy, &agents_line(found)).await?;
     match agent_session(&agents, found) {
         AgentOnTerminal::None => {}
         AgentOnTerminal::Unknown => return Err(refused("an agent runs in that terminal; answer it in the app")),
@@ -354,10 +354,22 @@ pub enum AgentOnTerminal {
 }
 
 /// The agent on `surface` in `list-agents`' answer.
+/// `list-agents` for the terminal of `surface` only (the daemon resolves the surface to its
+/// terminal, whichever placement it reports the agent under).
+pub fn agents_line(surface: u64) -> Value {
+    json!({"id": "mailbox-agents", "cmd": "list-agents", "surface": surface})
+}
+
+/// The agent in `agents_line(surface)`'s answer: its only row. An answer to an unfiltered
+/// request (an older daemon that ignores `surface`) is read by `surface`.
 pub fn agent_session(agents: &Value, surface: u64) -> AgentOnTerminal {
     let data = agents.get("data").unwrap_or(agents);
-    let rows = data.get("agents").and_then(Value::as_array);
-    let Some(row) = rows.into_iter().flatten().find(|a| a.get("surface").and_then(Value::as_u64) == Some(surface)) else {
+    let rows: Vec<&Value> = data.get("agents").and_then(Value::as_array).into_iter().flatten().collect();
+    let row = match rows.as_slice() {
+        [only] => Some(*only),
+        many => many.iter().copied().find(|a| a.get("surface").and_then(Value::as_u64) == Some(surface)),
+    };
+    let Some(row) = row else {
         return AgentOnTerminal::None;
     };
     match row.get("agent_session_id").and_then(Value::as_str).filter(|s| !s.is_empty()) {
@@ -746,6 +758,15 @@ mod tests {
         assert_eq!(agent_session(&agents, 9), AgentOnTerminal::Unknown);
         assert_eq!(agent_session(&agents, 3), AgentOnTerminal::None);
         assert_eq!(agent_session(&json!({"ok": true, "data": {}}), 7), AgentOnTerminal::None);
+        // The request asks for that terminal (`list-agents {surface}`): a terminal shown in
+        // two tabs reports its agent under another placement's surface, and it still counts
+        // (review 3).
+        let filtered = json!({"ok": true, "data": {"agents": [
+            {"surface": 12, "state": "blocked", "agent": "claude", "agent_session_id": "s-1"}]}});
+        assert_eq!(agent_session(&filtered, 7), AgentOnTerminal::Session("s-1".into()));
+        assert_eq!(agents_line(7)["surface"], 7);
+        let daemon = DaemonPolicy::new("phone-1");
+        assert!(!matches!(daemon.evaluate(&serde_json::to_vec(&agents_line(7)).unwrap()), Verdict::Refuse(_)));
     }
 
     #[test]
