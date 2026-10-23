@@ -258,24 +258,30 @@ final class MacScreenMenuButton: NSButton, MacScreenInked {
     }
 }
 
-/// A menu row that runs a closure (a person's choice in a Mac Screen menu).
-final class MacScreenMenuItem: NSMenuItem {
-    private let run: @MainActor () -> Void
+/// What a Mac Screen menu row runs (a person's choice); the row keeps it as its represented object.
+final class MacScreenMenuAction: NSObject {
+    private let run: () -> Void
 
-    init(_ title: String, checked: Bool = false, enabled: Bool = true, run: @escaping @MainActor () -> Void) {
+    init(_ run: @escaping () -> Void) {
         self.run = run
-        super.init(title: title, action: #selector(choose), keyEquivalent: "")
-        target = self
-        state = checked ? .on : .off
-        isEnabled = enabled
+        super.init()
     }
 
-    @available(*, unavailable)
-    required init(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    /// AppKit runs a menu's actions on the main thread.
-    @MainActor @objc private func choose() {
+    @objc func choose(_ sender: Any?) {
         run()
+    }
+}
+
+extension NSMenuItem {
+    /// A Mac Screen menu row that runs `run` when chosen.
+    static func macScreen(_ title: String, checked: Bool = false, run: @escaping () -> Void) -> NSMenuItem {
+        let action = MacScreenMenuAction(run)
+        let item = NSMenuItem(title: title, action: #selector(MacScreenMenuAction.choose(_:)), keyEquivalent: "")
+        // The target is weak: the row holds its action.
+        item.representedObject = action
+        item.target = action
+        item.state = checked ? .on : .off
+        return item
     }
 }
 

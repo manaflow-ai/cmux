@@ -179,7 +179,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         menu.autoenablesItems = false
         for (index, size) in model.displays.enumerated() {
             let title = String(format: L.t("macScreen.toolbar.display", "Display %d (%d × %d)"), index + 1, Int(size.width), Int(size.height))
-            menu.addItem(MacScreenMenuItem(title, checked: model.currentDisplay == index) { [weak self] in self?.actions.selectDisplay(index) })
+            menu.addItem(NSMenuItem.macScreen(title, checked: model.currentDisplay == index) { [weak self] in self?.actions.selectDisplay(index) })
         }
         return menu
     }
@@ -189,12 +189,12 @@ final class MacScreenToolbarView: MacScreenThemedView {
         menu.autoenablesItems = false
         guard let session = model.session else { return menu }
         for quality in ScreenQuality.allCases {
-            menu.addItem(MacScreenMenuItem(Self.qualityTitle(quality), checked: session.preferences.quality == quality) { [weak self] in
+            menu.addItem(NSMenuItem.macScreen(Self.qualityTitle(quality), checked: session.preferences.quality == quality) { [weak self] in
                 self?.actions.setQuality(quality)
             })
         }
         menu.addItem(.separator())
-        menu.addItem(MacScreenMenuItem(L.t("macScreen.toolbar.showStats", "Show Stats"), checked: session.preferences.showStats) { [weak self] in
+        menu.addItem(NSMenuItem.macScreen(L.t("macScreen.toolbar.showStats", "Show Stats"), checked: session.preferences.showStats) { [weak self] in
             self?.actions.toggleStats()
         })
         return menu
@@ -206,18 +206,18 @@ final class MacScreenToolbarView: MacScreenThemedView {
         if let shortcuts = model.systemShortcuts {
             // The setting (macScreen.systemShortcuts): every Mac Screen tab follows it.
             let enabled = shortcuts.enabled
-            menu.addItem(MacScreenMenuItem(L.t("macScreen.keys.systemShortcuts", "Send System Shortcuts to the Remote Mac"), checked: enabled) {
+            menu.addItem(NSMenuItem.macScreen(L.t("macScreen.keys.systemShortcuts", "Send System Shortcuts to the Remote Mac"), checked: enabled) {
                 shortcuts.setEnabled(!enabled)
             })
             if shortcuts.needsAccessibility {
-                menu.addItem(MacScreenMenuItem(L.t("macScreen.keys.allowAccessibility", "Allow Accessibility for System Shortcuts…")) {
+                menu.addItem(NSMenuItem.macScreen(L.t("macScreen.keys.allowAccessibility", "Allow Accessibility for System Shortcuts…")) {
                     shortcuts.requestAccessibility()
                 })
             }
             menu.addItem(.separator())
         }
         for shortcut in MacScreenShortcut.all {
-            menu.addItem(MacScreenMenuItem(shortcut.title) { [weak self] in self?.actions.sendKeys(shortcut) })
+            menu.addItem(NSMenuItem.macScreen(shortcut.title) { [weak self] in self?.actions.sendKeys(shortcut) })
         }
         return menu
     }

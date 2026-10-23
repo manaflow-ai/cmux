@@ -198,10 +198,10 @@ extension MacScreenHomeView {
     private func moreMenu(_ id: String) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
-        menu.addItem(MacScreenMenuItem(L.t("macScreen.home.openViewNewTab", "View Only in New Tab")) { [weak self] in
+        menu.addItem(NSMenuItem.macScreen(L.t("macScreen.home.openViewNewTab", "View Only in New Tab")) { [weak self] in
             self?.actions.openDeviceInNewTab(id, .view)
         })
-        menu.addItem(MacScreenMenuItem(L.t("macScreen.home.openControlNewTab", "Full Control in New Tab")) { [weak self] in
+        menu.addItem(NSMenuItem.macScreen(L.t("macScreen.home.openControlNewTab", "Full Control in New Tab")) { [weak self] in
             self?.actions.openDeviceInNewTab(id, .full)
         })
         menu.addItem(.separator())
@@ -209,8 +209,8 @@ extension MacScreenHomeView {
         // host's prompt offers Always Allow.
         let ask = NSMenu()
         ask.autoenablesItems = false
-        ask.addItem(MacScreenMenuItem(L.t("macScreen.hub.view", "View Only")) { [weak self] in self?.actions.openDevice(id, .view) })
-        ask.addItem(MacScreenMenuItem(L.t("macScreen.hub.control", "Full Control")) { [weak self] in self?.actions.openDevice(id, .full) })
+        ask.addItem(NSMenuItem.macScreen(L.t("macScreen.hub.view", "View Only")) { [weak self] in self?.actions.openDevice(id, .view) })
+        ask.addItem(NSMenuItem.macScreen(L.t("macScreen.hub.control", "Full Control")) { [weak self] in self?.actions.openDevice(id, .full) })
         let request = NSMenuItem(title: L.t("macScreen.home.requestAccess", "Ask for Access"), action: nil, keyEquivalent: "")
         request.submenu = ask
         menu.addItem(request)
