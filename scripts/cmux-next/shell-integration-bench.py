@@ -4,8 +4,8 @@
 usage:
   python3 -I scripts/cmux-next/shell-integration-bench.py --app "/path/cmux NIGHTLY.app"
   python3 -I scripts/cmux-next/shell-integration-bench.py            # this checkout (needs ghostty-next)
-  options: --shells zsh,bash,fish  --bash /opt/homebrew/bin/bash  --require zsh,bash (default: the
-           requested zsh and bash; --require= to allow skipping)
+  options: --shells zsh,bash,fish  --bash /opt/homebrew/bin/bash  --fish /opt/homebrew/bin/fish
+           --require zsh,bash (default: the requested zsh and bash; --require= to allow skipping)
            --layouts app,daemon,daemon-bare  --reps 9  --cycles 20  --idle-s 1.2  --max-overhead-ms 15
            --json out.json
   fleet (with the fork guard and bash 5.2; exclusive for the first-prompt times):
@@ -36,9 +36,14 @@ prompt hook must still run. After the counted cycles each integrated bash run mo
 What it counts. Each run reads the shell's fork count four times: before the shell runs (it
 starts behind a gate, a pipe its child reads before execve), at the first prompt, after `--cycles`
 prompt cycles, and after `--idle-s` seconds idle at the prompt. On macOS the kernel counts the
-forks of the shell alone (a kqueue NOTE_FORK knote on its pid, in place before the gate opens), so
-no other process on the host changes the count, and a fork of a subshell counts with the subshell
-(a count of 0 is exact; above 0 it is the shell's own forks). Elsewhere a reading is a PID probe
+forks of the shell alone (a kqueue NOTE_FORK knote on its pid, in place before the gate opens; the
+shell's execve, which the knote must report after the gate opens, shows it is on the shell's pid),
+so no other process on the host changes the count. That count has two limits. It is the shell's own
+forks: a fork inside a subshell (a command substitution's) counts with the subshell, not here. And
+the knote is EV_CLEAR, so forks between two reads of the kqueue (the bench reads it whenever it
+wakes, the idle window included) merge into one event. A count of 0 is exact (every fork of a
+descendant starts with one of the shell); a count above 0 is a lower bound, and the output marks
+it ">=" (at least that many, when the control counts 0). Elsewhere a reading is a PID probe
 (a forked child that exits at once): PIDs are handed out in sequence, so the gap counts every
 process forked in the window, the shell's and the host's, and the minimum over `--reps` runs drops
 the host's. A cycle types one command one key at a time (each key waits for its echo), presses
@@ -60,14 +65,20 @@ prompt marks (OSC 133;C per command; the OSC 2 title `true` for zsh and bash) wi
 and every integrated bash run put the agent shim directory back in front. Budgets are 0 except
 bash 4.4-5.2, where Ghostty runs its preexec hook from PS0 in a command substitution (the
 only pre-command hook bash has before 5.3): 1 fork of the shell per command, whose subshell forks
-once more for the history read (BASH_PS0_FORKS: 1 counted by the kernel, 2 in the PID gap). Exit 1 on a failure, 2 when no
+once more for the history read (BASH_PS0_FORKS: 1 counted by the kernel, 2 in the PID gap). On
+macOS that budget check is partial, and the result says so ("partial"): the kernel's count misses
+every fork inside the PS0 subshell (an added `$(...)` or external command in __ghostty_preexec or
+a hook it runs adds nothing there), and a merged event can hide a fork of the shell. The complete
+bash 4.4-5.2 verdict is the PID gap (Linux; cmux-tui-core's fork-count test with bash 5.2, budget
+2). The budget-0 checks (zsh, fish, bash 5.3, every startup and idle window) are exact on macOS
+when the control counts 0. Exit 1 on a failure, 2 when no
 shell could run or a `--require`d shell is missing (zsh and bash are required by default, so a host
 with only Apple's /bin/bash 3.2, which Ghostty does not integrate, fails instead of skipping bash).
 Noise (PID gap only): host spawns only make a count larger. An inflated integrated count shows a
 fork that is not there (rerun). An inflated control minimum would understate the integration's
 forks, so a result also fails when the control minimum is reached in fewer than max(2, reps/3)
 reps: a baseline that only one rep hit is not the shell's own count. Rerun on an idle host when
-that happens. The kernel's count (macOS) does not vary with the host.
+that happens. The kernel's count (macOS) does not depend on other processes on the host.
 """
 
 from __future__ import annotations
@@ -174,6 +185,7 @@ class Session:
         self.da1_answered = 0
         self.forks = 0
         self.execs = 0
+        self.gate_execs = 0
         self.kq = None
         # The PID counter before the shell (PID gap); the kernel's count starts at 0.
         self.start = 0 if KERNEL_COUNT else probe_pid()
@@ -190,11 +202,25 @@ class Session:
             finally:
                 os._exit(127)
         os.close(gate_r)
-        if KERNEL_COUNT:
-            self.kq = select.kqueue()
-            self.kq.control([select.kevent(self.pid, select.KQ_FILTER_PROC,
-                                           select.KQ_EV_ADD | select.KQ_EV_CLEAR,
-                                           select.KQ_NOTE_FORK | select.KQ_NOTE_EXEC)], 0)
+        try:
+            if KERNEL_COUNT:
+                self.kq = select.kqueue()
+                self.kq.control([select.kevent(self.pid, select.KQ_FILTER_PROC,
+                                               select.KQ_EV_ADD | select.KQ_EV_CLEAR,
+                                               select.KQ_NOTE_FORK | select.KQ_NOTE_EXEC)], 0)
+                # The child has not exec'd yet (it waits on the gate): the shell's execve must
+                # come after this.
+                self.drain()
+                self.gate_execs = self.execs
+        except BaseException:
+            # Closing the gate unopened gives the child EOF: it exits through os._exit(127)
+            # without exec, and is reaped here with its pty, before the error goes on.
+            os.close(gate_w)
+            if self.kq is not None:
+                self.kq.close()
+            os.waitpid(self.pid, 0)
+            os.close(self.fd)
+            raise
         self.started = time.perf_counter()
         os.write(gate_w, b"g")
         os.close(gate_w)
@@ -214,8 +240,8 @@ class Session:
         if not KERNEL_COUNT:
             return probe_pid()
         self.drain()
-        if self.execs < 1:
-            raise BenchError("the shell started before its fork count")
+        if self.execs <= self.gate_execs:
+            raise BenchError("the fork count saw no execve after the gate opened: it does not watch the shell")
         return self.forks
 
     def wait_for(self, done, what: str) -> None:
@@ -224,20 +250,31 @@ class Session:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise BenchError(f"timed out waiting for {what}; last output: {self.tail()}")
-            # The kqueue too: each fork is read as it fires, not merged with the next.
-            watched = [self.fd] if self.kq is None else [self.fd, self.kq.fileno()]
-            ready, _, _ = select.select(watched, [], [], remaining)
-            self.drain()
-            if self.fd not in ready:
-                continue
-            try:
-                data = os.read(self.fd, 65536)
-            except OSError:
-                data = b""
-            if not data:
-                raise BenchError(f"shell exited while waiting for {what}; last output: {self.tail()}")
-            self.buf += data
-            self.answer_device_attributes()
+            self.wake(remaining, what)
+
+    def idle(self, seconds: float) -> None:
+        """Stays at the prompt for `seconds` with no input (a fixed measurement window), reading
+        the shell's output and its fork events as they come, as `wait_for` does."""
+        deadline = time.monotonic() + seconds
+        while (remaining := deadline - time.monotonic()) > 0:
+            self.wake(remaining, "the end of the idle window")
+
+    def wake(self, timeout: float, what: str) -> None:
+        """Waits up to `timeout` for output or a fork event and takes what came."""
+        # The kqueue too: a fork is read when it fires, so fewer merge with the next.
+        watched = [self.fd] if self.kq is None else [self.fd, self.kq.fileno()]
+        ready, _, _ = select.select(watched, [], [], timeout)
+        self.drain()
+        if self.fd not in ready:
+            return
+        try:
+            data = os.read(self.fd, 65536)
+        except OSError:
+            data = b""
+        if not data:
+            raise BenchError(f"shell exited while waiting for {what}; last output: {self.tail()}")
+        self.buf += data
+        self.answer_device_attributes()
 
     def answer_device_attributes(self) -> None:
         """Answers each Primary Device Attributes query (CSI c) as Ghostty does.
@@ -307,7 +344,7 @@ def run_once(shell: Shell, argv: list[str], env: dict[str, str], cycles: int, id
         after = session.fork_count()
         # A fixed measurement window at the prompt, not a wait for the shell: whatever the
         # integration starts on its own (a timer, a watcher) forks in it.
-        time.sleep(idle_s)
+        session.idle(idle_s)
         idle_after = session.fork_count()
         if check_shims:
             # Outside the counted window. The agent shim hook runs at each prompt
@@ -471,7 +508,8 @@ def version_of(path: str, name: str) -> str:
     return match.group(0) if match else "?"
 
 
-def find_shells(names: list[str], bash_path: str | None) -> tuple[list[Shell], dict[str, str]]:
+def find_shells(names: list[str], bash_path: str | None,
+                fish_path: str | None) -> tuple[list[Shell], dict[str, str]]:
     shells: list[Shell] = []
     skipped: dict[str, str] = {}
     for name in names:
@@ -479,6 +517,8 @@ def find_shells(names: list[str], bash_path: str | None) -> tuple[list[Shell], d
             candidates = [bash_path]
         elif name == "bash":
             candidates = ["/opt/homebrew/bin/bash", "/usr/local/bin/bash", shutil.which("bash") or ""]
+        elif name == "fish" and fish_path:
+            candidates = [fish_path]
         elif name == "fish":
             candidates = [shutil.which("fish") or "", "/opt/homebrew/bin/fish", "/usr/local/bin/fish"]
         else:
@@ -587,6 +627,8 @@ def measure(shell: Shell, layout: Layout, home: Path, home_name: str, shims: Pat
     if overhead > args.max_overhead_ms:
         problems.append(f"first prompt {overhead:.1f} ms slower than without the integration "
                         f"(budget {args.max_overhead_ms:g} ms)")
+    # A kernel count above 0 is a lower bound (merged events, no forks inside a subshell).
+    lower_bound = KERNEL_COUNT and max(startup, cycle_total, idle) > 0
     return {
         "shell": shell.name, "path": shell.path, "version": shell.version, "layout": layout.name,
         "home": home_name, "startup_forks": startup, "forks_per_cycle": round(per_cycle, 2),
@@ -599,6 +641,8 @@ def measure(shell: Shell, layout: Layout, home: Path, home_name: str, shims: Pat
         "first_prompt_ms": {"control": round(first_control, 1), "integrated": round(first_integrated, 1),
                             "overhead": round(overhead, 1),
                             "integrated_max": round(max(r.first_prompt_ms for r in integ), 1)},
+        "counts_are_lower_bounds": lower_bound,
+        "complete": not (KERNEL_COUNT and shell.cycle_budget > 0),
         "pass": not problems, "problems": problems,
     }
 
@@ -612,6 +656,7 @@ def main() -> int:
     parser.add_argument("--require", default=None,
                         help="shells that must run (default: zsh and bash when requested; --require= for none)")
     parser.add_argument("--bash", help="the bash to run (default: Homebrew's, else PATH's)")
+    parser.add_argument("--fish", help="the fish to run (default: PATH's, else Homebrew's)")
     parser.add_argument("--layouts", default="app,daemon,daemon-bare")
     parser.add_argument("--reps", type=int, default=9)
     parser.add_argument("--warmup", type=int, default=1)
@@ -680,7 +725,7 @@ def main() -> int:
         (shims / "codex").chmod(0o755)
 
         names = [n for n in args.shells.split(",") if n]
-        shells, skipped = find_shells(names, args.bash)
+        shells, skipped = find_shells(names, args.bash, args.fish)
         for name, why in skipped.items():
             print(f"SKIP {name}: {why}")
         required = ([n for n in names if n in ("zsh", "bash")] if args.require is None
@@ -719,9 +764,16 @@ def main() -> int:
             if "first_prompt_ms" in r:
                 fp = r["first_prompt_ms"]
                 times = f"{fp['control']:.1f} / {fp['integrated']:.1f} / {fp['overhead']:+.1f}"
-                print(f"{label:<16} {r['layout']:<11} {r['home']:<9} {r['startup_forks']:>13} "
-                      f"{r['forks_per_cycle']:>11.2f} {r['idle_forks']:>10} {times:>30}  "
-                      f"{'PASS' if r['pass'] else 'FAIL'}")
+                # ">=": a kernel count above 0 (a lower bound).
+                bound = ">=" if KERNEL_COUNT else ""
+                startup = f"{bound if r['startup_forks'] > 0 else ''}{r['startup_forks']}"
+                per_cycle = f"{bound if r['cycle_forks'] > 0 else ''}{r['forks_per_cycle']:.2f}"
+                idle = f"{bound if r['idle_forks'] > 0 else ''}{r['idle_forks']}"
+                verdict = "PASS" if r["pass"] else "FAIL"
+                if not r["complete"]:
+                    verdict += " (partial: the kernel count misses forks inside the PS0 subshell)"
+                print(f"{label:<16} {r['layout']:<11} {r['home']:<9} {startup:>13} "
+                      f"{per_cycle:>11} {idle:>10} {times:>30}  {verdict}")
             else:
                 print(f"{label:<16} {r['layout']:<11} {r['home']:<9} {'-':>13} {'-':>11} {'-':>10} {'-':>30}  FAIL")
             for problem in r["problems"]:
