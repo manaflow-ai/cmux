@@ -37,7 +37,12 @@ import { seedWarmNewTab } from "./newtab/warmSnapshot";
 import { useNoEntryMotion } from "./newtab/noEntryMotion";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import type { ComposerAttachment } from "./attachments";
-import { AttachmentStrip, useAttachmentIntake, useSendWhenAttached } from "./composer/attachmentIntake";
+import {
+  AttachmentStrip,
+  backspacedAttachment,
+  useAttachmentIntake,
+  useSendWhenAttached,
+} from "./composer/attachmentIntake";
 import { DropOverlay } from "./composer/DropOverlay";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
@@ -534,6 +539,16 @@ export function NewTabPage({
       event.preventDefault();
       changeKind(beforePrefix);
       setBeforePrefix(undefined);
+    } else {
+      // Backspace at the field's start takes back the last chip (backspacedAttachment).
+      const backspaced = backspacedAttachment(
+        event,
+        input.selectionStart === 0 && input.selectionEnd === 0,
+        attachments,
+      );
+      if (!backspaced) return;
+      event.preventDefault();
+      setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
     }
   };
   const edit = (next: string) => {
