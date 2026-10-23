@@ -40,6 +40,8 @@ parser.add_argument("--step-pt", type=float, default=4.0)
 parser.add_argument("--scrollback", type=int, default=20000, help="history lines printed in each light terminal")
 parser.add_argument("--rounds", type=int, default=2)
 parser.add_argument("--idle-s", type=float, default=5.0)
+parser.add_argument("--tag", help="the app's tag (split-spring.sh passes it)")
+parser.add_argument("--json", help="also write the report here (split-spring.sh's artifact)")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 APP = (opts.app or "").rstrip("/")
@@ -48,7 +50,7 @@ if not APP or not os.path.isdir(APP):
 with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
     info = plistlib.load(f)
 BINARY = os.path.join(APP, "Contents/MacOS", info["CFBundleExecutable"])
-TAG = os.environ.get("NX_APP_TAG") or os.path.basename(APP).removesuffix(".app").split(" ")[-1]
+TAG = opts.tag or os.environ.get("NX_APP_TAG") or os.path.basename(APP).removesuffix(".app").split(" ")[-1]
 SOCKET = os.environ.get("NX_APP_SOCKET") or f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 
@@ -246,5 +248,6 @@ finally:
             app.kill()
             app.wait()
     teardown.end()
-    with open(os.path.join(opts.out, "terminal-resize.json"), "w") as f:
-        json.dump(report, f, indent=1)
+    for path in [os.path.join(opts.out, "terminal-resize.json")] + ([opts.json] if opts.json else []):
+        with open(path, "w") as f:
+            json.dump(report, f, indent=1)
