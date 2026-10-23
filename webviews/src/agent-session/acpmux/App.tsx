@@ -7063,7 +7063,7 @@ function AcpmuxPane() {
     }
   }, []);
   /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
-  const chatFromNewTab = (text: string, cwd?: string) => {
+  const chatFromNewTab = (text: string, cwd?: string, attachments: ComposerAttachment[] = []) => {
     const inherited = newTab?.cwd;
     setNewTab(undefined);
     const start = (folder?: string) =>
@@ -7074,7 +7074,8 @@ function AcpmuxPane() {
         const started = folder ? await callNative("chat.new", { cwd: folder }) : undefined;
         // A chat the person started here with a prompt makes its project the default.
         if (started && text && !directClient.current?.startsOnSend) rememberStartedProject(folder, callNative);
-        if (text) await callNative("chat.send", { text });
+        if (text || attachments.length)
+          await callNative("chat.send", { text, ...(attachments.length ? { attachments } : {}) });
       })().catch(() => undefined);
     // The page's own folder is inherited (`~` in a fresh workspace): the chat starts in its start
     // folder. Another project the user picked there goes through the host first.
