@@ -140,7 +140,8 @@
               "diff.wordDiffs",
               "diff.lineNumbers",
               "diff.showBackgrounds",
-              "diff.expandUnchanged"
+              "diff.expandUnchanged",
+              "diff.groupByKind"
             ],
             "title" : {
               "key" : "settings.group.diffViewer",
@@ -4876,7 +4877,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sessions",
@@ -16602,6 +16603,53 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.groupByKind",
+      "keywords" : [
+        "diff",
+        "group",
+        "kind",
+        "tests",
+        "generated",
+        "order",
+        "sort"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "diff",
+        "groupByKind"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.diff.groupByKind",
+        "text" : "Group Files by Kind"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "privacy",
       "agent_settable" : false,
       "consumers" : [
@@ -24219,93 +24267,6 @@
     },
     {
       "accepts" : [
-        [
-
-        ],
-        [
-          "chats",
-          "actions",
-          "projects"
-        ]
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.tabs.newTabWidgets.order.projects",
-            "text" : "Projects"
-          },
-          "value" : "projects"
-        },
-        {
-          "title" : {
-            "key" : "settings.tabs.newTabWidgets.order.actions",
-            "text" : "Quick Actions"
-          },
-          "value" : "actions"
-        },
-        {
-          "title" : {
-            "key" : "settings.tabs.newTabWidgets.order.chats",
-            "text" : "Recent Chats"
-          },
-          "value" : "chats"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : [
-        "projects",
-        "actions",
-        "chats"
-      ],
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.newTabWidgets.order.help",
-        "text" : "The order of the widgets on New Tab. Right-click New Tab and choose Edit New Tab to drag them."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.newTabWidgets.order",
-      "keywords" : [
-        "new tab",
-        "widget",
-        "order",
-        "arrange",
-        "edit"
-      ],
-      "kind" : "string_list",
-      "ordered" : true,
-      "page_hidden" : false,
-      "path" : [
-        "tabs",
-        "newTabWidgets",
-        "order"
-      ],
-      "refuses" : [
-        "projects",
-        [
-          "__not_a_choice__"
-        ],
-        [
-          1
-        ]
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.tabs.newTabWidgets.order",
-        "text" : "New Tab Widget Order"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         true,
         false
       ],
@@ -24450,6 +24411,93 @@
       "title" : {
         "key" : "settings.tabs.newTabWidgets.machines",
         "text" : "Show Machines on New Tab"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "chats",
+          "actions",
+          "projects"
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.tabs.newTabWidgets.order.projects",
+            "text" : "Projects"
+          },
+          "value" : "projects"
+        },
+        {
+          "title" : {
+            "key" : "settings.tabs.newTabWidgets.order.actions",
+            "text" : "Quick Actions"
+          },
+          "value" : "actions"
+        },
+        {
+          "title" : {
+            "key" : "settings.tabs.newTabWidgets.order.chats",
+            "text" : "Recent Chats"
+          },
+          "value" : "chats"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+        "projects",
+        "actions",
+        "chats"
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabWidgets.order.help",
+        "text" : "The order of the widgets on New Tab. Right-click New Tab and choose Edit New Tab to drag them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabWidgets.order",
+      "keywords" : [
+        "new tab",
+        "widget",
+        "order",
+        "arrange",
+        "edit"
+      ],
+      "kind" : "string_list",
+      "ordered" : true,
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabWidgets",
+        "order"
+      ],
+      "refuses" : [
+        "projects",
+        [
+          "__not_a_choice__"
+        ],
+        [
+          1
+        ]
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabWidgets.order",
+        "text" : "New Tab Widget Order"
       },
       "validation" : "portable"
     },
