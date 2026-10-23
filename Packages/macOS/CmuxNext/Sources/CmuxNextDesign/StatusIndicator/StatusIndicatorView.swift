@@ -20,8 +20,14 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
 
     /// Whether the view follows its own window's occlusion (chrome spinners whose host tracks
     /// none, `spinner()`). Off for hosts that set `isWindowVisible` themselves (the sidebar list).
+    /// Only a shown view listens (in a window, no hidden flag of its own or an ancestor's: an idle
+    /// indicator hides itself); it reads its window's state when it shows, so an occlusion change
+    /// costs the indicators on screen, not every row of the session (perf-lead.md cause 6).
     public var tracksWindowOcclusion = false {
-        didSet { if tracksWindowOcclusion != oldValue { observeOcclusion() } }
+        didSet {
+            guard tracksWindowOcclusion != oldValue else { return }
+            if observeOcclusion(), let window { isWindowVisible = window.occlusionState.contains(.visible) }
+        }
     }
 
     /// Draws at the host's size whatever `appearance.statusIndicator.scale` says (chrome spinners
@@ -103,9 +109,16 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         refresh()
     }
 
+    public override func viewDidHide() {
+        super.viewDidHide()
+        observeOcclusion()
+    }
+
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        if owesResync, !isHiddenOrHasHiddenAncestor { statusIndicatorResync() }
+        guard !isHiddenOrHasHiddenAncestor else { return }
+        if observeOcclusion(), let window { isWindowVisible = window.occlusionState.contains(.visible) }
+        if owesResync { statusIndicatorResync() }
     }
 
     private func refresh() {
@@ -153,14 +166,16 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         refresh()
     }
 
-    /// Watches the current window's occlusion while `tracksWindowOcclusion` is on; a window that
-    /// shows after the view moved into it starts the animation.
-    private func observeOcclusion() {
-        let target = tracksWindowOcclusion ? window : nil
-        guard observedWindow !== target || (target != nil) != (occlusionObserver != nil) else { return }
+    /// Watches the current window's occlusion while `tracksWindowOcclusion` is on and the view
+    /// shows; a window that shows after the view moved into it starts the animation. Returns
+    /// whether it started watching now (the caller reads the state it missed).
+    @discardableResult
+    private func observeOcclusion() -> Bool {
+        let target = tracksWindowOcclusion && !isHiddenOrHasHiddenAncestor ? window : nil
+        guard observedWindow !== target || (target != nil) != (occlusionObserver != nil) else { return false }
         stopObservingOcclusion()
         observedWindow = target
-        guard let target else { return }
+        guard let target else { return false }
         let token = notificationCenter.addObserver(
             forName: NSWindow.didChangeOcclusionStateNotification, object: target, queue: .main
         ) { [weak self] _ in
@@ -171,6 +186,7 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
             }
         }
         occlusionObserver = (token, notificationCenter)
+        return true
     }
 
     private func stopObservingOcclusion() {
