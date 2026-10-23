@@ -15,6 +15,9 @@ import Testing
     static func render(_ look: SidebarCloseNotch, hoverSelected: Bool, theme: String, dark: Bool) throws -> CGImage {
         _ = NSApplication.shared
         try #require(TunableStore.shared.set(SidebarCloseNotch.tunable.key, look.tunableValue) == look.tunableValue)
+        // The watch drops its cached values one main-actor hop after a set; rows made in this turn
+        // would read the last look.
+        SidebarTunablesWatch.shared.changed()
         let width: CGFloat = 240, height: CGFloat = 120
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: width, height: height), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -41,8 +44,11 @@ import Testing
         list.frame.origin.y = height - list.frame.height
         let selected = try #require(list.rowViews[.workspace(workspaces[0].id)])
         selected.isSelected = true
-        list.setHovered(.workspace(workspaces[hoverSelected ? 0 : 1].id))
+        let hovered = workspaces[hoverSelected ? 0 : 1].id
+        list.setHovered(.workspace(hovered))
         root.layoutSubtreeIfNeeded()
+        let row = try #require(list.rowViews[.workspace(hovered)] as? WorkspaceRowView)
+        try #require(row.closeNotchLook == look && row.closeNotch == look, "the \(look) still draws the \(row.closeNotchLook) cut")
         for view in AANestedGroupsGalleryTests.all(root) { view.needsDisplay = true; view.displayIfNeeded() }
         CATransaction.flush()
         let rep = try #require(root.bitmapImageRepForCachingDisplay(in: root.bounds))
@@ -57,7 +63,10 @@ import Testing
     func renderGallery() throws {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
-        defer { TunableStore.shared.set(SidebarCloseNotch.tunable.key, nil) }
+        defer {
+            TunableStore.shared.set(SidebarCloseNotch.tunable.key, nil)
+            SidebarTunablesWatch.shared.changed()
+        }
         let root = AANestedGroupsGalleryTests.packageRoot
         let out = root.appending(path: "close-notch-gallery")
         try? FileManager.default.removeItem(at: out)

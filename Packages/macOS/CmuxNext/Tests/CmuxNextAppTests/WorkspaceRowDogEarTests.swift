@@ -3,14 +3,9 @@ import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
 
-/// Leo 2026-10-21 (nightly 3a63d6d): the row's x sat in its own rounded box that dented the row's
-/// corner, and the pills stopped short of the sidebar's edge. "Bring back the length (so we can
-/// have more content per sidebar row) and just do it like dog ears on a book on the top right."
-/// A workspace row runs to the list's inset again, and its hover action sits on its top-right corner:
-/// the close on a row that can close, the menu on one that cannot (Home). The title keeps the row's
-/// full width with or without hover. Leo 2026-10-22 on the folded dog-ear that drew there: "i wanted
-/// the hoverable area to just... not have it on the top right corner"; the row's fill now leaves the
-/// close's small corner out, with no mask on the row.
+/// Leo 2026-10-21: "Bring back the length ... and just do it like dog ears on a book on the top right";
+/// 2026-10-22: "a smaller top right corner not higlighitng bc the button itself chopped off that top
+/// right". Rows run to the list's inset, and the hover close sits in a corner the row's fill leaves out.
 @MainActor @Suite(.serialized)
 struct WorkspaceRowDogEarTests {
     private static let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
@@ -201,14 +196,39 @@ struct WorkspaceRowDogEarTests {
         }
     }
 
+    /// Codex review of c80b62d9: only the first hit test checked the cut, and NSButton's tracking fired
+    /// on a release anywhere in its frame, which reaches onto the fill past a rounded cut. A press in
+    /// the cut released on that fill does nothing; pressed and released in the cut, it closes.
+    @Test func aPressReleasedOnTheFillInsideTheFrameDoesNotClose() throws {
+        let ws = SidebarWorkspace(id: WorkspaceID("ws-release"), title: Self.longName)
+        let (list, row) = try Self.row(ws)
+        Self.hover(list, row, ws.id)
+        let ear = row.closeButton
+        var closes = 0
+        row.onClose = { closes += 1 }
+        let (side, r) = Self.cut(.snug, row)
+        try #require(r > 0, "the default cut has no fillet to release on")
+        let inCut = ear.convert(Self.glyphCenter(ear, in: row), from: row)
+        let onFill = ear.convert(NSPoint(x: row.bounds.maxX - side - 0.85 * r, y: 0.85 * r), from: row)
+        #expect(ear.bounds.contains(onFill) && !ear.cutContains(onFill) && ear.cutContains(inCut))
+        func event(_ type: NSEvent.EventType, _ point: NSPoint) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: ear.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+                                            windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        }
+        ear.mouseDown(with: try event(.leftMouseDown, inCut))
+        ear.mouseDragged(with: try event(.leftMouseDragged, onFill))
+        ear.mouseUp(with: try event(.leftMouseUp, onFill))
+        #expect(closes == 0, "a press in the cut released on the fill closed the workspace")
+        ear.mouseDown(with: try event(.leftMouseDown, inCut))
+        ear.mouseUp(with: try event(.leftMouseUp, inCut))
+        #expect(closes == 1, "a click in the cut did not close the workspace")
+    }
+
     /// Codex review of 90fc220e: `sidebar.closeNotch` was read only in layout, so a row on screen kept
     /// its old cut until some other layout. The tunables watch reconfigures the shown rows.
     @Test func changingTheCutLookRelaysOutTheShownRows() async throws {
-        TunableStore.shared.activate(file: nil)
-        TunableStore.shared.register(SidebarTunables.all)
         let key = SidebarCloseNotch.tunable.key
-        TunableStore.shared.set(key, nil)
-        SidebarTunablesWatch.shared.changed()
+        try Self.withLook(.snug) {}
         defer {
             TunableStore.shared.set(key, nil)
             SidebarTunablesWatch.shared.changed()

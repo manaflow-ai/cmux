@@ -2,15 +2,10 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 
-/// A workspace row's hover action on its top-right corner (Leo 2026-10-21: "just do it like dog
-/// ears on a book on the top right"): the x, or the menu on a row that cannot close. It replaces the
-/// x and the menu button that sat at the end of the title in boxes of their own.
-///
-/// It sits in the corner the row's fill leaves out (`SidebarCloseNotch`, Leo 2026-10-22: "a smaller
-/// top right corner not higlighitng bc the button itself chopped off that top right"), so its frame
-/// covers that cut (`SidebarCloseNotch.cutFrame`) and it draws nothing but its glyph: no fill, no box,
-/// no fold. The glyph keeps one place in every cut, toward the corner. It takes exactly the clicks the
-/// row's fill leaves out (`cutContains`), the cut's rounded fillets past its square included.
+/// A workspace row's hover close (or Home's menu) on its top-right corner (Leo 2026-10-21, "like dog
+/// ears on a book on the top right"), in the cut the row's fill leaves out (Leo 2026-10-22, "the button
+/// itself chopped off that top right", `SidebarCloseNotch`). It draws only its glyph, which keeps one
+/// place in every cut, and takes exactly the clicks in the drawn cut (`cutContains`).
 final class SidebarDogEarButton: NSButton {
     var onPress: (() -> Void)?
     /// What a press does, for VoiceOver and the themed tooltip.
@@ -33,6 +28,8 @@ final class SidebarDogEarButton: NSButton {
     /// The glyph in the last tint drawn, so a redraw in the same colors makes no new image.
     private var tintedGlyph: (color: NSColor, image: NSImage)?
     private var tracking: NSTrackingArea?
+    /// The current press began in the cut; only such a press can fire, on a release in the cut.
+    private var pressBegan = false
 
     init(icon: IconName, label: String) {
         self.icon = icon
@@ -136,9 +133,36 @@ final class SidebarDogEarButton: NSButton {
     override func mouseMoved(with event: NSEvent) { follow(windowPoint: event.locationInWindow) }
     override func mouseExited(with event: NSEvent) { isPointerOn = false }
 
+    /// The press tracks the drawn cut, not the frame: NSButton's own tracking (`super.mouseDown`) fires
+    /// on a release anywhere in its bounds, which reach onto the row's fill past a rounded cut. Here a
+    /// release fires only in the cut after a press there, as a button cancels on a release outside it.
+    /// AppKit sends the drag and the release to the view that took the press.
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return super.mouseDown(with: event) }
+        pressBegan = cutContains(convert(event.locationInWindow, from: nil))
+        isHighlighted = pressBegan
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard pressBegan else { return }
+        let inCut = cutContains(convert(event.locationInWindow, from: nil))
+        isPointerOn = inCut
+        isHighlighted = inCut
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard pressBegan else { return }
+        let fires = isEnabled && cutContains(convert(event.locationInWindow, from: nil))
+        pressBegan = false
+        isHighlighted = false
+        if fires { pressed() }
+    }
+
     /// A button hidden under the pointer gets no exit event: it shows unlit when it comes back.
     override func viewDidHide() {
         super.viewDidHide()
+        pressBegan = false
+        isHighlighted = false
         isPointerOn = false
     }
 
