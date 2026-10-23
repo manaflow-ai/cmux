@@ -24,8 +24,7 @@ import Testing
         let gate = DispatchSemaphore(value: 0)
         lane.perform { _ in _ = gate.wait(timeout: .now() + .seconds(10)) }
         io.send(.snapshot(Data("not a snapshot".utf8), phase: .ready))
-        let queuedBy = ContinuousClock.now.advanced(by: .seconds(5))
-        while lane.pendingBytes == 0, ContinuousClock.now < queuedBy { await Task.yield() }
+        await lane.queued(atLeast: 1)
         try #require(lane.pendingBytes > 0, "the READY never reached the lane")
 
         // The owner drops the session mid-restore; only the in-flight event keeps it alive.

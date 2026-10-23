@@ -37,6 +37,33 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     private struct Backlog {
         var bytes = 0
         var waiters: [CheckedContinuation<Void, Never>] = []
+        /// ``queued(atLeast:)`` callers: resumed when this many bytes wait.
+        var queuedWaiters: [(bytes: Int, waiter: CheckedContinuation<Void, Never>)] = []
+    }
+
+    /// Adds `count` queued bytes and resumes the ``queued(atLeast:)`` callers it satisfies.
+    private func enqueued(_ count: Int) {
+        let ready = backlog.withLock { backlog -> [CheckedContinuation<Void, Never>] in
+            backlog.bytes += count
+            let total = backlog.bytes
+            let ready = backlog.queuedWaiters.filter { $0.bytes <= total }.map(\.waiter)
+            backlog.queuedWaiters.removeAll { $0.bytes <= total }
+            return ready
+        }
+        ready.forEach { $0.resume() }
+    }
+
+    /// Returns once at least `bytes` wait to be parsed (or the lane closed). A signal for tests
+    /// that must know a chunk reached the lane; nothing in the app waits on it.
+    func queued(atLeast bytes: Int) async {
+        await withCheckedContinuation { (waiter: CheckedContinuation<Void, Never>) in
+            let parked = backlog.withLock { backlog -> Bool in
+                guard backlog.bytes < bytes, !closing.load(ordering: .relaxed) else { return false }
+                backlog.queuedWaiters.append((bytes, waiter))
+                return true
+            }
+            if !parked { waiter.resume() }
+        }
     }
 
     private let backlog = Mutex(Backlog())
@@ -52,7 +79,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
 
     func processOutput(_ data: Data) {
         guard !data.isEmpty else { return }
-        backlog.withLock { $0.bytes += data.count }
+        enqueued(data.count)
         queue.async { [self] in
             defer { parsed(data.count) }
             guard let surface, !closing.load(ordering: .relaxed) else { return }
@@ -73,7 +100,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     /// was (logged); a failed history chunk keeps the pages applied so far.
     func restoreSnapshot(_ data: Data, phase: ghostty_surface_snapshot_phase_e) {
         guard !data.isEmpty else { return }
-        backlog.withLock { $0.bytes += data.count }
+        enqueued(data.count)
         queue.async { [self] in
             defer { parsed(data.count) }
             guard let surface, !closing.load(ordering: .relaxed) else { return }
@@ -100,7 +127,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     /// history (the caller then asks for READY + history); an error changes
     /// nothing. History of a READY before it is abandoned either way.
     func restoreLocalHistory(_ data: Data, expectedRows: UInt64, digest: Data) {
-        backlog.withLock { $0.bytes += data.count }
+        enqueued(data.count)
         queue.async { [self] in
             defer { parsed(data.count) }
             var result = Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue)
@@ -129,7 +156,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     /// writes; the private replay keys work only here), in stream order.
     func applyKittyReplay(_ data: Data) {
         guard !data.isEmpty else { return }
-        backlog.withLock { $0.bytes += data.count }
+        enqueued(data.count)
         queue.async { [self] in
             defer { parsed(data.count) }
             guard let surface, !closing.load(ordering: .relaxed) else { return }
@@ -184,6 +211,10 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
             return backlog.waiters
         }
         waiters.forEach { $0.resume() }
+        backlog.withLock { backlog -> [CheckedContinuation<Void, Never>] in
+            defer { backlog.queuedWaiters = [] }
+            return backlog.queuedWaiters.map(\.waiter)
+        }.forEach { $0.resume() }
         // concurrency-allow: bounded fence before ghostty_surface_free; queued chunks are skipped once `closing` is set, so this waits for at most the one chunk being parsed.
         queue.sync { surface = nil }
     }
