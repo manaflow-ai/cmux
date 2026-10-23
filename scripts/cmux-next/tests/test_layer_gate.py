@@ -152,12 +152,14 @@ class LayerGateTests(unittest.TestCase):
         self.assertIn("new edge CmuxNextService (service) -> CmuxNextUI (ui)", found[0])
         self.assertIn("protocol seam", found[0])
         self.assertIn("lift the shared type to a core target", found[0])
+        self.assertIn("a service target may not depend on a ui target", found[0])
 
     def test_new_edge_to_app_written_as_target_call_is_refused(self):
         found = self.push({gate.PACKAGE_SWIFT: manifest(self.with_deps(
             CmuxNextDomain=['.target(name: "CmuxNextApp", condition: .when(platforms: [.macOS]))']))})
         self.assertEqual(len(found), 1, found)
         self.assertIn("CmuxNextDomain (domain) -> CmuxNextApp (app)", found[0])
+        self.assertIn("a domain target may not depend on an app target", found[0])
 
     def test_new_soft_edge_is_refused(self):
         found = self.push({gate.PACKAGE_SWIFT: manifest(self.with_deps(CmuxNextService=['"CmuxNextDomain"']))})

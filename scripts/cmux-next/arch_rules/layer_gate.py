@@ -88,6 +88,11 @@ FIX = ("fix: lift the shared type to a core target, or define a protocol seam in
 ROW_OF_CLASS = {"hard": "layer_hard", "soft": "layer_soft", "upward": "layer_upward"}
 
 
+def a_layer(layer: str) -> str:
+    """LAYER with its indefinite article: "an app", "a ui" (u reads "you"), "a core"."""
+    return f"{'an' if layer[:1] in ('a', 'e', 'i', 'o') else 'a'} {layer}"
+
+
 def shown(expr: str, limit: int = 120) -> str:
     return expr if len(expr) <= limit else expr[:limit - 3] + "..."
 
@@ -230,11 +235,11 @@ def refusals(base_manifest: str | None, head_manifest: str | None,
             continue
         note, key = moved(source) + moved(dep), ("edge", source, dep)
         if kind == "hard":
-            refuse(source, f"new edge {source} ({a}) -> {dep} ({b}): a {a} target may not depend on a {b} "
-                           f"target{note}; {FIX}", ROW_OF_CLASS[kind], key)
+            refuse(source, f"new edge {source} ({a}) -> {dep} ({b}): {a_layer(a)} target may not depend on "
+                           f"{a_layer(b)} target{note}; {FIX}", ROW_OF_CLASS[kind], key)
         elif kind == "upward":
-            refuse(source, f"new edge {source} ({a}) -> {dep} ({b}): edges only point down, so a {a} target may "
-                           f"not depend on a {b} target{note}; {FIX}", ROW_OF_CLASS[kind], key)
+            refuse(source, f"new edge {source} ({a}) -> {dep} ({b}): edges only point down, so {a_layer(a)} "
+                           f"target may not depend on {a_layer(b)} target{note}; {FIX}", ROW_OF_CLASS[kind], key)
         else:
             ok, why = excepted(head_map, source, dep)
             if not ok:
