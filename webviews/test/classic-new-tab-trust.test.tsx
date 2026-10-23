@@ -87,25 +87,31 @@ const tick = () =>
     await new Promise((done) => setTimeout(done, 0));
   });
 /// Waits for `check` to hold, a turn at a time; fails with `what` if it never does.
-async function until(check: () => boolean, what: string) {
-  const deadline = Date.now() + 10_000;
+async function until(check: () => boolean, what: string, within = 10_000) {
+  const deadline = Date.now() + within;
   while (!check() && Date.now() < deadline) await tick();
   expect(check(), what).toBe(true);
 }
 
-/// The calls the page made to the mock daemon, and those still unanswered (a turn's own
-/// `session/prompt` aside: it answers when the scripted turn ends).
+/// The calls the page made to the mock daemon, and those still unanswered. A `session/prompt` is
+/// unanswered until the mock's scripted turn for it ends (its last step and `turn_result`).
 const daemon = { calls: 0, open: 0 };
-/// Waits until the page has stopped talking to the daemon: every call answered, and no new one
-/// for a run of turns. Whatever a refusal or a send sets off has happened by then.
+/// Waits until the page has stopped talking to the daemon: every call answered, each prompt's turn
+/// ended included, and then no new call for a run of turns. Whatever a refusal, a send or a turn's
+/// end sets off has started by then, so a prompt sent twice is counted before the caller checks.
 async function quiet(what: string) {
   let seen = -1;
   let still = 0;
-  await until(() => {
-    if (daemon.open === 0 && daemon.calls === seen) still += 1;
-    else [seen, still] = [daemon.calls, 0];
-    return still >= 20;
-  }, what);
+  // A prompt's scripted turn takes ten 350 ms steps.
+  await until(
+    () => {
+      if (daemon.open === 0 && daemon.calls === seen) still += 1;
+      else [seen, still] = [daemon.calls, 0];
+      return still >= 20;
+    },
+    what,
+    20_000,
+  );
 }
 
 type Answer = (method: string, params: Record<string, unknown>) => Promise<unknown>;
@@ -145,7 +151,6 @@ async function mountClassic(
   };
   proto.answer = function (this: unknown, method, params) {
     daemon.calls += 1;
-    if (method === "session/prompt") return answerCounted.call(this, method, params);
     daemon.open += 1;
     return answerCounted.call(this, method, params).finally(() => (daemon.open -= 1));
   };
@@ -249,7 +254,7 @@ test("classic Return with no agent named: a start refused for the folder's trust
   expect(prompts).toEqual(["hello"]);
   // The refused start, then the one after Trust, both in the picked folder: the prompt went there.
   expect(started).toEqual([folder, folder]);
-}, 30_000);
+}, 60_000);
 
 test("a start refused after a while keeps the prompt ahead of what was typed in the composer meanwhile", async () => {
   const folder = "/tmp/slow-untrusted-project";
@@ -276,7 +281,7 @@ test("a start refused after a while keeps the prompt ahead of what was typed in 
   await until(() => prompts.length > 0, "the prompt went after Trust");
   await quiet("the page settles after the send");
   expect(prompts).toEqual(["hello\n\nand one more thing"]);
-}, 30_000);
+}, 60_000);
 
 test("a start refused for another reason leaves the prompt in the composer, and sending it starts the chat in the folder", async () => {
   const folder = "/tmp/busy-project";
@@ -303,4 +308,4 @@ test("a start refused for another reason leaves the prompt in the composer, and 
   await quiet("the page settles after the send");
   expect(prompts).toEqual(["hello"]);
   expect(started).toEqual([folder, folder]);
-}, 30_000);
+}, 60_000);
