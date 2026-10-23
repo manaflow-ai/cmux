@@ -476,7 +476,6 @@ public final class AgentPaneView: NSView {
 
     private func applyThemeInScope(force: Bool) {
         themeFollower.rebind()
-        AgentPaneTunables.followCodexToolRuns(store: themeScope.store)
         let tokens = themeTokens
         let surface = surfaceKind
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
