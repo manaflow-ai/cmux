@@ -193,7 +193,9 @@ await requireBrowserLane("agent-pane-select-drag.test.ts", async () => {
       const from = line[1]!;
       const to = line[4]!;
       await page.evaluate(() => window.getSelection()?.removeAllRanges());
-      await page.mouse.move(from.x, from.y);
+      // A fractional exact midpoint can miss Chromium's caret hit-test (notably the word "and" at
+      // zoom 1). Floor the press into the word while keeping the release points exact.
+      await page.mouse.move(Math.floor(from.x), from.y);
       await page.mouse.down();
       await page.mouse.move((from.x + to.x) / 2, to.y, { steps: 4 });
       await page.mouse.move(to.x, to.y, { steps: 4 });
