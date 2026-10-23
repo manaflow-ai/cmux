@@ -984,6 +984,15 @@ const ENVELOPE_TOOLS = [
       error: { code: -32602, message: "Invalid params: a title is required.", data: { field: "title", got: "" } },
     }),
   }),
+  // An MCP screenshot: its sentence, and its image in the call's strip instead of base64 JSON.
+  tool("Take a screenshot", "other", "completed", {
+    output: JSON.stringify({
+      content: [
+        { type: "text", text: "Captured the build-times chart." },
+        { type: "image", mimeType: "image/png", data: BUILD_TIMES_PNG },
+      ],
+    }),
+  }),
   tool("Read package.json", "read", "completed", {
     output:
       '{\n  "name": "@cmux/webviews",\n  "private": true,\n  "type": "module",\n  "scripts": {\n    "test": "bun test"\n  }\n}\n',
