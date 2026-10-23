@@ -42,8 +42,8 @@ public final class TerminalFeed {
         /// The question a terminal agent still waits on (an AskUserQuestion in
         /// Claude Code; the daemon's `question`, while the agent is blocked on it).
         public var question: AgentQuestion?
-        /// The push that names this question (`q-<tool use id>`, cmux-mobile-host
-        /// `notify_terminal.rs`): a notification answers only its own question.
+        /// The push that names this question (`q-` and a hash of what it asks,
+        /// cmux-mobile-host `question_event_id`): a notification answers only its own question.
         public var questionEventID: String?
 
         public init?(json: [String: Any]) {
@@ -61,15 +61,24 @@ public final class TerminalFeed {
             question = raw.flatMap { question in
                 surface.flatMap { AgentQuestion(terminalQuestion: question, ledgerID: id, surface: $0) }
             }
-            questionEventID = (raw?["tool_use_id"] as? String).flatMap(Self.eventID(tool:))
+            questionEventID = raw.flatMap(Self.eventID(question:))
         }
 
-        /// The host's `event_id("q", [tool])`: `q-` and the tool use id's
-        /// `[A-Za-z0-9._:-]` characters, at most 64 in all.
-        static func eventID(tool: String) -> String? {
-            let kept = tool.unicodeScalars.filter { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || ".:_-".unicodeScalars.contains($0)) }
-            guard !kept.isEmpty else { return nil }
-            return String(("q-" + String(String.UnicodeScalarView(kept))).prefix(64))
+        /// cmux-mobile-host `question_event_id`: `q-` and the 64-bit FNV-1a, in hex, of the
+        /// questions' prompts and option labels (`prompt \u{1} label \u{2} label ...`,
+        /// questions joined by `\u{0}`). Nil when it asks nothing.
+        static func eventID(question: [String: Any]) -> String? {
+            guard let questions = question["questions"] as? [[String: Any]] else { return nil }
+            let text = questions.compactMap { item -> String? in
+                guard let prompt = item["question"] as? String else { return nil }
+                let labels = (item["options"] as? [[String: Any]] ?? []).compactMap { $0["label"] as? String }
+                return prompt + "\u{1}" + labels.joined(separator: "\u{2}")
+            }.joined(separator: "\u{0}")
+            guard !text.isEmpty else { return nil }
+            var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+            for byte in text.utf8 { hash = (hash ^ UInt64(byte)) &* 0x0100_0000_01b3 }
+            let hex = String(hash, radix: 16)
+            return "q-" + String(repeating: "0", count: 16 - hex.count) + hex
         }
     }
 

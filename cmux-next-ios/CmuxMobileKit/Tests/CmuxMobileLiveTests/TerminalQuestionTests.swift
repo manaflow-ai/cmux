@@ -221,8 +221,8 @@ import Testing
         let (store, feed) = Self.make(daemon)
         feed.treeChanged(TerminalFeedTests.tree(), macID: "mac", connection: TerminalFeedTests.connection)
         await TerminalFeedTests.settle { store.items.count == 1 }
-        #expect(feed.pendingQuestion(tabID: "s1", eventID: "q-toolu_1")?.0.id == "term-mac-ntf_9")
-        #expect(feed.pendingQuestion(tabID: "s2", eventID: "q-toolu_1") == nil)
+        #expect(feed.pendingQuestion(tabID: "s1", eventID: "q-c2e23c8e74d254a9")?.0.id == "term-mac-ntf_9")
+        #expect(feed.pendingQuestion(tabID: "s2", eventID: "q-c2e23c8e74d254a9") == nil)
     }
 
     /// A notification answers only the question it was sent for (review B1): an old
@@ -235,7 +235,10 @@ import Testing
         let (store, feed) = Self.make(daemon)
         feed.treeChanged(TerminalFeedTests.tree(), macID: "mac", connection: TerminalFeedTests.connection)
         await TerminalFeedTests.settle { store.items.count == 1 }
-        #expect(feed.pendingQuestion(tabID: "s1", eventID: "q-toolu_other") == nil)
+        // The Mac's vector (notify_terminal tests): the same key from the same question.
+        #expect(TerminalFeed.Entry.eventID(question: ["questions": [["question": "Which branch?",
+            "options": [["label": "main"], ["label": "dev"], ["label": "release"]]]]]) == "q-c2e23c8e74d254a9")
+        #expect(feed.pendingQuestion(tabID: "s1", eventID: "q-0000000000000001") == nil)
         #expect(feed.pendingQuestion(tabID: "s1", eventID: "n-4") == nil)
         #expect(feed.pendingQuestion(tabID: "s1", eventID: nil) == nil)
     }

@@ -1046,8 +1046,9 @@ The content extension replaces the buttons with the payload's own options
 composer write the request to the App Group outbox and open the app, which
 sends it over that Mac's link and opens the chat.
 
-A terminal agent's question push is named `q-<tool_use_id>` (the id's
-`[A-Za-z0-9._:-]` characters, at most 64 in all) and is pushed once, though
-Claude Code fires two hooks for it. The phone answers a notification only while
-that very question is pending on its tab; a push with no tool use id (`n-<ledger
-id>`, an older Mac) is answered from the Feed card.
+A terminal agent's question push is named by what it asks: `q-` and the 64-bit
+FNV-1a, in hex, of its prompts and option labels (`prompt \u{1} label \u{2}
+label ...`, questions joined by `\u{0}`). It is pushed once per tab in 30 s,
+though Claude Code fires two hooks for it in either order (PermissionRequest
+carries no `tool_use_id`). The phone answers a notification only while that
+very question is pending on its tab; any other push is answered from the Feed card.
