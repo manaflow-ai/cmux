@@ -337,7 +337,7 @@ struct StashTests {
             let pane = try MoveToNewWindowTests.firstPane(services)
             let tab = try await MoveToNewWindowTests.browserTab(in: pane, services, connection)
             let page = try #require(services.cache.existingBrowser(tab.id)?.tab)
-            func shown() -> Bool {
+            @MainActor func shown() -> Bool {
                 services.windows.active?.state.page == .page(.stashed) || !services.pages.keys(of: .stashed).isEmpty
             }
             try #require(!shown(), "the Stashed Tabs page showed before Shift-Return")
