@@ -270,6 +270,19 @@ pub(crate) fn preview_format(profile: &HarnessProfile) -> crate::hub::questions:
     resolved_profile_env(&only).map(|env| PreviewFormat::of(claude, &env)).unwrap_or_default()
 }
 
+/// The preview format `harness_command` pinned on `cmd`: what the agent it starts writes. The hub
+/// records this one (`Hub::record_preview_format`), never a second resolution of the profile,
+/// which a pooled agent started minutes earlier could disagree with.
+pub(crate) fn pinned_preview_format(cmd: &Command) -> crate::hub::questions::PreviewFormat {
+    use crate::hub::questions::{PREVIEW_FORMAT_ENV, PreviewFormat};
+    let mut envs = cmd.as_std().get_envs();
+    let pinned = envs.find(|(name, _)| *name == PREVIEW_FORMAT_ENV).and_then(|(_, value)| value);
+    match pinned {
+        Some(value) if value == PreviewFormat::Html.claude_value() => PreviewFormat::Html,
+        _ => PreviewFormat::Monospace,
+    }
+}
+
 /// The profile's env with its `${keychain:…}` and `${env:…}` references
 /// resolved (`config::profiles`). The secret store is asked only when a
 /// value holds a reference; the lookup blocks, so a multi-thread runtime
@@ -431,9 +444,14 @@ mod tests {
         let html = profile(HarnessKind::ClaudeStdio, " html ");
         assert_eq!(preview_format(&html), PreviewFormat::Html);
         assert_eq!(pinned(&html).as_deref(), Some("html"));
+        let command = |p: &HarnessProfile| {
+            pinned_preview_format(&harness_command("local", p, &std::env::temp_dir(), None, None).unwrap())
+        };
+        assert_eq!(command(&html), PreviewFormat::Html);
         let text = profile(HarnessKind::ClaudeStdio, "markdown");
         assert_eq!(preview_format(&text), PreviewFormat::Monospace);
         assert_eq!(pinned(&text).as_deref(), Some("markdown"));
+        assert_eq!(command(&text), PreviewFormat::Monospace);
         // A reference that does not resolve starts no agent, and labels nothing HTML.
         let missing = profile(HarnessKind::ClaudeStdio, "${env:ACPMUX_TEST_NO_SUCH_FORMAT}");
         assert_eq!(preview_format(&missing), PreviewFormat::Monospace);

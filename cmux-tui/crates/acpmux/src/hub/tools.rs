@@ -40,7 +40,7 @@ impl Hub {
         let remote = session.meta().remote_origin;
         let left_out = crate::agent_tools::left_out(remote, &profile.env, args);
         session.launched_with_tools.store(if left_out { 2 } else { 1 }, Ordering::SeqCst);
-        self.note_preview_format(session, profile);
+        self.record_preview_format(session, crate::agent::preview_format(profile));
         let mut cmux = if left_out {
             Vec::new()
         } else {
@@ -59,18 +59,24 @@ impl Hub {
     }
 
     /// How the session's agent writes question previews: as recorded at its
-    /// launch (`note_preview_format`), so an agent adopted after a daemon
+    /// launch (`record_preview_format`), so an agent adopted after a daemon
     /// restart keeps the format it was started with.
     pub(super) fn preview_format(session: &Session) -> super::questions::PreviewFormat {
         let meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         super::questions::PreviewFormat::from_flag(meta.html_previews)
     }
 
-    /// Records how the agent `profile` starts writes its question previews:
-    /// the launch's own profile (defaults, preset and session env applied) and
-    /// the value `harness_command` pins it to (`agent::preview_format`).
-    pub(super) fn note_preview_format(&self, session: &Session, profile: &HarnessProfile) {
-        let html = crate::agent::preview_format(profile) == super::questions::PreviewFormat::Html;
+    /// Records how the session's agent writes its question previews. A launch
+    /// records its profile's format first (`agent::preview_format`), then the
+    /// one its command was pinned to (`agent::pinned_preview_format`): a cold
+    /// start's, or a pooled agent's from its prewarm (`pool/`), which a later
+    /// resolution of a `${env:…}` or keychain reference could disagree with.
+    pub(super) fn record_preview_format(
+        &self,
+        session: &Session,
+        format: super::questions::PreviewFormat,
+    ) {
+        let html = format == super::questions::PreviewFormat::Html;
         let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         let was = std::mem::replace(&mut meta.html_previews, html);
         drop(meta);

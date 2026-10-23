@@ -20,7 +20,7 @@ mod command;
 pub(crate) mod session_tmp;
 pub(crate) use command::{
     REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env, command_env_cleared, harness_command,
-    host_environment, preview_format,
+    host_environment, pinned_preview_format, preview_format,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
