@@ -415,6 +415,37 @@ impl Hub {
         // record see the request (questions.rs).
         super::questions::normalize(&mut request);
         let needs_person = super::questions::needs_person(&request);
+        // A shell command that only reads (`shell_readonly.rs`), judged before the lock and off
+        // the async workers: its git reads look at the repositories on disk.
+        // Only under approve-reads: approve-edits writes files unasked, so a command's own
+        // program could be one the agent wrote.
+        let reads_policy = {
+            let cfg = self.config.read().await;
+            self.policy_for(session, cfg.permission_policy) == PermissionPolicy::ApproveReads
+        };
+        let shell_reads = reads_policy
+            && request.pointer("/toolCall/kind").and_then(Value::as_str) == Some("execute")
+            && {
+                // Judged in the environment the harness runs it with: the daemon's, the
+                // allow-listed login values, then the profile, preset and session env.
+                let meta = session.meta();
+                let (_, mut own) = self.harness_env(&meta).await;
+                own.extend(meta.session_env.clone());
+                let family = self.config.read().await.family(&meta.harness);
+                let mut env = crate::login_env::effective_for(family.as_deref(), &own);
+                // The agent's PATH, unless its own env names one (`apply_tokio_for`).
+                if let Some(path) = crate::login_env::agent_path()
+                    && !own.contains_key("PATH")
+                {
+                    env.insert("PATH".to_owned(), path.to_string_lossy().into_owned());
+                }
+                let (request, cwd) = (request.clone(), meta.cwd);
+                tokio::task::spawn_blocking(move || {
+                    super::shell_readonly::request_is_read_only(&request, &cwd, &env)
+                })
+                .await
+                .unwrap_or(false)
+            };
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap();
@@ -465,16 +496,16 @@ impl Hub {
                 None => match policy {
                     PermissionPolicy::ApproveAll => pick(&["allow_once", "allow_always"]),
                     PermissionPolicy::DenyAll => pick(&["reject_once", "reject_always"]),
-                    PermissionPolicy::ApproveReads => {
-                        if matches!(tool_kind, "read" | "search" | "fetch" | "think") {
+                    PermissionPolicy::ApproveReads | PermissionPolicy::ApproveEdits => {
+                        let edits = policy == PermissionPolicy::ApproveEdits;
+                        if matches!(tool_kind, "read" | "search" | "fetch" | "think")
+                            || (edits && tool_kind == "edit")
+                        {
                             pick(&["allow_once", "allow_always"])
-                        } else {
-                            None
-                        }
-                    }
-                    PermissionPolicy::ApproveEdits => {
-                        if matches!(tool_kind, "read" | "search" | "fetch" | "think" | "edit") {
-                            pick(&["allow_once", "allow_always"])
+                        } else if tool_kind == "execute" && shell_reads {
+                            // A shell command that only reads (`shell_readonly.rs`), once:
+                            // allow_always would widen later asks and set the harness grant.
+                            pick(&["allow_once"])
                         } else {
                             None
                         }
