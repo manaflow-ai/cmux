@@ -1,0 +1,21 @@
+[package]
+name = "cmux-holder-v3"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Test fixture: the terminal holder as it shipped with wire version 3, for the adoption tests of newer daemons. Never shipped."
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "cmux-holder-v3"
+path = "src/main.rs"
+
+[dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+cmux-holder.workspace = true

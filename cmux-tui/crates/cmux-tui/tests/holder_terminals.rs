@@ -48,6 +48,8 @@ struct Daemon {
     child: Option<Child>,
     /// Extra daemon arguments, kept for every restart.
     args: Vec<String>,
+    /// Extra daemon environment for the next restarts.
+    env: Vec<(String, String)>,
     dir: PathBuf,
     socket: PathBuf,
     /// Holder and shell pids this test made, ended at drop: a holder
@@ -60,7 +62,15 @@ impl Daemon {
         Self::start_with(&[])
     }
 
+    fn start_with_env(env: &[(&str, &Path)]) -> Self {
+        Self::start_with_args_env(&[], env)
+    }
+
     fn start_with(args: &[&str]) -> Self {
+        Self::start_with_args_env(args, &[])
+    }
+
+    fn start_with_args_env(args: &[&str], env: &[(&str, &Path)]) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir = PathBuf::from("/tmp").join(format!(
             "cmux-holder-{}-{}",
@@ -71,6 +81,10 @@ impl Daemon {
         let mut daemon = Self {
             child: None,
             args: args.iter().map(ToString::to_string).collect(),
+            env: env
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.to_string_lossy().into_owned()))
+                .collect(),
             socket: dir.join("mux.sock"),
             dir,
             cleanup: Vec::new(),
@@ -89,6 +103,7 @@ impl Daemon {
             .args(&self.args)
             .env("CMUX_TUI_CONFIG", self.dir.join("config.json"))
             .env("CMUX_TUI_TERMINAL_HOST_MODEL", "holder")
+            .envs(self.env.iter().map(|(key, value)| (key.as_str(), value.as_str())))
             .env("SHELL", "/bin/sh")
             .env_remove("SSH_CONNECTION")
             .env_remove("SSH_CLIENT")
@@ -607,6 +622,118 @@ fn flood_rows(rows: &[Value]) -> Vec<u64> {
         numbers.push(number);
     }
     numbers
+}
+
+/// Holder item 2: the holder is the standalone `cmux-holder` (std and libc,
+/// its own wire), and a newer daemon adopts a holder an older cmux build
+/// started by the wire version they settle on. A daemon starts the frozen
+/// version 3 holder (`cmux-holder-v3`, through `CMUX_TUI_HOLDER_EXE`, as an
+/// older build's daemon would have). Then a daemon of this build, which
+/// starts its own holder, restarts on the same state: it re-attaches every
+/// terminal from the old holder and runs new ones there. When the old
+/// holder dies it starts the standalone `cmux-holder` and hands it every
+/// master (an older holder passes no ring, so the daemon makes one); when
+/// that one dies too, nothing is lost, and a last restart restores every
+/// screen.
+#[test]
+fn a_new_daemon_adopts_an_older_holder_by_its_wire_version() {
+    let fixture = built_binary("cmux-holder-v3");
+    let mut daemon = Daemon::start_with_env(&[("CMUX_TUI_HOLDER_EXE", fixture.as_path())]);
+    let mut terminals = Vec::new();
+    for index in 0..2 {
+        let created = request(
+            &daemon.socket,
+            json!({"cmd": "run", "argv": ["/bin/cat"], "new_workspace": true,
+                "name": format!("old-{index}"), "cols": 80, "rows": 24}),
+        );
+        let surface = created["surface"].as_u64().unwrap();
+        daemon.track(surface);
+        send(&daemon.socket, surface, &format!("first-{index}"));
+        screen_contains(&daemon.socket, surface, &format!("first-{index}"));
+        terminals.push(created["terminal_id"].as_str().unwrap().to_string());
+    }
+    let surface = running_surface(&daemon.socket, &terminals[0]);
+    let old_holder = parent_of(shell_pid(&daemon.socket, surface));
+    assert_eq!(exe_name(old_holder), "cmux-holder-v3", "the first daemon ran the old holder");
+
+    // A daemon of this build on the same state reaches the old holder.
+    daemon.sigkill();
+    daemon.env.clear();
+    daemon.restart();
+    for (index, terminal_id) in terminals.iter().enumerate() {
+        let surface = running_surface(&daemon.socket, terminal_id);
+        screen_contains(&daemon.socket, surface, &format!("first-{index}"));
+        send(&daemon.socket, surface, &format!("restarted-{index}"));
+        screen_contains(&daemon.socket, surface, &format!("restarted-{index}"));
+    }
+    let probe = probe_holder(&mut daemon, "probe-old");
+    assert_eq!(probe, old_holder, "a new terminal runs on the old holder too");
+
+    // The old holder dies: the daemon starts the standalone holder of this
+    // build and hands it every master.
+    // SAFETY: SIGKILL of the holder this test's first daemon started.
+    unsafe { libc::kill(old_holder, libc::SIGKILL) };
+    for (index, terminal_id) in terminals.iter().enumerate() {
+        let surface = running_surface(&daemon.socket, terminal_id);
+        send(&daemon.socket, surface, &format!("new-holder-{index}"));
+        let screen = screen_contains(&daemon.socket, surface, &format!("new-holder-{index}"));
+        assert!(
+            screen.contains(&format!("first-{index}"))
+                && screen.contains(&format!("restarted-{index}")),
+            "terminal {index}: the screen was reset:
+{screen}"
+        );
+    }
+    let new_holder = probe_holder(&mut daemon, "probe-new");
+    assert_ne!(new_holder, old_holder);
+    assert_eq!(exe_name(new_holder), "cmux-holder", "this build's holder is the standalone binary");
+
+    // It dies too: the masters and the rings go to the next one.
+    // SAFETY: SIGKILL of the holder this test's daemon started.
+    unsafe { libc::kill(new_holder, libc::SIGKILL) };
+    for (index, terminal_id) in terminals.iter().enumerate() {
+        let surface = running_surface(&daemon.socket, terminal_id);
+        send(&daemon.socket, surface, &format!("last-{index}"));
+        screen_contains(&daemon.socket, surface, &format!("last-{index}"));
+    }
+    probe_holder(&mut daemon, "probe-last");
+    daemon.sigkill();
+    daemon.restart();
+    for (index, terminal_id) in terminals.iter().enumerate() {
+        let surface = running_surface(&daemon.socket, terminal_id);
+        let screen = screen_contains(&daemon.socket, surface, &format!("last-{index}"));
+        for line in ["first", "restarted", "new-holder"] {
+            assert!(
+                screen.contains(&format!("{line}-{index}")),
+                "terminal {index}: the restart lost {line}:
+{screen}"
+            );
+        }
+    }
+}
+
+/// A binary cargo built beside this package's `cmux-tui` (another
+/// workspace package's, built for its own integration tests).
+fn built_binary(name: &str) -> PathBuf {
+    let path = Path::new(env!("CARGO_BIN_EXE_cmux-tui")).with_file_name(name);
+    assert!(path.is_file(), "{} is not built: run the tests with --workspace", path.display());
+    path
+}
+
+/// The file name of `pid`'s executable.
+fn exe_name(pid: i32) -> String {
+    #[cfg(target_vendor = "apple")]
+    let path = {
+        let mut buf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+        // SAFETY: proc_pidpath writes at most the buffer's length.
+        let len = unsafe { libc::proc_pidpath(pid, buf.as_mut_ptr().cast(), buf.len() as u32) };
+        assert!(len > 0, "no executable path for pid {pid}");
+        buf.truncate(len as usize);
+        PathBuf::from(String::from_utf8_lossy(&buf).into_owned())
+    };
+    #[cfg(not(target_vendor = "apple"))]
+    let path = fs::read_link(format!("/proc/{pid}/exe")).unwrap();
+    path.file_name().unwrap().to_string_lossy().into_owned()
 }
 
 fn send(socket: &Path, surface: u64, line: &str) {
