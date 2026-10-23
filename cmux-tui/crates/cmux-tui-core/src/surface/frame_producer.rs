@@ -81,7 +81,8 @@ fn scheduler() -> &'static Scheduler {
 
 /// Bind `surface` to its [`FrameRequests`] entry.
 pub(super) fn spawn_frame_producer(surface: &Arc<Surface>) -> anyhow::Result<()> {
-    let pty = surface.as_pty().context("frame producer got non-pty surface")?;
+    let pty =
+        surface.as_pty().ok_or_else(|| anyhow::anyhow!("frame producer got non-pty surface"))?;
     let key = pty.frame_requests.key;
     if let Some(entry) = scheduler().state.lock().recover_poison().entries.get_mut(&key) {
         entry.surface = Arc::downgrade(surface);
