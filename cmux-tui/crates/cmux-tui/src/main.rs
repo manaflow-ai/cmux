@@ -1780,10 +1780,10 @@ fn run_main() {
     // beside it when that is this build (macOS; host_exe.rs).
     #[cfg(unix)]
     cmux_tui_core::host_exe::use_sibling_host(cmux_build_identity::BUILD_IDENTITY);
-    // `cmux acp …` (and `cmux harness|chats|route …` = `cmux acp harness|chats|route …`) runs acpmux
-    // in this process. It needs none of the mux's provider credentials or signal handlers.
+    // `cmux acp …` (and `cmux harness|chats …` = `cmux acp harness|chats …`) runs acpmux in
+    // this process. It needs none of the mux's provider credentials or signal handlers.
     #[cfg(unix)]
-    if let Some(head @ ("acp" | "harness" | "chats" | "route")) =
+    if let Some(head @ ("acp" | "harness" | "chats")) =
         raw_args.first().map(String::as_str)
     {
         discard_provider_secret_environment();
