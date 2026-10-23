@@ -87,7 +87,7 @@ runtime_only = {
     "agent-inventory-watch-admission-v1", "agent-inventory-watch-v1",
     "agent-session-attach-v1", "agent-session-children-v1", "agent-session-observe-v1",
     "agent-session-start-keyed-reason-v1", "agent-session-start-v1", "agent-session-trust-v1",
-    "browser-host-provider-v1", "chief-live-v1", "cloud-attachments-v1", "cloud-chief-live-v1",
+    "cloud-attachments-v1", "cloud-chief-live-v1",
     "cloud-conversation-runs-v1", "cloud-conversation-typing-v1", "cloud-conversations-v1",
     "cloud-host-replica-v1", "cloud-selfhost-v1", "history-v1", "terminal-reaper-active-v1",
     "ws-listen-v1", "ws-listen-origins-v1",

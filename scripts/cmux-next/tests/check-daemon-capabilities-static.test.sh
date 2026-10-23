@@ -9,8 +9,8 @@ cp /bin/true "$bin"
 chmod +x "$bin"
 manifest="$tmp/daemon-capabilities.json"
 requirements="$tmp/requirements.json"
-printf '%s\n' '{"cmuxTui":["attach-initial-size","terminal-env-v1"]}' > "$manifest"
-printf '%s\n' '{"required":["attach-initial-size"],"optional":["terminal-env-v1","terminal-reaper-active-v1"]}' > "$requirements"
+printf '%s\n' '{"cmuxTui":["attach-initial-size","terminal-env-v1","chief-live-v1","browser-host-provider-v1"]}' > "$manifest"
+printf '%s\n' '{"required":["attach-initial-size"],"optional":["terminal-env-v1","chief-live-v1","browser-host-provider-v1","terminal-reaper-active-v1"]}' > "$requirements"
 
 bash "$ROOT/scripts/cmux-next/check-daemon-capabilities.sh" --static-only \
   --binary "$bin" --capabilities "$requirements" >/dev/null
@@ -29,7 +29,7 @@ if bash "$ROOT/scripts/cmux-next/check-daemon-capabilities.sh" --static-only \
   exit 1
 fi
 
-printf '%s\n' '{"cmuxTui":["attach-initial-size","terminal-env-v1"]}' > "$manifest"
+printf '%s\n' '{"cmuxTui":["attach-initial-size","terminal-env-v1","chief-live-v1","browser-host-provider-v1"]}' > "$manifest"
 
 rm "$manifest"
 if bash "$ROOT/scripts/cmux-next/check-daemon-capabilities.sh" --static-only \
