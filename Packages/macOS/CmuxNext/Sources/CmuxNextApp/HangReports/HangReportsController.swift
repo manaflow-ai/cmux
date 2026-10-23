@@ -8,6 +8,12 @@ import CmuxNextSidebar
 import CmuxNextSignposts
 import os
 
+/// This Mac's personal terms (``ImageClassifier/personalTerms()``: NSFullUserName is an
+/// OpenDirectory lookup, slow on a directory-bound Mac). A lazy global, computed once at its first
+/// read, which is a name check on the collector's utility task or a scan on the service actor,
+/// never the main thread at launch.
+private nonisolated let personalTermsOfThisMac = ImageClassifier.personalTerms()
+
 /// The app side of opt-in hang reports (plans/cmux-next/hang-reports-DESIGN.md): follows
 /// `diagnostics.hangReports`, turns the MetricKit subscription and the watchdog sink on and off,
 /// asks once on NIGHTLY through the sidebar's notice card, and opens View Hang Report.
@@ -19,8 +25,10 @@ import os
 @MainActor
 final class HangReportsController {
     static let askedKey = "cmux.next.hangReports.asked"
-    /// This Mac's consent record (the time of the person's Send Hang Reports click). Only the card
-    /// writes it; turning reports off removes it. The synced cmux-next.json alone never sends.
+    /// This Mac's consent record: the time of the person's own yes (the card's Send Hang Reports,
+    /// or a `SettingWriter.user` write of the setting: the Settings switch, Toggle Setting, a CLI
+    /// call the confirmation sheet approved). Turning reports off removes it. The synced
+    /// cmux-next.json alone never sends.
     static let consentKey = "cmux.next.hangReports.consentedAt"
     static let devOptInKey = "CMUX_NEXT_DEV_HANG_REPORTS"
     static let devEndpointKey = "CMUX_NEXT_HANG_REPORTS_URL"
@@ -35,8 +43,9 @@ final class HangReportsController {
     private var subscriber: MetricKitSubscriber?
     private var settingsObservation: Task<Void, Never>?
     private var launchedOnce = false
-    /// A card was put up this launch (one per launch at most).
-    private var askedThisLaunch = false
+    /// The card kinds put up this launch (each at most once): an invitation answered Not Now still
+    /// lets a later switch-on in the same launch get its confirm card.
+    private var askedThisLaunch: Set<HangReportAskPolicy.Decision> = []
 
     init(service: HangReportService?, managedDisables: @escaping @Sendable () -> Bool, defaults: UserDefaults = .standard) {
         self.service = service
@@ -49,7 +58,7 @@ final class HangReportsController {
     static func forThisLaunch(policy: CrashReportingPolicy, folder: URL, counts: @escaping @Sendable () async -> CoarseCounts,
                               environment: [String: String] = ProcessInfo.processInfo.environment) -> HangReportsController {
         let devOptIn = policy.channel == .dev && environment[devOptInKey] == "1"
-        let mayReport = (policy.channel == .nightly || devOptIn) && environment["XCTestConfigurationFilePath"] == nil
+        let mayReport = (policy.channel == .nightly || devOptIn) && !CrashReportingPolicy.isTestProcess(environment)
         let managed = ManagedPreferenceLocation.defaultReader(environment: environment)
         let managedDisables: @Sendable () -> Bool = {
             managed.read().forced[CrashReportingPolicy.disableTelemetryPolicyKey]?.boolValue == true
@@ -57,23 +66,26 @@ final class HangReportsController {
         guard mayReport else { return HangReportsController(service: nil, managedDisables: managedDisables) }
         let endpoint = devOptIn ? environment[devEndpointKey] ?? URLSessionHangReportTransport.defaultEndpoint
             : URLSessionHangReportTransport.defaultEndpoint
-        let terms = ImageClassifier.personalTerms()
         let resolver = DyldImageResolver()
-        let builder = HangReportBuilder(classifier: ImageClassifier(appBundlePath: Bundle.main.bundlePath, forbiddenTerms: terms),
+        let builder = HangReportBuilder(classifier: ImageClassifier(appBundlePath: Bundle.main.bundlePath, forbiddenTerms: personalTermsOfThisMac),
                                         resolver: resolver)
         let collector = HangReportCollector(resolve: { builder.frames(addresses: $0) })
         let info = Bundle.main.infoDictionary ?? [:]
         let os = ProcessInfo.processInfo.operatingSystemVersion
         let service = HangReportService(
             store: HangReportStore(directory: folder), transport: URLSessionHangReportTransport(endpoint: endpoint),
-            builder: builder, scanner: PrivacyLeakScanner(forbiddenTerms: terms), identity: InstallIdentity(),
+            builder: builder, scanner: PrivacyLeakScanner(forbiddenTerms: personalTermsOfThisMac), identity: InstallIdentity(),
             collector: collector,
             environment: HangReportService.Environment(
                 app: HangReport.App(version: info["CFBundleShortVersionString"] as? String ?? "0",
                                     build: info["CFBundleVersion"] as? String ?? "0",
                                     channel: policy.channel?.rawValue ?? "dev"),
                 os: HangReport.OS(version: "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)"),
-                hardware: .current(), counts: counts))
+                hardware: .current(), counts: counts,
+                // A managed block, or this Mac's consent record removed, while cmux runs: the next
+                // trigger turns reports off and drops what was recorded. UserDefaults is
+                // thread-safe; the record is read in the app's own domain.
+                stillAllowed: { [key = Self.consentKey] in !managedDisables() && UserDefaults.standard.object(forKey: key) is Date }))
         return HangReportsController(service: service, managedDisables: managedDisables)
     }
 
@@ -89,6 +101,9 @@ final class HangReportsController {
     /// an earlier opted-in period left (read once per launch).
     func start(settings: SettingsController, asks: SidebarAsks, firstWindow: @escaping @MainActor () async -> Void) {
         guard service != nil else { return }
+        settings.userWillWrite = { [defaults] descriptor, value in
+            Self.recordUserWrite(defaults: defaults, path: descriptor.path, value: value)
+        }
         let managedDisables = managedDisables
         settingsObservation = Task { [weak self, weak settings] in
             guard let settings else { return }
@@ -109,8 +124,8 @@ final class HangReportsController {
                         firstWindow: @escaping @MainActor () async -> Void) async {
         let decision = Self.decision(defaults: defaults, settingOn: settingOn)
         await apply(decision == .send, settingOn: settingOn)
-        guard decision == .confirm || decision == .invite, !askedThisLaunch else { return }
-        askedThisLaunch = true
+        guard decision == .confirm || decision == .invite, !askedThisLaunch.contains(decision) else { return }
+        askedThisLaunch.insert(decision)
         // task-owner: one question after the first frame; it ends when the person answers.
         Task { [weak self] in
             await firstWindow()
@@ -162,6 +177,25 @@ final class HangReportsController {
         }
     }
 
+    /// The person's own write of `path` (`SettingsController.userWillWrite`, before the file
+    /// write): `true` for the hang reports setting records this Mac's consent, so a Not Now on the
+    /// invitation followed by the Settings switch in the same launch sends; any other value
+    /// removes it. Returns the undo `setSetting` runs when the write then fails, so a failed `true`
+    /// leaves no record that a later synced or edited file could use.
+    static func recordUserWrite(defaults: UserDefaults, path: [String], value: CmuxNextSettings.JSONValue?) -> (@MainActor () -> Void)? {
+        guard path == HangReportsSetting.path else { return nil }
+        guard value == .bool(true) else {
+            // Off stays off even if the write fails: with no record nothing sends.
+            defaults.removeObject(forKey: consentKey)
+            return nil
+        }
+        let previous = defaults.object(forKey: consentKey) as? Date
+        defaults.set(Date(), forKey: consentKey)
+        return { [defaults] in
+            if let previous { defaults.set(previous, forKey: consentKey) } else { defaults.removeObject(forKey: consentKey) }
+        }
+    }
+
     /// The policy over this app's defaults (``HangReportAskPolicy``).
     static func decision(defaults: UserDefaults, settingOn: Bool) -> HangReportAskPolicy.Decision {
         HangReportAskPolicy().decision(settingOn: settingOn, consented: defaults.object(forKey: consentKey) is Date,
@@ -171,17 +205,19 @@ final class HangReportsController {
 
     /// The question on the sidebar's notice card (no dialog), as an invitation or as the confirm
     /// of a setting this Mac never agreed to. Any answer, the x included, marks the invitation
-    /// asked; only Send Hang Reports writes the consent record (and the setting, as the person).
+    /// asked; only Send Hang Reports records consent: through the person's write of the setting
+    /// (``recordUserWrite(defaults:path:value:)``, undone if the write fails), or directly when
+    /// the file already has it on.
     private func ask(asks: SidebarAsks, settings: SettingsController) async {
         let decision = Self.decision(defaults: defaults, settingOn: settings.snapshot.hangReports)
         guard decision == .confirm || decision == .invite else { return }
-        let yes = await asks.ask(HangReportsStrings.askTitle, detail: HangReportsStrings.askDetail, symbol: "gauge.with.dots.needle.33percent",
+        let yes = await asks.ask(HangReportsStrings.askTitle, detail: HangReportsStrings.privacySummary, symbol: "gauge.with.dots.needle.33percent",
                                  yes: HangReportsStrings.askYes, no: HangReportsStrings.askNo)
         defaults.set(true, forKey: Self.askedKey)
         guard yes else { return }
-        defaults.set(Date(), forKey: Self.consentKey)
         if settings.snapshot.hangReports {
-            // Already on in the file: the setting will not change, so follow it again now.
+            // Already on in the file: the setting will not change, so record and follow it now.
+            defaults.set(Date(), forKey: Self.consentKey)
             await apply(true, settingOn: true)
             return
         }

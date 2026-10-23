@@ -98,10 +98,9 @@ final class ControlSnapshotPublisher {
         }
         let elapsed = ContinuousClock.now - started
         // The cache keeps the tab count as entries change: no walk of every tab per publish.
-        let tabs = workspaceInfos.tabCount
-        DebugTimings.controlPublished(tabs: tabs, elapsed)
+        DebugTimings.controlPublished(tabs: workspaceInfos.tabCount, elapsed)
         if elapsed > .milliseconds(2) {
-            logger.debug("control snapshot took \(elapsed.components.attoseconds / 1_000_000_000_000_000) ms for \(tabs) tabs")
+            logger.debug("control snapshot took \(elapsed.components.attoseconds / 1_000_000_000_000_000) ms for \(self.workspaceInfos.tabCount) tabs")
         }
     }
 
@@ -163,7 +162,7 @@ final class ControlSnapshotPublisher {
                                                    build: visible) ?? visible()
             return info
         }
-        cache?.retainMemos(Set(windows.controllers.map { "window:" + $0.state.id } + [TabSearchFactsBuilder.closedSlot]))
+        cache?.retainMemos(Set(windows.controllers.map { "window:" + $0.state.id }))
         if let active = windows.active {
             let pane = active.focusedPane
             // The strip's selected tab: a daemon tab, or an internal page

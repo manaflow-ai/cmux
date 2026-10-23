@@ -117143,6 +117143,798 @@
         }
       }
     },
+    "settings.tabs.newTabWidgets.weather": {
+      "comment": "Settings: toggle that shows the weather widget on the New Tab page.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار الطقس في علامة التبويب الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži vrijeme na novoj kartici"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis vejret på ny fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wetter im neuen Tab anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Weather on New Tab"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar el tiempo en la nueva pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher la météo dans le nouvel onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra il meteo nella nuova scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タブに天気を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ​អាកាសធាតុ​នៅ​លើ​ផ្ទាំង​ថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 탭에 날씨 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis været på ny fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż pogodę na nowej karcie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar o tempo na nova aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать погоду в новой вкладке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงสภาพอากาศในแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni sekmede hava durumunu göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати погоду в новій вкладці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện thời tiết trên thẻ mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新标签页上显示天气"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新分頁上顯示天氣"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabWidgets.weather.help": {
+      "comment": "Settings: help for the New Tab weather widget toggle. 'The city below' is the Weather City setting.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الطقس الحالي وأعلى وأدنى درجة اليوم، للمدينة أدناه أو لمدينة منطقتك الزمنية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trenutno vrijeme i današnja najviša i najniža temperatura, za grad ispod ili grad vaše vremenske zone."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det aktuelle vejr og dagens høje og lave temperatur for byen nedenfor eller din tidszones by."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das aktuelle Wetter und die heutige Höchst- und Tiefsttemperatur für die Stadt unten oder die Stadt deiner Zeitzone."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The current weather and today's high and low, for the city below or your time zone's city."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El tiempo actual y la máxima y mínima de hoy, para la ciudad de abajo o la ciudad de tu zona horaria."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La météo actuelle et les températures maximale et minimale du jour, pour la ville ci-dessous ou celle de votre fuseau horaire."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il meteo attuale e la massima e minima di oggi, per la città qui sotto o la città del tuo fuso orario."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下の都市、またはタイムゾーンの都市の現在の天気と今日の最高・最低気温。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អាកាសធាតុ​បច្ចុប្បន្ន និង​សីតុណ្ហភាព​ខ្ពស់​និង​ទាប​ថ្ងៃ​នេះ សម្រាប់​ទីក្រុង​ខាង​ក្រោម ឬ​ទីក្រុង​នៃ​តំបន់​ម៉ោង​របស់​អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아래 도시 또는 시간대 도시의 현재 날씨와 오늘의 최고·최저 기온입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Været nå og dagens høyeste og laveste temperatur for byen nedenfor eller byen i tidssonen din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bieżąca pogoda oraz dzisiejsza najwyższa i najniższa temperatura dla miasta poniżej lub miasta Twojej strefy czasowej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O tempo atual e a máxima e mínima de hoje, para a cidade abaixo ou a cidade do seu fuso horário."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Текущая погода и сегодняшние максимум и минимум для города ниже или города вашего часового пояса."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สภาพอากาศปัจจุบันและอุณหภูมิสูงสุดต่ำสุดของวันนี้ สำหรับเมืองด้านล่างหรือเมืองในเขตเวลาของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aşağıdaki şehir veya saat diliminizin şehri için şu anki hava durumu ve bugünün en yüksek ve en düşük sıcaklığı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поточна погода й сьогоднішні максимум і мінімум для міста нижче або міста вашого часового поясу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thời tiết hiện tại và nhiệt độ cao nhất, thấp nhất hôm nay cho thành phố bên dưới hoặc thành phố theo múi giờ của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下方城市或你所在时区城市的当前天气及今日最高和最低气温。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下方城市或你所在時區城市的目前天氣及今日最高和最低氣溫。"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabWidgets.weatherCity": {
+      "comment": "Settings: text field naming the city the New Tab weather widget shows.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مدينة الطقس"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grad za vremensku prognozu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "By for vejret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stadt für das Wetter"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weather City"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ciudad del tiempo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ville pour la météo"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Città per il meteo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "天気の都市"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទីក្រុង​សម្រាប់​អាកាសធាតុ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "날씨 도시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "By for været"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Miasto pogody"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cidade do tempo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Город для погоды"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมืองสำหรับสภาพอากาศ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hava durumu şehri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Місто для погоди"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thành phố thời tiết"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "天气城市"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "天氣城市"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabWidgets.weatherCity.help": {
+      "comment": "Settings: help for the Weather City text field.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مدينة لأداة الطقس. إذا تُركت فارغة تُستخدم مدينة منطقتك الزمنية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grad za widget vremena. Prazno koristi grad vaše vremenske zone."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En by til vejr-widgetten. Tom bruger din tidszones by."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Stadt für das Wetter-Widget. Leer verwendet die Stadt deiner Zeitzone."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A city for the weather widget. Empty uses your time zone's city."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una ciudad para el widget del tiempo. Vacío usa la ciudad de tu zona horaria."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une ville pour le widget météo. Vide utilise la ville de votre fuseau horaire."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una città per il widget meteo. Vuoto usa la città del tuo fuso orario."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "天気ウィジェットの都市。空欄ならタイムゾーンの都市を使います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទីក្រុង​សម្រាប់​វិដជិត​អាកាសធាតុ។ ទទេ​ប្រើ​ទីក្រុង​នៃ​តំបន់​ម៉ោង​របស់​អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "날씨 위젯의 도시입니다. 비워 두면 시간대 도시를 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En by for vær-widgeten. Tom bruker byen i tidssonen din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Miasto dla widżetu pogody. Puste pole używa miasta Twojej strefy czasowej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma cidade para o widget do tempo. Vazio usa a cidade do seu fuso horário."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Город для виджета погоды. Если пусто, используется город вашего часового пояса."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมืองสำหรับวิดเจ็ตสภาพอากาศ หากว่างจะใช้เมืองในเขตเวลาของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hava durumu widget'ı için bir şehir. Boş bırakılırsa saat diliminizin şehri kullanılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Місто для віджета погоди. Якщо порожньо, використовується місто вашого часового поясу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thành phố cho tiện ích thời tiết. Để trống sẽ dùng thành phố theo múi giờ của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "天气小组件的城市。留空则使用你所在时区的城市。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "天氣小工具的城市。留空則使用你所在時區的城市。"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabWidgets.machines": {
+      "comment": "Settings: toggle that shows the machines widget on the New Tab page.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار الأجهزة في علامة التبويب الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži računare na novoj kartici"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis maskiner på ny fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechner im neuen Tab anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Machines on New Tab"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar equipos en la nueva pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les machines dans le nouvel onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra le macchine nella nuova scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タブにマシンを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ​ម៉ាស៊ីន​នៅ​លើ​ផ្ទាំង​ថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 탭에 머신 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis maskiner på ny fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż maszyny na nowej karcie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar máquinas na nova aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать компьютеры в новой вкладке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงเครื่องในแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni sekmede makineleri göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати комп’ютери в новій вкладці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện các máy trên thẻ mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新标签页上显示机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新分頁上顯示機器"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabWidgets.machines.help": {
+      "comment": "Settings: help for the New Tab machines widget toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجهزتك وما إذا كان كل منها متصلاً."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaši računari i da li je svaki na mreži."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dine maskiner, og om hver er online."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Rechner und ob jeder online ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your machines and whether each is online."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus equipos y si cada uno está conectado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos machines et l'état en ligne de chacune."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le tue macchine e se ognuna è online."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "お使いのマシンと、各マシンがオンラインかどうか。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីន​របស់​អ្នក និង​ថា​ម៉ាស៊ីន​នីមួយៗ​កំពុង​អនឡាញ​ឬ​អត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 머신과 각 머신의 온라인 여부입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinene dine og om hver er tilkoblet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoje maszyny i to, czy każda jest online."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suas máquinas e se cada uma está online."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваши компьютеры и то, какие из них в сети."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องของคุณและสถานะออนไลน์ของแต่ละเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Makineleriniz ve her birinin çevrimiçi olup olmadığı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваші комп’ютери та чи кожен у мережі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các máy của bạn và máy nào đang trực tuyến."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的机器以及每台是否在线。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的機器以及每台是否在線。"
+          }
+        }
+      }
+    },
     "settings.sidebar.showLocalMachine": {
       "extractionState": "manual",
       "localizations": {
@@ -141284,6 +142076,270 @@
           "stringUnit": {
             "state": "translated",
             "value": "網頁圖片網站可以看到你的位址和開啟文件的時間。關閉時，每份文件都會在載入網頁圖片前詢問。"
+          }
+        }
+      }
+    },
+    "settings.ui.reducedBackgrounds": {
+      "comment": "Settings row title: draw windows in the plain theme color, without background pictures or glass.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plain Backgrounds"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خلفيات بسيطة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obične pozadine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enkle baggrunde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schlichte Hintergründe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fondos sencillos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrière-plans unis"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sfondi semplici"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シンプルな背景"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទៃខាងក្រោយធម្មតា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단순한 배경"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enkle bakgrunner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwykłe tła"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fundos simples"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Простые фоны"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นหลังแบบเรียบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sade Arka Planlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прості тла"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nền đơn giản"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "纯色背景"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "純色背景"
+          }
+        }
+      }
+    },
+    "settings.ui.reducedBackgrounds.help": {
+      "comment": "Settings row help for Plain Backgrounds.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Draws windows in the plain theme color, without paintings, wallpapers or glass. Your background choices stay as they are and come back when you turn it off."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ترسم النوافذ بلون السمة البسيط، بلا لوحات أو خلفيات أو زجاج. تبقى اختياراتك للخلفية كما هي وتعود عند إيقاف هذا الخيار."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prozori se crtaju u običnoj boji teme, bez slika, pozadina ili stakla. Vaši izbori pozadine ostaju kakvi jesu i vraćaju se kada ovo isključite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tegner vinduer i temaets ensfarvede baggrund uden malerier, skrivebordsbaggrunde eller glas. Dine baggrundsvalg forbliver som de er og vender tilbage, når du slår det fra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeichnet Fenster in der schlichten Themenfarbe, ohne Gemälde, Hintergrundbilder oder Glas. Deine Hintergrundauswahl bleibt erhalten und kehrt zurück, wenn du es ausschaltest."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dibuja las ventanas con el color liso del tema, sin pinturas, fondos de pantalla ni cristal. Tus elecciones de fondo se conservan y vuelven al desactivarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dessine les fenêtres dans la couleur unie du thème, sans peintures, fonds d'écran ni verre. Vos choix d'arrière-plan restent tels quels et reviennent quand vous le désactivez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disegna le finestre con il colore semplice del tema, senza dipinti, sfondi o vetro. Le tue scelte di sfondo restano invariate e tornano quando lo disattivi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウをテーマの単色で描画し、絵画・壁紙・ガラスを使いません。背景の選択はそのまま残り、オフにすると元に戻ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គូរបង្អួចដោយពណ៌ធម្មតារបស់រូបរាង ដោយគ្មានគំនូរ រូបផ្ទៃតុ ឬកញ្ចក់។ ជម្រើសផ្ទៃខាងក្រោយរបស់អ្នកនៅដដែល ហើយត្រឡប់មកវិញនៅពេលអ្នកបិទវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창을 그림, 배경 화면, 유리 효과 없이 테마의 단색으로 그립니다. 배경 선택은 그대로 유지되며 끄면 다시 돌아옵니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tegner vinduer i temaets ensfargede bakgrunn, uten malerier, skrivebordsbakgrunner eller glass. Bakgrunnsvalgene dine blir som de er og kommer tilbake når du slår det av."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rysuje okna w jednolitym kolorze motywu, bez obrazów, tapet i szkła. Twoje wybory tła pozostają bez zmian i wracają po wyłączeniu tej opcji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desenha as janelas na cor lisa do tema, sem pinturas, papéis de parede ou vidro. Suas escolhas de fundo continuam como estão e voltam quando você desativa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рисует окна однотонным цветом темы, без картин, обоев и стекла. Выбранные фоны сохраняются и вернутся, когда вы выключите этот параметр."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วาดหน้าต่างด้วยสีพื้นของธีม โดยไม่มีภาพวาด ภาพพื้นหลัง หรือกระจก ตัวเลือกพื้นหลังของคุณยังคงอยู่และจะกลับมาเมื่อคุณปิดตัวเลือกนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pencereleri tablolar, duvar kâğıtları veya cam olmadan temanın düz renginde çizer. Arka plan seçimleriniz olduğu gibi kalır ve bunu kapattığınızda geri gelir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Малює вікна однотонним кольором теми, без картин, шпалер і скла. Вибрані тла зберігаються й повернуться, коли ви вимкнете цей параметр."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vẽ cửa sổ bằng màu trơn của chủ đề, không có tranh, hình nền hay hiệu ứng kính. Các lựa chọn nền của bạn vẫn giữ nguyên và trở lại khi bạn tắt tùy chọn này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以主题的纯色绘制窗口，不显示画作、墙纸或玻璃效果。你的背景选择保持不变，关闭后即恢复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以主題的純色繪製視窗，不顯示畫作、桌布或玻璃效果。你的背景選擇保持不變，關閉後即恢復。"
           }
         }
       }

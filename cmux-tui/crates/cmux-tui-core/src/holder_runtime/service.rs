@@ -98,14 +98,17 @@ impl HolderService {
     }
 
     /// Start `request` on the holder. Returns the terminal (its custody
-    /// master, pid and output sink).
+    /// master, pid and output sink); `seed` reaches the parser before the
+    /// shell's first byte.
     pub(crate) fn spawn(
         self: &Arc<Self>,
         request: &SpawnRequest,
+        seed: &[u8],
     ) -> io::Result<Arc<HolderTerminal>> {
         let link = self.link()?;
         let chan = self.next_chan.fetch_add(1, Ordering::AcqRel);
         let sink = HolderSink::new(0);
+        sink.prepend(seed);
         let (pid, custody) = link.spawn(chan, request, sink.clone() as Arc<dyn TerminalSink>)?;
         Ok(self.track(chan, request.id, pid, custody, sink))
     }
@@ -153,10 +156,26 @@ impl HolderService {
         custody: OwnedFd,
         sink: Arc<HolderSink>,
     ) -> Arc<HolderTerminal> {
-        let terminal =
-            Arc::new(HolderTerminal { chan, id, pid, custody, sink, service: self.clone() });
+        let terminal = Arc::new(HolderTerminal {
+            chan,
+            id,
+            pid,
+            custody,
+            sink,
+            service: self.clone(),
+            replay: Mutex::new(None),
+        });
         self.live.lock().recover_poison().insert(chan, Arc::downgrade(&terminal));
         terminal
+    }
+
+    /// End every live terminal as lost: no holder can stream it.
+    fn lose_all(&self) {
+        let live: Vec<_> =
+            self.live.lock().recover_poison().values().filter_map(Weak::upgrade).collect();
+        for terminal in live {
+            terminal.sink.lose();
+        }
     }
 
     /// Hand every live terminal to the new holder `link` after a holder
@@ -166,14 +185,19 @@ impl HolderService {
         let live: Vec<_> =
             self.live.lock().recover_poison().values().filter_map(Weak::upgrade).collect();
         for terminal in live {
+            // The old holder is gone, so nothing more arrives: once the
+            // reader parsed what it had, the daemon's screen is the screen
+            // at `base`, the new holder's prologue for a later restart.
+            terminal.sink.wait_drained(std::time::Duration::from_secs(1));
             let base = terminal.sink.received();
+            let prologue = terminal.prologue();
             let sink = terminal.sink.clone() as Arc<dyn TerminalSink>;
             if let Err(error) = link.adopt(
                 terminal.chan,
                 &terminal.id,
                 (terminal.pid, base),
                 &terminal.custody,
-                sink,
+                (sink, &prologue),
             ) {
                 eprintln!("cmux-tui: hand terminal {} to the new holder: {error}", terminal.chan);
             }
@@ -191,7 +215,10 @@ impl HolderService {
                 let _ =
                     std::thread::Builder::new().name("holder-restart".into()).spawn(move || {
                         if let Err(error) = service.link() {
+                            // No holder streams their output any more: their
+                            // terminals end as lost (the shells may still run).
                             eprintln!("cmux-tui: restart the terminal holder: {error}");
+                            service.lose_all();
                         }
                     });
             }),

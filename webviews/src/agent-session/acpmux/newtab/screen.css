@@ -878,6 +878,71 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-headline-choose .acpmux-project-button > span {
   text-decoration: none;
 }
+
+/* The ambient widgets (newtab/AmbientWidgets.tsx): one quiet row under the field, in the greeting's
+   dim color, so the page stays calm and the field never moves. */
+.nt-ambient {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 16px;
+  margin-top: 10px;
+  color: var(--acpmux-composer-dim, color-mix(in srgb, var(--agent-text) 55%, transparent));
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  user-select: none;
+}
+.nt-ambient-weather {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.nt-ambient-weather[data-stale] {
+  opacity: 0.55;
+}
+.nt-ambient-temp {
+  color: var(--agent-soft);
+  font-variant-numeric: tabular-nums;
+}
+.nt-ambient-range {
+  font-variant-numeric: tabular-nums;
+}
+.nt-ambient-machines {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.nt-ambient-machine {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 180px;
+}
+.nt-ambient-machine-icon {
+  flex: none;
+  display: inline-flex;
+  /* This Mac stays quiet; another machine wears its identity color (machineColor.ts, inline). */
+  color: var(--agent-soft);
+}
+.nt-ambient-machine-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nt-ambient-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+.nt-ambient-machine[data-online] .nt-ambient-dot {
+  background: var(--agent-ansi-2);
+  box-shadow: none;
+}
 /* Minimal's edit mode (WidgetEditing.tsx; right-click > Edit New Tab, as an iPhone's home screen).
    Out of it a widget's slot draws nothing of its own, so the page lays out as it always did. */
 .nt-menu-host,

@@ -329,8 +329,22 @@ public final class ControlWorkspaceInfoCache {
         return value
     }
 
-    /// Drops the memos whose slot is not in `slots` (closed windows).
+    /// The slot of ``closedTabs(_:)``, which `retainMemos` always keeps.
+    private static let closedTabsSlot = "tabSearch.closed"
+
+    /// Search Tabs' closed tabs, kept like a ``memo(_:key:build:)``: `build` runs again only when
+    /// something it read changed. The publisher rebuilt them on every publish (about 10% of main
+    /// while idle on cmux8s, sidebar-churn bench).
+    ///
+    /// - Parameter build: makes the list from the App's owners (closed items, machines).
+    /// - Returns: the kept or newly built list.
+    public func closedTabs(_ build: () -> [ControlClosedTab]) -> [ControlClosedTab] {
+        memo(Self.closedTabsSlot, key: 0, build: build)
+    }
+
+    /// Drops the memos whose slot is not in `slots` (closed windows); ``closedTabs(_:)`` stays.
     public func retainMemos(_ slots: Set<String>) {
+        let slots = slots.union([Self.closedTabsSlot])
         guard memos.keys.contains(where: { !slots.contains($0) }) else { return }
         for (slot, memo) in memos where !slots.contains(slot) {
             forget(memo.generation)

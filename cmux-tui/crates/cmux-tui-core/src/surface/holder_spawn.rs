@@ -20,6 +20,9 @@ pub(crate) struct HolderSpawn {
     pub(crate) host_root: PathBuf,
     /// The registry-reserved terminal id; `None` mints one.
     pub(crate) terminal_id: Option<crate::terminal_host::TerminalId>,
+    /// VT replay the parser applies before the shell's first byte (Reopen
+    /// Closed of an archived terminal; empty: none).
+    pub(crate) seed: Vec<u8>,
     pub(crate) terminal_public_id: Option<TerminalPublicId>,
     pub(crate) resource_identity: Option<TabResourceIdentity>,
     pub(crate) kitty_reservation: Option<crate::mux::KittyImageBudgetReservation>,
@@ -62,7 +65,7 @@ impl Surface {
             env,
         };
         let service = HolderService::for_root(&spawn.host_root)?;
-        let terminal = service.spawn(&request)?;
+        let terminal = service.spawn(&request, &spawn.seed)?;
         crate::debug_spans::mark("surface.holder_spawned");
         let launched = Self::run_on_holder(
             &terminal,
@@ -150,8 +153,44 @@ impl Surface {
         spawn: LocalSpawn,
         (command, cwd): (Vec<String>, Option<String>),
     ) -> anyhow::Result<Arc<Surface>> {
-        Self::spawn_local(spawn, holder_local_launch(terminal, command, cwd)?)
+        let surface = Self::spawn_local(spawn, holder_local_launch(terminal, command, cwd)?)?;
+        let weak = Arc::downgrade(&surface);
+        terminal.set_replay(Box::new(move || {
+            weak.upgrade()
+                .and_then(|surface| surface.as_pty().map(holder_prologue))
+                .unwrap_or_default()
+        }));
+        Ok(surface)
     }
+}
+
+/// The largest prologue a new holder keeps: it must fit one ADOPT frame
+/// (1 MiB) with room to spare.
+const PROLOGUE_MAX_BYTES: usize = 768 * 1024;
+
+/// A VT replay of the daemon's parsed screen (screen, history, modes, title,
+/// directory) plus its OSC 9;4 progress, for a new holder after a holder
+/// crash. Empty when it does not fit: a later restart then shows only the
+/// output since.
+fn holder_prologue(pty: &PtySurface) -> Vec<u8> {
+    let Ok(mut replay) = pty
+        .term
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .vt_replay_bounded_bytes(PROLOGUE_MAX_BYTES)
+    else {
+        return Vec::new();
+    };
+    let progress = pty
+        .terminal_metadata
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .osc_progress()
+        .to_owned();
+    if !progress.is_empty() {
+        replay.extend_from_slice(format!("\x1b]9;{progress}\x1b\\").as_bytes());
+    }
+    if replay.len() > PROLOGUE_MAX_BYTES { Vec::new() } else { replay }
 }
 
 fn pty_size(terminal: &HolderTerminal) -> Option<(u16, u16)> {

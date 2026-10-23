@@ -60,6 +60,8 @@ import {
 import { useWidgetEditing, WidgetEditBar, WidgetFrame } from "./WidgetEditing";
 import { useNoEntryMotion } from "./noEntryMotion";
 import { ContextMenu } from "../../../ui/ContextMenu";
+import { AmbientWidgets } from "./AmbientWidgets";
+import type { NewTabWeather } from "./ambient";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
 import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
@@ -197,6 +199,9 @@ type Props = NewTabScreenActions & {
   allChats?: boolean;
   /// Minimal's edit mode saved an edit (WidgetEditing.tsx); unset, the page has no edit mode.
   onEditWidgets?(edit: WidgetEdit): void;
+  /// The weather widget's last reading (the handshake's `weather`, ambient.ts); drawn while the
+  /// `weather` widget is on.
+  weather?: NewTabWeather;
   /// Buttons before Send, such as the dictation mic (DictationMic).
   accessory?: React.ReactNode;
   /// Why dictation did not run (DictationNotice), under the field.
@@ -1238,6 +1243,18 @@ export function NewTabScreen(props: Props) {
       </div>
     </>
   );
+  // The ambient widgets (weather, machines): their own row under the field, so they never move it;
+  // with the stage, whose composer sits at the foot, the row is in the stage, after the widgets. The
+  // edit mode does not frame or move them; Settings turns them on and off.
+  const ambient = (
+    <AmbientWidgets
+      {...(widgets.has("weather") && props.weather ? { weather: props.weather } : {})}
+      machines={widgets.has("machines")}
+      snapshot={snapshot}
+      localName={props.machineName ?? t("composer.thisMac")}
+      now={at}
+    />
+  );
   // The stage's widgets, in the user's order (`tabs.newTabWidgets.order`): Projects and Quick
   // Actions are cards (cards next to each other share a column), Recent Chats is the player and the
   // lists, as before the order; with Recent Chats off the player and the other lists come last.
@@ -1337,6 +1354,7 @@ export function NewTabScreen(props: Props) {
                   </div>
                 ),
               )}
+              {ambient}
               {!order.includes("chats") && playerAndLists}
             </div>
             {composerCard}
@@ -1356,6 +1374,7 @@ export function NewTabScreen(props: Props) {
               headline
             )}
             {composerCard}
+            {ambient}
             {props.notice}
             {environmentPanel}
             {/* The create actions (cx-ag5.7, dogfood call K2): a blank terminal in the tab's folder, a

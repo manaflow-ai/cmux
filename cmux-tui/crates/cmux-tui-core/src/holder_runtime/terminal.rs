@@ -8,7 +8,7 @@ use std::sync::Arc;
 use cmux_holder::ExitStatus;
 use cmux_pty::ChildKiller;
 
-use super::sink::SinkReader;
+use super::sink::{SinkEnd, SinkReader};
 use super::{HolderService, HolderSink};
 use crate::surface::spawn::LocalLaunch;
 use crate::terminal_end::TerminalEnd;
@@ -27,7 +27,13 @@ pub(crate) struct HolderTerminal {
     pub(crate) custody: OwnedFd,
     pub(crate) sink: Arc<HolderSink>,
     pub(super) service: Arc<HolderService>,
+    /// A VT replay of the daemon's parsed screen, handed to a new holder
+    /// after a holder crash as the terminal's prologue.
+    pub(super) replay: std::sync::Mutex<Option<Replay>>,
 }
+
+/// Builds a terminal's VT replay (its surface registers it).
+pub(crate) type Replay = Box<dyn Fn() -> Vec<u8> + Send + Sync>;
 
 impl HolderTerminal {
     /// The daemon exits and leaves the shell to the holder: the reader and
@@ -35,6 +41,21 @@ impl HolderTerminal {
     pub(crate) fn detach(&self) {
         self.sink.detach();
         self.service.untrack(self.chan);
+    }
+
+    /// How to replay the screen for a new holder (the surface sets it).
+    pub(crate) fn set_replay(&self, replay: Replay) {
+        *self.replay.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(replay);
+    }
+
+    /// The screen replay for a new holder; empty when none is known.
+    pub(super) fn prologue(&self) -> Vec<u8> {
+        self.replay
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .map(|replay| replay())
+            .unwrap_or_default()
     }
 
     pub(crate) fn is_detached(&self) -> bool {
@@ -73,7 +94,7 @@ pub(crate) fn holder_local_launch(
         killer: Box::new(HolderKiller(terminal.clone())),
         wait: Box::new(move || {
             let end = waited.sink.wait_end();
-            if end.is_some() {
+            if end != SinkEnd::Detached {
                 // Ended: the holder may forget it.
                 let _ = waited.service.close(waited.chan, 0);
                 waited.service.untrack(waited.chan);
@@ -88,22 +109,23 @@ pub(crate) fn holder_local_launch(
     })
 }
 
-fn terminal_end(end: Option<ExitStatus>) -> TerminalEnd {
+fn terminal_end(end: SinkEnd) -> TerminalEnd {
     match end {
-        Some(ExitStatus::Exited(code)) => {
+        SinkEnd::Exited(ExitStatus::Exited(code)) => {
             TerminalEnd::ProcessEnded(TerminalExit::now(TerminalExitOutcome::Exit { code }))
         }
-        Some(ExitStatus::Signaled(signal)) => {
+        SinkEnd::Exited(ExitStatus::Signaled(signal)) => {
             TerminalEnd::ProcessEnded(TerminalExit::now(TerminalExitOutcome::Signal {
                 signal,
                 core_dumped: false,
             }))
         }
-        Some(ExitStatus::Unobserved) => {
+        SinkEnd::Exited(ExitStatus::Unobserved) => {
             TerminalEnd::ProcessEnded(TerminalExit::unknown(crate::terminal_end::EXIT_UNOBSERVED))
         }
+        SinkEnd::Lost => TerminalEnd::host_lost("holder-lost"),
         // Detached for a daemon shutdown: never recorded (exit_state).
-        None => TerminalEnd::host_lost("holder-detached"),
+        SinkEnd::Detached => TerminalEnd::host_lost("holder-detached"),
     }
 }
 

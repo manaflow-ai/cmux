@@ -3,17 +3,18 @@
 ///
 /// `diagnostics.hangReports` lives in cmux-next.json, which people sync between Macs and agents
 /// can edit, so the file alone never starts sending: this Mac must also hold a consent record
-/// that only the person's own click writes (the card's Send Hang Reports). A file that turns
-/// reports on without a record shows the confirm card instead. A person who turned off anonymous
-/// telemetry is never invited (lead decision 2026-10-23), but can still turn reports on in
-/// Settings and confirm on the card.
+/// that only the person's own yes writes (the card's Send Hang Reports, or a `SettingWriter.user`
+/// write of the setting: the Settings switch, Toggle Setting, a CLI call the confirmation sheet
+/// approved). A file that turns reports on without a record shows the confirm card instead. A
+/// person who turned off anonymous telemetry is never invited (lead decision 2026-10-23), but can
+/// still turn reports on in Settings.
 ///
 /// ```swift
 /// HangReportAskPolicy().decision(settingOn: true, consented: false, invited: true, telemetryOptIn: false)  // .confirm
 /// ```
 public nonisolated struct HangReportAskPolicy: Sendable {
     /// What to do.
-    public enum Decision: Sendable, Equatable {
+    public enum Decision: Sendable, Hashable {
         /// Reports on: record and send.
         case send
         /// The setting is on but this Mac never confirmed: show the confirm card, send nothing yet.

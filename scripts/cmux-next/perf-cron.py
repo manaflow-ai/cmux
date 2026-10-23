@@ -1386,9 +1386,13 @@ def cmd_plan(o):
     dropped = sanitize_state(state, commit_on_branch(o.repo, tip))
     if dropped:
         print(f"perf-cron: dropped from the state (not a commit of {o.tip}): {', '.join(dropped)}")
+    if getattr(o, "perf_result", ""):
+        result_plan(o, state, t)
+        return
     no_mac = None
     if o.no_mac:
-        no_mac = "no gateway runner label for the perf cron (vars.CI_PERF_CRON_GATEWAY is not set): no Mac part runs"
+        no_mac = ("no route for the Mac parts (neither vars.CI_PERF_CRON_GATEWAY nor "
+                  "vars.CMUX_NEXT_PERF_CRON_CONTROLLER=1 is set): no Mac part runs")
     dead = drop_dead_measurement(state, t, lambda sha: fleet_runs(sha, tip_blob))
     if dead:
         print(f"perf-cron: the measurement in flight ended ({dead}); looking for a new commit")
@@ -1841,6 +1845,79 @@ def next_now(state, fleet_done):
     return bool(bisect_groups(state))
 
 
+# The controller route (cmuxterm-hq build-fleet/cmd/controller/perf_cron.go, CMUX_CI_PERF_CRON=1): the plan's job
+# `perf cron request <sha> <part>` asks the controller for the part; it queues the background step on the bench host
+# only when that host is idle, and dispatches this workflow with perf_result when the step ends.
+RESULT_STATES = ("done", "failed", "yielded")
+
+
+def controller_result(raw):
+    """The controller's perf_result input as a dict, or None when it is not one (pure)."""
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(value, dict) or not is_sha(str(value.get("sha") or "")) or value.get("part") not in PART_BY_NAME \
+            or is_linux_part(value.get("part")) or value.get("state") not in RESULT_STATES:
+        return None
+    return value
+
+
+def result_plan(o, state, t):
+    """A run the controller started with a part's result: plan nothing new; the report job stores the part. A
+    result for another measurement, or for a part not to do, is dropped (a late result after an abandon)."""
+    value = controller_result(o.perf_result)
+    cur = state.get("current") or {}
+    out = {"action": "none", "sha": "", "part": "", "linux_part": "", "frame_pacing": "false", "stale_hours": round(stale_hours(state, t), 1)}
+    if value is None:
+        out["reason"] = "the controller's perf_result is not a result"
+    elif value["sha"] != cur.get("sha") or value["part"] not in (cur.get("parts_todo") or []):
+        out["reason"] = (f"the controller's {value['part']} result for {value['sha'][:12]} is not for the measurement in "
+                         f"flight ({str(cur.get('sha') or 'none')[:12]}); dropped")
+    else:
+        out.update({"action": "result", "sha": value["sha"], "part": value["part"],
+                    "reason": f"the controller's {value['state']} result of part {value['part']} at {value['sha'][:12]}"
+                              f" (step {value.get('step_id') or '?'})"})
+    json.dump(state, open(os.path.join(o.dir, "state.json"), "w"), indent=1)
+    print(f"perf-cron plan: {json.dumps(out)}")
+    write_outputs(o.output, out)
+
+
+def result_files(value):
+    """result.json for record_part from the controller's result (pure): a failed build part ends the other Mac
+    parts (build_failed), a step past its cap is timed out, a pre-empted or unstarted one yielded."""
+    tail = [line for line in (value.get("error"),) if line]
+    return {"state": value["state"], "step_id": value.get("step_id"), "seconds": value.get("seconds"),
+            "exit": value.get("exit_code"), "yielded_to": value.get("preempted_by"), "worker": value.get("worker"),
+            "timed_out": bool(value.get("timed_out")), "tail": tail,
+            "build_failed": value.get("part") == "build" and value["state"] == "failed" and not value.get("timed_out")}
+
+
+def cmd_fetch_result(o):
+    """The report job's side of the controller route: result.json, and report.json from the step's signed artifact
+    URL. A done step whose artifact cannot be read is a failed part (its rows would be missing)."""
+    value = controller_result(o.result)
+    os.makedirs(o.out, exist_ok=True)
+    if value is None:
+        print("perf-cron fetch-result: not a result; nothing written")
+        return
+    result = result_files(value)
+    if value["state"] == "done":
+        url = str(value.get("artifact_url") or "")
+        try:
+            if not url.startswith("https://"):
+                raise ValueError("no https artifact URL")
+            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "cmux-perf-cron"}), timeout=120) as r:
+                report = json.load(r)
+            with open(os.path.join(o.out, "report.json"), "w") as f:
+                json.dump(report, f)
+        except (OSError, ValueError, urllib.error.URLError) as error:
+            result.update(state="failed", tail=result["tail"] + [f"artifact not read: {error!r}"])
+    with open(os.path.join(o.out, "result.json"), "w") as f:
+        json.dump(result, f)
+    print(f"perf-cron fetch-result: part {value['part']} at {value['sha'][:12]}: {result['state']}")
+
+
 def cmd_dispatch_next(o):
     """Dispatch this workflow on the measured branch (the report job's last step when next_now said so)."""
     gh_request(f"/repos/{o.repo}/actions/workflows/{os.path.basename(STATE_WORKFLOW)}/dispatches", "POST",
@@ -1859,7 +1936,8 @@ def main(argv=None):
     s.add_argument("--dir", required=True)
     s.add_argument("--tip", default="HEAD")
     s.add_argument("--yield-mode", default="queued", choices=["queued", "running"])
-    s.add_argument("--no-mac", action="store_true", help="no gateway runner for the Mac parts: plan only the Linux part")
+    s.add_argument("--no-mac", action="store_true", help="no route for the Mac parts: plan only the Linux part")
+    s.add_argument("--perf-result", default="", help="the controller's perf_result: plan nothing, the report stores it")
     s.add_argument("--output")
     s = sub.add_parser("fleet-check", help="may a part run on the bench host now (gateway)")
     s.add_argument("--worker", default=BENCH_WORKER)
@@ -1891,12 +1969,15 @@ def main(argv=None):
     s.add_argument("--finish", action="store_true", help="finish a measurement whose parts all ran")
     s.add_argument("--issues", action="store_true", help="open, update or close the regression issue")
     s.add_argument("--output")
+    s = sub.add_parser("fetch-result", help="write a controller result's result.json and report.json (report job)")
+    s.add_argument("--result", required=True, help="the perf_result JSON")
+    s.add_argument("--out", required=True)
     s = sub.add_parser("dispatch-next", help="start the next tick now (report, when the bench host stayed idle)")
     s.add_argument("--repo", required=True)
     o = ap.parse_args(argv)
     {"fetch-state": cmd_fetch_state, "plan": cmd_plan, "fleet-check": cmd_fleet_check, "run-part": cmd_run_part,
      "part-cleanup": cmd_part_cleanup, "run-linux-part": cmd_run_linux_part,
-     "report": cmd_report, "dispatch-next": cmd_dispatch_next}[o.cmd](o)
+     "report": cmd_report, "dispatch-next": cmd_dispatch_next, "fetch-result": cmd_fetch_result}[o.cmd](o)
 
 
 if __name__ == "__main__":

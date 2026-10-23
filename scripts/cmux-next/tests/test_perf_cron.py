@@ -2,7 +2,7 @@
 """The perf cron's decisions (scripts/cmux-next/perf-cron.py): what a tick runs, when it yields to the fleet,
 what counts as a regression, and when the one issue opens, comments and closes. Pure functions only (no
 network, no git). Run: python3 -I scripts/cmux-next/tests/test_perf_cron.py (not a CI job, Lawrence 2026-10-23)."""
-import argparse, datetime, importlib.util, json, os, tempfile, unittest
+import argparse, datetime, importlib.util, io, json, os, tempfile, unittest
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1014,6 +1014,81 @@ class FramePacingTests(unittest.TestCase):
         self.assertFalse(cron.frame_pacing_due([recent, old], T0, None)[0])
         running = {"id": 3, "status": "in_progress", "created_at": cron.iso(at(-30))}
         self.assertFalse(cron.frame_pacing_due([running], T0, None)[0])
+
+
+class ControllerRouteTests(unittest.TestCase):
+    SHA = "c" * 40
+
+    def result(self, **over):
+        value = {"run": 5, "attempt": 1, "sha": self.SHA, "part": "motion", "step_id": "s1", "state": "done",
+                 "artifact_url": "https://store.example/a"}
+        value.update(over)
+        return json.dumps(value)
+
+    def state_with(self, parts):
+        state = cron.empty_state(T0)
+        state["current"] = cron.new_measurement(self.SHA, "tip", parts, T0)
+        return state
+
+    def plan(self, state, raw):
+        d = tempfile.mkdtemp()
+        with open(os.path.join(d, "state.json"), "w") as f:
+            json.dump(state, f)
+        out = os.path.join(d, "plan.out")
+        cron.result_plan(argparse.Namespace(dir=d, output=out, perf_result=raw), state, T0)
+        with open(out) as f:
+            return dict(line.split("=", 1) for line in f.read().splitlines())
+
+    def test_a_result_for_the_part_in_flight_is_planned_for_the_report(self):
+        plan = self.plan(self.state_with(["build", "motion"]), self.result())
+        self.assertEqual((plan["action"], plan["part"], plan["sha"]), ("result", "motion", self.SHA))
+        self.assertEqual(plan["frame_pacing"], "false", "a result run starts nothing else")
+
+    def test_a_stale_or_bad_result_is_dropped(self):
+        self.assertEqual(self.plan(self.state_with(["build"]), self.result())["action"], "none", "a part not to do")
+        other = self.state_with(["motion"])
+        other["current"]["sha"] = "d" * 40
+        self.assertEqual(self.plan(other, self.result())["action"], "none", "another measurement")
+        for raw in ("", "{", json.dumps([1]), self.result(part="diff-viewer"), self.result(part="nope"),
+                    self.result(state="maybe"), self.result(sha="short")):
+            self.assertIsNone(cron.controller_result(raw), raw)
+
+    def test_result_files_for_record_part(self):
+        failed_build = cron.result_files(json.loads(self.result(part="build", state="failed", error="no app")))
+        self.assertTrue(failed_build["build_failed"])
+        self.assertEqual(failed_build["tail"], ["no app"])
+        timed = cron.result_files(json.loads(self.result(part="build", state="failed", timed_out=True)))
+        self.assertFalse(timed["build_failed"], "a build past its cap is no build failure")
+        self.assertTrue(timed["timed_out"])
+        yielded = cron.result_files(json.loads(self.result(state="yielded", preempted_by="fg1")))
+        self.assertEqual((yielded["state"], yielded["yielded_to"]), ("yielded", "fg1"))
+        cur = cron.new_measurement(self.SHA, "tip", ["build", "motion", "diff-viewer"], T0)
+        cron.record_part(cur, "build", failed_build, "r")
+        self.assertEqual(cur["parts_todo"], ["diff-viewer"], "a failed build ends the Mac parts")
+
+    def test_fetch_result_reads_the_signed_artifact(self):
+        out = tempfile.mkdtemp()
+
+        class Answer(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+        with mock.patch.object(cron.urllib.request, "urlopen", lambda req, timeout=0: Answer(b'{"rows": []}')):
+            cron.cmd_fetch_result(argparse.Namespace(result=self.result(), out=out))
+        with open(os.path.join(out, "result.json")) as f:
+            self.assertEqual(json.load(f)["state"], "done")
+        with open(os.path.join(out, "report.json")) as f:
+            self.assertEqual(json.load(f), {"rows": []})
+
+    def test_fetch_result_without_a_readable_artifact_is_a_failed_part(self):
+        out = tempfile.mkdtemp()
+        cron.cmd_fetch_result(argparse.Namespace(result=self.result(artifact_url="http://plain.example/a"), out=out))
+        with open(os.path.join(out, "result.json")) as f:
+            result = json.load(f)
+        self.assertEqual(result["state"], "failed")
+        self.assertFalse(os.path.exists(os.path.join(out, "report.json")))
 
 
 if __name__ == "__main__":

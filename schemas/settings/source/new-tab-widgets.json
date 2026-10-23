@@ -85,6 +85,51 @@
           "kind": "toggle",
           "default": false,
           "keywords": ["new tab", "widget", "template", "style", "dots"]
+        },
+        {
+          "key": "tabs.newTabWidgets.weather",
+          "note": "Off by default. On: the current conditions and today's high and low beside the composer, from Open-Meteo (no key). The place is tabs.newTabWidgets.weatherCity, else the city of this Mac's time zone, so it needs no location permission. Nothing is fetched while it is off. Cached 30 minutes; offline shows the last reading dimmed.",
+          "title": {
+            "key": "settings.tabs.newTabWidgets.weather",
+            "text": "Show Weather on New Tab"
+          },
+          "help": {
+            "key": "settings.tabs.newTabWidgets.weather.help",
+            "text": "The current weather and today's high and low, for the city below or your time zone's city."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": ["new tab", "widget", "weather", "temperature", "forecast", "location"]
+        },
+        {
+          "key": "tabs.newTabWidgets.weatherCity",
+          "note": "Empty uses the city of this Mac's time zone. A city name (\"Berlin\", \"San Francisco\") is looked up with Open-Meteo's geocoding.",
+          "title": {
+            "key": "settings.tabs.newTabWidgets.weatherCity",
+            "text": "Weather City"
+          },
+          "help": {
+            "key": "settings.tabs.newTabWidgets.weatherCity.help",
+            "text": "A city for the weather widget. Empty uses your time zone's city."
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": ["new tab", "widget", "weather", "city", "location"]
+        },
+        {
+          "key": "tabs.newTabWidgets.machines",
+          "note": "Off by default. On: each machine the composer can start a chat on (this Mac, SSH and cloud peers) with its color, its icon and whether it is online.",
+          "title": {
+            "key": "settings.tabs.newTabWidgets.machines",
+            "text": "Show Machines on New Tab"
+          },
+          "help": {
+            "key": "settings.tabs.newTabWidgets.machines.help",
+            "text": "Your machines and whether each is online."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": ["new tab", "widget", "machines", "computers", "ssh", "cloud", "online"]
         }
       ]
     }
