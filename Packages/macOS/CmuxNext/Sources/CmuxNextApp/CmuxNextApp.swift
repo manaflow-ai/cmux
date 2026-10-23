@@ -4,6 +4,7 @@ import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextMallocZone
+import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextCompat
 
@@ -44,7 +45,8 @@ public struct CmuxNextApp {
         // The daemon connect overlaps AppKit's start (off the main thread).
         let prestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
-                                              resolvesShellIntegration: environment.resolvesShellIntegration)
+                                              resolvesShellIntegration: environment.resolvesShellIntegration,
+                                              echoesPlacementShift: SidebarMirror.isLinked)
         DebugTimings.markLaunch("main.prestart")
         // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.
         CrashOnExceptions.register()

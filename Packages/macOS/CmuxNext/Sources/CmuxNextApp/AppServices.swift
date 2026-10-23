@@ -47,7 +47,8 @@ final class AppServices {
     let crashReporting: AppCrashReporting
     /// The local daemon. Cloud machines are in `machines`; code acting on a
     /// workspace, pane, or tab resolves its daemon through `machines`.
-    let daemon = DaemonService()
+    /// The local daemon; a build with the sidebar document orders rows from it only (placement-shift-v1).
+    let daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked)
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
@@ -356,8 +357,6 @@ final class AppServices {
     ///   hold for; the app-wide one by default.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil) {
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
-        // Before any connection: a build with the sidebar document orders rows from it only (placement-shift-v1).
-        DaemonCapabilities.echoesPlacementShift = SidebarMirror.isLinked
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
