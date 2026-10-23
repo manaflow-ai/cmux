@@ -12,6 +12,9 @@ public final class BrowserMediaRowView: NSView {
     public static let width: CGFloat = 300
 
     private var media: BrowserMediaState
+    /// Offers Picture in Picture for a video (`media.pictureInPicture.enabled`), read at each update
+    /// and press, so a card left open after the setting turns off neither floats nor flips its button.
+    private var offersPictureInPicture: () -> Bool
     private var onCommand: (BrowserMediaCommand) -> Void
     private var onReveal: () -> Void
     private let artwork = NSImageView()
@@ -26,8 +29,10 @@ public final class BrowserMediaRowView: NSView {
     private lazy var pictureInPicture = button(.pictureInPicture)
 
     public init(title: String, subtitle: String, media: BrowserMediaState, artwork image: NSImage?,
+                pictureInPicture offers: @escaping () -> Bool = { true },
                 onCommand: @escaping (BrowserMediaCommand) -> Void, onReveal: @escaping () -> Void) {
         self.media = media
+        offersPictureInPicture = offers
         self.onCommand = onCommand
         self.onReveal = onReveal
         super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 96))
@@ -75,8 +80,10 @@ public final class BrowserMediaRowView: NSView {
     /// Shows another state in place: the media hub reuses a tab's card between opens instead of
     /// building its labels, stacks and four buttons again (u2426).
     public func show(title: String, subtitle: String, media: BrowserMediaState, artwork image: NSImage?,
+                     pictureInPicture offers: @escaping () -> Bool = { true },
                      onCommand: @escaping (BrowserMediaCommand) -> Void, onReveal: @escaping () -> Void) {
         self.media = media
+        offersPictureInPicture = offers
         self.onCommand = onCommand
         self.onReveal = onReveal
         if titleLabel.stringValue != title { titleLabel.stringValue = title }
@@ -87,6 +94,15 @@ public final class BrowserMediaRowView: NSView {
         previous.isEnabled = media.actions.contains(.previoustrack)
         next.isEnabled = media.actions.contains(.nexttrack)
         setAccessibilityLabel([title, subtitle].filter { !$0.isEmpty }.joined(separator: ", "))
+        update()
+    }
+
+    /// Shows whether the page's video floats now (`floating`, read from the tab), after a Picture in
+    /// Picture press the app refused once the card showed it (the setting turned off before the press
+    /// reached the page). Sets the state rather than flipping it, so a late refusal never inverts a
+    /// card that was shown again meanwhile; while the setting is off the button hides.
+    public func showPictureInPicture(_ floating: Bool) {
+        media.isPictureInPicture = floating
         update()
     }
 
@@ -104,7 +120,10 @@ public final class BrowserMediaRowView: NSView {
         switch sender {
         case playPause: command = .playPause; media.isPlaying.toggle()
         case mute: command = .toggleMute; media.isMuted.toggle()
-        case pictureInPicture: command = .pictureInPicture; media.isPictureInPicture.toggle()
+        case pictureInPicture:
+            // Turned off while the card showed: the button goes and nothing floats.
+            guard offersPictureInPicture() else { return update() }
+            command = .pictureInPicture; media.isPictureInPicture.toggle()
         default: command = sender.tag == 0 ? .previousTrack : .nextTrack
         }
         onCommand(command)
@@ -114,7 +133,7 @@ public final class BrowserMediaRowView: NSView {
     private func update() {
         playPause.setIcon(media.isPlaying ? .browserTabPause : .browserTabPlay, label: media.isPlaying ? Strings.mediaPause : Strings.mediaPlay)
         mute.setIcon(media.isMuted ? .browserTabMuted : .browserTabAudio, label: media.isMuted ? Strings.mediaUnmute : Strings.mediaMute)
-        pictureInPicture.isHidden = !media.isVideo
+        pictureInPicture.isHidden = !media.isVideo || !offersPictureInPicture()
         pictureInPicture.setIcon(Self.pictureInPictureIcon,
                                  label: media.isPictureInPicture ? Strings.mediaExitPictureInPicture : Strings.mediaPictureInPicture)
     }

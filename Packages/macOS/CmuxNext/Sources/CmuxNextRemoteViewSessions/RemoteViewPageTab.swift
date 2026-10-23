@@ -69,6 +69,7 @@ public final class RemoteViewPageTab: BrowserTab {
 
     #if DEBUG
     /// Every live remote view tab, for `debug.remote_view` (weak).
+    // singleton-allow: a DEBUG-only weak registry the debug socket method reads; moved from CmuxNextApp as is, only public for the move.
     public static let live = NSHashTable<RemoteViewPageTab>.weakObjects()
 
     /// The Connect button of a tab that asks first; nil for any other tab.

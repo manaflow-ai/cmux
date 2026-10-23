@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 extension CEFTab: BrowserContentVisibilityReporting {
     /// The page window over this tab's content view, if the fork shows one
@@ -20,7 +20,10 @@ extension CEFTab: BrowserContentVisibilityReporting {
 
     /// Whether `window` is the page window over this tab's content view: a child of the
     /// container's window at the host view's screen rect, as ``contentVisibility`` finds it.
-    func isPageWindow(_ window: NSWindow) -> Bool {
+    ///
+    /// - Parameter window: A window to test, such as the key window a key-down goes to.
+    /// - Returns: Whether Chromium's page window for this tab is `window`, so its keys reach the page.
+    public func isPageWindow(_ window: NSWindow) -> Bool {
         guard !isClosed, let owner = container.window, window.parent === owner,
               host.visibleTab === self, host.hostView.superview === container else { return false }
         return Self.frame(window.frame, isPlacedAt: owner.convertToScreen(host.hostView.convert(host.hostView.bounds, to: nil)))

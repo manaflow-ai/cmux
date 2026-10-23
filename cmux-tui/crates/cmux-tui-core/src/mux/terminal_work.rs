@@ -185,7 +185,8 @@ impl Mux {
     ) -> anyhow::Result<Option<String>> {
         #[cfg(any(unix, windows))]
         {
-            if !self.uses_terminal_host_runtime() {
+            // Holder terminals start in their create: no host process to launch ahead.
+            if !self.uses_terminal_host_runtime() || holder_model() {
                 return Ok(None);
             }
             let target = {
@@ -346,6 +347,18 @@ impl Mux {
             cell_pixels
         };
         (opts, cell_pixels)
+    }
+}
+
+/// New terminals run on the holder (`holder_runtime`), not on host processes.
+fn holder_model() -> bool {
+    #[cfg(unix)]
+    {
+        crate::holder_runtime::enabled()
+    }
+    #[cfg(not(unix))]
+    {
+        false
     }
 }
 

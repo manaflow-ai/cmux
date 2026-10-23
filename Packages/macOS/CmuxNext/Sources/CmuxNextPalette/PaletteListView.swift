@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextCompat
 
 /// The result list: an `NSTableView` with reused row views. Only visible
 /// rows exist. Results reload in place without animation (no flicker);
@@ -47,10 +48,8 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         documentView = table
         contentView.postsBoundsChangedNotifications = true
         // queue: .main runs inline for the clip view's post on main (scroll order kept).
-        boundsObserver = NotificationCenter.default.addObserver(
-            forName: NSView.boundsDidChangeNotification, object: contentView, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.boundsChanged() } // main-proof: observer on queue: .main
+        boundsObserver = MainActorObservation(NSView.boundsDidChangeNotification, object: contentView) { [weak self] in
+            self?.boundsChanged()
         }
         scrollFit = ScrollFitElasticity(scrollView: self)
     }
@@ -58,15 +57,7 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    private var boundsObserver: (any NSObjectProtocol)?
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
-        }
-    }
+    private var boundsObserver: MainActorObservation?
 
     // MARK: Updates from the model
 

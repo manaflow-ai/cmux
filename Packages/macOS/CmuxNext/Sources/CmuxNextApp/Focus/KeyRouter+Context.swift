@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextPages
 import CmuxNextFocus
 import CmuxNextSidebar
+import CmuxNextTerminal
 
 // The context keys of the window a key goes to (plans/cmux-next/keybindings.md
 // section 4): built from that window's focus, never from the process-wide
@@ -133,7 +134,19 @@ extension KeyRouter {
                      textBoxFocused: window.firstResponder is TextBoxTextView,
                      sidebarMultiSelection: controller.sidebar.model.selection.count > 1,
                      fileExplorerFocused: FileExplorerService.hasKeyboard(window),
-                     workspacesAsTabs: SidebarTunables.workspacesAsTabs.value)
+                     workspacesAsTabs: SidebarTunables.workspacesAsTabs.value,
+                     pageReportsUnhandledKeys: chromiumPageHasKeys(window, controller: controller))
+    }
+
+    /// The focused live Chromium tab's page window is `window`, the key window: the key reaches
+    /// the page, and Chromium reports it if the page leaves it unhandled. While the shell window
+    /// itself is key (a page the model names but Chromium has not been handed the keyboard), the
+    /// key would reach no page, so cmux runs its action first as before.
+    private func chromiumPageHasKeys(_ window: NSWindow, controller: WindowController) -> Bool {
+        guard case .browserPage = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
+              case .browser(let entry)? = controller.content?.paneController(key: pane)?.currentContent,
+              let tab = entry.tab as? CEFTab else { return false }
+        return tab.isPageWindow(window)
     }
 
     /// The page id of the focused internal page tab.

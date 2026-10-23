@@ -546,6 +546,34 @@ pub(super) fn tab_change(
     params.send(operation, selectors, flags)
 }
 
+/// `attention request --tab <tab> --reason <text>` and `attention clear
+/// --tab <tab>` (`tab-attention-v1`): an agent marks the tab where the person
+/// must act (confirm, log in, approve, pick), or drops that mark. Both are
+/// `tab.update {attention}`, the one mutation path every surface uses; neither
+/// moves focus.
+pub(super) fn parse_attention(
+    words: &[&str],
+    selectors: &mut Selectors,
+    flags: &mut Flags,
+) -> Result<CommandPlan, UsageError> {
+    let mut params = Params::default();
+    match words {
+        ["request"] => {
+            let reason = flags.required("reason")?;
+            let reason = reason.trim();
+            if reason.is_empty() {
+                return Err(UsageError::new("--reason cannot be empty"));
+            }
+            params.insert("attention", Value::String(reason.to_string()));
+        }
+        ["clear"] => params.insert("attention", Value::Null),
+        _ => return usage("attention"),
+    }
+    let tab = flags.required("tab")?;
+    selectors.insert("tab", "tab", &tab)?;
+    params.send(Op::TabUpdate, selectors, flags)
+}
+
 /// `tab group …`. Group operations take no topology selectors: a group is
 /// addressed by its id or name, its tabs and panes by public id.
 pub(super) fn parse_tab_group(

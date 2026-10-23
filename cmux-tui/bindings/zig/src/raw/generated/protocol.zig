@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "655baaa1d0f11bd63754ffcda70267c4b8f07a2d8d415bf0c302c2ccab838a96";
+pub const ir_sha256 = "1e8ed8d1c9488496f61ce39773888417486f7d9a3ecf0469f4e801cd383fe3bd";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1318,12 +1318,16 @@ pub const NameSource = enum {
 
 pub const NewRowResult = struct {
     pane: Id,
+    pane_id: ?[]const u8 = null,
     surface: Id,
+    tab_id: ?[]const u8 = null,
     terminal_id: wire.Field([]const u8) = .absent,
     terminal_incarnation: wire.Field([]const u8) = .absent,
     transaction: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "pane_id",
+        "tab_id",
         "transaction",
     };
 };
@@ -1783,6 +1787,10 @@ pub const Screen = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "short_id",
     };
+};
+
+pub const SendExpectAgent = struct {
+    session: wire.Field([]const u8) = .absent,
 };
 
 pub const ServerStatsConnections = struct {
@@ -7266,8 +7274,10 @@ pub const NewRowRequest = struct {
     height_permille: u64,
     keep: ?bool = null,
     pane: Id,
+    pane_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
     shell_args: wire.Field([]const []const u8) = .absent,
+    tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     transaction: wire.Field([]const u8) = .absent,
 
@@ -7284,6 +7294,10 @@ pub fn newRow(client: anytype, request: NewRowRequest) !wire.Decoded(NewRowResul
             .authority = "control",
             .since = 12,
             .capability = "rows-v1",
+            .fields = &.{
+                .{ .name = "pane_id", .since = null, .capability = "row-client-keys-v1" },
+                .{ .name = "tab_id", .since = null, .capability = "row-client-keys-v1" },
+            },
         },
         request,
     );
@@ -8310,14 +8324,17 @@ pub fn selectWorkspace(client: anytype, request: SelectWorkspaceRequest) !wire.D
 
 pub const SendRequest = struct {
     bytes: wire.Field(Base64) = .absent,
+    expect_agent: wire.Field(SendExpectAgent) = .absent,
     expect_foreground: wire.Field([]const u8) = .absent,
     paste: ?bool = null,
+    submit: ?bool = null,
     surface: wire.Field(Id) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     text: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "paste",
+        "submit",
     };
 };
 
@@ -8338,8 +8355,10 @@ pub fn send(client: anytype, request: SendRequest) !wire.Decoded(SendResult) {
             .since = 5,
             .capability = null,
             .fields = &.{
+                .{ .name = "expect_agent", .since = null, .capability = "send-expect-agent-v1" },
                 .{ .name = "expect_foreground", .since = null, .capability = "send-expect-foreground-v1" },
                 .{ .name = "paste", .since = 7, .capability = null },
+                .{ .name = "submit", .since = null, .capability = "send-expect-agent-v1" },
                 .{ .name = "terminal_id", .since = null, .capability = "terminal-input-while-creating-v1" },
             },
         },
@@ -9489,6 +9508,7 @@ pub const UpdateBrowserProfileRequest = struct {
     color: wire.Field([]const u8) = .absent,
     icon: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
+    proxy: wire.Field(JsonValue) = .absent,
 };
 
 pub const UpdateBrowserProfileResult = JsonValue;

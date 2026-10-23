@@ -83,11 +83,15 @@ def rpc(method, params=None, timeout=60):
     return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
 
 
-def cli(*args):
+def cli(*args, timeout=120):
     env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}
     env["CMUX_NEXT_CONFIG_FILE"] = CONFIG
-    done = subprocess.run([APP_CLI, "--app-socket", SOCKET, *args], env=env, capture_output=True, text=True, timeout=120,
-                          stdin=subprocess.DEVNULL)
+    try:
+        done = subprocess.run([APP_CLI, "--app-socket", SOCKET, *args], env=env, capture_output=True, text=True, timeout=timeout,
+                              stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        note(f"cli {' '.join(args)[:120]} -> timed out after {timeout} s")
+        return subprocess.CompletedProcess(args, 124, "", "timeout")
     if done.returncode != 0:
         note(f"cli {' '.join(args)[:120]} -> {done.returncode} {(done.stdout + done.stderr).strip()[-200:]}")
     return done
@@ -150,13 +154,13 @@ class Churn(threading.Thread):
             index += 1
             ws = rng.choice(self.ids)
             if kind == "move":
-                cli("workspace", ws, "move", "--index", "0")
+                cli("workspace", ws, "move", "--index", "0", timeout=20)
             elif kind == "task":
-                cli("workspace", ws, "update", "--task-status", rng.choice(STATUSES))
+                cli("workspace", ws, "update", "--task-status", rng.choice(STATUSES), timeout=20)
             elif kind == "group":
-                cli("workspace", "group", rng.choice(self.groups), "add", "--workspace", ws, "--index", "0")
+                cli("workspace", "group", rng.choice(self.groups), "add", "--workspace", ws, "--index", "0", timeout=20)
             else:
-                cli("workspace", ws, "status", "set", "bench", f"step {index}")
+                cli("workspace", ws, "status", "set", "bench", f"step {index}", timeout=20)
             self.ops[kind] += 1
             spent = time.perf_counter() - t0
             self.cli_ms.append(spent * 1000)
@@ -206,6 +210,11 @@ def main_thread_profile(path):
         return element
 
     inclusive, leaf, samples = {}, {}, 0
+    # For a few frames: who called them and what they called, so a hot generic frame names its owner.
+    focus = ("generateAccessList", "Array._makeMutableAndUnique", "withObservationTracking<", "SidebarSameTurn.observe",
+             "DaemonStore.applyBatch", "stepTransactionFlush", "SidebarListView.reload", "ObservationStream.LegacyIterator.track",
+             "FrameBatcher.drain", "publishNow", "reconcileMembership", "SidebarRowIndex.patching")
+    callers, callees = {}, {}
     for row in root.iter("row"):
         thread = backtrace = None
         for child in row:
@@ -223,27 +232,73 @@ def main_thread_profile(path):
             leaf[frames[0]] = leaf.get(frames[0], 0) + 1
         for name in set(frames):
             inclusive[name] = inclusive.get(name, 0) + 1
+        seen = set()
+        for i, name in enumerate(frames):  # leaf first
+            key = next((f for f in focus if f in name), None)
+            if key is None or key in seen:
+                continue
+            seen.add(key)  # the outermost-but-first occurrence per sample: one count each
+            up = frames[i + 1] if i + 1 < len(frames) else "-"
+            down = frames[i - 1] if i > 0 else "(self)"
+            callers.setdefault(key, {})[up[:160]] = callers.setdefault(key, {}).get(up[:160], 0) + 1
+            callees.setdefault(key, {})[down[:160]] = callees.setdefault(key, {}).get(down[:160], 0) + 1
     generic = ("main", "start", "NSApplicationMain", "-[NSApplication run]", "_DPSNextEvent", "CFRunLoopRun", "__CFRunLoop",
                "_CFRunLoopRun", "-[NSApplication(NSEvent) _nextEventMatchingEventMask", "_BlockUntilNextEventMatchingListInMode",
                "ReceiveNextEventCommon", "RunCurrentEventLoopInMode", "_dispatch_main_queue", "__CFRUNLOOP", "_dispatch_", "?",
                "_DPSBlockUntilNextEventMatchingListInMode", "-[NSApplication(NSEventRouting)", "CmuxNextApp.main()")
     top = [{"frame": n[:220], "samples": c, "pct": round(100.0 * c / samples, 1) if samples else 0}
            for n, c in sorted(inclusive.items(), key=lambda kv: -kv[1]) if not n.startswith(generic)][:80]
-    return {"main_samples": samples, "top_inclusive": top,
+    top_of = lambda table: {k: sorted(v.items(), key=lambda kv: -kv[1])[:8] for k, v in table.items()}
+    return {"main_samples": samples, "top_inclusive": top, "callers": top_of(callers), "callees": top_of(callees),
             "top_leaf": [{"frame": n[:220], "samples": c} for n, c in sorted(leaf.items(), key=lambda kv: -kv[1])[:30]]}
 
 
 # ---------------------------------------------------------------- phases
-def type_keys(count):
+SAMPLED = []
+
+
+def sample_main(pid, label):
+    """`sample` of the app for 2 s when a key stalls: the main thread's stack names what holds it."""
+    path = os.path.join(OUT, f"stall-{label}-{len(SAMPLED)}.txt")
+    subprocess.run(["sample", str(pid), "2", "-file", path], capture_output=True, timeout=60)
+    SAMPLED.append(path)
+    try:
+        # The report is the step's one artifact: keep the main thread's part of the sample in it.
+        text = open(path, errors="replace").read()
+        start = text.find("Thread_")
+        results.setdefault("stall_samples", []).append({"label": label, "text": text[start:start + 40000] if start >= 0 else text[:40000]})
+    except OSError:
+        pass
+    note(f"stall sample: {os.path.basename(path)}")
+
+
+def type_keys(count, pid=None, label="warmup"):
+    """Types `count` keys; returns the per-key round trips (ms). A key whose RPC takes over 2 s is a stall:
+    the first three get a `sample` of the app, and the phase ends after 10 of them or 4x its planned time."""
     keys = "abcdefghijklmnopqrstuvwxyz"
+    trips, stalls = [], 0
+    deadline = time.monotonic() + max(30.0, 4 * count * opts.interval)
     for index in range(count):
         t0 = time.perf_counter()
         key = "return" if index % 50 == 49 else keys[index % len(keys)]
-        rpc("debug.key", {"key": key, "timestamp": time.clock_gettime(time.CLOCK_UPTIME_RAW)})
+        reply = rpc("debug.key", {"key": key, "timestamp": time.clock_gettime(time.CLOCK_UPTIME_RAW)}, timeout=10)
+        trip = (time.perf_counter() - t0) * 1000
+        trips.append(trip)
+        if trip > 2000 or (isinstance(reply, dict) and reply.get("error")):
+            stalls += 1
+            note(f"{label}: key {index} took {trip:.0f} ms ({json.dumps(reply)[:120]})")
+            if pid and stalls <= 3:
+                sample_main(pid, label)
+        if index % 30 == 29:
+            note(f"{label}: {index + 1}/{count} keys")
+        if stalls >= 10 or time.monotonic() > deadline:
+            note(f"{label}: stopped after {index + 1} keys ({stalls} stalls)")
+            break
         rest = opts.interval - (time.perf_counter() - t0)
         if rest > 0:
             time.sleep(rest)  # one key in flight at a time
     time.sleep(0.5)  # the last echo lands
+    return trips, stalls
 
 
 def phase(name, pid, ids, groups, churn_hz, trace=False):
@@ -261,18 +316,18 @@ def phase(name, pid, ids, groups, churn_hz, trace=False):
         churn.start()
         time.sleep(1.0)  # the churn is running before the first key
     t0 = time.monotonic()
-    type_keys(opts.samples)
+    trips, stalls = type_keys(opts.samples, pid, name)
     wall = time.monotonic() - t0
     if churn:
         churn.stop()
-    frames = rpc("debug.frames", {"action": "stop"})
-    hangs = rpc("debug.hangs", {"limit": 12})
-    perf = rpc("debug.sidebar_perf")
+    frames = rpc("debug.frames", {"action": "stop"}, timeout=20)
+    hangs = rpc("debug.hangs", {"limit": 12}, timeout=20)
+    perf = rpc("debug.sidebar_perf", timeout=20)
     rows = probe_rows()[rows_before:]
     complete = [r for r in rows if r.get("complete") == "1" and r.get("contents_ms")]
     entry = {
         "phase": name, "churn_hz": churn_hz, "wall_s": round(wall, 1),
-        "keys": opts.samples, "probe_rows": len(rows), "complete": len(complete),
+        "keys": len(trips), "stalled_keys": stalls, "key_rpc_ms": pct(trips), "probe_rows": len(rows), "complete": len(complete),
         "key_to_frame_ms": pct([float(r["contents_ms"]) for r in complete]),
         "key_to_dispatch_ms": pct([float(r["dispatch_start_ms"]) for r in complete if r.get("dispatch_start_ms")]),
         "parsed_to_frame_ms": pct([float(r["contents_ms"]) - float(r["output_parsed_ms"]) for r in complete if r.get("output_parsed_ms")]),
@@ -347,7 +402,7 @@ def main():
         results["setup"] = {"workspaces": len(ids), "groups": len(groups), "typing": typed_id}
         type_keys(10)  # warm-up
         for r in range(opts.rounds):
-            phase(f"idle-{r}", app.pid, ids, groups, 0)
+            phase(f"idle-{r}", app.pid, ids, groups, 0, trace=opts.trace and r == 0)
             phase(f"churn-{r}", app.pid, ids, groups, opts.churn_hz, trace=opts.trace and r == 0)
     finally:
         idle = [p for p in results["phases"] if p["churn_hz"] == 0 and p.get("key_to_frame_ms")]

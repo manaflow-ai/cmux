@@ -8,7 +8,7 @@ import type { AcpmuxActivity } from "../model";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import { mediaKind, ReplyMedia } from "../chips/ReplyMedia";
 import { pathName } from "../chips/paths";
-import { toolImages } from "../toolImages";
+import { stripsEnvelopeImages, toolImages } from "../toolImages";
 import { toolLabel } from "../toolPaths";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
@@ -22,11 +22,11 @@ import { BackgroundMark } from "./BackgroundMark";
 import { toolDuration } from "./toolGroups";
 import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
 import { useBlockWrap } from "./blockWrap";
-import { Lines, lineCount, PreviewMore, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
+import { Lines, lineCount, PreviewMore, SIDEWAYS_SCROLLER, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
 import { cleanText } from "./mcpCalls";
+import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { toolResult, type ToolResult } from "./toolResult";
 import { Markdown } from "./Markdown";
-import { useFold } from "./fold";
 import { WriteLabel, writeCall } from "./WriteLabel";
 import { rowFailed, toolFailure } from "./toolFailure";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
@@ -68,7 +68,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
       setReveal((count) => count + 1);
     },
   );
-  const fold = useFold(open);
+  const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const detailsId = useId();
   const tool = item.tool!;
   const hasDiff = Boolean(tool.diffs?.length);
@@ -103,9 +103,11 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   // A shell prints what it printed. Any other call's result is shown without the JSON envelope a
   // harness wrapped it in and the context a host injects into it (toolResult.ts), read only while
   // the call is open: a closed row parses nothing.
+  // A finished call's envelope images show in its strip instead of its text (toolImages.ts).
+  const strip = stripsEnvelopeImages(tool);
   const result = useMemo(
-    () => (shell || !tool.output || !fold.present ? undefined : toolResult(tool.output, cleanText)),
-    [shell, tool.output, fold.present],
+    () => (shell || !tool.output || !fold.present ? undefined : toolResult(tool.output, cleanText, strip)),
+    [shell, tool.output, fold.present, strip],
   );
   const body = shell ? tool.output?.replace(/\n$/, "") : result?.text;
   // Whether a closed call has anything to open, read once per output, not on every render.
@@ -148,7 +150,8 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
           className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
           aria-expanded={open}
           aria-controls={open ? detailsId : undefined}
-          onClick={() => setOpen((value) => !value)}
+          ref={fold.headerRef}
+          onClick={fold.toggle}
         >
           {content}
           <ChevronRight
@@ -163,7 +166,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
       <ToolFailureCause failure={failure} />
       {images.length > 0 && <ToolImages sources={images} />}
       {fold.present && (shell || files.length > 0 || body) && (
-        <div ref={fold.ref} className="cv-fold">
+        <div {...fold.bodyProps}>
           {shell ? (
             <ShellBlock
               id={detailsId}
@@ -171,6 +174,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
               output={failure?.output?.replace(/\n$/, "") ?? body}
               exitCode={failure?.exitCode ?? tool.exitCode}
               reveal={reveal}
+              live={running}
             />
           ) : files.length > 0 ? (
             <div id={detailsId}>
@@ -224,6 +228,7 @@ function ToolOutput({ id, result, reveal }: { id: string; result: ToolResult; re
           data-wrap={wrap}
           data-preview={preview.attribute}
           data-lang={result.lang === "json" ? "json" : undefined}
+          {...SIDEWAYS_SCROLLER}
         >
           {shown.cut && (
             <span className="cv-output-cut" aria-hidden="true">

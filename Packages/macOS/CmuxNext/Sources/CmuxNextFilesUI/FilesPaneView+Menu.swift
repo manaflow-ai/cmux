@@ -50,7 +50,7 @@ extension FilesPaneView {
         menu.addItem(.separator())
         menu.addItem(item(FilesStrings.newFolder, "folder.badge.plus", #selector(menuNewFolder)))
         menu.addItem(item(FilesStrings.goToFolder, "arrow.right.circle", #selector(menuGoTo)))
-        menu.addItem(item(model.showHidden ? FilesStrings.hideHidden : FilesStrings.showHidden, "eye.slash", #selector(menuHidden)))
+        menu.addItem(item(model.showHidden ? FilesStrings.hideHidden : FilesStrings.showHidden, model.showHidden ? "eye.slash" : "eye", #selector(menuHidden)))
         menu.addItem(.separator())
         let undoItem = item(FilesStrings.undo, "arrow.uturn.backward", #selector(menuUndo))
         undoItem.isEnabled = model.canUndo

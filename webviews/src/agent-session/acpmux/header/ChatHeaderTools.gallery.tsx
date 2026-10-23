@@ -75,11 +75,12 @@ const menuRows = (): ChatMenuItem[] => [
 ];
 
 // The summary's panel toggle as the App passes it (summary/SummaryButton.tsx).
-const panelToggle = (shown: boolean) =>
+const panelToggle = (shown: boolean, icon = "view.list") =>
   createElement(PanelToggle, {
     className: "acpmux-summary-button",
     label: "Chat summary",
     shown,
+    icon,
     onToggle: () => undefined,
   });
 const summary = panelToggle(false);
@@ -333,6 +334,18 @@ export default componentEntry<HeaderToolsProps>({
     "panel-open": {
       note: "The right-side panel is open: its toggle, first of the icons, is pressed and its glyph's column filled.",
       props: { ...base, summary: panelToggle(true) },
+    },
+    "panel-icon-list": {
+      note: "Panel icon option: three list rows with circular markers, matching ChatGPT's session rail control; this is the shipped choice.",
+      props: { ...base, summary: panelToggle(false, "view.list") },
+    },
+    "panel-icon-info": {
+      note: "Panel icon option: the compact information glyph, shown for comparison with the list control.",
+      props: { ...base, summary: panelToggle(false, "status.info") },
+    },
+    "panel-icon-session": {
+      note: "Panel icon option: the session speech-bubble glyph, shown for comparison with the list control.",
+      props: { ...base, summary: panelToggle(false, "agent.session") },
     },
     "browser-preview": {
       note: "The chat's last turn named a local page: Browser opens it beside the chat and its tooltip names it; there is no separate Preview button.",

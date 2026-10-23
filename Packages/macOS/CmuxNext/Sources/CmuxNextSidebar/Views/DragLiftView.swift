@@ -20,6 +20,8 @@ final class DragLiftView: NSView {
     private var lifted = false
     /// Landings started (`SidebarReorderLift.land`): only the last one's completion runs.
     var landings = 0
+    /// A tall group's cut (`cap(to:fade:)`): the fading bottom edge over the content; nil shows it whole.
+    private(set) var liftCap: SidebarLiftCap?
 
     /// `material` pins one overlay material (tests, galleries); nil follows this Mac.
     init(content: NSView, count: Int, material: OverlayMaterial? = nil) {
@@ -77,6 +79,7 @@ final class DragLiftView: NSView {
         card.frame = bounds
         background.frame = card.bounds
         content.frame = background.contentView.bounds
+        if let liftCap { liftCap.place(height: bounds.height, width: bounds.width, animated: false) }
         for back in stack {
             let depth = CGFloat(Int(back.identifier?.rawValue ?? "1") ?? 1)
             back.frame = bounds.insetBy(dx: Metrics.space2 * depth, dy: 0).offsetBy(dx: 0, dy: Metrics.space2 * depth)
@@ -156,9 +159,19 @@ final class DragLiftView: NSView {
         let before = layers.map { ($0, $0.position, $0.bounds.size) }
         let oldBounds = bounds
         let startPath = layer?.presentation()?.shadowPath ?? layer?.shadowPath
+        let capStart = liftCap.map { $0.mask.position }
         Motion.withoutAnimation {
             self.frame = frame
             layoutSubtreeIfNeeded()
+        }
+        // The cut's fading edge rides on the card's bottom, on the same spring (it moves past the rows when the
+        // card grows back to the whole group).
+        if let cap = liftCap, let capStart {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            cap.mask.position = capStart
+            CATransaction.commit()
+            cap.place(height: frame.height, width: frame.width, animated: Motion.sidebar.policy.animatesMovement)
         }
         guard Motion.sidebar.policy.animatesMovement else {
             if let layer { Motion.sidebar.set(layer, "opacity", to: Float(alphaValue), fade: .crossfade, from: Float(alphaValue) * 0.4) }
@@ -182,6 +195,20 @@ final class DragLiftView: NSView {
     }
 
     private var morphs = 0
+
+    /// Cuts the card to `height` (a tall group's header and first rows) on the move spring: the card's bottom
+    /// moves up and the rows past the cut fade under a `fade` tall bottom edge (`SidebarLiftCap`). A later
+    /// `morph` to the whole group's height (a landing) shows every row again. Does nothing for a card already
+    /// that short.
+    func cap(to height: CGFloat, fade: CGFloat) {
+        guard height < bounds.height - 0.5, liftCap == nil else { return }
+        let cap = SidebarLiftCap(full: bounds.height, fade: fade)
+        content.wantsLayer = true
+        cap.place(height: bounds.height, width: bounds.width, animated: false)
+        content.layer?.mask = cap.mask
+        liftCap = cap
+        morph(to: NSRect(x: frame.minX, y: frame.minY, width: frame.width, height: height))
+    }
 
     /// Dims the card when the current hover position cannot accept the drop.
     func setRefused(_ refused: Bool) {

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Fails when CmuxNext code animates without the Motion tokens
 # (plans/cmux-next/motion.md). Every duration, curve and spring constant
-# lives in Sources/CmuxNextDesign/Motion; everything else asks `Motion` for a
+# lives in Sources/CmuxNextDesign/Motion and Sources/CmuxNextDesignTokens/Motion; everything else asks `Motion` for a
 # token, so `ui.animationSpeed`, Reduce Motion and retuning apply everywhere.
 #
-# Flags, outside CmuxNextDesign/Motion (tests are exempt):
+# Flags, outside those two Motion folders (tests are exempt):
 #   - numeric durations: `duration = 0.2`, `duration: 0.14`, `setAnimationDuration(`
 #   - spring constants: `response: 0.3`, `dampingFraction:`, `dampingRatio:`,
 #     `stiffness =`, `damping =`, `perceptualDuration:`, `bounce:`
@@ -43,7 +43,9 @@ import sys
 
 root = sys.argv[1]
 sources = os.path.join(root, "Sources")
-exempt = os.path.join(sources, "CmuxNextDesign", "Motion") + os.sep
+# The motion tokens and the gate: Design's Motion folder and its view-free half in DesignTokens.
+exempt = (os.path.join(sources, "CmuxNextDesign", "Motion") + os.sep,
+          os.path.join(sources, "CmuxNextDesignTokens", "Motion") + os.sep)
 
 # The MotionGate members (Sources/CmuxNextDesign/Motion): every one decides with a category.
 GATE_MEMBERS = "|".join([

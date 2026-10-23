@@ -111,7 +111,9 @@
    no fill, a small gap, the card's rim whole (Lucas #21133, Lawrence's pick 2026-10-16). The
    variants keep the filled strip above as their base. */
 :root:not([data-top-strip]) .nt-screen .nt-composer {
-  gap: 6px;
+  /* Read by the Codex tray's mask too (composerStates.css). */
+  --nt-composer-gap: 6px;
+  gap: var(--nt-composer-gap);
 }
 :root:not([data-top-strip]) .nt-screen .nt-composer .acpmux-composer-strip {
   --acpmux-strip-height: 26px;
@@ -344,7 +346,7 @@
 .nt-style-option::after{content:"";width:6px;height:6px;border-radius:50%;background:color-mix(in srgb,var(--agent-text) 26%,transparent);transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}
 .nt-style-option:hover::after{background:color-mix(in srgb,var(--agent-text) 50%,transparent)}
 .nt-style-option:has(:focus-visible)::before{content:"";position:absolute;width:14px;height:14px;border-radius:50%;outline:var(--cmux-focus-ring-width,1.5px) solid var(--cmux-focus-ring-color,color-mix(in srgb,var(--agent-text) 40%,transparent))}
-.nt-style-input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;appearance:none;cursor:default}
+.nt-style-input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;appearance:none;cursor:default;font-size:var(--text-detail)}
 .nt-style-mark{position:absolute;top:0;left:0;display:flex;align-items:center;justify-content:center;width:24px;height:24px;pointer-events:none}
 .nt-style-mark::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--agent-accent,var(--agent-text))}
 .nt-style-options[data-settled] .nt-style-mark{transition:transform var(--agent-motion-move,180ms) var(--agent-ease-out,ease-out)}
@@ -812,22 +814,138 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 :root[data-borders="none"] .nt-screen[data-template="cards"] .nt-card {
   box-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
 }
-/* The Minimal layout with no widgets on (pageWidgets.ts; Leo 2026-10-20, the default): a quiet
-   greeting and the composer, nothing else. The composer sits about the window's middle at a fixed
-   place (a pasted image or a long draft grows it downward, never moves it); the greeting sits a
+/* The Minimal layout with no widgets on (pageWidgets.ts; Leo 2026-10-20, the default): the composer,
+   nothing else (no greeting, Leo 2026-10-22). It sits about the window's middle at a fixed place (a
+   pasted image or a long draft grows it downward, never moves it); the headline, when on, sits a
    little over it. */
 .nt-screen[data-minimal] {
   padding-top: max(32px, calc(50vh - 150px));
 }
-.nt-greeting {
+/* The second dot's quick action pills (tabDots.ts) sit centered under the composer, as the headline
+   over it is. */
+.nt-screen[data-minimal] .nt-create {
+  justify-content: center;
+}
+/* Minimal's headline slot (NewTabScreen.tsx): the old greeting's box (its heading line and 6px
+   under it), there with the headline on or off, so the composer sits where it sat under the greeting
+   and turning the headline on never moves it. The headline sits on the slot's floor and a taller
+   one (Hero, or Choose project under the question) grows up into the page's top padding. */
+.nt-headline-slot {
   flex: none;
-  margin: 0 0 6px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: calc(var(--text-heading--line-height) + 6px);
+}
+/* The headline (NewTabHeadline.tsx; off by default): "What should we work on in <project>?", the
+   project an inline picker. Hero (the shipped look) is a new chat's hero question; Quiet is where the
+   old greeting sat; Chip draws the project as the composer's folder chip (headline.experiment.ts). */
+.nt-headline {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
   text-align: center;
+}
+.nt-headline-text {
+  margin: 0;
+  max-width: 560px;
+  /* A new chat's hero question (.acpmux-empty-title, styles.css: 20px on a 28px line): the
+     heading step is that 20px. */
+  font-size: var(--text-heading);
+  line-height: calc(28px * var(--cmux-interface-scale, 1));
+  font-weight: 400;
+  color: var(--agent-text);
+  overflow-wrap: anywhere;
+}
+.nt-headline[data-look="quiet"] {
+  margin-bottom: 6px;
+}
+.nt-headline[data-look="quiet"] .nt-headline-text {
   font-size: var(--text-heading);
   line-height: var(--text-heading--line-height);
   font-weight: 500;
   color: var(--acpmux-composer-dim, color-mix(in srgb, var(--agent-text) 55%, transparent));
+}
+.nt-headline[data-look="chip"] .nt-headline-text .acpmux-project {
+  display: inline-flex;
+  vertical-align: middle;
+  margin: 0 2px;
+}
+.nt-headline-choose .acpmux-project-button {
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  color: var(--agent-muted);
+}
+.nt-headline-choose .acpmux-project-button > span {
+  text-decoration: none;
+}
+
+/* The ambient widgets (newtab/AmbientWidgets.tsx): one quiet row under the field, in the greeting's
+   dim color, so the page stays calm and the field never moves. */
+.nt-ambient {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 16px;
+  margin-top: 10px;
+  color: var(--acpmux-composer-dim, color-mix(in srgb, var(--agent-text) 55%, transparent));
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
   user-select: none;
+}
+.nt-ambient-weather {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.nt-ambient-weather[data-stale] {
+  opacity: 0.55;
+}
+.nt-ambient-temp {
+  color: var(--agent-soft);
+  font-variant-numeric: tabular-nums;
+}
+.nt-ambient-range {
+  font-variant-numeric: tabular-nums;
+}
+.nt-ambient-machines {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.nt-ambient-machine {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 180px;
+}
+.nt-ambient-machine-icon {
+  flex: none;
+  display: inline-flex;
+  /* This Mac stays quiet; another machine wears its identity color (machineColor.ts, inline). */
+  color: var(--agent-soft);
+}
+.nt-ambient-machine-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nt-ambient-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+.nt-ambient-machine[data-online] .nt-ambient-dot {
+  background: var(--agent-ansi-2);
+  box-shadow: none;
 }
 /* Minimal's edit mode (WidgetEditing.tsx; right-click > Edit New Tab, as an iPhone's home screen).
    Out of it a widget's slot draws nothing of its own, so the page lays out as it always did. */

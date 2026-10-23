@@ -205,7 +205,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
         CategorySpec(
             id: "browser", title: section(.browser), symbol: "globe",
             groups: [
-                group("settings.group.engine"), group("settings.group.addressBar"), group("settings.group.toolbar"),
+                group("settings.group.engine"), group("settings.group.addressBar"), group("settings.group.toolbar"), group("settings.group.media"),
                 group("settings.group.bookmarks"), group("settings.group.agentInput"), group("settings.group.extensions"),
                 group("settings.group.links"), group("settings.group.openingLinks"), group("settings.group.passwords"),
                 group("settings.group.memory"), group("settings.group.remote"),
@@ -232,6 +232,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                           title: SettingsText.keyed("settings.pageGroup.localData", "Data on This Mac")),
                 GroupSpec(keys: ["browser.omnibar.remoteSuggestions", "announcements.fetch"],
                           title: SettingsText.keyed("settings.pageGroup.network", "Network Requests")),
+                GroupSpec(group: "settings.group.hangReports"),
             ],
             actions: [.home], aliases: [.home]),
         CategorySpec(

@@ -225,6 +225,7 @@ func devicesJSON(_ rows: [(DeviceIdentity, String)]) -> String {
 }
 
 /// A value shared with a stub handler.
+// generic-class-allow: CmuxNextDevicesTests builds with daemonSwiftSettings (no MainActor default isolation), so this class and its implicit deinit are nonisolated
 final class Locked<Value>: @unchecked Sendable {
     private let lock = NSLock()
     private var stored: Value

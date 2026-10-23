@@ -66,7 +66,7 @@ extension RemoteTerminalService {
             })
             return
         }
-        guard destination.supports(DaemonCapabilities.shared.remoteTerminalTabs) else {
+        guard destination.supports(DaemonCapabilities.remoteTerminalTabs) else {
             registry.refuse(RemoteStrings.needsRemoteTerminalTabs)
             return completion(false)
         }
@@ -100,14 +100,14 @@ extension RemoteTerminalService {
     func openTerminal(on machine: DaemonService, in pane: PaneModel, home: DaemonService, cwd: String?) -> ActionWorkFailure? {
         // Only the tab's session stores the reference; the terminal's session
         // needs no new capability.
-        guard home.supports(DaemonCapabilities.shared.remoteTerminalTabs) else {
+        guard home.supports(DaemonCapabilities.remoteTerminalTabs) else {
             return ActionWorkFailure(RemoteStrings.needsRemoteTerminalTabs)
         }
         guard let machineConnection = machine.connection, let homeConnection = home.connection,
               let session = machine.identity?.sessionID else { return ActionWorkFailure(WorkspaceVerbStrings.machineNotConnected) }
         let name = sessionName(of: machine)
         let paneHandle = pane.handle
-        let detached = machine.supports(DaemonCapabilities.shared.detachedTerminals)
+        let detached = machine.supports(DaemonCapabilities.detachedTerminals)
         let existing = machine.store.workspaces.first { $0.key != nil }?.key
         services.registry.track(Task { [weak self] in
             do {
