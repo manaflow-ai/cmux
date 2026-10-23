@@ -42,6 +42,9 @@ public final class TerminalFeed {
         /// The question a terminal agent still waits on (an AskUserQuestion in
         /// Claude Code; the daemon's `question`, while the agent is blocked on it).
         public var question: AgentQuestion?
+        /// The push that names this question (`q-<tool use id>`, cmux-mobile-host
+        /// `notify_terminal.rs`): a notification answers only its own question.
+        public var questionEventID: String?
 
         public init?(json: [String: Any]) {
             guard let id = json["id"] as? String, !id.isEmpty else { return nil }
@@ -54,9 +57,19 @@ public final class TerminalFeed {
             createdAt = AgentState.date(json["created_at_ms"]) ?? Date(timeIntervalSince1970: 0)
             source = json["source"] as? String ?? "cli"
             acknowledged = json["acknowledged"] as? Bool ?? false
-            question = (json["question"] as? [String: Any]).flatMap { question in
+            let raw = json["question"] as? [String: Any]
+            question = raw.flatMap { question in
                 surface.flatMap { AgentQuestion(terminalQuestion: question, ledgerID: id, surface: $0) }
             }
+            questionEventID = (raw?["tool_use_id"] as? String).flatMap(Self.eventID(tool:))
+        }
+
+        /// The host's `event_id("q", [tool])`: `q-` and the tool use id's
+        /// `[A-Za-z0-9._:-]` characters, at most 64 in all.
+        static func eventID(tool: String) -> String? {
+            let kept = tool.unicodeScalars.filter { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || ".:_-".unicodeScalars.contains($0)) }
+            guard !kept.isEmpty else { return nil }
+            return String(("q-" + String(String.UnicodeScalarView(kept))).prefix(64))
         }
     }
 
@@ -621,9 +634,12 @@ extension TerminalFeed {
 
     /// The question card of the agent in terminal tab `tabID` (`s<surface>`) and its question,
     /// while the agent waits on it: a push names the tab, not the ledger row.
-    public func pendingQuestion(tabID: String) -> (FeedItem, AgentQuestion)? {
-        guard let tree, let surface = tree.surfaces[tabID] else { return nil }
-        for entry in entries.reversed() where entry.surface == surface {
+    /// The question a push names (`eventID`, `q-<tool use id>`) when its tab still waits
+    /// on it; nil for any other question, and for a push that names none (an older Mac):
+    /// an old notification never answers a newer question (review B1).
+    public func pendingQuestion(tabID: String, eventID: String?) -> (FeedItem, AgentQuestion)? {
+        guard let eventID, eventID.hasPrefix("q-"), let tree, let surface = tree.surfaces[tabID] else { return nil }
+        for entry in entries.reversed() where entry.surface == surface && entry.questionEventID == eventID {
             guard entry.question != nil, let item = store.item(id: Self.itemID(macID: macID, entry: entry.id)),
                   case .question(let question) = item.kind, question.isPending, item.resolution == nil else { continue }
             return (item, question)

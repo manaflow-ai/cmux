@@ -516,8 +516,9 @@ bytes}`, which its own keyboard already uses on the person's terminals.
   redaction and sends it beside the journal event (`live_question`); the daemon
   keeps it in memory only while the agent waits (never the journal, the ledger,
   the database or a log; `an_agent_question_reaches_the_notification_and_its_row_in_memory_only`
-  checks the state folder). Only an agent hook can set it: a program's OSC
-  notification never carries a question (`a_terminal_agent_question_pushes_as_a_question`).
+  checks the state folder). A program's OSC notification never carries a
+  question; a program that runs the agent hook helper itself can post one, which still
+  only lets the person's chosen option numbers and printable text reach that terminal (`a_terminal_agent_question_pushes_as_a_question`).
 - What is typed: only keys that select the person's chosen options
   (`TerminalQuestionKeys`): option numbers, Tab, arrow-down, Return, Escape,
   and "Other" text limited to printable characters, so a free-text answer can
@@ -525,6 +526,9 @@ bytes}`, which its own keyboard already uses on the person's terminals.
 - Where it is typed: only while `read-screen` shows this question with each of
   its options at its own number. A terminal that moved on (a shell, another
   prompt, another question) gets nothing, and the card says so.
+- Which question: a notification answers only the question it was sent for (its push is
+  named `q-<tool use id>`; the phone types only while that question is pending), never a
+  newer one on the same tab.
 - When: a notification's answer is a foreground action (the app is open and
   unlocked); nothing is typed from the lock screen. Lock-screen terminal input
   is PR B's held policy (`verify/notifications-trust.md`).

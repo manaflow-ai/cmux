@@ -20,9 +20,13 @@ extension LiveCoordinator {
             log.error("push reply: no link to that Mac within the budget")
             throw PushReplyFailure(reason: .unreachable)
         }
+        // A push that names no question (an older Mac) is answered from the Feed card.
+        guard reply.eventId?.hasPrefix("q-") == true else {
+            throw PushReplyFailure(reason: .refused(String(localized: "Answer this question from its card in the Feed.")))
+        }
         // The card shows once the ledger is read on this link.
-        if session.terminalFeed.pendingQuestion(tabID: tabID) == nil { await session.terminalFeed.refresh() }
-        guard let (item, question) = session.terminalFeed.pendingQuestion(tabID: tabID) else {
+        if session.terminalFeed.pendingQuestion(tabID: tabID, eventID: reply.eventId) == nil { await session.terminalFeed.refresh() }
+        guard let (item, question) = session.terminalFeed.pendingQuestion(tabID: tabID, eventID: reply.eventId) else {
             throw PushReplyFailure(reason: .refused(String(localized: "This was already answered.")))
         }
         let plan: PushReplyPlan

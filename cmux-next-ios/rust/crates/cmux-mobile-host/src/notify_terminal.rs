@@ -61,6 +61,10 @@ pub struct TerminalClassifier {
     last: HashMap<u64, (String, Instant)>,
     /// When the pushes of the last minute went.
     sent: VecDeque<Instant>,
+    /// Terminal questions already pushed, by their event id (`q-<tool use id>`): Claude
+    /// Code fires two hooks for one AskUserQuestion, and the daemon posts each (bounded).
+    asked: HashSet<String>,
+    asked_order: VecDeque<String>,
 }
 
 const SEEN_LIMIT: usize = 512;
@@ -176,8 +180,26 @@ impl TerminalClassifier {
             .and_then(|p| valid_id(&p.workspace_id, 128))
             .or_else(|| text("workspace_id").and_then(|w| valid_id(w, 128)));
         if ask {
+            // Named by its tool use: one push per question, which the phone matches an
+            // answer to (a question without one is never answered from a notification).
+            let tool = event.pointer("/question/tool_use_id").and_then(Value::as_str).filter(|t| !t.is_empty());
+            let event_id = match tool {
+                Some(tool) => crate::notify::event_id("q", &[tool]),
+                None => format!("n-{id}"),
+            };
+            if tool.is_some() {
+                if !self.asked.insert(event_id.clone()) {
+                    return None;
+                }
+                self.asked_order.push_back(event_id.clone());
+                if self.asked_order.len() > SEEN_LIMIT
+                    && let Some(old) = self.asked_order.pop_front()
+                {
+                    self.asked.remove(&old);
+                }
+            }
             return Some(NotifyEvent {
-                event_id: format!("n-{id}"),
+                event_id,
                 kind: "question".into(),
                 agent: Some(agent.into()),
                 place: place.as_ref().map(|p| p.workspace.clone()),
