@@ -14,10 +14,10 @@ import { fakeCloud, machine, notes, type Started } from "./chief-brain-cc-fake.t
  * API) and streams back to POST /v1/chief-cc/<agent>/<conversation>/notes with a per-turn token; the reply
  * is posted as the Chief, the VM is deleted by its exact id, the team needs no Cloud credits, and the next
  * turn's input carries the earlier reply (the Chief's memory). Freestyle and the Tailscale API are faked at
- * their HTTP boundary; the fake VM plays the turn machine (backend/chief-cc/image/run.mjs) by posting notes
+ * their HTTP boundary; the fake VM plays the turn machine (chief-turn-runner, Native/OptChat/chief-turn) by posting notes
  * to the Worker. One file on purpose: it replaces globalThis.fetch and the route's settings.
  */
-type TestEnv = Record<string, string | undefined> & { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USER_DO: DurableObjectNamespace; TEAM_DO: DurableObjectNamespace }
+type TestEnv = Record<string, string | undefined> & { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USER_DO: DurableObjectNamespace; TEAM_DO: DurableObjectNamespace; CHIEF_BRAIN_DO: DurableObjectNamespace }
 const testEnv = env as unknown as TestEnv
 const worker = (exports as unknown as { default: Fetcher }).default
 const inDO = runInDurableObject as unknown as <T>(stub: unknown, fn: (instance: any, state: DurableObjectState) => Promise<T>) => Promise<T>
@@ -747,6 +747,35 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     expect(cloud.snapshots.get(seen.fork.body.snapshot)!.source).toBe(id)
     expect(seen.del.status).toBe(200)
     expect(cloud.snapshots.get(snap)!.deleted).toBe(true)
+  })
+
+  it("finishes a turn whose brain object was evicted while the machine worked: the machine's posts revive it", async () => {
+    // Production, Oct 22: a long turn outlived its conversation brain object; the machine's notes and result
+    // reached a fresh object with no running turn (401), and the turn later failed as "timeout" although the
+    // reply was ready, so the person saw "I could not reach the model".
+    const brainOf = (s: Started) => {
+      const [, agent, conversation] = /\/v1\/chief-cc\/([^/]+)\/([^/]+)\/notes$/.exec(s.input.notes_url)!
+      return testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName(`${agent}/${conversation}`))
+    }
+    // The fake's own machine never posts (it runs on the brain object's timers, which the eviction ends); this
+    // test plays the machine itself, from outside the object, as the real VM is.
+    const cloud = fakeCloud(() => "unused", () => new Promise<void>(() => undefined))
+    const { token, chief } = await enabledChief("chief-cc-evicted", "cc")
+    expect((await send(token, chief.main_conversation, "e1", "a long task")).ok).toBe(true)
+    for (let i = 0; i < 300 && cloud.started.length === 0; i++) await new Promise((r) => setTimeout(r, 20))
+    const s = cloud.started[0]!
+    await inDO(brainOf(s), async (_i, state) => {
+      try {
+        state.abort("test: evicted while the turn machine works")
+      } catch {}
+    }).catch(() => undefined)
+    await machine(s, "Back after a restart.")
+    const [reply] = await replies(token, chief.main_conversation, chief.id, 1)
+    expect(reply.parts[0].text).toBe("Back after a restart.")
+    expect(cloud.made).toHaveLength(1)
+    expect(cloud.started).toHaveLength(1)
+    const runs = (await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${chief.main_conversation}`, token)).json.value.runs as Array<any>
+    expect(runs.map((r) => r.status)).toEqual(["done"])
   })
 
   it("refuses notes without the running turn's token, and after the turn ended", async () => {

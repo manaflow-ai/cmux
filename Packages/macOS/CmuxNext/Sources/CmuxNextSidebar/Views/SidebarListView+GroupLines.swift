@@ -24,8 +24,15 @@ extension SidebarListViewComponents {
     /// each row where its view is now, the animation's start, so a new line
     /// starts over its rows and moves with them (cx-ai79).
     func groupLines(_ layout: SidebarLayout, current: Bool = false) -> [SidebarGroupLine] {
-        SidebarGroupLine.lines(layout.rows.filter { !suppressed.contains($0.key) }, colors: groups, nested: !legacyNestedRails) { row in
+        let lines = SidebarGroupLine.lines(layout.rows.filter { !suppressed.contains($0.key) }, colors: groups, nested: !legacyNestedRails) { row in
             current ? rowViews[row.key]?.frame ?? frame(for: row) : frame(for: row)
+        }
+        // `sidebar.showColors` off: every group draws as one with no color, its line unseen.
+        guard !model.showsColors else { return lines }
+        return lines.map { line in
+            var line = line
+            line.color = .none
+            return line
         }
     }
 }
