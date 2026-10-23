@@ -179,6 +179,19 @@ struct AgentPageProviderEventsTests {
         #expect(Self.names(page.events) == ["kept"])
     }
 
+    @Test func transportReconnectResetsAStalledPendingReplay() async throws {
+        let provider = AgentPageProvider { _ in nil }
+        let subscription = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null,
+                                                         context: Self.context) { _ in }
+        for index in 0..<AgentPageProvider.maximumBufferedEvents {
+            #expect(provider.publish(Self.command("pending-\(index)")))
+        }
+        #expect(!provider.publish(Self.command("overflow")))
+        provider.transportDidOpen(1)
+        #expect(provider.publish(Self.command("after-reconnect")))
+        subscription.cancel()
+    }
+
     @Test func aPageResetRequeuesAnEnvelopeDroppedByTheScriptPipeline() async throws {
         let provider = AgentPageProvider { _ in nil }
         let page = Received()

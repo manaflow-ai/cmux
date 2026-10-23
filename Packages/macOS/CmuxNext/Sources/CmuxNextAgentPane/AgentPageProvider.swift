@@ -87,6 +87,9 @@ public final class AgentPageProvider: PageProvider {
     /// returns false so the transport closes and the page performs a full resync; no event is
     /// silently evicted.
     private var deliveryOverflowed = false
+    /// Subscribers whose replay queue reached the bound; a socket reconnect resets that stalled
+    /// handoff and reapplies current replay state while keeping the subscription alive.
+    private var overflowedPendingListeners: Set<UInt64> = []
     /// A subscriber's replay is held in one queue until its subscription reply has reached the
     /// page. Events arriving during that handoff append to the same queue instead of overtaking it.
     private final class PendingEvents {
@@ -135,12 +138,18 @@ public final class AgentPageProvider: PageProvider {
     public func transportDidOpen(_ connection: Int) {
         guard transportConnection != connection else { return }
         transportConnection = connection
-        // Keep a bounded, recoverable bridge-gap queue. Only an already-full queue belongs to
-        // the overflowed socket's authoritative resync; a partial queue may contain commands or
-        // chrome updates that the new socket cannot recreate.
-        if deliveryOverflowed, bufferedEvents.count >= Self.maximumBufferedEvents {
+        // Keep a bounded, recoverable bridge-gap queue while healthy. Once an overflow was
+        // signalled, the replacement socket is the authoritative resync and stale partial queues
+        // must not replay ahead of its state.
+        if deliveryOverflowed {
             bufferedEvents.removeAll(keepingCapacity: true)
         }
+        for id in overflowedPendingListeners {
+            pendingEvents.removeValue(forKey: id)
+            guard let listener = listeners[id] else { continue }
+            for event in replay?() ?? [] { listener(event.data) }
+        }
+        overflowedPendingListeners.removeAll(keepingCapacity: true)
         deliveryOverflowed = false
     }
 
@@ -174,6 +183,7 @@ public final class AgentPageProvider: PageProvider {
             if let pending = pendingEvents[id] {
                 guard pending.events.count - pending.next < Self.maximumBufferedEvents else {
                     deliveryOverflowed = true
+                    overflowedPendingListeners.insert(id)
                     accepted = false
                     continue
                 }
@@ -247,6 +257,7 @@ public final class AgentPageProvider: PageProvider {
     /// the next page only when this was the last listener; another live page already received it.
     private func cancel(id: UInt64) {
         listeners.removeValue(forKey: id)
+        overflowedPendingListeners.remove(id)
         guard let pending = pendingEvents.removeValue(forKey: id), listeners.isEmpty else { return }
         appendRequeued(pending.requeueRemaining())
     }
@@ -254,6 +265,7 @@ public final class AgentPageProvider: PageProvider {
     private func requeuePendingEvents(for id: UInt64, pending: PendingEvents) {
         pendingEvents.removeValue(forKey: id)
         listeners.removeValue(forKey: id)
+        overflowedPendingListeners.remove(id)
         guard listeners.isEmpty else { return }
         appendRequeued(pending.requeueRemaining())
     }
