@@ -120,14 +120,14 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/AgentDialogs.xcstrings": {
       "needs_review": 84
     },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Bookmarks.xcstrings": {
+    "Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/Resources/Bookmarks.xcstrings": {
       "identical": 8,
       "needs_review": 311
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/BrowserHits.xcstrings": {
       "needs_review": 84
     },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/BrowserImportOffer.xcstrings": {
+    "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Resources/BrowserImportOffer.xcstrings": {
       "needs_review": 28
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/BrowserProfiles.xcstrings": {
@@ -154,7 +154,7 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Extensions.xcstrings": {
       "needs_review": 80
     },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/FileExplorer.xcstrings": {
+    "Packages/macOS/CmuxNext/Sources/CmuxNextFilesUI/Resources/FileExplorer.xcstrings": {
       "needs_review": 245
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/FilePages.xcstrings": {
@@ -221,7 +221,7 @@
       "needs_review": 124,
       "other": 3
     },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Screens.xcstrings": {
+    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Resources/Screens.xcstrings": {
       "needs_review": 88
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Server.xcstrings": {
@@ -245,7 +245,7 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Windows.xcstrings": {
       "needs_review": 38
     },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/WorkspaceChecklist.xcstrings": {
+    "Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Resources/WorkspaceChecklist.xcstrings": {
       "needs_review": 120
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/WorkspaceVerbs.xcstrings": {

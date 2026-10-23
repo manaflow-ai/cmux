@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextDaemon
 import Foundation
+import CmuxNextPalette
 
 /// Search All Windows (⌥⌘F): opens a palette page that searches as you type
 /// across every tab on every machine, in all windows and in workspaces no

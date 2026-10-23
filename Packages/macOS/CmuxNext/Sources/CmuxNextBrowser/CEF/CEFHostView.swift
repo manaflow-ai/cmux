@@ -34,12 +34,15 @@ final class CEFHostView: NSView {
     var liveResizeWillStart: (() -> Void)?
     /// Hands files dragged in from another app to the shown page (`CEFFileDragRelay`).
     let fileDrag = CEFFileDragRelay()
+    /// Layer hosting (fork API 26) of the page window over this view (`CEFLayerHosting`).
+    let layerHosting = CEFLayerHosting()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         updateBackground()
         fileDrag.view = self
+        layerHosting.view = self
         #if DEBUG
         Self.registerMotionSampler()
         #endif
@@ -107,6 +110,7 @@ final class CEFHostView: NSView {
     /// only reads it (it maps a copy to screen coordinates).
     @objc func cmuxClipPath() -> NSBezierPath? {
         Self.trackerStats.clipReads += 1
+        layerHosting.trackerDidRead()
         return clipShape().bezier
     }
 

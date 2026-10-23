@@ -188,7 +188,7 @@ struct StashTests {
     /// one workspace member, and Restore All brings the workspace back.
     @Test func saveAndCloseWorkspaceStashesItWhole() async throws {
         try await PinnedPageTests.withApp { services, connection in
-            try #require(services.daemon.supports(DaemonCapabilities.shared.stashWorkspaces), "the same-tree daemon stashes whole workspaces")
+            try #require(services.daemon.supports(DaemonCapabilities.stashWorkspaces), "the same-tree daemon stashes whole workspaces")
             let model = services.historyPage.stash.model
             let store = services.daemon.store
             let name = "stash-ws-\(UUID().uuidString.prefix(6).lowercased())"
@@ -217,7 +217,7 @@ struct StashTests {
     /// Restore All brings the tab back on the same terminal, which the stash kept.
     @Test func saveAndCloseWorkspaceLetsGoOfItsRemoteTerminalTabs() async throws {
         try await PinnedPageTests.withApp { services, connection in
-            try #require(services.daemon.supports(DaemonCapabilities.shared.stashWorkspaces), "the same-tree daemon stashes whole workspaces")
+            try #require(services.daemon.supports(DaemonCapabilities.stashWorkspaces), "the same-tree daemon stashes whole workspaces")
             let model = services.historyPage.stash.model
             let store = services.daemon.store
             let name = "stash-remote-\(UUID().uuidString.prefix(6).lowercased())"

@@ -6,10 +6,9 @@ import type { Strings } from "../shared/i18n";
 import { AppDetailView } from "./AppDetailView";
 import { CloudFeature } from "./CloudFeature";
 import { InstalledView } from "./InstalledView";
-import { categoryLabel, isRemovable, TierLabel, type StoreTab } from "./model";
-import { AppIcon, Badge } from "./parts";
+import { CategoryBar, ItemCard, ItemRow } from "./items";
+import type { StoreTab } from "./model";
 import type { AppsSnapshot, AppsStore } from "./store";
-import type { CatalogApp } from "./types";
 import { useUiDirection } from "../../ui/UiProvider";
 
 export function AppsPage({ store, strings }: { store: AppsStore; strings: Strings }) {
@@ -117,25 +116,12 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
   const listing = (
     <div className="apps-discover-list">
       {!snap.query.trim() && !snap.category && <CloudFeature store={store} strings={strings} />}
-      <div className="apps-chips">
-        <button
-          type="button"
-          className={`apps-chip${snap.category ? "" : " selected"}`}
-          onClick={() => store.setCategory(undefined)}
-        >
-          {t("store.category.all")}
-        </button>
-        {snap.categories.map((category) => (
-          <button
-            key={category}
-            type="button"
-            className={`apps-chip${snap.category === category ? " selected" : ""}`}
-            onClick={() => store.setCategory(category)}
-          >
-            {categoryLabel(category, t)}
-          </button>
-        ))}
-      </div>
+      <CategoryBar
+        categories={snap.categories}
+        selected={snap.category}
+        onSelect={(category) => store.setCategory(category)}
+        strings={strings}
+      />
       {snap.loading && snap.visible.length === 0 ? (
         <LoadingGrid strings={strings} />
       ) : snap.visible.length === 0 && snap.catalogStatus === "error" ? null : snap.visible.length === 0 ? (
@@ -155,7 +141,7 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
               </div>
               <div className="apps-featured-grid">
                 {featured.map((app) => (
-                  <AppCard key={app.id} app={app} store={store} strings={strings} featured />
+                  <ItemCard key={app.id} app={app} store={store} strings={strings} style={snap.card} featured />
                 ))}
               </div>
             </section>
@@ -174,9 +160,9 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
               <div className={snap.layout === "grid" ? "apps-grid" : "apps-rows"}>
                 {catalog.map((app) =>
                   snap.layout === "grid" ? (
-                    <AppCard key={app.id} app={app} store={store} strings={strings} />
+                    <ItemCard key={app.id} app={app} store={store} strings={strings} style={snap.card} />
                   ) : (
-                    <AppRow
+                    <ItemRow
                       key={app.id}
                       app={app}
                       selected={snap.layout === "split" && app.id === selected}
@@ -218,124 +204,6 @@ function LoadingGrid({ strings }: { strings: Strings }) {
           <span className="apps-skeleton-footer" />
         </div>
       ))}
-    </div>
-  );
-}
-
-function InstallButton({ app, store, strings }: { app: CatalogApp; store: AppsStore; strings: Strings }) {
-  // A first-party app ships with cmux: it is hidden or shown, never removed (FIRST-PARTY-APPS).
-  if (app.installed && !isRemovable(app)) {
-    return (
-      <button
-        type="button"
-        className="apps-button"
-        onClick={(event) => {
-          event.stopPropagation();
-          void store.setHidden(app.id, !app.hidden);
-        }}
-      >
-        {strings.t(app.hidden ? "store.action.show" : "store.action.hide")}
-      </button>
-    );
-  }
-  return (
-    <button
-      type="button"
-      className={`apps-button${app.installed ? "" : " primary"}`}
-      onClick={(event) => {
-        event.stopPropagation();
-        void (app.installed ? store.uninstall(app.id) : store.install(app.id));
-      }}
-    >
-      {strings.t(app.installed ? "store.action.remove" : "store.action.install")}
-    </button>
-  );
-}
-
-function AppCard({
-  app,
-  store,
-  strings,
-  featured = false,
-}: {
-  app: CatalogApp;
-  store: AppsStore;
-  strings: Strings;
-  featured?: boolean;
-}) {
-  const { t } = strings;
-  const descriptionId = `apps-description-${app.id.replace(/[^a-z0-9_-]/gi, "-")}`;
-  return (
-    <article className={`apps-card${featured ? " featured" : ""}`}>
-      <button
-        type="button"
-        className="apps-card-open"
-        onClick={() => void store.select(app.id)}
-        aria-label={app.name}
-        aria-describedby={descriptionId}
-      >
-        <AppIcon icon={app.icon} name={app.name} size={featured ? 52 : 44} />
-        <span className="apps-card-text">
-          <span className="apps-name">{app.name}</span>
-          <span className="apps-card-meta">
-            <span>{app.publisher}</span>
-            {app.publisher_verified && (
-              <span className="apps-verified" title={t("store.tier.verified")} aria-hidden="true">
-                ✓
-              </span>
-            )}
-          </span>
-          <span className="apps-description" id={descriptionId}>
-            {app.description}
-          </span>
-        </span>
-      </button>
-      <footer className="apps-card-footer">
-        <Badge text={t(TierLabel[app.tier])} />
-        {app.categories[0] && <Badge text={categoryLabel(app.categories[0], t)} />}
-        {app.installed && <Badge text={t("store.badge.installed")} />}
-        <span className="apps-card-actions">
-          <button type="button" className="apps-button apps-button-subtle" onClick={() => void store.select(app.id)}>
-            {t("store.detail.preview")}
-          </button>
-          <InstallButton app={app} store={store} strings={strings} />
-        </span>
-      </footer>
-    </article>
-  );
-}
-
-function AppRow({
-  app,
-  selected,
-  store,
-  strings,
-}: {
-  app: CatalogApp;
-  selected: boolean;
-  store: AppsStore;
-  strings: Strings;
-}) {
-  const { t } = strings;
-  return (
-    <div className={`apps-row${selected ? " selected" : ""}`}>
-      <button type="button" className="apps-row-open" onClick={() => void store.select(app.id)} aria-label={app.name}>
-        <AppIcon icon={app.icon} name={app.name} size={28} />
-        <span className="apps-row-text">
-          <span className="apps-name">{app.name}</span>
-          <span className="apps-card-meta">
-            <span>{app.publisher}</span>
-            {app.publisher_verified && (
-              <span className="apps-verified" title={t("store.tier.verified")} aria-hidden="true">
-                ✓
-              </span>
-            )}
-          </span>
-          <span className="apps-description">{app.description}</span>
-        </span>
-      </button>
-      <Badge text={t(TierLabel[app.tier])} />
-      <InstallButton app={app} store={store} strings={strings} />
     </div>
   );
 }
