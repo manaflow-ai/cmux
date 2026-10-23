@@ -71,7 +71,8 @@ import Foundation
                 var column = column
                 guard let tree = removing(pane.handle, from: column.layout) else { reached = false; return column }
                 column.layout = tree
-                column.rows = column.rows.map { row in
+                // A row that is only this pane (New Row's) goes with it.
+                column.rows = column.rows.filter { $0.layout != .leaf(pane.handle) }.map { row in
                     guard row.layout.paneIDs.contains(pane.handle) else { return row }
                     var row = row
                     if let tree = removing(pane.handle, from: row.layout) { row.layout = tree } else { reached = false }
