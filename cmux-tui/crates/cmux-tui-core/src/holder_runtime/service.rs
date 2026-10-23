@@ -51,6 +51,9 @@ pub(crate) struct HolderService {
     /// Another daemon of the session took the holder: this one never
     /// connects again, so the two do not take it from each other in turn.
     superseded: AtomicBool,
+    /// The standalone holder failed to start once: this daemon starts the
+    /// holder built into its host executable from then on.
+    standalone_failed: AtomicBool,
 }
 
 impl HolderService {
@@ -72,6 +75,7 @@ impl HolderService {
             live: Mutex::default(),
             listed: Mutex::default(),
             superseded: AtomicBool::new(false),
+            standalone_failed: AtomicBool::new(false),
         });
         services.insert(host_root.to_path_buf(), service.clone());
         Ok(service)
@@ -385,61 +389,97 @@ impl HolderService {
     /// that speaks its wire, else the holder built into the host executable
     /// (`cmux-tui-host __holder`).
     fn launch(&self) -> io::Result<()> {
-        let configure =
-            |command: &mut std::process::Command| {
-                command
-                    .arg("--socket")
-                    .arg(&self.socket)
-                    // Every shell gets back the open-file limit cmux started
-                    // with; the holder keeps the daemon's raised one.
-                    .envs(
-                        cmux_pty::original_open_file_limit()
-                            .map(|soft| (cmux_holder::NOFILE_SOFT_ENV, soft.to_string())),
-                    )
-                    // A DEV build's, debug build's or test's grace, as its hosts
-                    // get: the holder ends its terminals once no daemon came back.
-                    .envs(crate::terminal_host_runtime::spawned_orphan_grace().map(|grace| {
-                        (cmux_holder::ORPHAN_GRACE_ENV, grace.as_millis().to_string())
-                    }))
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::null());
-            };
-        let standalone = standalone_holder().and_then(|path| {
+        let configure = |command: &mut std::process::Command| {
+            command
+                .arg("--socket")
+                .arg(&self.socket)
+                // Every shell gets back the open-file limit cmux started
+                // with; the holder keeps the daemon's raised one.
+                .envs(
+                    cmux_pty::original_open_file_limit()
+                        .map(|soft| (cmux_holder::NOFILE_SOFT_ENV, soft.to_string())),
+                )
+                // A DEV build's, debug build's or test's grace, as its hosts
+                // get: the holder ends its terminals once no daemon came back.
+                .envs(crate::terminal_host_runtime::spawned_orphan_grace().map(|grace| {
+                    (cmux_holder::ORPHAN_GRACE_ENV, grace.as_millis().to_string())
+                }))
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null());
+        };
+        if !self.standalone_failed.load(Ordering::Acquire)
+            && let Some(path) = standalone_holder()
+        {
             use std::os::unix::process::CommandExt;
             let mut command = std::process::Command::new(&path);
             command.arg0(crate::host_exe::HOLDER_NAME);
             configure(&mut command);
-            command
-                .spawn()
-                .inspect_err(|error| {
-                    eprintln!("cmux-tui: start the terminal holder {}: {error}", path.display());
-                })
-                .ok()
-        });
-        let mut child = match standalone {
-            Some(child) => child,
-            None => crate::host_exe::spawn_host(|command| {
-                command.arg("__holder");
-                configure(command);
-            })?,
-        };
-        let hex: String = self.token.iter().map(|byte| format!("{byte:02x}")).collect();
-        let mut stdin = child.stdin.take().ok_or_else(|| io::Error::other("no holder stdin"))?;
-        stdin.write_all(format!("{hex}\n").as_bytes())?;
-        drop(stdin);
-        let stdout = child.stdout.take().ok_or_else(|| io::Error::other("no holder stdout"))?;
-        let mut line = String::new();
-        BufReader::new(stdout).read_line(&mut line)?;
-        // Reap the holder if it ever exits while this daemon runs.
+            let started = command.spawn().and_then(|child| self.handshake(child));
+            match started {
+                Ok(()) => return Ok(()),
+                // It lost a race to another holder of this session, which
+                // listens now: connect to that one.
+                Err(_) if std::os::unix::net::UnixStream::connect(&self.socket).is_ok() => {
+                    return Ok(());
+                }
+                Err(error) => {
+                    // A standalone holder that answers `--version` but does
+                    // not start (a startup error, a crash in serve, a macOS
+                    // major it fails on) must not cost every holder
+                    // terminal: this daemon runs the built-in holder from
+                    // now on.
+                    eprintln!(
+                        "cmux-tui: the terminal holder {} did not start ({error}); \
+                         using the built-in holder",
+                        path.display()
+                    );
+                    self.standalone_failed.store(true, Ordering::Release);
+                }
+            }
+        }
+        let child = crate::host_exe::spawn_host(|command| {
+            command.arg("__holder");
+            configure(command);
+        })?;
+        self.handshake(child)
+    }
+
+    /// Hand a just-started holder its token and wait for its `ready`. A
+    /// holder that answers anything else is killed and reaped; one that is
+    /// ready is reaped whenever it exits while this daemon runs.
+    fn handshake(&self, mut child: std::process::Child) -> io::Result<()> {
+        match first_line(&mut child, &self.token) {
+            Ok(line) if line.trim() == "ready" => {}
+            answer => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(match answer {
+                    Ok(line) => {
+                        io::Error::other(format!("the terminal holder did not start: {line:?}"))
+                    }
+                    Err(error) => error,
+                });
+            }
+        }
         let _ = std::thread::Builder::new().name("holder-reaper".into()).spawn(move || {
             let _ = child.wait();
         });
-        if line.trim() != "ready" {
-            return Err(io::Error::other(format!("the terminal holder did not start: {line:?}")));
-        }
         Ok(())
     }
+}
+
+/// Write `token` to a just-started holder's stdin and read the first line
+/// it prints (`ready` once it listens).
+fn first_line(child: &mut std::process::Child, token: &[u8; 32]) -> io::Result<String> {
+    let hex: String = token.iter().map(|byte| format!("{byte:02x}")).collect();
+    let mut stdin = child.stdin.take().ok_or_else(|| io::Error::other("no holder stdin"))?;
+    stdin.write_all(format!("{hex}\n").as_bytes())?;
+    drop(stdin);
+    let stdout = child.stdout.take().ok_or_else(|| io::Error::other("no holder stdout"))?;
+    let mut line = String::new();
+    BufReader::new(stdout).read_line(&mut line)?;
+    Ok(line)
 }
 
 /// The standalone holder this daemon starts, when it has one whose wire
