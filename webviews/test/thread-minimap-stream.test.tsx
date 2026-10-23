@@ -208,8 +208,8 @@ test("a new prompt adds its tick, and the earlier ones keep theirs", async () =>
   }
 });
 
-/// `rows` behind a proxy that counts the rows read by index.
-function counted(rows: AcpmuxRow[]) {
+/// `rows` behind a proxy that counts the items read by index.
+function counted<T>(rows: T[]) {
   const reads = { count: 0 };
   const proxy = new Proxy(rows, {
     get(target, key, receiver) {
@@ -229,14 +229,26 @@ function readsPerToken(prompts: number) {
       row(`t${index}-answer`, "assistant", index === prompts - 1 ? reply : `Answer ${index}.`),
     ]).flat();
   const base = counted(chatRows("Streaming"));
-  const previous = minimapTurns(base.proxy, "s");
+  const first = minimapTurns(base.proxy, "s");
+  // The last result's turns behind a counter too: a copy of them reads every one.
+  const turns = counted(first.turns);
+  const previous = { ...first, turns: turns.proxy };
+  const ticks = first.ticks;
   const next = base.proxy.slice();
   const at = next.length - 1;
   next[at] = { ...next[at]!, text: "Streaming more", version: 2 };
   const after = counted(next);
   base.reads.count = 0;
+  turns.reads.count = 0;
   const result = minimapTurns(after.proxy, "s", previous, { base: base.proxy, rows: after.proxy, from: at });
-  return { reads: base.reads.count + after.reads.count, result, previous, fresh: minimapTurns(next, "s") };
+  return {
+    reads: base.reads.count + after.reads.count,
+    turnReads: turns.reads.count,
+    result,
+    previous,
+    ticks,
+    fresh: minimapTurns(next, "s"),
+  };
 }
 
 test("a streamed token reads the same few rows in a 300- and a 3000-prompt chat", () => {
@@ -245,9 +257,15 @@ test("a streamed token reads the same few rows in a 300- and a 3000-prompt chat"
   // Bounded by what changed (the live reply), not by the chat: no scan from the first row.
   expect(large.reads).toBe(small.reads);
   expect(small.reads).toBeLessThan(10);
+  // The reply's preview is still filling, so the live turn is new; the turns before it are neither
+  // copied nor walked (#24058 review round 5): the list is updated in place, finding the live turn
+  // by binary search, about log2(prompts) reads.
+  expect(large.result.turns).toBe(large.previous.turns);
+  expect(small.turnReads).toBeLessThan(30);
+  expect(large.turnReads).toBeLessThan(30);
   // The prompts did not change: the same ticks; the turns are what a fresh read gives.
-  expect(large.result.ticks).toBe(large.previous.ticks);
-  expect(large.result.turns).toEqual(large.fresh.turns);
+  expect(large.result.ticks).toBe(large.ticks);
+  expect([...large.result.turns]).toEqual(large.fresh.turns);
 });
 
 test("a change in the middle of the chat reads from there on, and matches a fresh read", () => {
@@ -256,6 +274,8 @@ test("a change in the middle of the chat reads from there on, and matches a fres
     row(`t${index}-answer`, "assistant", `Answer ${index}.`),
   ]).flat();
   const previous = minimapTurns(rows, "s");
+  // The previous list is updated in place: keep what it held before.
+  const before = previous.turns.slice();
   // A prompt edited mid-chat, and a row inserted before a later prompt (its index moves).
   const edited = rows.slice();
   edited[40] = { ...edited[40]!, text: "Question 20, edited", version: 2 };
@@ -263,8 +283,52 @@ test("a change in the middle of the chat reads from there on, and matches a fres
   const result = minimapTurns(edited, "s", previous, { base: rows, rows: edited, from: 40 });
   expect(result.turns).toEqual(minimapTurns(edited, "s").turns);
   // The turns before the change are the same objects.
-  expect(result.turns.slice(0, 20).every((turn, index) => turn === previous.turns[index])).toBe(true);
+  expect(result.turns.slice(0, 20).every((turn, index) => turn === before[index])).toBe(true);
   // A change point for other rows is not used: the turns are read as a scan would.
-  const stale = minimapTurns(edited, "s", previous, { base: [], rows: edited, from: 99 });
+  const stale = minimapTurns(edited, "s", minimapTurns(rows, "s"), { base: [], rows: edited, from: 99 });
   expect(stale.turns).toEqual(result.turns);
+});
+
+/// The tick labels the rail shows, in order.
+const tickLabels = (host: HTMLElement) =>
+  [...host.querySelectorAll<HTMLElement>("[data-tick]")].map((node) => node.getAttribute("aria-label"));
+
+test("through the transcript: another chat, then the same chat replaced and cut, show their own ticks", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const prompts = (prefix: string, count: number) =>
+    Array.from({ length: count }, (_, index) => [
+      row(`user-${index + 1}`, "user", `${prefix} ${index}`),
+      row(`t${index}-answer`, "assistant", `Answer ${index}.`),
+    ]).flat();
+  const render = (rows: AcpmuxRow[], sessionId: string) =>
+    act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={turnView(rows, new Set())}
+          sessionId={sessionId}
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+  const expected = (prefix: string, count: number) =>
+    Array.from({ length: count }, (_, index) => `Message ${index + 1} of ${count}: ${prefix} ${index}`);
+  try {
+    await render(prompts("Alpha", 12), "chat-a");
+    expect(tickLabels(host)).toEqual(expected("Alpha", 12));
+    // Another chat, whose row ids repeat the first one's.
+    await render(prompts("Beta", 9), "chat-b");
+    expect(tickLabels(host)).toEqual(expected("Beta", 9));
+    // The same chat, every row replaced (a reload of its history).
+    await render(prompts("Gamma", 9), "chat-b");
+    expect(tickLabels(host)).toEqual(expected("Gamma", 9));
+    // Its last prompts deleted.
+    await render(prompts("Gamma", 5), "chat-b");
+    expect(tickLabels(host)).toEqual(expected("Gamma", 5));
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
 });

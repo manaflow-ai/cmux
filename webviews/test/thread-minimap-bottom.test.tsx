@@ -227,6 +227,65 @@ for (const how of ["hover", "focus"] as const)
     }
   });
 
+// The rail's list moves under a pointer that stays still (the reader wheels the chat with the
+// pointer on the rail): no pointerenter comes, so the magnified tick used to stay the one first
+// hovered while another sat under the pointer (#24058 review round 5). The magnified tick is the
+// one under the pointer at every offset.
+test("wheeling the chat with the pointer still on the rail magnifies the tick under the pointer", async () => {
+  const document = dom.window.document;
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={turnView(turns, new Set())}
+          sessionId="minimap-hover-wheel"
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+    const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const list = () => host.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    const bottom = scroller.scrollTop;
+    const scrollTo = async (top: number) => {
+      scroller.scrollTop = top;
+      await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    };
+    await scrollTo(0);
+    // jsdom lays nothing out: the list's box is at 0, so the pointer's clientY is its y in the list.
+    const y = 35;
+    const Event = (dom.window as unknown as { PointerEvent?: typeof MouseEvent }).PointerEvent ?? dom.window.MouseEvent;
+    await act(async () => {
+      list()
+        .querySelector<HTMLElement>('[data-tick="3"]')!
+        .dispatchEvent(new Event("pointerover", { bubbles: true, clientY: y, relatedTarget: document.body }));
+    });
+    expect(list().querySelector('[data-tone="active"]')?.getAttribute("data-tick")).toBe("3");
+    let moved = false;
+    const wrong: string[] = [];
+    for (let top = 0; top <= bottom; top += 120) {
+      await scrollTo(top);
+      if (list().scrollTop > 0) moved = true;
+      const under = String(Math.floor((y + list().scrollTop) / 10));
+      const active = list().querySelector('[data-tone="active"]')?.getAttribute("data-tick");
+      if (active !== under)
+        wrong.push(
+          `at ${top} px the list is at ${list().scrollTop}: tick ${active} magnified, ${under} under the pointer`,
+        );
+      if (wrong.length > 5) break;
+    }
+    // The list did move under the pointer, and the magnified tick followed it.
+    expect(moved).toBe(true);
+    expect(wrong).toEqual([]);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 /// The transcript mask's fades (conversation.css), in px: each edge's band, and the bottom's while
 /// Jump to latest shows. The 0px rules (find open, Reduce Transparency, Increase Contrast) turn a
 /// fade off and draw nothing, so they don't count.
