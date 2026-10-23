@@ -1805,6 +1805,13 @@ fn run_main() {
         discard_provider_secret_environment();
         client_log::exit(devices::run(&raw_args[1..]));
     }
+    // `cmux route` was removed with the route CLI. Refuse it before the generic
+    // unknown-command app fallback or daemon skew re-exec can touch a socket or
+    // revive the command through an older daemon.
+    if raw_args.first().map(String::as_str) == Some("route") {
+        eprintln!("cmux: unknown resource scope \"route\"");
+        client_log::exit(2);
+    }
     #[cfg(unix)]
     if let Some(run) = cli::early_unix_scope(&raw_args) {
         discard_provider_secret_environment();
