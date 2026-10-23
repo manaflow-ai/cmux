@@ -181,6 +181,7 @@ private final class RunTimingRecorder: ActionRunTiming {
         proceed()
         #expect(closes.count == 1)
         #expect(closes.first?.isConfirmed == true)
+        #expect(closes.first?.inputTimestamp == nil, "the handler got the press: a follow-up action would report its age")
         #expect(recorder.runs.map(\.id) == ["tabGroup.close"])
         #expect((recorder.runs.first?.inputAge ?? -1) >= 5, "the confirmed run lost the press's age")
     }
@@ -207,6 +208,31 @@ private final class RunTimingRecorder: ActionRunTiming {
     @Test func aCarriedStampCountsOnlyForAPersonsRun() {
         #expect(ActionRegistry.inputAgeMilliseconds(origin: .user, event: nil, carried: 100, now: 100.5) == 500)
         #expect(ActionRegistry.inputAgeMilliseconds(origin: .cli, event: nil, carried: 100, now: 100.5) == -1)
+    }
+
+    /// A carried press a second or more old held a person's dwell (a confirmation they read), not
+    /// input latency: it is dropped. The event being dispatched is never capped.
+    @Test func aCarriedPressASecondOldIsNoInputAge() throws {
+        #expect(ActionRegistry.inputAgeMilliseconds(origin: .user, event: nil, carried: 100, now: 101) == -1)
+        #expect(ActionRegistry.inputAgeMilliseconds(origin: .user, event: nil, carried: 100, now: 100.999) > 998)
+        #expect(ActionRegistry.inputAgeMilliseconds(origin: .user, event: try Self.key(at: 100), carried: nil, now: 102) == 2_000)
+    }
+
+    /// The main run loop waking while a run watches (a nested loop that waited inside a handler)
+    /// is counted; a run's synchronous work alone never wakes it.
+    @Test func theWakeWatchCountsANestedLoopsWakes() {
+        let watch = RunLoopWakeWatch()
+        watch.begin()
+        #expect(watch.wakes == 0)
+        let timer = CFRunLoopTimerCreateWithHandler(nil, CFAbsoluteTimeGetCurrent() + 0.02, 0, 0, 0) { _ in }
+        CFRunLoopAddTimer(CFRunLoopGetMain(), timer, .defaultMode)
+        _ = CFRunLoopRunInMode(.defaultMode, 1, true)
+        CFRunLoopTimerInvalidate(timer)
+        #expect(watch.wakes >= 1)
+        watch.end()
+        let after = watch.wakes
+        _ = CFRunLoopRunInMode(.defaultMode, 0.05, false)
+        #expect(watch.wakes == after, "an ended watch still counted")
     }
 
     // MARK: Previews
