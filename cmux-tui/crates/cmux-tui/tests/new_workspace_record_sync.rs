@@ -93,7 +93,11 @@ fn a_new_workspace_answers_after_at_most_one_discovery_file_sync() {
         );
         slowest = slowest.max(sent.elapsed().as_millis() as u64);
     }
-    let _ = daemon.kill();
+    // End every terminal host this test made: a durable host outlives a
+    // killed daemon (cx-leo45).
+    let identity = client.call(json!({"cmd": "identify"}));
+    client.call(json!({"cmd": "shutdown-daemon", "pid": identity["pid"],
+        "generation": identity["generation"], "force": true, "end_terminals": true}));
     let _ = daemon.wait();
     let _ = fs::remove_dir_all(&dir);
     assert!(
