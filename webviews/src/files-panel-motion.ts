@@ -30,7 +30,7 @@ export type SpringParameters = { response: number; dampingFraction: number };
 
 /**
  * The cmux-next motion springs the webviews use (this panel, the changes tree, the sync lists), at
- * speed "fast": MotionTunables.springDefaults (Packages/macOS/CmuxNext/Sources/CmuxNextDesign/
+ * speed "fast": MotionTunables.springDefaults (Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/
  * Motion/MotionTunables.swift), critically damped, so a move is visibly at rest within the motion
  * scale's standard step (180 ms). `appear` for sidebar show, `disappear` for sidebar hide.
  */
