@@ -1,5 +1,4 @@
 import React, { createContext } from "react";
-import "./composerFooterShared.css";
 
 /// True inside the quiet row: what draws only there (ComposerHarness.tsx) renders nothing elsewhere.
 export const InQuietRow = createContext(false);
