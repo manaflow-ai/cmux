@@ -144,7 +144,7 @@
         "Smoke bundled CLI against the signed app": {"nightly_only": "drives the bundled CLI against the running signed Release app; nightly-next-canary.yml runs the --canary mode against the published app on pull requests that change it"},
         "Resolve the canary mode": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next canary mode and its one-week flip"},
         "Canary the signed app": {"pr": "nightly-next-canary.yml:canary:Run the canary"},
-        "Stop the daemons the smokes left": {"plumbing": true}},
+        "Stop the daemons the canary left": {"plumbing": true}},
       "verify-final-dmg-nightly": {
         "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
         "Smoke final DMG": {"nightly_only": "needs notarized stapled final DMG"},
