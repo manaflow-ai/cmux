@@ -61,7 +61,7 @@ struct PaletteRootMenuTests {
         #expect(allHidden)
         registry.bind("newSurface") {}
         let visible = provider.makeItems().filter { !$0.hidesWhenQueryEmpty }
-        #expect(Set(visible.map(\.id)) == ["action:newSurface", "rootFamily:tab"])
+        #expect(Set(visible.map(\.id)) == Set(["action:newSurface", "rootFamily:tab"]))
     }
 
     @Test func everyActionRemovedFromTheRootStillResolvesByNameAndID() throws {
