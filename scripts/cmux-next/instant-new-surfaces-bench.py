@@ -34,7 +34,7 @@ Create-on-the-key guard (red before the fix, green after), light and STRESS:
     --commands new_workspace,new_tab,new_terminal,split_right,split_down,new_chat \
     --budget-frames 1 --budget-key-p95-ms 4
 
-`--commands` picks the commands (default all); `--workspaces 10,100` runs every phase again at
+`--commands` picks the commands (default all but new_column, which PL-motion-core owns); `--workspaces 10,100` runs every phase again at
 each workspace count (the app holds that many terminal workspaces; the bench's is the shown one).
 
 Usage: instant-new-surfaces-bench.py --tag TAG --app PATH [--runs 12] [--commands new_terminal]
@@ -49,7 +49,8 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--runs", type=int, default=12)
 parser.add_argument("--storm", type=int, default=8)
 parser.add_argument("--phases", default="idle,load")
-parser.add_argument("--commands", default="split_right,split_down,new_tab,new_terminal,new_workspace,new_column,new_chat")
+# new_column is PL-motion-core's (New Column end to end): pass it with --commands to time it here.
+parser.add_argument("--commands", default="split_right,split_down,new_tab,new_terminal,new_workspace,new_chat")
 parser.add_argument("--workspaces", default="", help="comma-separated workspace counts to run every phase at (empty: as launched)")
 parser.add_argument("--budget-frames", type=float, default=0, help="fail when a command's p95 display frame of visibility is above this (1: the first frame; 0: report only)")
 parser.add_argument("--budget-key-ms", type=float, default=16.7)
@@ -145,8 +146,19 @@ def stop_load():
     LOAD.clear()
 
 
-def undo(command, window, before_panes):
+def undo(command, window, before_panes, result=None):
     """Back to one terminal pane in the bench workspace."""
+    if command == "new_chat":
+        # The chat the run added, by id: Cmd-W would close the focused tab, which is the bench's
+        # terminal when the placement opened the chat unfocused in another pane. A chat the
+        # placement opened in a new workspace takes that workspace with it.
+        if (result or {}).get("workspace_changed"):
+            rpc("action.run", {"action": "closeWorkspace"})
+        else:
+            for tab in (result or {}).get("added_tabs") or []:
+                rpc("action.run", {"action": "closeTab", "target": f"tab:{tab}", "origin": "script", "wait": True})
+        wait(lambda: len(panes()) <= before_panes and (focused() or {}).get("kind") == "terminal", 10)
+        return
     if command == "new_workspace":
         rpc("action.run", {"action": "closeWorkspace"})
         wait(lambda: (focused() or {}).get("kind") == "terminal", 10)
@@ -187,7 +199,7 @@ def bench(phase, window):
                   f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} marks={marks} "
                   f"err={result.get('error')}", flush=True)
             time.sleep(0.4)  # test harness: let the creation's shell start before closing it
-            undo(command, window, before)
+            undo(command, window, before, result)
             time.sleep(0.3)
     return rows
 
