@@ -152,21 +152,6 @@ public struct SubrouterClaudeResumeRouting: Sendable, Equatable {
         ]
     }
 
-    /// Returns the static marker pair safe to retain in a sanitized restore
-    /// record. Unlike ``capturedEnvironment(in:)``, this also upgrades a
-    /// proven pre-marker Subrouter proxy environment to the canonical `sr`
-    /// resume marker. It carries no URL, credential, or captured launch data;
-    /// the marker only selects the fresh route that `sr` creates at restore.
-    public func restoreMarkerEnvironment(in environment: [String: String]?) -> [String: String] {
-        guard let marker = capturedLaunchBoundMarker(in: environment) else {
-            return [:]
-        }
-        return [
-            Self.environmentKey: marker,
-            Self.launchBoundEnvironmentKey: marker,
-        ]
-    }
-
     /// The pinned account the wrapper recorded for this launch, or `nil` when
     /// the launch was pooled or the value is not a plain account id. The value
     /// becomes an argument to the launcher, so anything that could read as an

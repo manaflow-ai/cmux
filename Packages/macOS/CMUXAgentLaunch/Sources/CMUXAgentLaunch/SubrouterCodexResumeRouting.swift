@@ -167,21 +167,6 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         providerEvidence(in: launchArguments) == .provider("subrouter")
     }
 
-    /// Legacy surface bindings may retain only their canonical shell command
-    /// after trust sanitization. Preserve the non-secret provider proof from
-    /// that command so a valid Subrouter checkpoint is still resumable.
-    public func usesSubrouterProvider(in shellCommand: String?) -> Bool {
-        guard let shellCommand,
-              let tokens = shellCommandTokens(shellCommand),
-              !tokens.isEmpty else { return false }
-        let executable = URL(fileURLWithPath: tokens[0]).lastPathComponent.lowercased()
-        let isCodexCommand = executable == "codex" ||
-            (executable == "sr" && tokens.dropFirst().first == "codex") ||
-            (executable == "subrouter" && tokens.dropFirst().first == "codex")
-        guard isCodexCommand else { return false }
-        return providerEvidence(in: tokens) == .provider("subrouter")
-    }
-
     /// Returns the provider evidence in a captured argv. `ambiguous` means
     /// that the record explicitly names more than one provider and must never
     /// be upgraded into a routed restore.
@@ -252,25 +237,6 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
             return providers.isEmpty ? .absent : .ambiguous
         }
         return .provider(provider)
-    }
-
-    /// Returns provider evidence from a canonical legacy shell command.
-    public func providerEvidence(in shellCommand: String?) -> SubrouterCodexProviderEvidence {
-        guard let shellCommand else { return .absent }
-        guard !shellCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return .absent
-        }
-        guard let tokens = shellCommandTokens(shellCommand), !tokens.isEmpty else {
-            // A non-empty legacy command that cannot be tokenized is damaged
-            // evidence, not proof that no provider was recorded.
-            return .ambiguous
-        }
-        let executable = URL(fileURLWithPath: tokens[0]).lastPathComponent.lowercased()
-        let isCodexCommand = executable == "codex" ||
-            (executable == "sr" && tokens.dropFirst().first == "codex") ||
-            (executable == "subrouter" && tokens.dropFirst().first == "codex")
-        guard isCodexCommand else { return .ambiguous }
-        return providerEvidenceFromAssignments(in: tokens)
     }
 
     /// Retains a canonical, non-secret routing proof when prompt sanitization
@@ -483,43 +449,6 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
             }
         }
         return rawLine
-    }
-
-    /// Tokenizes the small, canonical command form persisted for legacy
-    /// restores. Any shell operator, expansion, or unterminated quote makes
-    /// the evidence ambiguous and therefore unusable for routing.
-    private func shellCommandTokens(_ command: String) -> [String]? {
-        var tokens: [String] = []
-        var token = ""
-        var quote: Character?
-        var escaped = false
-        for character in command {
-            if escaped {
-                token.append(character)
-                escaped = false
-                continue
-            }
-            if character == "\\" && quote != "'" {
-                escaped = true
-                continue
-            }
-            if let activeQuote = quote {
-                if character == activeQuote { quote = nil } else { token.append(character) }
-                continue
-            }
-            if character == "'" || character == "\"" {
-                quote = character
-            } else if character.isWhitespace {
-                if !token.isEmpty { tokens.append(token); token = "" }
-            } else if ";|&<>$()`".contains(character) {
-                return nil
-            } else {
-                token.append(character)
-            }
-        }
-        guard !escaped, quote == nil else { return nil }
-        if !token.isEmpty { tokens.append(token) }
-        return tokens
     }
 
     private func isSubrouterRoutingAssignment(_ rawValue: String) -> Bool {

@@ -682,22 +682,11 @@ struct AgentResumeArgvTests {
         ) == ["codex", "--"])
     }
 
-    @Test("Legacy shell routing proof requires a canonical codex argv")
-    func legacyShellRoutingProofRejectsSpoofedText() {
-        let router = SubrouterCodexResumeRouting()
-        #expect(router.usesSubrouterProvider(in: "codex -c model_provider=subrouter"))
-        #expect(router.usesSubrouterProvider(in: "sr codex -c 'model_provider=\"subrouter\"'"))
-        #expect(!router.usesSubrouterProvider(in: "echo model_provider=subrouter"))
-        #expect(!router.usesSubrouterProvider(in: "codex resume SID -- 'echo model_provider=subrouter'"))
-        #expect(!router.usesSubrouterProvider(in: "codex -c model_provider=subrouterish"))
-        #expect(!router.usesSubrouterProvider(in: "codex -c 'model_provider=subrouter"))
-        #expect(router.providerEvidence(in: "codex -c 'model_provider=subrouter") == .ambiguous)
-        #expect(router.providerEvidence(in: "   ") == .absent)
-        #expect(router.usesSubrouterProvider(in: "codex -c model_provider=subrouter -- 'prompt ; rm -rf /'"))
-        #expect(!router.usesSubrouterProvider(in: [
+    @Test("Argv routing proof rejects mixed providers")
+    func argvRoutingProofRejectsMixedProviders() {
+        #expect(!SubrouterCodexResumeRouting().usesSubrouterProvider(in: [
             "codex", "-c", "model_provider=subrouter", "-c", "model_provider=openai",
         ]))
-        #expect(!router.usesSubrouterProvider(in: "codex -c model_provider=openai -c model_provider=subrouter"))
     }
 
     @Test("Structured Subrouter proof rejects spoofed executables and mixed providers")
