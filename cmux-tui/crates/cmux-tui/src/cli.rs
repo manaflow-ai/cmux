@@ -248,6 +248,25 @@ pub(super) fn canonical_scope(value: &str) -> &str {
     shorthand::scope(value)
 }
 
+/// Whether the removed `route` resource scope is the command after global
+/// options have been stripped. This keeps the early refusal ahead of the
+/// generic app-action fallback even for invocations such as
+/// `cmux --json route list`.
+pub(crate) fn removed_route_requested(args: &[String]) -> bool {
+    scan_globals(args, MachineFlag::Global)
+        .map(|(_, command)| {
+            command
+                .iter()
+                .position(|word| word == "route")
+                .is_some_and(|index| {
+                    command[..index]
+                        .iter()
+                        .all(|word| word != "--" && word.starts_with('-'))
+                })
+        })
+        .unwrap_or(false)
+}
+
 /// Rewrites a pre-D1 `cmux server <lifecycle verb>` to `cmux daemon <verb>`
 /// (with the deprecation hint), so `main` routes `server start` to the
 /// headless startup like `daemon start`. No-op elsewhere.

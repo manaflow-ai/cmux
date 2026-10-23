@@ -4526,133 +4526,133 @@
       }
     },
     "picker.accountHint": {
-      "comment": "Agent pane: the Account menu's note when no other account is set up; `cmux route add` is a command and stays as is",
+      "comment": "Agent pane: the Account menu's note when no other account is set up; ~/.config/cmux/routes is a folder path and stays as is",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أضف حسابات باستخدام cmux route add"
+            "value": "أضف حسابات كملفات مسارات في ~/.config/cmux/routes"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dodajte račune pomoću cmux route add"
+            "value": "Dodajte račune kao datoteke ruta u ~/.config/cmux/routes"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tilføj konti med cmux route add"
+            "value": "Tilføj konti som rutefiler i ~/.config/cmux/routes"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Konten mit cmux route add hinzufügen"
+            "value": "Konten als Routendateien in ~/.config/cmux/routes hinzufügen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add accounts with cmux route add"
+            "value": "Add accounts as route files in ~/.config/cmux/routes"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añade cuentas con cmux route add"
+            "value": "Añade cuentas como archivos de ruta en ~/.config/cmux/routes"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajoutez des comptes avec cmux route add"
+            "value": "Ajoutez des comptes sous forme de fichiers de route dans ~/.config/cmux/routes"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aggiungi account con cmux route add"
+            "value": "Aggiungi account come file di route in ~/.config/cmux/routes"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux route add でアカウントを追加"
+            "value": "~/.config/cmux/routes にルートファイルを置いてアカウントを追加"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បន្ថែមគណនីដោយប្រើ cmux route add"
+            "value": "បន្ថែមគណនីជាឯកសារផ្លូវនៅក្នុង ~/.config/cmux/routes"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux route add로 계정 추가"
+            "value": "~/.config/cmux/routes에 라우트 파일로 계정 추가"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Legg til kontoer med cmux route add"
+            "value": "Legg til kontoer som rutefiler i ~/.config/cmux/routes"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dodaj konta poleceniem cmux route add"
+            "value": "Dodaj konta jako pliki tras w ~/.config/cmux/routes"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adicione contas com cmux route add"
+            "value": "Adicione contas como arquivos de rota em ~/.config/cmux/routes"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Добавьте аккаунты командой cmux route add"
+            "value": "Добавьте аккаунты файлами маршрутов в ~/.config/cmux/routes"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เพิ่มบัญชีด้วย cmux route add"
+            "value": "เพิ่มบัญชีเป็นไฟล์เส้นทางใน ~/.config/cmux/routes"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux route add ile hesap ekleyin"
+            "value": "Hesapları ~/.config/cmux/routes içine rota dosyası olarak ekleyin"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Додайте облікові записи командою cmux route add"
+            "value": "Додайте облікові записи як файли маршрутів у ~/.config/cmux/routes"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thêm tài khoản bằng cmux route add"
+            "value": "Thêm tài khoản dưới dạng tệp tuyến trong ~/.config/cmux/routes"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用 cmux route add 添加账户"
+            "value": "在 ~/.config/cmux/routes 中以路由文件添加账户"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用 cmux route add 新增帳號"
+            "value": "在 ~/.config/cmux/routes 中以路由檔案新增帳號"
           }
         }
       }
