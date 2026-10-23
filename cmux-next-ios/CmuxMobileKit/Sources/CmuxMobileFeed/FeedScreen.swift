@@ -37,7 +37,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                 .background {
                     FeedCollection(
                         items: store.visibleItems, context: rowContext, swipe: swipe, control: list,
-                        header: AnyView(header), headerSignature: AnyHashable(headerSignature)
+                        header: AnyView(header), headerSignature: AnyHashable(headerSignature),
+                        headerContent: AnyHashable(store.needsYouCount)
                     )
                     .ignoresSafeArea(.container, edges: .vertical)
                 }
@@ -97,9 +98,10 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         path.append(AgentChatDestination(workspaceID: item.workspaceID, tabID: item.tabID))
     }
 
-    /// What the list's header shows: its height is measured again when this changes.
+    /// What can change the list header's height: it is measured again only when this changes (a
+    /// chip's count or the selected chip redraw in place; the header cell re-reads its view).
     private var headerSignature: [String] {
-        [store.filter.rawValue, "\(store.needsYouCount)", store.refreshError ?? "", "\(store.visibleItems.isEmpty)", "\(store.syncState)"]
+        [store.refreshError ?? "", "\(store.visibleItems.isEmpty)", "\(store.syncState)", "\(store.needsYouCount > 0)", store.filter.rawValue]
     }
 
     /// The filter chips, a refresh error and an empty or connecting state, above the events.

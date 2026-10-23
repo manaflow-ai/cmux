@@ -39,8 +39,10 @@ struct FeedCollection: UIViewRepresentable {
     let control: FeedListControl
     /// The chips, the refresh error and the empty states above the events (the one SwiftUI part).
     let header: AnyView
-    /// Changes when the header's content does (its height is measured again).
+    /// Changes when the header's height can (it is measured again).
     let headerSignature: AnyHashable
+    /// Changes when what the header shows does at the same height (its cell redraws).
+    let headerContent: AnyHashable
 
     func makeCoordinator() -> FeedListController {
         FeedListController(context: context, swipe: swipe, control: control)
@@ -51,7 +53,7 @@ struct FeedCollection: UIViewRepresentable {
     }
 
     func updateUIView(_ view: FeedCollectionView, context: Context) {
-        context.coordinator.update(items: items, header: header, signature: headerSignature)
+        context.coordinator.update(items: items, header: header, signature: headerSignature, headerContent: headerContent)
     }
 }
 
@@ -117,6 +119,7 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
     private var batchInFlight = false
     private var header = AnyView(EmptyView())
     private var headerSignature: AnyHashable?
+    private var headerContent: AnyHashable?
     private var headerHeight: CGFloat = 0
     private let headerSizer = UIHostingController(rootView: AnyView(EmptyView()))
     private var width: CGFloat = 0
@@ -210,7 +213,7 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
 
     // MARK: Store updates
 
-    func update(items next: [FeedItem], header: AnyView, signature: AnyHashable) {
+    func update(items next: [FeedItem], header: AnyView, signature: AnyHashable, headerContent content: AnyHashable) {
         #if DEBUG
         let t0 = CACurrentMediaTime()
         defer { FeedCellTiming.log("update y=\(Int(collectionView?.contentOffset.y ?? 0))", t0) }
@@ -218,7 +221,12 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
         self.header = header
         if signature != headerSignature {
             headerSignature = signature
+            headerContent = content
             measureHeader()
+        } else if content != headerContent {
+            // A chip's count changed: the header cell reads its view again, at the same height.
+            headerContent = content
+            reconfigureHeader()
         }
         // The diffable source refuses a repeated id: keep the first (the store's order is newest first).
         var seen = Set<String>()
