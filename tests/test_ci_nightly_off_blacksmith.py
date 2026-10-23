@@ -157,8 +157,9 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
 
         A push whose own request was cancelled by the next push, or whose
         request waited on a stalled pool, asked for nothing. The tick closes
-        that gap from events and every 30 minutes (the dedicated builder is
-        cmux22, plans/cmux-next/nightly-builder-DESIGN.md). It starts when a
+        that gap from events, not a clock (user decision 2026-10-20: no GitHub
+        cron on the nightly path; the dedicated builder is cmux22,
+        plans/cmux-next/nightly-builder-DESIGN.md). It starts when a
         cmux-next or cmux-tui artifacts push run on feat-cmux-next completes,
         whatever its conclusion, and can be started by hand. GitHub runs
         `workflow_run` only from the default branch, so the file must exist
