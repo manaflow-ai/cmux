@@ -158,6 +158,36 @@ cmux.json:
   `settings turn-off-tab-hibernation` etc.), `hibernateTab`, `wakeTab`
   (palette, tab context menu, CLI `tab hibernate`, `tab wake`).
 
+### 3a. Which page goes first (smarter hibernation, 2026-10-21, msg 9103)
+
+Before: every hidden page past one age threshold (`moderate` 60 min,
+`aggressive` 10 min; 10 min under warning pressure) hibernated in the same
+pass, and under critical pressure every eligible hidden page went at once.
+
+Now (`HibernationPlanner.plan`):
+
+- Ranking: idleness = seconds hidden, less a sixth of the timeout per
+  doubling of shows in the last hour (at 30 min, 15 shows: 20 min later), plus under memory pressure 1 min per
+  100 MB of the page's memory (at most 10 min; sampled from the resource
+  source only under pressure, at most every 30 s). Least valuable first.
+- Timeout: `moderate` is 30 min (default), `aggressive` 10 min, or minutes;
+  under pressure at most 10 min.
+- Relief: under warning or critical pressure with no page past the timeout,
+  the least valuable page still goes.
+- Pace (never all at once): normal 2 pages per pass, next pass after 5 s;
+  warning 1 per 15 s; critical 3 per 3 s. A page hidden less than 60 s
+  (10 s critical) never goes under pressure; without pressure the timeout
+  decides. Under pressure a page the probe kept in the last 60 s comes last,
+  so it does not hold up the rest.
+- Never: shown pages; playing, muted-playing or Picture in Picture media;
+  camera, microphone or screen capture; open DevTools; the person's form
+  input or a POST result; a running download the tab started (`downloading`);
+  an agent's browser lease (`agent_lease`, also never frozen) or an agent
+  call in the last 30 s; neighbors of a shown tab and hovered tabs; pinned
+  tabs and Never Hibernate hosts unless the settings say otherwise.
+- Never Hibernate This Site (tab context menu, palette, `tab
+  never-hibernate-site`) adds the host to `browser.hibernationExclusions`.
+
 ## 4. Not done / open
 
 - Root cause of the user's disappearing page not reproduced on a

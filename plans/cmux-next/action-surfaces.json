@@ -9824,10 +9824,39 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "\t",
+              "modifiers" : [
+                "ctrl",
+                "shift"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "[",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        }
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "\t",
+        "modifiers" : [
+          "ctrl",
+          "shift"
+        ]
+      },
       "id" : "home.previousConversation",
       "main_menu" : "view",
       "mcp" : "focusMove",
@@ -9852,10 +9881,37 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "\t",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "]",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        }
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "\t",
+        "modifiers" : [
+          "ctrl"
+        ]
+      },
       "id" : "home.nextConversation",
       "main_menu" : "view",
       "mcp" : "focusMove",
@@ -9870,6 +9926,138 @@
       "palette_suggested" : null,
       "title" : "Next Conversation",
       "title_key" : "action.home.nextConversation",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "focusMove",
+      "cli_name" : "action home-select-conversation-by-number",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "1",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "2",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "3",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "4",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "5",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "6",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "7",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "8",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "9",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "family" : "digits",
+        "key" : "1",
+        "modifiers" : [
+          "ctrl"
+        ]
+      },
+      "id" : "home.selectConversationByNumber",
+      "main_menu" : null,
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Select Conversation 1…9",
+      "title_key" : "action.home.selectConversationByNumber",
       "title_table" : "HomeActions"
     },
     {
@@ -24590,10 +24778,38 @@
     },
     {
       "cli" : "offered",
-      "cli_name" : "machine add",
+      "cli_name" : "device add",
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "device.add",
+      "main_menu" : "file",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "Add Device…",
+      "title_key" : "action.device.add",
+      "title_table" : "RemoteActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "machine add",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
       ],
       "default_aliases" : [
 
@@ -27901,8 +28117,8 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Hibernate Hidden Tabs After 1 Hour",
-      "title_key" : "action.hibernation.moderate",
+      "title" : "Hibernate Hidden Tabs After 30 Minutes",
+      "title_key" : "action.hibernation.moderate30",
       "title_table" : "HibernationActions"
     },
     {
@@ -28071,6 +28287,34 @@
       "palette_suggested" : null,
       "title" : "Hibernate Tab",
       "title_key" : "action.hibernateTab",
+      "title_table" : "HibernationActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "tab never-hibernate-site",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "neverHibernateSite",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Never Hibernate This Site",
+      "title_key" : "action.neverHibernateSite",
       "title_table" : "HibernationActions"
     },
     {
@@ -39340,7 +39584,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "machine.add",
+              "id" : "device.add",
               "kind" : "action",
               "order" : 10,
               "visible_when" : {
@@ -41428,14 +41672,27 @@
                   }
                 },
                 {
+                  "enabled_when" : "can_perform",
+                  "id" : "neverHibernateSite",
+                  "kind" : "action",
+                  "order" : 17,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
                   "kind" : "separator",
-                  "order" : 17
+                  "order" : 18
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "tab.showResources",
                   "kind" : "action",
-                  "order" : 18,
+                  "order" : 19,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
