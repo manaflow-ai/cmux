@@ -24,6 +24,8 @@ struct ClickableCursorTrackerTests {
         var childOnTop = false
         var pointer = NSPoint(x: 30, y: 20)
         var cursors: [NSCursor] = []
+        /// Reads of the window list (a WindowServer round trip outside tests).
+        var windowListReads = 0
 
         init(in container: NSView? = nil) {
             window.isReleasedWhenClosed = false
@@ -43,8 +45,9 @@ struct ClickableCursorTrackerTests {
             tracker.isKey = { [weak self] in $0 === self?.keyWindow }
             tracker.mouseLocation = { [weak self] in self.map { $0.window.convertPoint(toScreen: $0.pointer) } ?? .zero }
             tracker.topWindowNumber = { [weak self] _ in
-                guard let self, !self.childOnTop else { return Int.min }
-                return self.window.windowNumber
+                guard let self else { return Int.min }
+                self.windowListReads += 1
+                return self.childOnTop ? Int.min : self.window.windowNumber
             }
             tracker.setCursor = { [weak self] in self?.cursors.append($0) }
             tracker.currentCursor = { [weak self] in self?.cursors.last }
@@ -177,6 +180,61 @@ struct ClickableCursorTrackerTests {
         host.keyWindow = host.child
         ClickableCursorTracker.keepHand()
         #expect(host.cursors.isEmpty)
+    }
+
+    /// A's exit was swallowed (a menu's tracking loop) while the pointer went onto a disabled
+    /// sibling, which sets nothing: the keeper's next pass sees the pointer off A and puts the
+    /// arrow back, though the hand is still the cursor.
+    @Test func theKeeperPutsTheArrowBackAfterASwallowedExitOntoADisabledSibling() {
+        let host = Host()
+        let disabled = host.add(at: NSRect(x: 50, y: 10, width: 40, height: 20))
+        disabled.isEnabled = false
+        host.tracker.pointerEntered()
+        host.pointer = NSPoint(x: 70, y: 20)
+        ClickableCursorTracker.keepHand()
+        #expect(host.cursors == [NSCursor.pointingHand, NSCursor.arrow])
+        #expect(ClickableCursorTracker.owner == nil)
+    }
+
+    /// A button that collapses (a titlebar button at zero width) or is clipped away (the tab
+    /// bar's "+" scrolled out) under a still pointer gets no exit: the keeper's next pass drops
+    /// its hand.
+    @Test func aButtonCollapsingOrClippedAwayUnderAStillPointerLosesTheHand() {
+        let host = Host()
+        host.tracker.pointerEntered()
+        host.button.frame.size.width = 0
+        ClickableCursorTracker.keepHand()
+        #expect(host.cursors == [NSCursor.pointingHand, NSCursor.arrow])
+        #expect(ClickableCursorTracker.owner == nil)
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
+        let clipped = Host(in: container)
+        clipped.tracker.pointerEntered()
+        container.frame.size.width = 5
+        ClickableCursorTracker.keepHand()
+        #expect(clipped.cursors == [NSCursor.pointingHand, NSCursor.arrow])
+        withExtendedLifetime(host) {}
+    }
+
+    /// The window list is read only while another window has the key and the pointer is over an
+    /// enabled tracked button; a keeper pass with the hand showing reads local geometry only.
+    @Test func theWindowListIsReadOnlyOverAnEnabledButtonWhileAnotherWindowHasTheKey() {
+        let host = Host()
+        host.keyWindow = host.window
+        host.tracker.pointerEntered()
+        host.tracker.pointerMoved()
+        #expect(host.windowListReads == 0)
+        host.keyWindow = host.child
+        host.pointer = NSPoint(x: 200, y: 80)
+        host.tracker.pointerMoved()
+        #expect(host.windowListReads == 0)
+        host.pointer = NSPoint(x: 30, y: 20)
+        host.tracker.pointerEntered()
+        #expect(host.windowListReads == 1)
+        #expect(host.cursors == [NSCursor.pointingHand])
+        ClickableCursorTracker.keepHand()
+        ClickableCursorTracker.keepHand()
+        #expect(host.windowListReads == 1)
     }
 
     /// A's exit was swallowed (a menu's tracking loop) and the pointer went onto the page, which set
