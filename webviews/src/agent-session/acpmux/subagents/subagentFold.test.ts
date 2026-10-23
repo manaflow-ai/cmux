@@ -303,3 +303,33 @@ test("an unknown sender does not inherit the wrapper owner during replay", () =>
     ["unseen", null],
   ]);
 });
+
+test("a known child sender in a root-wrapped update remains the grandchild parent", () => {
+  const fold = new SubagentFold();
+  const replay = (senderThreadId: string, acpmux: Record<string, unknown>) => {
+    seq += 1;
+    const update = {
+      sessionUpdate: "subagent_spawned",
+      _meta: { codex: { collaboration: { tool: "spawnAgent", senderThreadId } } },
+    };
+    const msg = { method: "session/update", params: { update, _meta: { acpmux } } };
+    return fold.reduce({ seq, at: seq * 1000, msg }, update);
+  };
+  replay("root-native", { subagents: [{ id: "child", parent: null }] });
+  // The wrapper can report this child call on the root session, so there is no mux.subagent.
+  replay("child", { subagents: [{ id: "grandchild", parent: null }] });
+
+  expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([
+    ["child", null],
+    ["grandchild", "child"],
+  ]);
+});
+
+test("late root seeding removes a phantom and promotes its children", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "root-native", parent: "child" }] });
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "child", parent: "root-native" }] });
+  fold.setRoot("root-native");
+
+  expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([["child", null]]);
+});

@@ -95,7 +95,30 @@ export class SubagentFold {
   /// Seeds the native root before a persisted event window is replayed. A malformed historical
   /// record can mention the root as a subagent, so this must happen before the first `apply`.
   setRoot(id: string | undefined): void {
-    if (typeof id === "string" && id.length > 0) this.rootThreads.add(id);
+    if (typeof id !== "string" || id.length === 0 || this.rootThreads.has(id)) return;
+    this.rootThreads.add(id);
+    // A live update can arrive before the session summary. Remove that late phantom and promote
+    // anything it had already acquired so a later root seed repairs the in-memory tree too.
+    const phantom = this.agents.get(id);
+    if (!phantom) return;
+    this.agents.delete(id);
+    this.groupOf.delete(id);
+    this.own.delete(id);
+    this.drawn.delete(id);
+    this.versions.delete(id);
+    for (const group of this.changed) {
+      if (group.ids.includes(id)) group.ids = group.ids.filter((child) => child !== id);
+    }
+    const promoted = [...this.agents.values()].filter((agent) => agent.parent === id);
+    if (promoted.length === 0) return;
+    const group = this.open ?? { id: `${SUBAGENTS}-root-${id}`, at: phantom.startedAt, version: 0, ids: [] };
+    this.open = group;
+    for (const agent of promoted) {
+      agent.parent = null;
+      if (!group.ids.includes(agent.id)) group.ids.push(agent.id);
+      this.groupOf.set(agent.id, group);
+    }
+    this.changed.add(group);
   }
   /// The subagents whose end the harness reported (not one ``stopRunning`` guessed): a progress
   /// report that trails it (Claude's last task_progress) does not run one again.
@@ -121,7 +144,8 @@ export class SubagentFold {
     // A top-level collaboration call is the only replay signal that can teach us a native root
     // when an old session summary did not retain agentSessionId. Never infer it from a child-owned
     // update: a child sender is the parent of its own grandchildren.
-    if (sender && typeof mux?.subagent !== "string") this.setRoot(sender);
+    if (sender && typeof mux?.subagent !== "string" && this.rootThreads.size === 0 && !this.agents.has(sender))
+      this.setRoot(sender);
     // Met first through its progress, its spawn is older than what this fold read: not this turn's.
     const spawn = update?.sessionUpdate !== "subagent_progress";
     for (const change of events) {

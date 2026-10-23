@@ -1632,8 +1632,12 @@ export class AcpmuxDirectClient {
     this.usageFromSeq = kept.usageFromSeq;
     // Seed replay from the kept session identity before rebuilding: SubagentFold must know the
     // native root while it consumes the historical events, not after the malformed tree is drawn.
-    this.summary = { ...kept.summary, ...listed };
+    const keptSummary = { ...kept.summary, ...listed };
+    this.summary = keptSummary;
     this.rebuild();
+    // A session_changed can carry newer live state than the kept tail. Restore it after replay;
+    // only the root identity needs to be visible during the fold rebuild itself.
+    this.summary = keptSummary;
     // A paused queue's failed turn no longer runs, whatever status acpmux last listed (`staleRun`).
     this.turnOpen = listed?.status === "running" && !this.staleRun(listed);
     // Only acpmux says what is pending (attach's `session.pending`): a replayed ask is history
