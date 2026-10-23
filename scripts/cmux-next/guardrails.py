@@ -6,7 +6,8 @@ never by CI (Lawrence 2026-10-23: no new CI gates). Only Swift lines the push AD
 Packages/macOS/CmuxNext/Sources count, plus unchanged lines that become debt because the push changed the
 line that gives them their context (`struct` -> `class` around a static, a view renamed to a `...Row`, an
 edited or deleted deinit in a generic class's body, or a type made generic around the classes in its
-extensions, read in every Sources and Tests file that extends it: generic_signature_context).
+extensions, read in every Sources and Tests file that extends it: generic_signature_context) or the comment
+that escaped them (a deleted or reworded `// <rule>-allow:` line).
 Per file and rule it is a count ratchet: an added match is new only when the same file does not remove as
 much debt (judged on the base text with the same context and escape rules, so editing a line that already
 has debt adds none, and a removed escaped line does not pay for an unescaped one), and an added line whose
@@ -146,6 +147,20 @@ class Added:
     text: str
 
 
+def escape_window(lines: list[str], index: int) -> list[int]:
+    """The 0-based lines whose comment can escape LINES[INDEX] (swift_scope.escaped's window): the line, the
+    comment and attribute block directly above it, or (no such block) the previous code line, whose trailing
+    comment counts."""
+    window = [index]
+    j = index - 1
+    while j >= 0 and (COMMENT_LINE.match(lines[j]) or ATTRIBUTE_LINE.match(lines[j])):
+        window.append(j)
+        j -= 1
+    if j >= 0 and j == index - 1:
+        window.append(j)
+    return window
+
+
 @dataclass
 class Version:
     """One side of a changed file: its lines and the 1-based lines the push changed on that side.
@@ -221,20 +236,35 @@ class Matcher:
     escape: re.Pattern | None
     keep: Keep | None = None  # context: a static of a class, a store in a row, a generic class without a deinit
     code: Callable[[str], str] = code_of  # the code PATTERN reads (comments dropped, string contents blanked)
-    # The 0-based lines whose comment can carry ESCAPE; None: swift_scope.escaped's window (the line, the comment
-    # and attribute block above it, or the previous code line's trailing comment).
-    window: Callable[[list[str], int], list[int]] | None = None
+    window: Callable[[list[str], int], list[int]] = escape_window  # the lines whose comment can carry ESCAPE
+
+
+def escape_neighbours(lines: list[str], touched: set[int]) -> set[int]:
+    """0-based lines whose escape_window() can hold a TOUCHED (1-based) line: the line itself, the line below
+    it, and further down while every line from the touched one on is a comment or attribute line (the block
+    above the code line it escapes). crash_ratchet.allow_lines() (the line and the one above) is inside."""
+    out = set()
+    for number in touched:
+        i = number - 1
+        out.update((i, i + 1))
+        k = i
+        while 0 <= k < len(lines) and (COMMENT_LINE.match(lines[k]) or ATTRIBUTE_LINE.match(lines[k])):
+            out.add(k + 1)
+            k += 1
+    return {i for i in out if 0 <= i < len(lines)}
 
 
 def debt_in(version: Version, changed: list[Added], matcher: Matcher) -> list[Added]:
-    """The debt among VERSION's CHANGED lines, plus (context rules) unchanged matches whose context changed.
+    """The debt among VERSION's CHANGED lines, plus unchanged matches whose escape or context the push changed.
 
     A line counts when MATCHER's pattern matches its code, KEEP holds for it in VERSION's text and it carries
-    no escape there. For a context rule, an unchanged line also counts when a line that makes it debt (an
-    opener KEEP returns) is touched (Version.touched): `struct` -> `final class` around an old static, a view
-    renamed to `...Row` around an old store reference, an edit or a deletion inside a generic class's body (head
-    side); on the base side the same lines are the debt the push takes away, so an edit of the opener that keeps
-    the context (`final class A {` -> `final class A: Sendable {`) pairs with itself.
+    no escape there. An unchanged line also counts when its escape window holds a touched line (the push
+    deleted or reworded the `// <rule>-allow:` comment, or put a line between it and the code), and, for a
+    context rule, when a line that makes it debt (an opener KEEP returns) is touched (Version.touched): `struct`
+    -> `final class` around an old static, a view renamed to `...Row` around an old store reference, an edit or a
+    deletion inside a generic class's body (head side). On the base side the same lines are the debt the push
+    takes away, so an edit that keeps the escape or the context (a reworded reason,
+    `final class A {` -> `final class A: Sendable {`) pairs with itself.
     """
     out = []
     lines = version.lines
@@ -245,19 +275,26 @@ def debt_in(version: Version, changed: list[Added], matcher: Matcher) -> list[Ad
             return False, openers
         return True, openers
 
+    def matches(index: int) -> bool:
+        return (index + 1 not in version.changed and matcher.pattern.search(lines[index]) is not None
+                and matcher.pattern.search(matcher.code(lines[index])) is not None)
+
     for line in changed:
         if matcher.pattern.search(matcher.code(line.text)) and is_debt(line.number - 1)[0]:
             out.append(line)
-    if matcher.keep is None or not version.touched:
-        return out
-    for index, text in enumerate(lines):
-        if index + 1 in version.changed or not matcher.pattern.search(text):
-            continue
-        if not matcher.pattern.search(matcher.code(text)):
-            continue
-        debt, openers = is_debt(index)
-        if debt and any(o in version.touched for o in openers):
-            out.append(Added(version.path, index + 1, text))
+    found: set[int] = set()
+    if matcher.escape is not None and version.touched:
+        for index in sorted(escape_neighbours(lines, version.touched)):
+            if matches(index) and any(j + 1 in version.touched for j in matcher.window(lines, index)) and is_debt(index)[0]:
+                found.add(index)
+    if matcher.keep is not None and version.touched:
+        for index in range(len(lines)):
+            if index in found or not matches(index):
+                continue
+            debt, openers = is_debt(index)
+            if debt and any(o in version.touched for o in openers):
+                found.add(index)
+    out += [Added(version.path, index + 1, lines[index]) for index in sorted(found)]
     return out
 
 
@@ -312,8 +349,6 @@ def resolve(found: list[tuple[list[Added], list[Added]]]) -> list[Added]:
 
 def escaped_in(lines: list[str], index: int, matcher: Matcher) -> bool:
     """MATCHER's escape in a comment of its window around LINES[INDEX]."""
-    if matcher.window is None:
-        return escaped(lines, index, matcher.escape)
     return any(matcher.escape.search(lines[j]) for j in matcher.window(lines, index))
 
 
