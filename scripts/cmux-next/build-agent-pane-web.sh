@@ -104,8 +104,11 @@ bun scripts/agent-pane/tailwind-css.mjs "$SRC/acpmux/tailwind.css" >> "$WORK/sty
 # host's native transport (AgentPaneTransport) carries acpmux. No remote loads. Frames show only loopback web
 # pages (a turn's preview card; URL+AgentPanePreview.swift keeps the same hosts) and the render frame
 # (a render card; AgentPaneRenderFrame.swift). The page host sends the same
-# script-src (PageDescriptor.agent, test/fixtures/agent-page-csp.txt).
-CSP="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data:; media-src 'self'; font-src data:; connect-src 'none'; frame-src cmux-agent://render http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
+# script-src (PageDescriptor.agent, test/fixtures/agent-page-csp.txt). Media plays from the host's
+# own URLs ('self', chips/ReplyMedia.tsx) and from blob: URLs the page makes of a file the person pasted or
+# dropped, so the composer can draw a video's poster (composer/videoPoster.ts); a blob: URL fetches
+# nothing from the network.
+CSP="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data:; media-src 'self' blob:; font-src data:; connect-src 'none'; frame-src cmux-agent://render http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
 
 {
   printf '<!doctype html>\n<html lang="en">\n<head>\n'

@@ -19,11 +19,13 @@ import {
 } from "../attachments";
 import type { UploadResult } from "../cloudUploads";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
-import { Close, FileDoc, ImageIcon } from "../conversation/icons";
+import { Close, FileDoc, ImageIcon, PlayTriangle } from "../conversation/icons";
+import { formatDuration } from "../chips/ReplyMedia";
 import { type StringKey, type Translate, usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { pasteLines, pasteName } from "../conversation/promptCollapse";
 import { intakeFiles } from "./intakeFiles";
+import { isVideoFile } from "./videoPoster";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
 import { FADE_BAND_PX } from "../MarkdownField";
 import { useScrollEdges } from "../summary/scrollEdges";
@@ -106,7 +108,7 @@ export function appendAttachments(
 /// saves it (intakeFiles.ts can take a large screenshot hundreds of ms): the chip it becomes, or
 /// the refusal's note, takes its place. Leo 2026-10-21: "ME PASTING IT DOESN'T JUST PASTE RIGHT
 /// INTO THE COMPOSER IMMEDIATELY".
-export type PendingAttachment = { id: string; name: string; image: boolean; scope?: string };
+export type PendingAttachment = { id: string; name: string; image: boolean; video?: boolean; scope?: string };
 
 /// The prompt's staged attachments: what a paste on the composer's field or a file drop anywhere on
 /// the page adds (the document-level drop contract, attachments.ts), with the note a refusal leaves.
@@ -154,9 +156,13 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const ahead = reading.current;
     const batch = { scope: current.scope };
     // In the paste's or drop's own task, so React draws them before the next frame.
-    const shown: PendingAttachment[] = files
-      .slice(0, Math.max(0, MAX_ATTACHMENTS - held - ahead))
-      .map((file) => ({ id: crypto.randomUUID(), name: file.name, image: isImageFile(file), scope: batch.scope }));
+    const shown: PendingAttachment[] = files.slice(0, Math.max(0, MAX_ATTACHMENTS - held - ahead)).map((file) => ({
+      id: crypto.randomUUID(),
+      name: file.name,
+      image: isImageFile(file),
+      ...(isVideoFile(file) ? { video: true } : {}),
+      scope: batch.scope,
+    }));
     const ids = new Set(shown.map((chip) => chip.id));
     reading.current += files.length;
     batches.current.add(batch);
@@ -355,6 +361,17 @@ function PendingChip({ chip }: { chip: PendingAttachment }) {
         <ImageIcon size={16} className="acpmux-attachment-failed-icon" />
       </div>
     );
+  // A video's tile while its poster is drawn: the frame's place, a dimmed play glyph, no spinner.
+  if (chip.video)
+    return (
+      <div
+        className="acpmux-attachment acpmux-attachment-video acpmux-attachment-pending"
+        aria-busy="true"
+        aria-label={chip.name}
+      >
+        <PlayTriangle size={16} className="acpmux-attachment-failed-icon" style={{ color: "inherit" }} />
+      </div>
+    );
   return (
     <div className="acpmux-attachment acpmux-attachment-file acpmux-attachment-pending" aria-busy="true">
       <span>{chip.name}</span>
@@ -521,6 +538,20 @@ function AttachmentChip({
       />,
     );
   }
+  // A video that goes as its path shows its poster frame, a play glyph and its length, the way an
+  // image shows its thumbnail (its name on hover); a poster the engine cannot draw leaves the file
+  // chip below.
+  if (attachment.kind === "link" && attachment.poster && !broken)
+    return menu(
+      undefined,
+      <VideoAttachmentChip
+        attachment={attachment}
+        poster={attachment.poster}
+        note={attachment.saved ? t(ATTACHMENT_LABELS.sentAsPath) : undefined}
+        remove={remove}
+        onBroken={() => setBroken(true)}
+      />,
+    );
   // A file that goes as its path (a saved copy, or a file or folder the panel chose) says so, with
   // the path on hover: the agent reads it there instead of getting its bytes.
   if (attachment.kind === "link")
@@ -542,6 +573,44 @@ function AttachmentChip({
       <span>{attachment.name}</span>
       {remove}
     </div>,
+  );
+}
+
+/// A video link's chip: its poster frame (drawn once when it came in, videoPoster.ts) as a tile the
+/// image chip's height, with a small play glyph in the middle and its length in the corner. Its
+/// name, length and the path note are its hover text and the frame's alt text.
+function VideoAttachmentChip({
+  attachment,
+  poster,
+  note,
+  remove,
+  onBroken,
+}: {
+  attachment: ComposerAttachment;
+  poster: string;
+  note?: string | undefined;
+  remove: React.ReactNode;
+  onBroken(): void;
+}) {
+  const length = attachment.duration === undefined ? undefined : formatDuration(attachment.duration);
+  const label = [attachment.name, length, note].filter(Boolean).join(" · ");
+  return (
+    <div
+      className="acpmux-attachment acpmux-attachment-video"
+      data-saved={attachment.saved || undefined}
+      /* tooltip-allow: a video's frame shows no name */ title={label}
+    >
+      <span className="acpmux-attachment-video-frame">
+        <img alt={label} src={poster} onError={onBroken} />
+        <PlayTriangle size={14} className="acpmux-attachment-video-play" style={{ color: "inherit" }} />
+        {length && (
+          <span className="acpmux-attachment-video-length" aria-hidden="true">
+            {length}
+          </span>
+        )}
+      </span>
+      {remove}
+    </div>
   );
 }
 

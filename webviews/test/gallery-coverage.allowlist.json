@@ -46,7 +46,6 @@
     "agent-session/acpmux/changes/FileTypeIcon.tsx#FileTypeIcon",
     "agent-session/acpmux/changes/LoadState.tsx#LoadState",
     "agent-session/acpmux/changes/TrackedOnlyBanner.tsx#TrackedOnlyBanner",
-    "agent-session/acpmux/composer/attachmentIntake.tsx#AttachmentStrip",
     "agent-session/acpmux/conversation/icons.tsx#ArrowDown",
     "agent-session/acpmux/conversation/icons.tsx#ArrowRight",
     "agent-session/acpmux/conversation/icons.tsx#ArxivMark",

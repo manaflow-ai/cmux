@@ -27,6 +27,10 @@ export type ComposerAttachment = {
   path?: string;
   /** A file the composer could not attach that the chat's host saved for the agent: its chip says it goes as a path. */
   saved?: boolean;
+  /** A video link's poster frame (a small JPEG data URL), drawn once when it came in (composer/videoPoster.ts). */
+  poster?: string;
+  /** A video link's length in seconds, read with its poster. */
+  duration?: number;
 };
 
 export type AttachmentError = { name: string; reason: "tooLarge" | "unsupported" | "imagesUnsupported" | "tooMany" };

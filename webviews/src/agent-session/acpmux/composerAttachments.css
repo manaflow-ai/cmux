@@ -416,3 +416,56 @@ button.acpmux-attachment-pasted-open:hover {
 .acpmux-attachment-pasted .acpmux-attachment-remove {
   top: 14px;
 }
+/* A video that goes as its path (composer/attachmentIntake.tsx VideoAttachmentChip; Leo 2026-10-22:
+   "the screen reccording preview is just a file name"): its poster frame as a tile the image
+   chip's height and edge, a small play triangle in the text's ink over it and its length in the
+   corner; its name shows on hover, as an image's does. The triangle's halo and the length's backing
+   are the composer's own surface, as the × badge's is, so they read over any frame in every theme. */
+.acpmux-attachment-video {
+  height: var(--acpmux-attach-height);
+}
+.acpmux-attachment-video-frame {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--agent-text);
+}
+.acpmux-attachment-video-frame img {
+  display: block;
+  width: auto;
+  min-width: 48px;
+  max-width: 128px;
+  height: var(--acpmux-attach-height);
+  object-fit: cover;
+  border-radius: var(--acpmux-attach-radius);
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
+  outline-offset: -1px;
+}
+.acpmux-attachment-video-play {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  filter: drop-shadow(0 0 1.5px var(--acpmux-composer-bg, var(--agent-page-bg)))
+    drop-shadow(0 0 3px var(--acpmux-composer-bg, var(--agent-page-bg)));
+}
+.acpmux-attachment-video-length {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--acpmux-composer-bg, var(--agent-page-bg)) 82%, transparent);
+  color: var(--agent-text);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-variant-numeric: tabular-nums;
+}
+/* While its poster is drawn: the frame's place with a dimmed play glyph, never a spinner. */
+.acpmux-attachment-video.acpmux-attachment-pending {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 104px;
+}

@@ -17,6 +17,7 @@ import {
   type RefusedFile,
 } from "../attachments";
 import { MAX_UPLOAD_FILE_BYTES, MAX_UPLOAD_TOTAL_BYTES, type UploadResult } from "../cloudUploads";
+import { isVideoFile, videoPoster, type VideoPoster } from "./videoPoster";
 
 /// The refusals a link stands in for.
 const LINKABLE = new Set<AttachmentError["reason"]>(["unsupported", "tooLarge", "imagesUnsupported"]);
@@ -41,15 +42,29 @@ export async function intakeFiles(
   // Asked before the files are read (decoding and scaling photos can take seconds): the host's
   // record of the drop or paste lasts only a few.
   const paths = options.localPaths?.(files).catch(() => undefined);
+  // A video's poster is drawn while the batch is read and saved; its link chip shows it.
+  const posters = new Map<File, Promise<VideoPoster | undefined>>();
+  for (const file of files) if (isVideoFile(file)) posters.set(file, videoPoster(file));
   const read = await readAttachments(files, options.held, options.allowImages);
   const local = await localLinks(files, read.errors, MAX_ATTACHMENTS - options.held - read.attachments.length, paths);
   const errors = read.errors.filter((refused) => !local.linked.has(refused));
   const room = MAX_ATTACHMENTS - options.held - read.attachments.length - local.linked.size;
   const sendable = options.upload ? savable(errors, room) : [];
   const sent = sendable.length > 0 ? await options.upload?.(sendable.map((refused) => refused.file)) : undefined;
-  const linked = [...local.linked.values()];
+  const linked = await withPosters(
+    [...local.linked].map(([refused, link]) => [refused.file, link] as const),
+    posters,
+  );
   if (sent && "error" in sent) return { attachments: [...read.attachments, ...linked], error: { text: sent.error } };
-  const saved = sent ? sent.paths.map((path, index) => savedAttachment(path, sendable[index]?.file.name ?? "")) : [];
+  const saved = await withPosters(
+    sent
+      ? sent.paths.map((path, index) => {
+          const file = sendable[index]?.file;
+          return [file, savedAttachment(path, file?.name ?? "")] as const;
+        })
+      : [],
+    posters,
+  );
   // What the host did not link or save keeps its refusal; one it would have linked or saved but for
   // the composer's chip limit is refused for that limit.
   const full = sent !== undefined && saved.length >= room;
@@ -58,6 +73,19 @@ export async function intakeFiles(
   if (!first) return { attachments };
   const overLimit = (local.full && links(first)) || (full && saves(first));
   return { attachments, error: { name: first.name, reason: overLimit ? "tooMany" : first.reason } };
+}
+
+/// Each link chip with its file's video poster, when the file is a video the engine could draw.
+async function withPosters(
+  links: ReadonlyArray<readonly [File | undefined, ComposerAttachment]>,
+  posters: Map<File, Promise<VideoPoster | undefined>>,
+): Promise<ComposerAttachment[]> {
+  return Promise.all(
+    links.map(async ([file, link]) => {
+      const made = file && (await posters.get(file));
+      return made ? { ...link, ...made } : link;
+    }),
+  );
 }
 
 /// The refused files of the batch that go as links to where they are on this Mac, by the host's
