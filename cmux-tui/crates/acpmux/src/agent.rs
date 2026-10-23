@@ -20,7 +20,7 @@ mod command;
 pub(crate) mod session_tmp;
 pub(crate) use command::{
     REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env, command_env_cleared, harness_command,
-    host_environment,
+    host_environment, pinned_preview_format, preview_format,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -158,6 +158,9 @@ pub struct ChildAgent {
     /// Its cmux MCP server lists every tool (`agent_tools::lists_all_tools`,
     /// decided at its session/new or load), for a fork through it.
     pub all_tools: std::sync::atomic::AtomicBool,
+    /// The question preview format its command was pinned to, for a direct
+    /// start (a host's is recorded where the host starts, `hub/hosts.rs`).
+    pub preview_format: Option<crate::hub::questions::PreviewFormat>,
     /// Windows: the agent's job (its process group on Unix).
     #[cfg(windows)]
     job: Option<crate::job::Job>,
@@ -220,9 +223,10 @@ impl ChildAgent {
             order: Mutex::new(()),
         });
         let mut cmd = harness_command(name, profile, cwd, command_line, session)?;
+        let preview_format = Some(pinned_preview_format(&cmd));
         #[cfg(windows)]
         cmd.creation_flags(crate::job::AGENT_FLAGS);
-        let mut child = cmd.spawn().with_context(|| format!("spawn agent {name}"))?;
+        let mut child = cmd.spawn().map_err(|e| spawn_error(&format!("spawn agent {name}"), e))?;
         #[cfg(windows)]
         let job = {
             let contained = child
@@ -257,6 +261,7 @@ impl ChildAgent {
             codex,
             hosted: None,
             all_tools: std::sync::atomic::AtomicBool::new(false),
+            preview_format,
             #[cfg(windows)]
             job,
         });
@@ -928,6 +933,7 @@ impl ChildAgent {
                 exit: tokio::sync::Notify::new(),
             }),
             all_tools: std::sync::atomic::AtomicBool::new(false),
+            preview_format: None,
             #[cfg(windows)]
             job: None,
         });
@@ -1087,9 +1093,40 @@ async fn end_still_running(procs: Vec<crate::agent_host::tree::Started>) {
             .await;
 }
 
+/// The error of an agent (or its agent host) that did not start; `what` says which, e.g.
+/// "spawn agent claude". Out of descriptors, the bare "Too many open files (os error 24)"
+/// read like the agent's fault (cmux16, 2026-10-22): say it is the daemon's, with its limit
+/// and what to do.
+pub(crate) fn spawn_error(what: &str, e: std::io::Error) -> anyhow::Error {
+    #[cfg(unix)]
+    if matches!(e.raw_os_error(), Some(libc::EMFILE | libc::ENFILE)) {
+        let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        let limit = if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) } == 0 {
+            format!(" (its limit is {})", lim.rlim_cur)
+        } else {
+            String::new()
+        };
+        return anyhow!(
+            "{what}: the acpmux daemon is out of open files{limit}; \
+             `acpmux daemon shutdown` stops it and the next acpmux command starts it again: {e}"
+        );
+    }
+    anyhow::Error::new(e).context(what.to_owned())
+}
+
 #[cfg(all(test, unix))]
 mod spawn_error_tests {
     use super::*;
+
+    #[test]
+    fn out_of_descriptors_says_it_is_the_daemon_and_what_to_do() {
+        let error = spawn_error("start host", std::io::Error::from_raw_os_error(libc::EMFILE));
+        let text = format!("{error:#}");
+        assert!(text.starts_with("start host: the acpmux daemon is out of open files"), "{text}");
+        assert!(text.contains("acpmux daemon shutdown"), "{text}");
+        let other = spawn_error("start host", std::io::Error::from_raw_os_error(libc::ENOENT));
+        assert!(format!("{other:#}").starts_with("start host: "), "{other:#}");
+    }
 
     #[tokio::test]
     async fn direct_spawn_failure_does_not_expose_harness_argv() {

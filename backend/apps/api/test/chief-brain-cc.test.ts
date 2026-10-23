@@ -14,7 +14,7 @@ import { fakeCloud, machine, notes, type Started } from "./chief-brain-cc-fake.t
  * API) and streams back to POST /v1/chief-cc/<agent>/<conversation>/notes with a per-turn token; the reply
  * is posted as the Chief, the VM is deleted by its exact id, the team needs no Cloud credits, and the next
  * turn's input carries the earlier reply (the Chief's memory). Freestyle and the Tailscale API are faked at
- * their HTTP boundary; the fake VM plays the turn machine (backend/chief-cc/image/run.mjs) by posting notes
+ * their HTTP boundary; the fake VM plays the turn machine (chief-turn-runner, Native/OptChat/chief-turn) by posting notes
  * to the Worker. One file on purpose: it replaces globalThis.fetch and the route's settings.
  */
 type TestEnv = Record<string, string | undefined> & { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USER_DO: DurableObjectNamespace; TEAM_DO: DurableObjectNamespace; CHIEF_BRAIN_DO: DurableObjectNamespace }

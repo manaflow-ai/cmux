@@ -15,8 +15,7 @@ public enum HomeFirstRunAction: Sendable, Equatable {
 /// The empty Chief conversation's first-run panel, the Chief's front page: the Chief's face
 /// and what it does (`HomeFirstRunHero`), then things to do now, each a row with its shortcut
 /// (start an agent, open a terminal) and the Chief pet's Show / Hide, then the user's agents
-/// and the host's row under them (Home's import suggestion), then the user's agents at a
-/// glance, most urgent first, each opening its tab, then the "Switching" card with the
+/// at a glance, most urgent first, each opening its tab, then the "Switching" card with the
 /// core switching keys (`HomeFirstRunSwitchCard`, hidden for good by its Hide button). Hidden
 /// once the conversation has a message (`HomeNativeTranscriptView.updateFirstRun`). A short
 /// pane drops agent rows first, then the hero.
@@ -44,26 +43,6 @@ final class HomeFirstRunView: NSView {
     private var scale: CGFloat = 1
     private var colors: Colors?
     private lazy var headerWidth = agentsHeader.widthAnchor.constraint(equalToConstant: Self.maxWidth)
-    /// The host's row under the action rows (Home's import suggestion, `ImportSuggestionRowView`),
-    /// at the column's width; out of the layout while hidden. It sizes its own height and tells
-    /// the host when it shows or hides (`HomeNativeTranscriptView.firstRunAccessoryChanged`).
-    var accessory: NSView? {
-        didSet {
-            guard accessory !== oldValue else { return }
-            accessoryWidth?.isActive = false
-            accessoryWidth = nil
-            oldValue?.removeFromSuperview()
-            if let accessory {
-                accessory.translatesAutoresizingMaskIntoConstraints = false
-                let width = accessory.widthAnchor.constraint(equalToConstant: Self.maxWidth)
-                width.isActive = true
-                accessoryWidth = width
-            }
-            arrange()
-            needsLayout = true
-        }
-    }
-    private var accessoryWidth: NSLayoutConstraint?
     /// Called when the user picks open a terminal or start an agent.
     var onAction: (HomeFirstRunAction) -> Void = { _ in }
     /// Called with an agent's tab id when the user picks its row.
@@ -142,8 +121,7 @@ final class HomeFirstRunView: NSView {
     private func arrange() {
         for view in stack.arrangedSubviews { stack.removeArrangedSubview(view); view.removeFromSuperview() }
         let listed: [NSView] = agentRows.isEmpty ? [] : [agentsHeader] + agentRows
-        let hosted: [NSView] = accessory.map { [$0] } ?? []
-        for view in [hero] + actionRows + hosted + listed + [switchCard] as [NSView] { stack.addArrangedSubview(view) }
+        for view in [hero] + actionRows + listed + [switchCard] as [NSView] { stack.addArrangedSubview(view) }
         applySpacing()
     }
 
@@ -156,9 +134,7 @@ final class HomeFirstRunView: NSView {
     /// stack's layout).
     private func fitAgentRows() {
         let row = HomeFirstRunRow.height * scale, gap = 6 * scale, group = 14 * scale
-        // Home's import suggestion sits under the action rows and goes with them.
         let actions = CGFloat(actionRows.count) * row + CGFloat(actionRows.count - 1) * gap
-            + (accessory.map { $0.isHidden ? 0 : group + $0.fittingSize.height } ?? 0)
         let actionsFit = actions <= bounds.height
         if stack.isHidden != !actionsFit { stack.isHidden = !actionsFit }
         // The card's keys are set (Hide clears them); it shows when it fits under the rows.
@@ -189,7 +165,6 @@ final class HomeFirstRunView: NSView {
     private func applySpacing() {
         stack.spacing = 6 * scale
         stack.setCustomSpacing(14 * scale, after: pet)
-        if let accessory { stack.setCustomSpacing(14 * scale, after: accessory) }
         stack.setCustomSpacing(Self.heroGap * scale, after: hero)
     }
 
@@ -262,7 +237,6 @@ final class HomeFirstRunView: NSView {
         let width = max(0, min(Self.maxWidth * scale, bounds.width - 48 * scale))
         for row in rows { row.width = width }
         if headerWidth.constant != width { headerWidth.constant = width }
-        if let accessoryWidth, accessoryWidth.constant != width { accessoryWidth.constant = width }
         if cardWidth.constant != width { cardWidth.constant = width }
         if heroWidth.constant != width { heroWidth.constant = width }
         let heroTall = hero.height(for: width)

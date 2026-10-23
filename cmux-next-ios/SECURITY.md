@@ -263,16 +263,16 @@ A phone browser tab streams from a CEF remote browser host the Mac app runs,
     page when hostd sees it, so frames painted before the host goes back can
     reach the phone; a navigation check inside the host (CEF `OnBeforeBrowse`)
     would close that gap and needs a new pinned host binary.
-  - **Known gap: subresources.** hostd sees top-level pages only. A `file:`
-    page that the rules allow (a shared folder, or one the Mac shows) can
-    embed other local files (an `<iframe>` or `<img>` of `file:///...`;
-    Chromium lets a `file:` page show, though not script-read, other files),
-    and they appear in the streamed video. So an HTML file written into a
-    shared workspace folder can show a file outside it on the phone, as it
-    would in the Mac's own browser. Closing it needs a per-load check in the
-    host (CEF `OnBeforeResourceLoad` / `OnBeforeBrowse` with the shared roots)
-    and a new pinned host binary; until then the "never home, `~/.ssh`,
-    `~/Library`" bound holds for top-level pages only.
+  - **Subresources and the load itself** (closed 2026-10-22). The host checks
+    every `file:` load before Chromium opens the file (`rb.file_policy`,
+    `file_policy.rs`; `OnBeforeBrowse` and `OnBeforeResourceLoad` in
+    `rb_shim.mm`): a `file:` page that the rules allow can no longer embed a
+    file outside the shared folders and the pages the Mac showed (iframe,
+    image, fetch), a link to a refused file never loads (no frames reach the
+    phone), and the path is resolved at load time, so a symlink swapped in
+    after hostd's check is refused too. Needs the pinned host built from this
+    source (`remote-browser-host.pin.json`); an older host ignores the policy
+    and the earlier after-the-fact take-back still applies.
   - The other `rb.*` messages are an allowlist (`browser.rs`). The daemon's
     `new-browser-tab` and `browser-navigate` (which drive the person's own Mac
     browser, with its profile) still take only `http(s)` and `about:blank`.
@@ -297,7 +297,7 @@ A phone browser tab streams from a CEF remote browser host the Mac app runs,
 | --- | --- |
 | Executes commands or opens content on local objects? | It renders pages in an isolated host, as the Mac's own browser would: web pages, and local files only inside the folders the Mac shares with the phone or a page the Mac's own browser already shows. No script URL or app scheme is opened. |
 | Mutates or destroys objects the session does not own? | No: a fresh cache per host, removed on exit; the person's browser profiles are not used. |
-| Reads local state the remote should not see? | Only what a web page sees in a fresh profile (no cookies, history or saved logins of the person), files in the shared folders (the same files the `file` previews read), and pages the Mac already shows. Top-level pages are never home itself, `~/.ssh`, `~/Library` or the other credential trees unless the Mac's own browser has that page open; a `file:` page that is allowed can still embed other local files (known gap above). |
+| Reads local state the remote should not see? | Only what a web page sees in a fresh profile (no cookies, history or saved logins of the person), files in the shared folders (the same files the `file` previews read), and pages the Mac already shows. Never home itself, `~/.ssh`, `~/Library` or the other credential trees unless the Mac's own browser has that page open (that page, not its folder's other files); the host checks every file load, subresources included. |
 
 ## Link transport: TURN over TLS, and no backend relay (`feat-cnx-ios-turntls`)
 

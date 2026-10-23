@@ -1,5 +1,6 @@
 import CmuxNextDesign
 import SwiftUI
+import CmuxNextHistory
 
 /// The vault: a search field over the session list. Rows get value snapshots
 /// and an action bundle only (the snapshot boundary rule).

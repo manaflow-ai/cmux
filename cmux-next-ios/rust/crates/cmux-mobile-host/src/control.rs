@@ -216,6 +216,7 @@ pub fn spawn_stdin_reader() -> Supplied {
             }
         }
         tracing::info!("control input ended; exiting");
+        crate::size_release::stop_and_release(crate::size_release::EXIT_WAIT).await;
         std::process::exit(0);
     });
     Supplied { token, acpmux, devices, identity, browser }

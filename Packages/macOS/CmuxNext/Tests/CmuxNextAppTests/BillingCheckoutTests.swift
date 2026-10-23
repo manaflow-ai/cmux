@@ -1,6 +1,7 @@
 @testable import CmuxNextApp
 import Foundation
 import Testing
+import CmuxNextAccounts
 
 /// `cmux billing checkout` (plans/cmux-next/paid-product-DESIGN.md sections 3-4): the page opens in
 /// a cmux browser tab when the cmux browser is signed in to Stripe Link, else in the default

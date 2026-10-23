@@ -17,6 +17,7 @@ on:
       - web/tests/vm-image-cmux-vm-lock.test.ts
       - web/tests/vm-image-cmux-vm-sshd.test.ts
       - web/tests/vm-image-cmux-vm-bake-workflow.test.ts
+      - web/tests/vm-image-cmux-vm-dev-tree.test.ts
       - .github/workflows/cloud-vm-image-lock.yml
       - .github/workflows/cloud-vm-image-bake.yml
   workflow_dispatch:
@@ -43,4 +44,4 @@ jobs:
         with:
           bun-version: "1.3.14"
       - run: bun install --frozen-lockfile
-      - run: bun test tests/vm-image-cmux-vm-lock.test.ts tests/vm-image-cmux-vm-sshd.test.ts tests/vm-image-cmux-vm-bake-workflow.test.ts
+      - run: bun test tests/vm-image-cmux-vm-lock.test.ts tests/vm-image-cmux-vm-sshd.test.ts tests/vm-image-cmux-vm-bake-workflow.test.ts tests/vm-image-cmux-vm-dev-tree.test.ts

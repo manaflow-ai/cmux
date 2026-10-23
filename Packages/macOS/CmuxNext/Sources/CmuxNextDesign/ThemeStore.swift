@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxTheme
 public import Observation
 import CmuxNextCompat
+public import CmuxNextDesignTokens
 
 /// A non-view object (controller, layer owner) that caches resolved theme
 /// colors and must refresh them on a theme change. Views need nothing: the

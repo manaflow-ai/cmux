@@ -365,6 +365,10 @@ jobs:
             export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed
           fi
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target ${{ matrix.build_target }}
+          # The terminal holder (std and libc only), its own invocation so its
+          # features do not unify with the daemon's. The daemon starts every
+          # holder from a copy of it found beside its own executable.
+          cargo build -p cmux-holder --bin cmux-holder --release --locked --target ${{ matrix.build_target }}
           # The app host runs each app's JS next to the daemon, which finds it
           # beside its own executable (cmux-tui-core::apps). Unix only.
           cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
@@ -429,6 +433,10 @@ jobs:
             export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed
           fi
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target ${{ matrix.build_target }}
+          # The terminal holder (std and libc only), its own invocation so its
+          # features do not unify with the daemon's. The daemon starts every
+          # holder from a copy of it found beside its own executable.
+          cargo build -p cmux-holder --bin cmux-holder --release --locked --target ${{ matrix.build_target }}
           # The app host runs each app's JS next to the daemon, which finds it
           # beside its own executable (cmux-tui-core::apps). Unix only.
           cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
@@ -500,7 +508,7 @@ jobs:
 
       - name: Build the macOS binaries on Linux (no Apple SDK)
         # Every binary the macOS legs below build (cmux-tui, cmux-tui-hook, cmux-tui-host,
-        # cmux-app-host, cmux-relay, chatmux-relay, acpmux, cmux-cloud,
+        # cmux-holder, cmux-app-host, cmux-relay, chatmux-relay, acpmux, cmux-cloud,
         # cmux-browser-host, cmux-agent-screen-detection), with the same stamps, into the same target
         # directory, so "Stage binary" is unchanged. scripts/ci/macos-cross.sh
         # says how; the cmux-tui-artifacts shadow job proves parity.
@@ -588,6 +596,14 @@ jobs:
             terminal_host_binary="dist/cmux-tui-host-${{ matrix.target }}"
             cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui-host" "$terminal_host_binary"
           fi
+          # The terminal holder rides the same way as cmux-tui-holder-<target>
+          # and installs as cmux-holder beside cmux-tui, where the daemon starts
+          # every terminal holder from (host_exe.rs). macOS only for now.
+          holder_binary=""
+          if [[ "$STAGE_TARGET" == *-apple-darwin ]]; then
+            holder_binary="dist/cmux-tui-holder-${{ matrix.target }}"
+            cp "cmux-tui/target/${{ matrix.target }}/release/cmux-holder" "$holder_binary"
+          fi
           # The bundled agent screen detector rides the same way as
           # cmux-tui-agent-screen-detection-<target> and installs as
           # cmux-agent-screen-detection beside cmux-tui. macOS only for now, and
@@ -622,6 +638,9 @@ jobs:
             fi
             if [[ -n "$terminal_host_binary" ]]; then
               cp "$terminal_host_binary" "dist/cmux-tui-host-${{ matrix.compatibility_target }}"
+            fi
+            if [[ -n "$holder_binary" ]]; then
+              cp "$holder_binary" "dist/cmux-tui-holder-${{ matrix.compatibility_target }}"
             fi
             if [[ -n "$agent_detector_binary" ]]; then
               cp "$agent_detector_binary" "dist/cmux-tui-agent-screen-detection-${{ matrix.compatibility_target }}"

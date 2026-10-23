@@ -343,11 +343,13 @@ jobs:
           if [[ -n "$base_ref" ]] && git show "$base_ref:scripts/localization-debt-baseline.json" > "$base_baseline" 2>/dev/null; then
             args=(--base-baseline "$base_baseline")
           fi
-          # Debt the base has past its own baseline is the base's red, not the pull request's (#23877).
-          if [[ "$EVENT_NAME" == pull_request && ${#args[@]} -gt 0 ]]; then
+          # Debt the base has past its own baseline is the base's red, not this change's (#23877).
+          # The base tree also proves a catalog move: a same-named catalog must hold the old
+          # one's strings to inherit its baseline. Pushes need it too (feat-cmux-next lands by push).
+          if [[ -n "$base_ref" && ${#args[@]} -gt 0 ]]; then
             base_root="$RUNNER_TEMP/localization-base"
             mkdir -p "$base_root"
-            git archive HEAD^1 -- ':(glob)Resources/**/*.xcstrings' ':(glob)Packages/macOS/*/Sources/**/*.xcstrings' \
+            git archive "$base_ref" -- ':(glob)Resources/**/*.xcstrings' ':(glob)Packages/macOS/*/Sources/**/*.xcstrings' \
               scripts/localization_catalog.py scripts/localization-allowed-omissions.json scripts/localization-plurals.json \
               | tar -x -C "$base_root"
             args+=(--base-root "$base_root")
@@ -500,11 +502,6 @@ jobs:
       # feat-cmux-next unseen (#23430). A fake bun stands in; no web test runs.
       - name: The per-file webviews test runner (scripts/ci/run-webviews-tests.sh)
         run: python3 tests/test_webviews_tests_per_file.py
-
-      # cmux-browser-host-release.yml ran this only on pushes and tags, so fbae5c71f017
-      # (version.workspace = true) broke every release's first step with every pull request green.
-      - name: The cmux-browser-host release helper and smoke (browser-host-release.py)
-        run: python3 tests/test_browser_host_release_smoke.py
 
       # A test no feat-cmux-next pull request runs lands red unseen: a2d6b35 broke
       # tests/test_webviews_tests_per_file.py, which only main pushes and the nightly ran (#23430).

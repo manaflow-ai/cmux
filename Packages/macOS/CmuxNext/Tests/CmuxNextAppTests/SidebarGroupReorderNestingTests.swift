@@ -111,15 +111,17 @@ import Testing
         if let landing = list.landing { list.finishLand(landing, then: nil) }
     }
 
-    /// A group dragged down past an open group goes after that whole group, not in among its members.
+    /// A group dragged down past an open group goes after that whole group, not in among its members. The slot
+    /// rule (`SidebarGroupDragPlan.slot`): the card's top passes the block's middle in the list without the card
+    /// (r is drawn below the open gap, so its base is its drawn place less the gap).
     @Test func aGroupDraggedPastAnOpenGroupGoesAfterItNotIntoIt() throws {
         let drops = Drops()
         let (list, window) = Self.list(drops)
         defer { window.close() }
         try Self.drag(list, "q") { card in
             let r = (try? Self.block(list, "r")) ?? 0...0
-            let mid = (r.lowerBound + r.upperBound) / 2 + SidebarGroupReorder.hysteresis(for: r.upperBound - r.lowerBound)
-            return mid + 1 - card.maxY
+            let mid = (r.lowerBound + r.upperBound) / 2 - list.displayed.gapShift
+            return mid + 1 - card.minY
         }
         Self.drop(list)
         #expect(drops.targets == [SidebarDocTarget(section: Self.section, after: "g_r")], "drops: \(drops.targets)")
@@ -131,15 +133,14 @@ import Testing
         let (list, window) = Self.list(drops)
         defer { window.close() }
         let p = try Self.block(list, "p")
-        let mid = (p.lowerBound + p.upperBound) / 2 - SidebarGroupReorder.hysteresis(for: p.upperBound - p.lowerBound)
+        let mid = (p.lowerBound + p.upperBound) / 2
         try Self.drag(list, "q") { card in mid - 1 - card.minY }
         Self.drop(list)
         #expect(drops.targets == [SidebarDocTarget(section: Self.section, after: "w_top")], "drops: \(drops.targets)")
     }
 
-    /// A group held where it was (below a parent with a subgroup) drops back after the parent, at the top level,
-    /// and the gap the list shows is after the subgroup, where it lands: not between the parent's members and its
-    /// subgroup.
+    /// A group held where it was (below a parent with a subgroup) shows its gap after the subgroup, where it came
+    /// from: not between the parent's members and its subgroup. Dropped there it moves nothing (no move is sent).
     @Test func aGroupHeldBelowAParentShowsItsGapAfterTheSubgroup() throws {
         let drops = Drops()
         let (list, window) = Self.list(drops)
@@ -149,8 +150,7 @@ import Testing
         let gapY = try #require(list.displayed.gapY, "no gap shows")
         #expect(gapY >= s.upperBound - 0.5, "the gap opens at \(gapY), inside the parent's block (subgroup ends at \(s.upperBound))")
         Self.drop(list)
-        #expect(drops.targets.allSatisfy { $0 == SidebarDocTarget(section: Self.section, after: "g_p") }, "drops: \(drops.targets)")
-        #expect(!drops.targets.isEmpty)
+        #expect(drops.targets.isEmpty, "a drop where the group came from sent \(drops.targets)")
     }
 
     /// A parent group lifts with its subgroup: the card carries the subgroup's header and members, and the gap it
@@ -186,6 +186,6 @@ import Testing
             row(.workspace(WorkspaceID("b")), 80, group: s, depth: 2),
             row(.workspace(WorkspaceID("x")), 100),
         ]
-        #expect(SidebarGroupReorder.blocks(of: rows) == [0...20, 20...100, 100...120])
+        #expect(SidebarGroupDragPlan.blocks(of: rows).map(\.range) == [0...20, 20...100, 100...120])
     }
 }

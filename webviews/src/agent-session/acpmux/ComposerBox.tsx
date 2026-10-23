@@ -1,6 +1,6 @@
 import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject } from "react";
 import type { ComposerAttachment } from "./attachments";
-import { AttachmentStrip, type PendingAttachment } from "./composer/attachmentIntake";
+import { AttachmentStrip, backspacedAttachment, type PendingAttachment } from "./composer/attachmentIntake";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
@@ -183,7 +183,17 @@ export function ComposerBox({
             // ui-allow: the prompt field's own editing keys (⌘⇧V's paste stays text), before the host's.
             onKeyDown={(event) => {
               // Every key belongs to the input method while it composes.
-              if (!event.isComposing && event.keyCode !== 229 && isPasteAsPlainTextKey(event)) pastedChips.plainPaste();
+              const composing = event.isComposing || event.keyCode === 229;
+              if (!composing && isPasteAsPlainTextKey(event)) pastedChips.plainPaste();
+              // Backspace at the prompt's start takes back the last chip (backspacedAttachment).
+              const backspaced = composing
+                ? undefined
+                : backspacedAttachment(event, prompt.current?.atStart() ?? false, attachments);
+              if (backspaced) {
+                event.preventDefault();
+                setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
+                return;
+              }
               onKeyDown?.(event);
             }}
           />

@@ -14,7 +14,7 @@ nonisolated enum ThemeActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "space.clearTheme",
                 title: String(localized: "action.space.clearTheme", defaultValue: "Reset Space Theme", table: "ThemeActions", bundle: .module),
-                keywords: ["room", "profile", "theme", "reset", "ghostty"], category: .workspace, symbol: "paintbrush.slash",
+                keywords: ["room", "profile", "theme", "reset", "ghostty"], category: .workspace, symbol: "eraser",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.profile], cliName: "space clear-theme"
             ),
             ActionDescriptor(
@@ -27,7 +27,7 @@ nonisolated enum ThemeActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "workspace.clearTheme",
                 title: String(localized: "action.workspace.clearTheme", defaultValue: "Reset Workspace Theme", table: "ThemeActions", bundle: .module),
-                keywords: ["workspace", "theme", "reset", "ghostty"], category: .workspace, symbol: "paintbrush.slash",
+                keywords: ["workspace", "theme", "reset", "ghostty"], category: .workspace, symbol: "eraser",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "workspace clear-theme"
             ),
             ActionDescriptor(
@@ -40,7 +40,7 @@ nonisolated enum ThemeActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "terminal.clearTheme",
                 title: String(localized: "action.terminal.clearTheme", defaultValue: "Reset Terminal Theme", table: "ThemeActions", bundle: .module),
-                keywords: ["terminal", "tab", "theme", "reset", "ghostty"], category: .terminal, symbol: "paintbrush.slash",
+                keywords: ["terminal", "tab", "theme", "reset", "ghostty"], category: .terminal, symbol: "eraser",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.tab], cliName: "terminal clear-theme"
             ),
         ]

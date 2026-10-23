@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "d3937e91d77494dd723249520f8f0083b62455acba407243fa4eaf1ee9ed2e49";
+inline constexpr std::string_view kProtocolIrSha256 = "5d3ff5ed972a33f5c4bb6a49a9dd6aeed437faa9b1ef702813aa5522af7f0eb0";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -3951,8 +3951,10 @@ struct NewRowRequest {
     std::uint64_t height_permille{};
     std::optional<bool> keep{};
     Id pane{};
+    Field<std::string> pane_id{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
+    Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> transaction{};
     friend bool operator==(const NewRowRequest&, const NewRowRequest&) = default;
@@ -3960,7 +3962,9 @@ struct NewRowRequest {
 
 struct NewRowResult {
     Id pane{};
+    std::optional<std::string> pane_id{};
     Id surface{};
+    std::optional<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> terminal_incarnation{};
     std::optional<std::string> transaction{};
