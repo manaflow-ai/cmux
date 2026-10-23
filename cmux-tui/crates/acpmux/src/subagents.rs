@@ -171,10 +171,15 @@ impl SubagentTree {
                         .and_then(|s| s.get(id))
                         .and_then(|s| s.get("status"))
                         .and_then(Value::as_str);
-                    let parent = sender
-                        .and_then(|sender| self.authoritative_parent(sender))
-                        .or_else(|| owner.map(str::to_owned));
-                    let mut event = self.spawn_with_parent(id, parent.as_deref());
+                    let (parent, authoritative) = match sender {
+                        Some(sender) => (self.authoritative_parent(sender), true),
+                        None => (owner.map(str::to_owned), false),
+                    };
+                    let mut event = if authoritative {
+                        self.spawn_authoritative(id, parent.as_deref())
+                    } else {
+                        self.spawn_with_parent(id, parent.as_deref())
+                    };
                     if let Some(task) = task {
                         event.insert("task".into(), json!(task));
                     }
@@ -217,6 +222,19 @@ impl SubagentTree {
     /// event with its id and parent.
     fn spawn(&mut self, id: &str, owner: Option<&str>) -> Map<String, Value> {
         self.spawn_with_parent(id, owner)
+    }
+
+    fn spawn_authoritative(&mut self, id: &str, parent: Option<&str>) -> Map<String, Value> {
+        let parent = parent.map(str::to_owned);
+        let stored = self.parents.entry(id.to_owned()).or_insert_with(|| parent.clone());
+        if *stored != parent {
+            *stored = parent;
+        }
+        let current = stored.clone();
+        let mut event = Map::new();
+        event.insert("id".into(), json!(id));
+        event.insert("parent".into(), json!(current));
+        event
     }
 
     fn spawn_with_parent(&mut self, id: &str, parent: Option<&str>) -> Map<String, Value> {
@@ -406,5 +424,62 @@ mod codex_tests {
         );
         assert_eq!(nested[0]["id"], helper);
         assert_eq!(nested[0]["parent"], child);
+    }
+
+    #[test]
+    fn a_known_root_sender_clears_a_wrong_parent_even_on_a_child_session_update() {
+        let mut tree = SubagentTree::default();
+        let root = "root-native-thread";
+        let child = "review-thread";
+        let prior_art = "prior-art-thread";
+        tree.set_root(root);
+        let _ = subagents_for(
+            &mut tree,
+            "acp-root",
+            json!({"sessionUpdate": "tool_call", "toolCallId": "spawn-review",
+                   "rawInput": {"prompt": "Review", "agentsStates": {}},
+                   "_meta": {"codex": {"collaboration": {"tool": "spawnAgent",
+                     "senderThreadId": root, "receiverThreadIds": [child]}}}}),
+        );
+        // Simulate a malformed persisted first record; the next authoritative
+        // root call must normalize it to a direct child.
+        let malformed = subagents_for(
+            &mut tree,
+            child,
+            json!({"sessionUpdate": "tool_call", "toolCallId": "old-spawn",
+                   "rawInput": {"prompt": "Prior art", "agentsStates": {}},
+                   "_meta": {"codex": {"collaboration": {"tool": "spawnAgent",
+                     "receiverThreadIds": [prior_art]}}}}),
+        );
+        assert_eq!(malformed[0]["parent"], child);
+        let repaired = subagents_for(
+            &mut tree,
+            child,
+            json!({"sessionUpdate": "tool_call_update", "toolCallId": "root-replay",
+                   "rawInput": {"prompt": "Prior art", "agentsStates": {}},
+                   "_meta": {"codex": {"collaboration": {"tool": "spawnAgent",
+                     "senderThreadId": root, "receiverThreadIds": [prior_art]}}}}),
+        );
+        assert_eq!(repaired[0]["parent"], Value::Null);
+    }
+
+    #[test]
+    fn an_unseen_sender_does_not_fall_back_to_the_update_owner() {
+        let mut tree = SubagentTree::default();
+        let owner = "known-child";
+        let _ = subagents_for(
+            &mut tree,
+            "acp-root",
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": owner}),
+        );
+        let child = subagents_for(
+            &mut tree,
+            owner,
+            json!({"sessionUpdate": "tool_call", "toolCallId": "unknown-sender",
+                   "rawInput": {"prompt": "Unknown", "agentsStates": {}},
+                   "_meta": {"codex": {"collaboration": {"tool": "spawnAgent",
+                     "senderThreadId": "unseen-child", "receiverThreadIds": ["grandchild"]}}}}),
+        );
+        assert_eq!(child[0]["parent"], Value::Null);
     }
 }
