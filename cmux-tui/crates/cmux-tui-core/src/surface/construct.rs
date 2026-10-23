@@ -188,6 +188,25 @@ impl Surface {
         let mut host_start_failed = false;
         #[cfg(not(windows))]
         let host_start_failed = false;
+        // The holder runs the shell; this daemon parses it (holder_runtime).
+        #[cfg(unix)]
+        if lifetime == PtyLifetime::SessionOwned
+            && crate::holder_runtime::enabled()
+            && let Some(host_root) = opts.terminal_host_root.clone()
+        {
+            return Self::spawn_on_holder(HolderSpawn {
+                id,
+                opts,
+                mux,
+                host_root,
+                terminal_id: launch.terminal_id,
+                terminal_public_id,
+                resource_identity,
+                kitty_reservation,
+                initial_kitty_limits,
+                cell_pixels,
+            });
+        }
         #[cfg(any(unix, windows))]
         if lifetime == PtyLifetime::SessionOwned
             && let Some(root) = opts.terminal_host_root.clone()
@@ -306,6 +325,8 @@ impl Surface {
             command: argv,
             cwd,
             supports_clear_history_key_fallback,
+            #[cfg(unix)]
+            holder: None,
         };
         let spawn = LocalSpawn {
             id,
@@ -318,6 +339,7 @@ impl Surface {
             lifetime,
             cell_pixels,
             initial_geometry,
+            host_identity: None,
         };
         let surface = Self::spawn_local(spawn, launch)?;
         if host_start_failed {

@@ -73,9 +73,9 @@ impl HolderClient {
         };
         let mut listed = Vec::new();
         while listed.len() < count as usize {
-            let frame = client.frame(deadline)?;
+            let mut frame = client.frame(deadline)?;
             if frame.kind == Kind::Listed as u16 {
-                listed.push(Listed::decode(frame.chan, &frame.payload)?);
+                listed.push(Listed::decode(frame.chan, &frame.payload, frame.fds.pop())?);
             }
         }
         Ok((client, listed))

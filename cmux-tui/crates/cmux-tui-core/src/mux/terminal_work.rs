@@ -185,7 +185,8 @@ impl Mux {
     ) -> anyhow::Result<Option<String>> {
         #[cfg(any(unix, windows))]
         {
-            if !self.uses_terminal_host_runtime() {
+            // Holder terminals start in their create: no host process to launch ahead.
+            if !self.uses_terminal_host_runtime() || holder_model() {
                 return Ok(None);
             }
             let target = {
@@ -299,7 +300,8 @@ impl Mux {
         &self,
         opts: &SurfaceOptions,
     ) -> Option<crate::terminal_host_runtime::StandbyTerminalHost> {
-        if !self.uses_terminal_host_runtime() || opts.terminal_host_root.is_none() {
+        if !self.uses_terminal_host_runtime() || opts.terminal_host_root.is_none() || holder_model()
+        {
             return None;
         }
         let spare = self.terminal_work.standby.take();
@@ -430,4 +432,12 @@ mod tests {
         assert!(peak <= MAX_TERMINAL_WORKERS, "peak {peak} workers");
         assert!(peak > 1, "jobs did not overlap");
     }
+}
+
+/// New terminals run on the holder (`holder_runtime`), not on host processes.
+fn holder_model() -> bool {
+    #[cfg(unix)]
+    return crate::holder_runtime::enabled();
+    #[cfg(not(unix))]
+    false
 }

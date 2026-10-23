@@ -292,7 +292,7 @@ impl Holder {
         if let Some(link) = self.link.as_mut() {
             link.authed = true;
         }
-        let listed: Vec<(u32, Vec<u8>)> = self
+        let listed: Vec<(u32, Vec<u8>, Option<OwnedFd>)> = self
             .terminals
             .iter()
             .map(|(chan, terminal)| {
@@ -303,14 +303,15 @@ impl Holder {
                     oldest: terminal.ring.oldest(),
                     end: terminal.ring.end(),
                     exited: terminal.eof && (terminal.status.is_some() || !terminal.own_child),
+                    master: None,
                 };
-                (*chan, listed.encode())
+                (*chan, listed.encode(), terminal.master.try_clone().ok())
             })
             .collect();
         let welcome = Out::default().u16(wire::VERSION).u32(listed.len() as u32).0;
         self.queue(Kind::Welcome, 0, &welcome, None);
-        for (chan, payload) in listed {
-            self.queue(Kind::Listed, chan, &payload, None);
+        for (chan, payload, master) in listed {
+            self.queue(Kind::Listed, chan, &payload, master);
         }
         true
     }

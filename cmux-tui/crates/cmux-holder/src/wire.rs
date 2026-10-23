@@ -51,7 +51,7 @@ pub enum Kind {
     /// h->d: `status_kind u8` (0 exited, 1 signaled, 2 unobserved), `code i32, end u64`.
     Exit = 13,
     /// h->d: one terminal in a [`Kind::Welcome`]: `pid i32, oldest u64, end u64,
-    /// exited u8, id [u8; 16]`.
+    /// exited u8, id [u8; 16]`, plus one descriptor: a dup of its master.
     Listed = 14,
     /// h->d: `request_kind u16, code u16`, then a UTF-8 message.
     Error = 15,
@@ -89,7 +89,7 @@ impl Kind {
 
     /// Descriptors a frame of this kind carries.
     pub fn descriptors(self) -> usize {
-        matches!(self, Kind::Spawned | Kind::Adopt) as usize
+        matches!(self, Kind::Spawned | Kind::Adopt | Kind::Listed) as usize
     }
 }
 
@@ -229,9 +229,9 @@ fn send_flags() -> libc::c_int {
 /// One `recvmsg`; descriptors that arrive are returned owned (close-on-exec).
 fn recv_with_fds(fd: RawFd, buf: &mut [u8]) -> io::Result<(usize, Vec<OwnedFd>)> {
     let mut iov = libc::iovec { iov_base: buf.as_mut_ptr().cast(), iov_len: buf.len() };
-    // Room for 16 descriptors per read.
+    // Room for 253 descriptors per read (Linux SCM_MAX_FD): a WELCOME passes one per terminal.
     // SAFETY: CMSG_SPACE computes a size from a length.
-    let space = unsafe { libc::CMSG_SPACE((16 * size_of::<RawFd>()) as u32) as usize };
+    let space = unsafe { libc::CMSG_SPACE((253 * size_of::<RawFd>()) as u32) as usize };
     let mut control = vec![0u8; space];
     // SAFETY: zeroed msghdr is a valid empty header.
     let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };

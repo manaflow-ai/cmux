@@ -77,8 +77,9 @@ impl SpawnRequest {
     }
 }
 
-/// One terminal a holder reports in its [`wire::Kind::Welcome`].
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// One terminal a holder reports in its [`wire::Kind::Welcome`], with a dup
+/// of its PTY master: a restarted daemon's custody copy.
+#[derive(Debug)]
 pub struct Listed {
     pub chan: u32,
     pub id: [u8; 16],
@@ -88,6 +89,8 @@ pub struct Listed {
     /// Offset after the newest output byte.
     pub end: u64,
     pub exited: bool,
+    /// The custody dup of the master (`None` from the holder's own encode).
+    pub master: Option<std::os::fd::OwnedFd>,
 }
 
 impl Listed {
@@ -101,9 +104,14 @@ impl Listed {
             .0
     }
 
-    pub(crate) fn decode(chan: u32, payload: &[u8]) -> io::Result<Self> {
+    pub(crate) fn decode(
+        chan: u32,
+        payload: &[u8],
+        master: Option<std::os::fd::OwnedFd>,
+    ) -> io::Result<Self> {
         let mut input = wire::In(payload);
         Ok(Self {
+            master,
             chan,
             pid: input.i32()?,
             oldest: input.u64()?,
