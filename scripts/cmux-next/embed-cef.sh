@@ -32,7 +32,7 @@ FW_NAME="Chromium Embedded Framework.framework"
 FW_BINARY="Chromium Embedded Framework"
 source "$SCRIPT_DIR/cef-locale-allowlist.sh"
 # Bump when the embedded layout changes so existing app bundles are redone.
-LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs"
+LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs-arm64-no-swiftshader"
 
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 frameworks="$app/Contents/Frameworks"
@@ -170,6 +170,17 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
     ditto "$cef_dir/$FW_NAME/$item" "$fw/Versions/A/$item"
   done
   prune_cef_locales "$fw/Versions/A/Resources"
+  # SwiftShader (software Vulkan, 16 MB) and the Vulkan loader it needs are
+  # only a fallback for a GPU Chromium cannot use. Every Apple Silicon Mac
+  # has a Metal GPU, Chromium 154 no longer falls back to SwiftShader for
+  # WebGL without --enable-unsafe-swiftshader (cmux never passes it), and CEF
+  # dlopens both, so a missing file is a no-op. An arm64-only app drops them;
+  # an app with an Intel slice keeps them for Intel Macs with a blocklisted GPU.
+  if [[ "${shim_archs[*]}" == "arm64" ]]; then
+    rm -f "$fw/Versions/A/Libraries/libvk_swiftshader.dylib" \
+      "$fw/Versions/A/Libraries/vk_swiftshader_icd.json" \
+      "$fw/Versions/A/Libraries/libvulkan.dylib"
+  fi
   # CEF's dylibs ship with local symbols and debug stabs (7 MiB in
   # libvk_swiftshader.dylib). Drop them before signing; exported symbols stay
   # for the Vulkan loader's dlsym.
