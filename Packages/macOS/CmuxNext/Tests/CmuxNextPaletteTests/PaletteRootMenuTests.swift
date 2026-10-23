@@ -19,12 +19,34 @@ struct PaletteRootMenuTests {
     @Test func emptyRootHasABoundedSetOfUsefulIntents() throws {
         let items = try catalogProvider().makeItems()
         let visible = items.filter { !$0.hidesWhenQueryEmpty }
-        #expect(visible.count <= 138)
+        #expect(visible.count == 138)
+        #expect(RegistryPaletteProvider.rootIntentIDs.count == 130)
         let actions = Set(visible.compactMap(\.actionID))
         for id: ActionID in ["newTab", "newTab.default", "newSurface", "closeTab", "renameTab", "splitRight", "openSettings"] {
             #expect(actions.contains(id), "\(id) remains a direct root intent")
         }
         #expect(visible.filter { $0.id.hasPrefix("rootFamily:") }.count == 8)
+    }
+
+    @Test func curationPreservesTheCatalogAndOnlyChangesTheRoot() throws {
+        let root = try catalogProvider()
+        let all = RegistryPaletteProvider(registry: root.registry, includeUnbound: true).makeItems()
+        let curated = root.makeItems()
+        #expect(Set(curated.compactMap(\.actionID)) == Set(all.compactMap(\.actionID)))
+        #expect(RegistryPaletteProvider.rootIntentIDs.isSubset(of: Set(all.compactMap(\.actionID))))
+        #expect(all.first { $0.actionID == "history.commands" }?.hidesWhenQueryEmpty == false)
+        #expect(curated.first { $0.actionID == "history.commands" }?.hidesWhenQueryEmpty == true)
+        print("Palette root: \(all.filter { !$0.hidesWhenQueryEmpty }.count) -> \(curated.filter { !$0.hidesWhenQueryEmpty }.count); searchable actions: \(all.compactMap(\.actionID).count)")
+    }
+
+    @Test func unboundAndDebugCommandsNeverEnterTheEmptyRoot() {
+        let registry = ActionRegistry.standard()
+        let provider = RegistryPaletteProvider(registry: registry, includeUnbound: true)
+        provider.curatesEmptyRoot = true
+        #expect(provider.makeItems().allSatisfy(\.hidesWhenQueryEmpty))
+        registry.bind("newSurface") {}
+        let visible = provider.makeItems().filter { !$0.hidesWhenQueryEmpty }
+        #expect(Set(visible.map(\.id)) == ["action:newSurface", "rootFamily:tab"])
     }
 
     @Test func everyActionRemovedFromTheRootStillResolvesByNameAndID() throws {
