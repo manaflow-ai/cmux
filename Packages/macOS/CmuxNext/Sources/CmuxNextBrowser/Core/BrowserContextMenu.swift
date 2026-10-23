@@ -179,7 +179,4 @@ public final class BrowserContextMenuRequest {
     public func complete(_ id: Int?) {
         reply.complete(id)
     }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {}
 }
