@@ -48,6 +48,8 @@ ALLOWED_LISTENERS = {
     "page is focused with nothing in it focused (#22456), as composerFocus.ts does; reads no data",
     (f"{ACPMUX}/newtab/listMotion.ts", "visibilitychange"): "cancels the list's own motion when "
     "the page hides; reads no data",
+    (f"{ACPMUX}/wheelGlide.ts", "visibilitychange"): "ends a mouse wheel's glide when the page "
+    "hides, only while one runs (#24327); reads no data",
     (f"{ACPMUX}/subagents/SubagentGroup.tsx", "visibilitychange"): "`useNow` rests the running "
     "tray's and cards' one-second clock while the page hides and catches it up on show; reads no "
     "data",

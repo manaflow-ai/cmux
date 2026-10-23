@@ -67,12 +67,13 @@ const ease = (t: number) => 1 - (1 - t) ** 3;
 ///
 /// Stop conditions: the glide's frame loop ends when it has covered its distance or reached an end,
 /// at a trackpad's (or modified, sideways or nested scroller's) wheel event, at the reader's press,
-/// touch or key anywhere in the page, when the scroller is hidden, and on `stop()` (Jump to latest,
-/// a switch to another chat). Cleanup:
-/// the returned remover ends a glide in flight and removes the wheel and scroll listeners (the page
-/// listeners live only while a glide runs).
+/// touch or key anywhere in the page, when the scroller or the page is hidden, and on `stop()` (Jump
+/// to latest, a switch to another chat). Cleanup: the returned remover ends a glide in flight and
+/// removes the wheel and scroll listeners (the page's input and visibility listeners live only while
+/// a glide runs).
 export function installWheelGlide(scroller: HTMLElement): { stop: () => void; remove: () => void } {
-  const page = scroller.ownerDocument.defaultView ?? window;
+  const doc = scroller.ownerDocument;
+  const page = doc.defaultView ?? window;
   let frame = 0;
   /// Distance this glide covers from its start, how much of it is done, and when it started.
   let distance = 0;
@@ -91,10 +92,16 @@ export function installWheelGlide(scroller: HTMLElement): { stop: () => void; re
     distance = 0;
     done = 0;
     for (const name of READER_INPUTS) page.removeEventListener(name, stop, true);
+    doc.removeEventListener("visibilitychange", onVisibility);
+  };
+  /// A page hidden mid-glide (another tab, a hidden workspace, the app in the background): WebKit
+  /// holds a hidden page's frames, and the first one back would finish the glide in one jump.
+  const onVisibility = () => {
+    if (doc.hidden) stop();
   };
   const step = (now: number) => {
     // A pane hidden mid-glide has no height: the glide ends where it is.
-    if (scroller.clientHeight === 0) {
+    if (scroller.clientHeight === 0 || doc.hidden) {
       stop();
       return;
     }
@@ -129,7 +136,8 @@ export function installWheelGlide(scroller: HTMLElement): { stop: () => void; re
       stop();
       return;
     }
-    if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
+    // A diagonal one, as much sideways as down, is the engine's too (wheelPassThrough's rule).
+    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
       stop();
       return;
     }
@@ -165,6 +173,7 @@ export function installWheelGlide(scroller: HTMLElement): { stop: () => void; re
     if (!gliding) {
       // Captured on the window: the press on Jump to latest or the minimap lands outside the scroller.
       for (const name of READER_INPUTS) page.addEventListener(name, stop, { capture: true, passive: true });
+      doc.addEventListener("visibilitychange", onVisibility);
       frame = requestAnimationFrame(step);
     }
   };
