@@ -268,11 +268,18 @@ const CHECKPOINTER_PRAGMAS: &str = "PRAGMA fullfsync=OFF;";
 
 /// Flush the WAL file to stable storage. A missing WAL was checkpointed
 /// into the database and removed, which SQLite syncs itself.
+///
+/// Two steps, so a commit landing meanwhile never waits for the slow one: a
+/// plain fsync writes the WAL's pages and metadata to the drive (it holds the
+/// file only that long), then F_FULLFSYNC of a separate empty file
+/// (`<database>-durability`) asks the drive to flush its whole cache, the
+/// WAL's pages with it. An F_FULLFSYNC of the WAL itself held the WAL for
+/// the cache flush too (about 4.5 ms), and the next commit's write waited.
 fn flush(shared: &Shared) {
     if let Some(delay) = shared.slow_flush {
         std::thread::sleep(delay);
     }
-    let file = match File::options().read(true).write(true).open(&shared.wal_path) {
+    let wal = match File::options().read(true).write(true).open(&shared.wal_path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
         Err(error) => {
@@ -280,28 +287,45 @@ fn flush(shared: &Shared) {
             return;
         }
     };
-    if let Err(error) = full_sync(&file) {
+    if let Err(error) = wal.sync_data() {
         eprintln!("cmux-tui: WAL flush failed: {error}");
+        return;
+    }
+    drop(wal);
+    if let Err(error) = flush_drive_cache(shared) {
+        eprintln!("cmux-tui: drive cache flush failed: {error}");
     }
 }
 
-/// F_FULLFSYNC on macOS (the device cache too, as SQLite's `fullfsync=ON`),
-/// else fdatasync. Unit tests use a plain fsync, as their registries do
-/// (`REGISTRY_FULLFSYNC_PRAGMA`).
-fn full_sync(file: &File) -> std::io::Result<()> {
+/// F_FULLFSYNC of the database's empty sidecar file: the drive writes its
+/// whole cache to stable storage (as SQLite's `fullfsync=ON` did per
+/// commit). Off macOS, and in unit tests (as their registries,
+/// `REGISTRY_FULLFSYNC_PRAGMA`), the WAL's fsync was already durable.
+fn flush_drive_cache(shared: &Shared) -> std::io::Result<()> {
     #[cfg(all(target_os = "macos", not(test)))]
     {
         use std::os::fd::AsRawFd;
-        // SAFETY: fcntl on an fd this function borrows for the call.
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut path = shared.database_path.as_os_str().to_owned();
+        path.push("-durability");
+        let file = File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(PathBuf::from(path))?;
+        // SAFETY: fcntl on an fd this function owns for the call.
         if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_FULLFSYNC) } == 0 {
             return Ok(());
         }
-        // Some file systems refuse F_FULLFSYNC; SQLite falls back the same way.
-        file.sync_data()
+        Err(std::io::Error::last_os_error())
     }
     #[cfg(not(all(target_os = "macos", not(test))))]
     {
-        file.sync_data()
+        let _ = shared;
+        Ok(())
     }
 }
 
