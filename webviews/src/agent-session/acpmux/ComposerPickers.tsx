@@ -423,20 +423,26 @@ export function ComposerPickers({
   // A combo for another model sends the model first, then its effort once the
   // agent reports that model and offers the effort; anything else drops it.
   const pending = useRef<
-    { sessionId?: string; from?: string; model: string; effort: string; reached?: boolean } | undefined
+    { sessionId?: string; early?: boolean; from?: string; model: string; effort: string; reached?: boolean } | undefined
   >(undefined);
   const effortId = effort?.id;
   const effortValues = (effort?.options ?? []).map((option) => option.value).join("\u0000");
   useEffect(() => {
     const wanted = pending.current;
     if (!wanted) return;
+    const sessionId = summary?.sessionId || undefined;
+    // A pick made before the chat had a session (a New Tab's deferred chat, whose id is empty until
+    // acpmux reports it) belongs to the session that chat reports first; a later change still drops it.
+    wanted.sessionId ??= sessionId;
     // Dropped on a session switch, or once the session moves off the picked model (or never reaches it).
-    const away = current !== wanted.model && (current !== wanted.from || wanted.reached);
-    if (wanted.sessionId !== summary?.sessionId || away) {
+    // Before its session a chat draws the pick back as its model, and the session can first report
+    // the model the agent started on: an early pick is away only once the session reached it.
+    const away = current !== wanted.model && (wanted.reached || (!wanted.early && current !== wanted.from));
+    if (wanted.sessionId !== sessionId || away) {
       pending.current = undefined;
       return;
     }
-    if (current === wanted.model) wanted.reached = true;
+    if (current === wanted.model && sessionId) wanted.reached = true;
     if (current !== wanted.model || !effortId || !effortValues.split("\u0000").includes(wanted.effort)) return;
     pending.current = undefined;
     if (wanted.effort !== currentEffort) onEffort(effortId, wanted.effort);
@@ -451,7 +457,13 @@ export function ComposerPickers({
     if (harness && remembers) rememberPick({ harness, model: pickedModel }, folder ?? summary?.cwd);
     if (pickedModel !== shown) {
       pending.current = pickedEffort
-        ? { sessionId: summary?.sessionId, from: current, model: pickedModel, effort: pickedEffort }
+        ? {
+            sessionId: summary?.sessionId || undefined,
+            early: !summary?.sessionId,
+            from: current,
+            model: pickedModel,
+            effort: pickedEffort,
+          }
         : undefined;
       onModel(pickedModel);
     } else if (
@@ -483,7 +495,7 @@ export function ComposerPickers({
     // The model already runs: fast mode changes now; else once the agent reports the model.
     if (picked.model === current && fastMode) {
       if (fastMode.currentValue !== fastMode.onValue) fastMode.onPick(fastMode.onValue);
-    } else fastWanted.current = { sessionId: summary?.sessionId, model: picked.model };
+    } else fastWanted.current = { sessionId: summary?.sessionId || undefined, model: picked.model };
   };
   const switchFailed = snapshot.switching?.phase === "failed";
   useEffect(() => {
@@ -509,7 +521,10 @@ export function ComposerPickers({
   useEffect(() => {
     const wanted = fastWanted.current;
     if (!wanted) return;
-    if (wanted.sessionId !== summary?.sessionId) {
+    // As with the effort, a pick made before the session binds to the first one its chat reports.
+    const sessionId = summary?.sessionId || undefined;
+    wanted.sessionId ??= sessionId;
+    if (wanted.sessionId !== sessionId) {
       fastWanted.current = undefined;
       return;
     }
