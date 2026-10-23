@@ -763,7 +763,7 @@ function Block({
     case "blockquote":
       return (
         <blockquote className={`cv-quote${motion}`}>
-          <Blocks blocks={block.children} opts={opts} depth={depth} />
+          <Blocks blocks={block.children} opts={opts} depth={depth} plain={code === "plain"} />
         </blockquote>
       );
     case "list": {
@@ -784,7 +784,9 @@ function Block({
                 {i === block.items.length - 1 && !it.children.length ? inline(it.text) : renderInline(it.text, opts)}
               </span>
               <ItemThumbs text={it.text} opts={opts} streaming={Boolean(tail) && i === block.items.length - 1} />
-              {it.children.length > 0 && <Blocks blocks={it.children} opts={opts} depth={depth + 1} />}
+              {it.children.length > 0 && (
+                <Blocks blocks={it.children} opts={opts} depth={depth + 1} plain={code === "plain"} />
+              )}
             </li>
           ))}
         </L>
@@ -827,12 +829,24 @@ function ItemThumbs({ text, opts, streaming }: { text: string; opts: InlineOptio
   ) : null;
 }
 
-function Blocks({ blocks, opts, depth }: { blocks: MdBlock[]; opts: InlineOptions; depth: number }) {
+/// Nested blocks (a quote's, a list item's). `plain` keeps the outer Markdown's plain fences
+/// (`plainCode`) inside them too: no diagram or render card at any depth.
+function Blocks({
+  blocks,
+  opts,
+  depth,
+  plain = false,
+}: {
+  blocks: MdBlock[];
+  opts: InlineOptions;
+  depth: number;
+  plain?: boolean;
+}) {
   return (
     <>
       {blocks.map((b, i) => (
         <Fragment key={i}>
-          <Block block={b} opts={opts} depth={depth} />
+          <Block block={b} opts={opts} depth={depth} code={plain ? "plain" : undefined} />
         </Fragment>
       ))}
     </>

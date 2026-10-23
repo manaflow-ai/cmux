@@ -176,6 +176,7 @@ nonisolated extension ActionSurfaceCatalog {
         "cloudNewTerminal": [p(.cloudMachine, .create, 0)],
         "cloudOpenMachine": [p(.cloudMachine, .create, 1)],
         "cloudSSH": [p(.cloudMachine, .create, 2)],
+        "cloudSetupGitHub": [p(.cloudMachine, .create, 3)],
         "cloudMove": [p(.tab, .move, 399, folder: .move), p(.agentChat, .move, 0)],
         "cloudBringBack": [p(.tab, .move, 398, folder: .move), p(.agentChat, .move, 1)],
         "cloudRenameMachine": [p(.cloudMachine, .identity, 2)],

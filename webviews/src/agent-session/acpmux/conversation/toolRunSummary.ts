@@ -5,10 +5,8 @@ import { pathKey, toolCanonical, type AcpmuxActivity } from "../model";
 import { editedPaths } from "../toolPaths";
 import { mcpCall } from "./mcpCalls";
 
-/// What a call did, in the order a run's summary names them.
+/// What a call did.
 export type ToolRunCategory = "used" | "edited" | "read" | "searched" | "web" | "ran";
-
-const ORDER: ToolRunCategory[] = ["used", "edited", "read", "searched", "web", "ran"];
 
 /// ACP tool kinds (`ToolKind`) to the summary's categories.
 export function toolRunCategory(kind?: string): ToolRunCategory {
@@ -43,10 +41,23 @@ export function isFoldedRun(items: readonly AcpmuxActivity[]): boolean {
   return items.filter((item) => item.tool).length >= 2;
 }
 
-/// The categories a run's calls fall in, in summary order.
+/// The categories a run's calls fall in, in the order the run first did each, as the Codex app
+/// names a collapsed run ("Edited files, read files, ran commands"; Leo 2026-10-22: "this is
+/// pretty good ui: … the collapsing i mean").
 export function toolRunCategories(items: readonly AcpmuxActivity[]): ToolRunCategory[] {
-  const present = new Set(items.filter((item) => item.tool).map((item) => callCategory(item.tool!)));
-  return ORDER.filter((category) => present.has(category));
+  return [...new Set(items.filter((item) => item.tool).map((item) => callCategory(item.tool!)))];
+}
+
+/// The run's main kind of work, for its glyph: edits when it made any (what the run changed), else
+/// the category with the most calls, the earlier one on a tie.
+export function mainToolRunCategory(items: readonly AcpmuxActivity[]): ToolRunCategory | undefined {
+  const counts = new Map<ToolRunCategory, number>();
+  for (const item of items)
+    if (item.tool) counts.set(callCategory(item.tool), (counts.get(callCategory(item.tool)) ?? 0) + 1);
+  if (counts.has("edited")) return "edited";
+  let main: ToolRunCategory | undefined;
+  for (const [category, n] of counts) if (main === undefined || n > counts.get(main)!) main = category;
+  return main;
 }
 
 /// "Read 6 files, ran 4 commands", in the language `t` speaks, counted as Claude desktop counts a
