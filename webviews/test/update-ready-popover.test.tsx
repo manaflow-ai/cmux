@@ -172,6 +172,79 @@ test("the popup and the card read notes published before the readable rules as t
   expect(host.querySelector(".wn-card-line")).toBeNull();
 });
 
+// Review of #22099: the popover's scrolling list (`rest`, every change after the first three) and the
+// card's summary read through the same rules as the first three. An internal line, a title cut with
+// "…" and a repeat of a change already shown never reach either surface.
+test("every change after the first three reads as the first three do, on the popup and the card", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { UpdateReadyHighlights, UpdatedCard } = await import("../src/pages/changelog/UpdateSurfaces");
+  const { createStrings } = await import("../src/pages/shared/i18n");
+  const table = (await import("../src/pages/changelog/generated/strings.json")).default;
+  const data = {
+    version: "1.0.0-nightly.3917159104301",
+    build: "3917159104301",
+    fromVersion: "1.0.0-nightly.3917061587901",
+    fromBuild: "3917061587901",
+    date: "2026-10-19",
+    source: "summary" as const,
+    language: "en",
+    items: [
+      {
+        id: "summary-0",
+        title: "Keep the Mac awake while agents work",
+        summary: null,
+        category: "fixed" as const,
+      },
+    ],
+    rest: [
+      {
+        id: "summary-3",
+        title: "Cmux NEXT perf-fanout: a restored New Tab page reads no tab…",
+        summary: "Cmux NEXT perf-fanout: a restored New Tab page reads no tab list in its pane's snapshot",
+        category: "improved" as const,
+      },
+      {
+        id: "summary-4",
+        title: "Terminals show background art through the glass, like the…",
+        summary: "Terminals show background art through the glass, like the other panes",
+        category: "improved" as const,
+      },
+      {
+        id: "summary-5",
+        title: "Keep the Mac awake while agents work",
+        summary: null,
+        category: "fixed" as const,
+      },
+    ],
+    moreCount: 3,
+    changelog: { from: "1.0.0-nightly.3917061587901", to: "1.0.0-nightly.3917159104301" },
+  };
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <UpdateReadyHighlights data={data} strings={createStrings(table)} actions={{ openChangelog: () => undefined }} />,
+    ),
+  );
+  const rest = [...host.querySelectorAll(".wn-pop-rest li")].map((li) => li.textContent ?? "");
+  expect(rest).toHaveLength(1);
+  expect(rest[0]).toMatch(/^Terminals show background art through the glass/);
+  expect(rest[0]).not.toContain("…");
+  const text = host.textContent ?? "";
+  expect(text).not.toMatch(/perf-fanout/i);
+  expect(text.split("Keep the Mac awake while agents work").length - 1).toBe(1);
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <UpdatedCard data={data} strings={createStrings(table)} actions={{ openChangelog: () => undefined }} />,
+    ),
+  );
+  const card = host.textContent ?? "";
+  expect(card).not.toMatch(/perf-fanout/i);
+  expect(card).not.toContain("…");
+});
+
 // Notes with screenshots (Leo 2026-10-19): a change's picture shows inline at the popover's width,
 // in the theme's scheme, and a click on it opens the notes, where it shows larger.
 test("a change's picture shows inline and a click on it opens the notes", async () => {
