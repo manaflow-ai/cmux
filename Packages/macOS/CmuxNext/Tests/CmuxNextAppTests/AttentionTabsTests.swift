@@ -4,6 +4,8 @@ import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextPalette
+import CmuxNextRemote
+import Foundation
 import Testing
 
 /// tab-attention-v1's two ways to the tab: Needs you's `tab` items and the palette's Go to What
@@ -28,13 +30,13 @@ struct AttentionTabsTests {
         let (store, tabs) = try Self.workspaces()
         let items = AttentionTabsWatch.items(in: Self.local(store))
         #expect(items == [
-            AgentPaneAttentionTabs.Item(tabId: "local/\(tabs[2].id)", reason: "Approve the deploy", workspaceTitle: "cmux next",
+            AgentPaneAttentionTabs.Item(tabId: AttentionTabsWatch.key(machine: "local", tab: tabs[2].id), reason: "Approve the deploy", workspaceTitle: "cmux next",
                                         tabTitle: "Vercel", atMs: 2_000),
-            AgentPaneAttentionTabs.Item(tabId: "local/\(tabs[0].id)", reason: "Log in to GitHub", workspaceTitle: "cmux next",
+            AgentPaneAttentionTabs.Item(tabId: AttentionTabsWatch.key(machine: "local", tab: tabs[0].id), reason: "Log in to GitHub", workspaceTitle: "cmux next",
                                         tabTitle: "GitHub · Sign in", atMs: 1_000),
         ])
         tabs[2].applyState(SessionStateMirror.TabRecord(), progress: nil)
-        #expect(AttentionTabsWatch.items(in: Self.local(store)).map(\.tabId) == ["local/\(tabs[0].id)"], "a cleared mark leaves the list")
+        #expect(AttentionTabsWatch.items(in: Self.local(store)).map(\.tabId) == [AttentionTabsWatch.key(machine: "local", tab: tabs[0].id)], "a cleared mark leaves the list")
     }
 
     private static func local(_ store: DaemonStore) -> [(WorkspaceModel, machine: String)] {
@@ -42,19 +44,35 @@ struct AttentionTabsTests {
     }
 
     /// Tabs on two machines can share an id (a forked machine keeps its tab ids): each is its own
-    /// row, and its key names its machine, so Go to shows that machine's tab and no other.
-    @Test func twoMachinesTabsWithOneIdAreTwoRowsThatNameTheirMachine() throws {
-        let (here, hereTabs) = try Self.workspaces()
-        let (there, thereTabs) = try Self.workspaces()
-        #expect(hereTabs[0].id == thereTabs[0].id)
-        let items = AttentionTabsWatch.items(in: Self.local(here) + there.workspaces.map { ($0, machine: "ssh-lab") })
-        #expect(items.count == 4)
-        #expect(Set(items.map(\.tabId)).count == 4, "two machines' rows share a key")
-        let split = try #require(AttentionTabsWatch.split(AttentionTabsWatch.key(machine: "ssh-lab", tab: thereTabs[0].id)))
-        #expect(split.machine == "ssh-lab" && split.tab == thereTabs[0].id)
-        #expect(AttentionTabsWatch.split(thereTabs[0].id) == nil, "a bare tab id names no machine")
+    /// row, and its key finds the tab on its own machine (Go to's lookup), never the other one.
+    @Test func twoMachinesTabsWithOneIdAreTwoRowsThatFindTheirOwnTab() throws {
+        _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
-        #expect(!services.revealTab(thereTabs[0].id, onMachine: "ssh-lab"), "a machine that is not connected shows nothing")
+        let host = try SSHHost(destination: SSHDestination(parsing: "leo@lab.tail1.ts.net")).named("lab")
+        let ssh = SSHMachineSession(host: host, binary: URL(fileURLWithPath: "/usr/bin/false"),
+                                    paths: SSHPaths(root: URL(fileURLWithPath: "/private/tmp/cn-attention-tabs-remote-unused")),
+                                    environment: { [:] })
+        services.machines.add(ssh)
+        let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, tabResourceID: "tab_forked", title: "GitHub")])
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
+        for (store, name) in [(services.daemon.store, "here"), (ssh.daemon.store, "lab")] {
+            store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: name, screens: [screen])]))
+            let tab = try #require(store.workspaces.first?.screens.first?.panes.first?.tabs.first)
+            tab.applyState(SessionStateMirror.TabRecord(attention: TabAttention(reason: "Log in on \(name)", atMs: 1_000)), progress: nil)
+        }
+        let items = AttentionTabsWatch.items(in: services.machines.allWorkspaces.map { ($0.0, machine: $0.1.machineID) })
+        #expect(items.count == 2)
+        #expect(Set(items.map(\.tabId)).count == 2, "two machines' rows share a key")
+        for item in items {
+            let found = try #require(AttentionTabsWatch.locate(item.tabId, in: services.machines.daemons))
+            let tab = try #require(found.daemon.store.tab(idOrResource: found.tab))
+            #expect(tab.attention?.reason == item.reason, "\(item.reason)'s row found the other machine's tab")
+            #expect(item.tabId.utf8.count <= AgentPaneAttentionTabs.maximumTabID)
+        }
+        let long = AttentionTabsWatch.key(machine: String(repeating: "m", count: 1_000), tab: "tab_forked")
+        #expect(long.utf8.count <= AgentPaneAttentionTabs.maximumTabID, "a long machine id made a key Go to refuses")
+        #expect(AttentionTabsWatch.locate("tab_forked", in: services.machines.daemons) == nil, "a bare tab id names no machine")
+        #expect(AttentionTabsWatch.locate("0000000000000000/tab_forked", in: services.machines.daemons) == nil)
     }
 
     @Test func thePaletteListsEachMarkAndItsRowJumpsToTheTab() async throws {
@@ -76,7 +94,7 @@ struct AttentionTabsTests {
         }
         #expect(shown.isEmpty, "listing jumps nowhere")
         run()
-        #expect(shown == ["local/\(tabs[0].id)"])
+        #expect(shown == [AttentionTabsWatch.key(machine: "local", tab: tabs[0].id)])
     }
 
     @Test func anAgentsRunOpensNoPalette() throws {

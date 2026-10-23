@@ -1,6 +1,8 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
+import CryptoKit
 import Foundation
 
 /// Keeps ``AgentPaneAttentionTabs`` (every agent page's Needs you list) and the palette's Go to
@@ -50,14 +52,23 @@ final class AttentionTabsWatch {
         return items.sorted { $0.atMs > $1.atMs }
     }
 
-    /// A marked tab's row key (`Item.tabId`, what a page's Go to sends back): its machine and its
-    /// tab id, since tabs on two machines can share an id. A tab id holds no `/`.
-    static func key(machine: String, tab: String) -> String { "\(machine)/\(tab)" }
+    /// A marked tab's row key (`Item.tabId`, what a page's Go to sends back): a short digest of
+    /// its machine's id, `/`, and its tab id, since tabs on two machines can share an id. The
+    /// digest keeps the key inside ``AgentPaneAttentionTabs/maximumTabID`` however long the
+    /// machine id is, and a tab id holds no `/`.
+    static func key(machine: String, tab: String) -> String { "\(machineDigest(machine))/\(tab)" }
 
-    /// The machine and tab id of row key `key`; nil for a key that names no machine.
-    static func split(_ key: String) -> (machine: String, tab: String)? {
+    /// The first 8 bytes of SHA-256 of `machine`, in hex.
+    static func machineDigest(_ machine: String) -> String {
+        SHA256.hash(data: Data(machine.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// The machine (of `daemons`) and tab id that row key `key` names; nil for a key that names
+    /// no connected machine.
+    static func locate(_ key: String, in daemons: [DaemonService]) -> (daemon: DaemonService, tab: String)? {
         guard let slash = key.lastIndex(of: "/") else { return nil }
-        let machine = String(key[..<slash]), tab = String(key[key.index(after: slash)...])
-        return machine.isEmpty || tab.isEmpty ? nil : (machine, tab)
+        let digest = key[..<slash], tab = String(key[key.index(after: slash)...])
+        guard !tab.isEmpty, let daemon = daemons.first(where: { machineDigest($0.machineID) == digest }) else { return nil }
+        return (daemon, tab)
     }
 }
