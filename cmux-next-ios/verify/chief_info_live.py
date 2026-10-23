@@ -1,0 +1,241 @@
+#!/usr/bin/env python3
+"""Chief's info page over the real link, measured against Messages' contact details.
+
+Runs ON a cmux mini: the hidden e2e rig Mac (mac.py: its own bundle id, config and
+credentials, launched with `open -g -j`, never activated) and the iOS app in one
+headless simulator driven with AXe (accessibility taps on that simulator only).
+
+    python3 chief_info_live.py --mac-app PATH --app PATH --label before|after
+                               [--sim-name cmux-chiefinfo] [--reuse] [--out DIR]
+
+For each state (Chief connected, then the rig Mac quit: disconnected) and each
+appearance (light, dark) it opens Chief, opens Chief's info from the header's
+trailing button, and records:
+
+- the navigation buttons' centers (Done in the old sheet; Back and Edit now);
+- the avatar's frame (its own element now; the old sheet's header element, whose
+  top is the 72 pt avatar's top), the name's line box (AX) and glyph box (OCR);
+- the first card row's top;
+- Messages' numbers for the same phone (CmuxConversation's
+  ConversationDetailsHeaderGeometry, read from MobileSMS on iOS 26.5): avatar 80 pt,
+  its top at the status bar's bottom, the title's line box 84 pt below the avatar's top.
+
+Then (the new page only) it checks that the controls still act: Hide Alerts toggles
+and back, Edit opens Name, Message returns to the conversation with the keyboard up,
+and the edge swipe pops back. Writes DIR/results.json, DIR/run.log and DIR/shots/.
+"""
+import argparse
+import datetime
+import json
+import os
+import subprocess
+import sys
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "e2e"))
+from e2e import CNX, RUNTIMES, ensure_sim  # noqa: E402
+from journey import BUNDLE, Journey  # noqa: E402
+from mac import Mac, pb, refuse_other_rigs  # noqa: E402
+from sim import Sim  # noqa: E402
+
+MESSAGES = {"avatar": 80, "avatar_top_from_safe_top": 0, "title_top_from_avatar_top": 84}
+NAV_LABELS = ("Done", "Back", "Edit")
+
+
+def frame_dict(f):
+    x, y, w, h = f
+    return {"x": round(x, 2), "y": round(y, 2), "w": round(w, 2), "h": round(h, 2),
+            "cx": round(x + w / 2, 2), "cy": round(y + h / 2, 2)}
+
+
+def measure(sim, name):
+    els = sim.tree()
+    out = {}
+    nav = [e for e in els if e.kind == "Button" and e.frame[1] < 130 and e.frame[0] >= 0
+           and (e.label in NAV_LABELS or e.ident in ("chief.settings.done", "chief.settings.edit", "BackButton"))]
+    out["nav"] = {(e.label or e.ident): frame_dict(e.frame) for e in nav}
+    avatar = [e for e in els if e.ident == "chief.settings.avatarImage"]
+    if avatar:
+        out["avatar"] = frame_dict(avatar[0].frame)
+        out["avatar_source"] = "element"
+    else:
+        # The old sheet: one combined header element; its top is the 72 pt avatar's top.
+        head = [e for e in els if (e.label or "").startswith(name) and e.frame[2] > 250 and e.frame[1] < 450]
+        if head:
+            x, y, w, _ = head[0].frame
+            out["avatar"] = frame_dict((x + w / 2 - 36, y, 72, 72))
+            out["avatar_source"] = "header element top, 72 pt avatar"
+    title = [e for e in els if e.ident == "chief.settings.title"]
+    if title:
+        out["title_ax"] = frame_dict(title[0].frame)
+    glyphs = [o for o in sim.ocr() if o[4].strip() == name and o[1] < 450]
+    if glyphs:
+        out["title_ocr"] = frame_dict(glyphs[0][:4])
+    rows = [e for e in els if e.frame[1] > 150 and e.frame[0] >= 0 and (
+        e.ident in ("chief.settings.harness", "chief.settings.lastModel", "chief.settings.hideAlerts")
+        or (e.label or "").startswith(("Connect to your Mac", "Asking Chief", "This Chief runs")))]
+    if rows:
+        out["first_row_top"] = round(min(e.frame[1] for e in rows), 2)
+    quick = [e for e in els if e.ident in ("chief.settings.message", "chief.settings.stop")]
+    out["quick_actions"] = {e.ident: frame_dict(e.frame) for e in quick}
+    texts = [e.label for e in els if e.label and e.frame[0] >= 0][:60]
+    out["texts"] = texts
+    a = out.get("avatar")
+    if a:
+        for label, f in out["nav"].items():
+            out[f"avatar_cy_minus_{label}_cy"] = round(a["cy"] - f["cy"], 2)
+        if "title_ax" in out:
+            out["title_line_top_minus_avatar_top"] = round(out["title_ax"]["y"] - a["y"], 2)
+            out["avatar_bottom_to_title_line"] = round(out["title_ax"]["y"] - (a["y"] + a["h"]), 2)
+        if "title_ocr" in out:
+            out["avatar_bottom_to_title_glyphs"] = round(out["title_ocr"]["y"] - (a["y"] + a["h"]), 2)
+        nav_bottom = max((f["y"] + f["h"] for f in out["nav"].values()), default=None)
+        if nav_bottom is not None:
+            out["gap_nav_bottom_to_avatar_top"] = round(a["y"] - nav_bottom, 2)
+    return out
+
+
+def open_chief(j):
+    j.back_to_list()
+    j.tab("Home")
+    j.sim.tap_q(ident="home.chief")
+    t = time.time()
+    while time.time() - t < 30:
+        els = j.sim.tree()
+        if not j.sim.find(ident="conversation.initialLoading", elements=els) and j.sim.find(ident="conversation.transcript", elements=els):
+            return True
+        time.sleep(0.5)
+    return False
+
+
+def open_info(sim):
+    sim.tap_q(ident="conversation.header.trailing")
+    found = sim.wait(timeout=10, ident="chief.settings")
+    time.sleep(1.8)  # the push (or sheet) settles
+    return bool(found)
+
+
+def close_info(sim):
+    done = sim.find(ident="chief.settings.done")
+    if done:
+        sim.tap_el(done[0])
+    else:
+        back = [e for e in sim.tree() if e.kind == "Button" and e.label == "Back" and e.frame[1] < 130]
+        if back:
+            sim.tap_el(back[0])
+    time.sleep(1.2)
+
+
+def appearance(udid, mode):
+    subprocess.run(["xcrun", "simctl", "ui", udid, "appearance", mode], check=True)
+    time.sleep(1.0)
+
+
+def main():  # noqa: C901 - one live scenario
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--mac-app", required=True)
+    ap.add_argument("--app", required=True)
+    ap.add_argument("--label", required=True)
+    ap.add_argument("--sim-name", default="cmux-chiefinfo")
+    ap.add_argument("--ios", default="26", choices=sorted(RUNTIMES))
+    ap.add_argument("--reuse", action="store_true", help="install over the signed-in app instead of a fresh install")
+    ap.add_argument("--out")
+    a = ap.parse_args()
+
+    mac_app = os.path.abspath(a.mac_app)
+    os.environ.setdefault("CMUX_MOBILE_E2E_ALLOW_OTHER_RIGS", "1")
+    refuse_other_rigs(pb(os.path.join(mac_app, "Contents/Info.plist"), "Print :CFBundleIdentifier"))
+    out = a.out or os.path.join(CNX, "verify/evidence", datetime.date.today().isoformat(), "chief-info", a.label)
+    os.makedirs(out, exist_ok=True)
+    logf = open(os.path.join(out, "run.log"), "a")
+
+    def log(msg):
+        line = f"{datetime.datetime.now().strftime('%H:%M:%S')} {msg}"
+        print(line, flush=True)
+        logf.write(line + "\n"); logf.flush()
+
+    rig = os.path.expanduser(f"~/cmux-next-ios-e2e/{os.path.basename(mac_app)[len('cmux DEV '):-4]}")
+    mac = Mac(rig, mac_app).prepare()
+    mac.seed_pairing(names=[a.sim_name])
+    udid = ensure_sim(a.sim_name, RUNTIMES[a.ios], log)
+    sim = Sim(udid, os.path.join(out, "shots"))
+    result = {"label": a.label, "app": a.app, "mac_app": os.path.basename(mac_app), "simulator": f"{a.sim_name} {udid}",
+              "messages_reference": MESSAGES, "states": {}, "checks": {}}
+    try:
+        mac.launch()
+        log(f"Mac app up (pid {mac.pid}), cmux-mobile-host {'running' if mac.wait_hostd(120) else 'NOT running'}")
+        j = Journey(sim, mac, out, a.app, log)
+        if a.reuse:
+            subprocess.run(["xcrun", "simctl", "install", udid, a.app], check=True)
+            sim.launch(BUNDLE)
+            sim.wait(label="Workspaces", kind="RadioButton", timeout=40)
+            steps = j.run(only={"mac_discovered"})
+        else:
+            steps = j.run(only={"fresh_install", "sign_in", "choose_space", "mac_discovered"})
+        log(f"setup: {[(s['id'], s['status']) for s in steps]}")
+        appearance(udid, "light")
+        loaded = open_chief(j)
+        log(f"Chief loaded: {loaded}")
+        name = "Chief"
+
+        for state in ("connected", "disconnected"):
+            if state == "disconnected":
+                close_info(sim)
+                j.back_to_list()
+                mac.quit()
+                log("rig Mac quit")
+                time.sleep(8)
+                open_chief(j)
+            for mode in ("light", "dark"):
+                appearance(udid, mode)
+                if not sim.find(ident="chief.settings"):
+                    if not open_info(sim):
+                        log(f"{state}/{mode}: info never opened")
+                        continue
+                m = measure(sim, name)
+                m["shot"] = sim.shot(f"{a.label}-{state}-{mode}")
+                result["states"][f"{state}-{mode}"] = m
+                log(f"{state}/{mode}: {json.dumps({k: v for k, v in m.items() if k != 'texts'})}")
+            appearance(udid, "light")
+
+            if state == "connected" and sim.find(ident="chief.settings.message"):
+                # The controls still act (the new page only).
+                hide = sim.find(ident="chief.settings.hideAlerts")
+                if hide:
+                    before = hide[0].value
+                    sim.tap_el(hide[0]); time.sleep(1.2)
+                    after = (sim.find(ident="chief.settings.hideAlerts") or [hide[0]])[0].value
+                    sim.tap_el(sim.find(ident="chief.settings.hideAlerts")[0]); time.sleep(1.2)
+                    restored = sim.find(ident="chief.settings.hideAlerts")[0].value
+                    result["checks"]["hide_alerts_toggles"] = {"before": before, "after": after, "restored": restored,
+                                                               "pass": before != after and before == restored}
+                result["checks"]["model_controls"] = [e.ident for e in sim.tree() if (e.ident or "").startswith("chief.settings.") and
+                                                      e.ident.split(".")[-1] in ("harness", "model", "effort", "lastModel")]
+                edit = sim.find(ident="chief.settings.edit")
+                if edit:
+                    sim.tap_el(edit[0]); time.sleep(1.5)
+                    result["checks"]["edit_opens_name"] = bool(sim.find(ident="chief.settings.name"))
+                    sim.shot(f"{a.label}-edit")
+                    close_info(sim)
+                # Edge swipe back, then reopen.
+                sim.drag(2, 450, 330, 450, 0.5, 30, 0.1); time.sleep(1.5)
+                result["checks"]["edge_swipe_pops"] = bool(sim.find(ident="conversation.transcript")) and not sim.find(ident="chief.settings")
+                open_info(sim)
+                sim.tap_q(ident="chief.settings.message"); time.sleep(2.0)
+                result["checks"]["message_returns_with_keyboard"] = bool(sim.find(ident="conversation.transcript")) and bool(sim.keyboard())
+                sim.shot(f"{a.label}-message")
+                j.hide_keyboard()
+                open_info(sim)
+    finally:
+        appearance(udid, "light")
+        try:
+            mac.quit()
+        except Exception as e:  # noqa: BLE001
+            log(f"quit: {e}")
+        json.dump(result, open(os.path.join(out, "results.json"), "w"), indent=2)
+        log(f"wrote {out}/results.json")
+
+
+if __name__ == "__main__":
+    main()

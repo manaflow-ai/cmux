@@ -30,11 +30,18 @@ public struct ChiefRoute: Hashable, Sendable {
 /// name) and owns the bottom edge, so the SwiftUI navigation bar and the tab
 /// bar are hidden while it is up; the header's back button and the system
 /// left-edge swipe both pop it.
+///
+/// The header's avatar, name and trailing button push Chief's info
+/// (``ChiefSettingsView``) on the same stack, as Messages pushes contact
+/// details from the conversation header: a back chevron and the system
+/// swipe back return to the conversation.
 public struct ChiefConversationScreen: View {
     let session: ChiefSession
     let compose: ChiefComposer?
     let focusesComposer: Bool
     @Environment(\.dismiss) private var dismiss
+    @State private var showsInfo = false
+    @State private var link = ChiefScreenLink()
 
     public init(session: ChiefSession = .shared, compose: ChiefComposer? = nil, focusesComposer: Bool = false) {
         self.session = session
@@ -43,7 +50,8 @@ public struct ChiefConversationScreen: View {
     }
 
     public var body: some View {
-        ChiefConversationController(session: session, compose: compose, focusesComposer: focusesComposer, back: { dismiss() })
+        ChiefConversationController(session: session, compose: compose, focusesComposer: focusesComposer, link: link,
+                                    back: { dismiss() }, openInfo: { showsInfo = true })
             // The conversation draws one store; a new backend (Try Again, a new link) makes a
             // new store, so the open screen is rebuilt on it instead of waiting on the old one.
             .id(ObjectIdentifier(session.store))
@@ -51,7 +59,20 @@ public struct ChiefConversationScreen: View {
             .toolbar(.hidden, for: .navigationBar)
             .toolbar(.hidden, for: .tabBar)
             .navigationBarBackButtonHidden()
+            .navigationDestination(isPresented: $showsInfo) {
+                // Message: back to the conversation with the keyboard up.
+                ChiefSettingsView(session: session) { [link] in
+                    link.container?.focusesComposerOnAppear = true
+                    showsInfo = false
+                }
+            }
     }
+}
+
+/// The conversation screen's UIKit container, for the info page's Message
+/// button (it focuses the composer once the pop settles).
+@MainActor final class ChiefScreenLink {
+    weak var container: ChiefConversationContainer?
 }
 
 /// Chief's service line in the transcript's start header, replacing
@@ -72,12 +93,16 @@ struct ChiefConversationController: UIViewControllerRepresentable {
     let session: ChiefSession
     let compose: ChiefComposer?
     let focusesComposer: Bool
+    let link: ChiefScreenLink
     let back: () -> Void
+    let openInfo: () -> Void
 
     func makeUIViewController(context: Context) -> ChiefConversationContainer {
         let conversation = ConversationViewController(store: session.store, options: .chief)
         let container = ChiefConversationContainer(conversation: conversation, session: session)
         container.focusesComposerOnAppear = focusesComposer
+        container.openInfo = openInfo
+        link.container = container
         configure(conversation)
         #if DEBUG
         ChiefDemoHook.shared.controller = conversation
@@ -86,6 +111,8 @@ struct ChiefConversationController: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ container: ChiefConversationContainer, context: Context) {
+        container.openInfo = openInfo
+        link.container = container
         configure(container.conversation)
     }
 
@@ -541,13 +568,13 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         present(alert, animated: true)
     }
 
+    /// Pushes Chief's info on the navigation stack (``ChiefConversationScreen``).
+    var openInfo: (() -> Void)?
+
     public func presentSettings() {
         guard presentedViewController == nil, conversation.presentedViewController == nil else { return }
         view.endEditing(true)
-        let host = UIHostingController(rootView: ChiefSettingsView(session: session))
-        host.modalPresentationStyle = .pageSheet
-        host.sheetPresentationController?.prefersGrabberVisible = true
-        present(host, animated: true)
+        openInfo?()
     }
 
     /// The back button's count of other unread conversations, the way the
@@ -656,6 +683,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     public override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         // A sheet over Chief keeps it on screen; so does the screen that replaced this one.
+        // Chief's info pushed over it does not: the transcript is off screen.
         if presentedViewController == nil, Self.shown === self || Self.shown == nil { session.isVisible = false }
     }
 

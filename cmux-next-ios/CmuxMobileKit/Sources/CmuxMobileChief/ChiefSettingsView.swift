@@ -3,18 +3,29 @@ import CmuxConversationCore
 import CmuxMobileDesign
 import OSLog
 import SwiftUI
+import UIKit
 
 private let log = Logger(subsystem: "dev.cmux.mobile", category: "chief-settings")
 
-/// Chief's details: what the Mac's Chief settings sidebar offers its owner
-/// (HomeChiefSidebar: harness, model and effort; the name), Stop for a running
-/// turn, the recent turns, and this phone's Hide Alerts and Send Read
-/// Receipts. It replaces CmuxConversation's contact details for Chief, whose
-/// Call, FaceTime and Mail have no meaning here. Every control acts on the
-/// Mac's Chief or on this phone's settings; nothing here is decoration.
+/// Chief's info, laid out as Messages' contact details (iOS 26
+/// CommunicationDetails): the avatar in the navigation bar's row between the
+/// back chevron and Edit, the name and status under it, round quick actions,
+/// then inset grouped cards over a backdrop tinted by the avatar.
+///
+/// It holds what the Mac's Chief settings sidebar offers its owner
+/// (HomeChiefSidebar: harness, model and effort; the name and avatar under
+/// Edit), Stop for a running turn, the recent turns, and this phone's Hide
+/// Alerts and Send Read Receipts. It replaces CmuxConversation's contact
+/// details for Chief, whose Call, FaceTime and Mail have no meaning here.
+/// Every control acts on the Mac's Chief or on this phone's settings;
+/// nothing here is decoration.
+///
+/// Pushed from the conversation header (``ChiefConversationScreen``), as
+/// Messages pushes details: the back chevron and the edge swipe return.
 public struct ChiefSettingsView: View {
     let session: ChiefSession
-    @Environment(\.dismiss) private var dismiss
+    /// Message: back to the conversation with the keyboard up.
+    let onMessage: (() -> Void)?
     @State private var report: ChiefEngineReport?
     /// A change or stop the Mac did not take (a failed read is the session's ``ChiefSession/engineProblem``).
     @State private var engineError: String?
@@ -23,9 +34,20 @@ public struct ChiefSettingsView: View {
     @State private var stopNote: String?
     @State private var muted: Bool
     @State private var receipts: Bool
+    /// The window's top safe inset (the status bar): Messages' avatar top.
+    @State private var windowSafeTop: CGFloat = Self.lastWindowSafeTop
+    /// The header row's top at rest, in the window: where the list put it.
+    @State private var restRowTop: CGFloat = Self.lastRestRowTop
+    /// How far the cards are scrolled from rest.
+    @State private var scrolled: CGFloat = 0
 
-    public init(session: ChiefSession) {
+    // Kept across pushes so the next push lays out at once, without a jump.
+    @MainActor private static var lastWindowSafeTop: CGFloat = 0
+    @MainActor private static var lastRestRowTop: CGFloat = 0
+
+    public init(session: ChiefSession, onMessage: (() -> Void)? = nil) {
         self.session = session
+        self.onMessage = onMessage
         _muted = State(initialValue: session.isMuted)
         _receipts = State(initialValue: session.sendsReadReceipts)
         _report = State(initialValue: session.engineReport)
@@ -35,61 +57,125 @@ public struct ChiefSettingsView: View {
     private var name: String { session.title ?? session.identity.title }
 
     public var body: some View {
-        NavigationStack {
-            Form {
-                header
-                engineSection
-                if hasControl, !(report?.recent.isEmpty ?? true) { recentSection }
-                notificationsSection
-                if hasControl { identitySection }
-                #if DEBUG
-                diagnosticsSection
-                #endif
-                Section {
-                } footer: {
-                    Text("Chief's memory and traces open on the Mac.")
-                }
+        Form {
+            header
+            engineSection
+            if hasControl, !(report?.recent.isEmpty ?? true) { recentSection }
+            notificationsSection
+            #if DEBUG
+            diagnosticsSection
+            #endif
+            Section {
+            } footer: {
+                Text("Chief's memory and traces open on the Mac.")
             }
-            // The header already names Chief: no title in the bar (SPEC 4,
-            // problem 6). It still names the sheet for VoiceOver.
-            .navigationTitle("Chief")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar(removing: .title)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                        .accessibilityIdentifier("chief.settings.done")
-                }
-            }
-            // Reads Chief's engine now, and again with backoff while the
-            // Mac or its model server is down, until the sheet closes; again
-            // once Chief connects with the sheet open.
-            .task(id: hasControl) { await session.watchEngine() }
-            .onChange(of: session.engineReport) { _, newer in if !saving { report = newer } }
-            // Hide Alerts changed elsewhere (Home's pin menu): the switch follows, animated.
-            .onChange(of: session.isMuted) { _, on in if muted != on { withAnimation { muted = on } } }
-            .onChange(of: session.sendsReadReceipts) { _, on in if receipts != on { withAnimation { receipts = on } } }
         }
+        .listSectionSpacing(ChiefInfoGeometry.sectionGap)
+        .scrollContentBackground(.hidden)
+        .background { ChiefInfoBackdrop() }
+        .background { WindowSafeTopReader { windowSafeTop = $0; Self.lastWindowSafeTop = $0 } }
+        .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, now in
+            scrolled = now
+        }
+        // The avatar sits in the bar's row at rest, as in Messages: no
+        // edge blur over it until the cards scroll under the bar.
+        .scrollEdgeEffectHidden(scrolled < ChiefInfoGeometry.edgeEffectAfter, for: .top)
+        // The header names Chief: no title in the bar, as Messages. The
+        // title still names the page for VoiceOver and the back menu.
+        .navigationTitle(name)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(removing: .title)
+        .toolbar(.visible, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar)
+        .toolbar {
+            // Messages' Edit: Chief's name and avatar, on a Mac that sets them.
+            if hasControl {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        ChiefIdentityEditor(session: session)
+                    } label: {
+                        Text("Edit")
+                    }
+                    .accessibilityIdentifier("chief.settings.edit")
+                }
+            }
+        }
+        // Reads Chief's engine now, and again with backoff while the
+        // Mac or its model server is down, until the page closes; again
+        // once Chief connects with the page open.
+        .task(id: hasControl) { await session.watchEngine() }
+        .onChange(of: session.engineReport) { _, newer in if !saving { report = newer } }
+        // Hide Alerts changed elsewhere (Home's pin menu): the switch follows, animated.
+        .onChange(of: session.isMuted) { _, on in if muted != on { withAnimation { muted = on } } }
+        .onChange(of: session.sendsReadReceipts) { _, on in if receipts != on { withAnimation { receipts = on } } }
         .accessibilityIdentifier("chief.settings")
     }
 
     // MARK: Sections
 
+    /// How far the header reaches up out of its row: from the row's resting
+    /// top to the status bar's bottom, where Messages' avatar starts.
+    private var pull: CGFloat {
+        guard windowSafeTop > 0, restRowTop > 0 else { return 0 }
+        return max(0, restRowTop - windowSafeTop)
+    }
+
     private var header: some View {
         Section {
-            VStack(spacing: 8) {
-                ChiefAvatar(text: session.avatar, size: 72)
+            VStack(spacing: 0) {
+                ChiefAvatar(text: session.avatar, size: ChiefInfoGeometry.avatarSize)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text("Chief's avatar"))
+                    .accessibilityAddTraits(.isImage)
+                    .accessibilityIdentifier("chief.settings.avatarImage")
+                    .padding(.bottom, ChiefInfoGeometry.titleTopFromAvatar - ChiefInfoGeometry.avatarSize)
                 Text(name)
-                    .font(.title2.bold())
+                    .font(.title.bold())
                     .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("chief.settings.title")
                 Text(statusLine)
-                    .font(.footnote)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
+                    .padding(.top, 2)
+                    .accessibilityIdentifier("chief.settings.status")
+                quickActions
+                    .padding(.top, ChiefInfoGeometry.quickActionsBelowTitle)
             }
+            .padding(.horizontal, 16)
             .frame(maxWidth: .infinity)
-            .accessibilityElement(children: .combine)
+            .padding(.top, -pull)
+            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { top in
+                // Measured on the row's own frame (outside the pull), so the
+                // pull does not move what it is measured from.
+                let rest = top + scrolled
+                guard rest > 0, abs(rest - restRowTop) > 0.5 else { return }
+                restRowTop = rest
+                Self.lastRestRowTop = rest
+            }
+            .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
+        }
+    }
+
+    /// Messages' call / video / mail circles, with Chief's own real actions:
+    /// Message (back to the conversation, keyboard up) and Stop (Chief's
+    /// running turn; dimmed while there is none, as Messages dims an action
+    /// a contact cannot take).
+    private var quickActions: some View {
+        HStack(spacing: ChiefInfoGeometry.quickActionSpacing) {
+            if let onMessage {
+                ChiefQuickAction(symbol: "message.fill", title: String(localized: "Message"), enabled: true) { onMessage() }
+                    .accessibilityIdentifier("chief.settings.message")
+            }
+            if !session.runsInCloud {
+                ChiefQuickAction(symbol: "stop.fill", title: String(localized: "Stop"),
+                                 enabled: hasControl && (session.isTyping || stopping) && !stopping,
+                                 busy: stopping) { Task { await stop() } }
+                    .accessibilityIdentifier("chief.settings.stop")
+            }
         }
     }
 
@@ -178,23 +264,9 @@ public struct ChiefSettingsView: View {
             if let engineError {
                 Text(engineError).font(.footnote).foregroundStyle(.red)
             }
-            if hasControl, session.isTyping || stopping {
-                Button(role: .destructive) {
-                    Task { await stop() }
-                } label: {
-                    HStack {
-                        Text("Stop Chief")
-                        if stopping { Spacer(); ProgressView() }
-                    }
-                }
-                .disabled(stopping)
-                .accessibilityIdentifier("chief.settings.stop")
-            }
             if let stopNote {
                 Text(stopNote).font(.footnote).foregroundStyle(.secondary)
             }
-        } header: {
-            Text("Model")
         } footer: {
             if hasControl {
                 Text("Changes apply to Chief's next turn, on every device.")
@@ -237,32 +309,6 @@ public struct ChiefSettingsView: View {
             Text("Hide Alerts silences Chief's notifications on this iPhone. With Send Read Receipts off, reading Chief here does not mark it read on your Mac.")
         }
         .disabled(session.conversationID == nil)
-    }
-
-    /// Name, and the avatar on a Mac that reads and sets it: a value on the
-    /// right that opens a one-field page with Save, as in Settings.
-    private var identitySection: some View {
-        Section {
-            NavigationLink {
-                ChiefFieldEditor(title: String(localized: "Name"), value: name, footer: nil) { value in
-                    try await session.rename(value)
-                }
-            } label: {
-                LabeledContent("Name", value: name)
-            }
-            .accessibilityIdentifier("chief.settings.name")
-            if let report, report.avatarSupported {
-                NavigationLink {
-                    ChiefFieldEditor(title: String(localized: "Avatar"), value: report.avatar ?? "",
-                                     footer: String(localized: "An emoji or one or two letters. Leave it empty for \(ChiefIdentity.defaultAvatar)."), allowsEmpty: true) { value in
-                        try await setAvatar(value)
-                    }
-                } label: {
-                    LabeledContent("Avatar", value: session.avatar)
-                }
-                .accessibilityIdentifier("chief.settings.avatar")
-            }
-        }
     }
 
     // MARK: Actions
@@ -314,16 +360,6 @@ public struct ChiefSettingsView: View {
         } catch {
             stopNote = Self.errorText(error, doing: .stop)
         }
-    }
-
-    /// Sets the avatar on the Mac (`chief.engine.set` `avatar`); empty is the default.
-    private func setAvatar(_ value: String) async throws {
-        guard let control = session.control else {
-            throw ConversationBackendError(code: -1, message: String(localized: "Chief isn't connected to a Mac"))
-        }
-        let answer = try await control.setEngine(avatar: value)
-        report = answer
-        session.adopt(answer)
     }
 
     #if DEBUG
@@ -443,6 +479,163 @@ public struct ChiefSettingsView: View {
         if h > 0 { return m > 0 ? String(localized: "\(h) h \(m) min") : String(localized: "\(h) h") }
         if m > 0 { return s > 0 ? String(localized: "\(m) min \(s) s") : String(localized: "\(m) min") }
         return String(localized: "\(s) s")
+    }
+}
+
+/// Messages' contact details, measured from MobileSMS on iOS 26.5
+/// (CmuxConversation's `ConversationDetailsHeaderGeometry`, which is not a
+/// public product, so its numbers are repeated here): an 80 pt avatar whose
+/// top is the status bar's bottom, the 28 pt bold title's line box 84 pt
+/// below the avatar's top, 48 pt quick actions 20 pt apart and 16 pt under
+/// the title, and 20 pt from them to the first card.
+enum ChiefInfoGeometry {
+    static let avatarSize: CGFloat = 80
+    static let titleTopFromAvatar: CGFloat = 84
+    static let quickActionSize: CGFloat = 48
+    static let quickActionSpacing: CGFloat = 20
+    static let quickActionsBelowTitle: CGFloat = 16
+    static let sectionGap: CGFloat = 20
+    /// Scrolled this far, the cards reach the bar and its edge blur returns.
+    static let edgeEffectAfter: CGFloat = 40
+}
+
+/// Messages' details backdrop: the grouped background with a soft wash of
+/// the contact's color behind the header. Chief's color is its monogram's.
+struct ChiefInfoBackdrop: View {
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Color(uiColor: .systemGroupedBackground)
+            Ellipse()
+                .fill(monogramGradient)
+                .frame(width: 520, height: 360)
+                .offset(y: -150)
+                .blur(radius: 90)
+                .opacity(scheme == .dark ? 0.9 : 0.55)
+        }
+        .ignoresSafeArea()
+        .accessibilityHidden(true)
+    }
+}
+
+/// One of Messages' round quick actions (CommunicationDetails
+/// QuickActionView): a 48 pt circle in the tertiary fill with the filled
+/// glyph and its name under it; an action that cannot run now dims.
+struct ChiefQuickAction: View {
+    let symbol: String
+    let title: String
+    let enabled: Bool
+    var busy = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                ZStack {
+                    Circle().fill(Color(uiColor: .tertiarySystemFill))
+                    if busy {
+                        ProgressView()
+                    } else {
+                        Image(systemName: symbol)
+                            .font(.body)
+                            .foregroundStyle(enabled ? Color.primary : Color(uiColor: .tertiaryLabel))
+                    }
+                }
+                .frame(width: ChiefInfoGeometry.quickActionSize, height: ChiefInfoGeometry.quickActionSize)
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(enabled ? Color.primary : Color.secondary)
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .accessibilityLabel(title)
+    }
+}
+
+/// Reports the window's top safe inset (the status bar), which a pushed
+/// page's own safe area hides under the navigation bar.
+struct WindowSafeTopReader: UIViewRepresentable {
+    let report: (CGFloat) -> Void
+
+    func makeUIView(context: Context) -> ReaderView {
+        let view = ReaderView()
+        view.report = report
+        view.isUserInteractionEnabled = false
+        return view
+    }
+
+    func updateUIView(_ view: ReaderView, context: Context) { view.report = report }
+
+    final class ReaderView: UIView {
+        var report: ((CGFloat) -> Void)?
+        private var reported: CGFloat = -1
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            send()
+        }
+
+        override func safeAreaInsetsDidChange() {
+            super.safeAreaInsetsDidChange()
+            send()
+        }
+
+        private func send() {
+            guard let top = window?.safeAreaInsets.top, top != reported else { return }
+            reported = top
+            // Not inside SwiftUI's update of this view.
+            Task { @MainActor [report] in report?(top) }
+        }
+    }
+}
+
+/// Messages' Edit: Chief's name, and its avatar on a Mac that reads and
+/// sets it, each a value on the right that opens a one-field page with Save.
+struct ChiefIdentityEditor: View {
+    let session: ChiefSession
+
+    private var name: String { session.title ?? session.identity.title }
+
+    var body: some View {
+        Form {
+            Section {
+                NavigationLink {
+                    ChiefFieldEditor(title: String(localized: "Name"), value: name, footer: nil) { value in
+                        try await session.rename(value)
+                    }
+                } label: {
+                    LabeledContent("Name", value: name)
+                }
+                .accessibilityIdentifier("chief.settings.name")
+                if let report = session.engineReport, report.avatarSupported {
+                    NavigationLink {
+                        ChiefFieldEditor(title: String(localized: "Avatar"), value: report.avatar ?? "",
+                                         footer: String(localized: "An emoji or one or two letters. Leave it empty for \(ChiefIdentity.defaultAvatar)."), allowsEmpty: true) { value in
+                            try await setAvatar(value)
+                        }
+                    } label: {
+                        LabeledContent("Avatar", value: session.avatar)
+                    }
+                    .accessibilityIdentifier("chief.settings.avatar")
+                }
+            } footer: {
+                Text("Changes apply on your Mac and every device.")
+            }
+        }
+        .navigationTitle("Edit")
+        .navigationBarTitleDisplayMode(.inline)
+        .accessibilityIdentifier("chief.settings.identity")
+    }
+
+    /// Sets the avatar on the Mac (`chief.engine.set` `avatar`); empty is the default.
+    private func setAvatar(_ value: String) async throws {
+        guard let control = session.control else {
+            throw ConversationBackendError(code: -1, message: String(localized: "Chief isn't connected to a Mac"))
+        }
+        session.adopt(try await control.setEngine(avatar: value))
     }
 }
 

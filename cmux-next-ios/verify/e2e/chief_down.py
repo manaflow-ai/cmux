@@ -88,7 +88,9 @@ def open_settings_shot(sim, name):
     time.sleep(2.5)
     path = sim.shot(name)
     texts = visible_texts(sim)
-    sim.tap_q(ident="chief.settings.done")
+    # Chief's info is pushed (Back); older builds showed a sheet (Done).
+    done = sim.find(ident="chief.settings.done") or [e for e in sim.find(label="Back", kind="Button") if e.frame[1] < 130]
+    sim.tap_el(done[0])
     time.sleep(1.0)
     return path, texts
 
