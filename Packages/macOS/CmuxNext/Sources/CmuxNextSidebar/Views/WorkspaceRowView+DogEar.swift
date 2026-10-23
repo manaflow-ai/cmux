@@ -5,14 +5,21 @@ extension WorkspaceRowView {
     /// The hover action on the top-right corner of `full` (the row's whole frame, a status block
     /// included): the close on a row that can close, else the menu (Leo 2026-10-21). While one shows,
     /// the row's fill leaves its corner out (`SidebarCloseNotch`, Leo 2026-10-22), and both take that
-    /// cut as their frame, so the menu opens under it from VoiceOver's custom action too. Hidden (not
-    /// only clear) while they do not show.
+    /// cut as their frame (`SidebarCloseNotch.cutFrame`), so the menu opens under it from VoiceOver's
+    /// custom action too. Hidden (not only clear) while they do not show. The look comes from
+    /// configure (`closeNotchLook`, watched by `SidebarTunablesWatch`).
     func layoutDogEar(full: NSRect, showClose: Bool, showMenu: Bool, fades: Bool) {
-        let look = SidebarCloseNotch.tunable.value
+        let look = closeNotchLook
         let side = look.side(dogEar: SidebarStyle.dogEarSide)
-        let corner = NSRect(x: full.maxX - side, y: full.minY, width: side, height: side)
+        let radius = look.cornerRadius(rowRadius: layer?.cornerRadius ?? SidebarStyle.rowCornerRadius)
+        let corner = SidebarCloseNotch.cutFrame(in: full, side: side, radius: radius)
+        // The drawn fill in each button's own coordinates: a button takes exactly the clicks the fill
+        // leaves out, the cut's fillets past its square included.
+        var shift = CGAffineTransform(translationX: -corner.minX, y: -corner.minY)
+        let fill = SidebarCloseNotch.fillPath(in: full, side: side, radius: radius).copy(using: &shift)
         for (ear, shown) in [(closeButton, showClose), (moreButton, showMenu)] {
             ear.frame = corner
+            ear.rowFill = fill
             setHoverShown(ear, shown, fades: fades)
         }
         let notch = showClose || showMenu ? look : nil

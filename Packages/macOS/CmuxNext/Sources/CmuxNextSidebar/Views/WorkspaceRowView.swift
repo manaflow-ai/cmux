@@ -47,6 +47,9 @@ final class WorkspaceRowView: SidebarRowView {
     let moreButton = SidebarDogEarButton(icon: OverflowButton.glyph, label: Strings.workspaceMenu)
     /// The corner cut out of the row's fill while the close or the menu shows there; nil otherwise.
     var closeNotch: SidebarCloseNotch?
+    /// `sidebar.closeNotch` as of the last configure (`SidebarTunablesWatch` reconfigures the shown
+    /// rows when it changes); a change lays the row out again.
+    var closeNotchLook = SidebarCloseNotch.tunable.defaultValue { didSet { if closeNotchLook != oldValue { needsLayout = true } } }
     /// An expanded row's Pin or Unpin (cx-13w3), on hover at the end of the name's line.
     let pinButton = SidebarIconButton(icon: .actionPin, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.pinWorkspace)
     /// `sidebar.showWorkspaceTabs`: hides or lists the workspace's tabs. Always drawn
@@ -227,6 +230,7 @@ final class WorkspaceRowView: SidebarRowView {
     func configure(_ ws: SidebarWorkspace, row: SidebarRow, badgeStyle: SidebarRowBadgeStyle? = nil) {
         lastConfiguration = (ws, row, badgeStyle)
         let tunables = observedTunables()
+        closeNotchLook = tunables.closeNotch
         let content = Content(
             ws: ws, group: row.group,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize,

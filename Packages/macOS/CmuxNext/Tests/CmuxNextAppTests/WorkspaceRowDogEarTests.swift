@@ -33,6 +33,35 @@ struct WorkspaceRowDogEarTests {
         row.layoutSubtreeIfNeeded()
     }
 
+    /// Runs `body` with `sidebar.closeNotch` set to `look`, then clears it. The tunables watch caches
+    /// the values rows read, so each set is followed by its refresh, which the app runs one hop later.
+    private static func withLook(_ look: SidebarCloseNotch, _ body: () throws -> Void) throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        let key = SidebarCloseNotch.tunable.key
+        defer {
+            TunableStore.shared.set(key, nil)
+            SidebarTunablesWatch.shared.changed()
+        }
+        TunableStore.shared.set(key, look.tunableValue)
+        try #require(SidebarCloseNotch.tunable.value == look)
+        SidebarTunablesWatch.shared.changed()
+        try body()
+    }
+
+    /// The center of `ear`'s glyph, in `row`'s coordinates.
+    private static func glyphCenter(_ ear: SidebarDogEarButton, in row: WorkspaceRowView) -> NSPoint {
+        let glyph = ear.convert(ear.glyphRect, to: row)
+        return NSPoint(x: glyph.midX, y: glyph.midY)
+    }
+
+    /// The cut's square side and its fillet radius in `row` for `look`.
+    private static func cut(_ look: SidebarCloseNotch, _ row: WorkspaceRowView) -> (side: CGFloat, r: CGFloat) {
+        let side = look.side(dogEar: SidebarStyle.dogEarSide)
+        let radius = look.cornerRadius(rowRadius: row.layer?.cornerRadius ?? SidebarStyle.rowCornerRadius)
+        return (side, max(0, min(radius, side / 2)))
+    }
+
     /// The topmost control the row hands a click at `point` (row coordinates) to.
     private static func hit(_ row: WorkspaceRowView, at point: NSPoint) -> NSView? {
         row.hitTest(row.convert(point, to: row.superview))
@@ -69,16 +98,16 @@ struct WorkspaceRowDogEarTests {
         let ear = row.closeButton
         #expect(!ear.isHidden && ear.alphaValue == 1, "hover shows no close")
         #expect(row.moreButton.isHidden, "a closable row shows the menu too")
-        let side = SidebarCloseNotch.snug.side(dogEar: SidebarStyle.dogEarSide)
-        #expect(ear.frame == NSRect(x: row.bounds.maxX - side, y: row.bounds.minY, width: side, height: side),
-                "the close \(ear.frame) is not the row's top-right \(side) pt corner \(row.bounds)")
+        let (side, r) = Self.cut(.snug, row)
+        #expect(ear.frame == NSRect(x: row.bounds.maxX - side - r, y: row.bounds.minY, width: side + r, height: side + r),
+                "the close \(ear.frame) does not cover the row's top-right \(side) pt cut and its \(r) pt fillets \(row.bounds)")
         #expect(side < SidebarStyle.dogEarSide, "the cut is no smaller than the old dog-ear")
         #expect(ear.accessibilityIdentifier() == "cmux.sidebar.workspace.ws-close.close")
         #expect(ear.accessibilityLabel() == Strings.closeButton)
         #expect(ear.isAccessibilityElement())
 
         // The corner takes the click; next to it (left of it or below it) the click is the row's.
-        #expect(Self.hit(row, at: NSPoint(x: ear.frame.midX, y: ear.frame.midY)) === ear, "a click in the corner misses the close")
+        #expect(Self.hit(row, at: Self.glyphCenter(ear, in: row)) === ear, "a click on the x misses the close")
         #expect(Self.hit(row, at: NSPoint(x: ear.frame.minX - 2, y: ear.frame.midY)) !== ear, "a click left of the corner closes")
         #expect(Self.hit(row, at: NSPoint(x: ear.frame.midX, y: ear.frame.maxY + 2)) !== ear, "a click below the corner closes")
 
@@ -100,11 +129,12 @@ struct WorkspaceRowDogEarTests {
         #expect(layer.backgroundColor == nil || layer.backgroundColor?.alpha == 0, "the backing layer still fills the whole row")
         let fill = try #require(Self.shapedFill(row), "the hovered row draws no shaped fill")
         let path = try #require(fill.path)
-        let ear = row.closeButton.frame
-        #expect(!path.contains(CGPoint(x: ear.midX, y: ear.midY)), "the fill covers the close's corner")
-        #expect(!path.contains(CGPoint(x: ear.minX + 1, y: ear.maxY - 1)), "the fill covers the cut's inner corner")
-        #expect(path.contains(CGPoint(x: ear.minX - 3, y: 1)), "the fill stops short of the cut along the top")
-        #expect(path.contains(CGPoint(x: ear.maxX - 1, y: ear.maxY + 3)), "the fill stops short of the cut on the right")
+        let (side, _) = Self.cut(.snug, row)
+        let left = row.bounds.maxX - side
+        #expect(!path.contains(Self.glyphCenter(row.closeButton, in: row)), "the fill covers the close's x")
+        #expect(!path.contains(CGPoint(x: left + 0.5, y: 0.5)), "the fill covers the cut's top-left")
+        #expect(path.contains(CGPoint(x: left - 6, y: 1)), "the fill stops short of the cut along the top")
+        #expect(path.contains(CGPoint(x: row.bounds.maxX - 1, y: side + 6)), "the fill stops short of the cut on the right")
         #expect(path.contains(CGPoint(x: row.bounds.midX, y: row.bounds.midY)))
         #expect(fill.cornerRadius == layer.cornerRadius && fill.masksToBounds, "the fill loses the row's corners")
         #expect(fill.fillColor != nil && (fill.fillColor?.alpha ?? 1) < 1, "the hover fill is opaque")
@@ -119,26 +149,107 @@ struct WorkspaceRowDogEarTests {
     /// keeps the x where it is.
     @Test(arguments: SidebarCloseNotch.allCases)
     func everyCutLookKeepsTheGlyphInPlace(_ look: SidebarCloseNotch) throws {
+        try Self.withLook(look) {
+            let ws = SidebarWorkspace(id: WorkspaceID("ws-\(look.rawValue)"), title: Self.longName)
+            let (list, row) = try Self.row(ws)
+            Self.hover(list, row, ws.id)
+            row.updateLayer()
+            let ear = row.closeButton
+            let (side, r) = Self.cut(look, row)
+            #expect(ear.frame.size == NSSize(width: side + r, height: side + r))
+            let glyph = Self.glyphCenter(ear, in: row)
+            let at = SidebarStyle.dogEarSide * 0.3
+            #expect(abs(glyph.x - (row.bounds.maxX - at)) < 0.5 && abs(glyph.y - at) < 0.5, "\(look): the x moved to \(glyph)")
+            let fill = try #require(Self.shapedFill(row))
+            let edge = (fill.sublayers?.first as? CAShapeLayer)?.path
+            #expect((edge != nil) == (look == .hairline), "\(look): hairline \(edge != nil)")
+        }
+    }
+
+    /// Codex review of 90fc220e: a rounded cut reaches past the close's square (its fillets into the
+    /// row's top and right edges), and a click there selected the row. The close takes exactly the
+    /// clicks in the drawn cut, in every look.
+    @Test(arguments: SidebarCloseNotch.allCases)
+    func theClosesHitAreaIsTheDrawnCut(_ look: SidebarCloseNotch) throws {
+        try Self.withLook(look) {
+            let ws = SidebarWorkspace(id: WorkspaceID("ws-hit-\(look.rawValue)"), title: Self.longName)
+            let (list, row) = try Self.row(ws)
+            Self.hover(list, row, ws.id)
+            row.updateLayer()
+            let ear = row.closeButton
+            let path = try #require(Self.shapedFill(row)?.path)
+            let (side, r) = Self.cut(look, row)
+            let left = row.bounds.maxX - side, bottom = row.bounds.minY + side, right = row.bounds.maxX
+            var inCut = [NSPoint(x: left + 0.5, y: 0.5), NSPoint(x: right - 0.5, y: bottom - 0.5)]
+            var outside = [NSPoint(x: left - r - 0.5, y: 0.5), NSPoint(x: right - 0.5, y: bottom + r + 0.5)]
+            if r > 0 {
+                // In each fillet, past the square: toward the corner it rounds is the cut, toward the
+                // fillet's center is the fill.
+                inCut += [NSPoint(x: left - 0.15 * r, y: 0.15 * r), NSPoint(x: right - 0.15 * r, y: bottom + 0.15 * r)]
+                outside += [NSPoint(x: left - 0.85 * r, y: 0.85 * r), NSPoint(x: right - 0.85 * r, y: bottom + 0.85 * r)]
+            } else {
+                outside += [NSPoint(x: left - 0.5, y: 0.5), NSPoint(x: right - 0.5, y: bottom + 0.5)]
+            }
+            for point in inCut {
+                #expect(!path.contains(point), "\(look): \(point) is not in the drawn cut")
+                #expect(Self.hit(row, at: point) === ear, "\(look): a click at \(point), in the cut, does not close")
+            }
+            for point in outside {
+                #expect(path.contains(point), "\(look): \(point) is not on the drawn fill")
+                #expect(Self.hit(row, at: point) !== ear, "\(look): a click at \(point), on the fill, closes")
+            }
+        }
+    }
+
+    /// Codex review of 90fc220e: `sidebar.closeNotch` was read only in layout, so a row on screen kept
+    /// its old cut until some other layout. The tunables watch reconfigures the shown rows.
+    @Test func changingTheCutLookRelaysOutTheShownRows() async throws {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
-        defer { TunableStore.shared.set(SidebarCloseNotch.tunable.key, nil) }
-        try #require(TunableStore.shared.set(SidebarCloseNotch.tunable.key, look.tunableValue) == look.tunableValue)
-        let ws = SidebarWorkspace(id: WorkspaceID("ws-\(look.rawValue)"), title: Self.longName)
+        let key = SidebarCloseNotch.tunable.key
+        TunableStore.shared.set(key, nil)
+        SidebarTunablesWatch.shared.changed()
+        defer {
+            TunableStore.shared.set(key, nil)
+            SidebarTunablesWatch.shared.changed()
+        }
+        let ws = SidebarWorkspace(id: WorkspaceID("ws-watch"), title: Self.longName)
         let (list, row) = try Self.row(ws)
         Self.hover(list, row, ws.id)
-        row.updateLayer()
+        let before = row.closeButton.frame
+        TunableStore.shared.set(key, SidebarCloseNotch.hitBox.tunableValue)
+        // The watch's observation runs one main-actor hop after the set.
+        var hops = 0
+        while row.closeNotchLook != .hitBox, hops < 100 {
+            await Task.yield()
+            hops += 1
+        }
+        #expect(row.closeNotchLook == .hitBox, "the shown row never heard the new look")
+        row.layoutSubtreeIfNeeded()
+        let (side, r) = Self.cut(.hitBox, row)
+        #expect(row.closeButton.frame.size == NSSize(width: side + r, height: side + r) && row.closeButton.frame != before,
+                "the shown row kept its old cut \(row.closeButton.frame)")
+    }
+
+    /// Codex review of 90fc220e: shown under a pointer that does not move, the close got no enter event
+    /// and its x stayed dim. It reads the pointer as it shows.
+    @Test func theCloseLightsWhenItShowsUnderAStillPointer() throws {
+        let ws = SidebarWorkspace(id: WorkspaceID("ws-still"), title: Self.longName)
+        let (list, row) = try Self.row(ws)
         let ear = row.closeButton
-        let side = look.side(dogEar: SidebarStyle.dogEarSide)
-        #expect(ear.frame.size == NSSize(width: side, height: side))
-        let glyph = ear.convert(ear.glyphRect, to: row)
-        let at = SidebarStyle.dogEarSide * 0.3
-        #expect(abs(glyph.midX - (row.bounds.maxX - at)) < 0.5 && abs(glyph.midY - at) < 0.5, "\(look): the x moved to \(glyph)")
-        let fill = try #require(Self.shapedFill(row))
-        let edge = (fill.sublayers?.first as? CAShapeLayer)?.path
-        #expect((edge != nil) == (look == .hairline), "\(look): hairline \(edge != nil)")
-        let path = try #require(fill.path)
-        // A square cut fills up to its corner; a rounded one leaves the corner's curve clear.
-        #expect(path.contains(CGPoint(x: ear.frame.minX - 0.5, y: 0.5)) == (look == .square))
+        var onGlyph = true
+        ear.pointerInWindow = { [unowned ear] in
+            onGlyph ? ear.convert(NSPoint(x: ear.glyphRect.midX, y: ear.glyphRect.midY), to: nil) : ear.convert(NSPoint(x: -40, y: 40), to: nil)
+        }
+        Self.hover(list, row, ws.id)
+        #expect(!ear.isHidden && ear.isPointerOn, "the close showed under the pointer with its x dim")
+
+        list.setHovered(nil)
+        row.layoutSubtreeIfNeeded()
+        #expect(ear.isHidden && !ear.isPointerOn)
+        onGlyph = false
+        Self.hover(list, row, ws.id)
+        #expect(!ear.isHidden && !ear.isPointerOn, "the close lit with the pointer off it")
     }
 
     /// The row's shaped fill while it shows.
@@ -154,7 +265,7 @@ struct WorkspaceRowDogEarTests {
         let (list, row) = try Self.row(ws)
         Self.hover(list, row, ws.id)
         let ear = row.closeButton
-        let point = NSPoint(x: ear.frame.midX, y: ear.frame.midY)
+        let point = Self.glyphCenter(ear, in: row)
         #expect(Self.hit(row, at: point) === ear, "a click on the close misses it")
         for control in [row.disclosureButton, row.treeFoldButton, row.audioButton] {
             control.isHidden = false

@@ -159,7 +159,7 @@ extension WorkspaceRowView {
         if slot > 0 { trailing -= slot + Metrics.space2 }
         // An expanded row's hover pin: at the end of the name's line, clear of the unread badge or
         // keycap and of the dog-ear's square, over the text behind a fade.
-        let pinMaxX = min(trailing, full.maxX - SidebarStyle.dogEarSide - Metrics.space1)
+        let pinMaxX = min(trailing, full.maxX - SidebarStyle.dogEarSide - Metrics.space1, closeButton.frame.minX - Metrics.space1)
         let pinSlot = NSRect(x: pinMaxX - control, y: cy - control / 2, width: control, height: control)
         trailing = layoutTime(trailing: trailing, cy: cy, height: sh)
         let overlayStart = layoutPin(showMore: showMore, slot: pinSlot, fades: fades)

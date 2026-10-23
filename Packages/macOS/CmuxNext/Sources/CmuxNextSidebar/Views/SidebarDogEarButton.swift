@@ -8,9 +8,9 @@ import CmuxNextIcons
 ///
 /// It sits in the corner the row's fill leaves out (`SidebarCloseNotch`, Leo 2026-10-22: "a smaller
 /// top right corner not higlighitng bc the button itself chopped off that top right"), so its frame
-/// is that cut and it draws nothing but its glyph: no fill, no box, no fold. The glyph keeps one place
-/// in every cut, toward the corner. It takes clicks in its whole frame, the part the row does not
-/// highlight.
+/// covers that cut (`SidebarCloseNotch.cutFrame`) and it draws nothing but its glyph: no fill, no box,
+/// no fold. The glyph keeps one place in every cut, toward the corner. It takes exactly the clicks the
+/// row's fill leaves out (`cutContains`), the cut's rounded fillets past its square included.
 final class SidebarDogEarButton: NSButton {
     var onPress: (() -> Void)?
     /// What a press does, for VoiceOver and the themed tooltip.
@@ -22,8 +22,12 @@ final class SidebarDogEarButton: NSButton {
             image?.accessibilityDescription = label
         }
     }
-    /// The pointer is on the button: the glyph in the primary text color.
+    /// The pointer is on the cut: the glyph in the primary text color.
     var isPointerOn = false { didSet { if isPointerOn != oldValue { needsDisplay = true } } }
+    /// The row's drawn fill in this view's coordinates (`WorkspaceRowView.layoutDogEar`); nil: none.
+    var rowFill: CGPath?
+    /// Where the pointer is in the window (bottom-left origin); tests stand in for the real pointer.
+    var pointerInWindow: (() -> NSPoint?)?
     private let icon: IconName
     private var renderedSide: CGFloat = 0
     /// The glyph in the last tint drawn, so a redraw in the same colors makes no new image.
@@ -76,6 +80,12 @@ final class SidebarDogEarButton: NSButton {
     /// The square the glyph is placed in, on the row's top-right corner (the old dog-ear's).
     static var side: CGFloat { SidebarStyle.dogEarSide }
 
+    /// `point` (this view's flipped coordinates) is in the cut: inside the frame and outside the row's
+    /// drawn fill, so the hit area is the cut a person sees.
+    func cutContains(_ point: NSPoint) -> Bool {
+        bounds.contains(point) && !(rowFill?.contains(point) ?? false)
+    }
+
     /// Where the glyph draws: its center 0.3 of `side` from the row's top and right edges, whatever
     /// the cut's size, so the x never moves between them.
     var glyphRect: NSRect {
@@ -112,17 +122,29 @@ final class SidebarDogEarButton: NSButton {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+                                  owner: self, userInfo: nil)
         addTrackingArea(area)
         tracking = area
     }
 
-    override func mouseEntered(with event: NSEvent) { isPointerOn = true }
+    private func follow(windowPoint: NSPoint?) {
+        isPointerOn = windowPoint.map { cutContains(convert($0, from: nil)) } ?? false
+    }
+
+    override func mouseEntered(with event: NSEvent) { follow(windowPoint: event.locationInWindow) }
+    override func mouseMoved(with event: NSEvent) { follow(windowPoint: event.locationInWindow) }
     override func mouseExited(with event: NSEvent) { isPointerOn = false }
 
     /// A button hidden under the pointer gets no exit event: it shows unlit when it comes back.
     override func viewDidHide() {
         super.viewDidHide()
         isPointerOn = false
+    }
+
+    /// Shown under a pointer that does not move, it gets no enter event: it reads the pointer itself.
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        follow(windowPoint: pointerInWindow?() ?? window?.mouseLocationOutsideOfEventStream)
     }
 }

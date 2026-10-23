@@ -39,6 +39,14 @@ nonisolated enum SidebarCloseNotch: String, Sendable, CaseIterable, Hashable, Tu
     /// The radius of the cut's three corners, for a row of `rowRadius`.
     func cornerRadius(rowRadius: CGFloat) -> CGFloat { self == .square ? 0 : (rowRadius / 2).rounded() }
 
+    /// Everything the cut takes from the row in `rect` (flipped): its `side` square, and past it the
+    /// fillets of `radius` where the cut meets the row's top edge (to its left) and right edge (below
+    /// it). The close's frame, so its hit area can cover the whole drawn cut (`SidebarDogEarButton`).
+    static func cutFrame(in rect: CGRect, side: CGFloat, radius: CGFloat) -> CGRect {
+        let r = max(0, min(radius, side / 2))
+        return CGRect(x: rect.maxX - side - r, y: rect.minY, width: side + r, height: side + r)
+    }
+
     /// The row's fill in `rect` (flipped) with its top-right `side` square cut out, the cut's corners
     /// rounded by `radius`. The fill layer clips the row's own corners.
     static func fillPath(in rect: CGRect, side: CGFloat, radius: CGFloat) -> CGPath {
