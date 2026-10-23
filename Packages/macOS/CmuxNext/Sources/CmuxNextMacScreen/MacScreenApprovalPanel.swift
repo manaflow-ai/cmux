@@ -223,7 +223,7 @@ final class MacScreenApprovalView: MacScreenThemedView {
         guard next != shown else { return }
         let before = shown
         shown = next
-        if before?.request != next.request || before?.error != next.error {
+        if before?.request != next.request || before?.error != next.error || before?.typeSizes != next.typeSizes {
             build(next)
             if before != nil { onResize() }
         }
