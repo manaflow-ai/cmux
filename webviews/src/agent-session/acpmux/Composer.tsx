@@ -63,6 +63,7 @@ import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { useComposerSettings } from "./composerSettings";
 import { useComposerLook, useQuietRow } from "./composerLook";
+import { LookSwitch } from "./LookSwitch";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
 import {
@@ -1288,9 +1289,10 @@ export function Composer({
     field.current?.focus();
     field.current?.[command]();
   };
+  /// Focuses the prompt that shows: the shell line in shell mode (the Markdown field is hidden then).
+  const focusPrompt = () => (shell ? shellField.current : field.current)?.focus();
   const runEdit = (command: ComposerEditCommand) => {
-    if (shell) shellField.current?.focus();
-    else field.current?.focus();
+    focusPrompt();
     if (command === "pasteAsPlainText") box.current?.plainPaste();
     onEdit?.(command);
   };
@@ -1579,7 +1581,7 @@ export function Composer({
             )}
           </>
         }
-        onCardPress={() => (shell ? shellField.current?.focus() : field.current?.focus())}
+        onCardPress={focusPrompt}
         leading={
           <>
             <input
@@ -1750,6 +1752,8 @@ export function Composer({
           ) : null
         }
         chromeItems={chrome.all}
+        // The look dots in the bottom area, on hover (LookSwitch.tsx); the Quick Composer has none.
+        {...(onOpenInWindow ? {} : { bottom: <LookSwitch onDone={focusPrompt} /> })}
       />
     </form>
   );
