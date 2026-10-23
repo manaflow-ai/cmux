@@ -5,6 +5,7 @@ import { agentBrand } from "../shared/agentBrand";
 import { agentDisplayName } from "./agents";
 import { seedLastPicks } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
+import { useComposerLook } from "./composerLook";
 import type { AcpmuxSnapshot } from "./model";
 import { ProjectChooser, type Project } from "./ProjectChooser";
 import {
@@ -30,6 +31,7 @@ import { type StringKey, type Translate, translate, useT } from "./i18n";
 import { parsePageWidgets, type PageWidget } from "./newtab/pageWidgets";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 import { seedWarmNewTab } from "./newtab/warmSnapshot";
+import { usePasteAnywhere } from "./composer/pasteAnywhere";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -322,6 +324,16 @@ export function NewTabPage({
   // The kind a prefix switched from, so Backspace in the empty field switches back.
   const [beforePrefix, setBeforePrefix] = useState<TabKind>();
   const field = useRef<HTMLInputElement>(null);
+  // Cmd-V anywhere on the page outside a text field (a row, a card, the empty page) goes into the
+  // field, caret at the end, as in a chat (composer/pasteAnywhere.ts; Leo 2026-10-22: "cmd v anywhere
+  // in chat should put it in chat").
+  usePasteAnywhere(() => {
+    const input = field.current;
+    if (!input) return false;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    return true;
+  });
   const composing = useRef(false);
   const recent = useMemo(() => recentSessions(snapshot.sessions), [snapshot.sessions]);
   // The suggestions float over the page under the field (cx-6k6cg), so they show only while the
@@ -478,9 +490,12 @@ export function NewTabPage({
     }
     setText(next);
   };
+  // The composer's look (composerLook.ts; the page's first two dots, newtab/PageDots.tsx): Codex's
+  // lays the row under the field out as Codex's (composerLook.css).
+  const look = useComposerLook();
 
   return (
-    <div className="acpmux-newtab" data-kind={kind}>
+    <div className="acpmux-newtab" data-kind={kind} data-composer-look={look === "codex" ? "codex" : undefined}>
       {/* The suggestions float under the field (cx-6k6cg): opening them moves nothing below. */}
       <div className="acpmux-newtab-anchor">
         <form className="acpmux-newtab-box" onSubmit={submit}>
