@@ -318,6 +318,7 @@ final class CEFPaneHost {
         refreshExtensionActions()
         runtime.extensionStores.store(for: key.profile).refresh()
         runtime.orphans.windowBecameLive(self)
+        CEFSpareWindow.shared.windowCameUp(self)
         if tabs.contains(where: \.awaitsWindowMove) {
             // Never inside OnAfterCreated (Chromium's tab insertion): moving
             // a tab between tab strips there would re-enter it.

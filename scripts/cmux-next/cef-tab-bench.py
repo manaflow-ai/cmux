@@ -41,6 +41,7 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--rounds", type=int, default=6)
 parser.add_argument("--cases", default="cold_pane,warm_pane,second_pane,third_pane,url_warm,url_cold,webkit_new,webkit_url")
 parser.add_argument("--sessions", default="light", help="light, stress, or both (comma list, in that order)")
+parser.add_argument("--profile", type=int, default=0, help="after the light rounds: N profiled new tabs per engine under a Time Profiler (main-thread top frames)")
 parser.add_argument("--spare-cost", action="store_true", help="after the light rounds: the spare Chromium window's resident memory")
 parser.add_argument("--budget-ms", type=float, default=10.0, help="visible p95 target (reported, not enforced)")
 parser.add_argument("--out", default="/tmp")
@@ -252,6 +253,75 @@ def spare_cost():
     return cost
 
 
+def profile_summary(trace, label):
+    """Heaviest main-thread frames of the app in `trace` (self and inclusive ms)."""
+    import collections, xml.etree.ElementTree as ET
+    xml = trace + ".xml"
+    with open(xml, "w") as handle:
+        subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--xpath",
+                        '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]'], stdout=handle, timeout=600)
+    byid, selfw, incl, total = {}, collections.Counter(), collections.Counter(), 0
+    def resolve(e):
+        r = e.get("ref")
+        return byid.get(r, e) if r else e
+    for _, e in ET.iterparse(xml, events=("end",)):
+        if e.get("id"):
+            byid[e.get("id")] = e
+        if e.tag != "row":
+            continue
+        thread = resolve(e.find("thread")) if e.find("thread") is not None else None
+        if thread is None or "Main Thread" not in thread.get("fmt", ""):
+            continue
+        w = e.find("weight"); w = resolve(w) if w is not None else None
+        weight = int(w.text) if w is not None and w.text and w.text.isdigit() else 1000000
+        bt = e.find("backtrace"); bt = resolve(bt) if bt is not None else None
+        if bt is None:
+            continue
+        names = [resolve(f).get("name", "?") for f in bt.findall("frame")]
+        if not names:
+            continue
+        total += weight
+        selfw[names[0]] += weight
+        for n in set(names):
+            incl[n] += weight
+    lines = [f"PROFILE {label} main-thread total_ms={total / 1e6:.1f}"]
+    lines += [f"PROFILE {label} self {w / 1e6:8.1f} ms  {n[:170]}" for n, w in selfw.most_common(30)]
+    lines += [f"PROFILE {label} incl {w / 1e6:8.1f} ms  {n[:170]}" for n, w in incl.most_common(90)]
+    print("\n".join(lines), flush=True)
+    return {"total_ms": round(total / 1e6, 1), "self": [[n, round(w / 1e6, 1)] for n, w in selfw.most_common(30)],
+            "incl": [[n, round(w / 1e6, 1)] for n, w in incl.most_common(90)]}
+
+
+def profile_new_tabs(window, count):
+    """`count` new tabs per engine (Cmd-Shift-L, New WebKit Tab with a page), each closed again,
+    under a Time Profiler attached to the app."""
+    out = {}
+    for label, params in (("chromium", {}), ("webkit", {"run": "openBrowser.webkit", "url": "file://" + PAGE})):
+        if not terminal_workspace(f"cef-tab-profile-{label}"):
+            continue
+        trace = os.path.join(opts.out, f"new-tab-{label}.trace")
+        recorder = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--attach", str(app.pid),
+                                     "--output", trace, "--no-prompt"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(4)  # test harness: the recorder attaches
+        for _ in range(count):
+            rpc("debug.new_tab", {"action": "bench_create", "command": "new_browser", **params}, timeout=30)
+            time.sleep(0.6)  # test harness: the page loads
+            key("w", ["command"], window)
+            time.sleep(0.4)  # test harness: the tab closes
+        recorder.send_signal(signal.SIGINT)
+        try:
+            recorder.wait(timeout=120)
+        except subprocess.TimeoutExpired:
+            recorder.kill()
+        try:
+            out[label] = profile_summary(trace, f"new-tab-{label}")
+        except Exception as error:  # a failed export must not lose the timings
+            print(f"profile export failed: {error!r}", flush=True)
+        action("closeWorkspace", {"confirm": True})
+        time.sleep(0.8)  # test harness: the workspace's pages close
+    return out
+
+
 def summary(rows):
     out = {}
     for session in sorted({r.get("session") for r in rows if r.get("session")}):
@@ -320,17 +390,19 @@ def main():
         sys.exit("the tagged app did not come up")
     time.sleep(2)  # test harness: first workspace
     window = window_key()
-    rows, stress, spare = [], None, None
+    rows, stress, spare, profiles = [], None, None, None
     for session in [s for s in opts.sessions.split(",") if s]:
         if session == "stress":
             stress = build_stress()
             rows += bench_stress(window)
         else:
             rows += bench_session(session, window)
+            if session == "light" and opts.profile:
+                profiles = profile_new_tabs(window, opts.profile)
             if session == "light" and opts.spare_cost:
                 spare = spare_cost()
     cef = rpc("debug.cef") or {}
-    result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "stress_session": stress, "spare_cost": spare,
+    result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "stress_session": stress, "spare_cost": spare, "profiles": profiles,
               "budget_visible_ms": opts.budget_ms, "summary": summary(rows), "runs": rows,
               "cef": {k: cef.get(k) for k in ("spare_window", "start_steps", "likely", "state") if k in cef}}
     print("\nSUMMARY", json.dumps(result["summary"], indent=1), flush=True)
