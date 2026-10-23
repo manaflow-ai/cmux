@@ -36,10 +36,12 @@ name: cmux-next perf cron
 # runs, not only while one waits.
 #
 # The measure job runs only on its own gateway label, vars.CI_PERF_CRON_GATEWAY, never the required
-# compile's CI_COMPILE_CHECK_GATEWAY: a gateway job holds its runner for the whole part (up to 35
-# minutes), and on 2026-10-22 an advisory gateway job held 13 of the 19 runners serving that pool while
-# 71 required app compiles queued (fleet-test-compile.yml). Unset, the plan picks no Mac part (only the
-# Linux one) and the measure job is skipped.
+# compile's CI_COMPILE_CHECK_GATEWAY: a gateway job holds its runner for the whole part (up to 53
+# minutes for STRESS), and on 2026-10-22 an advisory gateway job held 13 of the 19 runners serving that pool
+# while 71 required app compiles queued (fleet-test-compile.yml). Unset (it is unset on 2026-10-23), the
+# plan picks no Mac part (only the Linux one), the measure job is skipped, and the issue says no Mac row is
+# measured. The Mac rows come from one bench host, cmux20-bench, on macOS 27 only: macOS 14, 15 and 26 are
+# not measured by this cron.
 
 on:
   workflow_dispatch:
@@ -75,6 +77,8 @@ jobs:
       args: ${{ steps.plan.outputs.args }}
       artifact: ${{ steps.plan.outputs.artifact }}
       run_seconds: ${{ steps.plan.outputs.run_seconds }}
+      step_minutes: ${{ steps.plan.outputs.step_minutes }}
+      job_minutes: ${{ steps.plan.outputs.job_minutes }}
     steps:
       # The branch tip with the trees of its recent commits (the cmux-tui tree key of each candidate)
       # and no blobs beyond the scripts.
@@ -118,10 +122,10 @@ jobs:
     runs-on: ${{ vars.CI_PERF_CRON_GATEWAY }}
     permissions:
       contents: read
-    # One part: up to 5 minutes in the queue and at most 25 running (perf-cron.py run_seconds: STRESS and
-    # sidebar 25, the build 20, the others 15), up to 10 for the artifact, plus the checks; the last step
-    # gets the remaining minutes to cancel a step left running.
-    timeout-minutes: 45
+    # The plan sizes both timeouts from the part's run_seconds (perf-cron.py part_minutes: fleet-check, the
+    # queue, the run, the artifact and slack for the step; 5 more for the cleanup step that cancels a step
+    # left running). A job GitHub kills writes no result, so a too-short timeout would re-run the part every tick.
+    timeout-minutes: ${{ fromJSON(needs.plan.outputs.job_minutes || '50') }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -133,7 +137,7 @@ jobs:
 
       - name: Run one part on the bench host when the fleet is idle
         id: part
-        timeout-minutes: 42
+        timeout-minutes: ${{ fromJSON(needs.plan.outputs.step_minutes || '45') }}
         env:
           SHA: ${{ needs.plan.outputs.sha }}
           PART: ${{ needs.plan.outputs.part }}
@@ -240,7 +244,7 @@ jobs:
     if: ${{ always() && needs.plan.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
-      actions: read
+      actions: write  # read the state, and start the next tick at once (Start the next part now)
       contents: read
       issues: write
     timeout-minutes: 10
@@ -307,3 +311,13 @@ jobs:
           path: ${{ runner.temp }}/perf-cron
           retention-days: 90
           if-no-files-found: error
+
+      # A part finished and the measurement has more: start the next tick now instead of at the dispatcher's next
+      # 20-minute slot (the bench host is idle right now). The new tick queues behind this run (concurrency group)
+      # and makes its own plan and fleet checks, so it still yields to nightly and dev builds. The chain ends when
+      # a part yields, the fleet check says no, or the measurement has no part left.
+      - name: Start the next part now
+        if: ${{ steps.report.outputs.next_now == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I scripts/cmux-next/perf-cron.py dispatch-next --repo "$GITHUB_REPOSITORY"

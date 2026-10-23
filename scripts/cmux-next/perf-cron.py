@@ -20,12 +20,14 @@ runs on a cron instead, only on idle fleet capacity, behind every nightly and de
                     updates or closes the one issue "cmux-next perf regression". No check fails on a
                     regression; a missing measurement for 24 h is noted in the issue.
 
-A row regresses when its p95 is more than 10 % and its noise floor (perf-budgets.json) over the last good
-run, or when it newly misses its target (latency rows 10 ms p95; frame rows one display refresh; dropped
+A row regresses when its p95 is more than 10 % and its noise floor (perf-budgets.json) over its reference (the
+median of its last 5 good values, or the median of its good values from 7 days ago when lower: a creep of a
+little under 10 % per run does not ratchet the baseline up), or when it newly misses its target (latency rows 10 ms p95; frame rows one display refresh; dropped
 frames and perf-gate failed checks 0; CPU rows their perf-budgets.json budget).
 
-Subcommands: fetch-state, plan, fleet-check, run-part, report (see each --help). Tests:
-scripts/cmux-next/tests/test_perf_cron.py (run them yourself; no CI job runs them).
+Subcommands: fetch-state, plan, fleet-check, run-part, part-cleanup, run-linux-part, report, dispatch-next (see each
+--help). Tests: scripts/cmux-next/tests/test_perf_cron.py (decisions) and test_perf_cron_io.py (GitHub, git, the
+fleet client and multi-tick runs, faked) (run them yourself; no CI job runs them).
 """
 import argparse, datetime, importlib.util, io, json, os, re, subprocess, sys, time, urllib.error, urllib.parse
 import urllib.request, zipfile
@@ -50,6 +52,30 @@ MAX_YIELDS = 3
 PART_RUN_SECONDS = 900      # one part, its app build included (Lawrence: under 15 minutes each)
 PART_QUEUE_SECONDS = 300    # a part that does not start at once gives its place back
 CANDIDATE_DEPTH = 80
+# feat-cmux-next gets ~400 first-parent commits a day and a tip measurement takes 3 h or more, so a newer tip
+# always exists: while a regression range can be bisected, a tip measurement starts at most once per TIP_EVERY_HOURS
+# and the ticks in between go to the bisect.
+TIP_EVERY_HOURS = 6
+# The plan's checkout is shallow (fetch-depth 300): a culprit range older than that is deepened this many commits at
+# a time, at most DEEPEN_ROUNDS times, before its commits are listed.
+DEEPEN_STEP = 500
+DEEPEN_ROUNDS = 8
+# The comparison reference of a row: the median of its last REF_RUNS good values (a single noisy run does not move
+# it, and a slow creep does not ratchet it up one run at a time), and the median of its good values from at least
+# CREEP_DAYS ago (a creep of a few % per run is caught within that window). Each row keeps HISTORY_DAYS of values.
+REF_RUNS = 5
+CREEP_DAYS = 7
+HISTORY_DAYS = 14
+HISTORY_MAX = 120
+# The issue is the cron's own only when the bot opened it and its body carries ISSUE_MARK.
+ISSUE_AUTHOR = "github-actions[bot]"
+# The bench host's macOS (2026-10-23): the cron measures only this major of the supported 14, 15, 26 and 27.
+BENCH_MACOS = "27"
+# A measure job's step: fleet-check (`cmux-ci status`, up to 300 s), the queue (PART_QUEUE_SECONDS), the part (its
+# run_seconds), the artifact download (600 s) and the watch loop's last round and slack.
+FLEET_CHECK_SECONDS = 300
+ARTIFACT_SECONDS = 600
+STEP_SLACK_SECONDS = 180
 NIGHTLY_WORKFLOWS = ("nightly.yml", "nightly-next-train.yml")
 DEV_DAILY_TITLE = "cmux NEXT DEV daily"
 
@@ -263,7 +289,8 @@ def rows_of_part(part, report, budgets_mod, budgets):
         for s in report.get("summary") or []:
             if isinstance(s.get("missed"), (int, float)) and s.get("action") and s.get("layout"):
                 n = s["missed"]
-                out[f"panes.{s['action']}.{s['layout']}.missed"] = {"p50": n, "p95": n, "unit": "frames", "budget": 0, "floor": 1.0}
+                out[f"panes.{s['action']}.{s['layout']}.missed"] = {"p50": n, "p95": n, "unit": "frames", "budget": 0,
+                                                                     "floor": COUNT_FLOOR}
     elif part["kind"] == "perf_gate":
         per = {}
         for c in report.get("checks") or []:
@@ -307,8 +334,24 @@ def rows_of_part(part, report, budgets_mod, budgets):
 
 
 def frame_sensitive(name, row):
-    """A row whose value depends on the display refresh (frame intervals, frame counts)."""
+    """A row whose value depends on the display refresh (frame intervals, frame counts). Dropped frames count too: a
+    frame deadline of 8.3 ms misses more often than one of 16.7 ms, so the first 120 Hz run after a 60 Hz baseline
+    would open the issue for a display change (f751c486080: a display change never opens the issue)."""
     return (row.get("unit") == "frames" or name.endswith((".frame", "longest_frame", ".missed", ".dropped", ".over_8_33")))
+
+
+COUNT_FLOOR = 0.5  # a count row (target 0) regresses by one whole count: one new dropped frame, failed check or run
+
+
+def count_row(name, row):
+    """A count with target 0 (dropped frames, perf-gate failed checks, launch runs that never sent a mark)."""
+    return row.get("unit") in ("frames", "checks", "runs") or name.endswith((".missed", ".dropped"))
+
+
+def row_floor(name, row):
+    """The noise floor a row's change must pass; a count row's is under one count, so 0 -> 1 regresses."""
+    floor = row.get("floor", 1.0)
+    return min(floor, COUNT_FLOOR) if count_row(name, row) else floor
 
 
 def same_refresh(a, b):
@@ -365,7 +408,7 @@ def find_regressions(rows, base_rows, refresh_ms, base_refresh_ms, budgets_mod):
         return []
     skipped = set(refresh_skipped(rows, base_rows, refresh_ms, base_refresh_ms))
     rows = {n: r for n, r in rows.items() if n not in skipped}
-    listed = [{"name": n, "p95": r["p95"], "floor": r.get("floor", 1.0)} for n, r in rows.items()]
+    listed = [{"name": n, "p95": r["p95"], "floor": row_floor(n, r)} for n, r in rows.items()]
     worse = {r["name"]: r for r in budgets_mod.compare(listed, {n: b["p95"] for n, b in base_rows.items() if b.get("p95") is not None})}
     out = []
     for name in sorted(rows):
@@ -373,7 +416,7 @@ def find_regressions(rows, base_rows, refresh_ms, base_refresh_ms, budgets_mod):
         if not base or base.get("p95") is None:
             continue
         crossed = (over_target(name, row, refresh_ms) and not over_target(name, base, base_refresh_ms)
-                   and row["p95"] - base["p95"] > row.get("floor", 1.0))
+                   and row["p95"] - base["p95"] > row_floor(name, row))
         if name in worse or crossed:
             out.append({"name": name, "p95": row["p95"], "base": base["p95"], "unit": row.get("unit", "ms"),
                         "target": target_of(name, row, refresh_ms), "refresh_ms": row_refresh(row, refresh_ms),
@@ -426,9 +469,19 @@ def drop_dead_measurement(state, t, measurable):
     return why
 
 
+def tip_due(state, t):
+    """A tip measurement may start: none finished (or was dropped) in the last TIP_EVERY_HOURS. Only consulted while
+    a bisect step is also possible."""
+    times = [(state.get("last_tried") or {}).get("at")]
+    times += [h.get("at") for h in state.get("history") or [] if isinstance(h, dict) and h.get("kind") == "tip"]
+    times = [parse_iso(x) for x in times if isinstance(x, str)]
+    return not times or hours_between(max(times), t) >= TIP_EVERY_HOURS
+
+
 def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable=lambda sha: True):
     """The tick's work: {'action': 'part'|'none'|'finish', 'part': a fleet part or '', 'linux_part': '' or one}.
-    May set state['current'] (a new measurement).
+    May set state['current'] (a new measurement). With both a candidate and a bisect step, the bisect goes first
+    unless a tip measurement is due (tip_due): a newer tip always exists, so 'bisect when idle' would never bisect.
     candidate: the newest measurable tip commit newer than the last one measured (or None).
     bisect: {'sha', 'range': {good, bad}, 'rows': [row names]}: a measurable commit inside one group of regressed
     rows' culprit range (or None); the step measures only the parts of those rows.
@@ -437,14 +490,13 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     (its scripts/measure/split-spring.sh is the reviewed one)."""
     drop_dead_measurement(state, t, measurable)
     cur = state.get("current")
-    if not cur:
-        if candidate:
-            state["current"] = cur = new_measurement(candidate, "tip", with_build(supported_parts(candidate)), t)
-        elif bisect:
-            regressed = {part_for_row(name) for name in bisect["rows"]}
-            parts = [p for p in supported_parts(bisect["sha"]) if p in regressed]
-            if parts:
-                state["current"] = cur = new_measurement(bisect["sha"], "bisect", with_build(parts), t, bisect["range"])
+    if not cur and bisect and not (candidate and tip_due(state, t)):
+        regressed = {part_for_row(name) for name in bisect["rows"]}
+        parts = [p for p in supported_parts(bisect["sha"]) if p in regressed]
+        if parts:
+            state["current"] = cur = new_measurement(bisect["sha"], "bisect", with_build(parts), t, bisect["range"])
+    if not cur and candidate:
+        state["current"] = cur = new_measurement(candidate, "tip", with_build(supported_parts(candidate)), t)
     if not cur:
         return {"action": "none", "reason": "nothing new to measure: the newest measurable feat-cmux-next commit "
                                             "was measured, and no regression range to bisect"}
@@ -679,43 +731,65 @@ def untrusted_state_artifact(artifact, repo_id, run_of):
     return None
 
 
+STATE_PAGES = 10  # artifact pages (100 each) read for a trusted state: forged artifacts cannot push it off page 1
+
+
 def fetch_state(repo, out_dir):
-    """Download the newest trusted perf-cron-state artifact into out_dir; True when one was found."""
+    """Download the newest trusted perf-cron-state artifact into out_dir; True when one was found. The artifact list
+    is newest first; the pages are read in turn (up to STATE_PAGES), so a flood of same-named artifacts from fork pull
+    requests delays the search but cannot hide the trusted state and reset the cron to a fresh one."""
     os.makedirs(out_dir, exist_ok=True)
     repo_id = gh_request(f"/repos/{repo}").get("id")
-    found = gh_request(f"/repos/{repo}/actions/artifacts?name={STATE_ARTIFACT}&per_page=100").get("artifacts", [])
+    runs = {}
 
     def run_of(run_id):
-        try:
-            return gh_request(f"/repos/{repo}/actions/runs/{int(run_id)}")
-        except (TypeError, ValueError, urllib.error.HTTPError):
-            return None
-    for a in sorted(found, key=lambda a: a.get("created_at") or "", reverse=True):
-        if a.get("expired"):
-            continue
-        why = untrusted_state_artifact(a, repo_id, run_of)
-        if why:
-            print(f"perf-cron: state artifact {a.get('id')} skipped: {why}")
-            continue
-        blob = download_redirected(a["archive_download_url"])
-        zipfile.ZipFile(io.BytesIO(blob)).extractall(out_dir)
-        print(f"perf-cron: state from artifact {a['id']} (run {a.get('workflow_run', {}).get('id')}, {a.get('created_at')})")
-        return True
-    print("perf-cron: no state artifact yet; starting fresh")
+        if run_id not in runs:
+            try:
+                runs[run_id] = gh_request(f"/repos/{repo}/actions/runs/{int(run_id)}")
+            except (TypeError, ValueError, urllib.error.HTTPError):
+                runs[run_id] = None
+        return runs[run_id]
+    skipped = 0
+    for page in range(1, STATE_PAGES + 1):
+        found = gh_request(f"/repos/{repo}/actions/artifacts?name={STATE_ARTIFACT}&per_page=100&page={page}").get("artifacts", [])
+        for a in sorted(found, key=lambda a: a.get("created_at") or "", reverse=True):
+            if a.get("expired"):
+                continue
+            why = untrusted_state_artifact(a, repo_id, run_of)
+            if why:
+                skipped += 1
+                if skipped <= 20:
+                    print(f"perf-cron: state artifact {a.get('id')} skipped: {why}")
+                continue
+            blob = download_redirected(a["archive_download_url"])
+            zipfile.ZipFile(io.BytesIO(blob)).extractall(out_dir)
+            print(f"perf-cron: state from artifact {a['id']} (run {a.get('workflow_run', {}).get('id')}, {a.get('created_at')}; "
+                  f"{skipped} untrusted skipped)")
+            return True
+        if len(found) < 100:
+            break
+    print(f"perf-cron: no trusted state artifact ({skipped} untrusted skipped); starting fresh")
     return False
+
+
+def own_issue(issue):
+    """The cron's own regression issue: its title, opened by the workflow's bot, its body carrying ISSUE_MARK, and
+    not a pull request. A person's issue with the same title is never edited, commented on or closed."""
+    return (isinstance(issue, dict) and issue.get("title") == ISSUE_TITLE and "pull_request" not in issue
+            and (issue.get("user") or {}).get("login") == ISSUE_AUTHOR and ISSUE_MARK in (issue.get("body") or ""))
 
 
 def find_issue(repo, number=None):
     if number:
         try:
             issue = gh_request(f"/repos/{repo}/issues/{number}")
-            if issue.get("title") == ISSUE_TITLE:
+            if own_issue(issue):
                 return issue
         except urllib.error.HTTPError:
             pass
-    q = urllib.parse.quote(f'repo:{repo} is:issue in:title "{ISSUE_TITLE}"')
+    q = urllib.parse.quote(f'repo:{repo} is:issue in:title "{ISSUE_TITLE}" author:app/github-actions')
     items = gh_request(f"/search/issues?q={q}&sort=created&order=desc&per_page=10").get("items", [])
-    items = [i for i in items if i.get("title") == ISSUE_TITLE]
+    items = [i for i in items if own_issue(i)]
     return items[0] if items else None
 
 
@@ -723,6 +797,55 @@ def find_issue(repo, number=None):
 
 def git(*args, check=True):
     return subprocess.run(["git", "-C", ROOT, *args], capture_output=True, text=True, check=check, timeout=120).stdout.strip()
+
+
+def have_range(good, bad):
+    """True: good is an ancestor of bad in the checkout. False: not in the shallow checkout's history yet (a missing
+    commit, or one a partial clone fetched lazily past the shallow boundary). None: the checkout is complete and good
+    is not an ancestor (deepening cannot help)."""
+    try:
+        git("merge-base", "--is-ancestor", "--end-of-options", good, bad)
+        return True
+    except subprocess.CalledProcessError:
+        return False if git("rev-parse", "--is-shallow-repository", check=False) == "true" else None
+
+
+def range_commits(good, bad, remote="origin", branch=STATE_BRANCH):
+    """The first-parent commits strictly between good and bad, oldest first, or None (logged) when the range cannot
+    be listed. The plan's checkout is shallow: a range whose good commit is older than its boundary is deepened
+    DEEPEN_STEP commits at a time (at most DEEPEN_ROUNDS times) first, else `git rev-list good..bad` would list
+    nothing and the range would never narrow."""
+    rounds = 0
+    while True:
+        have = have_range(good, bad)
+        if have:
+            break
+        if have is None:
+            print(f"perf-cron: cannot list the range {good[:12]}...{bad[:12]}: {good[:12]} is not an ancestor of {bad[:12]}")
+            return None
+        if rounds >= DEEPEN_ROUNDS:
+            print(f"perf-cron: cannot list the range {good[:12]}...{bad[:12]}: {good[:12]} is not an ancestor of "
+                  f"{bad[:12]} within {DEEPEN_ROUNDS * DEEPEN_STEP} commits past the shallow boundary; not bisected")
+            return None
+        rounds += 1
+        try:
+            git("fetch", "--no-tags", "--filter=blob:none", f"--deepen={DEEPEN_STEP}", remote, branch)
+        except subprocess.CalledProcessError as error:
+            print(f"perf-cron: cannot deepen the checkout for {good[:12]}...{bad[:12]} ({(error.stderr or '').strip()[-300:]})")
+            return None
+    commits = git("rev-list", "--first-parent", "--reverse", f"{good}..{bad}").split()
+    if rounds:
+        print(f"perf-cron: deepened the checkout {rounds * DEEPEN_STEP} commits for {good[:12]}...{bad[:12]} ({len(commits)} commits)")
+    return [c for c in commits if c != bad]
+
+
+def part_minutes(run_seconds):
+    """(step, job) timeout minutes of a measure job for a part of run_seconds: the step covers fleet-check, the queue,
+    the run, the artifact download and slack; the job adds the cleanup step that cancels a step left running (a
+    job GitHub kills writes no result, so the part would run again every tick)."""
+    step = run_seconds + FLEET_CHECK_SECONDS + PART_QUEUE_SECONDS + ARTIFACT_SECONDS + STEP_SLACK_SECONDS
+    step_minutes = -(-step // 60)
+    return step_minutes, step_minutes + 5
 
 
 def tree_published(sha):
@@ -847,7 +970,7 @@ def issue_body(state, repo, now):
                          + (f" ({', '.join(narrowed)})" if narrowed else "")
                          + (f"; first bad tip measurement {link(repo, first['sha'])} ([run]({first.get('run_url')}))" if first.get("sha") else "")
                          + ".")
-        lines += ["", "| row | last good p95 | now p95 | change | target | display | why | range |", "|---|---|---|---|---|---|---|---|"]
+        lines += ["", "| row | reference p95 | now p95 | change | target | display | why | range |", "|---|---|---|---|---|---|---|---|"]
         for r in regs:
             change = f"+{round(100 * (r['p95'] - r['base']) / r['base'], 1)} %" if r.get("base") else "new"
             rng = r.get("range") or {}
@@ -874,11 +997,16 @@ def issue_body(state, repo, now):
         lines += ["", f"**Stale:** no finished measurement since {stale_basis(state)} ({round(stale_hours(state, now))} h): "
                       "the bench host had no idle time, a nightly or dev build kept waiting for a Mac, the commits did not "
                       "build, the regressed rows' parts kept failing, or the tick failed."]
+    coverage = (f"Coverage: the Mac rows run on one bench host ({BENCH_WORKER}, macOS {BENCH_MACOS} only); macOS 14, 15 "
+                "and 26 are not measured by this cron.")
+    if state.get("mac_off"):
+        coverage += f" **No Mac row is measured now:** {state['mac_off']}."
+    lines += ["", coverage]
     rows = (last or {}).get("rows") or {}
     if rows:
         lines += ["", "<details><summary>Every row of the last measurement</summary>", "",
-                  "| row | p50 | p95 | target | last good p95 | display | |", "|---|---|---|---|---|---|---|"]
-        base = (good or {}).get("rows") or {}
+                  "| row | p50 | p95 | target | reference p95 | display | |", "|---|---|---|---|---|---|---|"]
+        base = reference_rows(state, now)
         for name in sorted(rows):
             r = rows[name]
             tgt = target_of(name, r, last.get("refresh_ms"))
@@ -889,8 +1017,66 @@ def issue_body(state, repo, now):
     lines += ["", "Opened and closed by the perf cron (scripts/cmux-next/perf-cron.py, workflow cmux-next-perf-budgets.yml); "
                   "it never fails a check. Latency target 10 ms p95; frame rows one display refresh, dropped frames 0, judged in "
                   f"frames. Frame rows run on a {VDISPLAY_HZ} Hz virtual display; a row on another refresh than its last good "
-                  "value is not compared until a good run rebases it."]
+                  "value is not compared until a good run rebases it. A row's reference is the median of its last "
+                  f"{REF_RUNS} good values, or the median of its good values from {CREEP_DAYS} days ago when lower."]
     return "\n".join(lines)
+
+
+def _median(values):
+    values = sorted(values)
+    n = len(values)
+    return values[n // 2] if n % 2 else (values[n // 2 - 1] + values[n // 2]) / 2.0
+
+
+def _history_time(entry):
+    try:
+        return parse_iso(entry.get("at"))
+    except (TypeError, ValueError):
+        return None
+
+
+def remember_good(state, rows, refresh_ms, t, prev_good=None):
+    """Append each accepted row's good p95 to state['row_history'] (kept HISTORY_DAYS, at most HISTORY_MAX values a
+    row). A row with no history yet starts from its value in prev_good (a state from before the history existed)."""
+    hist = state.setdefault("row_history", {})
+    since = t - datetime.timedelta(days=HISTORY_DAYS)
+    for name, r in rows.items():
+        if not isinstance(r.get("p95"), (int, float)):
+            continue
+        h = hist.get(name) if isinstance(hist.get(name), list) else []
+        prev = ((prev_good or {}).get("rows") or {}).get(name) or {}
+        if not h and isinstance(prev.get("p95"), (int, float)) and prev_good.get("measured_at"):
+            h.append({"at": prev_good["measured_at"], "p95": prev["p95"]})
+        h.append({"at": iso(t), "p95": r["p95"]})
+        hist[name] = [e for e in h if (_history_time(e) or since) >= since][-HISTORY_MAX:]
+
+
+def row_reference(history, t):
+    """The p95 a row is compared with (pure): the median of its last REF_RUNS good values, or, when lower, the median
+    of the last REF_RUNS good values at least CREEP_DAYS old. None with no history.
+
+    A single good run cannot move the median, so the baseline does not ratchet up by just under the 10 % rule each
+    run; the CREEP_DAYS reference catches a creep too slow for the recent median."""
+    h = [e for e in history or [] if isinstance(e, dict) and isinstance(e.get("p95"), (int, float))]
+    if not h:
+        return None
+    ref = _median([e["p95"] for e in h[-REF_RUNS:]])
+    cutoff = t - datetime.timedelta(days=CREEP_DAYS)
+    old = [e["p95"] for e in h if (_history_time(e) or t) <= cutoff]
+    if old:
+        ref = min(ref, _median(old[-REF_RUNS:]))
+    return ref
+
+
+def reference_rows(state, t):
+    """The last good rows with each row's p95 replaced by its row_reference (the row's own last good value when it
+    has no history)."""
+    hist = state.get("row_history") if isinstance(state.get("row_history"), dict) else {}
+    out = {}
+    for name, r in ((state.get("last_good") or {}).get("rows") or {}).items():
+        ref = row_reference(hist.get(name), t)
+        out[name] = r if ref is None or r.get("p95") is None else {**r, "p95": ref, "last_good_p95": r["p95"]}
+    return out
 
 
 def bisect_step(state, cur, part_rows, regs):
@@ -940,7 +1126,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     entry = {"sha": cur["sha"], "kind": cur["kind"], "at": iso(t), "run_url": run_url, "failed_parts": failed}
     state.setdefault("history", []).append(entry)
     state["history"] = state["history"][-60:]
-    regs = find_regressions(part_rows, (good or {}).get("rows") or {}, refresh_ms, (good or {}).get("refresh_ms"),
+    base_rows = reference_rows(state, t)
+    regs = find_regressions(part_rows, base_rows, refresh_ms, (good or {}).get("refresh_ms"),
                             budgets_mod) if part_rows else []
     if cur["kind"] == "bisect":
         entry["status"], entry["note"] = bisect_step(state, cur, part_rows, regs)
@@ -951,10 +1138,11 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
         return "empty"
     record = {"sha": cur["sha"], "measured_at": iso(t), "rows": part_rows, "refresh_ms": refresh_ms, "host": host,
               "run_url": run_url, "failed_parts": failed,
-              "refresh_skipped": refresh_skipped(part_rows, (good or {}).get("rows") or {}, refresh_ms, (good or {}).get("refresh_ms"))}
+              "refresh_skipped": refresh_skipped(part_rows, base_rows, refresh_ms, (good or {}).get("refresh_ms"))}
     row_ok = state.setdefault("row_ok", {})
     if not good:
         state["last_good"] = record
+        remember_good(state, part_rows, refresh_ms, t)
         if not failed:
             state["last"] = record  # a first run with a part that did not run is the baseline, not a stale reset
         state["regressions"] = []
@@ -1002,11 +1190,15 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     # fallback run never rebases a 120 Hz baseline, and the first 120 Hz run rebases a 60 Hz one.
     merged = dict(good.get("rows") or {})
     skipped = set(record["refresh_skipped"])
+    accepted = {}
     for name, r in part_rows.items():
         prev = merged.get(name) or {}
         if name in skipped and (row_refresh(r, refresh_ms) or 1e9) >= (row_refresh(prev, good.get("refresh_ms")) or 1e9):
             continue
-        merged[name] = r
+        if name in skipped:
+            state.setdefault("row_history", {}).pop(name, None)  # a faster display rebases the row: old values go
+        merged[name] = accepted[name] = r
+    remember_good(state, accepted, refresh_ms, t, good)
     state["last_good"] = {**record, "rows": merged}
     entry["status"] = "good"
     return "recovered" if old else "good"
@@ -1068,10 +1260,12 @@ def cmd_plan(o):
                 break
             print(f"perf-cron: {sha[:12]} has no published cmux-tui tree yet; trying its parent")
     bisect = None
-    if not candidate and not state.get("current"):
+    if not state.get("current") and not (candidate and tip_due(state, t)):
         for group in bisect_groups(state):
             rng = group["range"]
-            between = git("rev-list", "--first-parent", "--reverse", f"{rng['good']}..{rng['bad']}", check=False).split()[:-1]
+            between = range_commits(rng["good"], rng["bad"])
+            if between is None:
+                continue
             sha = bisect_midpoint(between, lambda c: fleet_runs(c, tip_blob) and tree_published(c), rng.get("skip") or [])
             if sha:
                 bisect = {"sha": sha, "range": rng, "rows": group["rows"]}
@@ -1080,6 +1274,7 @@ def cmd_plan(o):
     if not busy and (candidate or bisect or state.get("current")):
         busy = github_busy(o.repo, o.yield_mode)
     d = decide(state, t, candidate, bisect, supported, busy, lambda sha: fleet_runs(sha, tip_blob))
+    state["mac_off"] = no_mac  # the issue says why no Mac row is measured
     if json.dumps(state, sort_keys=True) != before:
         state["dirty"] = True  # the report job saves it even when no part ran
     json.dump(state, open(os.path.join(o.dir, "state.json"), "w"), indent=1)
@@ -1088,6 +1283,7 @@ def cmd_plan(o):
     if d.get("part"):
         p = PART_BY_NAME[d["part"]]
         out["run_seconds"] = p.get("run_seconds", PART_RUN_SECONDS)
+        out["step_minutes"], out["job_minutes"] = part_minutes(out["run_seconds"])
         out["args"] = json.dumps(part_args(p, out["run_seconds"]))
         out["artifact"] = p["artifact"]
     print(f"perf-cron plan: {json.dumps(out)}")
@@ -1344,6 +1540,7 @@ def cmd_report(o):
     state["persisted"] = True
     event, summary = None, ""
     cur = state.get("current")
+    fleet_done = False
     before_names = sorted(r["name"] for r in state.get("regressions") or [])
     for spec in o.result:
         part, _, part_dir = spec.partition("=")
@@ -1359,6 +1556,8 @@ def cmd_report(o):
             continue
         changed = True
         entry = record_part(cur, part, result, o.run_url)
+        if entry["state"] == "done" and not is_linux_part(part):
+            fleet_done = True
         if entry["state"] == "done":
             os.makedirs(os.path.join(o.dir, "parts"), exist_ok=True)
             report = os.path.join(part_dir, "report.json")
@@ -1417,8 +1616,32 @@ def cmd_report(o):
         line += "; " + manage_issue(o.repo, state, event, t, o.run_url, summary or line, set_changed)
         changed = changed or json.dumps(state, sort_keys=True) != before
     json.dump(state, open(os.path.join(o.dir, "state.json"), "w"), indent=1)
+    nxt = next_now(state, fleet_done)
+    if nxt:
+        line += "; the bench host is idle: the next tick starts now"
     print(f"perf-cron report: {line}")
-    write_outputs(o.output, {"changed": "true" if changed else "false", "line": line.replace("\n", " ")})
+    write_outputs(o.output, {"changed": "true" if changed else "false", "line": line.replace("\n", " "),
+                             "next_now": "true" if nxt else "false"})
+
+
+def next_now(state, fleet_done):
+    """Start the next tick at once (pure): a Mac part finished this tick (so the bench host was idle and stayed
+    free for the whole part) and Mac work is left: a fleet part of the measurement in flight, or an open culprit
+    range to bisect. The next tick plans and checks the fleet itself, so it still yields; the chain ends at the first
+    tick whose Mac part does not finish (yield, fleet check no, failure) or when no Mac work is left."""
+    if not fleet_done:
+        return False
+    cur = state.get("current")
+    if cur:
+        return any(not is_linux_part(p) for p in cur.get("parts_todo") or [])
+    return bool(bisect_groups(state))
+
+
+def cmd_dispatch_next(o):
+    """Dispatch this workflow on the measured branch (the report job's last step when next_now said so)."""
+    gh_request(f"/repos/{o.repo}/actions/workflows/{os.path.basename(STATE_WORKFLOW)}/dispatches", "POST",
+               {"ref": STATE_BRANCH})
+    print(f"perf-cron: dispatched the next tick of {os.path.basename(STATE_WORKFLOW)} on {STATE_BRANCH}")
 
 
 def main(argv=None):
@@ -1463,10 +1686,12 @@ def main(argv=None):
     s.add_argument("--finish", action="store_true", help="finish a measurement whose parts all ran")
     s.add_argument("--issues", action="store_true", help="open, update or close the regression issue")
     s.add_argument("--output")
+    s = sub.add_parser("dispatch-next", help="start the next tick now (report, when the bench host stayed idle)")
+    s.add_argument("--repo", required=True)
     o = ap.parse_args(argv)
     {"fetch-state": cmd_fetch_state, "plan": cmd_plan, "fleet-check": cmd_fleet_check, "run-part": cmd_run_part,
      "part-cleanup": cmd_part_cleanup, "run-linux-part": cmd_run_linux_part,
-     "report": cmd_report}[o.cmd](o)
+     "report": cmd_report, "dispatch-next": cmd_dispatch_next}[o.cmd](o)
 
 
 if __name__ == "__main__":
