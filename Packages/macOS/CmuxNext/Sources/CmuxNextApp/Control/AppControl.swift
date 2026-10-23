@@ -90,7 +90,7 @@ final class AppControl {
             // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class.
             .mainActor("debug.main_budget") { call in
                 let budget = FrameScheduler.app.budget
-                let report = DebugMainBudget.report(budget)
+                let report = budget.report
                 if call.params["reset"]?.boolValue == true { budget.resetStats() }
                 return .value(report)
             },
