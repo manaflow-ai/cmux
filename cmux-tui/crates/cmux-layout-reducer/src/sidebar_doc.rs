@@ -19,6 +19,9 @@
 //! - [`migrate`]: the one-time move from the old sidebar stores.
 
 pub mod accept;
+mod archive;
+#[cfg(test)]
+mod archive_tests;
 pub mod check;
 pub mod doc;
 pub mod migrate;

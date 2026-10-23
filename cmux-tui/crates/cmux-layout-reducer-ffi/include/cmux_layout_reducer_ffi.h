@@ -62,6 +62,7 @@ char *cmux_sidebar_mirror_drag_begin(CmuxSidebarMirror *mirror, const uint8_t *j
 #define CMUX_SIDEBAR_NONE UINT32_MAX
 #define CMUX_SIDEBAR_ROW_DIMMED 1u
 #define CMUX_SIDEBAR_ROW_COLLAPSED 2u
+#define CMUX_SIDEBAR_ROW_ARCHIVED 4u
 #define CMUX_SIDEBAR_ACCEPT_BEFORE 1u
 #define CMUX_SIDEBAR_ACCEPT_INTO 2u
 #define CMUX_SIDEBAR_ACCEPT_AFTER 4u
