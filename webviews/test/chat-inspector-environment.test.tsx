@@ -129,7 +129,8 @@ test("Save keeps this Mac or the SSH machine and the folder, named after it; a C
 test("every Environment row does something: folders open in Files, the repository and branch link to GitHub, Save", async () => {
   const container = installDom();
   const base = chat(projectsRows);
-  const summary: Summary = { ...base.summary!, cwd: `${HOME}/Projects`, branch: "leo/next-backgrounds" };
+  // A repository's chat: its own files are its folder; the projects beside it are listed after it.
+  const summary: Summary = { ...base.summary!, cwd: `${HOME}/Projects/cmux`, branch: "leo/next-backgrounds" };
   const folders: string[] = [];
   let saves = 0;
   const props: ComponentProps<typeof ChatInspector> = {
@@ -150,16 +151,15 @@ test("every Environment row does something: folders open in Files, the repositor
   const buttons = [...environment.querySelectorAll<HTMLButtonElement>("button.acpmux-chat-inspector-row")];
   // Claude's list: the chat's folder with its parent, then each project by name.
   expect(buttons.map((button) => button.textContent)).toEqual([
-    "Projects~",
-    "cmux",
+    "cmux~/Projects",
     "cmux-app-screenshots",
     "leo-workspace",
     "glaeda",
   ]);
-  expect(buttons[1]!.getAttribute("title")).toBe(`${HOME}/Projects/cmux`);
+  expect(buttons[1]!.getAttribute("title")).toBe(`${HOME}/Projects/cmux-app-screenshots`);
   await act(async () => buttons[0]!.click());
-  await act(async () => buttons[4]!.click());
-  expect(folders).toEqual([`${HOME}/Projects`, `${HOME}/Projects/glaeda`]);
+  await act(async () => buttons[3]!.click());
+  expect(folders).toEqual([`${HOME}/Projects/cmux`, `${HOME}/Projects/glaeda`]);
 
   // The repository and the branch are links, which the pane opens in the browser.
   const links = [...environment.querySelectorAll<HTMLAnchorElement>("a.acpmux-chat-inspector-row")];
@@ -184,7 +184,8 @@ test("without the App's actions the rows are plain text, and no Remote Control r
     root = createRoot(container);
     root.render(
       <ChatInspector
-        summary={{ ...base.summary!, cwd: `${HOME}/Projects` }}
+        // A plain folder (no branch): each child project it touched is listed.
+        summary={{ ...base.summary!, cwd: `${HOME}/Projects`, branch: undefined }}
         machineName="cosmic-gray"
         rows={projectsRows}
       />,
