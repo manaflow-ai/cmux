@@ -13,7 +13,7 @@
 /// ```
 public nonisolated struct HangReportAskPolicy: Sendable {
     /// What to do.
-    public enum Decision: Sendable, Equatable {
+    public enum Decision: Sendable, Hashable {
         /// Reports on: record and send.
         case send
         /// The setting is on but this Mac never confirmed: show the confirm card, send nothing yet.

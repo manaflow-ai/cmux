@@ -35,8 +35,9 @@ final class HangReportsController {
     private var subscriber: MetricKitSubscriber?
     private var settingsObservation: Task<Void, Never>?
     private var launchedOnce = false
-    /// A card was put up this launch (one per launch at most).
-    private var askedThisLaunch = false
+    /// The card kinds put up this launch (each at most once): an invitation answered Not Now still
+    /// lets a later switch-on in the same launch get its confirm card.
+    private var askedThisLaunch: Set<HangReportAskPolicy.Decision> = []
 
     init(service: HangReportService?, managedDisables: @escaping @Sendable () -> Bool, defaults: UserDefaults = .standard) {
         self.service = service
@@ -49,7 +50,7 @@ final class HangReportsController {
     static func forThisLaunch(policy: CrashReportingPolicy, folder: URL, counts: @escaping @Sendable () async -> CoarseCounts,
                               environment: [String: String] = ProcessInfo.processInfo.environment) -> HangReportsController {
         let devOptIn = policy.channel == .dev && environment[devOptInKey] == "1"
-        let mayReport = (policy.channel == .nightly || devOptIn) && environment["XCTestConfigurationFilePath"] == nil
+        let mayReport = (policy.channel == .nightly || devOptIn) && !CrashReportingPolicy.isTestProcess(environment)
         let managed = ManagedPreferenceLocation.defaultReader(environment: environment)
         let managedDisables: @Sendable () -> Bool = {
             managed.read().forced[CrashReportingPolicy.disableTelemetryPolicyKey]?.boolValue == true
@@ -73,7 +74,7 @@ final class HangReportsController {
                                     build: info["CFBundleVersion"] as? String ?? "0",
                                     channel: policy.channel?.rawValue ?? "dev"),
                 os: HangReport.OS(version: "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)"),
-                hardware: .current(), counts: counts))
+                hardware: .current(), counts: counts, stillAllowed: { !managedDisables() }))
         return HangReportsController(service: service, managedDisables: managedDisables)
     }
 
@@ -109,8 +110,8 @@ final class HangReportsController {
                         firstWindow: @escaping @MainActor () async -> Void) async {
         let decision = Self.decision(defaults: defaults, settingOn: settingOn)
         await apply(decision == .send, settingOn: settingOn)
-        guard decision == .confirm || decision == .invite, !askedThisLaunch else { return }
-        askedThisLaunch = true
+        guard decision == .confirm || decision == .invite, !askedThisLaunch.contains(decision) else { return }
+        askedThisLaunch.insert(decision)
         // task-owner: one question after the first frame; it ends when the person answers.
         Task { [weak self] in
             await firstWindow()
