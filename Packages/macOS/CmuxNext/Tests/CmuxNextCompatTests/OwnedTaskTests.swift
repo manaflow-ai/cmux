@@ -1,4 +1,4 @@
-import CmuxNextCompat
+@testable import CmuxNextCompat
 import Testing
 
 /// ``OwnedTask`` replaces the owners' `nonisolated deinit { guard Thread.isMainThread else { return };

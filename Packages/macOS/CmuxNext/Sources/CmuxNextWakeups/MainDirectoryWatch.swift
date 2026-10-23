@@ -6,9 +6,10 @@ import Foundation
 ///
 /// The one place a kqueue directory source on the main queue hands its events to main-actor
 /// code: a socket client waits here for its socket to appear. Each event runs `changed` on the
-/// main thread in the main queue's order, as a source made with `queue: .main` did. Releasing the
-/// watch or calling ``cancel()`` stops it and closes its descriptor (`DispatchSource.cancel()` is
-/// thread-safe), so the owner needs no deinit.
+/// main thread in the main queue's order, as a source made with `queue: .main` did. A callback, not
+/// an `AsyncStream`: the event stays synchronous on the main queue, where a consumer task would run
+/// the work as a later main-actor job. Releasing the watch stops it and closes its descriptor
+/// (`DispatchSource.cancel()` is thread-safe), so the owner needs no deinit.
 ///
 /// ```swift
 /// directoryWatch = MainDirectoryWatch(directory) { [weak self] in self?.connect() }
@@ -34,11 +35,6 @@ public final class MainDirectoryWatch {
         source.setCancelHandler { close(descriptor) }
         self.source = source
         source.resume()
-    }
-
-    /// Stops watching now (also happens when the watch is released).
-    public func cancel() {
-        source.cancel()
     }
 
     deinit {

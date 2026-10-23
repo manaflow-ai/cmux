@@ -275,7 +275,7 @@ extension TabStripView {
         if let move {
             let generation = move.generation
             movesInFlight.insert(generation)
-            // A main-actor closure (inferred here): CATransaction.h calls the completion block on the main thread.
+            // main-proof: inferred main-actor closure (written in main-actor code); CATransaction.h calls the completion block on the main thread, and Swift checks the main actor on the closure's entry (SE-0423).
             CATransaction.setCompletionBlock { [weak self] in self?.moveEnded(generation) }
         }
         defer { CATransaction.commit() }

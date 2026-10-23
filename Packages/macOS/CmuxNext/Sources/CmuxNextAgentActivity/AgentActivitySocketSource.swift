@@ -159,6 +159,9 @@ public final class AgentActivitySocketSource: AgentActivitySource {
         guard directoryWatch == nil else { return }
         let directory = (config.socketPath as NSString).deletingLastPathComponent
         guard let watch = MainDirectoryWatch(directory, { [weak self] in self?.connect() }) else {
+            // When the old reconnect task called connect(), replacing its OwnedTask cancels that running
+            // task: intended and harmless, because this path is synchronous main-actor code, the call is
+            // that task's last statement, and nothing here awaits or reads Task.isCancelled.
             reconnect = OwnedTask(Task { [weak self] in
                 guard var backoff = self?.backoff else { return }
                 // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
