@@ -51,14 +51,25 @@ Fork API 26, `uint32_t cmux_browser_set_layer_hosting(int browser_id, int enable
      run-loop turn, not inside `OnAfterCreated`: Chromium adds the WebContents to its window later in that
      stack, and the fork returns 0 while the browser has no page window.
    - A refusal arms one retry at the tracker's next read of the host view (`-cmuxClipPath`, proof that the
-     tracker is attached), again at the end of that turn. A second refusal waits for the next show.
-     `debug.cef` `tracker.hosting_refused` counts refusals.
+     tracker is attached), again at the end of that turn. A refusal of the retry is the page window's answer:
+     no tab show asks again (a show is the 10 ms tab-switch path); a new page window or a move of the host view
+     (`pageMoved`: a docked DevTools changing side or window) does, once.
+   - Every request addresses the window's live browser (`anchor`), never the browser that created the window: a
+     spare window's or popup host's about:blank placeholder is closed by the time a retry runs. DevTools passes
+     its browser. Open (PL-cef-tab owns `CEFPaneHost`, asked 2026-10-23): `windowCreated` passes
+     `anchorBrowser`, and `movePopupsIn` calls `pageShown` for the popup that moved in; until then a pane's
+     request addresses the browser shown last, and a popup host waits for its next show.
    - The context belongs to the page window, so a tab switch inside a hosted pane makes no fork call; a
      tunable change applies at the next show. A new page window drops the old window's context.
-   - When no `CALayerHost` can show the context, hosting is turned off at once and the page keeps its window
-     (never a blank page over a see-through window).
-   - Teardown (DevTools closed, the pane's last tab closed) turns hosting off and removes the hosted view.
-     `tracker.hosted_pages` counts the hosted views in a window, live.
+   - When this process has no `CALayerHost` (`CEFHostedPageView.canShowContexts`, asked once per process) the
+     fork seam is nil and nothing calls the fork. When a context cannot be shown anyway, hosting is turned off
+     at once, the page keeps its window (never a blank page over a see-through window), and that page window
+     makes no more calls.
+   - Teardown (DevTools closed, the pane's last tab closed) removes the hosted view with no fork call: the
+     window's browsers are gone, and the window's teardown releases its tracker's context.
+   - `debug.cef` `layer_hosting` is a gauge of the live host views (`host_views`, `hosted_pages` in a window,
+     `refusals`, `fork_calls`), worked out from the runtime's hosts and tabs when read; `tracker` stays counters
+     since launch.
 4. The page window stays as a transparent input target over the host view. Its
    `ignoresMouseEvents` is set explicitly: a non-opaque window with no pixels takes the mouse only
    because of that. The tracker skips its mask while the page is hosted, but still computes
@@ -92,7 +103,7 @@ this branch.
 | Keyboard, IME, focus | page window is key, as today | open |
 | Context menus, select popups, bubbles | own windows, as today | open |
 | Accessibility | page window AX tree; `CmuxApplication` maps windows | open |
-| DevTools docked or in its own cmux window | its own page window over its own `CEFHostView` (`CEFDevToolsController.views.host`), so its own context: hosted from `opened` (end of that turn); a tunable change applies at the next open; close turns it off (`removeViews`) | code in, not run (fork API 26 build pending) |
+| DevTools docked or in its own cmux window | its own page window over its own `CEFHostView` (`CEFDevToolsController.views.host`), so its own context: hosted from `opened` (end of that turn); DevTools has no tab shows, so each placement change (dock side, into or out of its own window) asks again after a refusal and applies a tunable change; close removes the hosted view (`removeViews`) | code in, not run (fork API 26 build pending) |
 | Drag and drop | page window is the drag destination and source | open |
 | Full screen | host layer moves with the cmux window; tracker follows | open |
 | Popup windows (API 13 trackers) | not hosted in slice 1 | open |
@@ -102,8 +113,12 @@ this branch.
 - `CALayerHost` and `CAContext` are QuartzCore SPI. Chromium (every Chrome and Electron app) and
   WebKit's UI process use the same classes. cmux is not in the App Store. Notarization does not check SPI.
 - The flip of the hosted root inside the layer-hosting view must be checked on screen.
-- The page window still costs a WindowServer surface and the per-frame `setFrame` while panes move (input only,
-  invisible). Slice 3 removes the orders that are not needed. The final step forwards input and keeps the window off screen.
+- Slice 1 adds work and removes none: with hosting on, every motion frame still runs `-update` with its
+  `setFrame:display:` (a WindowServer round trip), the page window still orders in and out on hide and show, and
+  the tracker still reads the clip and occlusion rects; the `CALayerHost` compositing and an invisible,
+  transparent window surface come on top. An off/on A/B (`cef-layer-ab.py`) shows tearing parity and the cost that
+  remains (its `cost` rows: `geometry_posts`, `clip_reads`, `fork_calls` per mode), not a speed gain. Slice 3
+  removes the orders that are not needed. The final step forwards input and keeps the window off screen.
 
 ## 5. Slices
 
