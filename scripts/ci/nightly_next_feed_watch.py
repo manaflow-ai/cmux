@@ -175,11 +175,19 @@ def is_active_delivery_run(workflow: str, branch: str | None, run: dict) -> bool
     # not let a long cache warm suppress the 25-minute classic starvation
     # dispatch. The 08:47 catch-up schedule publishes and remains a blocker.
     if workflow == "nightly.yml" and branch == "main" and run.get("event") == "schedule":
+        title = run.get("display_title", "")
+        if "17 */6" in title:
+            return False
+        if "47 8" in title:
+            return True
         try:
             created = parse_time(run["created_at"])
         except (KeyError, TypeError, ValueError):
             return False
-        return created.hour == 8 and 47 <= created.minute <= 49
+        # Older runs predate the explicit schedule in run-name. Their 08:47
+        # catch-up may start late, so accept the catch-up window through 10:59;
+        # the six-hour seed hours are 05, 11, 17 and 23 UTC.
+        return created.hour in {8, 9, 10}
     return True
 
 
