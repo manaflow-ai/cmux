@@ -12,16 +12,15 @@ impl Translator {
     /// `{withdrawn: false}` at once when none does.
     pub(super) async fn withdraw_steer(&self, id: &Id, p: &Value) -> Outbound {
         let prompt_id = p.get("promptId").and_then(Value::as_str).unwrap_or_default();
+        // Under the steers lock, which `fail_pending` takes before it answers what waits: a steer
+        // failed meanwhile is not asked for, and a withdraw registered here is answered by it.
+        let steers = self.steers.lock().await;
         let uuid = self.steer_lines.lock().await.get(prompt_id).cloned();
-        let waits = match &uuid {
-            Some(uuid) => self.steers.lock().await.iter().any(|(u, _)| u == uuid),
-            None => false,
-        };
-        let Some(uuid) = uuid.filter(|_| waits) else {
+        let Some(uuid) = uuid.filter(|u| steers.iter().any(|(s, _)| s == u)) else {
             return Outbound::Reply(Message::ok(id.clone(), json!({"withdrawn": false})));
         };
-        // Waits like any request to claude: `fail_pending` answers it if its answer is lost.
         self.pending.lock().await.insert(id.to_string(), Pending::Withdraw);
+        drop(steers);
         // The uuid rides in the request id: its answer names the line it dropped.
         Outbound::Lines(vec![json!({
             "type": "control_request",

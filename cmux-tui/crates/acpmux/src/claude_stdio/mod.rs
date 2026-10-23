@@ -506,9 +506,10 @@ impl Translator {
     /// are dropped: used when Claude's answer cannot be carried (a line over
     /// the agent host's frame limit), so no turn waits forever.
     pub async fn fail_pending(&self, message: &str) -> Vec<Message> {
-        let mut ids: Vec<String> = self.pending.lock().await.drain().map(|(id, _)| id).collect();
-        // Held while the lines clear: a steer `outbound` adds meanwhile keeps its line.
+        // Held throughout: a steer `outbound` adds meanwhile keeps its line, and a withdraw
+        // (`steer_withdraw.rs`) is either answered here or finds no steer to ask for.
         let mut steers = self.steers.lock().await;
+        let mut ids: Vec<String> = self.pending.lock().await.drain().map(|(id, _)| id).collect();
         ids.extend(steers.drain(..).map(|(_, id)| id));
         self.steer_lines.lock().await.clear();
         drop(steers);
