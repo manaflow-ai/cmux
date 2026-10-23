@@ -584,8 +584,10 @@ export class HarnessSwitch {
     };
     const ticket = (key: string) => intent.tickets.get(key) ?? Promise.resolve(undefined);
     // A pick held before the session named its options (a New Tab combo's effort or Fast) goes under
-    // the opened session's own option id and value; one it offers no option for is not sent. A
-    // session that names none yet takes the picks as they were held.
+    // the opened session's own option id and value; one it offers no option or no such value for is
+    // not sent, and a session that reports an empty list takes none. A session whose attach carried
+    // no list at all (an older acpmux, a port that cannot read it) has said nothing to resolve the
+    // picks against: they go as they were held, as before, and the agent answers for them.
     const offered = port.shown()?.configOptions;
     // A held mode the agent refuses always says so: a company-managed Mac's Claude Code settings can
     // disable a mode, and the chat would otherwise run on another one with no reason given.
@@ -596,7 +598,7 @@ export class HarnessSwitch {
           .catch((error) => this.handlers.notice?.(t("switch.modeFailed", { mode, reason: errorText(error) || "?" }))),
       );
     for (const [configId, value] of Object.entries(options)) {
-      const pick = offered?.length ? heldOptionPick(configId, value, offered) : { configId, value };
+      const pick = offered ? heldOptionPick(configId, value, offered) : { configId, value };
       if (!pick) continue;
       // The pick's ticket is bound to the frame it was taken for: a renamed pick goes without it.
       const same = pick.configId === configId && pick.value === value;

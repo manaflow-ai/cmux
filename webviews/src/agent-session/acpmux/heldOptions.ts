@@ -39,8 +39,9 @@ const OFF = /^(off|false|disabled)$/i;
 
 /// The `configId: value` an opened session takes for a held pick, given the options it names: the
 /// option with that id, else its option of the same kind (effort, Fast mode) under its own id, a
-/// Fast pick's on or off as that option spells it. Undefined when the session offers no option of
-/// that kind. A pick of any other kind goes as it was held.
+/// Fast pick's on or off as that option spells it. Undefined when the session offers no such option,
+/// or an effort or Fast option that does not list the value: the pick is the user's, so no other
+/// level stands in for it. A pick of another kind goes as held to an option of its id.
 export function heldOptionPick(
   configId: string,
   value: string,
@@ -52,10 +53,11 @@ export function heldOptionPick(
       ? isFastModeOption
       : undefined;
   const option = offered.find((candidate) => candidate.id === configId) ?? (kind && offered.find(kind));
-  if (!option) return kind ? undefined : { configId, value };
+  if (!option) return undefined;
+  if (!kind) return { configId: option.id, value };
   const values = option.options?.map((choice) => choice.value) ?? [];
-  if (!kind || kind !== isFastModeOption || values.length === 0 || values.includes(value))
-    return { configId: option.id, value };
+  if (values.includes(value)) return { configId: option.id, value };
+  if (kind === isEffortOption) return undefined;
   const spelled = ON.test(value)
     ? values.find((candidate) => ON.test(candidate))
     : OFF.test(value)
