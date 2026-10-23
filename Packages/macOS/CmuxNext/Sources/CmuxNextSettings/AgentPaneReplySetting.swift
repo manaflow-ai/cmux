@@ -9,9 +9,10 @@
 /// A path on the deny list (`~/.ssh`, keys, `.env` files) is always plain text.
 ///
 /// `remote` (default `click`): a web image in a reply shows a placeholder and loads after a
-/// click (`click`), never loads (`never`), or loads at once (`always`). Every load goes through
-/// the host's fetch rules (https only, no private or loopback address, size and time caps, no
-/// cookies); `always` changes only when it starts.
+/// click (`click`), never loads (`never`), or loads at once (`always`). Under `click`, an image
+/// from one of ``clickFreeImageHosts`` loads at once. Every load goes through the host's fetch
+/// rules (https only, no private or loopback address, size and time caps, no cookies); `always`
+/// and the click-free sites change only when it starts.
 public nonisolated struct AgentPaneReplySetting: Sendable, Hashable {
     public enum OutsideRoots: String, Sendable, Hashable, CaseIterable {
         case confirm, text, open
@@ -25,6 +26,21 @@ public nonisolated struct AgentPaneReplySetting: Sendable, Hashable {
     public var remoteImages: RemoteImages
 
     public static let fallback = AgentPaneReplySetting(outsideRoots: .open, remoteImages: .click)
+
+    /// Sites whose web images load in a reply without a click under `click`: GitHub's, where PR
+    /// screenshots live (our `pr-media` branch is on raw.githubusercontent.com). The click guards
+    /// against a site learning that the reply was read (a tracking pixel, or a prompt-injected
+    /// address that leaks data); GitHub gives a repository's owner no log of who fetched its
+    /// files, so these sites tell no one but GitHub. Matched on the exact host name, https only,
+    /// on the default port (`GuardedRemoteFetch.isListed`). Leo, 2026-10-23, of a before/after
+    /// pair whose second image waited on Load image: "i feel like this is a bit lame idk".
+    public static let clickFreeImageHosts: Set<String> = ["github.com", "raw.githubusercontent.com"]
+    /// Where a click-free load may be redirected: those sites and GitHub's own file hosts they
+    /// redirect to (a repository's raw file, a release asset). A redirect anywhere else fails
+    /// the load, so a click-free load never reaches another site.
+    public static let clickFreeRedirectHosts: Set<String> = clickFreeImageHosts.union([
+        "objects.githubusercontent.com", "private-user-images.githubusercontent.com", "release-assets.githubusercontent.com",
+    ])
 
     public init(outsideRoots: OutsideRoots, remoteImages: RemoteImages) {
         self.outsideRoots = outsideRoots

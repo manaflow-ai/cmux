@@ -2,7 +2,9 @@
 // `img-src data:`, `connect-src 'none'`); the host reads or fetches it (`image.load`) and answers
 // a data URL. A file inside the session's folders loads at once; a web image follows
 // `agentPane.images.remote`: a placeholder with its site and "Load image" (click, the default),
-// its link only (never), or at once (always). Every web load uses the host's network rules.
+// its link only (never), or at once (always). Under click, an image from a site the host names
+// click-free (GitHub's: PR screenshots) loads at once too (`loadsWithoutClick`). Every web load
+// uses the host's network rules, and the host checks the site again.
 // A local image the host will not show (outside the folders, missing, or a failed load) draws as
 // a compact card: its alt text, its file name and Open, the path chip's open with the same
 // outside-folders confirmation. A deny-listed path is its alt text only.
@@ -17,7 +19,7 @@ import { callChipHost } from "./host";
 import { DataUrlCache, IMAGE_CACHE_MAX_CHARS, IMAGE_CACHE_MAX_ENTRIES } from "./imageCache";
 import { ElsewhereChip } from "./LinkChips";
 import { useMessageScope } from "./messageScope";
-import { usePathInfo, useReplyPolicy } from "./linkStore";
+import { usePathInfo, useReplyPolicy, type ReplyPolicy } from "./linkStore";
 import { isRemoteMedia, mediaKind, RemoteMedia, ReplyMedia } from "./ReplyMedia";
 import { isDeniedPath, linkPath, pathName } from "./paths";
 
@@ -39,6 +41,24 @@ export function remoteImageHost(src: string): string | undefined {
     return url.protocol === "https:" && !url.username && !url.password ? url.host : undefined;
   } catch {
     return undefined;
+  }
+}
+
+/// Whether the web image at `src` loads without a click under `click`: https, no user info, the
+/// default port, and its host name exactly one the host named (never a suffix or a lookalike).
+export function loadsWithoutClick(src: string, policy: ReplyPolicy): boolean {
+  if (policy.remoteImages !== "click" || !Array.isArray(policy.clickFreeImageHosts)) return false;
+  try {
+    const url = new URL(src);
+    return (
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      url.port === "" &&
+      policy.clickFreeImageHosts.includes(url.hostname)
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -228,7 +248,8 @@ function RemoteImage({
 }) {
   const t = useT();
   const policy = useReplyPolicy();
-  const { state, load } = useImageLoad(src, policy.remoteImages === "always");
+  const auto = policy.remoteImages === "always" || loadsWithoutClick(src, policy);
+  const { state, load } = useImageLoad(src, auto);
   if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} thumb={thumb} />;
   if (policy.remoteImages === "never") return <>{fallback}</>;
   const placeholder = (

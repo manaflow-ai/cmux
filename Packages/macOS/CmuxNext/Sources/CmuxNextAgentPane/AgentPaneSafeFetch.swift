@@ -1,4 +1,5 @@
 import CmuxNextRemoteFetch
+import CmuxNextSettings
 import Foundation
 
 /// Fetches a reply's web image for the page, which has no network of its own (CSP
@@ -11,6 +12,9 @@ import Foundation
 /// ``maximumMediaBytes`` and ``mediaTimeout``); no cookies, cache, credentials, proxy or referrer.
 protocol AgentPaneImageFetching: Sendable {
     func fetch(_ url: URL) async -> Result<Data, AgentPaneReplyError>
+    /// The same fetch, with every hop (the URL and each redirect) to one of `hosts`
+    /// (``GuardedRemoteFetch/isListed(_:in:)``); a hop anywhere else fails it.
+    func fetch(_ url: URL, within hosts: Set<String>) async -> Result<Data, AgentPaneReplyError>
 }
 
 nonisolated struct AgentPaneSafeFetch: AgentPaneImageFetching {
@@ -37,7 +41,24 @@ nonisolated struct AgentPaneSafeFetch: AgentPaneImageFetching {
     /// a local name or a private literal.
     static func isFetchable(_ url: URL) -> Bool { GuardedRemoteFetch.allows(url) }
 
+    /// Whether a reply's web image at `url` loads without a click under `click`: https, no user
+    /// info, the default port, and its host exactly one of
+    /// ``AgentPaneReplySetting/clickFreeImageHosts``.
+    static func isClickFree(_ url: URL) -> Bool {
+        GuardedRemoteFetch.isListed(url, in: AgentPaneReplySetting.clickFreeImageHosts)
+    }
+
     func fetch(_ url: URL) async -> Result<Data, AgentPaneReplyError> {
+        await Self.fetch(url, with: guarded)
+    }
+
+    func fetch(_ url: URL, within hosts: Set<String>) async -> Result<Data, AgentPaneReplyError> {
+        var restricted = guarded
+        restricted.hosts = hosts
+        return await Self.fetch(url, with: restricted)
+    }
+
+    private static func fetch(_ url: URL, with guarded: GuardedRemoteFetch) async -> Result<Data, AgentPaneReplyError> {
         switch await guarded.fetch(url) {
         case .success(let response): .success(response.body)
         case .failure(.refused): .failure(.imageRefused)

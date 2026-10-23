@@ -1,5 +1,6 @@
 @testable import CmuxNextAgentPane
 import AppKit
+import CmuxNextRemoteFetch
 import CmuxNextSettings
 import CoreGraphics
 import Foundation
@@ -24,11 +25,18 @@ struct AgentPaneMediaNoAutoActionTests {
     private nonisolated final class Fetches: AgentPaneImageFetching, @unchecked Sendable {
         private let lock = NSLock()
         private var urls: [URL] = []
+        /// The hosts each fetch was held to (nil: any host).
+        private var limits: [Set<String>?] = []
         private let body: Data
         init(body: Data) { self.body = body }
         var all: [URL] { lock.withLock { urls } }
+        var hosts: [Set<String>?] { lock.withLock { limits } }
         func fetch(_ url: URL) async -> Result<Data, AgentPaneReplyError> {
-            lock.withLock { urls.append(url) }
+            lock.withLock { urls.append(url); limits.append(nil) }
+            return .success(body)
+        }
+        func fetch(_ url: URL, within hosts: Set<String>) async -> Result<Data, AgentPaneReplyError> {
+            lock.withLock { urls.append(url); limits.append(hosts) }
             return .success(body)
         }
     }
@@ -149,6 +157,112 @@ struct AgentPaneMediaNoAutoActionTests {
         #expect(Self.src(clickedVideo)?.hasPrefix("cmux-agent://pane/__media/") == true, "\(clickedVideo)")
         #expect(pane.media.all == [URL(string: video)!])
         #expect(pane.effects.seen.isEmpty, "\(pane.effects.seen)")
+    }
+
+    @Test func aGitHubImageLoadsWithNoClickHeldToGitHubAndSpendsNoGesture() async throws {
+        let pane = try Self.pane()
+        let sources = [
+            "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/24546/before-dark.png",
+            "https://RAW.githubusercontent.com:443/manaflow-ai/cmux/pr-media/24546/after-dark.png",
+            "https://github.com/manaflow-ai/cmux/raw/pr-media/24546/after-light.png",
+        ]
+        for source in sources {
+            let reply = await Self.ask(pane, "image.load", ["src": source])
+            #expect(Self.src(reply)?.hasPrefix("data:image/png;base64,") == true, "\(source): \(reply)")
+        }
+        #expect(pane.images.all == sources.map { URL(string: $0)! })
+        #expect(pane.images.hosts == Array(repeating: AgentPaneReplySetting.clickFreeRedirectHosts, count: sources.count))
+        // The click that follows still counts for an image that needs one.
+        let other = await Self.ask(pane, "image.load", ["src": Self.web("png")], click: true)
+        #expect(Self.src(other) != nil, "\(other)")
+        #expect(pane.images.hosts.last == .some(nil))
+        // The page learns the sites from the policy.
+        let inspect = await Self.ask(pane, "link.inspect", ["paths": [String](), "urls": [String]()])
+        let policy = (inspect["value"] as? [String: Any])?["policy"] as? [String: Any]
+        #expect(policy?["clickFreeImageHosts"] as? [String] == ["github.com", "raw.githubusercontent.com"])
+        #expect(pane.effects.seen.isEmpty, "\(pane.effects.seen)")
+    }
+
+    @Test func aLookalikeHTTPOrOtherPortGitHubImageStillWaitsForAClick() async throws {
+        let pane = try Self.pane()
+        let sources = [
+            "https://raw.githubusercontent.com.evil.example/a.png", "https://evilraw.githubusercontent.com/a.png",
+            "https://raw-githubusercontent.com/a.png", "https://camo.githubusercontent.com/a.png", "https://gist.github.com/a.png",
+            "https://github.com.evil.example/a.png", "https://evil.example/raw.githubusercontent.com/a.png",
+            "https://evil.example/?u=https://github.com/a.png", "https://raw.githubusercontent.com:8443/a.png",
+            "https://raw.githubusercontent.com./a.png", "https://xn--github-.com/a.png",
+        ]
+        for source in sources {
+            let reply = await Self.ask(pane, "image.load", ["src": source])
+            #expect(Self.errorCode(reply) == AgentPaneReplyError.gestureRequired.rawValue, "\(source): \(reply)")
+        }
+        for source in ["http://raw.githubusercontent.com/a.png", "https://u:p@raw.githubusercontent.com/a.png"] {
+            let reply = await Self.ask(pane, "image.load", ["src": source])
+            #expect(Self.errorCode(reply) == AgentPaneReplyError.imageRefused.rawValue, "\(source): \(reply)")
+        }
+        #expect(pane.images.all.isEmpty, "\(pane.images.all)")
+        // A web video from GitHub is unchanged: it still waits for a click.
+        let video = await Self.ask(pane, "media.load", ["src": "https://raw.githubusercontent.com/o/r/main/\(UUID().uuidString).mp4"])
+        #expect(Self.errorCode(video) == AgentPaneReplyError.gestureRequired.rawValue)
+        #expect(pane.media.all.isEmpty)
+    }
+
+    @Test func underNeverAGitHubImageIsRefusedAndUnderAlwaysItIsNotHeldToGitHub() async throws {
+        let github = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/1/a.png"
+        let never = try Self.pane(setting: AgentPaneReplySetting(outsideRoots: .open, remoteImages: .never))
+        let refused = await Self.ask(never, "image.load", ["src": github], click: true)
+        #expect(Self.errorCode(refused) == AgentPaneReplyError.imageRefused.rawValue)
+        #expect(never.images.all.isEmpty)
+        let always = try Self.pane(setting: AgentPaneReplySetting(outsideRoots: .open, remoteImages: .always))
+        _ = await Self.ask(always, "image.load", ["src": github])
+        #expect(always.images.hosts == [nil])
+    }
+
+    @Test func aClickFreeFetchNeverConnectsToAHostOffTheList() async throws {
+        let transport = Hops()
+        let fetch = AgentPaneSafeFetch(guarded: GuardedRemoteFetch(
+            maximumBytes: 1 << 20, timeout: .seconds(5), accept: GuardedRemoteFetch.imageAccept,
+            resolver: PublicResolver(), transport: transport))
+        let github = AgentPaneReplySetting.clickFreeRedirectHosts
+        // raw.githubusercontent.com redirects to another site: refused before it connects there.
+        transport.redirects = ["raw.githubusercontent.com": "https://tracker.example/pixel.png"]
+        let offList = await fetch.fetch(URL(string: "https://raw.githubusercontent.com/a.png")!, within: github)
+        #expect(offList == .failure(.imageRefused))
+        #expect(transport.hosts == ["raw.githubusercontent.com"])
+        // github.com to raw.githubusercontent.com (a repository's raw file) is followed.
+        transport.redirects = ["github.com": "https://raw.githubusercontent.com/o/r/main/a.png"]
+        let onList = await fetch.fetch(URL(string: "https://github.com/o/r/raw/main/a.png")!, within: github)
+        #expect(onList == .success(Data("png".utf8)))
+        #expect(transport.hosts == ["raw.githubusercontent.com", "github.com", "raw.githubusercontent.com"])
+        // A click's fetch is as before: it follows a redirect to any public site.
+        transport.redirects = ["raw.githubusercontent.com": "https://tracker.example/pixel.png"]
+        let clicked = await fetch.fetch(URL(string: "https://raw.githubusercontent.com/a.png")!)
+        #expect(clicked == .success(Data("png".utf8)))
+        #expect(transport.hosts.suffix(2) == ["raw.githubusercontent.com", "tracker.example"])
+    }
+
+    private nonisolated struct PublicResolver: RemoteAddressResolving {
+        func resolve(_ host: String) async throws -> [RemoteAddress] { [.v4([140, 82, 112, 3])] }
+    }
+
+    /// Answers a redirect for the hosts in `redirects` and "png" for any other; records each host.
+    private nonisolated final class Hops: RemoteFetchTransport, @unchecked Sendable {
+        private let lock = NSLock()
+        private var seen: [String] = []
+        private var targets: [String: String] = [:]
+        var hosts: [String] { lock.withLock { seen } }
+        var redirects: [String: String] {
+            get { lock.withLock { targets } }
+            set { lock.withLock { targets = newValue } }
+        }
+        func send(_ request: RemoteFetchRequest, maximumBytes: Int) async throws -> RemoteFetchResponse {
+            let target = lock.withLock { () -> String? in
+                seen.append(request.host)
+                return targets[request.host]
+            }
+            if let target { return RemoteFetchResponse(status: 302, headers: ["location": target], body: Data()) }
+            return RemoteFetchResponse(status: 200, headers: [:], body: Data("png".utf8))
+        }
     }
 
     @Test func underNeverAClickFetchesNothing() async throws {
