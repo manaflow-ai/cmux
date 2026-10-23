@@ -172,7 +172,7 @@ Reviewers #1 and #2 (PR 46/47 at 7d5fa1573 and the cmux side), finding by findin
 | `publishFresh` locks, retains and wakes on every frame at rest; hidden keeps a frame | Fixed: publishes only while armed; a hide drops it (8ffdf01) |
 | `drawn_since_tick` not reset when the link restarts | Fixed (1f98b11) |
 | Mirror `pending_size` stale when the drag's last resize hits a busy lock and the terminal goes idle | Open, minor: a locked mirror's `Termio.size` feeds no drawn state (the renderer gets its size by mailbox); only a cell-size change during a parse with no later output stays stale |
-| Events loop held the session strongly off main (leaked surface) | Fixed by design: main-actor weak box and dispatch (a8ed1285a70). Not proven red: `TerminalSessionReleaseTests` (signal waits) passes on the tree before the fix too (scratch 9d25224797b, aws mini), so the off-main last release did not happen in this setup; the test stays as a guard |
+| Events loop held the session strongly off main (leaked surface) | Dropped: `TerminalSessionReleaseTests` passed on the tree before the fix (scratch 9d25224797b, aws mini), so neither the bug nor the fix was shown; the change, its test and its test-only seams were reverted (lead: a fix needs a test that fails without it) |
 | Release test polls with sleep/yield | Fixed: `TerminalOutputLane.queued(atLeast:)` and `ScriptedTerminalIO.streamEnded()` signals (a999f0d2ccd, 00ffc8fe13e) |
 | bash funsub/`@a` change has no test or NEXT.md row | NEXT.md row added (8ffdf01); behavior test is PL-shell-integration's `fork_count_tests.rs` |
 | ghostty-next red runs on PR heads, not main commits | Open: rerun on the main commits after PR 49 merges |
