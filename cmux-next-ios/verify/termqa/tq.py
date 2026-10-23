@@ -120,7 +120,6 @@ class LocalMac:
             def launch(self, timeout=90):
                 res = os.path.join(self.app, "Contents/Resources")
                 self.launch_env = dict(self.launch_env, **{
-                    "CMUX_SHELL_INTEGRATION_DIR": f"{res}/shell-integration",
                     "CMUX_BUNDLED_CLI_PATH": f"{res}/bin/cmux",
                     "CMUXD_UNIX_PATH": os.path.expanduser(f"~/Library/Application Support/cmux/cmuxd-dev-{self.tag}.sock"),
                     "CMUXTERM_REPO_ROOT": "",

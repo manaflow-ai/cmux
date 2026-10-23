@@ -58,7 +58,6 @@ class EnvMac(Mac):
             "CMUX_NEXT_CONFIG_FILE": self.config,
             "CMUX_AUTH_CREDENTIALS_FILE": self.creds,
             "CMUX_NEXT_IPHONE_PAIRING_SEED": self.pairing_seed,
-            "CMUX_SHELL_INTEGRATION_DIR": f"{res}/shell-integration",
             "CMUX_BUNDLED_CLI_PATH": f"{res}/bin/cmux",
             "PATH": path,
         })
