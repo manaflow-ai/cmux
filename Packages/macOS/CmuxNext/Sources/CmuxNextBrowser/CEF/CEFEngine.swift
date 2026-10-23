@@ -149,6 +149,11 @@ public final class CEFEngine: BrowserEngine {
         CEFSpareWindow.shared.prepare(runtime: .shared)
     }
 
+    #if DEBUG
+    /// The new Chromium tab bench's recorder (`debug.new_tab bench_browser`).
+    public var benchMarks: CEFBenchMarks { CEFRuntime.shared.benchMarks }
+    #endif
+
     /// Closes the untaken spare Chromium window, if one is up (`debug.cef drop_spare`: what the
     /// spare costs). The next take-free idle moment does not make another; a warm start or a
     /// take does.

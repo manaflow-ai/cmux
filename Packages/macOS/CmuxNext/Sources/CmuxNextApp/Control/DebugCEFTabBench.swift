@@ -32,8 +32,8 @@ enum DebugCEFTabBench {
         var seen: Set<String> = []
         frames.start()
         BenchSpans.begin()
-        CEFBenchMarks.shared.arm { name, milliseconds in BenchSpans.record(name, milliseconds: milliseconds) }
-        defer { CEFBenchMarks.shared.arm(nil) }
+        services.cache.cef.benchMarks.arm { name, milliseconds in BenchSpans.record(name, milliseconds: milliseconds) }
+        defer { services.cache.cef.benchMarks.arm(nil) }
         let start = ContinuousClock.now
         if params["via"]?.stringValue == "action" {
             // A person's action run (a link in a new tab, the palette's New WebKit Tab).
@@ -55,7 +55,7 @@ enum DebugCEFTabBench {
         let visible = await frames.settled(until: { shownEntry() != nil }, start: start, window: 0, deadline: 5_000)
         let page = visible == nil ? nil : await frames.settled(until: {
             guard let entry = shownEntry() else { return false }
-            if seen.contains(where: { CEFBenchMarks.shared.firstPaints[$0] != nil }) { return true }
+            if seen.contains(where: { services.cache.cef.benchMarks.firstPaints[$0] != nil }) { return true }
             if case .finished = entry.tab.state.phase { return true }
             return false
         }, start: start, window: 0, deadline: 5_000)

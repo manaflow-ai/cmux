@@ -255,7 +255,7 @@ final class CEFPaneHost {
                 }
             }
             #if DEBUG
-            let started = CEFBenchMarks.shared.span("cef.create_window", create)
+            let started = runtime.benchMarks.span("cef.create_window", create)
             #else
             let started = create()
             #endif
@@ -281,7 +281,7 @@ final class CEFPaneHost {
         runtime.tabBeingAdded = tab
         let add = { shim.tabAdd(anchor, tab.takeInitialURLString(), -1, self.visibleTab === tab ? 1 : 0) }
         #if DEBUG
-        let browser = CEFBenchMarks.shared.span("cef.tab_add", add)
+        let browser = runtime.benchMarks.span("cef.tab_add", add)
         #else
         let browser = add()
         #endif
@@ -299,7 +299,7 @@ final class CEFPaneHost {
         guard case .creating(let expected) = window, expected == request, let tab = windowTab else { return }
         #if DEBUG
         ChatOpenTrace.shared.mark(.cefWindowCreated, chromiumPane: key.pane.rawValue)
-        CEFBenchMarks.shared.point("cef.window_created")
+        runtime.benchMarks.point("cef.window_created")
         #endif
         let windowID = runtime.shim?.tabWindowID(browser) ?? 0
         window = .live(window: windowID)

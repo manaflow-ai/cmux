@@ -7,10 +7,10 @@ public import Foundation
 /// a spare window taken, and the page's first contentful paint per tab id.
 ///
 /// Disarmed (no ``sink``) a mark site costs one optional read.
+/// The runtime owns the one recorder (`CEFRuntime.benchMarks`); the app reaches it through
+/// `CEFEngine.benchMarks`.
 @MainActor
 public final class CEFBenchMarks {
-    /// The one recorder the app's bench arms (a debug tool, like `ChatOpenTrace.shared`).
-    public static let shared = CEFBenchMarks()
 
     /// Receives each mark: its name, and its main-thread milliseconds (0 for a point in time).
     public private(set) var sink: ((_ name: String, _ milliseconds: Double) -> Void)?
