@@ -454,7 +454,7 @@ struct AgentResumeArgvTests {
                 arguments: routedArguments,
                 environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"]
             ) == .passthrough,
-            "An inherited raw marker without wrapper-bound proof must not reroute a direct Codex restore"
+            "A raw marker without its wrapper-bound copy is not marker proof, so launcherResolution leaves this capture to builtInKind"
         )
 
         #expect(

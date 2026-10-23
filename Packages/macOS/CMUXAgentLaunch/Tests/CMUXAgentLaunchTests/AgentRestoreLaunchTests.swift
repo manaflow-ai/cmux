@@ -305,6 +305,41 @@ import Testing
         #expect(AgentRestorePlanner.preparedFallback(kind: "claude", preparedArguments: routed)?.0 == routed)
     }
 
+    @Test func aStaleMarkerPairWithoutProviderEvidencePlansDirectCodex() throws {
+        let launch = AgentLaunchCommand(
+            launcher: "codex",
+            executablePath: "/opt/bin/codex",
+            arguments: ["/opt/bin/codex", "--model", "gpt-test"],
+            workingDirectory: "/tmp/plain-repo",
+            environment: [
+                SubrouterCodexResumeRouting.environmentKey: "sr codex resume",
+                SubrouterCodexResumeRouting.launchBoundEnvironmentKey: "sr codex resume",
+            ],
+            capturedAt: 1,
+            source: "test"
+        )
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/plain-repo",
+            environment: [:],
+            launchCommand: launch,
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(AgentRestorePlanner(isExecutableFile: { $0 == "/shim/codex" }).invocation(
+            for: request,
+            ambientEnvironment: ["PATH": "/usr/bin:/bin", "CMUX_CODEX_WRAPPER_SHIM": "/shim/codex"]
+        ))
+        // A marker pair alone proves nothing: with no Subrouter provider in
+        // argv or config this is a plain Codex session.
+        #expect(invocation.arguments.first != "sr")
+        #expect(invocation.arguments.contains("resume"))
+        #expect(invocation.arguments.contains(sessionID))
+    }
+
     @Test func malformedOrConflictingCodexConfigDoesNotRoute() {
         let routing = SubrouterCodexResumeRouting()
         #expect(
