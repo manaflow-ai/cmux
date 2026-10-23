@@ -1,3 +1,5 @@
+import CmuxNextAgentPane
+@testable import CmuxNextApp
 @testable import CmuxNextBridge
 @testable import CmuxNextDaemon
 @testable import CmuxNextDaemonService
@@ -123,5 +125,34 @@ struct AgentBypassBadgeTests {
         #expect(DaemonService.stillRead(read, since: 4, DaemonService.ModeWatch(live: false, epoch: 5, bound: [chat])).isEmpty)
         #expect(DaemonService.stillRead(read, since: 4, DaemonService.ModeWatch(live: true, epoch: 6, bound: [chat])).isEmpty,
                 "an in-place reconnect kept the modes read before it")
+    }
+
+    /// `--group G` with another machine's host joins that machine's group G, never this Mac's
+    /// group of the same name; with none there it makes one.
+    @Test func aRemoteWorkspaceJoinsItsMachinesGroupOfTheName() {
+        let remote = CmuxNextSidebar.MachineID("huge-blue")
+        let lane = WorkspaceID("ws-lane")
+        let sections = [
+            SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [
+                .group(SidebarGroup(id: GroupID("grp-mac"), name: "lanes", workspaces: [SidebarWorkspace(id: WorkspaceID("ws-mac"), title: "mac")])),
+            ]),
+            SidebarSection(kind: .machine(SidebarMachine(id: remote, name: "huge-blue", kind: .ssh)), nodes: [
+                .workspace(SidebarWorkspace(id: lane, machineID: remote, title: "lane")),
+                .group(SidebarGroup(id: GroupID("grp-hb"), name: "lanes", workspaces: [SidebarWorkspace(id: WorkspaceID("ws-hb"), machineID: remote, title: "hb")])),
+            ]),
+        ]
+        #expect(AgentSessionWorkspace.group(named: "lanes", accepting: lane, in: sections) == GroupID("grp-hb"))
+        #expect(AgentSessionWorkspace.group(named: "other", accepting: lane, in: sections) == nil)
+        #expect(AgentSessionWorkspace.group(named: "lanes", accepting: WorkspaceID("ws-mac"), in: sections) == GroupID("grp-mac"))
+    }
+
+    /// The refusals only an adopt gives say what happened, not "refused to start".
+    @Test func anAdoptsOwnRefusalsSayWhatHappened() throws {
+        let unknown = try #require(AgentSessionAdoptRefusal.message(code: "agent_session.unknown_session", machine: "huge-blue"))
+        #expect(unknown.contains("huge-blue") && !unknown.contains("refused"))
+        // An adopt matches the exact session id, never a name: the advice says id.
+        #expect(unknown.contains("session id") && !unknown.contains("session name"), "\(unknown)")
+        #expect(AgentSessionAdoptRefusal.message(code: "agent_session.bound", machine: "huge-blue") != nil)
+        #expect(AgentSessionAdoptRefusal.message(code: "agent_session.limit", machine: "huge-blue") == nil)
     }
 }
