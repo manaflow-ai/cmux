@@ -29,7 +29,7 @@ public nonisolated enum AgentPaneReplyError: String, Error, Equatable, Sendable 
 
 /// Reply images as the page may draw them (decision D5): a `data:` URL, because the page's CSP
 /// loads no other image. A local file must be inside the session's folders and at most
-/// ``maximumBytes``; a raster image is decoded first, so bytes that only claim to be an image
+/// ``maximumBytes``, except a raster image file outside them (``outside(_:)``); a raster image is decoded first, so bytes that only claim to be an image
 /// never reach the page; an SVG is rebuilt without script, event handlers, foreign content or
 /// links out (``AgentPaneSVGSanitizer``). A web image is always decoded and re-encoded as PNG. A PDF
 /// shows as its first page, drawn as a PNG thumbnail (``pdfThumbnail(_:)``): the page never gets
@@ -73,6 +73,46 @@ nonisolated struct AgentPaneReplyImages {
             return .success("data:image/svg+xml;base64," + clean.base64EncodedString())
         }
         return raster(data, reencode: false)
+    }
+
+    /// File extensions of the raster images a reply may show from outside the session's folders.
+    static let outsideExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "heic", "tif", "tiff", "bmp"]
+
+    /// The image file at `path` (canonical), outside every root (already checked against the deny
+    /// list and `agentPane.links.outsideRoots`), as a data URL: read-only, for display. Only a
+    /// raster image named as one is read, and it must decode as one of ``nativeTypes`` or
+    /// ``decodedTypes``; an SVG or a PDF outside the folders stays a card, and no other bytes ever
+    /// reach the page. The file actually opened must be at `path` and pass `allowed` (the caller's
+    /// deny list and roots check), or nothing is read.
+    @concurrent static func outside(
+        _ path: String, allowed: @escaping @Sendable (String) -> Bool = { _ in true }
+    ) async -> Result<String, AgentPaneReplyError> {
+        guard outsideExtensions.contains(URL(fileURLWithPath: path).pathExtension.lowercased()) else {
+            return .failure(.pathInvalid)
+        }
+        // The type, size and read checks use one open handle, so the file cannot be swapped between
+        // them. O_NOFOLLOW refuses a link; O_NONBLOCK keeps a FIFO from blocking the open.
+        let fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard fd >= 0 else { return .failure(.pathInvalid) }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        // O_NOFOLLOW guards only the last component: a parent folder swapped for a link after the
+        // caller's checks opens another file. Check the path of the file this handle has.
+        guard let opened = openedPath(fd), opened == path, allowed(opened) else { return .failure(.pathInvalid) }
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { return .failure(.pathInvalid) }
+        guard info.st_size <= off_t(maximumBytes) else { return .failure(.imageTooLarge) }
+        // concurrency-allow: outside(_:) is @concurrent, so this read never runs on the main actor
+        guard let data = try? handle.read(upToCount: maximumBytes + 1), data.count <= maximumBytes else {
+            return .failure(.imageFailed)
+        }
+        return raster(data, reencode: false)
+    }
+
+    /// The canonical path of the file open on `fd` (`F_GETPATH`), nil when the system has none.
+    static func openedPath(_ fd: Int32) -> String? {
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        guard fcntl(fd, F_GETPATH, &buffer) != -1 else { return nil }
+        return AcpmuxPathPolicy.canonical(String(cString: buffer))
     }
 
     /// The first page of the PDF at `url` on white, at most ``thumbnailSide`` on its longest side,

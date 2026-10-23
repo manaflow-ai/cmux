@@ -194,8 +194,10 @@ extension AgentPaneModel {
         }
     }
 
-    /// A reply image (D5): a file inside the roots, read by the host; or an https image fetched
-    /// under the network rules, after a click unless `agentPane.images.remote` is `always`.
+    /// A reply image (D5): a file inside the roots, read by the host; a raster image file outside
+    /// them, read-only for display, unless `agentPane.links.outsideRoots` is `text`; or an https
+    /// image fetched under the network rules, after a click unless `agentPane.images.remote` is
+    /// `always`. A deny-listed path is never read, and a chat on another machine reads no file here.
     func loadReplyImage(_ src: String) async -> [String: Any] {
         if let url = URL(string: src), let scheme = url.scheme?.lowercased(), scheme != "file" {
             guard scheme == "https", AgentPaneSafeFetch.isFetchable(url) else { return Self.replyFailure(.imageRefused) }
@@ -209,13 +211,33 @@ extension AgentPaneModel {
             case .failure(let error): return Self.replyFailure(error)
             }
         }
+        // A chat on another machine never reads this Mac's disk (cx-k21v): its agent names paths
+        // there, and a path here with the same spelling is not its file.
+        guard !remoteChat, !transport.remoteWire else { return Self.replyFailure(.pathOutsideRoots) }
         guard let resolved = replyPaths().resolve(src) else { return Self.replyFailure(.pathInvalid) }
         switch resolved.place {
         case .root: return Self.replyImage(await AgentPaneReplyImages.local(resolved.path))
         case .denied: return Self.replyFailure(.pathDenied)
-        case .outside: return Self.replyFailure(.pathOutsideRoots)
+        case .outside: return await loadOutsideReplyImage(resolved.path)
         case .missing: return Self.replyFailure(.pathInvalid)
         }
+    }
+
+    /// An image file outside the session's folders, which an agent named in a reply to show it
+    /// (a screenshot in `/tmp`). Only a raster image that decodes is sent, never other bytes;
+    /// `agentPane.links.outsideRoots = text` keeps it a card. Every failure answers
+    /// `pathOutsideRoots`, so the page learns nothing about a file that is not a shown image.
+    private func loadOutsideReplyImage(_ path: String) async -> [String: Any] {
+        let paths = replyPaths()
+        let allowed: @Sendable (String) -> Bool = { paths.resolve($0)?.place == .outside }
+        guard replyLinks.settings().outsideRoots != .text,
+              let canonical = AcpmuxPathPolicy.canonical(path),
+              // The link may point a harmless name at a secret: check the canonical path again.
+              !paths.isDenied(canonical),
+              // And once more on the file actually opened, after any swap since this check.
+              case .success(let url) = await AgentPaneReplyImages.outside(canonical, allowed: allowed)
+        else { return Self.replyFailure(.pathOutsideRoots) }
+        return AgentPaneReply.success(["src": url])
     }
 
     static func replyImage(_ result: Result<String, AgentPaneReplyError>) -> [String: Any] {

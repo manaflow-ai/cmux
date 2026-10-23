@@ -1,6 +1,7 @@
 // Images in replies that are not data URLs (decision D5). The page loads no image itself (CSP
 // `img-src data:`, `connect-src 'none'`); the host reads or fetches it (`image.load`) and answers
-// a data URL. A file inside the session's folders loads at once; a web image follows
+// a data URL. A file inside the session's folders loads at once, and so does an image file outside
+// them (read-only) unless `agentPane.links.outsideRoots` is `text`; a web image follows
 // `agentPane.images.remote`: a placeholder with its site and "Load image" (click, the default),
 // its link only (never), or at once (always). Every web load uses the host's network rules.
 // A local image the host will not show (outside the folders, missing, or a failed load) draws as
@@ -176,8 +177,10 @@ function LocalImage({
   const { info, answered, policy } = usePathInfo(path);
   const place = info?.place;
   const denied = place === "denied" || isDeniedPath(path);
-  // The host refuses a file outside the folders, so the page asks only for one it may show.
-  const loadable = answered && !denied && place !== "outside" && place !== "missing";
+  // An image outside the folders loads too (the host reads only a raster image there), except
+  // under `outsideRoots: "text"`; a refused or failed one draws as the outside card below.
+  const loadable =
+    answered && !denied && place !== "missing" && (place !== "outside" || policy.outsideRoots !== "text");
   const { state } = useImageLoad(src, loadable);
   if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} path={path} thumb={thumb} />;
   if (denied) return <span className="cv-chip-plain">{alt || pathName(path)}</span>;
