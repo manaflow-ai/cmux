@@ -26,6 +26,8 @@ enum PictureInPictureHandlers {
         registry.bind(actionID, unavailable: { enabled() ? nil : PictureInPictureStrings.off }, invoke: { [weak registry] invocation in
             guard let registry, let page = page(ctx, invocation) else { return }
             let work = Task { @MainActor () -> String? in
+                // Turned off between the run and this task: nothing floats.
+                guard enabled() else { return PictureInPictureStrings.off }
                 switch await page.togglePictureInPicture() {
                 case .noVideo?: PictureInPictureStrings.noVideo
                 case .unsupported?: PictureInPictureStrings.unsupported

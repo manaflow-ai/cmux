@@ -39,7 +39,11 @@ enum BrowserMediaMenu {
                 if command == .toggleMute, tab.state.isAudioMuted, let muting = tab as? any BrowserAudioMuting {
                     return muting.setAudioMuted(false)
                 }
-                Task { await tab.media(command) }
+                Task {
+                    // Turned off between the press and this task: nothing floats.
+                    if command == .pictureInPicture, !pictureInPicture() { return }
+                    await tab.media(command)
+                }
             },
             onReveal: { [weak registry] in
                 registry?.perform("tab.focus", invocation: ActionInvocation(target: target, origin: .user))

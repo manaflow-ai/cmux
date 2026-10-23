@@ -92,5 +92,23 @@ struct PictureInPictureSettingOffTests {
         try await settings.set(.bool(true), at: NowPlayingSettings.pictureInPicturePath)
         try await PasswordManagerRouteTests.until({ services.settings?.snapshot.nowPlaying.pictureInPicture == true })
         #expect(tabRow() != nil && cardRow() != nil && cardSource.nowPlaying?.canPictureInPicture == true && hubButtonShows(), "\(describe())")
+
+        // Turned off between a run (or a hub press) and its task: nothing floats. The settings
+        // change before either task runs, because nothing awaits in between.
+        let offURL = directory.appending(path: "cmux-off.json")
+        try Data(#"{"media": {"pictureInPicture": {"enabled": false}}}"#.utf8).write(to: offURL)
+        let off = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: offURL,
+                                     managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await off.reload()
+        #expect(off.snapshot.nowPlaying.pictureInPicture == false)
+        func floats() -> Int { tab.commands.filter { $0 == .evaluate(BrowserMediaCommand.pictureInPictureScript) }.count }
+        let before = floats()
+        let hubButton = try #require(hubButtons(BrowserMediaMenu.menu(services, rows: BrowserMediaRows())).first { !$0.isHidden })
+        #expect(services.registry.perform(id, invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key))))
+        hubButton.performClick(nil)
+        services.settings = off
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(floats() == before, "a run or press queued before the setting turned off still floated the video")
+        services.settings = settings
     }
 }
